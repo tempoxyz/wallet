@@ -1,6 +1,10 @@
 # `purl` - p(ay)URL
 
-A curl-like CLI tool for making HTTP requests with automatic support for payments. Supports x402 based payments on EVM and Solana.
+A curl-like CLI tool for making HTTP requests with automatic support for payments.
+
+**Supported Protocols:**
+- [x402](https://www.x402.org/) - HTTP 402 payment protocol for EVM and Solana
+- [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
 
 **Contents**
 - [Example Usage](#example-usage)
