@@ -1,0 +1,130 @@
+use anyhow::{Context, Result};
+use dialoguer::{Confirm, Input, Password};
+use purl_lib::keystore::create_keystore;
+use purl_lib::{Config, EvmConfig, SolanaConfig};
+
+pub fn run_init(force: bool) -> Result<()> {
+    let config_path = Config::default_config_path()?;
+
+    if config_path.exists() && !force {
+        let overwrite = Confirm::new()
+            .with_prompt(format!(
+                "Config file already exists at {}. Overwrite?",
+                config_path.display()
+            ))
+            .default(false)
+            .interact()?;
+
+        if !overwrite {
+            println!("Init cancelled");
+            return Ok(());
+        }
+    }
+
+    println!("Initializing purl configuration...");
+    println!("Wallets will be stored as encrypted keystore files");
+
+    let configure_evm = Confirm::new()
+        .with_prompt("Configure EVM payment method?")
+        .default(true)
+        .interact()?;
+
+    let evm = if configure_evm {
+        println!("=== EVM Wallet Setup ===");
+
+        let generate = Confirm::new()
+            .with_prompt("Generate a new EVM private key?")
+            .default(true)
+            .interact()?;
+
+        let private_key: String = if generate {
+            // Generate a new random private key
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let key_bytes: [u8; 32] = rng.gen();
+            let key_hex = hex::encode(key_bytes);
+            println!("Generated new EVM private key: 0x{key_hex}");
+            println!("Save this private key securely! You'll need it to recover your wallet.");
+            key_hex
+        } else {
+            Input::new()
+                .with_prompt("Enter EVM private key (hex, with or without 0x prefix)")
+                .interact_text()?
+        };
+
+        let password = Password::new()
+            .with_prompt("Enter password to encrypt the keystore")
+            .with_confirmation("Confirm password", "Passwords do not match")
+            .interact()?;
+
+        let wallet_name: String = Input::new()
+            .with_prompt("Wallet name")
+            .default(purl_lib::constants::DEFAULT_EVM_KEYSTORE_NAME.to_string())
+            .interact_text()?;
+
+        let keystore_path = create_keystore(&private_key, &password, &wallet_name)
+            .context("Failed to create EVM keystore")?;
+
+        println!("EVM keystore created at: {}", keystore_path.display());
+
+        Some(EvmConfig {
+            keystore: Some(keystore_path),
+            private_key: None,
+        })
+    } else {
+        None
+    };
+
+    let configure_solana = Confirm::new()
+        .with_prompt("Configure Solana payment method?")
+        .default(true)
+        .interact()?;
+
+    let solana = if configure_solana {
+        println!("=== Solana Wallet Setup ===");
+        println!("Note: Solana keys are stored in plaintext in the config file.");
+
+        let generate = Confirm::new()
+            .with_prompt("Generate a new Solana keypair?")
+            .default(true)
+            .interact()?;
+
+        let private_key: String = if generate {
+            let (keypair_b58, pubkey_b58) = purl_lib::crypto::generate_solana_keypair();
+
+            println!("Generated new Solana keypair:");
+            println!("Private key: {keypair_b58}");
+            println!("Public key:  {pubkey_b58}");
+            println!("Save this private key securely, you'll need it to recover your wallet.");
+            keypair_b58
+        } else {
+            Input::new()
+                .with_prompt("Enter Solana private key (base58 encoded)")
+                .interact_text()?
+        };
+
+        println!("Solana key configured");
+
+        Some(SolanaConfig {
+            keystore: None,
+            private_key: Some(private_key),
+        })
+    } else {
+        None
+    };
+
+    let config = Config {
+        evm,
+        solana,
+        rpc: Default::default(),
+        networks: Default::default(),
+        tokens: Default::default(),
+    };
+
+    config.save().context("Failed to save configuration")?;
+
+    println!("Configuration saved to: {}", config_path.display());
+    println!("You can now use purl to make HTTP-based payment requests!");
+
+    Ok(())
+}

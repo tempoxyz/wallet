@@ -1,0 +1,69 @@
+[package]
+name = "purl-lib"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# Default features include all providers
+default = ["evm", "solana"]
+
+# EVM provider support (Ethereum, Base, Polygon, etc.)
+evm = [
+    "dep:alloy",
+    "dep:alloy-signer",
+    "dep:alloy-signer-local",
+    "dep:eth-keystore",
+]
+
+# Solana provider support
+solana = [
+    "dep:solana-sdk",
+    "dep:solana-client",
+    "dep:solana-program",
+    "dep:solana-commitment-config",
+    "dep:solana-compute-budget-interface",
+    "dep:spl-token",
+    "dep:spl-token-2022",
+    "dep:spl-associated-token-account",
+    "dep:bincode",
+]
+
+[dependencies]
+# Core dependencies (always required)
+curl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+bs58.workspace = true
+hex.workspace = true
+base64.workspace = true
+rand.workspace = true
+regex.workspace = true
+zeroize.workspace = true
+rpassword.workspace = true
+thiserror.workspace = true
+remain.workspace = true
+dirs.workspace = true
+once_cell.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+
+alloy = { workspace = true, optional = true }
+alloy-signer = { workspace = true, optional = true }
+alloy-signer-local = { workspace = true, optional = true }
+eth-keystore = { workspace = true, optional = true }
+
+solana-sdk = { workspace = true, optional = true }
+solana-client = { workspace = true, optional = true }
+solana-program = { workspace = true, optional = true }
+solana-commitment-config = { workspace = true, optional = true }
+solana-compute-budget-interface = { workspace = true, optional = true }
+spl-token = { workspace = true, optional = true }
+spl-token-2022 = { workspace = true, optional = true }
+spl-associated-token-account = { workspace = true, optional = true }
+bincode = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3.24"
+serial_test = "3.2"

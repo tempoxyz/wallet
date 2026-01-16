@@ -1,0 +1,15 @@
+# Example purl configuration file
+# Copy this to ~/.config/purl/purl.toml and fill in your keys
+# Alternatively, you can run `purl init` to create this file automatically.
+
+# EVM configuration (for Ethereum, Base, Avalanche, etc.)
+[evm]
+# Your EVM private key (hex string, without 0x prefix)
+# This will be used to sign EIP-3009 payment authorizations
+private_key = "your_evm_private_key_here"
+
+# Solana configuration
+[solana]
+# Your Solana private key (base58 encoded keypair)
+# This will be used to sign Solana transactions
+private_key = "your_solana_private_key_here"
