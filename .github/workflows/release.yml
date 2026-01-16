@@ -38,7 +38,7 @@ jobs:
       - run: cargo build --release --target ${{ matrix.target }}
       - run: strip target/${{ matrix.target }}/release/purl
       - run: mv target/${{ matrix.target }}/release/purl ${{ matrix.asset }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
