@@ -28,7 +28,7 @@ impl RequestContext {
     pub fn build_client(&self, extra_headers: Option<&[(String, String)]>) -> Result<HttpClient> {
         let mut headers = self.cli.parse_headers();
 
-        if should_use_json_content_type(&self.cli) {
+        if should_auto_add_json_content_type(&self.cli) {
             headers.push(("Content-Type".to_string(), "application/json".to_string()));
         }
 
@@ -109,15 +109,14 @@ fn is_json_data(data: &str) -> bool {
     trimmed.starts_with('{') || trimmed.starts_with('[')
 }
 
-fn should_use_json_content_type(cli: &Cli) -> bool {
+/// Determine if we should automatically add a JSON Content-Type header.
+///
+/// Returns true if:
+/// - The user hasn't already provided a Content-Type header, AND
+/// - Either the `--json` flag is used, OR the `-d` data looks like JSON
+fn should_auto_add_json_content_type(cli: &Cli) -> bool {
     // Don't add Content-Type if the user already provided one
-    let has_content_type = cli.headers.iter().any(|h| {
-        h.split_once(':')
-            .map(|(name, _)| name.trim().eq_ignore_ascii_case("content-type"))
-            .unwrap_or(false)
-    });
-
-    if has_content_type {
+    if purl_lib::has_header(&cli.headers, "content-type") {
         return false;
     }
 
@@ -133,13 +132,7 @@ fn should_use_json_content_type(cli: &Cli) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
-
-    fn make_cli(args: &[&str]) -> Cli {
-        let mut full_args = vec!["purl"];
-        full_args.extend(args);
-        Cli::parse_from(full_args)
-    }
+    use crate::cli::test_utils::make_cli;
 
     #[test]
     fn test_is_json_data() {
@@ -151,19 +144,19 @@ mod tests {
     }
 
     #[test]
-    fn test_should_use_json_content_type_with_json_flag() {
+    fn test_should_auto_add_json_content_type_with_json_flag() {
         let cli = make_cli(&["--json", r#"{"key":"value"}"#, "http://example.com"]);
-        assert!(should_use_json_content_type(&cli));
+        assert!(should_auto_add_json_content_type(&cli));
     }
 
     #[test]
-    fn test_should_use_json_content_type_with_json_data() {
+    fn test_should_auto_add_json_content_type_with_json_data() {
         let cli = make_cli(&["-d", r#"{"key":"value"}"#, "http://example.com"]);
-        assert!(should_use_json_content_type(&cli));
+        assert!(should_auto_add_json_content_type(&cli));
     }
 
     #[test]
-    fn test_should_not_add_content_type_when_user_provides_it() {
+    fn test_should_not_auto_add_when_user_provides_content_type() {
         // User explicitly provides Content-Type header - should NOT auto-add
         let cli = make_cli(&[
             "-H",
@@ -172,11 +165,11 @@ mod tests {
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_use_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&cli));
     }
 
     #[test]
-    fn test_should_not_add_content_type_case_insensitive() {
+    fn test_should_not_auto_add_content_type_case_insensitive() {
         // Test case-insensitive matching
         let cli = make_cli(&[
             "-H",
@@ -185,7 +178,7 @@ mod tests {
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_use_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&cli));
 
         let cli = make_cli(&[
             "-H",
@@ -194,11 +187,11 @@ mod tests {
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_use_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&cli));
     }
 
     #[test]
-    fn test_should_not_add_content_type_with_different_type() {
+    fn test_should_not_auto_add_content_type_with_different_type() {
         // User provides a different Content-Type - should respect their choice
         let cli = make_cli(&[
             "-H",
@@ -207,11 +200,11 @@ mod tests {
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_use_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&cli));
     }
 
     #[test]
-    fn test_should_add_content_type_with_other_headers() {
+    fn test_should_auto_add_content_type_with_other_headers() {
         // Other headers don't affect the decision
         let cli = make_cli(&[
             "-H",
@@ -220,12 +213,12 @@ mod tests {
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(should_use_json_content_type(&cli));
+        assert!(should_auto_add_json_content_type(&cli));
     }
 
     #[test]
-    fn test_should_not_add_content_type_for_plain_data() {
+    fn test_should_not_auto_add_content_type_for_plain_data() {
         let cli = make_cli(&["-d", "plain text", "http://example.com"]);
-        assert!(!should_use_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&cli));
     }
 }
