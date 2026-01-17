@@ -21,6 +21,10 @@ pub mod utils;
 pub mod web;
 pub mod x402;
 
+/// Test fixtures and utilities - available for both lib and cli tests
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_fixtures;
+
 pub use config::Config;
 pub use error::{PurlError, Result};
 

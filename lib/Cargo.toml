@@ -7,6 +7,9 @@ edition.workspace = true
 # Default features include all providers
 default = ["evm", "solana"]
 
+# Enable test utilities for external crates (e.g., cli tests)
+test-utils = []
+
 # EVM provider support (Ethereum, Base, Polygon, etc.)
 evm = [
     "dep:alloy",
@@ -67,3 +70,4 @@ bincode = { workspace = true, optional = true }
 serde_json.workspace = true
 tempfile = "3.24"
 serial_test = "3.2"
+proptest = "1.6"

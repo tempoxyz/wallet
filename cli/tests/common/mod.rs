@@ -1,10 +1,19 @@
 //! Common test utilities for purl CLI tests
+//!
+//! Re-exports shared fixtures from purl_lib and provides CLI-specific helpers.
 
 #![allow(dead_code)]
 
 use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
+
+// Re-export test fixtures from purl_lib for convenience
+#[allow(unused_imports)] // These are re-exported for use by other test modules
+pub use purl_lib::test_fixtures::{
+    format_amount_display, truncate_address, PaymentRequirementBuilder, TEST_EVM_KEY,
+    TEST_SOLANA_KEY,
+};
 
 /// Builder for creating test configurations
 pub struct TestConfigBuilder {
@@ -123,6 +132,12 @@ impl TestConfigBuilder {
     }
 }
 
+impl Default for TestConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Set up a test configuration with optional EVM and Solana keys (backward compatibility)
 pub fn setup_test_config(evm_key: Option<&str>, solana_key: Option<&str>) -> TempDir {
     let mut builder = TestConfigBuilder::new();
@@ -136,13 +151,6 @@ pub fn setup_test_config(evm_key: Option<&str>, solana_key: Option<&str>) -> Tem
 
     builder.build()
 }
-
-/// Common test EVM private key
-pub const TEST_EVM_KEY: &str = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-
-/// Common test Solana private key
-pub const TEST_SOLANA_KEY: &str =
-    "4Z7cXSyeFR8wNGMVXUE1TwtKn5D5Vu7FzEv69dokLv7KrQk7h6pu4LF8ZRR9yQBhc7uSM6RTTZtU1fmaxiNrxXrs";
 
 /// Get the keystores directory path for a test temp directory
 pub fn get_test_keystores_dir(temp_dir: &TempDir) -> std::path::PathBuf {

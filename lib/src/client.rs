@@ -420,3 +420,90 @@ pub enum PaymentResult {
     /// including amount, asset, sender, recipient, and any warnings.
     DryRun(crate::payment_provider::DryRunInfo),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_fixtures::{create_response_with_headers, create_test_response};
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_detect_protocol_x402_default() {
+        let response = create_test_response(402, HashMap::new(), b"{}");
+        assert_eq!(detect_protocol(&response), Protocol::X402);
+    }
+
+    #[test]
+    fn test_detect_protocol_web_payment_auth() {
+        let response = create_response_with_headers(
+            402,
+            vec![(
+                crate::web::WWW_AUTHENTICATE_HEADER,
+                &format!(
+                "{} id=\"abc\", realm=\"api\", method=\"tempo\", intent=\"charge\", request=\"e30\"",
+                crate::web::PAYMENT_SCHEME
+            ),
+            )],
+            b"",
+        );
+        assert_eq!(detect_protocol(&response), Protocol::WebPayment);
+    }
+
+    #[test]
+    fn test_detect_protocol_non_payment_www_auth() {
+        let response = create_response_with_headers(
+            401,
+            vec![(crate::web::WWW_AUTHENTICATE_HEADER, "Basic realm=\"api\"")],
+            b"",
+        );
+        assert_eq!(detect_protocol(&response), Protocol::X402);
+    }
+
+    #[test]
+    fn test_execute_request_unsupported_method() {
+        let config = Config::default();
+        let client = PurlClient::with_config(config);
+
+        let mut http_client = client.configure_client(&[]).unwrap();
+        let result = client.execute_request(&mut http_client, "PATCH", "http://example.com", None);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            PurlError::UnsupportedHttpMethod(method) => {
+                assert_eq!(method, "PATCH");
+            }
+            other => panic!("Expected UnsupportedHttpMethod error, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_execute_request_unsupported_method_error_message() {
+        let config = Config::default();
+        let client = PurlClient::with_config(config);
+
+        let mut http_client = client.configure_client(&[]).unwrap();
+        let result = client.execute_request(&mut http_client, "DELETE", "http://example.com", None);
+
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("DELETE"));
+    }
+
+    #[test]
+    fn test_configure_client_minimal() {
+        let config = Config::default();
+        let client = PurlClient::with_config(config);
+
+        let result = client.configure_client(&[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_configure_client_with_additional_headers() {
+        let config = Config::default();
+        let client = PurlClient::with_config(config).header("Authorization", "Bearer token");
+
+        let additional = vec![("X-Payment".to_string(), "encoded-data".to_string())];
+        let result = client.configure_client(&additional);
+        assert!(result.is_ok());
+    }
+}
