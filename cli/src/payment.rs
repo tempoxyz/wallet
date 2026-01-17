@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use base64::Engine;
 use dialoguer::Confirm;
-use purl_lib::x402::{
+use purl_lib::protocol::x402::{
     PaymentPayload, PaymentRequirements, PAYMENT_RESPONSE_HEADER, V1_X_PAYMENT_RESPONSE_HEADER,
 };
 use purl_lib::{
@@ -11,6 +11,7 @@ use purl_lib::{
 };
 
 use crate::cli::Cli;
+use crate::display_utils::truncate_address;
 use crate::exit_codes::ExitCode;
 use crate::request::RequestContext;
 
@@ -194,17 +195,6 @@ fn get_sender_address(config: &Config, requirement: &PaymentRequirements) -> Opt
             .and_then(|sol| sol.get_address().ok())
     } else {
         None
-    }
-}
-
-/// Truncate an address for display
-fn truncate_address(addr: &str, max_len: usize) -> String {
-    if addr.len() <= max_len {
-        addr.to_string()
-    } else {
-        let prefix = &addr[..6];
-        let suffix = &addr[addr.len() - 4..];
-        format!("{prefix}...{suffix}")
     }
 }
 

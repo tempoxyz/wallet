@@ -40,7 +40,7 @@ fn format_amount(atomic: &str, decimals: u8, symbol: &str) -> String {
 }
 
 /// Get token symbol for a requirement
-fn get_token_symbol(requirement: &purl_lib::x402::PaymentRequirements) -> String {
+fn get_token_symbol(requirement: &purl_lib::protocol::x402::PaymentRequirements) -> String {
     if let Some(extra) = requirement.extra() {
         if let Some(symbol) = extra.get("symbol").and_then(|s| s.as_str()) {
             return symbol.to_string();
@@ -269,7 +269,7 @@ fn output_text(
 
 /// Check if a requirement is compatible with configured payment methods
 fn is_compatible_method(
-    req: &purl_lib::x402::PaymentRequirements,
+    req: &purl_lib::protocol::x402::PaymentRequirements,
     available_methods: &[PaymentMethod],
 ) -> bool {
     if req.is_evm() && available_methods.contains(&PaymentMethod::Evm) {

@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use base64::Engine;
-use purl_lib::x402::PaymentPayload;
+use purl_lib::protocol::x402::PaymentPayload;
 use purl_lib::{HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
 
 use crate::cli::Cli;

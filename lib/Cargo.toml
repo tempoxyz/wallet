@@ -7,12 +7,13 @@ edition.workspace = true
 # Default features include all providers
 default = ["evm", "solana"]
 
-# EVM provider support (Ethereum, Base, Polygon, etc.)
+# EVM provider support (Ethereum, Base, Polygon, Tempo, etc.)
 evm = [
     "dep:alloy",
     "dep:alloy-signer",
     "dep:alloy-signer-local",
     "dep:eth-keystore",
+    "dep:tempo-primitives",
 ]
 
 # Solana provider support
@@ -52,6 +53,7 @@ alloy = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
 eth-keystore = { workspace = true, optional = true }
+tempo-primitives = { workspace = true, optional = true }
 
 solana-sdk = { workspace = true, optional = true }
 solana-client = { workspace = true, optional = true }

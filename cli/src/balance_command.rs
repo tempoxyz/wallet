@@ -115,7 +115,10 @@ mod tests {
         assert!(Network::Solana.usdc_config().is_some());
         assert!(Network::SolanaDevnet.usdc_config().is_some());
 
-        // Networks without USDC support yet
+        // Tempo has AlphaUSD support (testnet stablecoin)
+        assert!(Network::TempoModerato.usdc_config().is_some());
+
+        // Networks without token support yet
         assert!(Network::Avalanche.usdc_config().is_none());
         assert!(Network::Polygon.usdc_config().is_none());
     }

@@ -1,4 +1,4 @@
-use purl_lib::x402::{v1, PaymentRequirements};
+use purl_lib::protocol::x402::{v1, PaymentRequirements};
 
 /// Helper to create a test payment requirement
 fn create_test_requirement(max_amount: &str) -> PaymentRequirements {

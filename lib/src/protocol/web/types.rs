@@ -67,13 +67,6 @@ impl fmt::Display for PaymentProtocol {
 
 /// Payment method identifier for Web Payment Auth protocol.
 ///
-/// These methods correspond to specific blockchain networks. Currently all
-/// supported methods target testnets; mainnet support will be added in the future.
-///
-/// TODO: Add mainnet support. Options:
-/// - Add `TempoMainnet`, `BaseMainnet` variants
-/// - Or add a `testnet: bool` configuration flag
-/// - Tempo mainnet network name TBD (currently only testnet exists)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PaymentMethod {
@@ -87,16 +80,8 @@ pub enum PaymentMethod {
 }
 
 impl PaymentMethod {
-    /// Get the network name associated with this payment method.
-    ///
-    /// Returns the canonical network identifier used by the provider registry,
-    /// or `None` for unsupported/custom methods.
-    ///
-    /// Note: Currently hardcoded to testnet networks. See TODO on PaymentMethod enum
-    /// for planned mainnet support.
     pub fn network_name(&self) -> Option<&'static str> {
         match self {
-            // TODO: Support mainnet when available (Tempo mainnet TBD, Base mainnet = networks::BASE)
             PaymentMethod::Tempo => Some(networks::TEMPO_MODERATO),
             PaymentMethod::Base => Some(networks::BASE_SEPOLIA),
             PaymentMethod::Custom(_) => None,

@@ -4,6 +4,7 @@ mod balance_command;
 mod cli;
 mod config_commands;
 mod config_utils;
+mod display_utils;
 mod errors;
 mod exit_codes;
 mod init;
@@ -13,6 +14,7 @@ mod output;
 mod payment;
 mod request;
 mod wallet_commands;
+mod web_payment;
 
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
@@ -22,16 +24,18 @@ use cli::{
 };
 use colored::control;
 use exit_codes::ExitCode;
+use purl_lib::protocol::web::PaymentProtocol;
 use purl_lib::{Config, PaymentRequirementsResponse, WalletConfig};
 use std::path::PathBuf;
 
-use config_utils::load_config;
+use config_utils::{load_config, load_config_with_overrides};
 use output::{
     build_config_display, decrypt_keystores_upfront, handle_regular_response,
     print_payment_method_text, write_output,
 };
 use payment::handle_payment_request;
 use request::RequestContext;
+use web_payment::handle_web_payment_request;
 
 #[tokio::main]
 async fn main() {
@@ -133,7 +137,7 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
 
 /// Make an HTTP request (main flow)
 async fn make_request(cli: Cli) -> Result<()> {
-    let config = load_config(cli.config.as_ref())?;
+    let config = load_config_with_overrides(&cli)?;
 
     let request_ctx = RequestContext::new(cli);
 
@@ -158,11 +162,25 @@ async fn make_request(cli: Cli) -> Result<()> {
         eprintln!("402 status: payment required");
     }
 
-    let json = response.payment_requirements_json()?;
-    let requirements: PaymentRequirementsResponse =
-        serde_json::from_str(&json).context("Failed to parse payment requirements")?;
+    let protocol =
+        PaymentProtocol::detect(response.get_header("www-authenticate").map(|s| s.as_str()));
 
-    let response = handle_payment_request(&config, &request_ctx, url, requirements).await?;
+    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+        eprintln!("Payment protocol: {}", protocol);
+    }
+
+    let response = match protocol {
+        PaymentProtocol::WebPaymentAuth => {
+            handle_web_payment_request(&config, &request_ctx, url, &response).await?
+        }
+        PaymentProtocol::X402 => {
+            let json = response.payment_requirements_json()?;
+            let requirements: PaymentRequirementsResponse =
+                serde_json::from_str(&json).context("Failed to parse payment requirements")?;
+            handle_payment_request(&config, &request_ctx, url, requirements).await?
+        }
+    };
+
     handle_regular_response(&request_ctx.cli, response)?;
 
     Ok(())

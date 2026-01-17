@@ -129,11 +129,11 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::TEMPO_MODERATO,
         chain_type: ChainType::Evm,
-        chain_id: Some(88153),
+        chain_id: Some(42431),
         mainnet: false,
         display_name: "Tempo Moderato (Testnet)",
         rpc_url: "https://rpc.moderato.tempo.xyz",
-        aliases: &["eip155:88153"],
+        aliases: &["eip155:42431"],
     },
     BuiltinNetwork {
         id: networks::SOLANA,
@@ -352,6 +352,7 @@ pub enum Network {
     Polygon,
     Arbitrum,
     Optimism,
+    TempoModerato,
     Solana,
     SolanaDevnet,
 }
@@ -369,6 +370,7 @@ impl Network {
             Network::Polygon => networks::POLYGON,
             Network::Arbitrum => networks::ARBITRUM,
             Network::Optimism => networks::OPTIMISM,
+            Network::TempoModerato => networks::TEMPO_MODERATO,
             Network::Solana => networks::SOLANA,
             Network::SolanaDevnet => networks::SOLANA_DEVNET,
         }
@@ -384,7 +386,7 @@ impl Network {
     }
 
     /// Get all network variants as a const array.
-    pub const fn all() -> [Network; 11] {
+    pub const fn all() -> [Network; 12] {
         [
             Network::Ethereum,
             Network::EthereumSepolia,
@@ -395,6 +397,7 @@ impl Network {
             Network::Polygon,
             Network::Arbitrum,
             Network::Optimism,
+            Network::TempoModerato,
             Network::Solana,
             Network::SolanaDevnet,
         ]
@@ -441,6 +444,7 @@ impl FromStr for Network {
             networks::POLYGON => Ok(Network::Polygon),
             networks::ARBITRUM => Ok(Network::Arbitrum),
             networks::OPTIMISM => Ok(Network::Optimism),
+            networks::TEMPO_MODERATO => Ok(Network::TempoModerato),
             networks::SOLANA => Ok(Network::Solana),
             networks::SOLANA_DEVNET => Ok(Network::SolanaDevnet),
             _ => Err(format!("Unknown network: {s}")),
@@ -514,7 +518,11 @@ impl Network {
                 currency: currencies::USDC,
                 address: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
             }),
-            // Other networks don't have USDC support yet
+            Network::TempoModerato => Some(TokenConfig {
+                currency: currencies::ALPHA_USD,
+                address: "0x20c0000000000000000000000000000000000001",
+            }),
+            // Other networks don't have token support yet
             _ => None,
         }
     }
@@ -665,6 +673,7 @@ mod tests {
             "polygon",
             "arbitrum",
             "optimism",
+            "tempo-moderato",
             "solana",
             "solana-devnet",
         ] {
