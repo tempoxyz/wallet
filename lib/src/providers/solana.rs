@@ -3,7 +3,7 @@ use crate::currency::Currency;
 use crate::error::{PurlError, Result};
 use crate::network::{get_network, ChainType, Network};
 use crate::payment_provider::{DryRunInfo, NetworkBalance, PaymentProvider};
-use crate::x402::{PaymentPayload, PaymentRequirements};
+use crate::protocol::x402::{PaymentPayload, PaymentRequirements};
 use async_trait::async_trait;
 use base64::Engine;
 use serde::{Deserialize, Serialize};

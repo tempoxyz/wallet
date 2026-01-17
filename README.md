@@ -15,7 +15,7 @@ A curl-like CLI tool for making HTTP requests with automatic support for payment
 - [Shell Completions](#shell-completions)
 - [Command Aliases](#command-aliases)
 - [Display Options](#display-options)
-- [Supported Networks](#supported-networks)
+- [Protocols](#protocols)
 - [Environment Variables](#environment-variables)
 - [Documentation](#documentation)
 - [Development Setup](#development-setup)
@@ -182,7 +182,7 @@ decimals = 6
 ```
 
 **Built-in networks:**
-- EVM: `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`
+- EVM: `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`
 - Solana: `solana`, `solana-devnet`
 
 Custom networks and RPC overrides are loaded at runtime and merged with built-in defaults.
@@ -430,11 +430,14 @@ purl --output-format yaml <URL>  # YAML format
 purl -q --color never --output-format json <URL>
 ```
 
-## Supported Networks
+## Protocols
 
-| EVM | SVM |
-|-----|-----|
-| `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism` | `solana`, `solana-devnet` |
+Purl supports multiple payment protocols for HTTP-based payments.
+
+| Protocol | Description | Supported Networks |
+|----------|-------------|-------------------|
+| [x402](https://www.x402.org/) | HTTP 402 payment protocol for EVM and Solana | `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`, `solana`, `solana-devnet` |
+| [Web Payment Auth](https://tempo.xyz) | IETF standard for HTTP authentication-based payments | `tempo-moderato` |
 
 ## Environment Variables
 

@@ -5,7 +5,7 @@ use crate::error::{PurlError, Result};
 use crate::http::{HttpClient, HttpClientBuilder, HttpResponse};
 use crate::negotiator::PaymentNegotiator;
 use crate::payment_provider::PROVIDER_REGISTRY;
-use crate::x402::SettlementResponse;
+use crate::protocol::x402::SettlementResponse;
 use base64::Engine;
 
 /// Payment protocol detected from HTTP response
@@ -20,8 +20,8 @@ enum Protocol {
 /// Detect which payment protocol is being used based on HTTP response headers
 fn detect_protocol(response: &HttpResponse) -> Protocol {
     // Check for Web Payment Auth (most specific header)
-    if let Some(www_auth) = response.get_header(crate::web::WWW_AUTHENTICATE_HEADER) {
-        if www_auth.starts_with(crate::web::PAYMENT_SCHEME) {
+    if let Some(www_auth) = response.get_header(crate::protocol::web::WWW_AUTHENTICATE_HEADER) {
+        if www_auth.starts_with(crate::protocol::web::PAYMENT_SCHEME) {
             return Protocol::WebPayment;
         }
     }
@@ -229,7 +229,6 @@ impl PurlClient {
             return Ok(PaymentResult::Success(response));
         }
 
-        // Detect which payment protocol is being used
         let protocol = detect_protocol(&response);
 
         match protocol {
@@ -298,21 +297,18 @@ impl PurlClient {
         data: Option<&[u8]>,
     ) -> Result<PaymentResult> {
         use crate::payment_provider::DryRunInfo;
-        use crate::web::{parse_receipt, parse_www_authenticate, PaymentIntent, PaymentMethod};
+        use crate::protocol::web::{parse_receipt, parse_www_authenticate, PaymentIntent};
 
         // Parse WWW-Authenticate header
         let www_auth = response
-            .get_header(crate::web::WWW_AUTHENTICATE_HEADER)
+            .get_header(crate::protocol::web::WWW_AUTHENTICATE_HEADER)
             .ok_or_else(|| PurlError::MissingHeader("WWW-Authenticate".to_string()))?;
 
         let challenge = parse_www_authenticate(www_auth)?;
 
-        // Validate method and intent (only Tempo + charge supported initially)
-        if challenge.method != PaymentMethod::Tempo {
-            return Err(PurlError::UnsupportedPaymentMethod(format!(
-                "Only 'tempo' method is supported, got: {:?}",
-                challenge.method
-            )));
+        // Validate method and intent
+        if !challenge.method.is_supported() {
+            return Err(PurlError::unsupported_method(&challenge.method));
         }
         if challenge.intent != PaymentIntent::Charge {
             return Err(PurlError::UnsupportedPaymentIntent(format!(
@@ -321,13 +317,16 @@ impl PurlClient {
             )));
         }
 
-        // Parse request as ChargeRequest
-        let charge_req: crate::web::ChargeRequest =
+        let network_name = challenge
+            .method
+            .network_name()
+            .ok_or_else(|| PurlError::unsupported_method(&challenge.method))?;
+
+        let charge_req: crate::protocol::web::ChargeRequest =
             serde_json::from_value(challenge.request.clone()).map_err(|e| {
                 PurlError::InvalidChallenge(format!("Invalid charge request: {}", e))
             })?;
 
-        // Validate amount constraint
         if let Some(ref max_amount) = self.max_amount {
             let amount: u128 = charge_req
                 .amount
@@ -346,24 +345,22 @@ impl PurlClient {
 
         // Check network filter if provided
         if !self.allowed_networks.is_empty()
-            && !self
-                .allowed_networks
-                .contains(&"tempo-moderato".to_string())
+            && !self.allowed_networks.contains(&network_name.to_string())
         {
             return Err(PurlError::NoCompatibleMethod {
-                networks: vec!["tempo-moderato".to_string()],
+                networks: vec![network_name.to_string()],
             });
         }
 
         // Dry run check
         if self.dry_run {
             let provider = PROVIDER_REGISTRY
-                .find_provider("tempo-moderato")
-                .ok_or_else(|| PurlError::ProviderNotFound("tempo-moderato".to_string()))?;
+                .find_provider(network_name)
+                .ok_or_else(|| PurlError::ProviderNotFound(network_name.to_string()))?;
             let address = provider.get_address(&self.config)?;
             return Ok(PaymentResult::DryRun(DryRunInfo {
                 provider: "EVM".to_string(),
-                network: "tempo-moderato".to_string(),
+                network: network_name.to_string(),
                 amount: charge_req.amount.clone(),
                 asset: charge_req.asset.clone(),
                 from: address,
@@ -374,15 +371,15 @@ impl PurlClient {
 
         // Create payment credential
         let provider = PROVIDER_REGISTRY
-            .find_provider("tempo-moderato")
-            .ok_or_else(|| PurlError::ProviderNotFound("tempo-moderato".to_string()))?;
+            .find_provider(network_name)
+            .ok_or_else(|| PurlError::ProviderNotFound(network_name.to_string()))?;
 
         let credential = provider
             .create_web_payment(&challenge, &self.config)
             .await?;
 
         // Format Authorization header
-        let auth_header = crate::web::format_authorization(&credential)?;
+        let auth_header = crate::protocol::web::format_authorization(&credential)?;
 
         // Retry request with Authorization header
         let payment_header = vec![("Authorization".to_string(), auth_header)];
@@ -390,12 +387,13 @@ impl PurlClient {
         let response = self.execute_request(&mut client, method, url, data)?;
 
         // Parse Payment-Receipt header if present
-        let receipt =
-            if let Some(receipt_header) = response.get_header(crate::web::PAYMENT_RECEIPT_HEADER) {
-                Some(parse_receipt(receipt_header)?)
-            } else {
-                None
-            };
+        let receipt = if let Some(receipt_header) =
+            response.get_header(crate::protocol::web::PAYMENT_RECEIPT_HEADER)
+        {
+            Some(parse_receipt(receipt_header)?)
+        } else {
+            None
+        };
 
         Ok(PaymentResult::WebPaid { response, receipt })
     }
@@ -411,7 +409,7 @@ pub enum PaymentResult {
     },
     WebPaid {
         response: HttpResponse,
-        receipt: Option<crate::web::PaymentReceipt>,
+        receipt: Option<crate::protocol::web::PaymentReceipt>,
     },
 
     /// Dry-run mode was enabled, so payment was not actually made.

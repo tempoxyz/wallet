@@ -153,7 +153,7 @@ impl HttpResponse {
     /// # Errors
     /// Returns an error if the header is present but cannot be decoded, or if the body is not valid UTF-8.
     pub fn payment_requirements_json(&self) -> Result<String> {
-        crate::x402::payment_requirements_json(self)
+        crate::protocol::x402::payment_requirements_json(self)
     }
 }
 

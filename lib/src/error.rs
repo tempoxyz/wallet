@@ -178,4 +178,9 @@ impl PurlError {
     pub fn config_missing(msg: impl Into<String>) -> Self {
         Self::ConfigMissing(msg.into())
     }
+
+    /// Create an unsupported payment method error
+    pub fn unsupported_method(method: &impl std::fmt::Display) -> Self {
+        Self::UnsupportedPaymentMethod(format!("Payment method '{}' is not supported", method))
+    }
 }

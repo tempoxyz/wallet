@@ -3,7 +3,7 @@ use crate::currency::Currency;
 use crate::error::{PurlError, Result};
 use crate::network::{get_evm_chain_id, get_network, ChainType, Network};
 use crate::payment_provider::{DryRunInfo, NetworkBalance, PaymentProvider};
-use crate::x402::{PaymentPayload, PaymentRequirements};
+use crate::protocol::x402::{PaymentPayload, PaymentRequirements};
 use alloy::primitives::{Address, B256, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
@@ -14,7 +14,16 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// Tempo transaction types from tempo-primitives
+use tempo_primitives::transaction::{AASigned, Call, TempoTransaction};
+
 const PROVIDER_NAME: &str = "EVM";
+
+const DEFAULT_GAS_LIMIT: u64 = 100_000;
+const DEFAULT_MAX_PRIORITY_FEE_PER_GAS: u64 = 1_000_000_000;
+const DEFAULT_MAX_FEE_PER_GAS: u64 = 10_000_000_000;
+const DEFAULT_MAX_FEE_PER_GAS_U128: u128 = DEFAULT_MAX_FEE_PER_GAS as u128;
+const DEFAULT_MAX_PRIORITY_FEE_PER_GAS_U128: u128 = DEFAULT_MAX_PRIORITY_FEE_PER_GAS as u128;
 
 sol! {
     #[derive(Debug, Serialize, Deserialize)]
@@ -254,49 +263,29 @@ impl PaymentProvider for EvmProvider {
 
     async fn create_web_payment(
         &self,
-        challenge: &crate::web::PaymentChallenge,
+        challenge: &crate::protocol::web::PaymentChallenge,
         config: &Config,
-    ) -> Result<crate::web::PaymentCredential> {
-        use crate::web::{ChargeRequest, PayloadType, PaymentCredential, PaymentPayload};
-        use alloy::network::TxSigner;
+    ) -> Result<crate::protocol::web::PaymentCredential> {
+        use crate::protocol::web::{ChargeRequest, PayloadType, PaymentCredential, PaymentPayload};
         use alloy::primitives::{Bytes, U256};
         use alloy::providers::Provider;
         use alloy::sol_types::SolCall;
 
-        // Validate method and intent
-        if challenge.method != crate::web::PaymentMethod::Tempo {
-            return Err(PurlError::UnsupportedPaymentMethod(format!(
-                "Only 'tempo' method is supported, got: {:?}",
-                challenge.method
-            )));
-        }
-        if challenge.intent != crate::web::PaymentIntent::Charge {
-            return Err(PurlError::UnsupportedPaymentIntent(format!(
-                "Only 'charge' intent is supported, got: {:?}",
-                challenge.intent
-            )));
-        }
-
-        // Parse challenge request as ChargeRequest
         let charge_req: ChargeRequest = serde_json::from_value(challenge.request.clone())
             .map_err(|e| PurlError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
-        // Load signer
         let signer = Self::load_signer(config)?;
         let from = signer.address();
 
-        // Parse addresses
         let asset = Address::from_str(&charge_req.asset)
             .map_err(|e| PurlError::invalid_address(format!("Invalid asset address: {}", e)))?;
         let destination = Address::from_str(&charge_req.destination).map_err(|e| {
             PurlError::invalid_address(format!("Invalid destination address: {}", e))
         })?;
 
-        // Parse amount
         let amount = U256::from_str(&charge_req.amount)
             .map_err(|e| PurlError::InvalidAmount(format!("Invalid amount: {}", e)))?;
 
-        // Encode transfer function call
         sol! {
             function transfer(address to, uint256 amount) external returns (bool);
         }
@@ -306,68 +295,42 @@ impl PaymentProvider for EvmProvider {
         };
         let transfer_data = Bytes::from(transfer_call.abi_encode());
 
-        // Get network info for Tempo Moderato
-        let network = crate::network::get_network("tempo-moderato")
-            .ok_or_else(|| PurlError::UnknownNetwork("tempo-moderato not found".to_string()))?;
+        let network_name = challenge
+            .method
+            .network_name()
+            .ok_or_else(|| PurlError::unsupported_method(&challenge.method))?;
+        let network = crate::network::get_network(network_name)
+            .ok_or_else(|| PurlError::UnknownNetwork(format!("{} not found", network_name)))?;
         let chain_id = network.chain_id.ok_or_else(|| {
-            PurlError::InvalidConfig("Tempo network missing chain ID".to_string())
+            PurlError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
-        // Create RPC provider
         let provider =
             ProviderBuilder::new().connect_http(network.rpc_url.parse().map_err(|e| {
-                PurlError::InvalidConfig(format!("Invalid RPC URL for tempo-moderato: {}", e))
+                PurlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
             })?);
 
-        // Get nonce
         let nonce = provider
             .get_transaction_count(from)
             .await
             .map_err(|e| PurlError::signing(format!("Failed to get nonce: {}", e)))?;
 
-        // Build Tempo transaction
-        // Note: This is a simplified version. Tempo transactions have a special format
-        // with multi-call support and custom fee tokens. For now, we'll create a
-        // standard EIP-1559 transaction and mark it for future Tempo-specific handling.
-
-        // TODO: Implement proper Tempo transaction format with:
-        // - type: "tempo" (0x76)
-        // - calls: [{to: asset, data: transfer_data}]
-        // - feeToken: asset
-        // For now, using standard EIP-1559 as a placeholder
-
-        let tx = alloy::consensus::TxEip1559 {
-            chain_id,
-            nonce,
-            gas_limit: 100_000,
-            max_fee_per_gas: 10_000_000_000,         // 10 gwei
-            max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
-            to: alloy::primitives::TxKind::Call(asset),
-            value: U256::ZERO,
-            access_list: Default::default(),
-            input: transfer_data,
+        let signed_tx = match &challenge.method {
+            crate::protocol::web::PaymentMethod::Tempo => {
+                create_tempo_transaction(&signer, chain_id, nonce, asset, transfer_data)?
+            }
+            crate::protocol::web::PaymentMethod::Base => {
+                create_eip1559_transaction(&signer, chain_id, nonce, asset, transfer_data).await?
+            }
+            crate::protocol::web::PaymentMethod::Custom(name) => {
+                return Err(PurlError::unsupported_method(
+                    &crate::protocol::web::PaymentMethod::Custom(name.clone()),
+                ));
+            }
         };
 
-        // Sign the transaction
-        let mut tx_mut = tx.clone();
-        let signature = signer
-            .sign_transaction(&mut tx_mut)
-            .await
-            .map_err(|e| PurlError::signing(format!("Failed to sign transaction: {}", e)))?;
-
-        // Encode signed transaction using RLP
-        let mut buf = Vec::new();
-        // EIP-1559 transaction type (0x02)
-        buf.push(0x02);
-        // Encode transaction with signature
-        let signed = alloy::consensus::Signed::new_unchecked(tx, signature, Default::default());
-        signed.rlp_encode(&mut buf);
-        let signed_tx = hex::encode(&buf);
-
-        // Create DID for source
         let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
 
-        // Create payment credential
         Ok(PaymentCredential {
             id: challenge.id.clone(),
             source: Some(did),
@@ -377,4 +340,90 @@ impl PaymentProvider for EvmProvider {
             },
         })
     }
+}
+
+/// Create a Tempo transaction (type 0x76) using tempo-primitives types.
+///
+/// This function is synchronous because it uses `sign_hash_sync` for signing.
+fn create_tempo_transaction(
+    signer: &PrivateKeySigner,
+    chain_id: u64,
+    nonce: u64,
+    asset: Address,
+    transfer_data: alloy::primitives::Bytes,
+) -> Result<String> {
+    use alloy::primitives::TxKind;
+
+    // Create the unsigned Tempo transaction using tempo-primitives types
+    let tx = TempoTransaction {
+        chain_id,
+        fee_token: Some(asset),
+        max_priority_fee_per_gas: DEFAULT_MAX_PRIORITY_FEE_PER_GAS as u128,
+        max_fee_per_gas: DEFAULT_MAX_FEE_PER_GAS as u128,
+        gas_limit: DEFAULT_GAS_LIMIT,
+        calls: vec![Call {
+            to: TxKind::Call(asset),
+            value: U256::ZERO,
+            input: transfer_data,
+        }],
+        access_list: Default::default(),
+        nonce_key: U256::ZERO,
+        nonce,
+        fee_payer_signature: None,
+        valid_before: None,
+        valid_after: None,
+        key_authorization: None,
+        tempo_authorization_list: vec![],
+    };
+
+    // Get the signing hash and sign it
+    let signing_hash = tx.signature_hash();
+    let signature = signer
+        .sign_hash_sync(&signing_hash)
+        .map_err(|e| PurlError::signing(format!("Failed to sign Tempo transaction: {}", e)))?;
+
+    // Create the signed transaction and encode it using EIP-2718 format
+    let signed_tx: AASigned = tx.into_signed(signature.into());
+    let mut buf = Vec::new();
+    signed_tx.eip2718_encode(&mut buf);
+
+    Ok(hex::encode(&buf))
+}
+
+/// Create a standard EIP-1559 transaction for Base
+async fn create_eip1559_transaction(
+    signer: &PrivateKeySigner,
+    chain_id: u64,
+    nonce: u64,
+    asset: Address,
+    transfer_data: alloy::primitives::Bytes,
+) -> Result<String> {
+    use alloy::consensus::Signed;
+    use alloy::network::TxSigner;
+    use alloy::primitives::U256;
+
+    let tx = alloy::consensus::TxEip1559 {
+        chain_id,
+        nonce,
+        gas_limit: DEFAULT_GAS_LIMIT,
+        max_fee_per_gas: DEFAULT_MAX_FEE_PER_GAS_U128,
+        max_priority_fee_per_gas: DEFAULT_MAX_PRIORITY_FEE_PER_GAS_U128,
+        to: alloy::primitives::TxKind::Call(asset),
+        value: U256::ZERO,
+        access_list: Default::default(),
+        input: transfer_data,
+    };
+
+    let mut tx_mut = tx.clone();
+    let signature = signer
+        .sign_transaction(&mut tx_mut)
+        .await
+        .map_err(|e| PurlError::signing(format!("Failed to sign transaction: {}", e)))?;
+
+    let mut buf = Vec::new();
+    buf.push(0x02);
+    let signed = Signed::new_unchecked(tx, signature, Default::default());
+    signed.rlp_encode(&mut buf);
+
+    Ok(hex::encode(&buf))
 }

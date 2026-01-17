@@ -43,3 +43,6 @@ lazy_static = "1.5"
 cached = "0.56"
 tokio = { version = "1.49", features = ["full"] }
 async-trait = "0.1"
+
+# Tempo transaction types (used for Tempo network support)
+tempo-primitives = { path = "../tempo/crates/primitives", features = ["serde"] }

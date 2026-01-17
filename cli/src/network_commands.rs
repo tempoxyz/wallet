@@ -193,6 +193,12 @@ mod tests {
     }
 
     #[test]
+    fn test_show_network_info_tempo() {
+        let result = show_network_info("tempo-moderato", OutputFormat::Text);
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_show_network_info_unknown() {
         let result = show_network_info("unknown-network", OutputFormat::Text);
         assert!(result.is_err());
