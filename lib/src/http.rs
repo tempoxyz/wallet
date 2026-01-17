@@ -647,8 +647,14 @@ mod tests {
             "Authorization: Bearer token".to_string(),
         ];
 
-        assert_eq!(find_header(&headers, "Content-Type"), Some("application/json"));
-        assert_eq!(find_header(&headers, "content-type"), Some("application/json"));
+        assert_eq!(
+            find_header(&headers, "Content-Type"),
+            Some("application/json")
+        );
+        assert_eq!(
+            find_header(&headers, "content-type"),
+            Some("application/json")
+        );
         assert_eq!(find_header(&headers, "Authorization"), Some("Bearer token"));
         assert_eq!(find_header(&headers, "Accept"), None);
     }
@@ -657,7 +663,10 @@ mod tests {
     fn test_find_header_with_whitespace() {
         let headers = vec!["  Content-Type  :  application/json  ".to_string()];
 
-        assert_eq!(find_header(&headers, "Content-Type"), Some("application/json"));
+        assert_eq!(
+            find_header(&headers, "Content-Type"),
+            Some("application/json")
+        );
     }
 
     #[test]
