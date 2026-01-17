@@ -353,13 +353,7 @@ pub enum NetworkCommands {
 impl Cli {
     /// Parse custom headers into (name, value) tuples
     pub fn parse_headers(&self) -> Vec<(String, String)> {
-        self.headers
-            .iter()
-            .filter_map(|h| {
-                h.split_once(':')
-                    .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-            })
-            .collect()
+        purl_lib::parse_headers(&self.headers)
     }
 
     /// Get the effective timeout
@@ -382,5 +376,27 @@ impl Cli {
     /// Check if output should be shown (not quiet)
     pub fn should_show_output(&self) -> bool {
         !self.quiet
+    }
+}
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::*;
+    use clap::Parser;
+
+    /// Create a Cli instance from command-line arguments for testing.
+    ///
+    /// The "purl" program name is automatically prepended.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let cli = make_cli(&["-d", r#"{"key":"value"}"#, "http://example.com"]);
+    /// assert!(cli.data.is_some());
+    /// ```
+    pub fn make_cli(args: &[&str]) -> Cli {
+        let mut full_args = vec!["purl"];
+        full_args.extend(args);
+        Cli::parse_from(full_args)
     }
 }
