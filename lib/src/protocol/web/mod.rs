@@ -13,23 +13,23 @@
 //! # Example
 //!
 //! ```no_run
-//! # use purl_lib::web::{PaymentChallenge, PaymentCredential, PaymentMethod, PaymentIntent};
+//! # use purl_lib::protocol::web::{PaymentChallenge, PaymentCredential, PaymentMethod, PaymentIntent};
 //! # fn main() -> Result<(), purl_lib::error::PurlError> {
 //! // Parse challenge from WWW-Authenticate header
 //! let header = "Payment id=\"abc123\", realm=\"api\"";
-//! let challenge = purl_lib::web::parse_www_authenticate(header)?;
+//! let challenge = purl_lib::protocol::web::parse_www_authenticate(header)?;
 //!
 //! // After creating payment credential via provider...
 //! // Format Authorization header for retrying the request
 //! # let credential = PaymentCredential {
 //! #     id: "abc123".to_string(),
 //! #     source: None,
-//! #     payload: purl_lib::web::PaymentPayload {
-//! #         payload_type: purl_lib::web::PayloadType::Transaction,
+//! #     payload: purl_lib::protocol::web::PaymentPayload {
+//! #         payload_type: purl_lib::protocol::web::PayloadType::Transaction,
 //! #         signature: "0x...".to_string(),
 //! #     },
 //! # };
-//! let auth_header = purl_lib::web::format_authorization(&credential)?;
+//! let auth_header = purl_lib::protocol::web::format_authorization(&credential)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -45,7 +45,7 @@ pub use encode::{
 pub use parse::{parse_authorization, parse_receipt, parse_www_authenticate};
 pub use types::{
     AuthorizeRequest, ChargeRequest, PayloadType, PaymentChallenge, PaymentCredential,
-    PaymentIntent, PaymentMethod, PaymentPayload, PaymentReceipt, ReceiptStatus,
+    PaymentIntent, PaymentMethod, PaymentPayload, PaymentProtocol, PaymentReceipt, ReceiptStatus,
     SubscriptionRequest,
 };
 

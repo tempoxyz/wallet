@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::currency::Currency;
 use crate::error::Result;
 use crate::network::Network;
-use crate::x402::{PaymentPayload, PaymentRequirements};
+use crate::protocol::x402::{PaymentPayload, PaymentRequirements};
 use async_trait::async_trait;
 use once_cell::sync::Lazy;
 
@@ -83,9 +83,9 @@ pub trait PaymentProvider: Send + Sync {
     /// that support the web protocol (currently EVM for Tempo) implement this.
     async fn create_web_payment(
         &self,
-        _challenge: &crate::web::PaymentChallenge,
+        _challenge: &crate::protocol::web::PaymentChallenge,
         _config: &Config,
-    ) -> Result<crate::web::PaymentCredential> {
+    ) -> Result<crate::protocol::web::PaymentCredential> {
         Err(crate::error::PurlError::UnsupportedPaymentMethod(
             "Web payment protocol not supported for this provider".to_string(),
         ))
@@ -210,6 +210,19 @@ impl PaymentProvider for BuiltinProvider {
             BuiltinProvider::Evm => Self::evm().get_balance(address, network, currency).await,
             #[cfg(feature = "solana")]
             BuiltinProvider::Solana => Self::solana().get_balance(address, network, currency).await,
+        }
+    }
+
+    async fn create_web_payment(
+        &self,
+        challenge: &crate::protocol::web::PaymentChallenge,
+        config: &Config,
+    ) -> Result<crate::protocol::web::PaymentCredential> {
+        match self {
+            #[cfg(feature = "evm")]
+            BuiltinProvider::Evm => Self::evm().create_web_payment(challenge, config).await,
+            #[cfg(feature = "solana")]
+            BuiltinProvider::Solana => Self::solana().create_web_payment(challenge, config).await,
         }
     }
 }

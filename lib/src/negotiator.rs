@@ -2,7 +2,7 @@
 
 use crate::config::{Config, PaymentMethod};
 use crate::error::{PurlError, Result};
-use crate::x402::{Amount, PaymentRequirements, PaymentRequirementsResponse};
+use crate::protocol::x402::{Amount, PaymentRequirements, PaymentRequirementsResponse};
 
 /// Service to handle 402 Payment Required negotiation.
 ///
@@ -193,7 +193,7 @@ mod tests {
     }
 
     fn make_test_requirements() -> PaymentRequirementsResponse {
-        use crate::x402::v1;
+        use crate::protocol::x402::v1;
 
         PaymentRequirementsResponse::V1(v1::PaymentRequirementsResponse {
             x402_version: 1,

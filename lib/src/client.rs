@@ -5,7 +5,7 @@ use crate::error::{PurlError, Result};
 use crate::http::{HttpClient, HttpClientBuilder, HttpResponse};
 use crate::negotiator::PaymentNegotiator;
 use crate::payment_provider::PROVIDER_REGISTRY;
-use crate::x402::SettlementResponse;
+use crate::protocol::x402::SettlementResponse;
 use base64::Engine;
 
 /// Payment protocol detected from HTTP response
@@ -17,16 +17,13 @@ enum Protocol {
     WebPayment,
 }
 
-/// Detect which payment protocol is being used based on HTTP response headers
 fn detect_protocol(response: &HttpResponse) -> Protocol {
-    // Check for Web Payment Auth (most specific header)
-    if let Some(www_auth) = response.get_header(crate::web::WWW_AUTHENTICATE_HEADER) {
-        if www_auth.starts_with(crate::web::PAYMENT_SCHEME) {
+    if let Some(www_auth) = response.get_header(crate::protocol::web::WWW_AUTHENTICATE_HEADER) {
+        if www_auth.starts_with(crate::protocol::web::PAYMENT_SCHEME) {
             return Protocol::WebPayment;
         }
     }
 
-    // Default to x402 protocol
     Protocol::X402
 }
 
@@ -229,7 +226,6 @@ impl PurlClient {
             return Ok(PaymentResult::Success(response));
         }
 
-        // Detect which payment protocol is being used
         let protocol = detect_protocol(&response);
 
         match protocol {
@@ -268,13 +264,11 @@ impl PurlClient {
         let payload_json = serde_json::to_string(&payment_payload)?;
         let encoded_payload = base64::engine::general_purpose::STANDARD.encode(payload_json);
 
-        // Use version-appropriate header name
         let header_name = payment_payload.payment_header_name();
         let payment_header = vec![(header_name.to_string(), encoded_payload)];
         let mut client = self.configure_client(&payment_header)?;
         let response = self.execute_request(&mut client, method, url, data)?;
 
-        // Check both v1 and v2 response headers
         let response_header_name = payment_payload.response_header_name();
         let settlement = if let Some(header) = response.get_header(response_header_name) {
             let decoded = base64::engine::general_purpose::STANDARD.decode(header)?;
@@ -298,21 +292,16 @@ impl PurlClient {
         data: Option<&[u8]>,
     ) -> Result<PaymentResult> {
         use crate::payment_provider::DryRunInfo;
-        use crate::web::{parse_receipt, parse_www_authenticate, PaymentIntent, PaymentMethod};
+        use crate::protocol::web::{parse_receipt, parse_www_authenticate, PaymentIntent};
 
-        // Parse WWW-Authenticate header
         let www_auth = response
-            .get_header(crate::web::WWW_AUTHENTICATE_HEADER)
+            .get_header(crate::protocol::web::WWW_AUTHENTICATE_HEADER)
             .ok_or_else(|| PurlError::MissingHeader("WWW-Authenticate".to_string()))?;
 
         let challenge = parse_www_authenticate(www_auth)?;
 
-        // Validate method and intent (only Tempo + charge supported initially)
-        if challenge.method != PaymentMethod::Tempo {
-            return Err(PurlError::UnsupportedPaymentMethod(format!(
-                "Only 'tempo' method is supported, got: {:?}",
-                challenge.method
-            )));
+        if !challenge.method.is_supported() {
+            return Err(PurlError::unsupported_method(&challenge.method));
         }
         if challenge.intent != PaymentIntent::Charge {
             return Err(PurlError::UnsupportedPaymentIntent(format!(
@@ -321,13 +310,16 @@ impl PurlClient {
             )));
         }
 
-        // Parse request as ChargeRequest
-        let charge_req: crate::web::ChargeRequest =
+        let network_name = challenge
+            .method
+            .network_name()
+            .ok_or_else(|| PurlError::unsupported_method(&challenge.method))?;
+
+        let charge_req: crate::protocol::web::ChargeRequest =
             serde_json::from_value(challenge.request.clone()).map_err(|e| {
                 PurlError::InvalidChallenge(format!("Invalid charge request: {}", e))
             })?;
 
-        // Validate amount constraint
         if let Some(ref max_amount) = self.max_amount {
             let amount: u128 = charge_req
                 .amount
@@ -344,26 +336,22 @@ impl PurlClient {
             }
         }
 
-        // Check network filter if provided
         if !self.allowed_networks.is_empty()
-            && !self
-                .allowed_networks
-                .contains(&"tempo-moderato".to_string())
+            && !self.allowed_networks.contains(&network_name.to_string())
         {
             return Err(PurlError::NoCompatibleMethod {
-                networks: vec!["tempo-moderato".to_string()],
+                networks: vec![network_name.to_string()],
             });
         }
 
-        // Dry run check
         if self.dry_run {
             let provider = PROVIDER_REGISTRY
-                .find_provider("tempo-moderato")
-                .ok_or_else(|| PurlError::ProviderNotFound("tempo-moderato".to_string()))?;
+                .find_provider(network_name)
+                .ok_or_else(|| PurlError::ProviderNotFound(network_name.to_string()))?;
             let address = provider.get_address(&self.config)?;
             return Ok(PaymentResult::DryRun(DryRunInfo {
                 provider: "EVM".to_string(),
-                network: "tempo-moderato".to_string(),
+                network: network_name.to_string(),
                 amount: charge_req.amount.clone(),
                 asset: charge_req.asset.clone(),
                 from: address,
@@ -372,30 +360,27 @@ impl PurlClient {
             }));
         }
 
-        // Create payment credential
         let provider = PROVIDER_REGISTRY
-            .find_provider("tempo-moderato")
-            .ok_or_else(|| PurlError::ProviderNotFound("tempo-moderato".to_string()))?;
+            .find_provider(network_name)
+            .ok_or_else(|| PurlError::ProviderNotFound(network_name.to_string()))?;
 
         let credential = provider
             .create_web_payment(&challenge, &self.config)
             .await?;
 
-        // Format Authorization header
-        let auth_header = crate::web::format_authorization(&credential)?;
+        let auth_header = crate::protocol::web::format_authorization(&credential)?;
 
-        // Retry request with Authorization header
         let payment_header = vec![("Authorization".to_string(), auth_header)];
         let mut client = self.configure_client(&payment_header)?;
         let response = self.execute_request(&mut client, method, url, data)?;
 
-        // Parse Payment-Receipt header if present
-        let receipt =
-            if let Some(receipt_header) = response.get_header(crate::web::PAYMENT_RECEIPT_HEADER) {
-                Some(parse_receipt(receipt_header)?)
-            } else {
-                None
-            };
+        let receipt = if let Some(receipt_header) =
+            response.get_header(crate::protocol::web::PAYMENT_RECEIPT_HEADER)
+        {
+            Some(parse_receipt(receipt_header)?)
+        } else {
+            None
+        };
 
         Ok(PaymentResult::WebPaid { response, receipt })
     }
@@ -411,7 +396,7 @@ pub enum PaymentResult {
     },
     WebPaid {
         response: HttpResponse,
-        receipt: Option<crate::web::PaymentReceipt>,
+        receipt: Option<crate::protocol::web::PaymentReceipt>,
     },
 
     /// Dry-run mode was enabled, so payment was not actually made.
@@ -419,4 +404,276 @@ pub enum PaymentResult {
     /// Contains information about what payment would have been made,
     /// including amount, asset, sender, recipient, and any warnings.
     DryRun(crate::payment_provider::DryRunInfo),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::EvmConfig;
+
+    /// Test EVM private key (DO NOT use in production)
+    const TEST_EVM_KEY: &str = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+
+    fn test_config() -> Config {
+        Config {
+            evm: Some(EvmConfig {
+                keystore: None,
+                private_key: Some(TEST_EVM_KEY.to_string()),
+            }),
+            solana: None,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_purl_client_with_config() {
+        let config = test_config();
+        let client = PurlClient::with_config(config);
+
+        assert!(client.max_amount.is_none());
+        assert!(client.allowed_networks.is_empty());
+        assert!(client.headers.is_empty());
+        assert!(client.timeout.is_none());
+        assert!(!client.follow_redirects);
+        assert!(client.user_agent.is_none());
+        assert!(!client.verbose);
+        assert!(!client.dry_run);
+    }
+
+    #[test]
+    fn test_purl_client_max_amount() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).max_amount("1000000");
+
+        assert_eq!(client.max_amount, Some("1000000".to_string()));
+    }
+
+    #[test]
+    fn test_purl_client_max_amount_from_various_types() {
+        let config = test_config();
+
+        let client = PurlClient::with_config(config.clone()).max_amount("1000000");
+        assert_eq!(client.max_amount, Some("1000000".to_string()));
+
+        let client = PurlClient::with_config(config.clone()).max_amount(String::from("2000000"));
+        assert_eq!(client.max_amount, Some("2000000".to_string()));
+    }
+
+    #[test]
+    fn test_purl_client_allowed_networks() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).allowed_networks(&["base", "ethereum"]);
+
+        assert_eq!(client.allowed_networks.len(), 2);
+        assert!(client.allowed_networks.contains(&"base".to_string()));
+        assert!(client.allowed_networks.contains(&"ethereum".to_string()));
+    }
+
+    #[test]
+    fn test_purl_client_allowed_networks_empty() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).allowed_networks(&[]);
+
+        assert!(client.allowed_networks.is_empty());
+    }
+
+    #[test]
+    fn test_purl_client_header() {
+        let config = test_config();
+        let client = PurlClient::with_config(config)
+            .header("X-Custom-Header", "value1")
+            .header("X-Another-Header", "value2");
+
+        assert_eq!(client.headers.len(), 2);
+        assert!(client
+            .headers
+            .contains(&("X-Custom-Header".to_string(), "value1".to_string())));
+        assert!(client
+            .headers
+            .contains(&("X-Another-Header".to_string(), "value2".to_string())));
+    }
+
+    #[test]
+    fn test_purl_client_timeout() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).timeout(30);
+
+        assert_eq!(client.timeout, Some(30));
+    }
+
+    #[test]
+    fn test_purl_client_follow_redirects() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).follow_redirects();
+
+        assert!(client.follow_redirects);
+    }
+
+    #[test]
+    fn test_purl_client_user_agent() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).user_agent("MyApp/1.0");
+
+        assert_eq!(client.user_agent, Some("MyApp/1.0".to_string()));
+    }
+
+    #[test]
+    fn test_purl_client_verbose() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).verbose();
+
+        assert!(client.verbose);
+    }
+
+    #[test]
+    fn test_purl_client_dry_run() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).dry_run();
+
+        assert!(client.dry_run);
+    }
+
+    #[test]
+    fn test_purl_client_builder_chaining() {
+        let config = test_config();
+        let client = PurlClient::with_config(config)
+            .max_amount("1000000")
+            .allowed_networks(&["base"])
+            .header("Authorization", "Bearer token")
+            .timeout(60)
+            .follow_redirects()
+            .user_agent("TestAgent/1.0")
+            .verbose()
+            .dry_run();
+
+        assert_eq!(client.max_amount, Some("1000000".to_string()));
+        assert_eq!(client.allowed_networks, vec!["base".to_string()]);
+        assert_eq!(client.headers.len(), 1);
+        assert_eq!(client.timeout, Some(60));
+        assert!(client.follow_redirects);
+        assert_eq!(client.user_agent, Some("TestAgent/1.0".to_string()));
+        assert!(client.verbose);
+        assert!(client.dry_run);
+    }
+
+    #[test]
+    fn test_protocol_detection_x402_default() {
+        use std::collections::HashMap;
+
+        let response = HttpResponse {
+            status_code: 402,
+            headers: HashMap::new(),
+            body: b"{}".to_vec(),
+        };
+
+        let protocol = detect_protocol(&response);
+        assert_eq!(protocol, Protocol::X402);
+    }
+
+    #[test]
+    fn test_protocol_detection_web_payment() {
+        use std::collections::HashMap;
+
+        let mut headers = HashMap::new();
+        headers.insert(
+            "www-authenticate".to_string(),
+            "Payment id=\"abc\", method=\"tempo\", intent=\"charge\", request=\"{}\"".to_string(),
+        );
+        let response = HttpResponse {
+            status_code: 402,
+            headers,
+            body: b"{}".to_vec(),
+        };
+
+        let protocol = detect_protocol(&response);
+        assert_eq!(protocol, Protocol::WebPayment);
+    }
+
+    #[test]
+    fn test_protocol_detection_non_payment_www_authenticate() {
+        use std::collections::HashMap;
+
+        let mut headers = HashMap::new();
+        headers.insert(
+            "www-authenticate".to_string(),
+            "Bearer realm=\"api\"".to_string(),
+        );
+        let response = HttpResponse {
+            status_code: 402,
+            headers,
+            body: b"{}".to_vec(),
+        };
+
+        let protocol = detect_protocol(&response);
+        assert_eq!(protocol, Protocol::X402);
+    }
+
+    #[test]
+    fn test_protocol_enum_equality() {
+        assert_eq!(Protocol::X402, Protocol::X402);
+        assert_eq!(Protocol::WebPayment, Protocol::WebPayment);
+        assert_ne!(Protocol::X402, Protocol::WebPayment);
+    }
+
+    #[test]
+    fn test_payment_result_variants() {
+        use std::collections::HashMap;
+
+        let _success = PaymentResult::Success(HttpResponse {
+            status_code: 200,
+            headers: HashMap::new(),
+            body: b"success".to_vec(),
+        });
+
+        let _paid = PaymentResult::Paid {
+            response: HttpResponse {
+                status_code: 200,
+                headers: HashMap::new(),
+                body: b"paid".to_vec(),
+            },
+            settlement: None,
+        };
+
+        let _web_paid = PaymentResult::WebPaid {
+            response: HttpResponse {
+                status_code: 200,
+                headers: HashMap::new(),
+                body: b"web_paid".to_vec(),
+            },
+            receipt: None,
+        };
+
+        let _dry_run = PaymentResult::DryRun(crate::payment_provider::DryRunInfo {
+            provider: "EVM".to_string(),
+            network: "base".to_string(),
+            amount: "1000000".to_string(),
+            asset: "USDC".to_string(),
+            from: "0x123".to_string(),
+            to: "0x456".to_string(),
+            estimated_fee: Some("0".to_string()),
+        });
+    }
+
+    #[test]
+    fn test_configure_client() {
+        let config = test_config();
+        let client = PurlClient::with_config(config)
+            .timeout(30)
+            .follow_redirects()
+            .user_agent("TestAgent/1.0")
+            .header("X-Custom", "value");
+
+        let result = client.configure_client(&[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_configure_client_with_additional_headers() {
+        let config = test_config();
+        let client = PurlClient::with_config(config).header("X-Existing", "existing");
+
+        let additional = vec![("X-Additional".to_string(), "additional".to_string())];
+        let result = client.configure_client(&additional);
+        assert!(result.is_ok());
+    }
 }

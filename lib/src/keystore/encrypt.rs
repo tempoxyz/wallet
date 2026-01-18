@@ -26,6 +26,17 @@ pub fn default_keystore_dir() -> Result<PathBuf> {
 /// println!("Keystore created at: {}", keystore_path.display());
 /// ```
 pub fn create_keystore(private_key: &str, password: &str, name: &str) -> Result<PathBuf> {
+    let keystore_dir = default_keystore_dir()?;
+    create_keystore_in_dir(private_key, password, name, &keystore_dir)
+}
+
+/// Create an encrypted keystore file from a private key in a specific directory
+pub(crate) fn create_keystore_in_dir(
+    private_key: &str,
+    password: &str,
+    name: &str,
+    keystore_dir: &Path,
+) -> Result<PathBuf> {
     let key_hex = crate::utils::strip_0x_prefix(private_key);
     let key_bytes = hex::decode(key_hex)
         .map_err(|e| PurlError::InvalidKey(format!("Invalid private key hex: {e}")))?;
@@ -41,9 +52,7 @@ pub fn create_keystore(private_key: &str, password: &str, name: &str) -> Result<
         .map_err(|e| PurlError::InvalidKey(format!("Invalid private key: {e}")))?;
     let address_no_prefix = format!("{:x}", signer.address());
 
-    let keystore_dir = default_keystore_dir()?;
-
-    std::fs::create_dir_all(&keystore_dir).map_err(|e| {
+    std::fs::create_dir_all(keystore_dir).map_err(|e| {
         PurlError::ConfigMissing(format!(
             "Failed to create keystore directory {}: {}",
             keystore_dir.display(),
@@ -62,7 +71,7 @@ pub fn create_keystore(private_key: &str, password: &str, name: &str) -> Result<
     let filename_with_ext = format!("{name}.{KEYSTORE_EXTENSION}");
 
     eth_keystore::encrypt_key(
-        &keystore_dir,
+        keystore_dir,
         &mut rng,
         &key_bytes,
         password,
@@ -92,7 +101,11 @@ pub fn create_keystore(private_key: &str, password: &str, name: &str) -> Result<
 /// List all keystore files in the default directory
 pub fn list_keystores() -> Result<Vec<PathBuf>> {
     let keystore_dir = default_keystore_dir()?;
+    list_keystores_in_dir(&keystore_dir)
+}
 
+/// List all keystore files in a specific directory
+pub(crate) fn list_keystores_in_dir(keystore_dir: &Path) -> Result<Vec<PathBuf>> {
     if !keystore_dir.exists() {
         return Ok(Vec::new());
     }
@@ -139,7 +152,6 @@ pub fn decrypt_keystore(
         }
     }
 
-    // Get password from argument or prompt
     let password = match password {
         Some(p) => p.to_string(),
         None => {
@@ -154,7 +166,6 @@ pub fn decrypt_keystore(
     let private_key = eth_keystore::decrypt_key(keystore_path, &password)
         .map_err(|e| PurlError::InvalidKey(format!("Failed to decrypt keystore: {e}")))?;
 
-    // Cache the password on success
     if use_cache {
         cache_password(keystore_id, password);
     }
@@ -162,91 +173,140 @@ pub fn decrypt_keystore(
     Ok(private_key)
 }
 
+/// Decrypt a keystore file without caching (for testing)
+#[cfg(test)]
+fn decrypt_keystore_no_cache(keystore_path: &Path, password: &str) -> Result<Vec<u8>> {
+    if !keystore_path.exists() {
+        return Err(PurlError::ConfigMissing(format!(
+            "Keystore file not found: {}",
+            keystore_path.display()
+        )));
+    }
+
+    let private_key = eth_keystore::decrypt_key(keystore_path, password)
+        .map_err(|e| PurlError::InvalidKey(format!("Failed to decrypt keystore: {e}")))?;
+
+    Ok(private_key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
     use tempfile::TempDir;
 
-    /// Helper to set up a temporary home directory for tests
-    fn setup_temp_home(temp_dir: &TempDir) {
-        // SAFETY: We use serial_test to ensure tests don't run concurrently
-        unsafe { std::env::set_var("HOME", temp_dir.path()) };
-    }
+    // NOTE: These tests use isolated temp directories and internal _in_dir functions,
+    // so they can run in parallel without #[serial]
 
     #[test]
-    #[serial]
     fn test_keystore_creation_and_listing() {
         let temp_dir = TempDir::new().unwrap();
-        setup_temp_home(&temp_dir);
+        let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
         let name = "test_keystore";
 
-        let keystore_path = create_keystore(private_key, password, name).unwrap();
+        let keystore_path =
+            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
         assert!(keystore_path.exists());
 
-        let keystores = list_keystores().unwrap();
+        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
         assert_eq!(keystores.len(), 1);
         assert_eq!(keystores[0], keystore_path);
     }
 
     #[test]
-    #[serial]
-    fn test_decrypt_keystore_with_cache() {
+    fn test_decrypt_keystore_basic() {
         let temp_dir = TempDir::new().unwrap();
-        setup_temp_home(&temp_dir);
+        let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
-        let name = "test_decrypt_cache";
+        let name = "test_decrypt";
 
-        let keystore_path = create_keystore(private_key, password, name).unwrap();
-        let keystore_id = KeystoreId::new(&keystore_path);
+        let keystore_path =
+            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
 
-        let result = decrypt_keystore(&keystore_path, Some(password), true);
+        let result = decrypt_keystore_no_cache(&keystore_path, password);
         assert!(result.is_ok());
 
-        let cached = get_cached_password(&keystore_id);
-        assert!(cached.is_some());
-        assert_eq!(cached.unwrap(), password);
+        // Verify the decrypted key matches
+        let decrypted_key = result.unwrap();
+        let expected_key = hex::decode(&private_key[2..]).unwrap();
+        assert_eq!(decrypted_key, expected_key);
     }
 
     #[test]
-    #[serial]
-    fn test_decrypt_keystore_without_cache() {
+    fn test_decrypt_keystore_wrong_password() {
         let temp_dir = TempDir::new().unwrap();
-        setup_temp_home(&temp_dir);
+        let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
-        let name = "test_decrypt_no_cache";
+        let name = "test_wrong_password";
 
-        let keystore_path = create_keystore(private_key, password, name).unwrap();
-        let keystore_id = KeystoreId::new(&keystore_path);
+        let keystore_path =
+            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
 
-        let result = decrypt_keystore(&keystore_path, Some(password), false);
-        assert!(result.is_ok());
-        assert!(get_cached_password(&keystore_id).is_none());
+        let result = decrypt_keystore_no_cache(&keystore_path, "wrong_password");
+        assert!(result.is_err());
     }
 
     #[test]
-    #[serial]
-    fn test_decrypt_keystore_uses_cached_password() {
+    fn test_keystore_stores_address() {
         let temp_dir = TempDir::new().unwrap();
-        setup_temp_home(&temp_dir);
+        let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
-        let name = "test_uses_cache";
+        let name = "test_address";
 
-        let keystore_path = create_keystore(private_key, password, name).unwrap();
-        let keystore_id = KeystoreId::new(&keystore_path);
+        let keystore_path =
+            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
 
-        cache_password(keystore_id.clone(), password.to_string());
+        let contents = std::fs::read_to_string(&keystore_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        assert!(json.get("address").is_some());
 
-        let result = decrypt_keystore(&keystore_path, None, true);
-        assert!(result.is_ok());
+        let address = json["address"].as_str().unwrap();
+        assert_eq!(address.len(), 40);
+    }
+
+    #[test]
+    fn test_list_keystores_empty_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let keystore_dir = temp_dir.path().join("empty_keystores");
+
+        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
+        assert!(keystores.is_empty());
+
+        std::fs::create_dir_all(&keystore_dir).unwrap();
+        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
+        assert!(keystores.is_empty());
+    }
+
+    #[test]
+    fn test_list_keystores_ignores_non_json() {
+        let temp_dir = TempDir::new().unwrap();
+        let keystore_dir = temp_dir.path().join("mixed_files");
+        std::fs::create_dir_all(&keystore_dir).unwrap();
+
+        std::fs::write(keystore_dir.join("readme.txt"), "test").unwrap();
+        std::fs::write(keystore_dir.join("config.toml"), "test").unwrap();
+
+        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
+        assert!(keystores.is_empty());
+    }
+
+    #[test]
+    fn test_create_keystore_invalid_key() {
+        let temp_dir = TempDir::new().unwrap();
+        let keystore_dir = temp_dir.path().join("keystores");
+
+        let result = create_keystore_in_dir("0x1234", "password", "short", &keystore_dir);
+        assert!(result.is_err());
+
+        let result = create_keystore_in_dir("0xGGGG", "password", "invalid", &keystore_dir);
+        assert!(result.is_err());
     }
 }

@@ -43,3 +43,6 @@ lazy_static = "1.5"
 cached = "0.56"
 tokio = { version = "1.49", features = ["full"] }
 async-trait = "0.1"
+
+# Tempo transaction types (used for Tempo network support)
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "07dfcd2d2b8c109d6b8502515c7db00198a8b3a3", features = ["serde"] }
