@@ -17,13 +17,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // Tempo transaction types from tempo-primitives
 use tempo_primitives::transaction::{AASigned, Call, TempoTransaction};
 
-const PROVIDER_NAME: &str = "EVM";
+use crate::network::GasConfig;
 
-const DEFAULT_GAS_LIMIT: u64 = 100_000;
-const DEFAULT_MAX_PRIORITY_FEE_PER_GAS: u64 = 1_000_000_000;
-const DEFAULT_MAX_FEE_PER_GAS: u64 = 10_000_000_000;
-const DEFAULT_MAX_FEE_PER_GAS_U128: u128 = DEFAULT_MAX_FEE_PER_GAS as u128;
-const DEFAULT_MAX_PRIORITY_FEE_PER_GAS_U128: u128 = DEFAULT_MAX_PRIORITY_FEE_PER_GAS as u128;
+const PROVIDER_NAME: &str = "EVM";
 
 sol! {
     #[derive(Debug, Serialize, Deserialize)]
@@ -159,7 +155,6 @@ impl PaymentProvider for EvmProvider {
             },
         };
 
-        // Create version-appropriate payload based on requirements version
         let payment_payload = match requirements {
             PaymentRequirements::V1(_) => PaymentPayload::new_v1(
                 requirements.scheme().to_string(),
@@ -299,14 +294,19 @@ impl PaymentProvider for EvmProvider {
             .method
             .network_name()
             .ok_or_else(|| PurlError::unsupported_method(&challenge.method))?;
-        let network = crate::network::get_network(network_name)
+        let network_info = crate::network::get_network(network_name)
             .ok_or_else(|| PurlError::UnknownNetwork(format!("{} not found", network_name)))?;
-        let chain_id = network.chain_id.ok_or_else(|| {
+        let chain_id = network_info.chain_id.ok_or_else(|| {
             PurlError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
+        let gas_config = Network::from_str(network_name)
+            .ok()
+            .and_then(|n| n.gas_config())
+            .unwrap_or(GasConfig::DEFAULT);
+
         let provider =
-            ProviderBuilder::new().connect_http(network.rpc_url.parse().map_err(|e| {
+            ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
                 PurlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
             })?);
 
@@ -316,11 +316,24 @@ impl PaymentProvider for EvmProvider {
             .map_err(|e| PurlError::signing(format!("Failed to get nonce: {}", e)))?;
 
         let signed_tx = match &challenge.method {
-            crate::protocol::web::PaymentMethod::Tempo => {
-                create_tempo_transaction(&signer, chain_id, nonce, asset, transfer_data)?
-            }
+            crate::protocol::web::PaymentMethod::Tempo => create_tempo_transaction(
+                &signer,
+                chain_id,
+                nonce,
+                asset,
+                transfer_data,
+                &gas_config,
+            )?,
             crate::protocol::web::PaymentMethod::Base => {
-                create_eip1559_transaction(&signer, chain_id, nonce, asset, transfer_data).await?
+                create_eip1559_transaction(
+                    &signer,
+                    chain_id,
+                    nonce,
+                    asset,
+                    transfer_data,
+                    &gas_config,
+                )
+                .await?
             }
             crate::protocol::web::PaymentMethod::Custom(name) => {
                 return Err(PurlError::unsupported_method(
@@ -342,25 +355,23 @@ impl PaymentProvider for EvmProvider {
     }
 }
 
-/// Create a Tempo transaction (type 0x76) using tempo-primitives types.
-///
-/// This function is synchronous because it uses `sign_hash_sync` for signing.
+/// Create a Tempo transaction (type 0x76) with network-specific gas configuration.
 fn create_tempo_transaction(
     signer: &PrivateKeySigner,
     chain_id: u64,
     nonce: u64,
     asset: Address,
     transfer_data: alloy::primitives::Bytes,
+    gas_config: &GasConfig,
 ) -> Result<String> {
     use alloy::primitives::TxKind;
 
-    // Create the unsigned Tempo transaction using tempo-primitives types
     let tx = TempoTransaction {
         chain_id,
         fee_token: Some(asset),
-        max_priority_fee_per_gas: DEFAULT_MAX_PRIORITY_FEE_PER_GAS as u128,
-        max_fee_per_gas: DEFAULT_MAX_FEE_PER_GAS as u128,
-        gas_limit: DEFAULT_GAS_LIMIT,
+        max_priority_fee_per_gas: gas_config.max_priority_fee_per_gas_u128(),
+        max_fee_per_gas: gas_config.max_fee_per_gas_u128(),
+        gas_limit: gas_config.gas_limit,
         calls: vec![Call {
             to: TxKind::Call(asset),
             value: U256::ZERO,
@@ -376,13 +387,11 @@ fn create_tempo_transaction(
         tempo_authorization_list: vec![],
     };
 
-    // Get the signing hash and sign it
     let signing_hash = tx.signature_hash();
     let signature = signer
         .sign_hash_sync(&signing_hash)
         .map_err(|e| PurlError::signing(format!("Failed to sign Tempo transaction: {}", e)))?;
 
-    // Create the signed transaction and encode it using EIP-2718 format
     let signed_tx: AASigned = tx.into_signed(signature.into());
     let mut buf = Vec::new();
     signed_tx.eip2718_encode(&mut buf);
@@ -390,13 +399,14 @@ fn create_tempo_transaction(
     Ok(hex::encode(&buf))
 }
 
-/// Create a standard EIP-1559 transaction for Base
+/// Create a standard EIP-1559 transaction with network-specific gas configuration.
 async fn create_eip1559_transaction(
     signer: &PrivateKeySigner,
     chain_id: u64,
     nonce: u64,
     asset: Address,
     transfer_data: alloy::primitives::Bytes,
+    gas_config: &GasConfig,
 ) -> Result<String> {
     use alloy::consensus::Signed;
     use alloy::network::TxSigner;
@@ -405,9 +415,9 @@ async fn create_eip1559_transaction(
     let tx = alloy::consensus::TxEip1559 {
         chain_id,
         nonce,
-        gas_limit: DEFAULT_GAS_LIMIT,
-        max_fee_per_gas: DEFAULT_MAX_FEE_PER_GAS_U128,
-        max_priority_fee_per_gas: DEFAULT_MAX_PRIORITY_FEE_PER_GAS_U128,
+        gas_limit: gas_config.gas_limit,
+        max_fee_per_gas: gas_config.max_fee_per_gas_u128(),
+        max_priority_fee_per_gas: gas_config.max_priority_fee_per_gas_u128(),
         to: alloy::primitives::TxKind::Call(asset),
         value: U256::ZERO,
         access_list: Default::default(),
@@ -426,4 +436,189 @@ async fn create_eip1559_transaction(
     signed.rlp_encode(&mut buf);
 
     Ok(hex::encode(&buf))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::x402::{v1, PaymentRequirements};
+
+    /// Test EVM private key (DO NOT use in production)
+    const TEST_EVM_KEY: &str = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+
+    fn test_config_with_evm_key() -> Config {
+        Config {
+            evm: Some(crate::config::EvmConfig {
+                keystore: None,
+                private_key: Some(TEST_EVM_KEY.to_string()),
+            }),
+            solana: None,
+            ..Default::default()
+        }
+    }
+
+    fn mock_v1_requirements() -> PaymentRequirements {
+        let v1_req = v1::PaymentRequirements {
+            scheme: "exact".to_string(),
+            network: "base".to_string(),
+            max_amount_required: "1000000".to_string(),
+            resource: "https://example.com/resource".to_string(),
+            description: "Test payment".to_string(),
+            mime_type: "application/json".to_string(),
+            output_schema: None,
+            pay_to: "0x1234567890123456789012345678901234567890".to_string(),
+            max_timeout_seconds: 300,
+            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            extra: Some(serde_json::json!({
+                "name": "USD Coin",
+                "version": "2"
+            })),
+        };
+        PaymentRequirements::V1(v1_req)
+    }
+
+    #[test]
+    fn test_evm_provider_supports_evm_networks() {
+        let provider = EvmProvider::new();
+
+        assert!(provider.supports_network("base"));
+        assert!(provider.supports_network("base-sepolia"));
+        assert!(provider.supports_network("ethereum"));
+        assert!(provider.supports_network("tempo-moderato"));
+
+        assert!(!provider.supports_network("solana"));
+        assert!(!provider.supports_network("solana-devnet"));
+        assert!(!provider.supports_network("unknown-network"));
+    }
+
+    #[test]
+    fn test_evm_provider_name() {
+        let provider = EvmProvider::new();
+        assert_eq!(provider.name(), "EVM");
+    }
+
+    #[test]
+    fn test_evm_get_address_with_private_key() {
+        let provider = EvmProvider::new();
+        let config = test_config_with_evm_key();
+
+        let address = provider.get_address(&config);
+        assert!(address.is_ok());
+
+        let addr = address.unwrap();
+        assert!(addr.starts_with("0x"));
+        assert_eq!(addr.len(), 42);
+    }
+
+    #[test]
+    fn test_evm_get_address_without_config() {
+        let provider = EvmProvider::new();
+        let config = Config::default();
+
+        let address = provider.get_address(&config);
+        assert!(address.is_err());
+    }
+
+    #[test]
+    fn test_evm_dry_run() {
+        let provider = EvmProvider::new();
+        let config = test_config_with_evm_key();
+        let requirements = mock_v1_requirements();
+
+        let result = provider.dry_run(&requirements, &config);
+        assert!(result.is_ok());
+
+        let dry_run_info = result.unwrap();
+        assert_eq!(dry_run_info.provider, "EVM");
+        assert_eq!(dry_run_info.network, "base");
+        assert_eq!(dry_run_info.amount, "1000000");
+        assert!(dry_run_info.from.starts_with("0x"));
+        assert_eq!(
+            dry_run_info.to,
+            "0x1234567890123456789012345678901234567890"
+        );
+        assert_eq!(dry_run_info.estimated_fee, Some("0".to_string()));
+    }
+
+    #[test]
+    fn test_evm_dry_run_without_config() {
+        let provider = EvmProvider::new();
+        let config = Config::default();
+        let requirements = mock_v1_requirements();
+
+        let result = provider.dry_run(&requirements, &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_authorization_serialization() {
+        let auth = Authorization {
+            from: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12".to_string(),
+            nonce: "0x1234".to_string(),
+            to: "0x9876543210987654321098765432109876543210".to_string(),
+            valid_after: "1000".to_string(),
+            valid_before: "2000".to_string(),
+            value: "1000000".to_string(),
+        };
+
+        let json = serde_json::to_string(&auth).unwrap();
+        assert!(json.contains("validAfter"));
+        assert!(json.contains("validBefore"));
+        assert!(!json.contains("valid_after"));
+
+        let parsed: Authorization = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.from, auth.from);
+        assert_eq!(parsed.value, auth.value);
+    }
+
+    #[test]
+    fn test_evm_payload_structure() {
+        let payload = EvmPayload {
+            signature: "0xabcdef...".to_string(),
+            authorization: Authorization {
+                from: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12".to_string(),
+                nonce: "0x1234".to_string(),
+                to: "0x9876543210987654321098765432109876543210".to_string(),
+                valid_after: "0".to_string(),
+                valid_before: "9999999999".to_string(),
+                value: "1000000".to_string(),
+            },
+        };
+
+        let json = serde_json::to_value(&payload).unwrap();
+        assert!(json.get("signature").is_some());
+        assert!(json.get("authorization").is_some());
+
+        let auth = json.get("authorization").unwrap();
+        assert!(auth.get("from").is_some());
+        assert!(auth.get("to").is_some());
+        assert!(auth.get("value").is_some());
+    }
+
+    #[test]
+    fn test_gas_config_defaults() {
+        let gas_config = GasConfig::DEFAULT;
+        assert_eq!(gas_config.gas_limit, 100_000);
+        assert_eq!(gas_config.max_priority_fee_per_gas, 1_000_000_000);
+        assert_eq!(gas_config.max_fee_per_gas, 10_000_000_000);
+
+        assert_eq!(
+            gas_config.max_fee_per_gas_u128(),
+            gas_config.max_fee_per_gas as u128
+        );
+        assert_eq!(
+            gas_config.max_priority_fee_per_gas_u128(),
+            gas_config.max_priority_fee_per_gas as u128
+        );
+    }
+
+    #[test]
+    fn test_network_gas_config() {
+        assert!(Network::Base.gas_config().is_some());
+        assert!(Network::TempoModerato.gas_config().is_some());
+        assert!(Network::Ethereum.gas_config().is_some());
+
+        assert!(Network::Solana.gas_config().is_none());
+        assert!(Network::SolanaDevnet.gas_config().is_none());
+    }
 }

@@ -33,7 +33,7 @@ pub use currency::{currencies, Currency};
 pub use http::{
     find_header, has_header, parse_headers, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse,
 };
-pub use network::{networks, ChainType, Network, NetworkInfo};
+pub use network::{evm_chain_ids, networks, ChainType, GasConfig, Network, NetworkInfo};
 pub use protocol::x402::{PaymentPayload, PaymentRequirementsResponse, SettlementResponse};
 
 pub use payment_provider::{BuiltinProvider, NetworkBalance, PaymentProvider, PROVIDER_REGISTRY};

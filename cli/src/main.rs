@@ -4,7 +4,6 @@ mod balance_command;
 mod cli;
 mod config_commands;
 mod config_utils;
-mod display_utils;
 mod errors;
 mod exit_codes;
 mod init;

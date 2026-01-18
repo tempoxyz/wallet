@@ -30,10 +30,16 @@ impl PaymentProtocol {
     /// # Arguments
     /// * `www_authenticate` - The value of the WWW-Authenticate header, if present
     pub fn detect(www_authenticate: Option<&str>) -> Self {
+        const PAYMENT_SCHEME_WITH_SPACE: &str = "payment ";
+
         match www_authenticate {
             Some(header) => {
                 let trimmed = header.trim_start();
-                if trimmed.len() >= 8 && trimmed[..8].eq_ignore_ascii_case("payment ") {
+                // Use starts_with for safe, idiomatic comparison
+                if trimmed
+                    .get(..PAYMENT_SCHEME_WITH_SPACE.len())
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(PAYMENT_SCHEME_WITH_SPACE))
+                {
                     Self::WebPaymentAuth
                 } else {
                     Self::X402
@@ -207,6 +213,23 @@ impl PaymentChallenge {
             ))
         })
     }
+
+    /// Get the effective expiration time for this payment challenge.
+    ///
+    /// The expiration can come from two places:
+    /// 1. `challenge.expires` - The challenge-level expiration (outer envelope)
+    /// 2. `charge_request.expires` - The request-specific expiration (inner payload)
+    ///
+    /// This method returns `challenge.expires` if set, as it represents the
+    /// server's deadline for the entire challenge. If not set, callers should
+    /// check the intent-specific request (e.g., `ChargeRequest.expires`).
+    ///
+    /// # Returns
+    /// - `Some(&str)` if the challenge has an expiration time
+    /// - `None` if no challenge-level expiration is set
+    pub fn effective_expires(&self) -> Option<&str> {
+        self.expires.as_deref()
+    }
 }
 
 /// Charge request (for charge intent)
@@ -227,6 +250,40 @@ pub struct ChargeRequest {
     /// Whether server pays fees (optional)
     #[serde(rename = "feePayer", skip_serializing_if = "Option::is_none")]
     pub fee_payer: Option<bool>,
+}
+
+impl ChargeRequest {
+    /// Parse the amount as u128.
+    ///
+    /// Returns an error if the amount is not a valid unsigned integer.
+    pub fn parse_amount(&self) -> Result<u128> {
+        self.amount
+            .parse()
+            .map_err(|_| PurlError::InvalidAmount(format!("Invalid amount: {}", self.amount)))
+    }
+
+    /// Validate that the charge amount does not exceed a maximum.
+    ///
+    /// # Arguments
+    /// * `max_amount` - Maximum allowed amount as a string (atomic units)
+    ///
+    /// # Returns
+    /// * `Ok(())` if amount is within limit
+    /// * `Err(AmountExceedsMax)` if amount exceeds the maximum
+    pub fn validate_max_amount(&self, max_amount: &str) -> Result<()> {
+        let amount = self.parse_amount()?;
+        let max: u128 = max_amount
+            .parse()
+            .map_err(|_| PurlError::InvalidAmount(format!("Invalid max amount: {}", max_amount)))?;
+
+        if amount > max {
+            return Err(PurlError::AmountExceedsMax {
+                required: amount,
+                max,
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Authorize request (for authorize intent)
@@ -412,6 +469,18 @@ mod tests {
             PaymentProtocol::detect(Some("Basic dXNlcjpwYXNz")),
             PaymentProtocol::X402
         );
+
+        // Edge cases: short strings that shouldn't panic
+        assert_eq!(PaymentProtocol::detect(Some("")), PaymentProtocol::X402);
+        assert_eq!(PaymentProtocol::detect(Some("Pay")), PaymentProtocol::X402);
+        assert_eq!(
+            PaymentProtocol::detect(Some("Payment")),
+            PaymentProtocol::X402
+        ); // No trailing space
+        assert_eq!(
+            PaymentProtocol::detect(Some("Paymentx")),
+            PaymentProtocol::X402
+        ); // Not a space after
     }
 
     #[test]
