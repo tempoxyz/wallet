@@ -1,0 +1,20 @@
+id: no-emojis
+message: "Emojis are not allowed in code. Use descriptive text instead."
+severity: error
+language: rust
+note: |
+  Emojis can cause issues with terminal rendering, log parsing, and accessibility.
+  If you need to use emojis, add the file to the allowlist in this rule.
+  
+  To disable this rule:
+  - Line: add `// ast-grep-ignore: no-emojis` on the line before
+  - Block: wrap code with `// ast-grep-ignore-start` and `// ast-grep-ignore-end`
+rule:
+  kind: string_content
+  regex: "[\U0001F300-\U0001F9FF\U00002600-\U000026FF\U00002700-\U000027BF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF]"
+files:
+  - "**/*.rs"
+ignores:
+  # Allowlist: files that are permitted to use emojis
+  - "**/emoji_allowlist.rs"
+  - "**/test_fixtures/**"
