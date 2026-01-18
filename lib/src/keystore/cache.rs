@@ -7,6 +7,18 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(unix)]
+fn set_secure_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn set_secure_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// Type-safe identifier for a keystore
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct KeystoreId(PathBuf);
@@ -35,7 +47,9 @@ fn get_cache_file_path(id: &KeystoreId) -> Result<PathBuf> {
 
 /// Get the cache file path for a keystore in a specific directory (for testing)
 fn get_cache_file_path_in_dir(id: &KeystoreId, cache_dir: &Path) -> Result<PathBuf> {
-    std::fs::create_dir_all(cache_dir).ok();
+    if std::fs::create_dir_all(cache_dir).is_ok() {
+        set_secure_permissions(cache_dir, 0o700).ok();
+    }
 
     // Create a hash of the keystore path to use as filename
     let mut hasher = DefaultHasher::new();
@@ -60,7 +74,9 @@ fn cache_password_to_file(cache_file: &Path, password: &str) {
         .as_secs();
 
     let cache_entry = format!("{now}|{password}");
-    std::fs::write(cache_file, &cache_entry).ok();
+    if std::fs::write(cache_file, &cache_entry).is_ok() {
+        set_secure_permissions(cache_file, 0o600).ok();
+    }
 }
 
 /// Retrieve a password from the cache
