@@ -29,7 +29,7 @@ pub use client::PurlClient;
 pub use config::{
     CustomNetwork, CustomToken, EvmConfig, PaymentMethod, SolanaConfig, WalletConfig,
 };
-pub use currency::{currencies, Currency};
+pub use currency::{currencies, parse_amount_with_unit, AmountParseError, Currency};
 pub use http::{
     find_header, has_header, parse_headers, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse,
 };

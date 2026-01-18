@@ -87,6 +87,103 @@ pub fn format_atomic_trimmed(atomic_str: &str, decimals: u8, symbol: &str) -> St
     }
 }
 
+/// Parse a human-readable amount string with optional unit suffix.
+///
+/// Supports formats like:
+/// - "1000000" - raw atomic units (no unit)
+/// - "1.5usdc" or "1.5 USDC" - 1.5 USDC = 1500000 atomic units
+/// - "0.01eth" or "0.01 ETH" - 0.01 ETH in wei
+/// - "1.2sol" or "1.2 SOL" - 1.2 SOL in lamports
+///
+/// Returns the amount in atomic units.
+pub fn parse_amount_with_unit(input: &str) -> Result<u128, AmountParseError> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(AmountParseError::Empty);
+    }
+
+    // Try to split into number and unit
+    let (num_part, unit_part) = split_number_and_unit(input);
+
+    // If no unit, treat as raw atomic units
+    if unit_part.is_empty() {
+        return num_part
+            .parse::<u128>()
+            .map_err(|_| AmountParseError::InvalidNumber(num_part.to_string()));
+    }
+
+    // Look up the currency by symbol
+    let currency = match unit_part.to_uppercase().as_str() {
+        "USDC" => currencies::USDC,
+        "ETH" | "ETHER" => currencies::ETH,
+        "SOL" => currencies::SOL,
+        "ALPHAUSD" => currencies::ALPHA_USD,
+        "GWEI" => {
+            // Special case: gwei is 10^9 wei
+            let value: f64 = num_part
+                .parse()
+                .map_err(|_| AmountParseError::InvalidNumber(num_part.to_string()))?;
+            let atomic = (value * 1_000_000_000.0).round() as u128;
+            return Ok(atomic);
+        }
+        _ => return Err(AmountParseError::UnknownUnit(unit_part.to_string())),
+    };
+
+    // Parse the number and convert to atomic units
+    let value: f64 = num_part
+        .parse()
+        .map_err(|_| AmountParseError::InvalidNumber(num_part.to_string()))?;
+    let atomic = (value * currency.divisor as f64).round() as u128;
+
+    Ok(atomic)
+}
+
+/// Split a string into numeric part and unit part
+fn split_number_and_unit(input: &str) -> (&str, &str) {
+    // Remove optional space between number and unit
+    let input = input.trim();
+
+    // Find where the number ends (consecutive digits, dots, signs)
+    let num_end = input
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+')
+        .count();
+
+    // Handle the byte position correctly for multi-byte chars
+    let byte_pos = input
+        .char_indices()
+        .nth(num_end)
+        .map(|(i, _)| i)
+        .unwrap_or(input.len());
+
+    let num_part = input[..byte_pos].trim();
+    let unit_part = input[byte_pos..].trim();
+
+    (num_part, unit_part)
+}
+
+/// Error type for amount parsing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AmountParseError {
+    Empty,
+    InvalidNumber(String),
+    UnknownUnit(String),
+}
+
+impl std::fmt::Display for AmountParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AmountParseError::Empty => write!(f, "empty amount string"),
+            AmountParseError::InvalidNumber(s) => write!(f, "invalid number: '{s}'"),
+            AmountParseError::UnknownUnit(s) => {
+                write!(f, "unknown unit: '{s}' (supported: USDC, ETH, SOL, gwei)")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AmountParseError {}
+
 /// Common currency definitions
 pub mod currencies {
     use super::Currency;
@@ -196,5 +293,74 @@ mod tests {
         assert_eq!(currencies::USDC.divisor, 1_000_000);
         assert_eq!(currencies::ETH.divisor, 1_000_000_000_000_000_000);
         assert_eq!(currencies::SOL.divisor, 1_000_000_000);
+    }
+
+    #[test]
+    fn test_parse_amount_with_unit_usdc() {
+        // USDC has 6 decimals
+        assert_eq!(parse_amount_with_unit("1usdc").unwrap(), 1_000_000);
+        assert_eq!(parse_amount_with_unit("1 USDC").unwrap(), 1_000_000);
+        assert_eq!(parse_amount_with_unit("1.5usdc").unwrap(), 1_500_000);
+        assert_eq!(parse_amount_with_unit("0.01usdc").unwrap(), 10_000);
+        assert_eq!(parse_amount_with_unit("100 USDC").unwrap(), 100_000_000);
+    }
+
+    #[test]
+    fn test_parse_amount_with_unit_eth() {
+        // ETH has 18 decimals
+        assert_eq!(
+            parse_amount_with_unit("1eth").unwrap(),
+            1_000_000_000_000_000_000
+        );
+        assert_eq!(
+            parse_amount_with_unit("0.01eth").unwrap(),
+            10_000_000_000_000_000
+        );
+        assert_eq!(
+            parse_amount_with_unit("1 ETH").unwrap(),
+            1_000_000_000_000_000_000
+        );
+    }
+
+    #[test]
+    fn test_parse_amount_with_unit_gwei() {
+        // gwei is 10^9 wei
+        assert_eq!(parse_amount_with_unit("1gwei").unwrap(), 1_000_000_000);
+        assert_eq!(parse_amount_with_unit("10 gwei").unwrap(), 10_000_000_000);
+        assert_eq!(parse_amount_with_unit("0.5gwei").unwrap(), 500_000_000);
+    }
+
+    #[test]
+    fn test_parse_amount_with_unit_raw() {
+        // No unit = raw atomic units
+        assert_eq!(parse_amount_with_unit("1000000").unwrap(), 1_000_000);
+        assert_eq!(parse_amount_with_unit("0").unwrap(), 0);
+        assert_eq!(
+            parse_amount_with_unit("1000000000000000000").unwrap(),
+            1_000_000_000_000_000_000
+        );
+    }
+
+    #[test]
+    fn test_parse_amount_with_unit_errors() {
+        assert!(matches!(
+            parse_amount_with_unit(""),
+            Err(AmountParseError::Empty)
+        ));
+        // "abc" has no numeric prefix, so empty num_part leads to InvalidNumber
+        // when trying to parse it as a number with "abc" as unit
+        assert!(matches!(
+            parse_amount_with_unit("abc"),
+            Err(AmountParseError::UnknownUnit(_)) | Err(AmountParseError::InvalidNumber(_))
+        ));
+        assert!(matches!(
+            parse_amount_with_unit("1xyz"),
+            Err(AmountParseError::UnknownUnit(_))
+        ));
+        // Invalid number format
+        assert!(matches!(
+            parse_amount_with_unit("1.2.3usdc"),
+            Err(AmountParseError::InvalidNumber(_))
+        ));
     }
 }
