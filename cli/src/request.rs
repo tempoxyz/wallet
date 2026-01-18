@@ -3,11 +3,31 @@
 //! This module provides the RequestContext type and related functionality
 //! for building and executing HTTP requests.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use purl::blocking::HttpClient;
 use purl::{HttpClientBuilder, HttpMethod, HttpResponse};
 
 use crate::cli::Cli;
+
+/// Maximum request body size (100 MB)
+const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
+
+/// Maximum header size (8 KB)
+const MAX_HEADER_SIZE: usize = 8 * 1024;
+
+fn validate_body_size(data: &str) -> Result<()> {
+    if data.len() > MAX_BODY_SIZE {
+        bail!("Request body exceeds maximum size of {} bytes", MAX_BODY_SIZE);
+    }
+    Ok(())
+}
+
+fn validate_header_size(header: &str) -> Result<()> {
+    if header.len() > MAX_HEADER_SIZE {
+        bail!("Header exceeds maximum size of {} bytes", MAX_HEADER_SIZE);
+    }
+    Ok(())
+}
 
 /// Context for making HTTP requests with optional payment headers
 pub struct RequestContext {
@@ -18,9 +38,22 @@ pub struct RequestContext {
 
 impl RequestContext {
     /// Create a new request context from CLI arguments
-    pub fn new(cli: Cli) -> Self {
+    pub fn new(cli: Cli) -> Result<Self> {
+        // Validate header sizes
+        for header in &cli.headers {
+            validate_header_size(header)?;
+        }
+
+        // Validate body size
+        if let Some(ref data) = cli.data {
+            validate_body_size(data)?;
+        }
+        if let Some(ref json) = cli.json {
+            validate_body_size(json)?;
+        }
+
         let (method, body) = get_request_method_and_body(&cli);
-        Self { method, body, cli }
+        Ok(Self { method, body, cli })
     }
 
     /// Build an HTTP client with the configured options
