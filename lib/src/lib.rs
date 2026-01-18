@@ -14,6 +14,7 @@ pub mod http;
 pub mod keystore;
 pub mod negotiator;
 pub mod network;
+pub mod path_validation;
 pub mod payment_provider;
 pub mod protocol;
 pub mod providers;
@@ -36,4 +37,5 @@ pub use http::{
 pub use network::{evm_chain_ids, networks, ChainType, GasConfig, Network, NetworkInfo};
 pub use protocol::x402::{PaymentPayload, PaymentRequirementsResponse, SettlementResponse};
 
+pub use path_validation::validate_path;
 pub use payment_provider::{BuiltinProvider, NetworkBalance, PaymentProvider, PROVIDER_REGISTRY};
