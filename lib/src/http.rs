@@ -399,6 +399,85 @@ impl HttpClient {
     }
 }
 
+// =============================================================================
+// Header Utilities
+// =============================================================================
+
+/// Check if a header with the given name exists in a list of raw header strings.
+///
+/// Headers are expected in "Name: Value" format. The comparison is case-insensitive
+/// for the header name, as per HTTP specification.
+///
+/// # Example
+///
+/// ```
+/// use purl_lib::http::has_header;
+///
+/// let headers = vec!["Content-Type: application/json".to_string(), "Authorization: Bearer token".to_string()];
+/// assert!(has_header(&headers, "content-type"));
+/// assert!(has_header(&headers, "Content-Type"));
+/// assert!(!has_header(&headers, "Accept"));
+/// ```
+pub fn has_header(headers: &[String], name: &str) -> bool {
+    headers.iter().any(|h| {
+        h.split_once(':')
+            .map(|(k, _)| k.trim().eq_ignore_ascii_case(name))
+            .unwrap_or(false)
+    })
+}
+
+/// Find and return the value of a header by name from a list of raw header strings.
+///
+/// Headers are expected in "Name: Value" format. The comparison is case-insensitive
+/// for the header name. Returns the first matching header's value (trimmed).
+///
+/// # Example
+///
+/// ```
+/// use purl_lib::http::find_header;
+///
+/// let headers = vec!["Content-Type: application/json".to_string()];
+/// assert_eq!(find_header(&headers, "content-type"), Some("application/json"));
+/// assert_eq!(find_header(&headers, "Accept"), None);
+/// ```
+pub fn find_header<'a>(headers: &'a [String], name: &str) -> Option<&'a str> {
+    headers.iter().find_map(|h| {
+        h.split_once(':').and_then(|(k, v)| {
+            if k.trim().eq_ignore_ascii_case(name) {
+                Some(v.trim())
+            } else {
+                None
+            }
+        })
+    })
+}
+
+/// Parse raw header strings into (name, value) tuples.
+///
+/// Headers without a colon are silently skipped. Both name and value are trimmed.
+///
+/// # Example
+///
+/// ```
+/// use purl_lib::http::parse_headers;
+///
+/// let raw = vec!["Content-Type: application/json".to_string(), "Accept: */*".to_string()];
+/// let parsed = parse_headers(&raw);
+/// assert_eq!(parsed, vec![
+///     ("Content-Type".to_string(), "application/json".to_string()),
+///     ("Accept".to_string(), "*/*".to_string()),
+/// ]);
+/// ```
+pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter_map(|h| {
+            h.split_once(':')
+                .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,5 +606,99 @@ mod tests {
         assert_eq!(set.len(), 2);
         assert!(set.contains(&HttpMethod::Get));
         assert!(set.contains(&HttpMethod::Post));
+    }
+
+    #[test]
+    fn test_has_header() {
+        let headers = vec![
+            "Content-Type: application/json".to_string(),
+            "Authorization: Bearer token".to_string(),
+        ];
+
+        assert!(has_header(&headers, "Content-Type"));
+        assert!(has_header(&headers, "content-type"));
+        assert!(has_header(&headers, "CONTENT-TYPE"));
+        assert!(has_header(&headers, "Authorization"));
+        assert!(!has_header(&headers, "Accept"));
+        assert!(!has_header(&headers, ""));
+    }
+
+    #[test]
+    fn test_has_header_empty() {
+        let headers: Vec<String> = vec![];
+        assert!(!has_header(&headers, "Content-Type"));
+    }
+
+    #[test]
+    fn test_has_header_malformed() {
+        let headers = vec![
+            "NoColonHeader".to_string(),
+            "Content-Type: application/json".to_string(),
+        ];
+
+        assert!(has_header(&headers, "Content-Type"));
+        assert!(!has_header(&headers, "NoColonHeader"));
+    }
+
+    #[test]
+    fn test_find_header() {
+        let headers = vec![
+            "Content-Type: application/json".to_string(),
+            "Authorization: Bearer token".to_string(),
+        ];
+
+        assert_eq!(
+            find_header(&headers, "Content-Type"),
+            Some("application/json")
+        );
+        assert_eq!(
+            find_header(&headers, "content-type"),
+            Some("application/json")
+        );
+        assert_eq!(find_header(&headers, "Authorization"), Some("Bearer token"));
+        assert_eq!(find_header(&headers, "Accept"), None);
+    }
+
+    #[test]
+    fn test_find_header_with_whitespace() {
+        let headers = vec!["  Content-Type  :  application/json  ".to_string()];
+
+        assert_eq!(
+            find_header(&headers, "Content-Type"),
+            Some("application/json")
+        );
+    }
+
+    #[test]
+    fn test_parse_headers() {
+        let raw = vec![
+            "Content-Type: application/json".to_string(),
+            "Accept: */*".to_string(),
+        ];
+        let parsed = parse_headers(&raw);
+        assert_eq!(
+            parsed,
+            vec![
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("Accept".to_string(), "*/*".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_headers_skips_malformed() {
+        let raw = vec![
+            "Valid: header".to_string(),
+            "NoColon".to_string(),
+            "Another: one".to_string(),
+        ];
+        let parsed = parse_headers(&raw);
+        assert_eq!(
+            parsed,
+            vec![
+                ("Valid".to_string(), "header".to_string()),
+                ("Another".to_string(), "one".to_string()),
+            ]
+        );
     }
 }

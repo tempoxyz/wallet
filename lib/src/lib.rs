@@ -30,7 +30,9 @@ pub use config::{
     CustomNetwork, CustomToken, EvmConfig, PaymentMethod, SolanaConfig, WalletConfig,
 };
 pub use currency::{currencies, Currency};
-pub use http::{HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
+pub use http::{
+    find_header, has_header, parse_headers, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse,
+};
 pub use network::{networks, ChainType, Network, NetworkInfo};
 pub use protocol::x402::{PaymentPayload, PaymentRequirementsResponse, SettlementResponse};
 
