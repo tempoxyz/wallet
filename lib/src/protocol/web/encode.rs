@@ -213,10 +213,12 @@ mod tests {
             intent: PaymentIntent::Charge,
             request: serde_json::json!({"amount": "10000"}),
             expires: None,
+            // ast-grep-ignore: no-leading-whitespace-strings
             description: Some("Test \"payment\" here".to_string()),
         };
 
         let header = format_www_authenticate(&challenge).unwrap();
+        // ast-grep-ignore: no-leading-whitespace-strings
         assert!(header.contains("description=\"Test \\\"payment\\\" here\""));
     }
 }

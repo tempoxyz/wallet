@@ -2,14 +2,18 @@ id: no-leading-whitespace-strings
 snapshots:
   ? |
     let bad = " bar";
-  : labels:
+  : fixed: |
+      let bad = "bar";
+    labels:
     - source: ' bar'
       style: primary
       start: 11
       end: 15
   ? |
     let padded = " foo";
-  : labels:
+  : fixed: |
+      let padded = "foo";
+    labels:
     - source: ' foo'
       style: primary
       start: 14
