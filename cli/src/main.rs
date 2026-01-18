@@ -72,7 +72,7 @@ async fn run() -> Result<()> {
 /// Handle CLI subcommands
 async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
     match command {
-        Commands::Init { force } => init::run_init(*force),
+        Commands::Init { force, skip_ai } => init::run_init(*force, *skip_ai),
 
         Commands::Config {
             command,

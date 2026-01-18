@@ -19,7 +19,7 @@ purl.toml
 !Cargo.toml
 
 # Build artifacts
-purl
+/purl
 *.tar.gz
 
 # Logs
