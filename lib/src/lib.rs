@@ -14,6 +14,7 @@ pub mod http;
 pub mod keystore;
 pub mod negotiator;
 pub mod network;
+pub mod passkey;
 pub mod payment_provider;
 pub mod protocol;
 pub mod providers;

@@ -2,6 +2,7 @@ use crate::config::{Config, WalletConfig};
 use crate::currency::Currency;
 use crate::error::{PurlError, Result};
 use crate::network::{get_evm_chain_id, get_network, ChainType, Network};
+use crate::passkey::PasskeyConfig;
 use crate::payment_provider::{DryRunInfo, NetworkBalance, PaymentProvider};
 use crate::protocol::x402::{PaymentPayload, PaymentRequirements};
 use alloy::primitives::{Address, B256, U256};
@@ -15,7 +16,7 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Tempo transaction types from tempo-primitives
-use tempo_primitives::transaction::{AASigned, Call, TempoTransaction};
+use tempo_primitives::transaction::{AASigned, Call, TempoSignature, TempoTransaction};
 
 use crate::network::GasConfig;
 
@@ -269,8 +270,24 @@ impl PaymentProvider for EvmProvider {
         let charge_req: ChargeRequest = serde_json::from_value(challenge.request.clone())
             .map_err(|e| PurlError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
-        let signer = Self::load_signer(config)?;
-        let from = signer.address();
+        // Check if passkey config is available and configured
+        let passkey_config = &config.tempo;
+        let use_passkey = passkey_config.is_configured();
+
+        // Load signer (may be None if using passkey)
+        let signer = if use_passkey {
+            Self::load_signer(config).ok()
+        } else {
+            Some(Self::load_signer(config)?)
+        };
+
+        // Determine the sender address
+        let from = if use_passkey {
+            Address::from_str(passkey_config.account_address.as_ref().unwrap())
+                .map_err(|e| PurlError::invalid_address(format!("Invalid root account: {}", e)))?
+        } else {
+            signer.as_ref().unwrap().address()
+        };
 
         let asset = Address::from_str(&charge_req.asset)
             .map_err(|e| PurlError::invalid_address(format!("Invalid asset address: {}", e)))?;
@@ -317,23 +334,22 @@ impl PaymentProvider for EvmProvider {
 
         let signed_tx = match &challenge.method {
             crate::protocol::web::PaymentMethod::Tempo => create_tempo_transaction(
-                &signer,
+                signer.as_ref(),
                 chain_id,
                 nonce,
                 asset,
                 transfer_data,
                 &gas_config,
+                Some(passkey_config),
             )?,
             crate::protocol::web::PaymentMethod::Base => {
-                create_eip1559_transaction(
-                    &signer,
-                    chain_id,
-                    nonce,
-                    asset,
-                    transfer_data,
-                    &gas_config,
-                )
-                .await?
+                let s = signer.as_ref().ok_or_else(|| {
+                    PurlError::ConfigMissing(
+                        "EVM signer required for Base transactions".to_string(),
+                    )
+                })?;
+                create_eip1559_transaction(s, chain_id, nonce, asset, transfer_data, &gas_config)
+                    .await?
             }
             crate::protocol::web::PaymentMethod::Custom(name) => {
                 return Err(PurlError::unsupported_method(
@@ -355,16 +371,78 @@ impl PaymentProvider for EvmProvider {
     }
 }
 
+/// Create a Keychain signature for Tempo transactions using an access key.
+///
+/// The Keychain signature format is:
+/// `0x03 || root_address (20 bytes) || r (32 bytes) || s (32 bytes) || v (1 byte)`
+fn sign_with_access_key(
+    tx_hash: B256,
+    access_key_private_key: &str,
+    root_account: Address,
+) -> Result<Vec<u8>> {
+    let signer = PrivateKeySigner::from_str(access_key_private_key)
+        .map_err(|e| PurlError::InvalidKey(format!("Invalid access key: {}", e)))?;
+
+    let signature = signer
+        .sign_hash_sync(&tx_hash)
+        .map_err(|e| PurlError::signing(format!("Failed to sign with access key: {}", e)))?;
+
+    // Build Keychain signature: 0x03 || root_address (20) || r (32) || s (32) || v (1)
+    let mut keychain_sig = Vec::with_capacity(86);
+    keychain_sig.push(0x03);
+    keychain_sig.extend_from_slice(root_account.as_slice());
+    keychain_sig.extend_from_slice(&signature.r().to_be_bytes::<32>());
+    keychain_sig.extend_from_slice(&signature.s().to_be_bytes::<32>());
+    keychain_sig.push(signature.v() as u8);
+
+    Ok(keychain_sig)
+}
+
 /// Create a Tempo transaction (type 0x76) with network-specific gas configuration.
+///
+/// If `passkey_config` is provided and configured with a valid (non-expired) access key,
+/// the transaction will be signed using the Keychain signature format (0x03).
+/// Otherwise, falls back to direct signing with the provided signer.
 fn create_tempo_transaction(
-    signer: &PrivateKeySigner,
+    signer: Option<&PrivateKeySigner>,
     chain_id: u64,
     nonce: u64,
     asset: Address,
     transfer_data: alloy::primitives::Bytes,
     gas_config: &GasConfig,
+    passkey_config: Option<&PasskeyConfig>,
 ) -> Result<String> {
     use alloy::primitives::TxKind;
+
+    // Determine the sender address based on signing method
+    let _sender_address = if let Some(passkey_cfg) = passkey_config {
+        if passkey_cfg.is_configured() {
+            let access_key = passkey_cfg
+                .active_key()
+                .ok_or_else(|| PurlError::ConfigMissing("No active access key".to_string()))?;
+
+            if access_key.is_expired() {
+                return Err(PurlError::ConfigMissing(
+                    "Access key expired. Run `purl passkey refresh` to get a new key.".to_string(),
+                ));
+            }
+
+            Address::from_str(passkey_cfg.account_address.as_ref().unwrap())
+                .map_err(|e| PurlError::invalid_address(format!("Invalid root account: {}", e)))?
+        } else if let Some(s) = signer {
+            s.address()
+        } else {
+            return Err(PurlError::ConfigMissing(
+                "No signer or passkey configured".to_string(),
+            ));
+        }
+    } else if let Some(s) = signer {
+        s.address()
+    } else {
+        return Err(PurlError::ConfigMissing(
+            "No signer or passkey configured".to_string(),
+        ));
+    };
 
     let tx = TempoTransaction {
         chain_id,
@@ -386,6 +464,39 @@ fn create_tempo_transaction(
         key_authorization: None,
         tempo_authorization_list: vec![],
     };
+
+    // Sign based on available method
+    if let Some(passkey_cfg) = passkey_config {
+        if passkey_cfg.is_configured() {
+            let access_key = passkey_cfg
+                .active_key()
+                .ok_or_else(|| PurlError::InvalidConfig("No active access key configured".into()))?;
+            let root_account = Address::from_str(
+                passkey_cfg
+                    .account_address
+                    .as_ref()
+                    .ok_or_else(|| PurlError::InvalidConfig("No account address configured".into()))?,
+            )
+            .map_err(|e| PurlError::invalid_address(format!("Invalid account address: {e}")))?;
+
+            let signing_hash = tx.signature_hash();
+            let keychain_sig_bytes =
+                sign_with_access_key(signing_hash, &access_key.private_key, root_account)?;
+
+            let tempo_sig = TempoSignature::from_bytes(&keychain_sig_bytes)
+                .map_err(|e| PurlError::signing(format!("Invalid keychain signature: {}", e)))?;
+
+            let signed_tx: AASigned = tx.into_signed(tempo_sig);
+            let mut buf = Vec::new();
+            signed_tx.eip2718_encode(&mut buf);
+
+            return Ok(hex::encode(&buf));
+        }
+    }
+
+    // Fall back to direct signing
+    let signer = signer
+        .ok_or_else(|| PurlError::ConfigMissing("No signer or passkey configured".to_string()))?;
 
     let signing_hash = tx.signature_hash();
     let signature = signer

@@ -276,6 +276,8 @@ pub enum Commands {
         /// URL to inspect
         url: String,
     },
+    /// Manage passkey wallet authentication
+    Passkey(crate::passkey_commands::PasskeyArgs),
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]

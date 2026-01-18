@@ -48,6 +48,8 @@ dirs.workspace = true
 once_cell.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
+percent-encoding.workspace = true
+tiny_http = "0.12"
 
 alloy = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }

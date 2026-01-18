@@ -10,6 +10,7 @@ mod init;
 mod inspect_command;
 mod network_commands;
 mod output;
+mod passkey_commands;
 mod payment;
 mod request;
 mod wallet_commands;
@@ -131,6 +132,8 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
         }
 
         Commands::Inspect { url } => inspect_command::inspect_command(cli, url),
+
+        Commands::Passkey(args) => passkey_commands::handle_passkey_command(args.clone()).await,
     }
 }
 

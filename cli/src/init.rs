@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
-use dialoguer::{Confirm, Input, Password};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 use purl_lib::keystore::create_keystore;
 use purl_lib::{Config, EvmConfig, SolanaConfig};
 use std::path::PathBuf;
+
+use crate::passkey_commands::setup_passkey;
 
 const PURL_SKILL_CONTENT: &str = include_str!("../../.ai/skills/purl/SKILL.md");
 
@@ -24,8 +26,51 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
         }
     }
 
-    println!("Initializing purl configuration...");
-    println!("Wallets will be stored as encrypted keystore files");
+    println!("purl - HTTP client with automatic payments\n");
+
+    let wallet_types = vec![
+        "Passkey wallet (recommended) - Sign in with your browser",
+        "Private key - Use an existing keystore or raw key",
+    ];
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("How would you like to authenticate?")
+        .items(&wallet_types)
+        .default(0)
+        .interact()?;
+
+    match selection {
+        0 => {
+            println!("\nSetting up passkey wallet...\n");
+
+            let networks = vec!["moderato", "accelerando"];
+            let network_idx = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("Select network")
+                .items(&networks)
+                .default(0)
+                .interact()?;
+
+            tokio::runtime::Runtime::new()?.block_on(setup_passkey(networks[network_idx]))?;
+
+            if !skip_ai {
+                match install_ai_integrations() {
+                    Ok(path) => println!("AI integrations installed to: {}", path.display()),
+                    Err(e) => eprintln!("Warning: Failed to install AI integrations: {e}"),
+                }
+            }
+
+            Ok(())
+        }
+        1 => {
+            setup_private_key(skip_ai)?;
+            Ok(())
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn setup_private_key(skip_ai: bool) -> Result<()> {
+    println!("\nWallets will be stored as encrypted keystore files");
 
     let configure_evm = Confirm::new()
         .with_prompt("Configure EVM payment method?")
@@ -119,6 +164,7 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
     let config = Config {
         evm,
         solana,
+        tempo: Default::default(),
         rpc: Default::default(),
         networks: Default::default(),
         tokens: Default::default(),
@@ -126,6 +172,7 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
 
     config.save().context("Failed to save configuration")?;
 
+    let config_path = Config::default_config_path()?;
     println!("Configuration saved to: {}", config_path.display());
 
     if !skip_ai {

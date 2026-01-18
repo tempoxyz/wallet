@@ -70,6 +70,9 @@ pub struct Config {
     pub evm: Option<EvmConfig>,
     #[serde(default)]
     pub solana: Option<SolanaConfig>,
+    /// Passkey-based access key configuration for Tempo
+    #[serde(default)]
+    pub tempo: crate::passkey::PasskeyConfig,
     /// RPC URL overrides for built-in networks
     #[serde(default)]
     pub rpc: HashMap<String, String>,
@@ -345,6 +348,7 @@ impl ConfigBuilder {
         let config = Config {
             evm: self.evm,
             solana: self.solana,
+            tempo: crate::passkey::PasskeyConfig::default(),
             rpc: self.rpc,
             networks: self.networks,
             tokens: self.tokens,
@@ -463,7 +467,15 @@ impl Config {
         }
 
         let content = toml::to_string_pretty(self)?;
-        std::fs::write(&config_path, content)?;
+        std::fs::write(&config_path, &content)?;
+
+        // Set restrictive file permissions on Unix (mode 0600 - owner read/write only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&config_path, permissions)?;
+        }
 
         Ok(())
     }
