@@ -1,0 +1,18 @@
+id: no-emojis
+valid:
+  - |
+    fn main() {
+        println!("Hello, world!");
+    }
+  - |
+    let message = "Success";
+  - |
+    let icon = "[OK]";
+
+invalid:
+  - |
+    let emoji = "🎉";
+  - |
+    println!("Done! 🚀");
+  - |
+    let status = "✅ Complete";

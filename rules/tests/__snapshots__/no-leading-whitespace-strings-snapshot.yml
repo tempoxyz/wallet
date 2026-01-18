@@ -1,0 +1,16 @@
+id: no-leading-whitespace-strings
+snapshots:
+  ? |
+    let bad = " bar";
+  : labels:
+    - source: ' bar'
+      style: primary
+      start: 11
+      end: 15
+  ? |
+    let padded = " foo";
+  : labels:
+    - source: ' foo'
+      style: primary
+      start: 14
+      end: 18
