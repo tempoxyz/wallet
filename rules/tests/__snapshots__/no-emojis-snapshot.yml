@@ -1,0 +1,23 @@
+id: no-emojis
+snapshots:
+  ? |
+    let emoji = "🎉";
+  : labels:
+    - source: 🎉
+      style: primary
+      start: 13
+      end: 17
+  ? |
+    let status = "✅ Complete";
+  : labels:
+    - source: ✅ Complete
+      style: primary
+      start: 14
+      end: 26
+  ? |
+    println!("Done! 🚀");
+  : labels:
+    - source: Done! 🚀
+      style: primary
+      start: 10
+      end: 20

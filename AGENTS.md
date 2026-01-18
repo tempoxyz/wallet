@@ -21,7 +21,10 @@ make build              # Build debug binary
 make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
 make test-fast          # Run unit tests only (fastest)
-make check              # Run fmt check, clippy, tests, and build
+make check              # Run fmt check, clippy, ast-grep, tests, and build
+make lint-ast           # Run ast-grep linter only
+make fix-ast            # Auto-fix ast-grep lint issues
+make test-ast           # Run ast-grep rule tests
 make fmt                # Auto-fix formatting and clippy warnings
 make install            # Install CLI to ~/.cargo/bin
 make run ARGS="<url>"   # Run CLI with arguments
