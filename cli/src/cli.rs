@@ -364,13 +364,6 @@ impl Cli {
         self.max_time.or(self.connect_timeout)
     }
 
-    /// Parse allowed networks from the --network flag
-    pub fn allowed_networks(&self) -> Option<Vec<String>> {
-        self.network
-            .as_ref()
-            .map(|nets| nets.split(',').map(|s| s.trim().to_string()).collect())
-    }
-
     /// Check if verbose output is enabled
     pub fn is_verbose(&self) -> bool {
         self.verbosity >= 1
