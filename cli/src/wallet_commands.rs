@@ -367,23 +367,6 @@ pub fn show_command(name: &str) -> Result<()> {
 /// - The keystore format is invalid
 /// - The password is incorrect
 /// - The stored address doesn't match the derived address (indicating corruption)
-/// Helper to get the default keystore (first one in the list)
-fn get_default_keystore() -> Result<PathBuf> {
-    let keystores = list_keystores()?;
-    keystores
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("No keystores found. Create one with: purl method new"))
-}
-
-/// Helper to resolve keystore path from optional name
-fn resolve_keystore(name: Option<String>) -> Result<PathBuf> {
-    match name {
-        Some(n) => find_keystore_by_name(&n),
-        None => get_default_keystore(),
-    }
-}
-
 pub fn verify_command(name: &str) -> Result<()> {
     let keystore_path = find_keystore_by_name(name)?;
     let keystore = Keystore::load(&keystore_path)?;
@@ -452,6 +435,23 @@ pub fn verify_command(name: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Helper to get the default keystore (first one in the list)
+fn get_default_keystore() -> Result<PathBuf> {
+    let keystores = list_keystores()?;
+    keystores
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No keystores found. Create one with: purl method new"))
+}
+
+/// Helper to resolve keystore path from optional name
+fn resolve_keystore(name: Option<String>) -> Result<PathBuf> {
+    match name {
+        Some(n) => find_keystore_by_name(&n),
+        None => get_default_keystore(),
+    }
 }
 
 /// Sign a message using a keystore
