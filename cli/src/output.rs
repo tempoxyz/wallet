@@ -1,7 +1,7 @@
 //! Output formatting and display utilities for the CLI
 
 use anyhow::{Context, Result};
-use purl_lib::HttpResponse;
+use purl_lib::{validate_path, HttpResponse};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -47,6 +47,7 @@ pub fn handle_regular_response(cli: &Cli, response: HttpResponse) -> Result<()> 
 /// Write response body to file or stdout
 pub fn output_response_body(cli: &Cli, body: &[u8]) -> Result<()> {
     if let Some(output_file) = &cli.output {
+        validate_path(output_file, true).context("Invalid output path")?;
         std::fs::write(output_file, body).context("Failed to write output file")?;
         if cli.is_verbose() && cli.should_show_output() {
             eprintln!("Saved to: {output_file}");
@@ -66,6 +67,7 @@ pub fn output_response_body(cli: &Cli, body: &[u8]) -> Result<()> {
 pub fn write_output(cli: &Cli, content: impl AsRef<str>) -> Result<()> {
     let content = content.as_ref();
     if let Some(output_file) = &cli.output {
+        validate_path(output_file, true).context("Invalid output path")?;
         std::fs::write(output_file, content).context("Failed to write output file")?;
         if cli.is_verbose() && cli.should_show_output() {
             eprintln!("Saved to: {output_file}");

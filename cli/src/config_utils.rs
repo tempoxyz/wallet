@@ -1,13 +1,17 @@
 //! Configuration loading utilities for the CLI
 
 use anyhow::{Context, Result};
-use purl_lib::{Config, EvmConfig};
+use purl_lib::{validate_path, Config, EvmConfig};
 use std::path::Path;
 
 use crate::cli::Cli;
 
 /// Load configuration from CLI arguments or default location.
 pub fn load_config(config_path: Option<impl AsRef<Path>>) -> Result<Config> {
+    if let Some(ref path) = config_path {
+        let path_str = path.as_ref().to_string_lossy();
+        validate_path(&path_str, true).context("Invalid config path")?;
+    }
     Config::load_from(config_path).context("Failed to load configuration")
 }
 
@@ -21,6 +25,7 @@ pub fn load_config_with_overrides(cli: &Cli) -> Result<Config> {
         });
 
         if let Some(ref keystore) = cli.keystore {
+            validate_path(keystore, true).context("Invalid keystore path")?;
             evm.keystore = Some(keystore.clone().into());
         }
 
