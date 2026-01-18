@@ -1,10 +1,10 @@
 //! Parsing functions for Web Payment Auth headers
 
-use crate::error::{PurlError, Result};
-use crate::web::encode::base64url_decode;
-use crate::web::types::{
+use super::encode::base64url_decode;
+use super::types::{
     PaymentChallenge, PaymentCredential, PaymentIntent, PaymentMethod, PaymentReceipt,
 };
+use crate::error::{PurlError, Result};
 use regex::Regex;
 use std::sync::OnceLock;
 
@@ -24,7 +24,7 @@ fn www_authenticate_regex() -> &'static Regex {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::web::parse_www_authenticate;
+/// # use purl_lib::protocol::web::parse_www_authenticate;
 /// let header = r#"Payment id="abc123", realm="api", method="tempo", intent="charge", request="eyJhbW91bnQiOiIxMDAwMCJ9""#;
 /// let challenge = parse_www_authenticate(header)?;
 /// assert_eq!(challenge.id, "abc123");
@@ -103,7 +103,7 @@ pub fn parse_www_authenticate(header: &str) -> Result<PaymentChallenge> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::web::parse_authorization;
+/// # use purl_lib::protocol::web::parse_authorization;
 /// let header = "Payment eyJpZCI6ImFiYzEyMyIsInNvdXJjZSI6ImRpZDpwa2g6ZWlwMTU1Ojg4MTUzOjB4MTIzIiwicGF5bG9hZCI6eyJ0eXBlIjoidHJhbnNhY3Rpb24iLCJzaWduYXR1cmUiOiIweGFiYyJ9fQ";
 /// let credential = parse_authorization(header)?;
 /// assert_eq!(credential.id, "abc123");
@@ -133,7 +133,7 @@ pub fn parse_authorization(header: &str) -> Result<PaymentCredential> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::web::parse_receipt;
+/// # use purl_lib::protocol::web::parse_receipt;
 /// let header = "eyJzdGF0dXMiOiJzdWNjZXNzIiwibWV0aG9kIjoidGVtcG8iLCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTAxVDAwOjAwOjAwWiIsInJlZmVyZW5jZSI6IjB4YWJjMTIzIn0";
 /// let receipt = parse_receipt(header)?;
 /// # Ok::<(), purl_lib::error::PurlError>(())
@@ -148,9 +148,9 @@ pub fn parse_receipt(header: &str) -> Result<PaymentReceipt> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::encode::{format_authorization, format_receipt, format_www_authenticate};
+    use super::super::types::{PayloadType, PaymentPayload, ReceiptStatus};
     use super::*;
-    use crate::web::encode::{format_authorization, format_receipt, format_www_authenticate};
-    use crate::web::types::{PayloadType, PaymentPayload, ReceiptStatus};
 
     #[test]
     fn test_parse_www_authenticate() {

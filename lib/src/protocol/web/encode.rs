@@ -1,7 +1,7 @@
 //! Encoding and formatting functions for Web Payment Auth headers
 
+use super::types::{PaymentChallenge, PaymentCredential, PaymentReceipt};
 use crate::error::{PurlError, Result};
-use crate::web::types::{PaymentChallenge, PaymentCredential, PaymentReceipt};
 use base64::Engine;
 
 /// Encode data to base64url format (URL-safe, no padding)
@@ -23,7 +23,7 @@ pub fn base64url_decode(input: &str) -> Result<Vec<u8>> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::web::{PaymentChallenge, PaymentMethod, PaymentIntent};
+/// # use purl_lib::protocol::web::{PaymentChallenge, PaymentMethod, PaymentIntent};
 /// let challenge = PaymentChallenge {
 ///     id: "abc123".to_string(),
 ///     realm: "api".to_string(),
@@ -34,7 +34,7 @@ pub fn base64url_decode(input: &str) -> Result<Vec<u8>> {
 ///     description: None,
 /// };
 ///
-/// let header = purl_lib::web::format_www_authenticate(&challenge)?;
+/// let header = purl_lib::protocol::web::format_www_authenticate(&challenge)?;
 /// // Returns: Payment id="abc123", realm="api", method="tempo", ...
 /// # Ok::<(), purl_lib::error::PurlError>(())
 /// ```
@@ -71,7 +71,7 @@ pub fn format_www_authenticate(challenge: &PaymentChallenge) -> Result<String> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::web::{PaymentCredential, PaymentPayload, PayloadType};
+/// # use purl_lib::protocol::web::{PaymentCredential, PaymentPayload, PayloadType};
 /// let credential = PaymentCredential {
 ///     id: "abc123".to_string(),
 ///     source: Some("did:pkh:eip155:88153:0x123".to_string()),
@@ -81,7 +81,7 @@ pub fn format_www_authenticate(challenge: &PaymentChallenge) -> Result<String> {
 ///     },
 /// };
 ///
-/// let header = purl_lib::web::format_authorization(&credential)?;
+/// let header = purl_lib::protocol::web::format_authorization(&credential)?;
 /// // Returns: Payment eyJpZCI6ImFiYzEyMyIs...
 /// # Ok::<(), purl_lib::error::PurlError>(())
 /// ```
@@ -100,7 +100,7 @@ pub fn format_authorization(credential: &PaymentCredential) -> Result<String> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::web::{PaymentReceipt, PaymentMethod, ReceiptStatus};
+/// # use purl_lib::protocol::web::{PaymentReceipt, PaymentMethod, ReceiptStatus};
 /// let receipt = PaymentReceipt {
 ///     status: ReceiptStatus::Success,
 ///     method: PaymentMethod::Tempo,
@@ -110,7 +110,7 @@ pub fn format_authorization(credential: &PaymentCredential) -> Result<String> {
 ///     error: None,
 /// };
 ///
-/// let header = purl_lib::web::format_receipt(&receipt)?;
+/// let header = purl_lib::protocol::web::format_receipt(&receipt)?;
 /// // Returns: eyJzdGF0dXMiOiJzdWNjZXNzIiwi...
 /// # Ok::<(), purl_lib::error::PurlError>(())
 /// ```
@@ -122,8 +122,8 @@ pub fn format_receipt(receipt: &PaymentReceipt) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::{PayloadType, PaymentIntent, PaymentMethod, ReceiptStatus};
     use super::*;
-    use crate::web::types::{PayloadType, PaymentIntent, PaymentMethod, ReceiptStatus};
 
     #[test]
     fn test_base64url_encode_decode() {
@@ -167,7 +167,7 @@ mod tests {
         let credential = PaymentCredential {
             id: "abc123".to_string(),
             source: Some("did:pkh:eip155:88153:0x123".to_string()),
-            payload: crate::web::types::PaymentPayload {
+            payload: super::super::types::PaymentPayload {
                 payload_type: PayloadType::Transaction,
                 signature: "0xabc".to_string(),
             },

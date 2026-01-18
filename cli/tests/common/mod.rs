@@ -197,3 +197,14 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 
     cmd
 }
+
+/// Create a test command with mock network mode enabled
+///
+/// Use this for tests that would normally make network/RPC calls.
+/// When PURL_MOCK_NETWORK=1 is set, the CLI returns fake data instead
+/// of making actual network requests.
+pub fn mock_test_command(temp_dir: &TempDir) -> Command {
+    let mut cmd = test_command(temp_dir);
+    cmd.env("PURL_MOCK_NETWORK", "1");
+    cmd
+}

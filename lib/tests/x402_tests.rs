@@ -1,6 +1,6 @@
 //! Integration tests for x402 protocol types
 
-use purl_lib::x402::{v1, v2, Amount, PaymentRequirements};
+use purl_lib::protocol::x402::{v1, v2, Amount, PaymentRequirements};
 use purl_lib::{PaymentPayload, PaymentRequirementsResponse, SettlementResponse};
 
 #[test]

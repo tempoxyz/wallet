@@ -20,7 +20,8 @@ This is a **Rust workspace** for `purl` - a curl-like CLI tool for making HTTP r
 ```bash
 make build              # Build debug binary
 make release            # Build optimized release binary
-make test               # Run all tests
+make test               # Run all tests (uses mocks, no network required)
+make test-fast          # Run unit tests only (fastest)
 make check              # Run fmt check, clippy, tests, and build
 make fmt                # Auto-fix formatting and clippy warnings
 make install            # Install CLI to ~/.cargo/bin
@@ -80,6 +81,15 @@ pub enum MyError {
 - Use the `common/mod.rs` pattern for shared test utilities
 - Use `TestConfigBuilder` for setting up test configurations
 - Test constants: `TEST_EVM_KEY`, `TEST_SOLANA_KEY` in `common/mod.rs`
+
+**Writing Tests:**
+- Avoid using `#[serial]` - prefer isolated temp directories with internal `_in_dir` helper functions
+- Library tests should use `_in_dir` variants to avoid HOME env var conflicts
+
+**Mock Mode for Network Tests:**
+- Set `PURL_MOCK_NETWORK=1` environment variable to enable mock mode
+- When enabled, the balance command returns fake data instead of making RPC calls
+- Use `mock_test_command(&temp)` helper in integration tests for mock mode
 
 ```rust
 use crate::common::{TestConfigBuilder, test_command};
