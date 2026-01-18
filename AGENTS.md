@@ -34,6 +34,22 @@ make run ARGS="<url>"   # Run CLI with arguments
 
 1. ✅ **Check**: `make check` - ZERO issues
 
+## Pull Request Guidelines
+
+When creating pull requests:
+
+1. **Always include the PR link** in your response after creating a PR
+2. Format as a clickable link: `[#123](https://github.com/tempoxyz/purl/pull/123)`
+3. When creating multiple PRs, provide a summary table with all links
+
+Example summary format:
+```
+| PR | Title | Link |
+|----|-------|------|
+| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/purl/pull/123) |
+| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/purl/pull/124) |
+```
+
 ## Code Style Guidelines
 
 ### Rust Conventions
