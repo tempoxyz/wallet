@@ -144,17 +144,6 @@ impl HttpResponse {
     pub fn get_header(&self, name: &str) -> Option<&String> {
         self.headers.get(&name.to_lowercase())
     }
-
-    /// Get the payment requirements JSON from either the PAYMENT-REQUIRED header (base64) or body.
-    ///
-    /// For x402 v2, payment requirements are sent in the PAYMENT-REQUIRED header (base64 encoded).
-    /// For backwards compatibility with v1, this also falls back to the response body.
-    ///
-    /// # Errors
-    /// Returns an error if the header is present but cannot be decoded, or if the body is not valid UTF-8.
-    pub fn payment_requirements_json(&self) -> Result<String> {
-        crate::protocol::x402::payment_requirements_json(self)
-    }
 }
 
 /// Builder for configuring HTTP clients.

@@ -18,9 +18,6 @@ pub const KEYSTORES_DIR: &str = "keystores";
 /// Password cache subdirectory name
 pub const PASSWORD_CACHE_DIR: &str = "password_cache";
 
-/// x402 protocol version
-pub const X402_VERSION: u32 = 1;
-
 /// Get the configured password cache duration
 ///
 /// Returns the duration that keystore passwords should be cached in memory.

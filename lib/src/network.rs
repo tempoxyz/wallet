@@ -69,7 +69,7 @@ struct BuiltinNetwork {
     mainnet: bool,
     display_name: &'static str,
     rpc_url: &'static str,
-    /// Alternative network identifiers (e.g., CAIP-2 formats for v2 x402)
+    /// Alternative network identifiers (e.g., CAIP-2 formats)
     aliases: &'static [&'static str],
 }
 

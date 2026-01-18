@@ -1,4 +1,4 @@
-//! purl CLI - A curl-like tool for x402 payment-enabled HTTP requests
+//! purl CLI - A curl-like tool for payment-enabled HTTP requests
 
 mod balance_command;
 mod cli;
@@ -10,7 +10,6 @@ mod init;
 mod inspect_command;
 mod network_commands;
 mod output;
-mod payment;
 mod request;
 mod wallet_commands;
 mod web_payment;
@@ -24,7 +23,7 @@ use cli::{
 use colored::control;
 use exit_codes::ExitCode;
 use purl_lib::protocol::web::PaymentProtocol;
-use purl_lib::{Config, PaymentRequirementsResponse, WalletConfig};
+use purl_lib::{Config, WalletConfig};
 use std::path::PathBuf;
 
 use config_utils::{load_config, load_config_with_overrides};
@@ -32,7 +31,7 @@ use output::{
     build_config_display, decrypt_keystores_upfront, handle_regular_response,
     print_payment_method_text, write_output,
 };
-use payment::handle_payment_request;
+
 use request::RequestContext;
 use web_payment::handle_web_payment_request;
 
@@ -164,21 +163,15 @@ async fn make_request(cli: Cli) -> Result<()> {
     let protocol =
         PaymentProtocol::detect(response.get_header("www-authenticate").map(|s| s.as_str()));
 
+    let Some(protocol) = protocol else {
+        anyhow::bail!("402 response missing WWW-Authenticate: Payment header");
+    };
+
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Payment protocol: {}", protocol);
     }
 
-    let response = match protocol {
-        PaymentProtocol::WebPaymentAuth => {
-            handle_web_payment_request(&config, &request_ctx, url, &response).await?
-        }
-        PaymentProtocol::X402 => {
-            let json = response.payment_requirements_json()?;
-            let requirements: PaymentRequirementsResponse =
-                serde_json::from_str(&json).context("Failed to parse payment requirements")?;
-            handle_payment_request(&config, &request_ctx, url, requirements).await?
-        }
-    };
+    let response = handle_web_payment_request(&config, &request_ctx, url, &response).await?;
 
     handle_regular_response(&request_ctx.cli, response)?;
 

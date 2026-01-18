@@ -7,7 +7,6 @@ use crate::config::Config;
 use crate::currency::Currency;
 use crate::error::Result;
 use crate::network::Network;
-use crate::protocol::x402::{PaymentPayload, PaymentRequirements};
 use async_trait::async_trait;
 use once_cell::sync::Lazy;
 
@@ -52,18 +51,8 @@ pub trait PaymentProvider: Send + Sync {
     /// Check if this provider supports the given network
     fn supports_network(&self, network: &str) -> bool;
 
-    /// Create a payment payload for the given requirements
-    async fn create_payment(
-        &self,
-        requirements: &PaymentRequirements,
-        config: &Config,
-    ) -> Result<PaymentPayload>;
-
     /// Get the name of this provider
     fn name(&self) -> &str;
-
-    /// Check if a dry run shows this payment would succeed
-    fn dry_run(&self, requirements: &PaymentRequirements, config: &Config) -> Result<DryRunInfo>;
 
     /// Get the wallet address for this provider from config
     fn get_address(&self, config: &Config) -> Result<String>;
@@ -76,20 +65,14 @@ pub trait PaymentProvider: Send + Sync {
         currency: Currency,
     ) -> Result<NetworkBalance>;
 
-    /// Create a web payment credential for the given challenge (optional)
+    /// Create a web payment credential for the given challenge
     ///
     /// This method supports the Web Payment Auth protocol (IETF draft).
-    /// By default, providers return an Unsupported error. Only providers
-    /// that support the web protocol (currently EVM for Tempo) implement this.
     async fn create_web_payment(
         &self,
-        _challenge: &crate::protocol::web::PaymentChallenge,
-        _config: &Config,
-    ) -> Result<crate::protocol::web::PaymentCredential> {
-        Err(crate::error::PurlError::UnsupportedPaymentMethod(
-            "Web payment protocol not supported for this provider".to_string(),
-        ))
-    }
+        challenge: &crate::protocol::web::PaymentChallenge,
+        config: &Config,
+    ) -> Result<crate::protocol::web::PaymentCredential>;
 }
 
 macro_rules! dispatch_provider {
@@ -174,25 +157,8 @@ impl PaymentProvider for BuiltinProvider {
         dispatch_provider!(self, supports_network(network))
     }
 
-    async fn create_payment(
-        &self,
-        requirements: &PaymentRequirements,
-        config: &Config,
-    ) -> Result<PaymentPayload> {
-        match self {
-            #[cfg(feature = "evm")]
-            BuiltinProvider::Evm => Self::evm().create_payment(requirements, config).await,
-            #[cfg(feature = "solana")]
-            BuiltinProvider::Solana => Self::solana().create_payment(requirements, config).await,
-        }
-    }
-
     fn name(&self) -> &str {
         dispatch_provider!(self, name())
-    }
-
-    fn dry_run(&self, requirements: &PaymentRequirements, config: &Config) -> Result<DryRunInfo> {
-        dispatch_provider!(self, dry_run(requirements, config))
     }
 
     fn get_address(&self, config: &Config) -> Result<String> {

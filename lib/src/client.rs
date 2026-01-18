@@ -1,35 +1,13 @@
-//! Library API - high-level client for making x402 payment-enabled requests
+//! Library API - high-level client for making payment-enabled HTTP requests
 
 use crate::config::Config;
 use crate::error::{PurlError, Result};
 use crate::http::{HttpClient, HttpClientBuilder, HttpResponse};
-use crate::negotiator::PaymentNegotiator;
 use crate::payment_provider::PROVIDER_REGISTRY;
-use crate::protocol::x402::SettlementResponse;
-use base64::Engine;
 
-/// Payment protocol detected from HTTP response
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Protocol {
-    /// x402 protocol (v1 or v2)
-    X402,
-    /// Web Payment Auth protocol (IETF draft)
-    WebPayment,
-}
-
-fn detect_protocol(response: &HttpResponse) -> Protocol {
-    if let Some(www_auth) = response.get_header(crate::protocol::web::WWW_AUTHENTICATE_HEADER) {
-        if www_auth.starts_with(crate::protocol::web::PAYMENT_SCHEME) {
-            return Protocol::WebPayment;
-        }
-    }
-
-    Protocol::X402
-}
-
-/// Builder for making x402-enabled HTTP requests.
+/// Builder for making payment-enabled HTTP requests.
 ///
-/// This is the main entry point for making HTTP requests with automatic x402 payment handling.
+/// This is the main entry point for making HTTP requests with automatic payment handling.
 /// Requests that return a 402 Payment Required status will automatically negotiate payment
 /// requirements and submit payment before retrying the request.
 ///
@@ -226,62 +204,15 @@ impl PurlClient {
             return Ok(PaymentResult::Success(response));
         }
 
-        let protocol = detect_protocol(&response);
-
-        match protocol {
-            Protocol::X402 => self.handle_x402_payment(response, method, url, data).await,
-            Protocol::WebPayment => self.handle_web_payment(response, method, url, data).await,
-        }
-    }
-
-    async fn handle_x402_payment(
-        &self,
-        response: HttpResponse,
-        method: &str,
-        url: &str,
-        data: Option<&[u8]>,
-    ) -> Result<PaymentResult> {
-        let json = response.payment_requirements_json()?;
-        let negotiator = PaymentNegotiator::new(&self.config)
-            .with_allowed_networks(&self.allowed_networks)
-            .with_max_amount(self.max_amount.as_deref());
-
-        let selected = negotiator.select_requirement(&json)?;
-
-        if self.dry_run {
-            if let Some(provider) = PROVIDER_REGISTRY.find_provider(selected.network()) {
-                let dry_run_info = provider.dry_run(&selected, &self.config)?;
-                return Ok(PaymentResult::DryRun(dry_run_info));
-            }
-        }
-
-        let provider = PROVIDER_REGISTRY
-            .find_provider(selected.network())
-            .ok_or_else(|| PurlError::ProviderNotFound(selected.network().to_string()))?;
-
-        let payment_payload = provider.create_payment(&selected, &self.config).await?;
-
-        let payload_json = serde_json::to_string(&payment_payload)?;
-        let encoded_payload = base64::engine::general_purpose::STANDARD.encode(payload_json);
-
-        let header_name = payment_payload.payment_header_name();
-        let payment_header = vec![(header_name.to_string(), encoded_payload)];
-        let mut client = self.configure_client(&payment_header)?;
-        let response = self.execute_request(&mut client, method, url, data)?;
-
-        let response_header_name = payment_payload.response_header_name();
-        let settlement = if let Some(header) = response.get_header(response_header_name) {
-            let decoded = base64::engine::general_purpose::STANDARD.decode(header)?;
-            let settlement: SettlementResponse = serde_json::from_slice(&decoded)?;
-            Some(settlement)
+        // Check for Web Payment Auth protocol
+        if response
+            .get_header(crate::protocol::web::WWW_AUTHENTICATE_HEADER)
+            .is_some()
+        {
+            self.handle_web_payment(response, method, url, data).await
         } else {
-            None
-        };
-
-        Ok(PaymentResult::Paid {
-            response,
-            settlement,
-        })
+            Err(PurlError::MissingHeader("WWW-Authenticate".to_string()))
+        }
     }
 
     async fn handle_web_payment(
@@ -390,10 +321,6 @@ impl PurlClient {
 #[derive(Debug)]
 pub enum PaymentResult {
     Success(HttpResponse),
-    Paid {
-        response: HttpResponse,
-        settlement: Option<SettlementResponse>,
-    },
     WebPaid {
         response: HttpResponse,
         receipt: Option<crate::protocol::web::PaymentReceipt>,
@@ -557,65 +484,6 @@ mod tests {
     }
 
     #[test]
-    fn test_protocol_detection_x402_default() {
-        use std::collections::HashMap;
-
-        let response = HttpResponse {
-            status_code: 402,
-            headers: HashMap::new(),
-            body: b"{}".to_vec(),
-        };
-
-        let protocol = detect_protocol(&response);
-        assert_eq!(protocol, Protocol::X402);
-    }
-
-    #[test]
-    fn test_protocol_detection_web_payment() {
-        use std::collections::HashMap;
-
-        let mut headers = HashMap::new();
-        headers.insert(
-            "www-authenticate".to_string(),
-            "Payment id=\"abc\", method=\"tempo\", intent=\"charge\", request=\"{}\"".to_string(),
-        );
-        let response = HttpResponse {
-            status_code: 402,
-            headers,
-            body: b"{}".to_vec(),
-        };
-
-        let protocol = detect_protocol(&response);
-        assert_eq!(protocol, Protocol::WebPayment);
-    }
-
-    #[test]
-    fn test_protocol_detection_non_payment_www_authenticate() {
-        use std::collections::HashMap;
-
-        let mut headers = HashMap::new();
-        headers.insert(
-            "www-authenticate".to_string(),
-            "Bearer realm=\"api\"".to_string(),
-        );
-        let response = HttpResponse {
-            status_code: 402,
-            headers,
-            body: b"{}".to_vec(),
-        };
-
-        let protocol = detect_protocol(&response);
-        assert_eq!(protocol, Protocol::X402);
-    }
-
-    #[test]
-    fn test_protocol_enum_equality() {
-        assert_eq!(Protocol::X402, Protocol::X402);
-        assert_eq!(Protocol::WebPayment, Protocol::WebPayment);
-        assert_ne!(Protocol::X402, Protocol::WebPayment);
-    }
-
-    #[test]
     fn test_payment_result_variants() {
         use std::collections::HashMap;
 
@@ -624,15 +492,6 @@ mod tests {
             headers: HashMap::new(),
             body: b"success".to_vec(),
         });
-
-        let _paid = PaymentResult::Paid {
-            response: HttpResponse {
-                status_code: 200,
-                headers: HashMap::new(),
-                body: b"paid".to_vec(),
-            },
-            settlement: None,
-        };
 
         let _web_paid = PaymentResult::WebPaid {
             response: HttpResponse {

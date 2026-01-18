@@ -3,9 +3,7 @@
 //! This module provides the RequestContext type and related functionality
 //! for building and executing HTTP requests.
 
-use anyhow::{Context, Result};
-use base64::Engine;
-use purl_lib::protocol::x402::PaymentPayload;
+use anyhow::Result;
 use purl_lib::{HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
 
 use crate::cli::Cli;
@@ -60,22 +58,6 @@ impl RequestContext {
     ) -> Result<HttpResponse> {
         let mut client = self.build_client(extra_headers)?;
         Ok(client.request(self.method.clone(), url, self.body.as_deref())?)
-    }
-
-    /// Execute an HTTP request with a payment header
-    pub fn execute_with_payment(
-        &self,
-        url: &str,
-        payment_payload: &PaymentPayload,
-    ) -> Result<HttpResponse> {
-        let payload_json = serde_json::to_string(payment_payload)
-            .context("Failed to serialize payment payload")?;
-        let encoded_payload = base64::engine::general_purpose::STANDARD.encode(payload_json);
-
-        // Use version-appropriate header name
-        let header_name = payment_payload.payment_header_name();
-        let headers = vec![(header_name.to_string(), encoded_payload)];
-        self.execute(url, Some(&headers))
     }
 }
 
