@@ -184,12 +184,14 @@ mod tests {
             intent: PaymentIntent::Authorize,
             request: serde_json::json!({}),
             expires: None,
+            // ast-grep-ignore: no-leading-whitespace-strings
             description: Some("Test \"quoted\" text".to_string()),
         };
 
         let header = format_www_authenticate(&challenge).unwrap();
         let parsed = parse_www_authenticate(&header).unwrap();
 
+        // ast-grep-ignore: no-leading-whitespace-strings
         assert_eq!(parsed.description, Some("Test \"quoted\" text".to_string()));
     }
 
