@@ -1,4 +1,4 @@
-.PHONY: build release clean check test test-fast fix install lint-ast
+.PHONY: build release clean check test test-fast fix install lint
 
 build:
 	cargo build
@@ -25,7 +25,7 @@ test-fast:
 	cargo test --lib
 
 # Run ast-grep custom lint rules
-lint-ast:
+lint:
 	@echo "Running ast-grep linter..."
 	@ast-grep scan --config sgconfig.yml
 
