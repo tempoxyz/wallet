@@ -35,7 +35,9 @@ pub struct Cli {
     // Payment Options
     /// Maximum amount willing to pay (in atomic units)
     #[arg(
+        short = 'M',
         long,
+        visible_alias = "max",
         value_name = "AMOUNT",
         env = "PURL_MAX_AMOUNT",
         help_heading = "Payment Options"
@@ -43,20 +45,27 @@ pub struct Cli {
     pub max_amount: Option<String>,
 
     /// Require confirmation before paying
-    #[arg(long, env = "PURL_CONFIRM", help_heading = "Payment Options")]
+    #[arg(
+        short = 'y',
+        long,
+        env = "PURL_CONFIRM",
+        help_heading = "Payment Options"
+    )]
     pub confirm: bool,
 
     /// Filter to specific networks (comma-separated, e.g. "base,base-sepolia")
     #[arg(
+        short = 'n',
         long,
         value_name = "NETWORKS",
         env = "PURL_NETWORK",
+        global = true,
         help_heading = "Payment Options"
     )]
     pub network: Option<String>,
 
     /// Dry run mode - show what would be paid without executing
-    #[arg(long, help_heading = "Payment Options")]
+    #[arg(short = 'D', long, help_heading = "Payment Options")]
     pub dry_run: bool,
 
     // Display Options
@@ -203,7 +212,8 @@ pub struct Cli {
 
     /// Disable password caching for keystores
     #[arg(
-        long = "no-cache-password",
+        long = "no-cache",
+        visible_alias = "no-cache-password",
         global = true,
         help_heading = "Wallet Options"
     )]
@@ -252,14 +262,11 @@ pub enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
-    /// Check wallet balance
+    /// Check wallet balance (uses global --network/-n filter)
     #[command(alias = "b")]
     Balance {
         /// Check balance for specific address (defaults to configured addresses)
         address: Option<String>,
-        /// Filter to specific network
-        #[arg(long = "network", short = 'n')]
-        network: Option<String>,
     },
     /// Manage and inspect supported networks
     #[command(alias = "n")]
@@ -294,7 +301,7 @@ pub enum MethodCommands {
     /// Create a new keystore
     New {
         /// Name for the keystore
-        #[arg(short = 'n', long, default_value = purl_lib::constants::DEFAULT_KEYSTORE_NAME)]
+        #[arg(long, default_value = purl_lib::constants::DEFAULT_KEYSTORE_NAME)]
         name: String,
         /// Generate a new private key
         #[arg(short = 'g', long)]
@@ -303,7 +310,7 @@ pub enum MethodCommands {
     /// Import a private key into a new keystore
     Import {
         /// Name for the keystore
-        #[arg(short = 'n', long, default_value = purl_lib::constants::IMPORTED_KEYSTORE_NAME)]
+        #[arg(long, default_value = purl_lib::constants::IMPORTED_KEYSTORE_NAME)]
         name: String,
         /// Private key to import (hex format)
         #[arg(short = 'k', long)]
