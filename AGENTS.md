@@ -23,7 +23,7 @@ make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
 make test-fast          # Run unit tests only (fastest)
 make check              # Run fmt check, clippy, ast-grep, tests, and build
-make lint-ast           # Run ast-grep linter only
+make lint               # Run ast-grep linter only
 make fmt                # Auto-fix formatting and clippy warnings
 make install            # Install CLI to ~/.cargo/bin
 make run ARGS="<url>"   # Run CLI with arguments
@@ -36,32 +36,6 @@ make run ARGS="<url>"   # Run CLI with arguments
 1. ✅ **Check**: `make check` - ZERO issues
 
 ## Code Style Guidelines
-
-### ast-grep Custom Lint Rules
-
-This project uses [ast-grep](https://ast-grep.github.io/) for custom linting rules beyond what clippy provides.
-
-**Rules:**
-- `no-emojis` - Disallows emoji characters in code (accessibility, log parsing)
-- `no-leading-whitespace-strings` - Warns about strings starting with single space like `" foo"`
-
-**Disabling rules:**
-
-Line-level disable (comment on line before):
-```rust
-// ast-grep-ignore: no-emojis
-let emoji = "🎉";
-```
-
-Block-level disable:
-```rust
-// ast-grep-ignore-start
-let emoji1 = "🎉";
-let emoji2 = "🚀";
-// ast-grep-ignore-end
-```
-
-**File allowlist:** Edit `rules/lint/no-emojis.yml` to add files to the `ignores` list.
 
 ### Rust Conventions
 
