@@ -19,9 +19,12 @@ pub struct RequestContext {
 
 impl RequestContext {
     /// Create a new request context from CLI arguments
-    pub fn new(cli: Cli) -> Self {
-        let (method, body) = get_request_method_and_body(&cli);
-        Self { method, body, cli }
+    ///
+    /// # Errors
+    /// Returns an error if the HTTP method is invalid.
+    pub fn new(cli: Cli) -> Result<Self> {
+        let (method, body) = get_request_method_and_body(&cli)?;
+        Ok(Self { method, body, cli })
     }
 
     /// Build an HTTP client with the configured options
@@ -80,7 +83,7 @@ impl RequestContext {
 }
 
 /// Determine the HTTP method and body based on CLI flags
-fn get_request_method_and_body(cli: &Cli) -> (HttpMethod, Option<Vec<u8>>) {
+fn get_request_method_and_body(cli: &Cli) -> Result<(HttpMethod, Option<Vec<u8>>)> {
     // Get the body from --data or --json
     let body = cli
         .json
@@ -89,19 +92,15 @@ fn get_request_method_and_body(cli: &Cli) -> (HttpMethod, Option<Vec<u8>>) {
         .map(|s| s.as_bytes().to_vec());
 
     // Determine method: explicit -X flag, or POST if body present, or GET
-    let method = cli
-        .method
-        .as_ref()
-        .map(HttpMethod::from)
-        .unwrap_or_else(|| {
-            if body.is_some() {
-                HttpMethod::Post
-            } else {
-                HttpMethod::Get
-            }
-        });
+    let method = if let Some(m) = cli.method.as_ref() {
+        m.parse().context("Invalid HTTP method")?
+    } else if body.is_some() {
+        HttpMethod::Post
+    } else {
+        HttpMethod::Get
+    };
 
-    (method, body)
+    Ok((method, body))
 }
 
 fn is_json_data(data: &str) -> bool {

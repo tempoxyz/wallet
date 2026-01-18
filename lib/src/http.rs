@@ -1,10 +1,66 @@
 //! HTTP client implementation using curl.
 
-use crate::error::Result;
+use crate::error::{PurlError, Result};
 use curl::easy::{Easy2, Handler, WriteError};
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
+
+/// Valid HTTP methods (RFC 9110)
+const VALID_METHODS: &[&str] = &[
+    "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT",
+];
+
+/// Validates that an HTTP method is a recognized standard method.
+///
+/// # Errors
+/// Returns an error if the method is not in the list of valid HTTP methods.
+pub fn validate_http_method(method: &str) -> Result<()> {
+    let upper = method.to_uppercase();
+    if !VALID_METHODS.contains(&upper.as_str()) {
+        return Err(PurlError::Http(format!(
+            "Invalid HTTP method: {}. Valid methods: {:?}",
+            method, VALID_METHODS
+        )));
+    }
+    Ok(())
+}
+
+/// Validates that a header does not contain CRLF characters to prevent header injection.
+///
+/// # Errors
+/// Returns an error if the header contains `\r` or `\n` characters.
+pub fn validate_header(header: &str) -> Result<()> {
+    if header.contains('\r') || header.contains('\n') {
+        return Err(PurlError::Http(
+            "Header contains invalid characters (CRLF injection attempt)".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Validates all headers in a slice for CRLF injection.
+///
+/// # Errors
+/// Returns an error if any header contains `\r` or `\n` characters.
+pub fn validate_headers(headers: &[String]) -> Result<()> {
+    for header in headers {
+        validate_header(header)?;
+    }
+    Ok(())
+}
+
+/// Validates header name-value tuples for CRLF injection.
+///
+/// # Errors
+/// Returns an error if any header name or value contains `\r` or `\n` characters.
+pub fn validate_header_tuples(headers: &[(String, String)]) -> Result<()> {
+    for (name, value) in headers {
+        validate_header(name)?;
+        validate_header(value)?;
+    }
+    Ok(())
+}
 
 /// HTTP request methods.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -52,9 +108,10 @@ impl fmt::Display for HttpMethod {
 }
 
 impl FromStr for HttpMethod {
-    type Err = std::convert::Infallible;
+    type Err = PurlError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        validate_http_method(s)?;
         Ok(match s.to_uppercase().as_str() {
             "GET" => HttpMethod::Get,
             "POST" => HttpMethod::Post,
@@ -63,26 +120,34 @@ impl FromStr for HttpMethod {
             "DELETE" => HttpMethod::Delete,
             "HEAD" => HttpMethod::Head,
             "OPTIONS" => HttpMethod::Options,
-            _ => HttpMethod::Custom(s.to_uppercase()),
+            "TRACE" => HttpMethod::Custom("TRACE".to_string()),
+            "CONNECT" => HttpMethod::Custom("CONNECT".to_string()),
+            _ => unreachable!("validate_http_method should have rejected this"),
         })
     }
 }
 
-impl From<&str> for HttpMethod {
-    fn from(s: &str) -> Self {
-        s.parse().unwrap()
+impl TryFrom<&str> for HttpMethod {
+    type Error = PurlError;
+
+    fn try_from(s: &str) -> std::result::Result<Self, Self::Error> {
+        s.parse()
     }
 }
 
-impl From<&String> for HttpMethod {
-    fn from(s: &String) -> Self {
-        s.as_str().into()
+impl TryFrom<&String> for HttpMethod {
+    type Error = PurlError;
+
+    fn try_from(s: &String) -> std::result::Result<Self, Self::Error> {
+        s.as_str().parse()
     }
 }
 
-impl From<String> for HttpMethod {
-    fn from(s: String) -> Self {
-        s.as_str().into()
+impl TryFrom<String> for HttpMethod {
+    type Error = PurlError;
+
+    fn try_from(s: String) -> std::result::Result<Self, Self::Error> {
+        s.as_str().parse()
     }
 }
 
@@ -264,6 +329,7 @@ impl HttpClient {
     }
 
     pub fn set_headers(&mut self, headers: &[(String, String)]) -> Result<()> {
+        validate_header_tuples(headers)?;
         let mut list = curl::easy::List::new();
         for (name, value) in headers {
             list.append(&format!("{name}: {value}"))?;
@@ -484,35 +550,41 @@ mod tests {
 
     #[test]
     fn test_http_method_from_str() {
-        assert_eq!(HttpMethod::from("GET"), HttpMethod::Get);
-        assert_eq!(HttpMethod::from("POST"), HttpMethod::Post);
-        assert_eq!(HttpMethod::from("PUT"), HttpMethod::Put);
-        assert_eq!(HttpMethod::from("PATCH"), HttpMethod::Patch);
-        assert_eq!(HttpMethod::from("DELETE"), HttpMethod::Delete);
-        assert_eq!(HttpMethod::from("HEAD"), HttpMethod::Head);
-        assert_eq!(HttpMethod::from("OPTIONS"), HttpMethod::Options);
+        assert_eq!("GET".parse::<HttpMethod>().unwrap(), HttpMethod::Get);
+        assert_eq!("POST".parse::<HttpMethod>().unwrap(), HttpMethod::Post);
+        assert_eq!("PUT".parse::<HttpMethod>().unwrap(), HttpMethod::Put);
+        assert_eq!("PATCH".parse::<HttpMethod>().unwrap(), HttpMethod::Patch);
+        assert_eq!("DELETE".parse::<HttpMethod>().unwrap(), HttpMethod::Delete);
+        assert_eq!("HEAD".parse::<HttpMethod>().unwrap(), HttpMethod::Head);
+        assert_eq!(
+            "OPTIONS".parse::<HttpMethod>().unwrap(),
+            HttpMethod::Options
+        );
     }
 
     #[test]
     fn test_http_method_from_str_case_insensitive() {
-        assert_eq!(HttpMethod::from("get"), HttpMethod::Get);
-        assert_eq!(HttpMethod::from("Get"), HttpMethod::Get);
-        assert_eq!(HttpMethod::from("post"), HttpMethod::Post);
-        assert_eq!(HttpMethod::from("Post"), HttpMethod::Post);
-        assert_eq!(HttpMethod::from("delete"), HttpMethod::Delete);
+        assert_eq!("get".parse::<HttpMethod>().unwrap(), HttpMethod::Get);
+        assert_eq!("Get".parse::<HttpMethod>().unwrap(), HttpMethod::Get);
+        assert_eq!("post".parse::<HttpMethod>().unwrap(), HttpMethod::Post);
+        assert_eq!("Post".parse::<HttpMethod>().unwrap(), HttpMethod::Post);
+        assert_eq!("delete".parse::<HttpMethod>().unwrap(), HttpMethod::Delete);
     }
 
     #[test]
     fn test_http_method_custom() {
-        let method = HttpMethod::from("CONNECT");
+        let method: HttpMethod = "CONNECT".parse().unwrap();
         assert_eq!(method, HttpMethod::Custom("CONNECT".to_string()));
 
-        let method = HttpMethod::from("TRACE");
+        let method: HttpMethod = "TRACE".parse().unwrap();
         assert_eq!(method, HttpMethod::Custom("TRACE".to_string()));
+    }
 
-        // Custom methods are uppercased
-        let method = HttpMethod::from("custom");
-        assert_eq!(method, HttpMethod::Custom("CUSTOM".to_string()));
+    #[test]
+    fn test_http_method_invalid_rejected() {
+        assert!("custom".parse::<HttpMethod>().is_err());
+        assert!("INVALID".parse::<HttpMethod>().is_err());
+        assert!("".parse::<HttpMethod>().is_err());
     }
 
     #[test]
@@ -700,5 +772,97 @@ mod tests {
                 ("Another".to_string(), "one".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn test_validate_http_method_valid() {
+        assert!(validate_http_method("GET").is_ok());
+        assert!(validate_http_method("get").is_ok());
+        assert!(validate_http_method("Post").is_ok());
+        assert!(validate_http_method("PUT").is_ok());
+        assert!(validate_http_method("DELETE").is_ok());
+        assert!(validate_http_method("PATCH").is_ok());
+        assert!(validate_http_method("HEAD").is_ok());
+        assert!(validate_http_method("OPTIONS").is_ok());
+        assert!(validate_http_method("TRACE").is_ok());
+        assert!(validate_http_method("CONNECT").is_ok());
+    }
+
+    #[test]
+    fn test_validate_http_method_invalid() {
+        assert!(validate_http_method("INVALID").is_err());
+        assert!(validate_http_method("FOO").is_err());
+        assert!(validate_http_method("").is_err());
+        assert!(validate_http_method("GET\r\nX-Injected: value").is_err());
+    }
+
+    #[test]
+    fn test_validate_header_valid() {
+        assert!(validate_header("Content-Type: application/json").is_ok());
+        assert!(validate_header("Authorization: Bearer token").is_ok());
+        assert!(validate_header("X-Custom-Header: value with spaces").is_ok());
+    }
+
+    #[test]
+    fn test_validate_header_crlf_injection() {
+        assert!(validate_header("X-Header: value\r\nX-Injected: evil").is_err());
+        assert!(validate_header("X-Header: value\nX-Injected: evil").is_err());
+        assert!(validate_header("X-Header: value\rX-Injected: evil").is_err());
+        assert!(validate_header("\r").is_err());
+        assert!(validate_header("\n").is_err());
+    }
+
+    #[test]
+    fn test_validate_headers_valid() {
+        let headers = vec![
+            "Content-Type: application/json".to_string(),
+            "Accept: */*".to_string(),
+        ];
+        assert!(validate_headers(&headers).is_ok());
+    }
+
+    #[test]
+    fn test_validate_headers_with_injection() {
+        let headers = vec![
+            "Content-Type: application/json".to_string(),
+            "X-Evil: value\r\nX-Injected: evil".to_string(),
+        ];
+        assert!(validate_headers(&headers).is_err());
+    }
+
+    #[test]
+    fn test_validate_header_tuples_valid() {
+        let headers = vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("Accept".to_string(), "*/*".to_string()),
+        ];
+        assert!(validate_header_tuples(&headers).is_ok());
+    }
+
+    #[test]
+    fn test_validate_header_tuples_injection_in_name() {
+        let headers = vec![("X-Evil\r\n".to_string(), "value".to_string())];
+        assert!(validate_header_tuples(&headers).is_err());
+    }
+
+    #[test]
+    fn test_validate_header_tuples_injection_in_value() {
+        let headers = vec![("X-Header".to_string(), "value\r\nevil".to_string())];
+        assert!(validate_header_tuples(&headers).is_err());
+    }
+
+    #[test]
+    fn test_http_method_parse_invalid_method() {
+        let result: std::result::Result<HttpMethod, _> = "INVALID".parse();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_http_method_parse_trace_connect() {
+        let trace: HttpMethod = "TRACE".parse().unwrap();
+        assert_eq!(trace, HttpMethod::Custom("TRACE".to_string()));
+
+        let connect: HttpMethod = "CONNECT".parse().unwrap();
+        assert_eq!(connect, HttpMethod::Custom("CONNECT".to_string()));
     }
 }

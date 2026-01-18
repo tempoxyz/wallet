@@ -31,7 +31,8 @@ pub use config::{
 };
 pub use currency::{currencies, Currency};
 pub use http::{
-    find_header, has_header, parse_headers, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse,
+    find_header, has_header, parse_headers, validate_header, validate_header_tuples,
+    validate_headers, validate_http_method, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse,
 };
 pub use network::{evm_chain_ids, networks, ChainType, GasConfig, Network, NetworkInfo};
 pub use protocol::x402::{PaymentPayload, PaymentRequirementsResponse, SettlementResponse};

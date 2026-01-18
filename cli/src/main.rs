@@ -138,7 +138,7 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
 async fn make_request(cli: Cli) -> Result<()> {
     let config = load_config_with_overrides(&cli)?;
 
-    let request_ctx = RequestContext::new(cli);
+    let request_ctx = RequestContext::new(cli)?;
 
     let url = request_ctx
         .cli
