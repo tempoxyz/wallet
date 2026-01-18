@@ -116,10 +116,7 @@ fn build_inspect_output(
     let compatible = is_compatible_method(challenge, available_methods);
 
     InspectOutput {
-        message: challenge
-            .description
-            .clone()
-            .unwrap_or_default(),
+        message: challenge.description.clone().unwrap_or_default(),
         challenge: ChallengeInfo {
             id: challenge.id.clone(),
             realm: challenge.realm.clone(),
@@ -276,7 +273,9 @@ fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[Payme
 #[cfg(test)]
 mod tests {
     use super::*;
-    use purl_lib::protocol::web::{PaymentChallenge, PaymentIntent, PaymentMethod as WebPaymentMethod};
+    use purl_lib::protocol::web::{
+        PaymentChallenge, PaymentIntent, PaymentMethod as WebPaymentMethod,
+    };
 
     fn mock_challenge() -> PaymentChallenge {
         let charge_req = ChargeRequest {
@@ -334,7 +333,10 @@ mod tests {
 
         let charge = output.challenge.charge.unwrap();
         assert_eq!(charge.amount, "1000000");
-        assert_eq!(charge.destination, "0x1234567890123456789012345678901234567890");
+        assert_eq!(
+            charge.destination,
+            "0x1234567890123456789012345678901234567890"
+        );
     }
 
     #[test]
