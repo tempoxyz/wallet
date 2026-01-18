@@ -11,9 +11,9 @@ use purl_lib::{
 };
 
 use crate::cli::Cli;
-use crate::display_utils::truncate_address;
 use crate::exit_codes::ExitCode;
 use crate::request::RequestContext;
+use purl_lib::utils::truncate_address;
 
 /// Handle payment required (402) response
 pub async fn handle_payment_request(
@@ -258,5 +258,189 @@ async fn create_payment_payload(
         Ok(provider.create_payment(requirement, config).await?)
     } else {
         anyhow::bail!("No provider found for network: {}", requirement.network());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use purl_lib::protocol::x402::v1;
+    use purl_lib::{EvmConfig, SolanaConfig};
+
+    /// Test EVM private key (DO NOT use in production)
+    const TEST_EVM_KEY: &str = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+
+    /// Test Solana private key (DO NOT use in production)
+    const TEST_SOLANA_KEY: &str =
+        "4Z7cXSyeFR8wNGMVXUE1TwtKn5D5Vu7FzEv69dokLv7KrQk7h6pu4LF8ZRR9yQBhc7uSM6RTTZtU1fmaxiNrxXrs";
+
+    fn mock_evm_requirement() -> PaymentRequirements {
+        let v1_req = v1::PaymentRequirements {
+            scheme: "exact".to_string(),
+            network: "base".to_string(),
+            max_amount_required: "1000000".to_string(), // 1 USDC
+            resource: "https://example.com/resource".to_string(),
+            description: "Test payment".to_string(),
+            mime_type: "application/json".to_string(),
+            output_schema: None,
+            pay_to: "0x1234567890123456789012345678901234567890".to_string(),
+            max_timeout_seconds: 300,
+            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(), // USDC on Base
+            extra: Some(serde_json::json!({
+                "name": "USD Coin",
+                "version": "2"
+            })),
+        };
+        PaymentRequirements::V1(v1_req)
+    }
+
+    fn mock_solana_requirement() -> PaymentRequirements {
+        let v1_req = v1::PaymentRequirements {
+            scheme: "exact".to_string(),
+            network: "solana".to_string(),
+            max_amount_required: "1000000".to_string(), // 1 USDC
+            resource: "https://example.com/resource".to_string(),
+            description: "Test payment".to_string(),
+            mime_type: "application/json".to_string(),
+            output_schema: None,
+            pay_to: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+            max_timeout_seconds: 300,
+            asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(), // USDC on Solana
+            extra: None,
+        };
+        PaymentRequirements::V1(v1_req)
+    }
+
+    fn config_with_evm() -> Config {
+        Config {
+            evm: Some(EvmConfig {
+                keystore: None,
+                private_key: Some(TEST_EVM_KEY.to_string()),
+            }),
+            solana: None,
+            ..Default::default()
+        }
+    }
+
+    fn config_with_solana() -> Config {
+        Config {
+            evm: None,
+            solana: Some(SolanaConfig {
+                keystore: None,
+                private_key: Some(TEST_SOLANA_KEY.to_string()),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn config_with_both() -> Config {
+        Config {
+            evm: Some(EvmConfig {
+                keystore: None,
+                private_key: Some(TEST_EVM_KEY.to_string()),
+            }),
+            solana: Some(SolanaConfig {
+                keystore: None,
+                private_key: Some(TEST_SOLANA_KEY.to_string()),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_format_payment_amount_usdc() {
+        let req = mock_evm_requirement();
+        let (amount_str, symbol) = format_payment_amount(&req);
+
+        // 1000000 atomic units = 1 USDC (6 decimals)
+        assert_eq!(symbol, "USDC");
+        assert!(
+            amount_str.contains("USDC"),
+            "Amount should contain USDC symbol"
+        );
+    }
+
+    #[test]
+    fn test_format_payment_amount_large_amount() {
+        let v1_req = v1::PaymentRequirements {
+            scheme: "exact".to_string(),
+            network: "base".to_string(),
+            max_amount_required: "1000000000".to_string(), // 1000 USDC
+            resource: "https://example.com".to_string(),
+            description: "".to_string(),
+            mime_type: "application/json".to_string(),
+            output_schema: None,
+            pay_to: "0x1234567890123456789012345678901234567890".to_string(),
+            max_timeout_seconds: 300,
+            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            extra: None,
+        };
+        let req = PaymentRequirements::V1(v1_req);
+        let (amount_str, symbol) = format_payment_amount(&req);
+
+        assert_eq!(symbol, "USDC");
+        assert!(amount_str.contains("1000"));
+    }
+
+    #[test]
+    fn test_get_sender_address_evm() {
+        let config = config_with_evm();
+        let req = mock_evm_requirement();
+
+        let address = get_sender_address(&config, &req);
+        assert!(address.is_some());
+
+        let addr = address.unwrap();
+        assert!(addr.starts_with("0x"));
+        assert_eq!(addr.len(), 42);
+    }
+
+    #[test]
+    fn test_get_sender_address_solana() {
+        let config = config_with_solana();
+        let req = mock_solana_requirement();
+
+        let address = get_sender_address(&config, &req);
+        assert!(address.is_some());
+
+        let addr = address.unwrap();
+        // Solana addresses are base58 encoded, typically 32-44 characters
+        assert!(addr.len() >= 32 && addr.len() <= 44);
+    }
+
+    #[test]
+    fn test_get_sender_address_no_matching_config() {
+        // EVM config but Solana requirement
+        let config = config_with_evm();
+        let req = mock_solana_requirement();
+
+        let address = get_sender_address(&config, &req);
+        assert!(address.is_none());
+    }
+
+    #[test]
+    fn test_get_sender_address_empty_config() {
+        let config = Config::default();
+        let req = mock_evm_requirement();
+
+        let address = get_sender_address(&config, &req);
+        assert!(address.is_none());
+    }
+
+    #[test]
+    fn test_get_sender_address_both_configs() {
+        let config = config_with_both();
+
+        // Should return EVM address for EVM requirement
+        let evm_req = mock_evm_requirement();
+        let evm_address = get_sender_address(&config, &evm_req);
+        assert!(evm_address.is_some());
+        assert!(evm_address.unwrap().starts_with("0x"));
+
+        // Should return Solana address for Solana requirement
+        let sol_req = mock_solana_requirement();
+        let sol_address = get_sender_address(&config, &sol_req);
+        assert!(sol_address.is_some());
+        assert!(!sol_address.unwrap().starts_with("0x"));
     }
 }

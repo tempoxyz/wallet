@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install
+.PHONY: build release clean check test test-fast fix install
 
 build:
 	cargo build
@@ -16,8 +16,13 @@ install:
 clean:
 	cargo clean
 
+# Run all tests (uses mocks, no network required)
 test:
 	cargo test
+
+# Unit tests only (fastest, library tests only)
+test-fast:
+	cargo test --lib
 
 check:
 	cargo fmt --check

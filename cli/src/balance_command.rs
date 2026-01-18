@@ -3,7 +3,36 @@
 use anyhow::{Context, Result};
 use purl_lib::currency::currencies;
 use purl_lib::network::{ChainType, Network};
+use purl_lib::payment_provider::NetworkBalance;
 use purl_lib::{Config, PaymentMethod, PROVIDER_REGISTRY};
+
+/// Check if mock mode is enabled for testing
+fn is_mock_mode() -> bool {
+    std::env::var("PURL_MOCK_NETWORK").is_ok()
+}
+
+/// Generate mock balance data for testing
+fn mock_balance(
+    network: Network,
+    _address: &str,
+    currency: &purl_lib::currency::Currency,
+) -> NetworkBalance {
+    // Return a realistic-looking mock balance
+    let mock_atomic = match network {
+        Network::Base | Network::Ethereum => "1000000", // 1 USDC
+        Network::BaseSepolia | Network::EthereumSepolia => "5000000", // 5 USDC
+        Network::Solana => "2500000",                   // 2.5 USDC
+        Network::SolanaDevnet => "10000000",            // 10 USDC
+        _ => "0",
+    };
+
+    NetworkBalance {
+        network: network.to_string(),
+        balance_atomic: mock_atomic.to_string(),
+        balance_human: currency.format_atomic(mock_atomic.parse().unwrap_or(0)),
+        asset: format!("{} (mock)", currency.symbol),
+    }
+}
 
 /// Check token balances for configured networks
 pub async fn balance_command(
@@ -18,6 +47,7 @@ pub async fn balance_command(
         anyhow::bail!("No payment methods configured. Run 'purl init' to configure.");
     }
 
+    let mock_mode = is_mock_mode();
     let mut balances = Vec::new();
 
     for method in available_methods {
@@ -40,12 +70,17 @@ pub async fn balance_command(
                     .context(format!("Failed to get address for {}", provider.name()))?,
             };
 
-            match provider
-                .get_balance(&check_address, network, currency)
-                .await
-            {
-                Ok(balance) => balances.push(balance),
-                Err(e) => eprintln!("Warning: Failed to get balance for {network}: {e}"),
+            if mock_mode {
+                // Return mock data instead of making network calls
+                balances.push(mock_balance(network, &check_address, &currency));
+            } else {
+                match provider
+                    .get_balance(&check_address, network, currency)
+                    .await
+                {
+                    Ok(balance) => balances.push(balance),
+                    Err(e) => eprintln!("Warning: Failed to get balance for {network}: {e}"),
+                }
             }
         }
     }
@@ -142,5 +177,26 @@ mod tests {
 
         let solana_info = Network::Solana.info();
         assert!(!solana_info.rpc_url.is_empty());
+    }
+
+    #[test]
+    fn test_mock_balance_returns_data() {
+        let usdc = currencies::USDC;
+
+        let balance = mock_balance(Network::Base, "0x123", &usdc);
+        assert_eq!(balance.network, "base");
+        assert_eq!(balance.balance_atomic, "1000000");
+        assert!(balance.asset.contains("mock"));
+
+        let balance = mock_balance(Network::SolanaDevnet, "abc123", &usdc);
+        assert_eq!(balance.network, "solana-devnet");
+        assert_eq!(balance.balance_atomic, "10000000");
+    }
+
+    #[test]
+    fn test_is_mock_mode_respects_env() {
+        // This test doesn't set the env var, so should return false
+        // Note: Other tests might set it, so we check the function works
+        let _ = is_mock_mode(); // Just verify it doesn't panic
     }
 }

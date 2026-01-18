@@ -23,6 +23,36 @@ pub mod networks {
     pub const SOLANA_DEVNET: &str = "solana-devnet";
 }
 
+/// EVM Chain ID constants.
+///
+/// These constants provide self-documenting, compile-time checked chain IDs
+/// for use throughout the codebase instead of magic numbers.
+///
+/// Only EVM-compatible networks have numeric chain IDs. Solana uses
+/// genesis hash identifiers instead.
+pub mod evm_chain_ids {
+    /// Ethereum Mainnet
+    pub const ETHEREUM: u64 = 1;
+    /// Ethereum Sepolia Testnet
+    pub const ETHEREUM_SEPOLIA: u64 = 11155111;
+    /// Base Mainnet
+    pub const BASE: u64 = 8453;
+    /// Base Sepolia Testnet
+    pub const BASE_SEPOLIA: u64 = 84532;
+    /// Avalanche C-Chain
+    pub const AVALANCHE: u64 = 43114;
+    /// Avalanche Fuji Testnet
+    pub const AVALANCHE_FUJI: u64 = 43113;
+    /// Polygon Mainnet
+    pub const POLYGON: u64 = 137;
+    /// Arbitrum One
+    pub const ARBITRUM: u64 = 42161;
+    /// Optimism Mainnet
+    pub const OPTIMISM: u64 = 10;
+    /// Tempo Moderato Testnet
+    pub const TEMPO_MODERATO: u64 = 42431;
+}
+
 /// Chain type (blockchain family)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -48,7 +78,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::ETHEREUM,
         chain_type: ChainType::Evm,
-        chain_id: Some(1),
+        chain_id: Some(evm_chain_ids::ETHEREUM),
         mainnet: true,
         display_name: "Ethereum",
         rpc_url: "https://eth.llamarpc.com",
@@ -57,7 +87,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::ETHEREUM_SEPOLIA,
         chain_type: ChainType::Evm,
-        chain_id: Some(11155111),
+        chain_id: Some(evm_chain_ids::ETHEREUM_SEPOLIA),
         mainnet: false,
         display_name: "Ethereum Sepolia",
         rpc_url: "https://ethereum-sepolia-rpc.publicnode.com",
@@ -66,7 +96,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::BASE,
         chain_type: ChainType::Evm,
-        chain_id: Some(8453),
+        chain_id: Some(evm_chain_ids::BASE),
         mainnet: true,
         display_name: "Base",
         rpc_url: "https://mainnet.base.org",
@@ -75,7 +105,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::BASE_SEPOLIA,
         chain_type: ChainType::Evm,
-        chain_id: Some(84532),
+        chain_id: Some(evm_chain_ids::BASE_SEPOLIA),
         mainnet: false,
         display_name: "Base Sepolia",
         rpc_url: "https://sepolia.base.org",
@@ -84,7 +114,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::AVALANCHE,
         chain_type: ChainType::Evm,
-        chain_id: Some(43114),
+        chain_id: Some(evm_chain_ids::AVALANCHE),
         mainnet: true,
         display_name: "Avalanche C-Chain",
         rpc_url: "https://api.avax.network/ext/bc/C/rpc",
@@ -93,7 +123,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::AVALANCHE_FUJI,
         chain_type: ChainType::Evm,
-        chain_id: Some(43113),
+        chain_id: Some(evm_chain_ids::AVALANCHE_FUJI),
         mainnet: false,
         display_name: "Avalanche Fuji",
         rpc_url: "https://api.avax-test.network/ext/bc/C/rpc",
@@ -102,7 +132,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::POLYGON,
         chain_type: ChainType::Evm,
-        chain_id: Some(137),
+        chain_id: Some(evm_chain_ids::POLYGON),
         mainnet: true,
         display_name: "Polygon",
         rpc_url: "https://polygon-rpc.com",
@@ -111,7 +141,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::ARBITRUM,
         chain_type: ChainType::Evm,
-        chain_id: Some(42161),
+        chain_id: Some(evm_chain_ids::ARBITRUM),
         mainnet: true,
         display_name: "Arbitrum One",
         rpc_url: "https://arb1.arbitrum.io/rpc",
@@ -120,7 +150,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::OPTIMISM,
         chain_type: ChainType::Evm,
-        chain_id: Some(10),
+        chain_id: Some(evm_chain_ids::OPTIMISM),
         mainnet: true,
         display_name: "Optimism",
         rpc_url: "https://mainnet.optimism.io",
@@ -129,7 +159,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
     BuiltinNetwork {
         id: networks::TEMPO_MODERATO,
         chain_type: ChainType::Evm,
-        chain_id: Some(42431),
+        chain_id: Some(evm_chain_ids::TEMPO_MODERATO),
         mainnet: false,
         display_name: "Tempo Moderato (Testnet)",
         rpc_url: "https://rpc.moderato.tempo.xyz",
@@ -481,6 +511,60 @@ pub struct TokenConfig {
     pub address: &'static str,
 }
 
+/// Gas configuration for EVM networks.
+///
+/// Different networks may have different gas requirements and fee structures.
+/// This struct provides network-specific defaults that can be overridden.
+///
+/// # Examples
+///
+/// ```
+/// use purl_lib::network::Network;
+///
+/// let tempo = Network::TempoModerato;
+/// let gas_config = tempo.gas_config().expect("Tempo has gas config");
+/// assert_eq!(gas_config.gas_limit, 100_000);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct GasConfig {
+    /// Default gas limit for token transfers.
+    ///
+    /// 100,000 gas is a conservative estimate that covers:
+    /// - Standard ERC-20 transfer: ~65,000 gas
+    /// - Buffer for contract variations and potential state changes
+    pub gas_limit: u64,
+
+    /// Maximum priority fee per gas in wei (the "tip" to validators).
+    ///
+    /// 1 gwei (1,000,000,000 wei) is a reasonable default for most networks.
+    pub max_priority_fee_per_gas: u64,
+
+    /// Maximum total fee per gas in wei (base fee + priority fee).
+    ///
+    /// 10 gwei is set higher than typical base fees to ensure transactions
+    /// are included even during moderate congestion. Unused gas is refunded.
+    pub max_fee_per_gas: u64,
+}
+
+impl GasConfig {
+    /// Default gas configuration suitable for most EVM networks.
+    pub const DEFAULT: Self = Self {
+        gas_limit: 100_000,
+        max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
+        max_fee_per_gas: 10_000_000_000,         // 10 gwei
+    };
+
+    /// Get max_fee_per_gas as u128 (for alloy compatibility).
+    pub const fn max_fee_per_gas_u128(&self) -> u128 {
+        self.max_fee_per_gas as u128
+    }
+
+    /// Get max_priority_fee_per_gas as u128 (for alloy compatibility).
+    pub const fn max_priority_fee_per_gas_u128(&self) -> u128 {
+        self.max_priority_fee_per_gas as u128
+    }
+}
+
 impl Network {
     /// Get token configuration for a specific currency on this network
     /// Currently only supports USDC
@@ -524,6 +608,61 @@ impl Network {
             }),
             // Other networks don't have token support yet
             _ => None,
+        }
+    }
+
+    /// Get USDC configuration for this network, or error if not configured.
+    ///
+    /// Use this when token configuration is required (e.g., for displaying
+    /// formatted payment amounts to users).
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnsupportedToken` if the network doesn't have token configuration.
+    pub fn require_usdc_config(&self) -> crate::error::Result<TokenConfig> {
+        self.usdc_config().ok_or_else(|| {
+            crate::error::PurlError::UnsupportedToken(format!(
+                "No token configuration for network '{}'. \
+                 Use --dry-run to see raw payment details.",
+                self
+            ))
+        })
+    }
+
+    /// Get gas configuration for EVM networks.
+    ///
+    /// Returns `None` for non-EVM networks (e.g., Solana).
+    /// Networks can have custom gas settings; if not specified, defaults are used.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use purl_lib::network::Network;
+    ///
+    /// // EVM networks have gas config
+    /// assert!(Network::Base.gas_config().is_some());
+    /// assert!(Network::TempoModerato.gas_config().is_some());
+    ///
+    /// // Non-EVM networks don't
+    /// assert!(Network::Solana.gas_config().is_none());
+    /// ```
+    pub const fn gas_config(&self) -> Option<GasConfig> {
+        match self {
+            // EVM networks use default gas configuration
+            // Individual networks can override if needed (e.g., L2s with different fee structures)
+            Network::Ethereum
+            | Network::EthereumSepolia
+            | Network::Base
+            | Network::BaseSepolia
+            | Network::Avalanche
+            | Network::AvalancheFuji
+            | Network::Polygon
+            | Network::Arbitrum
+            | Network::Optimism
+            | Network::TempoModerato => Some(GasConfig::DEFAULT),
+
+            // Non-EVM networks don't use gas
+            Network::Solana | Network::SolanaDevnet => None,
         }
     }
 }

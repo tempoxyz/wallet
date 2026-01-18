@@ -12,9 +12,9 @@ use purl_lib::{Config, HttpResponse, Network, PROVIDER_REGISTRY};
 use std::str::FromStr;
 
 use crate::cli::Cli;
-use crate::display_utils::truncate_address;
 use crate::exit_codes::ExitCode;
 use crate::request::RequestContext;
+use purl_lib::utils::truncate_address;
 
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
 pub async fn handle_web_payment_request(
@@ -23,7 +23,6 @@ pub async fn handle_web_payment_request(
     url: &str,
     initial_response: &HttpResponse,
 ) -> Result<HttpResponse> {
-    // Parse WWW-Authenticate header
     let www_auth = initial_response
         .get_header("www-authenticate")
         .ok_or_else(|| anyhow::anyhow!("Missing WWW-Authenticate header in 402 response"))?;
@@ -40,7 +39,6 @@ pub async fn handle_web_payment_request(
         }
     }
 
-    // Parse the charge request
     let charge_req: ChargeRequest = serde_json::from_value(challenge.request.clone())
         .context("Failed to parse charge request from challenge")?;
 
@@ -50,26 +48,23 @@ pub async fn handle_web_payment_request(
         eprintln!("Destination: {}", charge_req.destination);
     }
 
-    // Validate the challenge is supported (method + intent)
-    challenge.validate().map_err(|e| anyhow::anyhow!("{}", e))?;
+    challenge
+        .validate()
+        .context("Challenge validation failed")?;
 
-    // Validate CLI constraints (max amount, network filter)
     validate_web_payment_constraints(&request_ctx.cli, &challenge, &charge_req)?;
 
-    // Handle dry-run mode
     if request_ctx.cli.dry_run {
         return handle_web_dry_run(config, &challenge, &charge_req);
     }
 
-    // Handle confirmation
     if request_ctx.cli.confirm {
         confirm_web_payment(config, &challenge, &charge_req)?;
     }
 
-    // Create payment credential
     let network = challenge
         .network_name()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .context("Failed to determine network from payment method")?;
     let provider = PROVIDER_REGISTRY
         .find_provider(network)
         .ok_or_else(|| anyhow::anyhow!("No provider found for network: {}", network))?;
@@ -83,7 +78,6 @@ pub async fn handle_web_payment_request(
         .await
         .context("Failed to create payment credential")?;
 
-    // Format Authorization header
     let auth_header = purl_lib::protocol::web::format_authorization(&credential)
         .context("Failed to format Authorization header")?;
 
@@ -92,11 +86,9 @@ pub async fn handle_web_payment_request(
         eprintln!("Submitting payment to server...");
     }
 
-    // Retry request with Authorization header
     let payment_headers = vec![("Authorization".to_string(), auth_header)];
     let response = request_ctx.execute(url, Some(&payment_headers))?;
 
-    // Display receipt info if present
     display_web_receipt(&request_ctx.cli, &response)?;
 
     Ok(response)
@@ -107,33 +99,24 @@ fn validate_web_payment_constraints(
     challenge: &PaymentChallenge,
     charge_req: &ChargeRequest,
 ) -> Result<()> {
-    // Check max amount constraint
     if let Some(ref max_amount) = cli.max_amount {
-        let amount: u128 = charge_req
-            .amount
-            .parse()
-            .context("Invalid amount in charge request")?;
-        let max: u128 = max_amount.parse().context("Invalid max amount")?;
-
-        if amount > max {
-            anyhow::bail!("Payment amount {} exceeds maximum allowed {}", amount, max);
-        }
+        charge_req
+            .validate_max_amount(max_amount)
+            .context("Amount validation failed")?;
     }
 
-    // Check network filter
     if let Some(ref networks) = cli.network {
         let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
         let network = challenge
             .network_name()
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+            .context("Failed to determine network from payment method")?;
 
-        if !allowed.contains(&network) {
-            anyhow::bail!(
-                "Network '{}' not in allowed networks: {:?}",
-                network,
-                allowed
-            );
-        }
+        anyhow::ensure!(
+            allowed.contains(&network),
+            "Network '{}' not in allowed networks: {:?}",
+            network,
+            allowed
+        );
     }
 
     Ok(())
@@ -147,7 +130,7 @@ fn handle_web_dry_run(
 ) -> Result<HttpResponse> {
     let network = challenge
         .network_name()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .context("Failed to determine network from payment method")?;
     let provider = PROVIDER_REGISTRY
         .find_provider(network)
         .ok_or_else(|| anyhow::anyhow!("No provider found for network: {}", network))?;
@@ -187,20 +170,18 @@ fn confirm_web_payment(
 
     let network_name = challenge
         .network_name()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .context("Failed to determine network from payment method")?;
     let provider = PROVIDER_REGISTRY.find_provider(network_name);
     let from_address = provider
         .and_then(|p| p.get_address(config).ok())
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Get token decimals from network config, fallback to 6 for stablecoins
-    let (decimals, symbol) = Network::from_str(network_name)
-        .ok()
-        .and_then(|n| n.usdc_config())
-        .map(|tc| (tc.currency.decimals, tc.currency.symbol))
-        .unwrap_or((6, "USD"));
+    let token_config = Network::from_str(network_name)
+        .map_err(|e| anyhow::anyhow!("Unknown network '{}': {}", network_name, e))?
+        .require_usdc_config()
+        .context("Cannot display formatted payment amount")?;
+    let (decimals, symbol) = (token_config.currency.decimals, token_config.currency.symbol);
 
-    // Format amount for display using actual token decimals
     let amount_u128: u128 = charge_req.amount.parse().unwrap_or(0);
     let divisor = 10u128.pow(decimals as u32) as f64;
     let amount_display = format!("{:.6} {}", amount_u128 as f64 / divisor, symbol);
@@ -258,4 +239,138 @@ fn display_web_receipt(cli: &Cli, response: &HttpResponse) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    use purl_lib::protocol::web::{PaymentChallenge, PaymentIntent, PaymentMethod};
+
+    fn mock_challenge(method: PaymentMethod, amount: &str) -> (PaymentChallenge, ChargeRequest) {
+        let charge_req = ChargeRequest {
+            amount: amount.to_string(),
+            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            destination: "0x1234567890123456789012345678901234567890".to_string(),
+            expires: "2099-12-31T23:59:59Z".to_string(),
+            fee_payer: None,
+        };
+
+        let challenge = PaymentChallenge {
+            id: "test-challenge-id".to_string(),
+            realm: "api.example.com".to_string(),
+            method,
+            intent: PaymentIntent::Charge,
+            request: serde_json::to_value(&charge_req).unwrap(),
+            description: None,
+            expires: None,
+        };
+
+        (challenge, charge_req)
+    }
+
+    #[test]
+    fn test_validate_constraints_no_constraints() {
+        let cli = Cli::try_parse_from(["purl"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_constraints_max_amount_ok() {
+        let cli = Cli::try_parse_from(["purl", "--max-amount", "2000000"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_constraints_max_amount_exceeded() {
+        let cli = Cli::try_parse_from(["purl", "--max-amount", "500000"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Amount validation failed") || err.contains("exceeds"),
+            "Error should mention amount validation: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_constraints_max_amount_equal() {
+        let cli = Cli::try_parse_from(["purl", "--max-amount", "1000000"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_constraints_network_filter_match() {
+        // PaymentMethod::Base maps to "base-sepolia" network
+        let cli = Cli::try_parse_from(["purl", "--network", "base-sepolia"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_constraints_network_filter_no_match() {
+        let cli = Cli::try_parse_from(["purl", "--network", "solana"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not in allowed networks"),
+            "Error should mention network filter: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_constraints_multiple_networks() {
+        // PaymentMethod::Base maps to "base-sepolia"
+        let cli =
+            Cli::try_parse_from(["purl", "--network", "solana, base-sepolia, ethereum"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_constraints_tempo_network() {
+        // PaymentMethod::Tempo maps to "tempo-moderato" network
+        let cli = Cli::try_parse_from(["purl", "--network", "tempo-moderato"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_constraints_combined() {
+        // PaymentMethod::Base maps to "base-sepolia"
+        let cli = Cli::try_parse_from([
+            "purl",
+            "--max-amount",
+            "2000000",
+            "--network",
+            "base-sepolia",
+        ])
+        .unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+
+        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
 }
