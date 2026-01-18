@@ -59,7 +59,6 @@ impl RequestContext {
         let mut client = self.build_client(extra_headers)?;
         Ok(client.request(self.method.clone(), url, self.body.as_deref())?)
     }
-
 }
 
 /// Determine the HTTP method and body based on CLI flags
