@@ -468,16 +468,14 @@ fn create_tempo_transaction(
     // Sign based on available method
     if let Some(passkey_cfg) = passkey_config {
         if passkey_cfg.is_configured() {
-            let access_key = passkey_cfg
-                .active_key()
-                .ok_or_else(|| PurlError::InvalidConfig("No active access key configured".into()))?;
-            let root_account = Address::from_str(
-                passkey_cfg
-                    .account_address
-                    .as_ref()
-                    .ok_or_else(|| PurlError::InvalidConfig("No account address configured".into()))?,
-            )
-            .map_err(|e| PurlError::invalid_address(format!("Invalid account address: {e}")))?;
+            let access_key = passkey_cfg.active_key().ok_or_else(|| {
+                PurlError::InvalidConfig("No active access key configured".into())
+            })?;
+            let root_account =
+                Address::from_str(passkey_cfg.account_address.as_ref().ok_or_else(|| {
+                    PurlError::InvalidConfig("No account address configured".into())
+                })?)
+                .map_err(|e| PurlError::invalid_address(format!("Invalid account address: {e}")))?;
 
             let signing_hash = tx.signature_hash();
             let keychain_sig_bytes =
