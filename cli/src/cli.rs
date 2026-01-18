@@ -441,6 +441,7 @@ impl Cli {
     }
 
     /// Get the effective password (from --password or --password-file)
+    #[allow(dead_code)]
     pub fn get_password(&self) -> std::io::Result<Option<String>> {
         if let Some(password) = &self.password {
             return Ok(Some(password.clone()));
@@ -453,6 +454,7 @@ impl Cli {
     }
 
     /// Resolve the keystore path from --keystore, --account, or config
+    #[allow(dead_code)]
     pub fn resolve_keystore_path(&self) -> Option<std::path::PathBuf> {
         if let Some(keystore) = &self.keystore {
             return Some(std::path::PathBuf::from(keystore));
