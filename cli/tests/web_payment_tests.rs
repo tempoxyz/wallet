@@ -10,16 +10,7 @@ use purl_lib::protocol::web::{
 fn test_protocol_detection_web_payment() {
     assert_eq!(
         PaymentProtocol::detect(Some("Payment id=\"abc\"")),
-        PaymentProtocol::WebPaymentAuth
-    );
-}
-
-#[test]
-fn test_protocol_detection_x402_fallback() {
-    assert_eq!(PaymentProtocol::detect(None), PaymentProtocol::X402);
-    assert_eq!(
-        PaymentProtocol::detect(Some("Bearer token")),
-        PaymentProtocol::X402
+        Some(PaymentProtocol::WebPaymentAuth)
     );
 }
 

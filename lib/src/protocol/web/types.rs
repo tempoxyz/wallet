@@ -13,8 +13,6 @@ use std::str::FromStr;
 /// Used to determine how to handle a payment-required response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaymentProtocol {
-    /// x402 protocol - uses JSON body with payment requirements
-    X402,
     /// Web Payment Auth (IETF draft) - uses WWW-Authenticate/Authorization headers
     WebPaymentAuth,
 }
@@ -23,29 +21,28 @@ impl PaymentProtocol {
     /// Detect the payment protocol from HTTP response headers.
     ///
     /// Returns `WebPaymentAuth` if the response has a `WWW-Authenticate: Payment ...` header,
-    /// otherwise assumes `X402` (the default protocol).
+    /// otherwise returns `None`.
     ///
     /// Detection is case-insensitive and tolerant of leading whitespace per RFC 7235.
     ///
     /// # Arguments
     /// * `www_authenticate` - The value of the WWW-Authenticate header, if present
-    pub fn detect(www_authenticate: Option<&str>) -> Self {
+    pub fn detect(www_authenticate: Option<&str>) -> Option<Self> {
         const PAYMENT_SCHEME_WITH_SPACE: &str = "payment ";
 
         match www_authenticate {
             Some(header) => {
                 let trimmed = header.trim_start();
-                // Use starts_with for safe, idiomatic comparison
                 if trimmed
                     .get(..PAYMENT_SCHEME_WITH_SPACE.len())
                     .is_some_and(|prefix| prefix.eq_ignore_ascii_case(PAYMENT_SCHEME_WITH_SPACE))
                 {
-                    Self::WebPaymentAuth
+                    Some(Self::WebPaymentAuth)
                 } else {
-                    Self::X402
+                    None
                 }
             }
-            None => Self::X402,
+            None => None,
         }
     }
 
@@ -53,17 +50,11 @@ impl PaymentProtocol {
     pub fn is_web_payment_auth(&self) -> bool {
         matches!(self, Self::WebPaymentAuth)
     }
-
-    /// Check if this is the x402 protocol.
-    pub fn is_x402(&self) -> bool {
-        matches!(self, Self::X402)
-    }
 }
 
 impl fmt::Display for PaymentProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::X402 => write!(f, "x402"),
             Self::WebPaymentAuth => write!(f, "Web Payment Auth"),
         }
     }
@@ -430,62 +421,49 @@ mod tests {
         // Web Payment Auth detection
         assert_eq!(
             PaymentProtocol::detect(Some("Payment id=\"abc\", realm=\"api\"")),
-            PaymentProtocol::WebPaymentAuth
+            Some(PaymentProtocol::WebPaymentAuth)
         );
 
         // Case-insensitive detection (RFC 7235 allows case-insensitive auth schemes)
         assert_eq!(
             PaymentProtocol::detect(Some("payment id=\"abc\"")),
-            PaymentProtocol::WebPaymentAuth
+            Some(PaymentProtocol::WebPaymentAuth)
         );
         assert_eq!(
             PaymentProtocol::detect(Some("PAYMENT id=\"abc\"")),
-            PaymentProtocol::WebPaymentAuth
+            Some(PaymentProtocol::WebPaymentAuth)
         );
         assert_eq!(
             PaymentProtocol::detect(Some("PaYmEnT id=\"abc\"")),
-            PaymentProtocol::WebPaymentAuth
+            Some(PaymentProtocol::WebPaymentAuth)
         );
 
         // Tolerant of leading whitespace
         assert_eq!(
             PaymentProtocol::detect(Some("  Payment id=\"abc\"")),
-            PaymentProtocol::WebPaymentAuth
+            Some(PaymentProtocol::WebPaymentAuth)
         );
         assert_eq!(
             PaymentProtocol::detect(Some("\t Payment id=\"abc\"")),
-            PaymentProtocol::WebPaymentAuth
+            Some(PaymentProtocol::WebPaymentAuth)
         );
 
-        // x402 fallback (no header)
-        assert_eq!(PaymentProtocol::detect(None), PaymentProtocol::X402);
+        // None when no header
+        assert_eq!(PaymentProtocol::detect(None), None);
 
-        // x402 fallback (different auth scheme)
-        assert_eq!(
-            PaymentProtocol::detect(Some("Bearer token123")),
-            PaymentProtocol::X402
-        );
-        assert_eq!(
-            PaymentProtocol::detect(Some("Basic dXNlcjpwYXNz")),
-            PaymentProtocol::X402
-        );
+        // None for different auth schemes
+        assert_eq!(PaymentProtocol::detect(Some("Bearer token123")), None);
+        assert_eq!(PaymentProtocol::detect(Some("Basic dXNlcjpwYXNz")), None);
 
         // Edge cases: short strings that shouldn't panic
-        assert_eq!(PaymentProtocol::detect(Some("")), PaymentProtocol::X402);
-        assert_eq!(PaymentProtocol::detect(Some("Pay")), PaymentProtocol::X402);
-        assert_eq!(
-            PaymentProtocol::detect(Some("Payment")),
-            PaymentProtocol::X402
-        ); // No trailing space
-        assert_eq!(
-            PaymentProtocol::detect(Some("Paymentx")),
-            PaymentProtocol::X402
-        ); // Not a space after
+        assert_eq!(PaymentProtocol::detect(Some("")), None);
+        assert_eq!(PaymentProtocol::detect(Some("Pay")), None);
+        assert_eq!(PaymentProtocol::detect(Some("Payment")), None); // No trailing space
+        assert_eq!(PaymentProtocol::detect(Some("Paymentx")), None); // Not a space after
     }
 
     #[test]
     fn test_payment_protocol_display() {
-        assert_eq!(PaymentProtocol::X402.to_string(), "x402");
         assert_eq!(
             PaymentProtocol::WebPaymentAuth.to_string(),
             "Web Payment Auth"
@@ -494,10 +472,7 @@ mod tests {
 
     #[test]
     fn test_payment_protocol_helpers() {
-        assert!(PaymentProtocol::X402.is_x402());
-        assert!(!PaymentProtocol::X402.is_web_payment_auth());
         assert!(PaymentProtocol::WebPaymentAuth.is_web_payment_auth());
-        assert!(!PaymentProtocol::WebPaymentAuth.is_x402());
     }
 
     #[test]
