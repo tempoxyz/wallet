@@ -3,7 +3,6 @@
 A curl-like CLI tool for making HTTP requests with automatic support for payments.
 
 **Supported Protocols:**
-- [x402](https://www.x402.org/) - HTTP 402 payment protocol for EVM and Solana
 - [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
 
 **Contents**
@@ -436,8 +435,7 @@ Purl supports multiple payment protocols for HTTP-based payments.
 
 | Protocol | Description | Supported Networks |
 |----------|-------------|-------------------|
-| [x402](https://www.x402.org/) | HTTP 402 payment protocol for EVM and Solana | `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`, `solana`, `solana-devnet` |
-| [Web Payment Auth](https://tempo.xyz) | IETF standard for HTTP authentication-based payments | `tempo-moderato` |
+| [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) | IETF standard for HTTP authentication-based payments | `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`, `solana`, `solana-devnet` |
 
 ## Environment Variables
 

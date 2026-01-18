@@ -5,14 +5,13 @@
 This is a **Rust workspace** for `purl` - a curl-like CLI tool for making HTTP requests with automatic payment support.
 
 **Supported Payment Protocols:**
-- [x402](https://www.x402.org/) - HTTP 402 payment protocol for EVM and Solana
 - [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
 
 ### Workspace Structure
 
 | Crate | Description |
 | ----- | ----------- |
-| `lib/` | Core library (`purl-lib`) - payment providers, HTTP client, config, crypto, x402 protocol |
+| `lib/` | Core library (`purl-lib`) - payment providers, HTTP client, config, crypto, HTTP 402 protocol |
 | `cli/` | CLI binary (`purl`) - command-line interface using clap |
 
 ## Commands
@@ -213,4 +212,3 @@ For testing and development, these environment variables are used:
 - [Rust Book](https://doc.rust-lang.org/book/)
 - [Alloy Documentation](https://alloy.rs/)
 - [Solana Cookbook](https://solanacookbook.com/)
-- [x402 Protocol Spec](https://www.x402.org/)

@@ -1,54 +1,19 @@
 use crate::config::{Config, WalletConfig};
 use crate::currency::Currency;
 use crate::error::{PurlError, Result};
-use crate::network::{get_evm_chain_id, get_network, ChainType, Network};
-use crate::payment_provider::{DryRunInfo, NetworkBalance, PaymentProvider};
-use crate::protocol::x402::{PaymentPayload, PaymentRequirements};
-use alloy::primitives::{Address, B256, U256};
+use crate::network::{get_network, ChainType, GasConfig, Network};
+use crate::payment_provider::{NetworkBalance, PaymentProvider};
+use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use alloy::sol;
-use alloy::sol_types::{eip712_domain, SolStruct};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // Tempo transaction types from tempo-primitives
 use tempo_primitives::transaction::{AASigned, Call, TempoTransaction};
 
-use crate::network::GasConfig;
-
 const PROVIDER_NAME: &str = "EVM";
-
-sol! {
-    #[derive(Debug, Serialize, Deserialize)]
-    struct TransferWithAuthorization {
-        address from;
-        address to;
-        uint256 value;
-        uint256 validAfter;
-        uint256 validBefore;
-        bytes32 nonce;
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvmPayload {
-    pub signature: String,
-    pub authorization: Authorization,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Authorization {
-    pub from: String,
-    pub nonce: String,
-    pub to: String,
-    pub valid_after: String,
-    pub valid_before: String,
-    pub value: String,
-}
 
 #[derive(Default)]
 pub struct EvmProvider;
@@ -73,128 +38,8 @@ impl PaymentProvider for EvmProvider {
             .unwrap_or(false)
     }
 
-    async fn create_payment(
-        &self,
-        requirements: &PaymentRequirements,
-        config: &Config,
-    ) -> Result<PaymentPayload> {
-        let signer = Self::load_signer(config)?;
-
-        let nonce_bytes = rand::random::<[u8; 32]>();
-        let nonce = B256::from(nonce_bytes);
-
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-
-        // Set validAfter to 10 minutes ago to account for clock skew and match
-        // the official EVM client:
-        // https://github.com/coinbase/x402/blob/c23d94eabec89de92b0229d7006d82097eec8b34/typescript/packages/mechanisms/evm/src/exact/client/scheme.ts#L40
-        let valid_after = U256::from(now.saturating_sub(600));
-        let valid_before = U256::from(now + requirements.max_timeout_seconds());
-
-        let amount = requirements.parse_max_amount().map_err(|e| {
-            PurlError::InvalidAmount(format!("Failed to parse maxAmountRequired: {e}"))
-        })?;
-        let value = U256::from(amount.as_atomic_units());
-
-        let from = signer.address();
-        let to = Address::from_str(requirements.pay_to()).map_err(|e| {
-            PurlError::invalid_address(format!("Failed to parse payTo address: {e}"))
-        })?;
-
-        let _ = crate::constants::get_token_decimals(requirements.network(), requirements.asset())?;
-
-        let (token_name, token_version) = requirements.evm_token_metadata().ok_or_else(|| {
-            PurlError::MissingRequirement(
-                "EVM payments require token name and version in extra field for EIP-712 signing"
-                    .to_string(),
-            )
-        })?;
-
-        let verifying_contract = Address::from_str(requirements.asset()).map_err(|e| {
-            PurlError::invalid_address(format!("Failed to parse asset address: {e}"))
-        })?;
-
-        let chain_id = get_evm_chain_id(requirements.network()).ok_or_else(|| {
-            PurlError::UnknownNetwork(format!(
-                "Failed to get chain ID for network: {}",
-                requirements.network()
-            ))
-        })?;
-
-        let authorization = TransferWithAuthorization {
-            from,
-            to,
-            value,
-            validAfter: valid_after,
-            validBefore: valid_before,
-            nonce,
-        };
-
-        let domain = eip712_domain! {
-            name: token_name,
-            version: token_version,
-            chain_id: chain_id,
-            verifying_contract: verifying_contract,
-        };
-
-        let signing_hash = authorization.eip712_signing_hash(&domain);
-
-        let signature = signer
-            .sign_hash_sync(&signing_hash)
-            .map_err(|e| PurlError::signing(format!("Failed to sign EIP-712 message: {e}")))?;
-
-        let evm_payload = EvmPayload {
-            signature: signature.to_string(),
-            authorization: Authorization {
-                from: from.to_checksum(None),
-                nonce: format!("{nonce:#x}"),
-                to: to.to_checksum(None),
-                valid_after: valid_after.to_string(),
-                valid_before: valid_before.to_string(),
-                value: value.to_string(),
-            },
-        };
-
-        let payment_payload = match requirements {
-            PaymentRequirements::V1(_) => PaymentPayload::new_v1(
-                requirements.scheme().to_string(),
-                requirements.network().to_string(),
-                serde_json::to_value(evm_payload)?,
-            ),
-            PaymentRequirements::V2 {
-                requirements: req,
-                resource_info,
-            } => PaymentPayload::new_v2(
-                Some(resource_info.clone()),
-                req.clone(),
-                serde_json::to_value(evm_payload)?,
-                None,
-            ),
-        };
-
-        Ok(payment_payload)
-    }
-
     fn name(&self) -> &str {
         PROVIDER_NAME
-    }
-
-    fn dry_run(&self, requirements: &PaymentRequirements, config: &Config) -> Result<DryRunInfo> {
-        let evm_config = config.require_evm()?;
-
-        let amount = requirements
-            .parse_max_amount()
-            .map_err(|e| PurlError::InvalidAmount(format!("Failed to parse max amount: {e}")))?;
-
-        Ok(DryRunInfo {
-            provider: PROVIDER_NAME.to_owned(),
-            network: requirements.network().to_string(),
-            amount: amount.to_string(),
-            asset: requirements.asset().to_string(),
-            from: evm_config.get_address()?,
-            to: requirements.pay_to().to_string(),
-            estimated_fee: Some("0".to_string()), // EIP-3009 has no gas cost for sender
-        })
     }
 
     fn get_address(&self, config: &Config) -> Result<String> {
@@ -441,7 +286,6 @@ async fn create_eip1559_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::x402::{v1, PaymentRequirements};
 
     /// Test EVM private key (DO NOT use in production)
     const TEST_EVM_KEY: &str = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
@@ -455,26 +299,6 @@ mod tests {
             solana: None,
             ..Default::default()
         }
-    }
-
-    fn mock_v1_requirements() -> PaymentRequirements {
-        let v1_req = v1::PaymentRequirements {
-            scheme: "exact".to_string(),
-            network: "base".to_string(),
-            max_amount_required: "1000000".to_string(),
-            resource: "https://example.com/resource".to_string(),
-            description: "Test payment".to_string(),
-            mime_type: "application/json".to_string(),
-            output_schema: None,
-            pay_to: "0x1234567890123456789012345678901234567890".to_string(),
-            max_timeout_seconds: 300,
-            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            extra: Some(serde_json::json!({
-                "name": "USD Coin",
-                "version": "2"
-            })),
-        };
-        PaymentRequirements::V1(v1_req)
     }
 
     #[test]
@@ -517,82 +341,6 @@ mod tests {
 
         let address = provider.get_address(&config);
         assert!(address.is_err());
-    }
-
-    #[test]
-    fn test_evm_dry_run() {
-        let provider = EvmProvider::new();
-        let config = test_config_with_evm_key();
-        let requirements = mock_v1_requirements();
-
-        let result = provider.dry_run(&requirements, &config);
-        assert!(result.is_ok());
-
-        let dry_run_info = result.unwrap();
-        assert_eq!(dry_run_info.provider, "EVM");
-        assert_eq!(dry_run_info.network, "base");
-        assert_eq!(dry_run_info.amount, "1000000");
-        assert!(dry_run_info.from.starts_with("0x"));
-        assert_eq!(
-            dry_run_info.to,
-            "0x1234567890123456789012345678901234567890"
-        );
-        assert_eq!(dry_run_info.estimated_fee, Some("0".to_string()));
-    }
-
-    #[test]
-    fn test_evm_dry_run_without_config() {
-        let provider = EvmProvider::new();
-        let config = Config::default();
-        let requirements = mock_v1_requirements();
-
-        let result = provider.dry_run(&requirements, &config);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_authorization_serialization() {
-        let auth = Authorization {
-            from: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12".to_string(),
-            nonce: "0x1234".to_string(),
-            to: "0x9876543210987654321098765432109876543210".to_string(),
-            valid_after: "1000".to_string(),
-            valid_before: "2000".to_string(),
-            value: "1000000".to_string(),
-        };
-
-        let json = serde_json::to_string(&auth).unwrap();
-        assert!(json.contains("validAfter"));
-        assert!(json.contains("validBefore"));
-        assert!(!json.contains("valid_after"));
-
-        let parsed: Authorization = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.from, auth.from);
-        assert_eq!(parsed.value, auth.value);
-    }
-
-    #[test]
-    fn test_evm_payload_structure() {
-        let payload = EvmPayload {
-            signature: "0xabcdef...".to_string(),
-            authorization: Authorization {
-                from: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12".to_string(),
-                nonce: "0x1234".to_string(),
-                to: "0x9876543210987654321098765432109876543210".to_string(),
-                valid_after: "0".to_string(),
-                valid_before: "9999999999".to_string(),
-                value: "1000000".to_string(),
-            },
-        };
-
-        let json = serde_json::to_value(&payload).unwrap();
-        assert!(json.get("signature").is_some());
-        assert!(json.get("authorization").is_some());
-
-        let auth = json.get("authorization").unwrap();
-        assert!(auth.get("from").is_some());
-        assert!(auth.get("to").is_some());
-        assert!(auth.get("value").is_some());
     }
 
     #[test]
