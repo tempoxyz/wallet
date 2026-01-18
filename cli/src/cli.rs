@@ -319,6 +319,24 @@ pub enum MethodCommands {
         /// Name of the keystore (without .json extension)
         name: String,
     },
+    /// Sign a message using a keystore
+    #[command(alias = "s")]
+    Sign {
+        /// Message to sign
+        message: String,
+        /// Name of the keystore (without .json extension)
+        #[arg(long)]
+        name: Option<String>,
+        /// Output raw signature without message prefix
+        #[arg(long)]
+        raw: bool,
+    },
+    /// Show the address for a keystore
+    #[command(alias = "a", alias = "addr")]
+    Address {
+        /// Name of the keystore (without .json extension)
+        name: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

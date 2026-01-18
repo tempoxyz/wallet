@@ -100,6 +100,10 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
             }
             MethodCommands::Show { name } => wallet_commands::show_command(name),
             MethodCommands::Verify { name } => wallet_commands::verify_command(name),
+            MethodCommands::Sign { message, name, raw } => {
+                wallet_commands::sign_command(message, name.clone(), *raw)
+            }
+            MethodCommands::Address { name } => wallet_commands::address_command(name.clone()),
         },
 
         Commands::Completions { shell } => generate_completions(*shell),

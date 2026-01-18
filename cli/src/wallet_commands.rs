@@ -367,6 +367,23 @@ pub fn show_command(name: &str) -> Result<()> {
 /// - The keystore format is invalid
 /// - The password is incorrect
 /// - The stored address doesn't match the derived address (indicating corruption)
+/// Helper to get the default keystore (first one in the list)
+fn get_default_keystore() -> Result<PathBuf> {
+    let keystores = list_keystores()?;
+    keystores
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No keystores found. Create one with: purl method new"))
+}
+
+/// Helper to resolve keystore path from optional name
+fn resolve_keystore(name: Option<String>) -> Result<PathBuf> {
+    match name {
+        Some(n) => find_keystore_by_name(&n),
+        None => get_default_keystore(),
+    }
+}
+
 pub fn verify_command(name: &str) -> Result<()> {
     let keystore_path = find_keystore_by_name(name)?;
     let keystore = Keystore::load(&keystore_path)?;
@@ -432,6 +449,90 @@ pub fn verify_command(name: &str) -> Result<()> {
             println!("[FAIL] Failed to decrypt keystore: {e}");
             anyhow::bail!("Keystore decryption failed");
         }
+    }
+
+    Ok(())
+}
+
+/// Sign a message using a keystore
+///
+/// Signs a message using EIP-191 personal message signing. The signature
+/// can be verified using standard Ethereum signature recovery.
+///
+/// # Arguments
+///
+/// * `message` - The message to sign
+/// * `name` - Optional keystore name. If None, uses the first available keystore.
+/// * `raw` - If true, output only the raw signature; if false, include message info
+///
+/// # Examples
+///
+/// ```text
+/// $ purl method sign "Hello, world!" --name my-wallet
+/// Enter password: ****
+/// Message: Hello, world!
+/// Signature: 0x1234...
+/// ```
+pub fn sign_command(message: &str, name: Option<String>, raw: bool) -> Result<()> {
+    use alloy_signer::SignerSync;
+    use alloy_signer_local::PrivateKeySigner;
+
+    let keystore_path = resolve_keystore(name)?;
+    let keystore = Keystore::load(&keystore_path)?;
+
+    let password = Password::new()
+        .with_prompt("Enter password")
+        .allow_empty_password(false)
+        .interact()?;
+
+    let private_key_bytes = keystore.decrypt(&password)?;
+    let key_hex = hex::encode(&private_key_bytes);
+
+    let signer: PrivateKeySigner = key_hex
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Failed to parse private key: {e}"))?;
+
+    // Sign the message using EIP-191 personal message signing (sync version)
+    let signature = signer
+        .sign_message_sync(message.as_bytes())
+        .map_err(|e| anyhow::anyhow!("Failed to sign message: {e}"))?;
+
+    if raw {
+        println!("0x{}", hex::encode(signature.as_bytes()));
+    } else {
+        println!("Message: {message}");
+        println!("Signature: 0x{}", hex::encode(signature.as_bytes()));
+    }
+
+    Ok(())
+}
+
+/// Show the address for a keystore
+///
+/// Displays the Ethereum address associated with a keystore without
+/// requiring the password (the address is stored unencrypted in the keystore).
+///
+/// # Arguments
+///
+/// * `name` - Optional keystore name. If None, uses the first available keystore.
+///
+/// # Examples
+///
+/// ```text
+/// $ purl method address
+/// 0xabcd1234...
+///
+/// $ purl method address --name my-wallet
+/// 0xabcd1234...
+/// ```
+pub fn address_command(name: Option<String>) -> Result<()> {
+    let keystore_path = resolve_keystore(name)?;
+    let keystore = Keystore::load(&keystore_path)?;
+
+    if let Some(address) = keystore.formatted_address() {
+        println!("{address}");
+    } else {
+        anyhow::bail!("Address not found in keystore");
     }
 
     Ok(())
