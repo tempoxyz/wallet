@@ -444,7 +444,8 @@ mod tests {
             Some(PaymentProtocol::WebPaymentAuth)
         );
         assert_eq!(
-            PaymentProtocol::detect(Some("\t Payment id=\"abc\"")),
+            // ast-grep-ignore: no-leading-whitespace-strings
+            PaymentProtocol::detect(Some("\t Payment id=\"abc\"")), // Intentional: testing whitespace tolerance
             Some(PaymentProtocol::WebPaymentAuth)
         );
 

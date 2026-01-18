@@ -60,7 +60,8 @@ mod tests {
         assert_eq!(strip_0x_prefix("0xabc123"), "abc123");
         assert_eq!(strip_0x_prefix("0Xabc123"), "abc123");
         assert_eq!(strip_0x_prefix("abc123"), "abc123");
-        assert_eq!(strip_0x_prefix(" 0xabc123 "), "abc123");
+        // ast-grep-ignore: no-leading-whitespace-strings
+        assert_eq!(strip_0x_prefix(" 0xabc123 "), "abc123"); // Intentional: testing whitespace trimming
     }
 
     #[test]

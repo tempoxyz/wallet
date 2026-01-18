@@ -5,13 +5,13 @@ language: rust
 note: |
   Strings that start with a single space followed by text like " foo" are often 
   unintentional typos and can cause display issues.
-  
+
   This rule ignores:
   - Multi-line string indentation (2+ spaces or tabs)
   - Format strings with placeholders
-  
+
   If intentional, disable with `// ast-grep-ignore: no-leading-whitespace-strings`
-  
+
   To disable this rule:
   - Line: add `// ast-grep-ignore: no-leading-whitespace-strings` on the line before
   - Block: wrap code with `// ast-grep-ignore-start` and `// ast-grep-ignore-end`
@@ -19,3 +19,9 @@ rule:
   kind: string_content
   pattern: $CONTENT
   regex: "^ [^\\s{]"
+fix: $TRIMMED
+transform:
+  TRIMMED:
+    substring:
+      source: $CONTENT
+      startChar: 1
