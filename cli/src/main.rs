@@ -104,9 +104,9 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
 
         Commands::Completions { shell } => generate_completions(*shell),
 
-        Commands::Balance { address, network } => {
+        Commands::Balance { address } => {
             let config = load_config(cli.config.as_ref())?;
-            balance_command::balance_command(&config, address.clone(), network.clone()).await
+            balance_command::balance_command(&config, address.clone(), cli.network.clone()).await
         }
 
         Commands::Networks {
