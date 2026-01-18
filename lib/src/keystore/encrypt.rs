@@ -95,6 +95,13 @@ pub(crate) fn create_keystore_in_dir(
     std::fs::write(&keystore_path, updated_keystore)
         .map_err(|e| PurlError::ConfigMissing(format!("Failed to write keystore: {e}")))?;
 
+    #[cfg(unix)]
+    {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&keystore_path, Permissions::from_mode(0o600))?;
+    }
+
     Ok(keystore_path)
 }
 
