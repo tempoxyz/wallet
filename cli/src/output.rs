@@ -9,7 +9,7 @@ use crate::cli::{Cli, OutputFormat};
 
 /// Handle a regular (non-402) HTTP response
 pub fn handle_regular_response(cli: &Cli, response: HttpResponse) -> Result<()> {
-    match cli.output_format {
+    match cli.effective_output_format() {
         OutputFormat::Json => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
                 let output = serde_json::to_string_pretty(&json_value)?;
