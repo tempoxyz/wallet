@@ -218,6 +218,9 @@ pub enum Commands {
         /// Force overwrite existing config
         #[arg(short = 'f', long)]
         force: bool,
+        /// Skip installing AI tool integrations
+        #[arg(long)]
+        skip_ai: bool,
     },
     /// Manage configuration
     #[command(alias = "c")]
