@@ -95,7 +95,7 @@ pub fn inspect_command(cli: &Cli, url: &str) -> Result<()> {
 
     let available_methods = config.available_payment_methods();
 
-    match cli.output_format {
+    match cli.effective_output_format() {
         OutputFormat::Json => {
             output_json(cli, &requirements, &available_methods)?;
         }

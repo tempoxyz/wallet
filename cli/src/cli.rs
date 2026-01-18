@@ -111,6 +111,15 @@ pub struct Cli {
     )]
     pub output_format: OutputFormat,
 
+    /// Format output as JSON (shorthand for --output-format json)
+    #[arg(
+        long = "json-output",
+        visible_alias = "jo",
+        global = true,
+        help_heading = "Display Options"
+    )]
+    pub json_output: bool,
+
     /// Write output to file
     #[arg(
         short = 'o',
@@ -386,6 +395,15 @@ impl Cli {
     /// Check if output should be shown (not quiet)
     pub fn should_show_output(&self) -> bool {
         !self.quiet
+    }
+
+    /// Get the effective output format (--json-output flag overrides --output-format)
+    pub fn effective_output_format(&self) -> OutputFormat {
+        if self.json_output {
+            OutputFormat::Json
+        } else {
+            self.output_format
+        }
     }
 }
 
