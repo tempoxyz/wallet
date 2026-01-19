@@ -51,7 +51,6 @@ fn get_cache_file_path_in_dir(id: &KeystoreId, cache_dir: &Path) -> Result<PathB
         set_secure_permissions(cache_dir, 0o700).ok();
     }
 
-    // Create a hash of the keystore path to use as filename
     let mut hasher = DefaultHasher::new();
     id.0.hash(&mut hasher);
     let hash = hasher.finish();
@@ -97,7 +96,6 @@ fn get_cached_password_from_file(cache_file: &Path) -> Option<String> {
     let timestamp: u64 = parts[0].parse().ok()?;
     let password = parts[1];
 
-    // Check if cache entry is still valid
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

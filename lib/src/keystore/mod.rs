@@ -6,7 +6,7 @@
 //! # Module Structure
 //!
 //! - `cache` - Password caching functionality
-//! - `store` - Keystore and KeystoreInfo types
+//! - `store` - Keystore type for loading and validating keystore files
 //! - `encrypt` - Keystore creation and decryption
 //!
 //! # Example
@@ -39,7 +39,7 @@ use std::path::Path;
 // Re-export public items
 pub use cache::clear_password_cache;
 pub use encrypt::{create_keystore, decrypt_keystore, default_keystore_dir, list_keystores};
-pub use store::{Keystore, KeystoreInfo};
+pub use store::Keystore;
 
 /// Extract EVM address from keystore without decrypting it
 pub fn get_evm_address_from_keystore(keystore_path: &Path) -> Result<String> {

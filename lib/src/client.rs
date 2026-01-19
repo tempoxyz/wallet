@@ -204,7 +204,6 @@ impl Client {
             return Ok(PaymentResult::Success(response));
         }
 
-        // Check for Web Payment Auth protocol
         if response
             .get_header(crate::protocol::web::WWW_AUTHENTICATE_HEADER)
             .is_some()

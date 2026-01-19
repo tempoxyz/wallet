@@ -250,119 +250,7 @@ impl WalletConfig for SolanaConfig {
     }
 }
 
-/// Macro to reduce builder pattern boilerplate
-macro_rules! builder_method {
-    ($name:ident, $field:ident, $config_type:ident, $inner_field:ident, $value_type:ty) => {
-        pub fn $name(mut self, value: impl Into<$value_type>) -> Self {
-            self.$field = Some($config_type {
-                $inner_field: Some(value.into()),
-                ..Default::default()
-            });
-            self
-        }
-    };
-}
-
-/// Builder for creating Config instances
-///
-/// # Examples
-///
-/// ```no_run
-/// use purl::config::{Config, ConfigBuilder};
-/// use std::path::PathBuf;
-///
-/// // Build a config with EVM keystore
-/// let config = Config::builder()
-///     .with_evm_keystore("/path/to/keystore.json")
-///     .build()
-///     .unwrap();
-///
-/// // Build a config with both EVM and Solana
-/// let config = ConfigBuilder::new()
-///     .with_evm_private_key("0x1234...")
-///     .with_solana_private_key("base58key...")
-///     .build()
-///     .unwrap();
-/// ```
-#[derive(Debug, Default)]
-pub struct ConfigBuilder {
-    evm: Option<EvmConfig>,
-    solana: Option<SolanaConfig>,
-    rpc: HashMap<String, String>,
-    networks: Vec<CustomNetwork>,
-    tokens: Vec<CustomToken>,
-}
-
-impl ConfigBuilder {
-    /// Create a new config builder
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    // Use macro to generate builder methods
-    builder_method!(with_evm_keystore, evm, EvmConfig, keystore, PathBuf);
-    builder_method!(with_evm_private_key, evm, EvmConfig, private_key, String);
-    builder_method!(
-        with_solana_keystore,
-        solana,
-        SolanaConfig,
-        keystore,
-        PathBuf
-    );
-    builder_method!(
-        with_solana_private_key,
-        solana,
-        SolanaConfig,
-        private_key,
-        String
-    );
-
-    /// Add an RPC URL override for a network
-    pub fn with_rpc_override(
-        mut self,
-        network: impl Into<String>,
-        rpc_url: impl Into<String>,
-    ) -> Self {
-        self.rpc.insert(network.into(), rpc_url.into());
-        self
-    }
-
-    /// Add a custom network
-    pub fn with_network(mut self, network: CustomNetwork) -> Self {
-        self.networks.push(network);
-        self
-    }
-
-    /// Add a custom token
-    pub fn with_token(mut self, token: CustomToken) -> Self {
-        self.tokens.push(token);
-        self
-    }
-
-    /// Build the configuration
-    pub fn build(self) -> Result<Config> {
-        let config = Config {
-            evm: self.evm,
-            solana: self.solana,
-            rpc: self.rpc,
-            networks: self.networks,
-            tokens: self.tokens,
-        };
-
-        // Validate the configuration
-        config.validate()?;
-        Ok(config)
-    }
-}
-
 impl Config {
-    /// Create a new config builder
-    #[must_use]
-    pub fn builder() -> ConfigBuilder {
-        ConfigBuilder::new()
-    }
-
     /// Load config from the specified path or default location (~/.purl/config.toml)
     pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
         let config_path = if let Some(path) = config_path {
@@ -394,7 +282,6 @@ impl Config {
             ))
         })?;
 
-        // Validate configuration immediately after loading
         config.validate().map_err(|e| {
             PurlError::ConfigMissing(format!(
                 "Invalid configuration in {}: {}",
@@ -453,7 +340,6 @@ impl Config {
 
     /// Save config to the default location with validation
     pub fn save(&self) -> Result<()> {
-        // Validate the configuration before saving
         self.validate()?;
 
         let config_path = Self::default_config_path()?;

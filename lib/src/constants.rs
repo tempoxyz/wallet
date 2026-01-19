@@ -1,9 +1,9 @@
 //! Constants used throughout the purl library
 
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 /// Application name for XDG directories
@@ -287,7 +287,6 @@ impl TokenRegistry {
     fn load() -> Self {
         let mut tokens: HashMap<String, HashMap<String, Token>> = HashMap::new();
 
-        // Load built-in tokens from code
         for builtin in BUILTIN_TOKENS {
             let token = Token {
                 name: builtin.name.to_string(),
@@ -295,14 +294,12 @@ impl TokenRegistry {
                 decimals: builtin.decimals,
             };
 
-            // Addresses are already lowercase for EVM in the builtin definitions
             tokens
                 .entry(builtin.network.to_string())
                 .or_default()
                 .insert(builtin.address.to_string(), token);
         }
 
-        // Try to load config for custom tokens
         if let Ok(config) = crate::config::Config::load_unchecked(None::<&str>) {
             for custom in &config.tokens {
                 let token = Token {
@@ -370,7 +367,7 @@ impl TokenRegistry {
 }
 
 /// Global token registry
-pub static TOKEN_REGISTRY: Lazy<TokenRegistry> = Lazy::new(TokenRegistry::load);
+pub static TOKEN_REGISTRY: LazyLock<TokenRegistry> = LazyLock::new(TokenRegistry::load);
 
 /// Get token decimals for a network and asset address
 ///

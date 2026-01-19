@@ -237,7 +237,6 @@ mod tests {
         let result = decrypt_keystore_no_cache(&keystore_path, password);
         assert!(result.is_ok());
 
-        // Verify the decrypted key matches
         let decrypted_key = result.unwrap();
         let expected_key = hex::decode(&private_key[2..]).unwrap();
         assert_eq!(decrypted_key, expected_key);

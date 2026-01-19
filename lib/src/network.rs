@@ -1,11 +1,11 @@
 //! Network registry with support for both built-in and custom networks.
 
 use crate::currency::Currency;
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 /// Network name constants for use in configuration and matching
 pub mod networks {
@@ -365,7 +365,7 @@ impl NetworkRegistry {
 }
 
 /// Global network registry
-pub static NETWORK_REGISTRY: Lazy<NetworkRegistry> = Lazy::new(NetworkRegistry::load);
+pub static NETWORK_REGISTRY: LazyLock<NetworkRegistry> = LazyLock::new(NetworkRegistry::load);
 
 /// Type-safe network identifier with FromStr parsing.
 ///

@@ -68,21 +68,21 @@ impl FromStr for HttpMethod {
     }
 }
 
-impl From<&str> for HttpMethod {
-    fn from(s: &str) -> Self {
-        s.parse().unwrap()
-    }
-}
+// Note: We don't implement From<&str> to avoid unwrap() in conversion.
+// Use .parse() instead, which returns Result (though the error type is Infallible).
+// This makes the API more explicit and idiomatic.
 
 impl From<&String> for HttpMethod {
     fn from(s: &String) -> Self {
-        s.as_str().into()
+        // Safe to unwrap since FromStr::Err is Infallible
+        s.parse().expect("HttpMethod::from_str is infallible")
     }
 }
 
 impl From<String> for HttpMethod {
     fn from(s: String) -> Self {
-        s.as_str().into()
+        // Safe to unwrap since FromStr::Err is Infallible
+        s.parse().expect("HttpMethod::from_str is infallible")
     }
 }
 
@@ -191,7 +191,6 @@ impl HttpClientBuilder {
             builder = builder.user_agent(ua);
         }
 
-        // Convert headers to reqwest::header::HeaderMap
         if !self.headers.is_empty() {
             let mut header_map = reqwest::header::HeaderMap::new();
             for (name, value) in &self.headers {
@@ -223,42 +222,6 @@ pub struct HttpClient {
 impl HttpClient {
     pub fn new() -> Result<Self> {
         HttpClientBuilder::new().build()
-    }
-
-    pub fn set_headers(&mut self, _headers: &[(String, String)]) -> Result<()> {
-        // Note: reqwest doesn't support modifying default headers after client creation.
-        // Headers should be set via the builder or per-request.
-        // For now, we'll ignore this to maintain API compatibility.
-        // TODO: Consider deprecating this method in favor of builder pattern.
-        Ok(())
-    }
-
-    /// Set verbose mode
-    pub fn set_verbose(&mut self, _verbose: bool) -> Result<()> {
-        // Note: reqwest doesn't support changing verbosity after client creation.
-        // Use HttpClientBuilder::verbose() instead.
-        Ok(())
-    }
-
-    /// Set timeout
-    pub fn set_timeout(&mut self, _timeout_secs: u64) -> Result<()> {
-        // Note: reqwest doesn't support changing timeout after client creation.
-        // Use HttpClientBuilder::timeout() instead.
-        Ok(())
-    }
-
-    /// Set follow redirects
-    pub fn set_follow_location(&mut self, _follow: bool) -> Result<()> {
-        // Note: reqwest doesn't support changing redirect policy after client creation.
-        // Use HttpClientBuilder::follow_redirects() instead.
-        Ok(())
-    }
-
-    /// Set user agent
-    pub fn set_user_agent(&mut self, _user_agent: &str) -> Result<()> {
-        // Note: reqwest doesn't support changing user agent after client creation.
-        // Use HttpClientBuilder::user_agent() instead.
-        Ok(())
     }
 
     /// Perform a GET request
@@ -337,7 +300,13 @@ impl HttpClient {
 
 impl Default for HttpClient {
     fn default() -> Self {
-        Self::new().unwrap()
+        // HttpClient::new() internally uses HttpClientBuilder which only fails
+        // if reqwest::Client::builder().build() fails. This is infallible in practice
+        // since we're not doing any I/O or validation that could fail.
+        // However, to be safe we provide a fallback that creates a basic client directly.
+        Self::new().unwrap_or_else(|_| Self {
+            client: reqwest::blocking::Client::new(),
+        })
     }
 }
 

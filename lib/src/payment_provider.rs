@@ -8,7 +8,7 @@ use crate::currency::Currency;
 use crate::error::Result;
 use crate::network::Network;
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 /// Balance information for a single network
 #[derive(Debug, Clone)]
@@ -263,8 +263,8 @@ impl PaymentProviderRegistry {
 }
 
 /// Global static registry of payment providers
-pub static PROVIDER_REGISTRY: Lazy<PaymentProviderRegistry> =
-    Lazy::new(PaymentProviderRegistry::new);
+pub static PROVIDER_REGISTRY: LazyLock<PaymentProviderRegistry> =
+    LazyLock::new(PaymentProviderRegistry::new);
 
 #[cfg(test)]
 mod tests {
