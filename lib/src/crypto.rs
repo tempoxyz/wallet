@@ -8,7 +8,7 @@ use crate::error::{PurlError, Result};
 /// # Examples
 ///
 /// ```
-/// use purl_lib::crypto::{KeyGenerator, EvmKeyGenerator, SolanaKeyGenerator};
+/// use purl::crypto::{KeyGenerator, EvmKeyGenerator, SolanaKeyGenerator};
 ///
 /// // Generate an EVM key
 /// let (private_key, address) = EvmKeyGenerator::generate().unwrap();
@@ -44,7 +44,7 @@ pub trait KeyGenerator {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::crypto::{KeyGenerator, EvmKeyGenerator};
+/// use purl::crypto::{KeyGenerator, EvmKeyGenerator};
 ///
 /// let (private_key, address) = EvmKeyGenerator::generate().unwrap();
 /// assert_eq!(private_key.len(), 64);
@@ -74,7 +74,7 @@ impl KeyGenerator for EvmKeyGenerator {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::crypto::{KeyGenerator, SolanaKeyGenerator};
+/// use purl::crypto::{KeyGenerator, SolanaKeyGenerator};
 ///
 /// let (private_key, public_key) = SolanaKeyGenerator::generate().unwrap();
 /// assert!(!private_key.is_empty());

@@ -13,23 +13,23 @@
 //! # Example
 //!
 //! ```no_run
-//! # use purl_lib::protocol::web::{PaymentChallenge, PaymentCredential, PaymentMethod, PaymentIntent};
-//! # fn main() -> Result<(), purl_lib::error::PurlError> {
+//! # use purl::protocol::web::{PaymentChallenge, PaymentCredential, PaymentMethod, PaymentIntent};
+//! # fn main() -> Result<(), purl::error::PurlError> {
 //! // Parse challenge from WWW-Authenticate header
 //! let header = "Payment id=\"abc123\", realm=\"api\"";
-//! let challenge = purl_lib::protocol::web::parse_www_authenticate(header)?;
+//! let challenge = purl::protocol::web::parse_www_authenticate(header)?;
 //!
 //! // After creating payment credential via provider...
 //! // Format Authorization header for retrying the request
 //! # let credential = PaymentCredential {
 //! #     id: "abc123".to_string(),
 //! #     source: None,
-//! #     payload: purl_lib::protocol::web::PaymentPayload {
-//! #         payload_type: purl_lib::protocol::web::PayloadType::Transaction,
+//! #     payload: purl::protocol::web::PaymentPayload {
+//! #         payload_type: purl::protocol::web::PayloadType::Transaction,
 //! #         signature: "0x...".to_string(),
 //! #     },
 //! # };
-//! let auth_header = purl_lib::protocol::web::format_authorization(&credential)?;
+//! let auth_header = purl::protocol::web::format_authorization(&credential)?;
 //! # Ok(())
 //! # }
 //! ```

@@ -194,7 +194,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
 /// # Examples
 ///
 /// ```
-/// use purl_lib::network::get_network;
+/// use purl::network::get_network;
 ///
 /// let base = get_network("base").expect("base network exists");
 /// assert!(base.mainnet);
@@ -496,7 +496,7 @@ impl fmt::Display for Network {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::network::Network;
+/// use purl::network::Network;
 ///
 /// let base = Network::Base;
 /// let usdc_config = base.usdc_config().expect("Base has USDC");
@@ -519,7 +519,7 @@ pub struct TokenConfig {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::network::Network;
+/// use purl::network::Network;
 ///
 /// let tempo = Network::TempoModerato;
 /// let gas_config = tempo.gas_config().expect("Tempo has gas config");
@@ -637,7 +637,7 @@ impl Network {
     /// # Examples
     ///
     /// ```
-    /// use purl_lib::network::Network;
+    /// use purl::network::Network;
     ///
     /// // EVM networks have gas config
     /// assert!(Network::Base.gas_config().is_some());
@@ -713,7 +713,7 @@ pub fn get_evm_chain_id(name: &str) -> Option<u64> {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::network::resolve_network_alias;
+/// use purl::network::resolve_network_alias;
 ///
 /// assert_eq!(resolve_network_alias("base"), "base");
 /// assert_eq!(resolve_network_alias("eip155:8453"), "base");

@@ -30,7 +30,7 @@ pub const PASSWORD_CACHE_DIR: &str = "password_cache";
 /// # Examples
 ///
 /// ```
-/// use purl_lib::constants::password_cache_duration;
+/// use purl::constants::password_cache_duration;
 /// use std::time::Duration;
 ///
 /// let duration = password_cache_duration();
@@ -84,7 +84,7 @@ pub const KEYSTORE_EXTENSION: &str = "json";
 /// # Examples
 ///
 /// ```
-/// use purl_lib::constants::purl_config_dir;
+/// use purl::constants::purl_config_dir;
 ///
 /// if let Some(path) = purl_config_dir() {
 ///     println!("Purl config dir: {}", path.display());
@@ -227,7 +227,7 @@ const BUILTIN_TOKENS: &[BuiltinToken] = &[
 /// # Examples
 ///
 /// ```
-/// use purl_lib::constants::Token;
+/// use purl::constants::Token;
 ///
 /// let usdc = Token {
 ///     name: "USD Coin".to_string(),
@@ -392,7 +392,7 @@ pub fn get_token_decimals(network: &str, asset: &str) -> Result<u8, crate::error
 /// # Examples
 ///
 /// ```
-/// use purl_lib::constants::get_token_symbol;
+/// use purl::constants::get_token_symbol;
 ///
 /// // Look up USDC on Base
 /// if let Some(symbol) = get_token_symbol("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913") {

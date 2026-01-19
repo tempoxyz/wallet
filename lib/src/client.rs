@@ -13,9 +13,9 @@ use crate::payment_provider::PROVIDER_REGISTRY;
 ///
 /// # Example
 /// ```no_run
-/// # use purl_lib::{PurlClient, Config};
-/// # async fn example() -> purl_lib::Result<()> {
-/// let client = PurlClient::new()?
+/// # use purl::{Client, Config};
+/// # async fn example() -> purl::Result<()> {
+/// let client = Client::new()?
 ///     .max_amount("1000000")
 ///     .verbose();
 ///
@@ -23,7 +23,7 @@ use crate::payment_provider::PROVIDER_REGISTRY;
 /// # Ok(())
 /// # }
 /// ```
-pub struct PurlClient {
+pub struct Client {
     config: Config,
     max_amount: Option<String>,
     allowed_networks: Vec<String>,
@@ -35,8 +35,8 @@ pub struct PurlClient {
     dry_run: bool,
 }
 
-impl PurlClient {
-    /// Create a new PurlClient by loading configuration from the default location.
+impl Client {
+    /// Create a new Client by loading configuration from the default location.
     ///
     /// This loads the config from `~/.config/purl/purl.toml`.
     ///
@@ -47,14 +47,14 @@ impl PurlClient {
         Ok(Self::with_config(config))
     }
 
-    /// Create a new PurlClient with the provided configuration.
+    /// Create a new Client with the provided configuration.
     ///
     /// Use this when you want to provide configuration programmatically
     /// rather than loading it from a file.
     ///
     /// # Example
     /// ```no_run
-    /// # use purl_lib::{PurlClient, Config, EvmConfig};
+    /// # use purl::{Client, Config, EvmConfig};
     /// let config = Config {
     ///     evm: Some(EvmConfig {
     ///         keystore: None,
@@ -63,7 +63,7 @@ impl PurlClient {
     ///     solana: None,
     ///     ..Default::default()
     /// };
-    /// let client = PurlClient::with_config(config);
+    /// let client = Client::with_config(config);
     /// ```
     pub fn with_config(config: Config) -> Self {
         Self {
@@ -353,9 +353,9 @@ mod tests {
     }
 
     #[test]
-    fn test_purl_client_with_config() {
+    fn test_client_with_config() {
         let config = test_config();
-        let client = PurlClient::with_config(config);
+        let client = Client::with_config(config);
 
         assert!(client.max_amount.is_none());
         assert!(client.allowed_networks.is_empty());
@@ -368,28 +368,28 @@ mod tests {
     }
 
     #[test]
-    fn test_purl_client_max_amount() {
+    fn test_client_max_amount() {
         let config = test_config();
-        let client = PurlClient::with_config(config).max_amount("1000000");
+        let client = Client::with_config(config).max_amount("1000000");
 
         assert_eq!(client.max_amount, Some("1000000".to_string()));
     }
 
     #[test]
-    fn test_purl_client_max_amount_from_various_types() {
+    fn test_client_max_amount_from_various_types() {
         let config = test_config();
 
-        let client = PurlClient::with_config(config.clone()).max_amount("1000000");
+        let client = Client::with_config(config.clone()).max_amount("1000000");
         assert_eq!(client.max_amount, Some("1000000".to_string()));
 
-        let client = PurlClient::with_config(config.clone()).max_amount(String::from("2000000"));
+        let client = Client::with_config(config.clone()).max_amount(String::from("2000000"));
         assert_eq!(client.max_amount, Some("2000000".to_string()));
     }
 
     #[test]
-    fn test_purl_client_allowed_networks() {
+    fn test_client_allowed_networks() {
         let config = test_config();
-        let client = PurlClient::with_config(config).allowed_networks(&["base", "ethereum"]);
+        let client = Client::with_config(config).allowed_networks(&["base", "ethereum"]);
 
         assert_eq!(client.allowed_networks.len(), 2);
         assert!(client.allowed_networks.contains(&"base".to_string()));
@@ -397,17 +397,17 @@ mod tests {
     }
 
     #[test]
-    fn test_purl_client_allowed_networks_empty() {
+    fn test_client_allowed_networks_empty() {
         let config = test_config();
-        let client = PurlClient::with_config(config).allowed_networks(&[]);
+        let client = Client::with_config(config).allowed_networks(&[]);
 
         assert!(client.allowed_networks.is_empty());
     }
 
     #[test]
-    fn test_purl_client_header() {
+    fn test_client_header() {
         let config = test_config();
-        let client = PurlClient::with_config(config)
+        let client = Client::with_config(config)
             .header("X-Custom-Header", "value1")
             .header("X-Another-Header", "value2");
 
@@ -421,49 +421,49 @@ mod tests {
     }
 
     #[test]
-    fn test_purl_client_timeout() {
+    fn test_client_timeout() {
         let config = test_config();
-        let client = PurlClient::with_config(config).timeout(30);
+        let client = Client::with_config(config).timeout(30);
 
         assert_eq!(client.timeout, Some(30));
     }
 
     #[test]
-    fn test_purl_client_follow_redirects() {
+    fn test_client_follow_redirects() {
         let config = test_config();
-        let client = PurlClient::with_config(config).follow_redirects();
+        let client = Client::with_config(config).follow_redirects();
 
         assert!(client.follow_redirects);
     }
 
     #[test]
-    fn test_purl_client_user_agent() {
+    fn test_client_user_agent() {
         let config = test_config();
-        let client = PurlClient::with_config(config).user_agent("MyApp/1.0");
+        let client = Client::with_config(config).user_agent("MyApp/1.0");
 
         assert_eq!(client.user_agent, Some("MyApp/1.0".to_string()));
     }
 
     #[test]
-    fn test_purl_client_verbose() {
+    fn test_client_verbose() {
         let config = test_config();
-        let client = PurlClient::with_config(config).verbose();
+        let client = Client::with_config(config).verbose();
 
         assert!(client.verbose);
     }
 
     #[test]
-    fn test_purl_client_dry_run() {
+    fn test_client_dry_run() {
         let config = test_config();
-        let client = PurlClient::with_config(config).dry_run();
+        let client = Client::with_config(config).dry_run();
 
         assert!(client.dry_run);
     }
 
     #[test]
-    fn test_purl_client_builder_chaining() {
+    fn test_client_builder_chaining() {
         let config = test_config();
-        let client = PurlClient::with_config(config)
+        let client = Client::with_config(config)
             .max_amount("1000000")
             .allowed_networks(&["base"])
             .header("Authorization", "Bearer token")
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn test_configure_client() {
         let config = test_config();
-        let client = PurlClient::with_config(config)
+        let client = Client::with_config(config)
             .timeout(30)
             .follow_redirects()
             .user_agent("TestAgent/1.0")
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn test_configure_client_with_additional_headers() {
         let config = test_config();
-        let client = PurlClient::with_config(config).header("X-Existing", "existing");
+        let client = Client::with_config(config).header("X-Existing", "existing");
 
         let additional = vec![("X-Additional".to_string(), "additional".to_string())];
         let result = client.configure_client(&additional);

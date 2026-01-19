@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use purl_lib::keystore::{create_keystore, decrypt_keystore, list_keystores, Keystore};
+//! use purl::keystore::{create_keystore, decrypt_keystore, list_keystores, Keystore};
 //!
 //! // Create a new keystore
 //! let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
@@ -80,7 +80,7 @@ pub fn get_evm_address_from_keystore(keystore_path: &Path) -> Result<String> {
 /// # Examples
 ///
 /// ```no_run
-/// use purl_lib::keystore::get_solana_pubkey_from_keystore;
+/// use purl::keystore::get_solana_pubkey_from_keystore;
 /// use std::path::Path;
 ///
 /// let path = Path::new("/path/to/solana-keystore.json");

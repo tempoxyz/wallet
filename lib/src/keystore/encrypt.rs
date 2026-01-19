@@ -15,7 +15,7 @@ pub fn default_keystore_dir() -> Result<PathBuf> {
 /// # Examples
 ///
 /// ```no_run
-/// use purl_lib::keystore::create_keystore;
+/// use purl::keystore::create_keystore;
 ///
 /// // Create a keystore with a private key
 /// let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";

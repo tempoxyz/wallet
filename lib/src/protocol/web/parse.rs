@@ -24,11 +24,11 @@ fn www_authenticate_regex() -> &'static Regex {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::protocol::web::parse_www_authenticate;
+/// # use purl::protocol::web::parse_www_authenticate;
 /// let header = r#"Payment id="abc123", realm="api", method="tempo", intent="charge", request="eyJhbW91bnQiOiIxMDAwMCJ9""#;
 /// let challenge = parse_www_authenticate(header)?;
 /// assert_eq!(challenge.id, "abc123");
-/// # Ok::<(), purl_lib::error::PurlError>(())
+/// # Ok::<(), purl::error::PurlError>(())
 /// ```
 pub fn parse_www_authenticate(header: &str) -> Result<PaymentChallenge> {
     // Verify scheme
@@ -103,11 +103,11 @@ pub fn parse_www_authenticate(header: &str) -> Result<PaymentChallenge> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::protocol::web::parse_authorization;
+/// # use purl::protocol::web::parse_authorization;
 /// let header = "Payment eyJpZCI6ImFiYzEyMyIsInNvdXJjZSI6ImRpZDpwa2g6ZWlwMTU1Ojg4MTUzOjB4MTIzIiwicGF5bG9hZCI6eyJ0eXBlIjoidHJhbnNhY3Rpb24iLCJzaWduYXR1cmUiOiIweGFiYyJ9fQ";
 /// let credential = parse_authorization(header)?;
 /// assert_eq!(credential.id, "abc123");
-/// # Ok::<(), purl_lib::error::PurlError>(())
+/// # Ok::<(), purl::error::PurlError>(())
 /// ```
 pub fn parse_authorization(header: &str) -> Result<PaymentCredential> {
     // Verify scheme
@@ -133,10 +133,10 @@ pub fn parse_authorization(header: &str) -> Result<PaymentCredential> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::protocol::web::parse_receipt;
+/// # use purl::protocol::web::parse_receipt;
 /// let header = "eyJzdGF0dXMiOiJzdWNjZXNzIiwibWV0aG9kIjoidGVtcG8iLCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTAxVDAwOjAwOjAwWiIsInJlZmVyZW5jZSI6IjB4YWJjMTIzIn0";
 /// let receipt = parse_receipt(header)?;
-/// # Ok::<(), purl_lib::error::PurlError>(())
+/// # Ok::<(), purl::error::PurlError>(())
 /// ```
 pub fn parse_receipt(header: &str) -> Result<PaymentReceipt> {
     let decoded = base64url_decode(header)?;

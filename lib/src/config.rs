@@ -268,7 +268,7 @@ macro_rules! builder_method {
 /// # Examples
 ///
 /// ```no_run
-/// use purl_lib::config::{Config, ConfigBuilder};
+/// use purl::config::{Config, ConfigBuilder};
 /// use std::path::PathBuf;
 ///
 /// // Build a config with EVM keystore

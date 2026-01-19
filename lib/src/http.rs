@@ -400,7 +400,7 @@ impl HttpClient {
 /// # Example
 ///
 /// ```
-/// use purl_lib::http::has_header;
+/// use purl::http::has_header;
 ///
 /// let headers = vec!["Content-Type: application/json".to_string(), "Authorization: Bearer token".to_string()];
 /// assert!(has_header(&headers, "content-type"));
@@ -423,7 +423,7 @@ pub fn has_header(headers: &[String], name: &str) -> bool {
 /// # Example
 ///
 /// ```
-/// use purl_lib::http::find_header;
+/// use purl::http::find_header;
 ///
 /// let headers = vec!["Content-Type: application/json".to_string()];
 /// assert_eq!(find_header(&headers, "content-type"), Some("application/json"));
@@ -448,7 +448,7 @@ pub fn find_header<'a>(headers: &'a [String], name: &str) -> Option<&'a str> {
 /// # Example
 ///
 /// ```
-/// use purl_lib::http::parse_headers;
+/// use purl::http::parse_headers;
 ///
 /// let raw = vec!["Content-Type: application/json".to_string(), "Accept: */*".to_string()];
 /// let parsed = parse_headers(&raw);

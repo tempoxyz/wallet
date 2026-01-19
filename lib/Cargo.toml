@@ -11,16 +11,16 @@ repository = "https://github.com/brendanjryan/purl"
 default = ["evm", "solana", "client", "http-client", "keystore"]
 
 # Core protocol types (always available, no dependencies)
-web-payment-auth = []
+web-payment = []
 
 # HTTP client support (using curl)
 http-client = ["dep:curl"]
 
-# High-level client API (requires http-client and web-payment-auth)
-client = ["http-client", "web-payment-auth"]
+# High-level client API (requires http-client and web-payment)
+client = ["http-client", "web-payment"]
 
 # Keystore management for secure key storage
-keystore = ["dep:eth-keystore", "dep:zeroize", "dep:rpassword", "dep:dirs", "dep:once_cell"]
+keystore = ["dep:eth-keystore", "dep:zeroize", "dep:rpassword", "dep:dirs"]
 
 # EVM provider support (Ethereum, Base, Polygon, Tempo, etc.)
 evm = [
@@ -29,7 +29,7 @@ evm = [
     "dep:alloy-signer-local",
     "dep:eth-keystore",
     "dep:tempo-primitives",
-    "web-payment-auth",
+    "web-payment",
 ]
 
 # Solana provider support
@@ -43,7 +43,7 @@ solana = [
     "dep:spl-token-2022",
     "dep:spl-associated-token-account",
     "dep:bincode",
-    "web-payment-auth",
+    "web-payment",
 ]
 
 # Full featured (all functionality)
@@ -63,13 +63,13 @@ base64.workspace = true
 regex.workspace = true
 toml.workspace = true
 rand.workspace = true
+once_cell.workspace = true
 
 # Optional dependencies (feature-gated)
 curl = { workspace = true, optional = true }
 zeroize = { workspace = true, optional = true }
 rpassword = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
-once_cell = { workspace = true, optional = true }
 
 alloy = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }

@@ -25,7 +25,7 @@ pub fn strip_0x_prefix(s: &str) -> &str {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::utils::truncate_address;
+/// use purl::utils::truncate_address;
 ///
 /// // Short addresses are unchanged
 /// assert_eq!(truncate_address("0x1234", 20), "0x1234");
