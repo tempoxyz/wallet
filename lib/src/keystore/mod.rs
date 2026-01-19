@@ -6,13 +6,13 @@
 //! # Module Structure
 //!
 //! - `cache` - Password caching functionality
-//! - `store` - Keystore and KeystoreInfo types
+//! - `store` - Keystore type for loading and validating keystore files
 //! - `encrypt` - Keystore creation and decryption
 //!
 //! # Example
 //!
 //! ```no_run
-//! use purl_lib::keystore::{create_keystore, decrypt_keystore, list_keystores, Keystore};
+//! use purl::keystore::{create_keystore, decrypt_keystore, list_keystores, Keystore};
 //!
 //! // Create a new keystore
 //! let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
@@ -39,7 +39,7 @@ use std::path::Path;
 // Re-export public items
 pub use cache::clear_password_cache;
 pub use encrypt::{create_keystore, decrypt_keystore, default_keystore_dir, list_keystores};
-pub use store::{Keystore, KeystoreInfo};
+pub use store::Keystore;
 
 /// Extract EVM address from keystore without decrypting it
 pub fn get_evm_address_from_keystore(keystore_path: &Path) -> Result<String> {
@@ -80,7 +80,7 @@ pub fn get_evm_address_from_keystore(keystore_path: &Path) -> Result<String> {
 /// # Examples
 ///
 /// ```no_run
-/// use purl_lib::keystore::get_solana_pubkey_from_keystore;
+/// use purl::keystore::get_solana_pubkey_from_keystore;
 /// use std::path::Path;
 ///
 /// let path = Path::new("/path/to/solana-keystore.json");

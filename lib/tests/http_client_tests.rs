@@ -1,6 +1,6 @@
 //! Integration tests for HTTP client and builder
 
-use purl_lib::HttpClientBuilder;
+use purl::HttpClientBuilder;
 
 #[test]
 fn test_http_client_builder_basic_builders() {

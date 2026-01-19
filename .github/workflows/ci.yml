@@ -32,6 +32,16 @@ jobs:
           post-comment: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  check-unused-deps:
+    name: Check Unused Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-udeps --locked
+      - run: cargo +nightly udeps --all-targets
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

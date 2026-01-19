@@ -250,119 +250,7 @@ impl WalletConfig for SolanaConfig {
     }
 }
 
-/// Macro to reduce builder pattern boilerplate
-macro_rules! builder_method {
-    ($name:ident, $field:ident, $config_type:ident, $inner_field:ident, $value_type:ty) => {
-        pub fn $name(mut self, value: impl Into<$value_type>) -> Self {
-            self.$field = Some($config_type {
-                $inner_field: Some(value.into()),
-                ..Default::default()
-            });
-            self
-        }
-    };
-}
-
-/// Builder for creating Config instances
-///
-/// # Examples
-///
-/// ```no_run
-/// use purl_lib::config::{Config, ConfigBuilder};
-/// use std::path::PathBuf;
-///
-/// // Build a config with EVM keystore
-/// let config = Config::builder()
-///     .with_evm_keystore("/path/to/keystore.json")
-///     .build()
-///     .unwrap();
-///
-/// // Build a config with both EVM and Solana
-/// let config = ConfigBuilder::new()
-///     .with_evm_private_key("0x1234...")
-///     .with_solana_private_key("base58key...")
-///     .build()
-///     .unwrap();
-/// ```
-#[derive(Debug, Default)]
-pub struct ConfigBuilder {
-    evm: Option<EvmConfig>,
-    solana: Option<SolanaConfig>,
-    rpc: HashMap<String, String>,
-    networks: Vec<CustomNetwork>,
-    tokens: Vec<CustomToken>,
-}
-
-impl ConfigBuilder {
-    /// Create a new config builder
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    // Use macro to generate builder methods
-    builder_method!(with_evm_keystore, evm, EvmConfig, keystore, PathBuf);
-    builder_method!(with_evm_private_key, evm, EvmConfig, private_key, String);
-    builder_method!(
-        with_solana_keystore,
-        solana,
-        SolanaConfig,
-        keystore,
-        PathBuf
-    );
-    builder_method!(
-        with_solana_private_key,
-        solana,
-        SolanaConfig,
-        private_key,
-        String
-    );
-
-    /// Add an RPC URL override for a network
-    pub fn with_rpc_override(
-        mut self,
-        network: impl Into<String>,
-        rpc_url: impl Into<String>,
-    ) -> Self {
-        self.rpc.insert(network.into(), rpc_url.into());
-        self
-    }
-
-    /// Add a custom network
-    pub fn with_network(mut self, network: CustomNetwork) -> Self {
-        self.networks.push(network);
-        self
-    }
-
-    /// Add a custom token
-    pub fn with_token(mut self, token: CustomToken) -> Self {
-        self.tokens.push(token);
-        self
-    }
-
-    /// Build the configuration
-    pub fn build(self) -> Result<Config> {
-        let config = Config {
-            evm: self.evm,
-            solana: self.solana,
-            rpc: self.rpc,
-            networks: self.networks,
-            tokens: self.tokens,
-        };
-
-        // Validate the configuration
-        config.validate()?;
-        Ok(config)
-    }
-}
-
 impl Config {
-    /// Create a new config builder
-    #[must_use]
-    pub fn builder() -> ConfigBuilder {
-        ConfigBuilder::new()
-    }
-
     /// Load config from the specified path or default location (~/.purl/config.toml)
     pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
         let config_path = if let Some(path) = config_path {
@@ -394,7 +282,6 @@ impl Config {
             ))
         })?;
 
-        // Validate configuration immediately after loading
         config.validate().map_err(|e| {
             PurlError::ConfigMissing(format!(
                 "Invalid configuration in {}: {}",
@@ -453,7 +340,6 @@ impl Config {
 
     /// Save config to the default location with validation
     pub fn save(&self) -> Result<()> {
-        // Validate the configuration before saving
         self.validate()?;
 
         let config_path = Self::default_config_path()?;
@@ -655,5 +541,431 @@ mod tests {
         let methods = config.available_payment_methods();
         assert_eq!(methods.len(), 1);
         assert!(methods.contains(&PaymentMethod::Solana));
+    }
+
+    #[test]
+    fn test_validate_both_keystore_and_private_key_evm() {
+        use tempfile::NamedTempFile;
+
+        let temp_file = NamedTempFile::new().unwrap();
+        let config = Config {
+            evm: Some(EvmConfig {
+                keystore: Some(temp_file.path().to_path_buf()),
+                private_key: Some("test_key".to_string()),
+            }),
+            ..Default::default()
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot have both keystore and private_key"));
+    }
+
+    #[test]
+    fn test_validate_both_keystore_and_private_key_solana() {
+        use tempfile::NamedTempFile;
+
+        let temp_file = NamedTempFile::new().unwrap();
+        let config = Config {
+            solana: Some(SolanaConfig {
+                keystore: Some(temp_file.path().to_path_buf()),
+                private_key: Some("test_key".to_string()),
+            }),
+            ..Default::default()
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot have both keystore and private_key"));
+    }
+
+    #[test]
+    fn test_validate_no_wallet_source_evm() {
+        let config = Config {
+            evm: Some(EvmConfig {
+                keystore: None,
+                private_key: None,
+            }),
+            ..Default::default()
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No EVM wallet configured"));
+    }
+
+    #[test]
+    fn test_validate_no_wallet_source_solana() {
+        let config = Config {
+            solana: Some(SolanaConfig {
+                keystore: None,
+                private_key: None,
+            }),
+            ..Default::default()
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No Solana wallet configured"));
+    }
+
+    #[test]
+    fn test_validate_missing_keystore_file_evm() {
+        let config = Config {
+            evm: Some(EvmConfig {
+                keystore: Some(PathBuf::from("/nonexistent/keystore.json")),
+                private_key: None,
+            }),
+            ..Default::default()
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("keystore file not found"));
+    }
+
+    #[test]
+    fn test_validate_missing_keystore_file_solana() {
+        let config = Config {
+            solana: Some(SolanaConfig {
+                keystore: Some(PathBuf::from("/nonexistent/keystore.json")),
+                private_key: None,
+            }),
+            ..Default::default()
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("keystore file not found"));
+    }
+
+    #[test]
+    fn test_validate_invalid_evm_private_key() {
+        let config = Config {
+            evm: Some(EvmConfig {
+                keystore: None,
+                private_key: Some("invalid_key".to_string()),
+            }),
+            ..Default::default()
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_require_evm_when_missing() {
+        let config = Config {
+            evm: None,
+            ..Default::default()
+        };
+
+        let result = config.require_evm();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("EVM configuration not found"));
+    }
+
+    #[test]
+    fn test_require_solana_when_missing() {
+        let config = Config {
+            solana: None,
+            ..Default::default()
+        };
+
+        let result = config.require_solana();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Solana configuration not found"));
+    }
+
+    #[test]
+    fn test_config_builder_with_rpc_override() {
+        // Config builder with RPC override should work
+        // We can't test full validation without a valid keystore,
+        // so we just test that the RPC override is set correctly
+        let config = Config {
+            evm: None,
+            solana: None,
+            rpc: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "ethereum".to_string(),
+                    "https://custom-rpc.example.com".to_string(),
+                );
+                map
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            config.rpc.get("ethereum").unwrap(),
+            "https://custom-rpc.example.com"
+        );
+    }
+
+    #[test]
+    fn test_config_builder_with_custom_network() {
+        let network = CustomNetwork {
+            id: "my-network".to_string(),
+            chain_type: ChainType::Evm,
+            chain_id: Some(12345),
+            mainnet: false,
+            display_name: "My Test Network".to_string(),
+            rpc_url: "https://rpc.example.com".to_string(),
+        };
+
+        // Test that custom network is stored correctly
+        let config = Config {
+            networks: vec![network.clone()],
+            ..Default::default()
+        };
+
+        assert_eq!(config.networks.len(), 1);
+        assert_eq!(config.networks[0].id, "my-network");
+    }
+
+    #[test]
+    fn test_config_builder_with_custom_token() {
+        let token = CustomToken {
+            network: "ethereum".to_string(),
+            address: "0x1234567890123456789012345678901234567890".to_string(),
+            symbol: "TEST".to_string(),
+            name: "Test Token".to_string(),
+            decimals: 18,
+        };
+
+        // Test that custom token is stored correctly
+        let config = Config {
+            tokens: vec![token.clone()],
+            ..Default::default()
+        };
+
+        assert_eq!(config.tokens.len(), 1);
+        assert_eq!(config.tokens[0].symbol, "TEST");
+    }
+
+    #[test]
+    fn test_load_from_nonexistent_file() {
+        let result = Config::load_from(Some("/nonexistent/config.toml"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Config file not found"));
+    }
+
+    #[test]
+    fn test_load_from_invalid_toml() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"invalid toml [[[").unwrap();
+        temp_file.flush().unwrap();
+
+        let result = Config::load_from(Some(temp_file.path()));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to parse config file"));
+    }
+
+    #[test]
+    fn test_load_unchecked_with_invalid_config() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        // Write a config with no wallet sources (invalid but parseable)
+        temp_file.write_all(b"[evm]\n").unwrap();
+        temp_file.flush().unwrap();
+
+        let result = Config::load_unchecked(Some(temp_file.path()));
+        // Should succeed because we're not validating
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        // But validation should fail
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_payment_method_display() {
+        assert_eq!(PaymentMethod::Evm.to_string(), "EVM");
+        assert_eq!(PaymentMethod::Solana.to_string(), "Solana");
+    }
+
+    #[test]
+    fn test_payment_method_as_str() {
+        assert_eq!(PaymentMethod::Evm.as_str(), "evm");
+        assert_eq!(PaymentMethod::Solana.as_str(), "solana");
+    }
+
+    #[test]
+    fn test_payment_method_display_name() {
+        assert_eq!(PaymentMethod::Evm.display_name(), "EVM");
+        assert_eq!(PaymentMethod::Solana.display_name(), "Solana");
+    }
+
+    #[test]
+    fn test_evm_config_has_wallet() {
+        let config = EvmConfig {
+            keystore: Some(PathBuf::from("/test/path")),
+            private_key: None,
+        };
+        assert!(config.has_wallet());
+
+        let config = EvmConfig {
+            keystore: None,
+            private_key: Some("key".to_string()),
+        };
+        assert!(config.has_wallet());
+
+        let config = EvmConfig {
+            keystore: None,
+            private_key: None,
+        };
+        assert!(!config.has_wallet());
+    }
+
+    #[test]
+    fn test_solana_config_has_wallet() {
+        let config = SolanaConfig {
+            keystore: Some(PathBuf::from("/test/path")),
+            private_key: None,
+        };
+        assert!(config.has_wallet());
+
+        let config = SolanaConfig {
+            keystore: None,
+            private_key: Some("key".to_string()),
+        };
+        assert!(config.has_wallet());
+
+        let config = SolanaConfig {
+            keystore: None,
+            private_key: None,
+        };
+        assert!(!config.has_wallet());
+    }
+
+    #[test]
+    fn test_evm_config_get_address_no_wallet() {
+        let config = EvmConfig {
+            keystore: None,
+            private_key: None,
+        };
+
+        let result = config.get_address();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No wallet configured"));
+    }
+
+    #[test]
+    fn test_solana_config_get_address_no_wallet() {
+        let config = SolanaConfig {
+            keystore: None,
+            private_key: None,
+        };
+
+        let result = config.get_address();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No Solana wallet configured"));
+    }
+
+    #[test]
+    fn test_parse_config_with_rpc_overrides() {
+        let toml = r#"
+            [evm]
+            private_key = "test"
+
+            [rpc]
+            ethereum = "https://custom-eth-rpc.com"
+            base = "https://custom-base-rpc.com"
+        "#;
+
+        let config: Config = toml::from_str(toml).expect("should parse");
+        assert_eq!(config.rpc.len(), 2);
+        assert_eq!(
+            config.rpc.get("ethereum").unwrap(),
+            "https://custom-eth-rpc.com"
+        );
+        assert_eq!(
+            config.rpc.get("base").unwrap(),
+            "https://custom-base-rpc.com"
+        );
+    }
+
+    #[test]
+    fn test_parse_config_with_custom_networks() {
+        let toml = r#"
+            [evm]
+            private_key = "test"
+
+            [[networks]]
+            id = "my-chain"
+            chain_type = "evm"
+            chain_id = 99999
+            mainnet = false
+            display_name = "My Custom Chain"
+            rpc_url = "https://rpc.mychain.com"
+        "#;
+
+        let config: Config = toml::from_str(toml).expect("should parse");
+        assert_eq!(config.networks.len(), 1);
+        let network = &config.networks[0];
+        assert_eq!(network.id, "my-chain");
+        assert_eq!(network.chain_id, Some(99999));
+        assert_eq!(network.display_name, "My Custom Chain");
+    }
+
+    #[test]
+    fn test_parse_config_with_custom_tokens() {
+        let toml = r#"
+            [evm]
+            private_key = "test"
+
+            [[tokens]]
+            network = "ethereum"
+            address = "0x1234567890123456789012345678901234567890"
+            symbol = "TEST"
+            name = "Test Token"
+            decimals = 18
+        "#;
+
+        let config: Config = toml::from_str(toml).expect("should parse");
+        assert_eq!(config.tokens.len(), 1);
+        let token = &config.tokens[0];
+        assert_eq!(token.symbol, "TEST");
+        assert_eq!(token.decimals, 18);
     }
 }

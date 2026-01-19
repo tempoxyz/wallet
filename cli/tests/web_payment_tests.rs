@@ -2,7 +2,7 @@
 //!
 //! These tests verify the library-level web payment types and validation.
 
-use purl_lib::protocol::web::{
+use purl::protocol::web::{
     ChargeRequest, PaymentChallenge, PaymentIntent, PaymentMethod, PaymentProtocol,
 };
 

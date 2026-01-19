@@ -90,7 +90,12 @@ impl PaymentProvider for EvmProvider {
             ))
         })?;
 
-        let balance_atomic: u128 = balance.to_string().parse().unwrap_or(0);
+        let balance_atomic: u128 = balance.to_string().parse().map_err(|e| {
+            PurlError::BalanceQuery(format!(
+                "Failed to parse balance value '{}' as u128: {}",
+                balance, e
+            ))
+        })?;
         let balance_human = token_config.currency.format_atomic(balance_atomic);
 
         Ok(NetworkBalance {

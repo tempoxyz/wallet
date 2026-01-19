@@ -22,8 +22,8 @@ use cli::{
 };
 use colored::control;
 use exit_codes::ExitCode;
-use purl_lib::protocol::web::PaymentProtocol;
-use purl_lib::{Config, WalletConfig};
+use purl::protocol::web::PaymentProtocol;
+use purl::{Config, WalletConfig};
 use std::path::PathBuf;
 
 use config_utils::{load_config, load_config_with_overrides};
@@ -264,7 +264,7 @@ fn show_version() -> Result<()> {
     const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
     println!("purl CLI: v{CLI_VERSION}");
-    println!("purl-lib: v{}", purl_lib::VERSION);
+    println!("purl: v{}", purl::VERSION);
 
     Ok(())
 }
@@ -309,7 +309,7 @@ fn init_color_support(cli: &Cli) {
 mod tests {
     use super::*;
     use output::DecryptedKeys;
-    use purl_lib::{Config, EvmConfig, SolanaConfig};
+    use purl::{Config, EvmConfig, SolanaConfig};
 
     #[test]
     fn test_decrypt_keystores_upfront_with_plain_keys() {

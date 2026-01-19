@@ -8,7 +8,7 @@ use crate::error::{PurlError, Result};
 /// # Examples
 ///
 /// ```
-/// use purl_lib::crypto::{KeyGenerator, EvmKeyGenerator, SolanaKeyGenerator};
+/// use purl::crypto::{KeyGenerator, EvmKeyGenerator, SolanaKeyGenerator};
 ///
 /// // Generate an EVM key
 /// let (private_key, address) = EvmKeyGenerator::generate().unwrap();
@@ -44,7 +44,7 @@ pub trait KeyGenerator {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::crypto::{KeyGenerator, EvmKeyGenerator};
+/// use purl::crypto::{KeyGenerator, EvmKeyGenerator};
 ///
 /// let (private_key, address) = EvmKeyGenerator::generate().unwrap();
 /// assert_eq!(private_key.len(), 64);
@@ -74,7 +74,7 @@ impl KeyGenerator for EvmKeyGenerator {
 /// # Examples
 ///
 /// ```
-/// use purl_lib::crypto::{KeyGenerator, SolanaKeyGenerator};
+/// use purl::crypto::{KeyGenerator, SolanaKeyGenerator};
 ///
 /// let (private_key, public_key) = SolanaKeyGenerator::generate().unwrap();
 /// assert!(!private_key.is_empty());
@@ -127,6 +127,29 @@ pub fn generate_solana_keypair() -> (String, String) {
     let pubkey_b58 = keypair.pubkey().to_string();
 
     (keypair_b58, pubkey_b58)
+}
+
+/// Derive an EVM address from private key bytes
+///
+/// Takes 32 bytes of private key data and returns the derived Ethereum address.
+///
+/// # Example
+/// ```
+/// use purl::crypto::derive_evm_address;
+///
+/// let key_bytes = hex::decode("1234567890123456789012345678901234567890123456789012345678901234").unwrap();
+/// let address = derive_evm_address(&key_bytes).unwrap();
+/// assert!(address.starts_with("0x"));
+/// ```
+pub fn derive_evm_address(private_key_bytes: &[u8]) -> Result<String> {
+    use alloy_signer_local::PrivateKeySigner;
+
+    let key_hex = hex::encode(private_key_bytes);
+    let signer: PrivateKeySigner = key_hex
+        .parse()
+        .map_err(|e| PurlError::InvalidKey(format!("Failed to parse private key: {e}")))?;
+
+    Ok(format!("{:#x}", signer.address()))
 }
 
 /// Validate an EVM private key hex string

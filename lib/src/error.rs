@@ -145,9 +145,9 @@ pub enum PurlError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// Curl error
-    #[error("Curl error: {0}")]
-    Curl(#[from] curl::Error),
+    /// Reqwest error
+    #[error("HTTP request error: {0}")]
+    Reqwest(#[from] reqwest::Error),
 
     /// Invalid UTF-8 in response
     #[error("Invalid UTF-8 in response body")]
@@ -182,5 +182,223 @@ impl PurlError {
     /// Create an unsupported payment method error
     pub fn unsupported_method(method: &impl std::fmt::Display) -> Self {
         Self::UnsupportedPaymentMethod(format!("Payment method '{}' is not supported", method))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider_not_found_display() {
+        let err = PurlError::ProviderNotFound("ethereum".to_string());
+        assert_eq!(
+            err.to_string(),
+            "Payment provider not found for network: ethereum"
+        );
+    }
+
+    #[test]
+    fn test_no_payment_methods_display() {
+        let err = PurlError::NoPaymentMethods;
+        assert_eq!(err.to_string(), "No payment methods configured");
+    }
+
+    #[test]
+    fn test_no_compatible_method_display() {
+        let err = PurlError::NoCompatibleMethod {
+            networks: vec!["ethereum".to_string(), "solana".to_string()],
+        };
+        let display = err.to_string();
+        assert!(display.contains("No compatible payment method found"));
+        assert!(display.contains("ethereum"));
+        assert!(display.contains("solana"));
+    }
+
+    #[test]
+    fn test_amount_exceeds_max_display() {
+        let err = PurlError::AmountExceedsMax {
+            required: 1000,
+            max: 500,
+        };
+        let display = err.to_string();
+        assert!(display.contains("Required amount (1000) exceeds maximum allowed (500)"));
+    }
+
+    #[test]
+    fn test_invalid_amount_display() {
+        let err = PurlError::InvalidAmount("not a number".to_string());
+        assert_eq!(err.to_string(), "Invalid amount: not a number");
+    }
+
+    #[test]
+    fn test_missing_requirement_display() {
+        let err = PurlError::MissingRequirement("network".to_string());
+        assert_eq!(err.to_string(), "Missing payment requirement: network");
+    }
+
+    #[test]
+    fn test_config_missing_display() {
+        let err = PurlError::ConfigMissing("wallet not configured".to_string());
+        assert_eq!(
+            err.to_string(),
+            "Configuration missing: wallet not configured"
+        );
+    }
+
+    #[test]
+    fn test_invalid_config_display() {
+        let err = PurlError::InvalidConfig("invalid rpc url".to_string());
+        assert_eq!(err.to_string(), "Invalid configuration: invalid rpc url");
+    }
+
+    #[test]
+    fn test_invalid_key_display() {
+        let err = PurlError::InvalidKey("wrong format".to_string());
+        assert_eq!(err.to_string(), "Invalid private key: wrong format");
+    }
+
+    #[test]
+    fn test_no_config_dir_display() {
+        let err = PurlError::NoConfigDir;
+        assert_eq!(err.to_string(), "Failed to determine config directory");
+    }
+
+    #[test]
+    fn test_unknown_network_display() {
+        let err = PurlError::UnknownNetwork("custom-chain".to_string());
+        assert_eq!(err.to_string(), "Unknown network: custom-chain");
+    }
+
+    #[test]
+    fn test_token_config_not_found_display() {
+        let err = PurlError::TokenConfigNotFound {
+            asset: "USDC".to_string(),
+            network: "ethereum".to_string(),
+        };
+        let display = err.to_string();
+        assert!(
+            display.contains("Token configuration not found for asset USDC on network ethereum")
+        );
+    }
+
+    #[test]
+    fn test_unsupported_token_display() {
+        let err = PurlError::UnsupportedToken("UNKNOWN".to_string());
+        assert_eq!(err.to_string(), "Unsupported token: UNKNOWN");
+    }
+
+    #[test]
+    fn test_balance_query_display() {
+        let err = PurlError::BalanceQuery("RPC timeout".to_string());
+        assert_eq!(err.to_string(), "Balance query failed: RPC timeout");
+    }
+
+    #[test]
+    fn test_http_display() {
+        let err = PurlError::Http("404 Not Found".to_string());
+        assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
+    }
+
+    #[test]
+    fn test_unsupported_http_method_display() {
+        let err = PurlError::UnsupportedHttpMethod("TRACE".to_string());
+        assert_eq!(err.to_string(), "Unsupported HTTP method: TRACE");
+    }
+
+    #[test]
+    fn test_signing_display() {
+        let err = PurlError::Signing("Failed to sign transaction".to_string());
+        assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
+    }
+
+    #[test]
+    fn test_invalid_address_display() {
+        let err = PurlError::InvalidAddress("Not a valid address".to_string());
+        assert_eq!(err.to_string(), "Invalid address: Not a valid address");
+    }
+
+    #[test]
+    fn test_solana_display() {
+        let err = PurlError::Solana("Transaction failed".to_string());
+        assert_eq!(err.to_string(), "Solana error: Transaction failed");
+    }
+
+    #[test]
+    fn test_unsupported_payment_method_display() {
+        let err = PurlError::UnsupportedPaymentMethod("bitcoin".to_string());
+        assert_eq!(err.to_string(), "Unsupported payment method: bitcoin");
+    }
+
+    #[test]
+    fn test_unsupported_payment_intent_display() {
+        let err = PurlError::UnsupportedPaymentIntent("subscription".to_string());
+        assert_eq!(err.to_string(), "Unsupported payment intent: subscription");
+    }
+
+    #[test]
+    fn test_invalid_challenge_display() {
+        let err = PurlError::InvalidChallenge("Malformed challenge".to_string());
+        assert_eq!(err.to_string(), "Invalid challenge: Malformed challenge");
+    }
+
+    #[test]
+    fn test_missing_header_display() {
+        let err = PurlError::MissingHeader("WWW-Authenticate".to_string());
+        assert_eq!(err.to_string(), "Missing required header: WWW-Authenticate");
+    }
+
+    #[test]
+    fn test_invalid_base64_url_display() {
+        let err = PurlError::InvalidBase64Url("Invalid padding".to_string());
+        assert_eq!(err.to_string(), "Invalid base64url: Invalid padding");
+    }
+
+    #[test]
+    fn test_challenge_expired_display() {
+        let err = PurlError::ChallengeExpired("Expired 5 minutes ago".to_string());
+        assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
+    }
+
+    #[test]
+    fn test_invalid_did_display() {
+        let err = PurlError::InvalidDid("Not a valid DID".to_string());
+        assert_eq!(err.to_string(), "Invalid DID: Not a valid DID");
+    }
+
+    #[test]
+    fn test_signing_constructor() {
+        let err = PurlError::signing("test error");
+        assert!(matches!(err, PurlError::Signing(_)));
+        assert_eq!(err.to_string(), "Signing error: test error");
+    }
+
+    #[test]
+    fn test_invalid_address_constructor() {
+        let err = PurlError::invalid_address("test address");
+        assert!(matches!(err, PurlError::InvalidAddress(_)));
+        assert_eq!(err.to_string(), "Invalid address: test address");
+    }
+
+    #[test]
+    fn test_solana_constructor() {
+        let err = PurlError::solana("test solana error");
+        assert!(matches!(err, PurlError::Solana(_)));
+        assert_eq!(err.to_string(), "Solana error: test solana error");
+    }
+
+    #[test]
+    fn test_config_missing_constructor() {
+        let err = PurlError::config_missing("test config");
+        assert!(matches!(err, PurlError::ConfigMissing(_)));
+        assert_eq!(err.to_string(), "Configuration missing: test config");
+    }
+
+    #[test]
+    fn test_unsupported_method_constructor() {
+        let err = PurlError::unsupported_method(&"bitcoin");
+        assert!(matches!(err, PurlError::UnsupportedPaymentMethod(_)));
+        assert!(err.to_string().contains("bitcoin"));
+        assert!(err.to_string().contains("not supported"));
     }
 }

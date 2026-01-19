@@ -1,7 +1,7 @@
 //! Output formatting and display utilities for the CLI
 
 use anyhow::{Context, Result};
-use purl_lib::{validate_path, HttpResponse};
+use purl::{validate_path, HttpResponse};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -88,7 +88,7 @@ pub struct DecryptedKeys {
 
 /// Decrypt all keystores upfront before displaying
 pub fn decrypt_keystores_upfront(
-    config: &purl_lib::Config,
+    config: &purl::Config,
     use_password_cache: bool,
 ) -> Result<DecryptedKeys> {
     let mut evm_private_key = None;
@@ -97,7 +97,7 @@ pub fn decrypt_keystores_upfront(
     if let Some(evm) = &config.evm {
         if let Some(keystore) = &evm.keystore {
             if let Ok(private_key_bytes) =
-                purl_lib::keystore::decrypt_keystore(keystore, None, use_password_cache)
+                purl::keystore::decrypt_keystore(keystore, None, use_password_cache)
             {
                 evm_private_key = Some(hex::encode(&private_key_bytes));
             }
@@ -109,7 +109,7 @@ pub fn decrypt_keystores_upfront(
     if let Some(solana) = &config.solana {
         if let Some(keystore) = &solana.keystore {
             if let Ok(keypair_bytes) =
-                purl_lib::keystore::decrypt_keystore(keystore, None, use_password_cache)
+                purl::keystore::decrypt_keystore(keystore, None, use_password_cache)
             {
                 solana_private_key = Some(bs58::encode(&keypair_bytes).into_string());
             }
@@ -153,12 +153,12 @@ pub fn build_payment_method_display(
 
 /// Build configuration display data for all output formats
 pub fn build_config_display(
-    config: &purl_lib::Config,
+    config: &purl::Config,
     config_path: &std::path::Path,
     show_private_keys: bool,
     decrypted_keys: Option<&DecryptedKeys>,
 ) -> serde_json::Value {
-    use purl_lib::WalletConfig;
+    use purl::WalletConfig;
 
     json!({
         "config_path": config_path.display().to_string(),

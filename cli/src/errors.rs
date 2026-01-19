@@ -3,7 +3,7 @@
 //! Provides user-friendly error messages that include suggestions
 //! for how to fix common problems.
 
-use purl_lib::PurlError;
+use purl::PurlError;
 
 /// Get a suggestion for how to fix an error, if available.
 pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
