@@ -15,7 +15,7 @@ pub fn default_keystore_dir() -> Result<PathBuf> {
 /// # Examples
 ///
 /// ```no_run
-/// use purl_lib::keystore::create_keystore;
+/// use purl::keystore::create_keystore;
 ///
 /// // Create a keystore with a private key
 /// let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
@@ -237,7 +237,6 @@ mod tests {
         let result = decrypt_keystore_no_cache(&keystore_path, password);
         assert!(result.is_ok());
 
-        // Verify the decrypted key matches
         let decrypted_key = result.unwrap();
         let expected_key = hex::decode(&private_key[2..]).unwrap();
         assert_eq!(decrypted_key, expected_key);

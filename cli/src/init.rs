@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Password};
-use purl_lib::keystore::create_keystore;
-use purl_lib::{Config, EvmConfig, SolanaConfig};
+use purl::keystore::create_keystore;
+use purl::{Config, EvmConfig, SolanaConfig};
 use std::path::PathBuf;
 
 const PURL_SKILL_CONTENT: &str = include_str!("../../.ai/skills/purl/SKILL.md");
@@ -62,7 +62,7 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
 
         let wallet_name: String = Input::new()
             .with_prompt("Wallet name")
-            .default(purl_lib::constants::DEFAULT_EVM_KEYSTORE_NAME.to_string())
+            .default(purl::constants::DEFAULT_EVM_KEYSTORE_NAME.to_string())
             .interact_text()?;
 
         let keystore_path = create_keystore(&private_key, &password, &wallet_name)
@@ -93,7 +93,7 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
             .interact()?;
 
         let private_key: String = if generate {
-            let (keypair_b58, pubkey_b58) = purl_lib::crypto::generate_solana_keypair();
+            let (keypair_b58, pubkey_b58) = purl::crypto::generate_solana_keypair();
 
             println!("Generated new Solana keypair:");
             println!("Private key: {keypair_b58}");

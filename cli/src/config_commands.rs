@@ -1,7 +1,7 @@
 use crate::cli::{Cli, OutputFormat};
 use crate::config_utils::load_config;
 use anyhow::{Context, Result};
-use purl_lib::{Config, WalletConfig};
+use purl::{Config, WalletConfig};
 use std::path::PathBuf;
 
 /// Get a specific configuration value by key
@@ -105,13 +105,13 @@ pub fn validate_command(cli: &Cli) -> Result<()> {
     println!("Configuration is valid: {}", config_path.display());
     for method in &available_methods {
         let status = match method {
-            purl_lib::PaymentMethod::Evm => config
+            purl::PaymentMethod::Evm => config
                 .evm
                 .as_ref()
                 .and_then(|evm| evm.get_address().ok())
                 .map(|addr| format!("OK ({addr})"))
                 .unwrap_or_else(|| "configured".to_string()),
-            purl_lib::PaymentMethod::Solana => config
+            purl::PaymentMethod::Solana => config
                 .solana
                 .as_ref()
                 .and_then(|sol| sol.get_address().ok())

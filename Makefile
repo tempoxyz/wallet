@@ -30,6 +30,6 @@ check:
 	cargo test
 	cargo build
 
-fmt:
+fix:
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged

@@ -23,7 +23,7 @@ pub fn base64url_decode(input: &str) -> Result<Vec<u8>> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::protocol::web::{PaymentChallenge, PaymentMethod, PaymentIntent};
+/// # use purl::protocol::web::{PaymentChallenge, PaymentMethod, PaymentIntent};
 /// let challenge = PaymentChallenge {
 ///     id: "abc123".to_string(),
 ///     realm: "api".to_string(),
@@ -34,9 +34,9 @@ pub fn base64url_decode(input: &str) -> Result<Vec<u8>> {
 ///     description: None,
 /// };
 ///
-/// let header = purl_lib::protocol::web::format_www_authenticate(&challenge)?;
+/// let header = purl::protocol::web::format_www_authenticate(&challenge)?;
 /// // Returns: Payment id="abc123", realm="api", method="tempo", ...
-/// # Ok::<(), purl_lib::error::PurlError>(())
+/// # Ok::<(), purl::error::PurlError>(())
 /// ```
 pub fn format_www_authenticate(challenge: &PaymentChallenge) -> Result<String> {
     let request_json = serde_json::to_string(&challenge.request)
@@ -71,7 +71,7 @@ pub fn format_www_authenticate(challenge: &PaymentChallenge) -> Result<String> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::protocol::web::{PaymentCredential, PaymentPayload, PayloadType};
+/// # use purl::protocol::web::{PaymentCredential, PaymentPayload, PayloadType};
 /// let credential = PaymentCredential {
 ///     id: "abc123".to_string(),
 ///     source: Some("did:pkh:eip155:88153:0x123".to_string()),
@@ -81,9 +81,9 @@ pub fn format_www_authenticate(challenge: &PaymentChallenge) -> Result<String> {
 ///     },
 /// };
 ///
-/// let header = purl_lib::protocol::web::format_authorization(&credential)?;
+/// let header = purl::protocol::web::format_authorization(&credential)?;
 /// // Returns: Payment eyJpZCI6ImFiYzEyMyIs...
-/// # Ok::<(), purl_lib::error::PurlError>(())
+/// # Ok::<(), purl::error::PurlError>(())
 /// ```
 pub fn format_authorization(credential: &PaymentCredential) -> Result<String> {
     let json = serde_json::to_string(credential).map_err(|e| {
@@ -100,7 +100,7 @@ pub fn format_authorization(credential: &PaymentCredential) -> Result<String> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl_lib::protocol::web::{PaymentReceipt, PaymentMethod, ReceiptStatus};
+/// # use purl::protocol::web::{PaymentReceipt, PaymentMethod, ReceiptStatus};
 /// let receipt = PaymentReceipt {
 ///     status: ReceiptStatus::Success,
 ///     method: PaymentMethod::Tempo,
@@ -110,9 +110,9 @@ pub fn format_authorization(credential: &PaymentCredential) -> Result<String> {
 ///     error: None,
 /// };
 ///
-/// let header = purl_lib::protocol::web::format_receipt(&receipt)?;
+/// let header = purl::protocol::web::format_receipt(&receipt)?;
 /// // Returns: eyJzdGF0dXMiOiJzdWNjZXNzIiwi...
-/// # Ok::<(), purl_lib::error::PurlError>(())
+/// # Ok::<(), purl::error::PurlError>(())
 /// ```
 pub fn format_receipt(receipt: &PaymentReceipt) -> Result<String> {
     let json = serde_json::to_string(receipt)

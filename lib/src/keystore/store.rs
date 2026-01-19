@@ -76,52 +76,170 @@ impl Keystore {
     }
 }
 
-/// Information about a keystore file (for display purposes)
-#[derive(Debug, Clone)]
-pub struct KeystoreInfo {
-    /// Path to the keystore file
-    pub path: PathBuf,
-    /// Filename
-    pub filename: String,
-    /// Formatted address (with 0x prefix), if available
-    pub address: Option<String>,
-    /// Whether the keystore is valid
-    pub valid: bool,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
 
-impl KeystoreInfo {
-    /// Load keystore info from a path
-    pub fn from_path(path: &Path) -> Self {
-        let filename = path
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        match Keystore::load(path) {
-            Ok(keystore) => Self {
-                path: path.to_path_buf(),
-                filename,
-                address: keystore.formatted_address(),
-                valid: keystore.validate().is_ok(),
-            },
-            Err(_) => Self {
-                path: path.to_path_buf(),
-                filename,
-                address: None,
-                valid: false,
-            },
-        }
+    #[test]
+    fn test_keystore_load_nonexistent_file() {
+        let result = Keystore::load(Path::new("/nonexistent/keystore.json"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read keystore"));
     }
 
-    /// Format for display
-    pub fn display(&self) -> String {
-        if let Some(ref addr) = self.address {
-            format!("{} ({})", self.filename, addr)
-        } else if !self.valid {
-            format!("{} (invalid)", self.filename)
-        } else {
-            format!("{} (no address)", self.filename)
-        }
+    #[test]
+    fn test_keystore_load_invalid_json() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"not valid json {{{").unwrap();
+        temp_file.flush().unwrap();
+
+        let result = Keystore::load(temp_file.path());
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid keystore JSON"));
+    }
+
+    #[test]
+    fn test_keystore_load_valid() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "crypto": {
+                "cipher": "aes-128-ctr"
+            }
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let result = Keystore::load(temp_file.path());
+        assert!(result.is_ok());
+        let keystore = result.unwrap();
+        assert_eq!(keystore.address(), Some("abc123"));
+    }
+
+    #[test]
+    fn test_keystore_address() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "1234567890abcdef",
+            "crypto": {}
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(keystore.address(), Some("1234567890abcdef"));
+    }
+
+    #[test]
+    fn test_keystore_address_missing() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{"crypto": {}}"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(keystore.address(), None);
+    }
+
+    #[test]
+    fn test_keystore_formatted_address() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "1234567890abcdef",
+            "crypto": {}
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(
+            keystore.formatted_address(),
+            Some("0x1234567890abcdef".to_string())
+        );
+    }
+
+    #[test]
+    fn test_keystore_formatted_address_missing() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{"crypto": {}}"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(keystore.formatted_address(), None);
+    }
+
+    #[test]
+    fn test_keystore_validate_not_object() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"[]").unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let result = keystore.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be a JSON object"));
+    }
+
+    #[test]
+    fn test_keystore_validate_missing_crypto_field() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "version": 3
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let result = keystore.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing crypto field"));
+    }
+
+    #[test]
+    fn test_keystore_validate_with_lowercase_crypto() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "crypto": {
+                "cipher": "aes-128-ctr"
+            }
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert!(keystore.validate().is_ok());
+    }
+
+    #[test]
+    fn test_keystore_validate_with_uppercase_crypto() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "Crypto": {
+                "cipher": "aes-128-ctr"
+            }
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert!(keystore.validate().is_ok());
     }
 }

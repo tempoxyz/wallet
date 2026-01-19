@@ -1,6 +1,6 @@
 //! Integration tests for payment providers
 
-use purl_lib::{Config, EvmConfig, SolanaConfig, PROVIDER_REGISTRY};
+use purl::{Config, EvmConfig, SolanaConfig, PROVIDER_REGISTRY};
 
 #[test]
 fn test_provider_registry_is_initialized() {

@@ -1,7 +1,7 @@
 //! Integration tests for network and token configuration
 
-use purl_lib::constants::get_token_decimals;
-use purl_lib::network::{
+use purl::constants::get_token_decimals;
+use purl::network::{
     get_evm_chain_id, get_network, is_evm_network, is_solana_network, ChainType, Network,
 };
 

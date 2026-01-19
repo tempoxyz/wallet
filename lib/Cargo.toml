@@ -1,67 +1,99 @@
 [package]
-name = "purl-lib"
+name = "purl"
 version.workspace = true
 edition.workspace = true
+description = "Library for implementing the Web Payment Auth protocol (IETF draft-ietf-httpauth-payment)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/brendanjryan/purl"
 
 [features]
-# Default features include all providers
-default = ["evm", "solana"]
+# Minimal by default - only core protocol types
+default = []
+
+# Core Web Payment Auth protocol types (minimal dependencies)
+web-payment-auth = []
+
+# Async runtime support
+runtime = ["dep:tokio", "dep:async-trait"]
+
+# Encoding and utility functions
+utils = ["dep:bs58", "dep:hex", "dep:base64", "dep:rand"]
+
+# Configuration file support
+config = ["dep:toml", "dep:regex"]
+
+# HTTP client support (using reqwest)
+http-client = ["dep:reqwest", "runtime"]
+
+# High-level client API (requires http-client and web-payment-auth)
+client = ["http-client", "web-payment-auth", "utils", "runtime"]
+
+# Keystore management for secure key storage
+keystore = ["dep:eth-keystore", "dep:zeroize", "dep:rpassword", "dep:dirs", "utils"]
 
 # EVM provider support (Ethereum, Base, Polygon, Tempo, etc.)
 evm = [
     "dep:alloy",
-    "dep:alloy-signer",
     "dep:alloy-signer-local",
     "dep:eth-keystore",
     "dep:tempo-primitives",
+    "web-payment-auth",
+    "utils",
+    "runtime",
 ]
 
 # Solana provider support
 solana = [
     "dep:solana-sdk",
     "dep:solana-client",
-    "dep:solana-program",
-    "dep:solana-commitment-config",
-    "dep:solana-compute-budget-interface",
-    "dep:spl-token",
-    "dep:spl-token-2022",
     "dep:spl-associated-token-account",
     "dep:bincode",
+    "web-payment-auth",
+    "utils",
+    "runtime",
 ]
 
+# Full featured (all functionality)
+full = ["evm", "solana", "client", "keystore", "http-client", "config"]
+
 [dependencies]
-# Core dependencies (always required)
-curl.workspace = true
+# Core dependencies (minimal - only for protocol and error types)
 serde.workspace = true
 serde_json.workspace = true
-toml.workspace = true
-bs58.workspace = true
-hex.workspace = true
-base64.workspace = true
-rand.workspace = true
-regex.workspace = true
-zeroize.workspace = true
-rpassword.workspace = true
 thiserror.workspace = true
-remain.workspace = true
-dirs.workspace = true
-once_cell.workspace = true
-tokio.workspace = true
-async-trait.workspace = true
 
+# Optional dependencies (feature-gated)
+# Runtime
+tokio = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+
+# Utils
+bs58 = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+
+# Config
+regex = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+
+# HTTP client
+reqwest = { workspace = true, optional = true }
+
+# Keystore
+zeroize = { workspace = true, optional = true }
+rpassword = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
+
+# EVM
 alloy = { workspace = true, optional = true }
-alloy-signer = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
 eth-keystore = { workspace = true, optional = true }
 tempo-primitives = { workspace = true, optional = true }
 
+# Solana
 solana-sdk = { workspace = true, optional = true }
 solana-client = { workspace = true, optional = true }
-solana-program = { workspace = true, optional = true }
-solana-commitment-config = { workspace = true, optional = true }
-solana-compute-budget-interface = { workspace = true, optional = true }
-spl-token = { workspace = true, optional = true }
-spl-token-2022 = { workspace = true, optional = true }
 spl-associated-token-account = { workspace = true, optional = true }
 bincode = { workspace = true, optional = true }
 

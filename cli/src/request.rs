@@ -4,7 +4,7 @@
 //! for building and executing HTTP requests.
 
 use anyhow::Result;
-use purl_lib::{HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
+use purl::{HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
 
 use crate::cli::Cli;
 
@@ -98,7 +98,7 @@ fn is_json_data(data: &str) -> bool {
 /// - Either the `--json` flag is used, OR the `-d` data looks like JSON
 fn should_auto_add_json_content_type(cli: &Cli) -> bool {
     // Don't add Content-Type if the user already provided one
-    if purl_lib::has_header(&cli.headers, "content-type") {
+    if purl::has_header(&cli.headers, "content-type") {
         return false;
     }
 

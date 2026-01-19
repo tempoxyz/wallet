@@ -5,16 +5,14 @@
 
 use anyhow::{Context, Result};
 use dialoguer::Confirm;
-use purl_lib::protocol::web::{
-    parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge,
-};
-use purl_lib::{Config, HttpResponse, Network, PROVIDER_REGISTRY};
+use purl::protocol::web::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
+use purl::{Config, HttpResponse, Network, PROVIDER_REGISTRY};
 use std::str::FromStr;
 
 use crate::cli::Cli;
 use crate::exit_codes::ExitCode;
 use crate::request::RequestContext;
-use purl_lib::utils::truncate_address;
+use purl::utils::truncate_address;
 
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
 pub async fn handle_web_payment_request(
@@ -78,7 +76,7 @@ pub async fn handle_web_payment_request(
         .await
         .context("Failed to create payment credential")?;
 
-    let auth_header = purl_lib::protocol::web::format_authorization(&credential)
+    let auth_header = purl::protocol::web::format_authorization(&credential)
         .context("Failed to format Authorization header")?;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
@@ -245,7 +243,7 @@ fn display_web_receipt(cli: &Cli, response: &HttpResponse) -> Result<()> {
 mod tests {
     use super::*;
     use clap::Parser;
-    use purl_lib::protocol::web::{PaymentChallenge, PaymentIntent, PaymentMethod};
+    use purl::protocol::web::{PaymentChallenge, PaymentIntent, PaymentMethod};
 
     fn mock_challenge(method: PaymentMethod, amount: &str) -> (PaymentChallenge, ChargeRequest) {
         let charge_req = ChargeRequest {

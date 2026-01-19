@@ -174,7 +174,7 @@ pub fn create_test_keystore(
 
     // Set HOME temporarily for this operation using a thread-local approach
     std::env::set_var("HOME", temp_dir.path());
-    let result = purl_lib::keystore::create_keystore(private_key, password, name);
+    let result = purl::keystore::create_keystore(private_key, password, name);
 
     result.expect("Failed to create test keystore")
 }

@@ -2,7 +2,7 @@
 
 use crate::cli::OutputFormat;
 use anyhow::{Context, Result};
-use purl_lib::network::{ChainType, Network};
+use purl::network::{ChainType, Network};
 use serde::Serialize;
 
 /// Display data for a network in list output
