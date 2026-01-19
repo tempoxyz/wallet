@@ -17,7 +17,7 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
 
     if msg.contains("no such file") || msg.contains("not found") {
         if msg.contains("config") {
-            return Some("Run 'purl init' to create a configuration file.".into());
+            return Some("🙇‍♂️Run 'purl init' to create a configuration file.".into());
         }
         if msg.contains("keystore") {
             return Some(
