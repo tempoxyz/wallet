@@ -29,8 +29,8 @@ jobs:
         with:
           language: rust
           path: "."
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           post-comment: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   test:
     name: Test (${{ matrix.os }})
