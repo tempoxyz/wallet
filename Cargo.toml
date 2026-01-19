@@ -2,6 +2,10 @@
 members = ["lib", "cli"]
 resolver = "2"
 
+# Note: Despite directory names, the actual crate names are:
+# - lib/ contains the 'purl' crate (the library)
+# - cli/ contains the 'purl-cli' crate (the CLI binary)
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

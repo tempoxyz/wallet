@@ -310,7 +310,7 @@ pub enum MethodCommands {
     /// Create a new keystore
     New {
         /// Name for the keystore
-        #[arg(long, default_value = purl_lib::constants::DEFAULT_KEYSTORE_NAME)]
+        #[arg(long, default_value = purl::constants::DEFAULT_KEYSTORE_NAME)]
         name: String,
         /// Generate a new private key
         #[arg(short = 'g', long)]
@@ -319,7 +319,7 @@ pub enum MethodCommands {
     /// Import a private key into a new keystore
     Import {
         /// Name for the keystore
-        #[arg(long, default_value = purl_lib::constants::IMPORTED_KEYSTORE_NAME)]
+        #[arg(long, default_value = purl::constants::IMPORTED_KEYSTORE_NAME)]
         name: String,
         /// Private key to import (hex format)
         #[arg(short = 'k', long)]
@@ -372,7 +372,7 @@ pub enum NetworkCommands {
 impl Cli {
     /// Parse custom headers into (name, value) tuples
     pub fn parse_headers(&self) -> Vec<(String, String)> {
-        purl_lib::parse_headers(&self.headers)
+        purl::parse_headers(&self.headers)
     }
 
     /// Get the effective timeout

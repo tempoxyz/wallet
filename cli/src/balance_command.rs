@@ -1,10 +1,10 @@
 //! Balance command for checking token wallet balances on configured networks
 
 use anyhow::{Context, Result};
-use purl_lib::currency::currencies;
-use purl_lib::network::{ChainType, Network};
-use purl_lib::payment_provider::NetworkBalance;
-use purl_lib::{Config, PaymentMethod, PROVIDER_REGISTRY};
+use purl::currency::currencies;
+use purl::network::{ChainType, Network};
+use purl::payment_provider::NetworkBalance;
+use purl::{Config, PaymentMethod, PROVIDER_REGISTRY};
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
@@ -15,7 +15,7 @@ fn is_mock_mode() -> bool {
 fn mock_balance(
     network: Network,
     _address: &str,
-    currency: &purl_lib::currency::Currency,
+    currency: &purl::currency::Currency,
 ) -> NetworkBalance {
     // Return a realistic-looking mock balance
     let mock_atomic = match network {

@@ -1,8 +1,8 @@
 //! Inspect command for viewing payment requirements without executing payment
 
 use anyhow::{Context, Result};
-use purl_lib::protocol::web::{parse_www_authenticate, ChargeRequest, PaymentChallenge};
-use purl_lib::{HttpClientBuilder, HttpMethod, PaymentMethod};
+use purl::protocol::web::{parse_www_authenticate, ChargeRequest, PaymentChallenge};
+use purl::{HttpClientBuilder, HttpMethod, PaymentMethod};
 use serde::Serialize;
 
 use crate::cli::{Cli, OutputFormat};
@@ -136,7 +136,7 @@ fn build_inspect_output(
 
 /// Format charge amount to human-readable string
 fn format_charge_amount(req: &ChargeRequest, challenge: &PaymentChallenge) -> Option<String> {
-    use purl_lib::Network;
+    use purl::Network;
     use std::str::FromStr;
 
     let network_name = challenge.network_name().ok()?;
@@ -147,7 +147,7 @@ fn format_charge_amount(req: &ChargeRequest, challenge: &PaymentChallenge) -> Op
     let decimals = token_config.currency.decimals;
     let symbol = token_config.currency.symbol;
 
-    Some(purl_lib::currency::format_atomic_trimmed(
+    Some(purl::currency::format_atomic_trimmed(
         &amount.to_string(),
         decimals,
         symbol,
@@ -260,7 +260,7 @@ fn output_text(
 
 /// Check if a challenge is compatible with configured payment methods
 fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[PaymentMethod]) -> bool {
-    use purl_lib::protocol::web::PaymentMethod as WebPaymentMethod;
+    use purl::protocol::web::PaymentMethod as WebPaymentMethod;
 
     match &challenge.method {
         WebPaymentMethod::Tempo | WebPaymentMethod::Base => {
@@ -273,7 +273,7 @@ fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[Payme
 #[cfg(test)]
 mod tests {
     use super::*;
-    use purl_lib::protocol::web::{
+    use purl::protocol::web::{
         PaymentChallenge, PaymentIntent, PaymentMethod as WebPaymentMethod,
     };
 

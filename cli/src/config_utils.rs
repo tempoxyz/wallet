@@ -1,7 +1,7 @@
 //! Configuration loading utilities for the CLI
 
 use anyhow::{Context, Result};
-use purl_lib::{validate_path, Config, EvmConfig};
+use purl::{validate_path, Config, EvmConfig};
 use std::path::Path;
 
 use crate::cli::Cli;

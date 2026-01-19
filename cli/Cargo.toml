@@ -1,14 +1,17 @@
 [package]
-name = "purl"
+name = "purl-cli"
 version.workspace = true
 edition.workspace = true
+description = "A curl-like CLI tool for making HTTP requests with automatic payment support"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/brendanjryan/purl"
 
 [[bin]]
 name = "purl"
 path = "src/main.rs"
 
 [dependencies]
-purl-lib = { path = "../lib" }
+purl = { path = "../lib" }
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
 anyhow.workspace = true

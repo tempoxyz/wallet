@@ -72,7 +72,7 @@ impl From<ExitCode> for i32 {
 impl From<&anyhow::Error> for ExitCode {
     fn from(err: &anyhow::Error) -> Self {
         // Try to downcast to PurlError for specific handling
-        if let Some(purl_err) = err.downcast_ref::<purl_lib::PurlError>() {
+        if let Some(purl_err) = err.downcast_ref::<purl::PurlError>() {
             return ExitCode::from(purl_err);
         }
 
@@ -93,9 +93,9 @@ impl From<&anyhow::Error> for ExitCode {
     }
 }
 
-impl From<&purl_lib::PurlError> for ExitCode {
-    fn from(err: &purl_lib::PurlError) -> Self {
-        use purl_lib::PurlError;
+impl From<&purl::PurlError> for ExitCode {
+    fn from(err: &purl::PurlError) -> Self {
+        use purl::PurlError;
 
         match err {
             // Configuration errors
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_exit_code_from_purl_error() {
-        use purl_lib::PurlError;
+        use purl::PurlError;
 
         assert_eq!(
             ExitCode::from(&PurlError::ConfigMissing("test".into())),

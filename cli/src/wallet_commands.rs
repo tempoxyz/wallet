@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use dialoguer::{Input, Password};
-use purl_lib::keystore::{create_keystore, list_keystores, Keystore};
+use purl::keystore::{create_keystore, list_keystores, Keystore};
 use std::path::PathBuf;
 
 /// List all available keystores in the keystores directory

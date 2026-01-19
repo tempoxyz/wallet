@@ -1,11 +1,26 @@
 [package]
-name = "purl-lib"
+name = "purl"
 version.workspace = true
 edition.workspace = true
+description = "Library for implementing the Web Payment Auth protocol (IETF draft-ietf-httpauth-payment)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/brendanjryan/purl"
 
 [features]
-# Default features include all providers
-default = ["evm", "solana"]
+# Default features include all providers and high-level client
+default = ["evm", "solana", "client", "http-client", "keystore"]
+
+# Core protocol types (always available, no dependencies)
+web-payment-auth = []
+
+# HTTP client support (using curl)
+http-client = ["dep:curl"]
+
+# High-level client API (requires http-client and web-payment-auth)
+client = ["http-client", "web-payment-auth"]
+
+# Keystore management for secure key storage
+keystore = ["dep:eth-keystore", "dep:zeroize", "dep:rpassword", "dep:dirs", "dep:once_cell"]
 
 # EVM provider support (Ethereum, Base, Polygon, Tempo, etc.)
 evm = [
@@ -14,6 +29,7 @@ evm = [
     "dep:alloy-signer-local",
     "dep:eth-keystore",
     "dep:tempo-primitives",
+    "web-payment-auth",
 ]
 
 # Solana provider support
@@ -27,27 +43,33 @@ solana = [
     "dep:spl-token-2022",
     "dep:spl-associated-token-account",
     "dep:bincode",
+    "web-payment-auth",
 ]
 
+# Full featured (all functionality)
+full = ["evm", "solana", "client", "keystore"]
+
 [dependencies]
-# Core dependencies (always required)
-curl.workspace = true
+# Core dependencies (always required - used by protocol and error types)
 serde.workspace = true
 serde_json.workspace = true
-toml.workspace = true
+thiserror.workspace = true
+remain.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
 bs58.workspace = true
 hex.workspace = true
 base64.workspace = true
-rand.workspace = true
 regex.workspace = true
-zeroize.workspace = true
-rpassword.workspace = true
-thiserror.workspace = true
-remain.workspace = true
-dirs.workspace = true
-once_cell.workspace = true
-tokio.workspace = true
-async-trait.workspace = true
+toml.workspace = true
+rand.workspace = true
+
+# Optional dependencies (feature-gated)
+curl = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
+rpassword = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
+once_cell = { workspace = true, optional = true }
 
 alloy = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }
