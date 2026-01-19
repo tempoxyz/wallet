@@ -25,7 +25,7 @@ pub struct Cli {
     pub command: Option<Commands>,
 
     /// URL to request
-    #[arg(value_name = "URL")]
+    #[arg(value_name = "  URL")]
     pub url: Option<String>,
 
     /// Configuration file path
