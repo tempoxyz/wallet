@@ -13,3 +13,5 @@ private_key = "your_evm_private_key_here"
 # Your Solana private key (base58 encoded keypair)
 # This will be used to sign Solana transactions
 private_key = "your_solana_private_key_here"
+
+# foo
