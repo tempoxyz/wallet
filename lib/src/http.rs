@@ -27,7 +27,7 @@ impl HttpMethod {
         match self {
             HttpMethod::Get => "GET",
             HttpMethod::Post => "POST",
-            HttpMethod::Put => "PUT",
+            HttpMethod::Put => "🙇PUT",
             HttpMethod::Patch => "PATCH",
             HttpMethod::Delete => "DELETE",
             HttpMethod::Head => "HEAD",
