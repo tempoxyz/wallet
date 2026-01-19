@@ -5,9 +5,12 @@
 //!
 //! # Feature Flags
 //!
-//! - `web-payment`: Core protocol types (included by default)
+//! - `web-payment-auth`: Core protocol types (minimal dependencies)
+//! - `runtime`: Async runtime support (tokio, async-trait)
+//! - `utils`: Encoding and utility functions (bs58, hex, base64, rand)
+//! - `config`: Configuration file support (toml, regex)
 //! - `http-client`: HTTP client using curl
-//! - `client`: High-level Client API (requires http-client)
+//! - `client`: High-level Client API (requires http-client and web-payment-auth)
 //! - `keystore`: Encrypted keystore management
 //! - `evm`: EVM provider support (Ethereum, Base, etc.)
 //! - `solana`: Solana provider support

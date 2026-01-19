@@ -5,9 +5,7 @@
 
 use anyhow::{Context, Result};
 use dialoguer::Confirm;
-use purl::protocol::web::{
-    parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge,
-};
+use purl::protocol::web::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
 use purl::{Config, HttpResponse, Network, PROVIDER_REGISTRY};
 use std::str::FromStr;
 

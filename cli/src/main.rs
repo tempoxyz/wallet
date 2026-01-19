@@ -264,7 +264,7 @@ fn show_version() -> Result<()> {
     const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
     println!("purl CLI: v{CLI_VERSION}");
-    println!("purl-lib: v{}", purl::VERSION);
+    println!("purl: v{}", purl::VERSION);
 
     Ok(())
 }

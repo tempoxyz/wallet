@@ -273,9 +273,7 @@ fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[Payme
 #[cfg(test)]
 mod tests {
     use super::*;
-    use purl::protocol::web::{
-        PaymentChallenge, PaymentIntent, PaymentMethod as WebPaymentMethod,
-    };
+    use purl::protocol::web::{PaymentChallenge, PaymentIntent, PaymentMethod as WebPaymentMethod};
 
     fn mock_challenge() -> PaymentChallenge {
         let charge_req = ChargeRequest {

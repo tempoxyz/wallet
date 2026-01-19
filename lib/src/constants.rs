@@ -402,3 +402,174 @@ pub fn get_token_decimals(network: &str, asset: &str) -> Result<u8, crate::error
 pub fn get_token_symbol(network: &str, asset: &str) -> Option<&'static str> {
     TOKEN_REGISTRY.get_symbol(network, asset)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    fn test_password_cache_duration_default() {
+        // Remove env var if it exists
+        std::env::remove_var("PURL_PASSWORD_CACHE_SECS");
+        let duration = password_cache_duration();
+        assert_eq!(duration, DEFAULT_PASSWORD_CACHE_DURATION);
+        assert_eq!(duration.as_secs(), 300);
+    }
+
+    #[test]
+    #[serial]
+    fn test_password_cache_duration_custom() {
+        std::env::set_var("PURL_PASSWORD_CACHE_SECS", "600");
+        let duration = password_cache_duration();
+        assert_eq!(duration.as_secs(), 600);
+        std::env::remove_var("PURL_PASSWORD_CACHE_SECS");
+    }
+
+    #[test]
+    #[serial]
+    fn test_password_cache_duration_invalid_env_var() {
+        std::env::set_var("PURL_PASSWORD_CACHE_SECS", "not_a_number");
+        let duration = password_cache_duration();
+        // Should fall back to default
+        assert_eq!(duration, DEFAULT_PASSWORD_CACHE_DURATION);
+        std::env::remove_var("PURL_PASSWORD_CACHE_SECS");
+    }
+
+    #[test]
+    #[serial]
+    fn test_password_cache_duration_empty_env_var() {
+        std::env::set_var("PURL_PASSWORD_CACHE_SECS", "");
+        let duration = password_cache_duration();
+        // Should fall back to default
+        assert_eq!(duration, DEFAULT_PASSWORD_CACHE_DURATION);
+        std::env::remove_var("PURL_PASSWORD_CACHE_SECS");
+    }
+
+    #[test]
+    fn test_purl_config_dir_exists() {
+        let dir = purl_config_dir();
+        assert!(dir.is_some());
+        let path = dir.unwrap();
+        assert!(path.to_str().unwrap().contains(APP_NAME));
+    }
+
+    #[test]
+    fn test_purl_data_dir_exists() {
+        let dir = purl_data_dir();
+        assert!(dir.is_some());
+        let path = dir.unwrap();
+        assert!(path.to_str().unwrap().contains(APP_NAME));
+    }
+
+    #[test]
+    fn test_purl_cache_dir_exists() {
+        let dir = purl_cache_dir();
+        assert!(dir.is_some());
+        let path = dir.unwrap();
+        assert!(path.to_str().unwrap().contains(APP_NAME));
+    }
+
+    #[test]
+    fn test_default_config_path() {
+        let path = default_config_path();
+        assert!(path.is_some());
+        let p = path.unwrap();
+        assert!(p.to_str().unwrap().contains(CONFIG_FILE));
+        assert!(p.to_str().unwrap().contains(APP_NAME));
+    }
+
+    #[test]
+    fn test_default_keystores_dir() {
+        let path = default_keystores_dir();
+        assert!(path.is_some());
+        let p = path.unwrap();
+        assert!(p.to_str().unwrap().contains(KEYSTORES_DIR));
+        assert!(p.to_str().unwrap().contains(APP_NAME));
+    }
+
+    #[test]
+    fn test_password_cache_dir_path() {
+        let path = password_cache_dir();
+        assert!(path.is_some());
+        let p = path.unwrap();
+        assert!(p.to_str().unwrap().contains(PASSWORD_CACHE_DIR));
+        assert!(p.to_str().unwrap().contains(APP_NAME));
+    }
+
+    #[test]
+    fn test_get_token_decimals_usdc_base() {
+        let result = get_token_decimals("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 6);
+    }
+
+    #[test]
+    fn test_get_token_decimals_case_insensitive_evm() {
+        // Test with uppercase address
+        let result = get_token_decimals("base", "0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 6);
+    }
+
+    #[test]
+    fn test_get_token_decimals_unknown_token() {
+        let result = get_token_decimals("base", "0x0000000000000000000000000000000000000000");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Token configuration not found"));
+    }
+
+    #[test]
+    fn test_get_token_decimals_unknown_network() {
+        let result = get_token_decimals(
+            "unknown-network",
+            "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_token_symbol_usdc_base() {
+        let symbol = get_token_symbol("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+        assert_eq!(symbol, Some("USDC"));
+    }
+
+    #[test]
+    fn test_get_token_symbol_case_insensitive() {
+        let symbol = get_token_symbol("base", "0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913");
+        assert_eq!(symbol, Some("USDC"));
+    }
+
+    #[test]
+    fn test_get_token_symbol_unknown() {
+        let symbol = get_token_symbol("base", "0x0000000000000000000000000000000000000000");
+        assert_eq!(symbol, None);
+    }
+
+    #[test]
+    fn test_get_token_decimals_solana_usdc() {
+        let result = get_token_decimals("solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 6);
+    }
+
+    #[test]
+    fn test_get_token_decimals_ethereum_usdc() {
+        let result = get_token_decimals("ethereum", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 6);
+    }
+
+    #[test]
+    fn test_token_registry_get_token() {
+        let registry = TokenRegistry::load();
+        let token = registry.get_token("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+        assert!(token.is_some());
+        let t = token.unwrap();
+        assert_eq!(t.symbol, "USDC");
+        assert_eq!(t.decimals, 6);
+    }
+}

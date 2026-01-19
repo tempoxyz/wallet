@@ -125,3 +125,251 @@ impl KeystoreInfo {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_keystore_load_nonexistent_file() {
+        let result = Keystore::load(Path::new("/nonexistent/keystore.json"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read keystore"));
+    }
+
+    #[test]
+    fn test_keystore_load_invalid_json() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"not valid json {{{").unwrap();
+        temp_file.flush().unwrap();
+
+        let result = Keystore::load(temp_file.path());
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid keystore JSON"));
+    }
+
+    #[test]
+    fn test_keystore_load_valid() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "crypto": {
+                "cipher": "aes-128-ctr"
+            }
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let result = Keystore::load(temp_file.path());
+        assert!(result.is_ok());
+        let keystore = result.unwrap();
+        assert_eq!(keystore.address(), Some("abc123"));
+    }
+
+    #[test]
+    fn test_keystore_address() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "1234567890abcdef",
+            "crypto": {}
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(keystore.address(), Some("1234567890abcdef"));
+    }
+
+    #[test]
+    fn test_keystore_address_missing() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{"crypto": {}}"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(keystore.address(), None);
+    }
+
+    #[test]
+    fn test_keystore_formatted_address() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "1234567890abcdef",
+            "crypto": {}
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(
+            keystore.formatted_address(),
+            Some("0x1234567890abcdef".to_string())
+        );
+    }
+
+    #[test]
+    fn test_keystore_formatted_address_missing() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{"crypto": {}}"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert_eq!(keystore.formatted_address(), None);
+    }
+
+    #[test]
+    fn test_keystore_validate_not_object() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"[]").unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let result = keystore.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be a JSON object"));
+    }
+
+    #[test]
+    fn test_keystore_validate_missing_crypto_field() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "version": 3
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let result = keystore.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing crypto field"));
+    }
+
+    #[test]
+    fn test_keystore_validate_with_lowercase_crypto() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "crypto": {
+                "cipher": "aes-128-ctr"
+            }
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert!(keystore.validate().is_ok());
+    }
+
+    #[test]
+    fn test_keystore_validate_with_uppercase_crypto() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "Crypto": {
+                "cipher": "aes-128-ctr"
+            }
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let keystore = Keystore::load(temp_file.path()).unwrap();
+        assert!(keystore.validate().is_ok());
+    }
+
+    #[test]
+    fn test_keystore_info_from_valid_path() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "crypto": {}
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let info = KeystoreInfo::from_path(temp_file.path());
+        assert!(info.valid);
+        assert_eq!(info.address, Some("0xabc123".to_string()));
+    }
+
+    #[test]
+    fn test_keystore_info_from_invalid_path() {
+        let info = KeystoreInfo::from_path(Path::new("/nonexistent/keystore.json"));
+        assert!(!info.valid);
+        assert_eq!(info.address, None);
+        assert_eq!(info.filename, "keystore.json");
+    }
+
+    #[test]
+    fn test_keystore_info_from_invalid_json() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"not json").unwrap();
+        temp_file.flush().unwrap();
+
+        let info = KeystoreInfo::from_path(temp_file.path());
+        assert!(!info.valid);
+        assert_eq!(info.address, None);
+    }
+
+    #[test]
+    fn test_keystore_info_from_invalid_keystore() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{"address": "abc123"}"#; // Missing crypto field
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let info = KeystoreInfo::from_path(temp_file.path());
+        assert!(!info.valid);
+        assert_eq!(info.address, Some("0xabc123".to_string()));
+    }
+
+    #[test]
+    fn test_keystore_info_display_with_address() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{
+            "address": "abc123",
+            "crypto": {}
+        }"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let info = KeystoreInfo::from_path(temp_file.path());
+        let display = info.display();
+        assert!(display.contains("0xabc123"));
+    }
+
+    #[test]
+    fn test_keystore_info_display_invalid() {
+        let info = KeystoreInfo::from_path(Path::new("/nonexistent/keystore.json"));
+        let display = info.display();
+        assert!(display.contains("(invalid)"));
+    }
+
+    #[test]
+    fn test_keystore_info_display_no_address() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let keystore_json = r#"{"crypto": {}}"#;
+        temp_file.write_all(keystore_json.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let info = KeystoreInfo::from_path(temp_file.path());
+        let display = info.display();
+        assert!(display.contains("(no address)"));
+    }
+}

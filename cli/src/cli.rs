@@ -372,7 +372,8 @@ pub enum NetworkCommands {
 impl Cli {
     /// Parse custom headers into (name, value) tuples
     pub fn parse_headers(&self) -> Vec<(String, String)> {
-        purl::parse_headers(&self.headers)
+        let header_map = purl::http::parse_headers(&self.headers);
+        header_map.into_iter().collect()
     }
 
     /// Get the effective timeout

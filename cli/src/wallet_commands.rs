@@ -400,12 +400,8 @@ pub fn verify_command(name: &str) -> Result<()> {
             println!("[OK] Successfully decrypted keystore");
 
             if let Some(stored_address) = keystore.address() {
-                use alloy_signer_local::PrivateKeySigner;
-                let key_hex = hex::encode(&private_key_bytes);
-
-                match key_hex.parse::<PrivateKeySigner>() {
-                    Ok(signer) => {
-                        let derived_address = format!("{:#x}", signer.address());
+                match purl::crypto::derive_evm_address(&private_key_bytes) {
+                    Ok(derived_address) => {
                         let derived_no_prefix = &derived_address[2..];
 
                         if stored_address.to_lowercase() == derived_no_prefix.to_lowercase() {

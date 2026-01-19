@@ -7,20 +7,29 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/brendanjryan/purl"
 
 [features]
-# Default features include all providers and high-level client
-default = ["evm", "solana", "client", "http-client", "keystore"]
+# Minimal by default - only core protocol types
+default = []
 
-# Core protocol types (always available, no dependencies)
-web-payment = []
+# Core Web Payment Auth protocol types (minimal dependencies)
+web-payment-auth = []
 
-# HTTP client support (using curl)
-http-client = ["dep:curl"]
+# Async runtime support
+runtime = ["dep:tokio", "dep:async-trait"]
 
-# High-level client API (requires http-client and web-payment)
-client = ["http-client", "web-payment"]
+# Encoding and utility functions
+utils = ["dep:bs58", "dep:hex", "dep:base64", "dep:rand", "dep:once_cell"]
+
+# Configuration file support
+config = ["dep:toml", "dep:regex"]
+
+# HTTP client support (using reqwest)
+http-client = ["dep:reqwest", "runtime"]
+
+# High-level client API (requires http-client and web-payment-auth)
+client = ["http-client", "web-payment-auth", "utils", "runtime"]
 
 # Keystore management for secure key storage
-keystore = ["dep:eth-keystore", "dep:zeroize", "dep:rpassword", "dep:dirs"]
+keystore = ["dep:eth-keystore", "dep:zeroize", "dep:rpassword", "dep:dirs", "utils"]
 
 # EVM provider support (Ethereum, Base, Polygon, Tempo, etc.)
 evm = [
@@ -29,7 +38,9 @@ evm = [
     "dep:alloy-signer-local",
     "dep:eth-keystore",
     "dep:tempo-primitives",
-    "web-payment",
+    "web-payment-auth",
+    "utils",
+    "runtime",
 ]
 
 # Solana provider support
@@ -43,40 +54,53 @@ solana = [
     "dep:spl-token-2022",
     "dep:spl-associated-token-account",
     "dep:bincode",
-    "web-payment",
+    "web-payment-auth",
+    "utils",
+    "runtime",
 ]
 
 # Full featured (all functionality)
-full = ["evm", "solana", "client", "keystore"]
+full = ["evm", "solana", "client", "keystore", "http-client", "config"]
 
 [dependencies]
-# Core dependencies (always required - used by protocol and error types)
+# Core dependencies (minimal - only for protocol and error types)
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 remain.workspace = true
-tokio.workspace = true
-async-trait.workspace = true
-bs58.workspace = true
-hex.workspace = true
-base64.workspace = true
-regex.workspace = true
-toml.workspace = true
-rand.workspace = true
-once_cell.workspace = true
 
 # Optional dependencies (feature-gated)
-curl = { workspace = true, optional = true }
+# Runtime
+tokio = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+
+# Utils
+bs58 = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+once_cell = { workspace = true, optional = true }
+
+# Config
+regex = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+
+# HTTP client
+reqwest = { workspace = true, optional = true }
+
+# Keystore
 zeroize = { workspace = true, optional = true }
 rpassword = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 
+# EVM
 alloy = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
 eth-keystore = { workspace = true, optional = true }
 tempo-primitives = { workspace = true, optional = true }
 
+# Solana
 solana-sdk = { workspace = true, optional = true }
 solana-client = { workspace = true, optional = true }
 solana-program = { workspace = true, optional = true }

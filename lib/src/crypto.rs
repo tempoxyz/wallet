@@ -129,6 +129,29 @@ pub fn generate_solana_keypair() -> (String, String) {
     (keypair_b58, pubkey_b58)
 }
 
+/// Derive an EVM address from private key bytes
+///
+/// Takes 32 bytes of private key data and returns the derived Ethereum address.
+///
+/// # Example
+/// ```
+/// use purl::crypto::derive_evm_address;
+///
+/// let key_bytes = hex::decode("1234567890123456789012345678901234567890123456789012345678901234").unwrap();
+/// let address = derive_evm_address(&key_bytes).unwrap();
+/// assert!(address.starts_with("0x"));
+/// ```
+pub fn derive_evm_address(private_key_bytes: &[u8]) -> Result<String> {
+    use alloy_signer_local::PrivateKeySigner;
+
+    let key_hex = hex::encode(private_key_bytes);
+    let signer: PrivateKeySigner = key_hex
+        .parse()
+        .map_err(|e| PurlError::InvalidKey(format!("Failed to parse private key: {e}")))?;
+
+    Ok(format!("{:#x}", signer.address()))
+}
+
 /// Validate an EVM private key hex string
 pub fn validate_evm_key(key: &str) -> Result<()> {
     let key = crate::utils::strip_0x_prefix(key);

@@ -1,6 +1,6 @@
 //! Integration tests for configuration management
 
-use purl_lib::{Config, EvmConfig, PaymentMethod, SolanaConfig};
+use purl::{Config, EvmConfig, PaymentMethod, SolanaConfig};
 
 #[test]
 fn test_config_serialization_roundtrip() {
