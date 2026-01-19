@@ -1,4 +1,4 @@
-.PHONY: build release clean check test test-fast fix install lint-ast fix-ast test-ast
+.PHONY: build release clean check test test-fast fix install
 
 build:
 	cargo build
@@ -24,22 +24,9 @@ test:
 test-fast:
 	cargo test --lib
 
-# Run ast-grep custom lint rules
-lint-ast:
-	ast-grep scan --config sgconfig.yml
-
-# Auto-fix ast-grep lint issues
-fix-ast:
-	ast-grep scan --config sgconfig.yml --update-all
-
-# Run ast-grep rule tests
-test-ast:
-	ast-grep test --config sgconfig.yml
-
 check:
 	cargo fmt --check
 	cargo clippy -- -D warnings
-	ast-grep scan --config sgconfig.yml
 	cargo test
 	cargo build
 

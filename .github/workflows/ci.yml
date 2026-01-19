@@ -19,12 +19,13 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Install ast-grep
-        run: npm install -g @ast-grep/cli
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace -- -D warnings
-      - name: Run ast-grep lint
-        run: ast-grep scan --config sgconfig.yml
+      - name: Run Tempo Lints
+        uses: tempoxyz/lints@main
+        with:
+          language: rust
+          path: "."
 
   test:
     name: Test (${{ matrix.os }})
