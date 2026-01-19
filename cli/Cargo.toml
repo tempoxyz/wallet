@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "A curl-like CLI tool for making HTTP requests with automatic payment support"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/brendanjryan/purl"
+repository = "https://github.com/tempoxyz/purl"
 
 [[bin]]
 name = "purl"
