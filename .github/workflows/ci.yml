@@ -13,6 +13,9 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -26,6 +29,8 @@ jobs:
         with:
           language: rust
           path: "."
+          post-comment: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   test:
     name: Test (${{ matrix.os }})
