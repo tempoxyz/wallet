@@ -694,9 +694,10 @@ mod tests {
         let addr = req
             .destination_address()
             .expect("Should parse valid address");
+        // Compare lowercase since Address normalizes to lowercase
         assert_eq!(
-            format!("{:?}", addr),
-            "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2"
+            format!("{:?}", addr).to_lowercase(),
+            "0x742d35cc6634c0532925a3b844bc9e7595f1b0f2"
         );
     }
 
@@ -724,9 +725,10 @@ mod tests {
         };
 
         let addr = req.asset_address().expect("Should parse valid address");
+        // Compare lowercase since Address normalizes to lowercase
         assert_eq!(
-            format!("{:?}", addr),
-            "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+            format!("{:?}", addr).to_lowercase(),
+            "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         );
     }
 
