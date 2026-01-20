@@ -129,7 +129,7 @@ mod tests {
         let result = generate_evm_key();
         assert!(result.is_ok());
 
-        let (key, address) = result.unwrap();
+        let (key, address) = result.expect("Failed to generate EVM key");
         assert_eq!(key.len(), 64); // 32 bytes as hex
         assert!(address.starts_with("0x"));
         assert_eq!(address.len(), 42); // 0x + 40 hex chars

@@ -169,8 +169,12 @@ mod tests {
     #[test]
     fn test_parse_atomic() {
         let usdc = currencies::USDC;
-        assert_eq!(usdc.parse_atomic("1000000").unwrap(), 1_000_000);
-        assert_eq!(usdc.parse_atomic("0").unwrap(), 0);
+        assert_eq!(
+            usdc.parse_atomic("1000000")
+                .expect("Failed to parse 1000000"),
+            1_000_000
+        );
+        assert_eq!(usdc.parse_atomic("0").expect("Failed to parse 0"), 0);
         assert!(usdc.parse_atomic("invalid").is_err());
     }
 

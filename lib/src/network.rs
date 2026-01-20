@@ -688,9 +688,14 @@ mod tests {
 
     #[test]
     fn test_network_enum_from_str() {
-        assert_eq!("base".parse::<Network>().unwrap(), Network::Base);
         assert_eq!(
-            "ethereum-sepolia".parse::<Network>().unwrap(),
+            "base".parse::<Network>().expect("Failed to parse base"),
+            Network::Base
+        );
+        assert_eq!(
+            "ethereum-sepolia"
+                .parse::<Network>()
+                .expect("Failed to parse ethereum-sepolia"),
             Network::EthereumSepolia
         );
         assert!("unknown-network".parse::<Network>().is_err());

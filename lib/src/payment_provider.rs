@@ -252,11 +252,19 @@ mod tests {
 
         let provider = registry.find_provider("base");
         assert!(provider.is_some());
-        assert_eq!(provider.unwrap().name(), "EVM");
+        assert_eq!(
+            provider.expect("Provider should exist for base").name(),
+            "EVM"
+        );
 
         let provider = registry.find_provider("ethereum-sepolia");
         assert!(provider.is_some());
-        assert_eq!(provider.unwrap().name(), "EVM");
+        assert_eq!(
+            provider
+                .expect("Provider should exist for ethereum-sepolia")
+                .name(),
+            "EVM"
+        );
     }
 
     #[test]

@@ -333,7 +333,7 @@ mod tests {
         let address = provider.get_address(&config);
         assert!(address.is_ok());
 
-        let addr = address.unwrap();
+        let addr = address.expect("Address should be valid");
         assert!(addr.starts_with("0x"));
         assert_eq!(addr.len(), 42);
     }
