@@ -147,11 +147,7 @@ fn format_charge_amount(req: &ChargeRequest, challenge: &PaymentChallenge) -> Op
     let decimals = token_config.currency.decimals;
     let symbol = token_config.currency.symbol;
 
-    Some(purl::currency::format_atomic_trimmed(
-        &amount.to_string(),
-        decimals,
-        symbol,
-    ))
+    purl::currency::format_atomic_trimmed(&amount.to_string(), decimals, symbol).ok()
 }
 
 fn output_json(

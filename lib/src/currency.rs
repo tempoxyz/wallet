@@ -62,9 +62,16 @@ impl Currency {
     /// Format atomic units from a string with trimmed trailing zeros
     ///
     /// Useful when the atomic value is provided as a string (e.g., from JSON).
-    pub fn format_trimmed_from_str(&self, atomic_str: &str) -> String {
-        let atomic: u128 = atomic_str.parse().unwrap_or(0);
-        self.format_trimmed(atomic)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be parsed as a valid u128.
+    pub fn format_trimmed_from_str(
+        &self,
+        atomic_str: &str,
+    ) -> Result<String, std::num::ParseIntError> {
+        let atomic: u128 = atomic_str.parse()?;
+        Ok(self.format_trimmed(atomic))
     }
 }
 
@@ -72,18 +79,26 @@ impl Currency {
 ///
 /// This is a standalone function for formatting when you don't have a Currency instance.
 /// Uses the same logic as Currency::format_trimmed but accepts dynamic values.
-pub fn format_atomic_trimmed(atomic_str: &str, decimals: u8, symbol: &str) -> String {
-    let atomic: u128 = atomic_str.parse().unwrap_or(0);
+///
+/// # Errors
+///
+/// Returns an error if the atomic string cannot be parsed as a valid u128.
+pub fn format_atomic_trimmed(
+    atomic_str: &str,
+    decimals: u8,
+    symbol: &str,
+) -> Result<String, std::num::ParseIntError> {
+    let atomic: u128 = atomic_str.parse()?;
     let divisor = 10_u128.pow(decimals as u32);
     let whole = atomic / divisor;
     let remainder = atomic % divisor;
 
     if remainder == 0 {
-        format!("{whole} {symbol}")
+        Ok(format!("{whole} {symbol}"))
     } else {
         let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
         let trimmed = frac_str.trim_end_matches('0');
-        format!("{whole}.{trimmed} {symbol}")
+        Ok(format!("{whole}.{trimmed} {symbol}"))
     }
 }
 
@@ -161,9 +176,9 @@ mod tests {
     #[test]
     fn test_format_trimmed_from_str() {
         let usdc = currencies::USDC;
-        assert_eq!(usdc.format_trimmed_from_str("1000000"), "1 USDC");
-        assert_eq!(usdc.format_trimmed_from_str("1500000"), "1.5 USDC");
-        assert_eq!(usdc.format_trimmed_from_str("invalid"), "0 USDC");
+        assert_eq!(usdc.format_trimmed_from_str("1000000").unwrap(), "1 USDC");
+        assert_eq!(usdc.format_trimmed_from_str("1500000").unwrap(), "1.5 USDC");
+        assert!(usdc.format_trimmed_from_str("invalid").is_err());
     }
 
     #[test]
