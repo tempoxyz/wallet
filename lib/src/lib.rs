@@ -51,7 +51,7 @@ pub use path_validation::validate_path;
 pub use payment_provider::{BuiltinProvider, NetworkBalance, PaymentProvider, PROVIDER_REGISTRY};
 
 #[cfg(feature = "client")]
-pub use client::Client;
+pub use client::{Client, ClientBuilder, Configured, Unconfigured};
 
 #[cfg(feature = "http-client")]
 pub use http::{
