@@ -213,7 +213,10 @@ impl PurlError {
     /// Add network context to an existing error
     pub fn with_network(self, network: impl Into<String>) -> Self {
         match self {
-            Self::Signing { source, mut context } => {
+            Self::Signing {
+                source,
+                mut context,
+            } => {
                 context.network = Some(network.into());
                 Self::Signing { source, context }
             }
@@ -487,8 +490,7 @@ mod tests {
     #[test]
     fn test_result_ext_with_signing_context() {
         use std::io::{Error as IoError, ErrorKind};
-        let result: std::result::Result<(), IoError> =
-            Err(IoError::new(ErrorKind::Other, "test"));
+        let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
         let ctx = SigningContext {
             network: Some("tempo".to_string()),
             address: None,
@@ -503,8 +505,7 @@ mod tests {
     #[test]
     fn test_result_ext_with_network() {
         use std::io::{Error as IoError, ErrorKind};
-        let result: std::result::Result<(), IoError> =
-            Err(IoError::new(ErrorKind::Other, "test"));
+        let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
         let purl_result = result.with_network("base-sepolia");
         assert!(purl_result.is_err());
         let err = purl_result.unwrap_err();
@@ -515,10 +516,7 @@ mod tests {
     fn test_with_network_on_signing_error() {
         use std::io::{Error as IoError, ErrorKind};
         let source = IoError::new(ErrorKind::Other, "test");
-        let err = PurlError::signing_with_context(
-            source,
-            SigningContext::default(),
-        );
+        let err = PurlError::signing_with_context(source, SigningContext::default());
         let err_with_network = err.with_network("optimism");
         assert!(err_with_network.to_string().contains("optimism"));
     }

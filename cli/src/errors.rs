@@ -118,7 +118,7 @@ fn get_purl_error_suggestion(err: &PurlError) -> Option<String> {
             }
         }
 
-        PurlError::Signing(_) => Some(
+        PurlError::Signing { .. } | PurlError::SigningSimple(_) => Some(
             "Failed to sign the transaction. Check your wallet configuration:\n  \
              • Verify your keystore password is correct\n  \
              • Ensure your private key is valid"
