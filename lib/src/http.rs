@@ -74,15 +74,15 @@ impl FromStr for HttpMethod {
 
 impl From<&String> for HttpMethod {
     fn from(s: &String) -> Self {
-        // Safe to unwrap since FromStr::Err is Infallible
-        s.parse().expect("HttpMethod::from_str is infallible")
+        // Safe because FromStr::Err is Infallible
+        s.parse().expect("HttpMethod::from_str cannot fail")
     }
 }
 
 impl From<String> for HttpMethod {
     fn from(s: String) -> Self {
-        // Safe to unwrap since FromStr::Err is Infallible
-        s.parse().expect("HttpMethod::from_str is infallible")
+        // Safe because FromStr::Err is Infallible
+        s.parse().expect("HttpMethod::from_str cannot fail")
     }
 }
 
@@ -327,8 +327,7 @@ pub fn has_header(headers: &[String], name: &str) -> bool {
     let name_lower = name.to_lowercase();
     headers.iter().any(|h| {
         h.split_once(':')
-            .map(|(k, _)| k.trim().to_lowercase() == name_lower)
-            .unwrap_or(false)
+            .is_some_and(|(k, _)| k.trim().to_lowercase() == name_lower)
     })
 }
 
@@ -398,19 +397,36 @@ mod tests {
 
     #[test]
     fn test_http_method_from_str() {
-        assert_eq!("GET".parse::<HttpMethod>().unwrap(), HttpMethod::Get);
-        assert_eq!("post".parse::<HttpMethod>().unwrap(), HttpMethod::Post);
         assert_eq!(
-            "TRACE".parse::<HttpMethod>().unwrap(),
+            "GET".parse::<HttpMethod>().expect("Failed to parse GET"),
+            HttpMethod::Get
+        );
+        assert_eq!(
+            "post".parse::<HttpMethod>().expect("Failed to parse post"),
+            HttpMethod::Post
+        );
+        assert_eq!(
+            "TRACE"
+                .parse::<HttpMethod>()
+                .expect("Failed to parse TRACE"),
             HttpMethod::Custom("TRACE".to_string())
         );
     }
 
     #[test]
     fn test_http_method_from_str_case_insensitive() {
-        assert_eq!("get".parse::<HttpMethod>().unwrap(), HttpMethod::Get);
-        assert_eq!("Post".parse::<HttpMethod>().unwrap(), HttpMethod::Post);
-        assert_eq!("PUT".parse::<HttpMethod>().unwrap(), HttpMethod::Put);
+        assert_eq!(
+            "get".parse::<HttpMethod>().expect("Failed to parse get"),
+            HttpMethod::Get
+        );
+        assert_eq!(
+            "Post".parse::<HttpMethod>().expect("Failed to parse Post"),
+            HttpMethod::Post
+        );
+        assert_eq!(
+            "PUT".parse::<HttpMethod>().expect("Failed to parse PUT"),
+            HttpMethod::Put
+        );
     }
 
     #[test]
@@ -462,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_http_method_parse() {
-        let method: HttpMethod = "GET".parse().unwrap();
+        let method: HttpMethod = "GET".parse().expect("Failed to parse GET");
         assert_eq!(method, HttpMethod::Get);
     }
 

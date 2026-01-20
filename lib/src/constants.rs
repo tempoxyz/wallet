@@ -427,58 +427,70 @@ mod tests {
     fn test_purl_config_dir_exists() {
         let dir = purl_config_dir();
         assert!(dir.is_some());
-        let path = dir.unwrap();
-        assert!(path.to_str().unwrap().contains(APP_NAME));
+        let path = dir.expect("Config dir should exist");
+        assert!(path
+            .to_str()
+            .expect("Path should be valid UTF-8")
+            .contains(APP_NAME));
     }
 
     #[test]
     fn test_purl_data_dir_exists() {
         let dir = purl_data_dir();
         assert!(dir.is_some());
-        let path = dir.unwrap();
-        assert!(path.to_str().unwrap().contains(APP_NAME));
+        let path = dir.expect("Data dir should exist");
+        assert!(path
+            .to_str()
+            .expect("Path should be valid UTF-8")
+            .contains(APP_NAME));
     }
 
     #[test]
     fn test_purl_cache_dir_exists() {
         let dir = purl_cache_dir();
         assert!(dir.is_some());
-        let path = dir.unwrap();
-        assert!(path.to_str().unwrap().contains(APP_NAME));
+        let path = dir.expect("Cache dir should exist");
+        assert!(path
+            .to_str()
+            .expect("Path should be valid UTF-8")
+            .contains(APP_NAME));
     }
 
     #[test]
     fn test_default_config_path() {
         let path = default_config_path();
         assert!(path.is_some());
-        let p = path.unwrap();
-        assert!(p.to_str().unwrap().contains(CONFIG_FILE));
-        assert!(p.to_str().unwrap().contains(APP_NAME));
+        let p = path.expect("Config path should exist");
+        let path_str = p.to_str().expect("Path should be valid UTF-8");
+        assert!(path_str.contains(CONFIG_FILE));
+        assert!(path_str.contains(APP_NAME));
     }
 
     #[test]
     fn test_default_keystores_dir() {
         let path = default_keystores_dir();
         assert!(path.is_some());
-        let p = path.unwrap();
-        assert!(p.to_str().unwrap().contains(KEYSTORES_DIR));
-        assert!(p.to_str().unwrap().contains(APP_NAME));
+        let p = path.expect("Keystores dir should exist");
+        let path_str = p.to_str().expect("Path should be valid UTF-8");
+        assert!(path_str.contains(KEYSTORES_DIR));
+        assert!(path_str.contains(APP_NAME));
     }
 
     #[test]
     fn test_password_cache_dir_path() {
         let path = password_cache_dir();
         assert!(path.is_some());
-        let p = path.unwrap();
-        assert!(p.to_str().unwrap().contains(PASSWORD_CACHE_DIR));
-        assert!(p.to_str().unwrap().contains(APP_NAME));
+        let p = path.expect("Password cache dir should exist");
+        let path_str = p.to_str().expect("Path should be valid UTF-8");
+        assert!(path_str.contains(PASSWORD_CACHE_DIR));
+        assert!(path_str.contains(APP_NAME));
     }
 
     #[test]
     fn test_get_token_decimals_usdc_base() {
         let result = get_token_decimals("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 6);
+        assert_eq!(result.expect("Should have valid decimals"), 6);
     }
 
     #[test]
@@ -486,7 +498,7 @@ mod tests {
         // Test with uppercase address
         let result = get_token_decimals("base", "0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 6);
+        assert_eq!(result.expect("Should have valid decimals"), 6);
     }
 
     #[test]
@@ -530,7 +542,7 @@ mod tests {
     fn test_get_token_decimals_ethereum_usdc() {
         let result = get_token_decimals("ethereum", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 6);
+        assert_eq!(result.expect("Should have valid decimals"), 6);
     }
 
     #[test]
@@ -538,7 +550,7 @@ mod tests {
         let registry = TokenRegistry::load();
         let token = registry.get_token("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
         assert!(token.is_some());
-        let t = token.unwrap();
+        let t = token.expect("Token should exist");
         assert_eq!(t.symbol, "USDC");
         assert_eq!(t.decimals, 6);
     }

@@ -57,34 +57,36 @@ mod keystore_utils_tests {
 
     #[test]
     fn test_get_evm_address_with_0x_prefix() {
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(
             temp,
             r#"{{"address": "0x1234567890abcdef1234567890abcdef12345678"}}"#
         )
-        .unwrap();
+        .expect("Failed to write to temp file");
 
-        let addr = get_evm_address_from_keystore(temp.path()).unwrap();
+        let addr = get_evm_address_from_keystore(temp.path())
+            .expect("Failed to get EVM address from keystore");
         assert_eq!(addr, "0x1234567890abcdef1234567890abcdef12345678");
     }
 
     #[test]
     fn test_get_evm_address_without_0x_prefix() {
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("Failed to create temp file");
         writeln!(
             temp,
             r#"{{"address": "1234567890abcdef1234567890abcdef12345678"}}"#
         )
-        .unwrap();
+        .expect("Failed to write to temp file");
 
-        let addr = get_evm_address_from_keystore(temp.path()).unwrap();
+        let addr = get_evm_address_from_keystore(temp.path())
+            .expect("Failed to get EVM address from keystore");
         assert_eq!(addr, "0x1234567890abcdef1234567890abcdef12345678");
     }
 
     #[test]
     fn test_get_evm_address_missing_field() {
-        let mut temp = NamedTempFile::new().unwrap();
-        writeln!(temp, r#"{{"other_field": "value"}}"#).unwrap();
+        let mut temp = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(temp, r#"{{"other_field": "value"}}"#).expect("Failed to write to temp file");
 
         let result = get_evm_address_from_keystore(temp.path());
         assert!(result.is_err());
@@ -92,8 +94,8 @@ mod keystore_utils_tests {
 
     #[test]
     fn test_get_evm_address_invalid_json() {
-        let mut temp = NamedTempFile::new().unwrap();
-        writeln!(temp, "not valid json").unwrap();
+        let mut temp = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(temp, "not valid json").expect("Failed to write to temp file");
 
         let result = get_evm_address_from_keystore(temp.path());
         assert!(result.is_err());

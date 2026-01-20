@@ -129,7 +129,7 @@ mod tests {
     fn test_base64url_encode_decode() {
         let data = b"hello world";
         let encoded = base64url_encode(data);
-        let decoded = base64url_decode(&encoded).unwrap();
+        let decoded = base64url_decode(&encoded).expect("Failed to decode base64url");
         assert_eq!(data.to_vec(), decoded);
     }
 
@@ -152,7 +152,8 @@ mod tests {
             description: None,
         };
 
-        let header = format_www_authenticate(&challenge).unwrap();
+        let header =
+            format_www_authenticate(&challenge).expect("Failed to format WWW-Authenticate");
         assert!(header.starts_with("Payment "));
         assert!(header.contains("id=\"abc123\""));
         assert!(header.contains("realm=\"api\""));
@@ -173,14 +174,15 @@ mod tests {
             },
         };
 
-        let header = format_authorization(&credential).unwrap();
+        let header = format_authorization(&credential).expect("Failed to format Authorization");
         assert!(header.starts_with("Payment "));
 
         // Verify it's valid base64url
         let parts: Vec<&str> = header.split(' ').collect();
         assert_eq!(parts.len(), 2);
-        let decoded = base64url_decode(parts[1]).unwrap();
-        let parsed: PaymentCredential = serde_json::from_slice(&decoded).unwrap();
+        let decoded = base64url_decode(parts[1]).expect("Failed to decode base64url");
+        let parsed: PaymentCredential =
+            serde_json::from_slice(&decoded).expect("Failed to parse PaymentCredential");
         assert_eq!(parsed.id, "abc123");
     }
 
@@ -195,11 +197,12 @@ mod tests {
             error: None,
         };
 
-        let header = format_receipt(&receipt).unwrap();
+        let header = format_receipt(&receipt).expect("Failed to format receipt");
 
         // Verify it's valid base64url
-        let decoded = base64url_decode(&header).unwrap();
-        let parsed: PaymentReceipt = serde_json::from_slice(&decoded).unwrap();
+        let decoded = base64url_decode(&header).expect("Failed to decode base64url");
+        let parsed: PaymentReceipt =
+            serde_json::from_slice(&decoded).expect("Failed to parse PaymentReceipt");
         assert_eq!(parsed.status, ReceiptStatus::Success);
         assert_eq!(parsed.reference, "0xabc123");
     }
@@ -217,7 +220,8 @@ mod tests {
             description: Some("Test \"payment\" here".to_string()),
         };
 
-        let header = format_www_authenticate(&challenge).unwrap();
+        let header =
+            format_www_authenticate(&challenge).expect("Failed to format WWW-Authenticate");
         // ast-grep-ignore: no-leading-whitespace-strings
         assert!(header.contains("description=\"Test \\\"payment\\\" here\""));
     }

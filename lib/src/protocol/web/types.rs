@@ -479,11 +479,11 @@ mod tests {
     #[test]
     fn test_payment_method_serialization() {
         assert_eq!(
-            serde_json::to_string(&PaymentMethod::Tempo).unwrap(),
+            serde_json::to_string(&PaymentMethod::Tempo).expect("Failed to serialize Tempo"),
             "\"tempo\""
         );
         assert_eq!(
-            serde_json::to_string(&PaymentMethod::Base).unwrap(),
+            serde_json::to_string(&PaymentMethod::Base).expect("Failed to serialize Base"),
             "\"base\""
         );
     }
@@ -491,24 +491,24 @@ mod tests {
     #[test]
     fn test_payment_method_from_str() {
         assert_eq!(
-            PaymentMethod::from_str("tempo").unwrap(),
+            PaymentMethod::from_str("tempo").expect("Failed to parse tempo"),
             PaymentMethod::Tempo
         );
         assert_eq!(
-            PaymentMethod::from_str("TEMPO").unwrap(),
+            PaymentMethod::from_str("TEMPO").expect("Failed to parse TEMPO"),
             PaymentMethod::Tempo
         );
         assert_eq!(
-            PaymentMethod::from_str("base").unwrap(),
+            PaymentMethod::from_str("base").expect("Failed to parse base"),
             PaymentMethod::Base
         );
         assert_eq!(
-            PaymentMethod::from_str("Base").unwrap(),
+            PaymentMethod::from_str("Base").expect("Failed to parse Base"),
             PaymentMethod::Base
         );
         // Custom methods are accepted (but not supported for payments)
         assert_eq!(
-            PaymentMethod::from_str("custom-method").unwrap(),
+            PaymentMethod::from_str("custom-method").expect("Failed to parse custom-method"),
             PaymentMethod::Custom("custom-method".to_string())
         );
     }
@@ -568,11 +568,12 @@ mod tests {
     #[test]
     fn test_payment_intent_serialization() {
         assert_eq!(
-            serde_json::to_string(&PaymentIntent::Charge).unwrap(),
+            serde_json::to_string(&PaymentIntent::Charge).expect("Failed to serialize Charge"),
             "\"charge\""
         );
         assert_eq!(
-            serde_json::to_string(&PaymentIntent::Authorize).unwrap(),
+            serde_json::to_string(&PaymentIntent::Authorize)
+                .expect("Failed to serialize Authorize"),
             "\"authorize\""
         );
     }
@@ -587,7 +588,7 @@ mod tests {
             fee_payer: Some(false),
         };
 
-        let json = serde_json::to_string(&req).unwrap();
+        let json = serde_json::to_string(&req).expect("Failed to serialize ChargeRequest");
         assert!(json.contains("\"amount\":\"10000\""));
         assert!(json.contains("\"feePayer\":false"));
     }
@@ -603,7 +604,7 @@ mod tests {
             },
         };
 
-        let json = serde_json::to_string(&cred).unwrap();
+        let json = serde_json::to_string(&cred).expect("Failed to serialize PaymentCredential");
         assert!(json.contains("\"id\":\"abc123\""));
         assert!(json.contains("\"type\":\"transaction\""));
     }
@@ -611,11 +612,11 @@ mod tests {
     #[test]
     fn test_receipt_status_serialization() {
         assert_eq!(
-            serde_json::to_string(&ReceiptStatus::Success).unwrap(),
+            serde_json::to_string(&ReceiptStatus::Success).expect("Failed to serialize Success"),
             "\"success\""
         );
         assert_eq!(
-            serde_json::to_string(&ReceiptStatus::Failed).unwrap(),
+            serde_json::to_string(&ReceiptStatus::Failed).expect("Failed to serialize Failed"),
             "\"failed\""
         );
     }
