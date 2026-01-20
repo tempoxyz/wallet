@@ -181,6 +181,7 @@ pub enum PurlError {
     Io(#[from] std::io::Error),
 
     /// Reqwest error
+    #[cfg(feature = "http-client")]
     #[error("HTTP request error: {0}")]
     Reqwest(#[from] reqwest::Error),
 

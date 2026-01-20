@@ -9,11 +9,14 @@
 //! - `runtime`: Async runtime support (tokio, async-trait)
 //! - `utils`: Encoding and utility functions (bs58, hex, base64, rand)
 //! - `config`: Configuration file support (toml, regex)
-//! - `http-client`: HTTP client using curl
+//! - `http-client`: HTTP client using reqwest
 //! - `client`: High-level Client API (requires http-client and web-payment-auth)
 //! - `keystore`: Encrypted keystore management
 //! - `evm`: EVM provider support (Ethereum, Base, etc.)
 //! - `full`: All features enabled
+//! - `tower-middleware`: Tower middleware for hyper, axum, tonic, etc.
+//! - `reqwest-middleware`: Reqwest middleware integration
+//! - `middleware`: All middleware features
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -42,7 +45,12 @@ pub mod providers;
 #[cfg(feature = "client")]
 pub mod client;
 
-pub use config::Config;
+#[cfg(any(feature = "tower-middleware", feature = "reqwest-middleware"))]
+pub mod middleware;
+
+pub mod prelude;
+
+pub use config::{Config, ConfigBuilder};
 pub use error::{PurlError, Result, ResultExt, SigningContext};
 
 pub use config::{CustomNetwork, CustomToken, EvmConfig, PaymentMethod, WalletConfig};
@@ -60,7 +68,7 @@ pub use types::TokenAmount;
 pub use alloy::primitives::{Address, U256};
 
 #[cfg(feature = "client")]
-pub use client::{Client, ClientBuilder, Configured, Unconfigured};
+pub use client::{Client, ClientBuilder, Configured, PaymentResult, Unconfigured};
 
 #[cfg(feature = "http-client")]
 pub use http::{
@@ -69,3 +77,13 @@ pub use http::{
 
 #[cfg(feature = "blocking")]
 pub use http::blocking;
+
+// Middleware exports
+#[cfg(any(feature = "tower-middleware", feature = "reqwest-middleware"))]
+pub use middleware::{PaymentHandler, PaymentHandlerConfig};
+
+#[cfg(feature = "tower-middleware")]
+pub use middleware::{PaymentLayer, PaymentService};
+
+#[cfg(feature = "reqwest-middleware")]
+pub use middleware::PaymentMiddleware;
