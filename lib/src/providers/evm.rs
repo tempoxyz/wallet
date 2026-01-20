@@ -121,7 +121,7 @@ impl PaymentProvider for EvmProvider {
         config: &Config,
     ) -> Result<crate::protocol::web::PaymentCredential> {
         use crate::protocol::web::{ChargeRequest, PayloadType, PaymentCredential, PaymentPayload};
-        use alloy::primitives::{Bytes, U256};
+        use alloy::primitives::Bytes;
         use alloy::providers::Provider;
         use alloy::sol_types::SolCall;
 
