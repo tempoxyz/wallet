@@ -2,6 +2,7 @@
 
 use crate::error::{PurlError, Result};
 use crate::network::networks;
+use alloy::primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -274,6 +275,64 @@ impl ChargeRequest {
             });
         }
         Ok(())
+    }
+
+    // ==================== Typed Accessor Methods ====================
+
+    /// Get the destination address as a typed Address.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidAddress` if the destination string cannot be parsed
+    /// as a valid Ethereum address.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let charge_req = ChargeRequest { destination: "0x1234...".to_string(), ... };
+    /// let addr: Address = charge_req.destination_address()?;
+    /// ```
+    pub fn destination_address(&self) -> Result<Address> {
+        self.destination
+            .parse()
+            .map_err(|e| PurlError::invalid_address(format!("Invalid destination address: {}", e)))
+    }
+
+    /// Get the asset address as a typed Address.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidAddress` if the asset string cannot be parsed
+    /// as a valid Ethereum address.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let charge_req = ChargeRequest { asset: "0xA0b8...".to_string(), ... };
+    /// let addr: Address = charge_req.asset_address()?;
+    /// ```
+    pub fn asset_address(&self) -> Result<Address> {
+        self.asset
+            .parse()
+            .map_err(|e| PurlError::invalid_address(format!("Invalid asset address: {}", e)))
+    }
+
+    /// Get the amount as a typed U256.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidAmount` if the amount string cannot be parsed
+    /// as a valid U256 value.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let charge_req = ChargeRequest { amount: "1000000".to_string(), ... };
+    /// let amount: U256 = charge_req.amount_u256()?;
+    /// ```
+    pub fn amount_u256(&self) -> Result<U256> {
+        U256::from_str(&self.amount)
+            .map_err(|e| PurlError::InvalidAmount(format!("Invalid amount '{}': {}", self.amount, e)))
     }
 }
 
@@ -619,5 +678,93 @@ mod tests {
             serde_json::to_string(&ReceiptStatus::Failed).expect("Failed to serialize Failed"),
             "\"failed\""
         );
+    }
+
+    #[test]
+    fn test_charge_request_destination_address() {
+        let req = ChargeRequest {
+            amount: "1000000".to_string(),
+            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
+            expires: "2024-01-01T00:00:00Z".to_string(),
+            fee_payer: None,
+        };
+
+        let addr = req.destination_address().expect("Should parse valid address");
+        assert_eq!(
+            format!("{:?}", addr),
+            "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2"
+        );
+    }
+
+    #[test]
+    fn test_charge_request_destination_address_invalid() {
+        let req = ChargeRequest {
+            amount: "1000000".to_string(),
+            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            destination: "not-an-address".to_string(),
+            expires: "2024-01-01T00:00:00Z".to_string(),
+            fee_payer: None,
+        };
+
+        assert!(req.destination_address().is_err());
+    }
+
+    #[test]
+    fn test_charge_request_asset_address() {
+        let req = ChargeRequest {
+            amount: "1000000".to_string(),
+            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
+            expires: "2024-01-01T00:00:00Z".to_string(),
+            fee_payer: None,
+        };
+
+        let addr = req.asset_address().expect("Should parse valid address");
+        assert_eq!(
+            format!("{:?}", addr),
+            "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        );
+    }
+
+    #[test]
+    fn test_charge_request_amount_u256() {
+        let req = ChargeRequest {
+            amount: "1000000".to_string(),
+            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
+            expires: "2024-01-01T00:00:00Z".to_string(),
+            fee_payer: None,
+        };
+
+        let amount = req.amount_u256().expect("Should parse valid amount");
+        assert_eq!(amount, U256::from(1_000_000u64));
+    }
+
+    #[test]
+    fn test_charge_request_amount_u256_large() {
+        let req = ChargeRequest {
+            amount: "115792089237316195423570985008687907853269984665640564039457584007913129639935".to_string(),
+            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
+            expires: "2024-01-01T00:00:00Z".to_string(),
+            fee_payer: None,
+        };
+
+        let amount = req.amount_u256().expect("Should parse large U256");
+        assert_eq!(amount, U256::MAX);
+    }
+
+    #[test]
+    fn test_charge_request_amount_u256_invalid() {
+        let req = ChargeRequest {
+            amount: "not-a-number".to_string(),
+            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
+            expires: "2024-01-01T00:00:00Z".to_string(),
+            fee_payer: None,
+        };
+
+        assert!(req.amount_u256().is_err());
     }
 }
