@@ -16,26 +16,20 @@ use crate::protocol::web::{
 /// Configuration for payment handler middleware.
 ///
 /// This configuration controls how payment challenges are validated and processed.
+/// Use the builder methods to configure the handler.
 #[derive(Debug, Clone)]
 pub struct PaymentHandlerConfig {
     /// Purl configuration containing wallet and network settings.
-    pub config: Arc<Config>,
+    config: Arc<Config>,
 
     /// Maximum amount (in token base units) willing to pay.
-    ///
-    /// If a payment request exceeds this amount, the handler will return an error.
-    pub max_amount: Option<String>,
+    max_amount: Option<u128>,
 
     /// Networks to allow for payments.
-    ///
-    /// If non-empty, only payment challenges for these networks will be processed.
-    /// Empty means all supported networks are allowed.
-    pub allowed_networks: Vec<String>,
+    allowed_networks: Vec<String>,
 
     /// Enable dry-run mode.
-    ///
-    /// In dry-run mode, challenges are validated but no actual payments are made.
-    pub dry_run: bool,
+    dry_run: bool,
 }
 
 impl PaymentHandlerConfig {
@@ -49,11 +43,33 @@ impl PaymentHandlerConfig {
         }
     }
 
-    /// Set the maximum amount willing to pay.
+    /// Set the maximum amount (in token base units) willing to pay.
+    ///
+    /// The amount is parsed as a u128. If parsing fails, the value is ignored.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let config = PaymentHandlerConfig::new(config)
+    ///     .max_amount(1_000_000u128);  // 1 USDC (6 decimals)
+    /// ```
     #[must_use]
-    pub fn max_amount(mut self, amount: impl Into<String>) -> Self {
-        self.max_amount = Some(amount.into());
+    pub fn max_amount(mut self, amount: u128) -> Self {
+        self.max_amount = Some(amount);
         self
+    }
+
+    /// Set the maximum amount from a string (in token base units).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be parsed as a valid u128.
+    pub fn max_amount_str(mut self, amount: &str) -> Result<Self> {
+        let parsed = amount
+            .parse::<u128>()
+            .map_err(|_| PurlError::InvalidAmount(format!("Invalid max amount: {}", amount)))?;
+        self.max_amount = Some(parsed);
+        Ok(self)
     }
 
     /// Restrict payments to only these networks.
@@ -68,6 +84,26 @@ impl PaymentHandlerConfig {
     pub fn dry_run(mut self, dry_run: bool) -> Self {
         self.dry_run = dry_run;
         self
+    }
+
+    /// Get the purl configuration.
+    pub fn purl_config(&self) -> &Arc<Config> {
+        &self.config
+    }
+
+    /// Get the maximum amount limit.
+    pub fn get_max_amount(&self) -> Option<u128> {
+        self.max_amount
+    }
+
+    /// Get the allowed networks.
+    pub fn get_allowed_networks(&self) -> &[String] {
+        &self.allowed_networks
+    }
+
+    /// Check if dry-run mode is enabled.
+    pub fn is_dry_run(&self) -> bool {
+        self.dry_run
     }
 }
 
@@ -89,7 +125,7 @@ impl PaymentHandlerConfig {
 ///
 /// let config = purl::Config::load()?;
 /// let handler = PaymentHandler::new(PaymentHandlerConfig::new(config)
-///     .max_amount("1000000")
+///     .max_amount(1_000_000u128)
 ///     .allowed_networks(&["base", "tempo"]));
 ///
 /// // Check if response requires payment
@@ -163,10 +199,10 @@ impl PaymentHandler {
         let network_name = challenge.network_name()?;
 
         // Check allowed networks
-        if !self.config.allowed_networks.is_empty()
+        if !self.config.get_allowed_networks().is_empty()
             && !self
                 .config
-                .allowed_networks
+                .get_allowed_networks()
                 .contains(&network_name.to_string())
         {
             return Err(PurlError::NoCompatibleMethod {
@@ -175,13 +211,19 @@ impl PaymentHandler {
         }
 
         // Validate amount if max is configured
-        if let Some(ref max_amount) = self.config.max_amount {
+        if let Some(max_amount) = self.config.get_max_amount() {
             let charge_req: ChargeRequest = serde_json::from_value(challenge.request.clone())
                 .map_err(|e| {
                     PurlError::InvalidChallenge(format!("Invalid charge request: {}", e))
                 })?;
 
-            charge_req.validate_max_amount(max_amount)?;
+            let amount = charge_req.parse_amount()?;
+            if amount > max_amount {
+                return Err(PurlError::AmountExceedsMax {
+                    required: amount,
+                    max: max_amount,
+                });
+            }
         }
 
         Ok(())
@@ -201,7 +243,7 @@ impl PaymentHandler {
         &self,
         challenge: &PaymentChallenge,
     ) -> Result<PaymentCredential> {
-        if self.config.dry_run {
+        if self.config.is_dry_run() {
             return Err(PurlError::InvalidChallenge(
                 "Cannot create credential in dry-run mode".to_string(),
             ));
@@ -214,7 +256,7 @@ impl PaymentHandler {
             .ok_or_else(|| PurlError::ProviderNotFound(network_name.to_string()))?;
 
         provider
-            .create_web_payment(challenge, &self.config.config)
+            .create_web_payment(challenge, self.config.purl_config())
             .await
     }
 
@@ -234,7 +276,7 @@ impl PaymentHandler {
 
     /// Check if dry-run mode is enabled.
     pub fn is_dry_run(&self) -> bool {
-        self.config.dry_run
+        self.config.is_dry_run()
     }
 
     /// Get the WWW-Authenticate header name (lowercase).
@@ -266,28 +308,46 @@ mod tests {
         let config = test_config();
         let handler_config = PaymentHandlerConfig::new(config);
 
-        assert!(handler_config.max_amount.is_none());
-        assert!(handler_config.allowed_networks.is_empty());
-        assert!(!handler_config.dry_run);
+        assert!(handler_config.get_max_amount().is_none());
+        assert!(handler_config.get_allowed_networks().is_empty());
+        assert!(!handler_config.is_dry_run());
     }
 
     #[test]
     fn test_payment_handler_config_builder() {
         let config = test_config();
         let handler_config = PaymentHandlerConfig::new(config)
-            .max_amount("1000000")
+            .max_amount(1_000_000u128)
             .allowed_networks(&["base", "tempo"])
             .dry_run(true);
 
-        assert_eq!(handler_config.max_amount, Some("1000000".to_string()));
-        assert_eq!(handler_config.allowed_networks.len(), 2);
+        assert_eq!(handler_config.get_max_amount(), Some(1_000_000u128));
+        assert_eq!(handler_config.get_allowed_networks().len(), 2);
         assert!(handler_config
-            .allowed_networks
+            .get_allowed_networks()
             .contains(&"base".to_string()));
         assert!(handler_config
-            .allowed_networks
+            .get_allowed_networks()
             .contains(&"tempo".to_string()));
-        assert!(handler_config.dry_run);
+        assert!(handler_config.is_dry_run());
+    }
+
+    #[test]
+    fn test_payment_handler_config_max_amount_str() {
+        let config = test_config();
+        let handler_config = PaymentHandlerConfig::new(config)
+            .max_amount_str("1000000")
+            .expect("valid amount");
+
+        assert_eq!(handler_config.get_max_amount(), Some(1_000_000u128));
+    }
+
+    #[test]
+    fn test_payment_handler_config_max_amount_str_invalid() {
+        let config = test_config();
+        let result = PaymentHandlerConfig::new(config).max_amount_str("not_a_number");
+
+        assert!(result.is_err());
     }
 
     #[test]
