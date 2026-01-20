@@ -23,7 +23,7 @@ utils = ["dep:bs58", "dep:hex", "dep:base64", "dep:rand"]
 config = ["dep:toml", "dep:regex"]
 
 # HTTP client support (using reqwest) - async by default
-http-client = ["dep:reqwest", "runtime"]
+http-client = ["dep:reqwest", "dep:tracing", "runtime"]
 
 # Blocking HTTP client (synchronous API wrapper)
 blocking = ["http-client", "reqwest/blocking"]
@@ -80,6 +80,7 @@ toml = { workspace = true, optional = true }
 
 # HTTP client
 reqwest = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
 # Keystore
 zeroize = { workspace = true, optional = true }
