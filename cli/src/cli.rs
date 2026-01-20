@@ -201,6 +201,25 @@ pub struct Cli {
     )]
     pub keystore: Option<String>,
 
+    /// Use keystore by name (without .json extension)
+    #[arg(
+        short = 'a',
+        long = "account",
+        value_name = "NAME",
+        env = "PURL_ACCOUNT",
+        help_heading = "Wallet Options"
+    )]
+    pub account: Option<String>,
+
+    /// Specify sender address (uses configured keystore for this address)
+    #[arg(
+        long = "from",
+        value_name = "ADDRESS",
+        env = "PURL_FROM",
+        help_heading = "Wallet Options"
+    )]
+    pub from: Option<String>,
+
     /// Password for keystore decryption
     #[arg(
         long = "password",
@@ -209,6 +228,15 @@ pub struct Cli {
         help_heading = "Wallet Options"
     )]
     pub password: Option<String>,
+
+    /// Path to file containing keystore password
+    #[arg(
+        long = "password-file",
+        value_name = "PATH",
+        env = "PURL_PASSWORD_FILE",
+        help_heading = "Wallet Options"
+    )]
+    pub password_file: Option<String>,
 
     /// Raw private key (hex, for EVM; use keystore for better security)
     #[arg(
@@ -227,6 +255,18 @@ pub struct Cli {
         help_heading = "Wallet Options"
     )]
     pub no_cache_password: bool,
+
+    // RPC Options
+    /// Override RPC URL for the request
+    #[arg(
+        short = 'r',
+        long = "rpc",
+        visible_alias = "rpc-url",
+        value_name = "URL",
+        env = "PURL_RPC_URL",
+        help_heading = "RPC Options"
+    )]
+    pub rpc_url: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -398,6 +438,36 @@ impl Cli {
         } else {
             self.output_format
         }
+    }
+
+    /// Get the effective password (from --password or --password-file)
+    #[allow(dead_code)]
+    pub fn get_password(&self) -> std::io::Result<Option<String>> {
+        if let Some(password) = &self.password {
+            return Ok(Some(password.clone()));
+        }
+        if let Some(password_file) = &self.password_file {
+            let content = std::fs::read_to_string(password_file)?;
+            return Ok(Some(content.trim().to_string()));
+        }
+        Ok(None)
+    }
+
+    /// Resolve the keystore path from --keystore, --account, or config
+    #[allow(dead_code)]
+    pub fn resolve_keystore_path(&self) -> Option<std::path::PathBuf> {
+        if let Some(keystore) = &self.keystore {
+            return Some(std::path::PathBuf::from(keystore));
+        }
+        if let Some(account) = &self.account {
+            if let Some(keystores_dir) = purl::constants::default_keystores_dir() {
+                let keystore_path = keystores_dir.join(format!("{}.json", account));
+                if keystore_path.exists() {
+                    return Some(keystore_path);
+                }
+            }
+        }
+        None
     }
 }
 
