@@ -93,7 +93,7 @@ pub async fn balance_command(
     for balance in balances {
         println!(
             "{}: {} {} ({} atomic units)",
-            balance.network, balance.balance_human, balance.asset, balance.balance_atomic
+            balance.network, balance.balance_human, balance.asset, balance.balance
         );
     }
 
