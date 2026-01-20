@@ -137,16 +137,17 @@ mod tests {
 
     #[test]
     fn test_password_cache_basic() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let cache_dir = temp_dir.path().join("cache");
 
         let test_path = temp_dir.path().join("test.json");
-        std::fs::write(&test_path, "{}").unwrap();
+        std::fs::write(&test_path, "{}").expect("Failed to write test file");
 
         let keystore_id = KeystoreId::new(&test_path);
         let password = "test_password";
 
-        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir).unwrap();
+        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
+            .expect("Failed to get cache file path");
 
         assert!(get_cached_password_from_file(&cache_file).is_none());
 
@@ -154,32 +155,33 @@ mod tests {
 
         let cached = get_cached_password_from_file(&cache_file);
         assert!(cached.is_some());
-        assert_eq!(cached.unwrap(), password);
+        assert_eq!(cached.expect("Password should be cached"), password);
     }
 
     #[test]
     fn test_password_cache_expiration() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let cache_dir = temp_dir.path().join("cache");
-        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
         let test_path = temp_dir.path().join("expire.json");
-        std::fs::write(&test_path, "{}").unwrap();
+        std::fs::write(&test_path, "{}").expect("Failed to write test file");
 
         let keystore_id = KeystoreId::new(&test_path);
         let password = "test_password";
 
-        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir).unwrap();
+        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
+            .expect("Failed to get cache file path");
 
         let expired_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("Time went backwards")
             .as_secs()
             - DEFAULT_PASSWORD_CACHE_DURATION.as_secs()
             - 10;
 
         let cache_entry = format!("{expired_timestamp}|{password}");
-        std::fs::write(&cache_file, cache_entry).unwrap();
+        std::fs::write(&cache_file, cache_entry).expect("Failed to write cache entry");
 
         assert!(get_cached_password_from_file(&cache_file).is_none());
         assert!(!cache_file.exists());
@@ -187,59 +189,68 @@ mod tests {
 
     #[test]
     fn test_clear_password_cache_in_dir() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let cache_dir = temp_dir.path().join("cache");
-        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
         let test_path = temp_dir.path().join("clear.json");
-        std::fs::write(&test_path, "{}").unwrap();
+        std::fs::write(&test_path, "{}").expect("Failed to write test file");
 
         let keystore_id = KeystoreId::new(&test_path);
-        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir).unwrap();
+        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
+            .expect("Failed to get cache file path");
 
         cache_password_to_file(&cache_file, "test_password");
         assert!(get_cached_password_from_file(&cache_file).is_some());
 
-        std::fs::remove_dir_all(&cache_dir).unwrap();
+        std::fs::remove_dir_all(&cache_dir).expect("Failed to remove cache directory");
         assert!(!cache_file.exists());
     }
 
     #[test]
     fn test_keystore_id_canonicalization() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let cache_dir = temp_dir.path().join("cache");
 
         let test_path = temp_dir.path().join("canonical.json");
-        std::fs::write(&test_path, "{}").unwrap();
+        std::fs::write(&test_path, "{}").expect("Failed to write test file");
 
         let id1 = KeystoreId::new(&test_path);
-        let id2 = KeystoreId::new(&test_path.canonicalize().unwrap());
+        let id2 = KeystoreId::new(
+            &test_path
+                .canonicalize()
+                .expect("Failed to canonicalize path"),
+        );
 
         assert_eq!(id1, id2);
 
-        let file1 = get_cache_file_path_in_dir(&id1, &cache_dir).unwrap();
-        let file2 = get_cache_file_path_in_dir(&id2, &cache_dir).unwrap();
+        let file1 =
+            get_cache_file_path_in_dir(&id1, &cache_dir).expect("Failed to get cache file path");
+        let file2 =
+            get_cache_file_path_in_dir(&id2, &cache_dir).expect("Failed to get cache file path");
         assert_eq!(file1, file2);
 
         cache_password_to_file(&file1, "password");
 
         let cached = get_cached_password_from_file(&file2);
         assert!(cached.is_some());
-        assert_eq!(cached.unwrap(), "password");
+        assert_eq!(cached.expect("Password should be cached"), "password");
     }
 
     #[test]
     fn test_cache_file_path_hash_consistency() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let cache_dir = temp_dir.path().join("cache");
 
         let test_path = temp_dir.path().join("hash_test.json");
-        std::fs::write(&test_path, "{}").unwrap();
+        std::fs::write(&test_path, "{}").expect("Failed to write test file");
 
         let keystore_id = KeystoreId::new(&test_path);
 
-        let path1 = get_cache_file_path_in_dir(&keystore_id, &cache_dir).unwrap();
-        let path2 = get_cache_file_path_in_dir(&keystore_id, &cache_dir).unwrap();
+        let path1 = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
+            .expect("Failed to get cache file path");
+        let path2 = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
+            .expect("Failed to get cache file path");
         assert_eq!(path1, path2);
     }
 }

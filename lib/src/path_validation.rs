@@ -34,7 +34,10 @@ mod tests {
     fn test_valid_relative_path() {
         let result = validate_path("output.txt", false);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), PathBuf::from("output.txt"));
+        assert_eq!(
+            result.expect("Valid path should be returned"),
+            PathBuf::from("output.txt")
+        );
     }
 
     #[test]

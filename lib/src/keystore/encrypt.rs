@@ -206,53 +206,53 @@ mod tests {
 
     #[test]
     fn test_keystore_creation_and_listing() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
         let name = "test_keystore";
 
-        let keystore_path =
-            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
+        let keystore_path = create_keystore_in_dir(private_key, password, name, &keystore_dir)
+            .expect("Failed to create keystore");
         assert!(keystore_path.exists());
 
-        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
+        let keystores = list_keystores_in_dir(&keystore_dir).expect("Failed to list keystores");
         assert_eq!(keystores.len(), 1);
         assert_eq!(keystores[0], keystore_path);
     }
 
     #[test]
     fn test_decrypt_keystore_basic() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
         let name = "test_decrypt";
 
-        let keystore_path =
-            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
+        let keystore_path = create_keystore_in_dir(private_key, password, name, &keystore_dir)
+            .expect("Failed to create keystore");
 
         let result = decrypt_keystore_no_cache(&keystore_path, password);
         assert!(result.is_ok());
 
-        let decrypted_key = result.unwrap();
-        let expected_key = hex::decode(&private_key[2..]).unwrap();
+        let decrypted_key = result.expect("Failed to decrypt keystore");
+        let expected_key = hex::decode(&private_key[2..]).expect("Failed to decode expected key");
         assert_eq!(decrypted_key, expected_key);
     }
 
     #[test]
     fn test_decrypt_keystore_wrong_password() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
         let name = "test_wrong_password";
 
-        let keystore_path =
-            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
+        let keystore_path = create_keystore_in_dir(private_key, password, name, &keystore_dir)
+            .expect("Failed to create keystore");
 
         let result = decrypt_keystore_no_cache(&keystore_path, "wrong_password");
         assert!(result.is_err());
@@ -260,53 +260,59 @@ mod tests {
 
     #[test]
     fn test_keystore_stores_address() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let keystore_dir = temp_dir.path().join("keystores");
 
         let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
         let password = "test_password";
         let name = "test_address";
 
-        let keystore_path =
-            create_keystore_in_dir(private_key, password, name, &keystore_dir).unwrap();
+        let keystore_path = create_keystore_in_dir(private_key, password, name, &keystore_dir)
+            .expect("Failed to create keystore");
 
-        let contents = std::fs::read_to_string(&keystore_path).unwrap();
-        let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        let contents =
+            std::fs::read_to_string(&keystore_path).expect("Failed to read keystore file");
+        let json: serde_json::Value =
+            serde_json::from_str(&contents).expect("Failed to parse keystore JSON");
         assert!(json.get("address").is_some());
 
-        let address = json["address"].as_str().unwrap();
+        let address = json["address"]
+            .as_str()
+            .expect("Address should be a string");
         assert_eq!(address.len(), 40);
     }
 
     #[test]
     fn test_list_keystores_empty_dir() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let keystore_dir = temp_dir.path().join("empty_keystores");
 
-        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
+        let keystores = list_keystores_in_dir(&keystore_dir).expect("Failed to list keystores");
         assert!(keystores.is_empty());
 
-        std::fs::create_dir_all(&keystore_dir).unwrap();
-        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
+        std::fs::create_dir_all(&keystore_dir).expect("Failed to create keystore directory");
+        let keystores = list_keystores_in_dir(&keystore_dir).expect("Failed to list keystores");
         assert!(keystores.is_empty());
     }
 
     #[test]
     fn test_list_keystores_ignores_non_json() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let keystore_dir = temp_dir.path().join("mixed_files");
-        std::fs::create_dir_all(&keystore_dir).unwrap();
+        std::fs::create_dir_all(&keystore_dir).expect("Failed to create keystore directory");
 
-        std::fs::write(keystore_dir.join("readme.txt"), "test").unwrap();
-        std::fs::write(keystore_dir.join("config.toml"), "test").unwrap();
+        std::fs::write(keystore_dir.join("readme.txt"), "test")
+            .expect("Failed to write readme.txt");
+        std::fs::write(keystore_dir.join("config.toml"), "test")
+            .expect("Failed to write config.toml");
 
-        let keystores = list_keystores_in_dir(&keystore_dir).unwrap();
+        let keystores = list_keystores_in_dir(&keystore_dir).expect("Failed to list keystores");
         assert!(keystores.is_empty());
     }
 
     #[test]
     fn test_create_keystore_invalid_key() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let keystore_dir = temp_dir.path().join("keystores");
 
         let result = create_keystore_in_dir("0x1234", "password", "short", &keystore_dir);

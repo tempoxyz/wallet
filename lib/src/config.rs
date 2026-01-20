@@ -354,8 +354,13 @@ mod tests {
 
         let config: Config = toml::from_str(toml).expect("should parse");
         assert!(config.evm.is_some());
-        let evm = config.evm.as_ref().unwrap();
-        assert_eq!(evm.private_key.as_ref().unwrap(), "abcdef1234567890");
+        let evm = config.evm.as_ref().expect("EVM config should be present");
+        assert_eq!(
+            evm.private_key
+                .as_ref()
+                .expect("Private key should be present"),
+            "abcdef1234567890"
+        );
     }
 
     #[test]
@@ -367,9 +372,13 @@ mod tests {
 
         let config: Config = toml::from_str(toml).expect("should parse");
         assert!(config.evm.is_some());
-        let evm = config.evm.as_ref().unwrap();
+        let evm = config.evm.as_ref().expect("EVM config should be present");
         assert_eq!(
-            evm.keystore.as_ref().unwrap().to_str().unwrap(),
+            evm.keystore
+                .as_ref()
+                .expect("Keystore should be present")
+                .to_str()
+                .expect("Path should be valid UTF-8"),
             "/path/to/evm.json"
         );
     }
@@ -399,7 +408,7 @@ mod tests {
     fn test_validate_both_keystore_and_private_key_evm() {
         use tempfile::NamedTempFile;
 
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let config = Config {
             evm: Some(EvmConfig {
                 keystore: Some(temp_file.path().to_path_buf()),
@@ -500,7 +509,10 @@ mod tests {
         };
 
         assert_eq!(
-            config.rpc.get("ethereum").unwrap(),
+            config
+                .rpc
+                .get("ethereum")
+                .expect("Ethereum RPC should be configured"),
             "https://custom-rpc.example.com"
         );
     }
@@ -561,9 +573,11 @@ mod tests {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
-        let mut temp_file = NamedTempFile::new().unwrap();
-        temp_file.write_all(b"invalid toml [[[").unwrap();
-        temp_file.flush().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(b"invalid toml [[[")
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
         let result = Config::load_from(Some(temp_file.path()));
         assert!(result.is_err());
@@ -578,15 +592,17 @@ mod tests {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         // Write a config with no wallet sources (invalid but parseable)
-        temp_file.write_all(b"[evm]\n").unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(b"[evm]\n")
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
         let result = Config::load_unchecked(Some(temp_file.path()));
         // Should succeed because we're not validating
         assert!(result.is_ok());
-        let config = result.unwrap();
+        let config = result.expect("Config should load without validation");
         // But validation should fail
         assert!(config.validate().is_err());
     }
@@ -656,11 +672,17 @@ mod tests {
         let config: Config = toml::from_str(toml).expect("should parse");
         assert_eq!(config.rpc.len(), 2);
         assert_eq!(
-            config.rpc.get("ethereum").unwrap(),
+            config
+                .rpc
+                .get("ethereum")
+                .expect("Ethereum RPC should be configured"),
             "https://custom-eth-rpc.com"
         );
         assert_eq!(
-            config.rpc.get("base").unwrap(),
+            config
+                .rpc
+                .get("base")
+                .expect("Base RPC should be configured"),
             "https://custom-base-rpc.com"
         );
     }
