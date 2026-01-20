@@ -53,12 +53,6 @@ pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
 /// Size of an EVM private key in bytes
 pub const EVM_PRIVATE_KEY_BYTES: usize = 32;
 
-/// Size of a Solana keypair in bytes (32 bytes private + 32 bytes public)
-pub const SOLANA_KEYPAIR_BYTES: usize = 64;
-
-/// Size of a Solana public key in bytes
-pub const SOLANA_PUBKEY_BYTES: usize = 32;
-
 /// Default name for newly created keystores
 pub const DEFAULT_KEYSTORE_NAME: &str = "default";
 
@@ -168,20 +162,6 @@ struct BuiltinToken {
 
 /// Default built-in tokens defined in code
 const BUILTIN_TOKENS: &[BuiltinToken] = &[
-    BuiltinToken {
-        network: crate::network::networks::SOLANA,
-        address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        name: "USD Coin",
-        symbol: "USDC",
-        decimals: 6,
-    },
-    BuiltinToken {
-        network: crate::network::networks::SOLANA_DEVNET,
-        address: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-        name: "USD Coin",
-        symbol: "USDC",
-        decimals: 6,
-    },
     BuiltinToken {
         network: crate::network::networks::BASE,
         address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
@@ -334,12 +314,12 @@ impl TokenRegistry {
 
         let network_tokens = self.tokens.get(canonical_network)?;
 
-        // Try exact match first (for case-sensitive addresses like Solana)
+        // Try exact match first
         if let Some(token) = network_tokens.get(asset) {
             return Some(token);
         }
 
-        // For EVM networks, try case-insensitive lookup
+        // For EVM networks, also try case-insensitive lookup
         if crate::network::is_evm_network(canonical_network) {
             let asset_lower = asset.to_lowercase();
             if let Some(token) = network_tokens.get(&asset_lower) {
@@ -544,13 +524,6 @@ mod tests {
     fn test_get_token_symbol_unknown() {
         let symbol = get_token_symbol("base", "0x0000000000000000000000000000000000000000");
         assert_eq!(symbol, None);
-    }
-
-    #[test]
-    fn test_get_token_decimals_solana_usdc() {
-        let result = get_token_decimals("solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 6);
     }
 
     #[test]

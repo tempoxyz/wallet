@@ -95,7 +95,7 @@ pub enum MyError {
 - Integration tests go in `<crate>/tests/`
 - Use the `common/mod.rs` pattern for shared test utilities
 - Use `TestConfigBuilder` for setting up test configurations
-- Test constants: `TEST_EVM_KEY`, `TEST_SOLANA_KEY` in `common/mod.rs`
+- Test constants: `TEST_EVM_KEY` in `common/mod.rs`
 
 **Writing Tests:**
 - Avoid using `#[serial]` - prefer isolated temp directories with internal `_in_dir` helper functions
@@ -160,7 +160,6 @@ pub struct Cli {
 | ----- | ------- |
 | `clap` | CLI argument parsing |
 | `alloy` / `alloy-signer` | EVM interactions and signing |
-| `solana-sdk` / `solana-client` | Solana interactions |
 | `curl` | HTTP client backend |
 | `serde` / `serde_json` / `toml` | Serialization |
 | `tokio` | Async runtime |
@@ -211,4 +210,3 @@ For testing and development, these environment variables are used:
 
 - [Rust Book](https://doc.rust-lang.org/book/)
 - [Alloy Documentation](https://alloy.rs/)
-- [Solana Cookbook](https://solanacookbook.com/)

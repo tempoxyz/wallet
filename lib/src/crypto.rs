@@ -1,6 +1,6 @@
 //! Cryptographic utilities for key generation
 
-use crate::constants::{EVM_PRIVATE_KEY_BYTES, SOLANA_KEYPAIR_BYTES};
+use crate::constants::EVM_PRIVATE_KEY_BYTES;
 use crate::error::{PurlError, Result};
 
 /// Trait for wallet key generation
@@ -8,21 +8,15 @@ use crate::error::{PurlError, Result};
 /// # Examples
 ///
 /// ```
-/// use purl::crypto::{KeyGenerator, EvmKeyGenerator, SolanaKeyGenerator};
+/// use purl::crypto::{KeyGenerator, EvmKeyGenerator};
 ///
 /// // Generate an EVM key
 /// let (private_key, address) = EvmKeyGenerator::generate().unwrap();
 /// assert_eq!(private_key.len(), 64); // 32 bytes as hex
 /// assert!(address.starts_with("0x"));
 ///
-/// // Generate a Solana keypair
-/// let (private_key, public_key) = SolanaKeyGenerator::generate().unwrap();
-/// assert!(!private_key.is_empty());
-/// assert!(!public_key.is_empty());
-///
 /// // Check key formats
 /// assert_eq!(EvmKeyGenerator::key_format(), "hex");
-/// assert_eq!(SolanaKeyGenerator::key_format(), "base58");
 /// ```
 pub trait KeyGenerator {
     /// Generate a new key pair
@@ -66,36 +60,6 @@ impl KeyGenerator for EvmKeyGenerator {
     }
 }
 
-/// Solana key generator
-///
-/// Generates Ed25519 keypairs for use on the Solana blockchain.
-/// Private keys are returned as base58-encoded strings (64 bytes encoded).
-///
-/// # Examples
-///
-/// ```
-/// use purl::crypto::{KeyGenerator, SolanaKeyGenerator};
-///
-/// let (private_key, public_key) = SolanaKeyGenerator::generate().unwrap();
-/// assert!(!private_key.is_empty());
-/// assert!(!public_key.is_empty());
-/// ```
-pub struct SolanaKeyGenerator;
-
-impl KeyGenerator for SolanaKeyGenerator {
-    fn generate() -> Result<(String, String)> {
-        Ok(generate_solana_keypair())
-    }
-
-    fn validate_key(key: &str) -> Result<()> {
-        validate_solana_keypair(key)
-    }
-
-    fn key_format() -> &'static str {
-        "base58"
-    }
-}
-
 /// Generate a new EVM private key
 /// Returns (private_key_hex, address)
 pub fn generate_evm_key() -> Result<(String, String)> {
@@ -114,19 +78,6 @@ pub fn generate_evm_key() -> Result<(String, String)> {
     let address = format!("{:#x}", signer.address());
 
     Ok((key_hex, address))
-}
-
-/// Generate a new Solana keypair
-/// Returns (private_key_base58, public_key_base58)
-pub fn generate_solana_keypair() -> (String, String) {
-    use solana_sdk::signature::{Keypair, Signer};
-
-    let keypair = Keypair::new();
-    let keypair_bytes = keypair.to_bytes();
-    let keypair_b58 = bs58::encode(keypair_bytes).into_string();
-    let pubkey_b58 = keypair.pubkey().to_string();
-
-    (keypair_b58, pubkey_b58)
 }
 
 /// Derive an EVM address from private key bytes
@@ -169,23 +120,6 @@ pub fn validate_evm_key(key: &str) -> Result<()> {
     Ok(())
 }
 
-/// Validate a Solana keypair
-pub fn validate_solana_keypair(keypair_b58: &str) -> Result<()> {
-    let keypair_bytes = bs58::decode(keypair_b58)
-        .into_vec()
-        .map_err(|e| PurlError::InvalidKey(format!("Invalid base58: {e}")))?;
-
-    if keypair_bytes.len() != SOLANA_KEYPAIR_BYTES {
-        return Err(PurlError::InvalidKey(format!(
-            "Keypair must be {} bytes, got {}",
-            SOLANA_KEYPAIR_BYTES,
-            keypair_bytes.len()
-        )));
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,14 +133,6 @@ mod tests {
         assert_eq!(key.len(), 64); // 32 bytes as hex
         assert!(address.starts_with("0x"));
         assert_eq!(address.len(), 42); // 0x + 40 hex chars
-    }
-
-    #[test]
-    fn test_generate_solana_keypair() {
-        let (private_key, public_key) = generate_solana_keypair();
-
-        assert!(validate_solana_keypair(&private_key).is_ok());
-        assert!(!public_key.is_empty());
     }
 
     #[test]

@@ -104,7 +104,6 @@ The setup process will:
 1. Ask if you want to configure EVM payment methods
 1. Offer to generate a new private key or import an existing one
 1. Encrypt your key with a password and save as a keystore
-1. Optionally configure Solana payment methods
 
 ### Configuration File Format
 
@@ -113,16 +112,13 @@ The configuration file (see paths above) references encrypted keystores:
 ```toml
 [evm]
 keystore = "/Users/username/.purl/keystores/my-wallet.json"
-
-[solana]
-private_key = "your_base58_encoded_keypair"
 ```
 
-**Note**: EVM keys are stored in encrypted keystores (recommended), while Solana keys are currently stored in the config file. Keystore encryption support for Solana is planned.
+**Note**: EVM keys are stored in encrypted keystores for security.
 
 ### Custom Networks and RPC Overrides
 
-Purl includes built-in support for common networks (Ethereum, Base, Solana, etc.) with default RPC endpoints. You can customize these or add new networks in your configuration file.
+Purl includes built-in support for common networks (Ethereum, Base, etc.) with default RPC endpoints. You can customize these or add new networks in your configuration file.
 
 **Override RPC URLs for built-in networks:**
 
@@ -130,14 +126,10 @@ Purl includes built-in support for common networks (Ethereum, Base, Solana, etc.
 [evm]
 keystore = "/Users/username/.purl/keystores/my-wallet.json"
 
-[solana]
-keystore = "/Users/username/.purl/keystores/solana-wallet.json"
-
 # Override default RPC URLs for built-in networks
 [rpc]
 base = "https://my-private-base-rpc.com"
 ethereum = "https://my-infura-endpoint.io/v3/key"
-solana = "https://my-helius-endpoint.com"
 ```
 
 **Add custom networks:**
@@ -182,7 +174,6 @@ decimals = 6
 
 **Built-in networks:**
 - EVM: `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`
-- Solana: `solana`, `solana-devnet`
 
 Custom networks and RPC overrides are loaded at runtime and merged with built-in defaults.
 
@@ -211,9 +202,6 @@ Config file: /Users/username/.config/purl/purl.toml
 [evm]
 keystore = "/Users/username/.purl/keystores/my-wallet.json"
 address = "0xe676e0f661bfe316793a8ad576fe7be02b93bd96"
-
-[solana]
-private_key = "5JGg...KwRb"
 ```
 
 ## Payment Method Management
@@ -435,7 +423,7 @@ Purl supports multiple payment protocols for HTTP-based payments.
 
 | Protocol | Description | Supported Networks |
 |----------|-------------|-------------------|
-| [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) | IETF standard for HTTP authentication-based payments | `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`, `solana`, `solana-devnet` |
+| [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) | IETF standard for HTTP authentication-based payments | `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism` |
 
 ## Environment Variables
 

@@ -334,8 +334,7 @@ fn test_networks_list() {
         .stdout(predicate::str::contains("TYPE"))
         .stdout(predicate::str::contains("CHAIN ID"))
         .stdout(predicate::str::contains("base"))
-        .stdout(predicate::str::contains("ethereum"))
-        .stdout(predicate::str::contains("solana"));
+        .stdout(predicate::str::contains("ethereum"));
 }
 
 #[test]
@@ -406,18 +405,6 @@ fn test_networks_info_testnet() {
         .stdout(predicate::str::contains("base-sepolia"))
         .stdout(predicate::str::contains("84532"))
         .stdout(predicate::str::contains("Testnet:"))
-        .stdout(predicate::str::contains("yes"));
-}
-
-#[test]
-fn test_networks_info_solana() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
-        .args(["networks", "info", "solana"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("solana"))
-        .stdout(predicate::str::contains("Solana"))
-        .stdout(predicate::str::contains("Mainnet:"))
         .stdout(predicate::str::contains("yes"));
 }
 

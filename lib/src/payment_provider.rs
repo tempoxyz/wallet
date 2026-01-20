@@ -44,7 +44,7 @@ pub struct DryRunInfo {
 /// Trait for payment providers (chains/networks).
 ///
 /// This trait defines the interface that all payment providers must implement.
-/// The built-in EVM and Solana providers are optimized using enum dispatch,
+/// The built-in EVM provider is optimized using enum dispatch,
 /// but custom providers can implement this trait directly.
 #[async_trait]
 pub trait PaymentProvider: Send + Sync {
@@ -80,8 +80,6 @@ macro_rules! dispatch_provider {
         match $self {
             #[cfg(feature = "evm")]
             BuiltinProvider::Evm => Self::evm().$method($($arg),*),
-            #[cfg(feature = "solana")]
-            BuiltinProvider::Solana => Self::solana().$method($($arg),*),
         }
     };
 }
@@ -96,18 +94,14 @@ macro_rules! dispatch_provider {
 pub enum BuiltinProvider {
     #[cfg(feature = "evm")]
     Evm,
-    #[cfg(feature = "solana")]
-    Solana,
 }
 
 impl Default for BuiltinProvider {
     fn default() -> Self {
         #[cfg(feature = "evm")]
         return BuiltinProvider::Evm;
-        #[cfg(all(not(feature = "evm"), feature = "solana"))]
-        return BuiltinProvider::Solana;
-        #[cfg(all(not(feature = "evm"), not(feature = "solana")))]
-        compile_error!("At least one provider feature (evm or solana) must be enabled");
+        #[cfg(not(feature = "evm"))]
+        compile_error!("At least one provider feature (evm) must be enabled");
     }
 }
 
@@ -119,23 +113,11 @@ impl BuiltinProvider {
         &EVM
     }
 
-    /// Get the Solana provider instance
-    #[cfg(feature = "solana")]
-    fn solana() -> &'static crate::providers::solana::SolanaProvider {
-        static SOLANA: crate::providers::solana::SolanaProvider =
-            crate::providers::solana::SolanaProvider;
-        &SOLANA
-    }
-
     /// Get the appropriate provider for a network
     pub fn for_network(network: &str) -> Option<Self> {
         #[cfg(feature = "evm")]
         if Self::evm().supports_network(network) {
             return Some(BuiltinProvider::Evm);
-        }
-        #[cfg(feature = "solana")]
-        if Self::solana().supports_network(network) {
-            return Some(BuiltinProvider::Solana);
         }
         None
     }
@@ -145,8 +127,6 @@ impl BuiltinProvider {
         vec![
             #[cfg(feature = "evm")]
             BuiltinProvider::Evm,
-            #[cfg(feature = "solana")]
-            BuiltinProvider::Solana,
         ]
     }
 }
@@ -174,8 +154,6 @@ impl PaymentProvider for BuiltinProvider {
         match self {
             #[cfg(feature = "evm")]
             BuiltinProvider::Evm => Self::evm().get_balance(address, network, currency).await,
-            #[cfg(feature = "solana")]
-            BuiltinProvider::Solana => Self::solana().get_balance(address, network, currency).await,
         }
     }
 
@@ -187,8 +165,6 @@ impl PaymentProvider for BuiltinProvider {
         match self {
             #[cfg(feature = "evm")]
             BuiltinProvider::Evm => Self::evm().create_web_payment(challenge, config).await,
-            #[cfg(feature = "solana")]
-            BuiltinProvider::Solana => Self::solana().create_web_payment(challenge, config).await,
         }
     }
 }
@@ -284,19 +260,6 @@ mod tests {
     }
 
     #[test]
-    fn test_registry_finds_solana_provider() {
-        let registry = &*PROVIDER_REGISTRY;
-
-        let provider = registry.find_provider("solana");
-        assert!(provider.is_some());
-        assert_eq!(provider.unwrap().name(), "Solana");
-
-        let provider = registry.find_provider("solana-devnet");
-        assert!(provider.is_some());
-        assert_eq!(provider.unwrap().name(), "Solana");
-    }
-
-    #[test]
     fn test_registry_no_provider_for_unknown_network() {
         let registry = &*PROVIDER_REGISTRY;
 
@@ -310,19 +273,13 @@ mod tests {
             BuiltinProvider::for_network("base"),
             Some(BuiltinProvider::Evm)
         ));
-        assert!(matches!(
-            BuiltinProvider::for_network("solana"),
-            Some(BuiltinProvider::Solana)
-        ));
         assert!(BuiltinProvider::for_network("unknown").is_none());
     }
 
     #[test]
     fn test_builtin_provider_names() {
         let evm = BuiltinProvider::Evm;
-        let solana = BuiltinProvider::Solana;
 
         assert_eq!(evm.name(), "EVM");
-        assert_eq!(solana.name(), "Solana");
     }
 }

@@ -38,7 +38,6 @@ impl From<Network> for NetworkListItem {
             display_name: info.display_name.to_string(),
             chain_type: match info.chain_type {
                 ChainType::Evm => "EVM".to_string(),
-                ChainType::Solana => "Solana".to_string(),
             },
             chain_id: info.chain_id,
             network_type: if info.mainnet {
@@ -58,7 +57,6 @@ impl From<Network> for NetworkDetail {
             display_name: info.display_name.to_string(),
             chain_type: match info.chain_type {
                 ChainType::Evm => "EVM".to_string(),
-                ChainType::Solana => "Solana".to_string(),
             },
             chain_id: info.chain_id,
             mainnet: info.mainnet,
@@ -183,12 +181,6 @@ mod tests {
     #[test]
     fn test_show_network_info_base() {
         let result = show_network_info("base", OutputFormat::Text);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_show_network_info_solana() {
-        let result = show_network_info("solana", OutputFormat::Text);
         assert!(result.is_ok());
     }
 

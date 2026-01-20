@@ -71,11 +71,9 @@ fn get_purl_error_suggestion(err: &PurlError) -> Option<String> {
             }
         }
 
-        PurlError::InvalidKey(_) => Some(
-            "EVM private keys should be 64 hex characters (with optional 0x prefix).\n\
-             Solana keys should be base58-encoded keypairs."
-                .into(),
-        ),
+        PurlError::InvalidKey(_) => {
+            Some("EVM private keys should be 64 hex characters (with optional 0x prefix).".into())
+        }
 
         PurlError::NoCompatibleMethod { networks } => {
             let networks_str = networks.join(", ");
