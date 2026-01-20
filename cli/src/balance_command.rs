@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use purl::currency::currencies;
 use purl::network::{ChainType, Network};
 use purl::payment_provider::NetworkBalance;
-use purl::{Config, PaymentMethod, PROVIDER_REGISTRY};
+use purl::{Config, PaymentMethod, PROVIDER_REGISTRY, U256};
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
@@ -24,12 +24,13 @@ fn mock_balance(
         _ => "0",
     };
 
-    NetworkBalance {
-        network: network.to_string(),
-        balance_atomic: mock_atomic.to_string(),
-        balance_human: currency.format_atomic(mock_atomic.parse().unwrap_or(0)),
-        asset: format!("{} (mock)", currency.symbol),
-    }
+    let atomic_value: u128 = mock_atomic.parse().unwrap_or(0);
+    NetworkBalance::new(
+        network,
+        U256::from(atomic_value),
+        currency.format_atomic(atomic_value),
+        format!("{} (mock)", currency.symbol),
+    )
 }
 
 /// Check token balances for configured networks
@@ -92,7 +93,7 @@ pub async fn balance_command(
     for balance in balances {
         println!(
             "{}: {} {} ({} atomic units)",
-            balance.network, balance.balance_human, balance.asset, balance.balance_atomic
+            balance.network, balance.balance_human, balance.asset, balance.balance
         );
     }
 
@@ -161,8 +162,8 @@ mod tests {
         let usdc = currencies::USDC;
 
         let balance = mock_balance(Network::Base, "0x123", &usdc);
-        assert_eq!(balance.network, "base");
-        assert_eq!(balance.balance_atomic, "1000000");
+        assert_eq!(balance.network, Network::Base);
+        assert_eq!(balance.balance, U256::from(1_000_000u64));
         assert!(balance.asset.contains("mock"));
     }
 

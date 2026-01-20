@@ -27,6 +27,7 @@ pub mod path_validation;
 pub mod payment_provider;
 pub mod protocol;
 pub mod signer;
+pub mod types;
 pub mod utils;
 
 #[cfg(feature = "http-client")]
@@ -52,6 +53,11 @@ pub use payment_provider::{
     AddressProvider, BalanceProvider, BuiltinProvider, NetworkBalance, PaymentProvider, Provider,
     PROVIDER_REGISTRY,
 };
+pub use types::TokenAmount;
+
+// Re-export alloy primitives for convenient access
+#[cfg(feature = "evm")]
+pub use alloy::primitives::{Address, U256};
 
 #[cfg(feature = "client")]
 pub use client::{Client, ClientBuilder, Configured, Unconfigured};

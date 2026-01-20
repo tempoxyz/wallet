@@ -104,12 +104,12 @@ impl BalanceProvider for EvmProvider {
         })?;
         let balance_human = token_config.currency.format_atomic(balance_atomic);
 
-        Ok(NetworkBalance {
-            network: network.to_string(),
-            balance_atomic: balance.to_string(),
+        Ok(NetworkBalance::new(
+            network,
+            balance,
             balance_human,
-            asset: token_config.currency.symbol.to_string(),
-        })
+            token_config.currency.symbol.to_string(),
+        ))
     }
 }
 
@@ -121,7 +121,7 @@ impl PaymentProvider for EvmProvider {
         config: &Config,
     ) -> Result<crate::protocol::web::PaymentCredential> {
         use crate::protocol::web::{ChargeRequest, PayloadType, PaymentCredential, PaymentPayload};
-        use alloy::primitives::{Bytes, U256};
+        use alloy::primitives::Bytes;
         use alloy::providers::Provider;
         use alloy::sol_types::SolCall;
 
@@ -131,14 +131,10 @@ impl PaymentProvider for EvmProvider {
         let signer = Self::load_signer(config)?;
         let from = signer.address();
 
-        let asset = Address::from_str(&charge_req.asset)
-            .map_err(|e| PurlError::invalid_address(format!("Invalid asset address: {}", e)))?;
-        let destination = Address::from_str(&charge_req.destination).map_err(|e| {
-            PurlError::invalid_address(format!("Invalid destination address: {}", e))
-        })?;
-
-        let amount = U256::from_str(&charge_req.amount)
-            .map_err(|e| PurlError::InvalidAmount(format!("Invalid amount: {}", e)))?;
+        // Use typed accessor methods for type-safe parsing
+        let asset = charge_req.asset_address()?;
+        let destination = charge_req.destination_address()?;
+        let amount = charge_req.amount_u256()?;
 
         sol! {
             function transfer(address to, uint256 amount) external returns (bool);
