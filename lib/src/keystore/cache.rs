@@ -69,7 +69,7 @@ pub(crate) fn cache_password(id: KeystoreId, password: String) {
 fn cache_password_to_file(cache_file: &Path, password: &str) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time should be after UNIX_EPOCH")
         .as_secs();
 
     let cache_entry = format!("{now}|{password}");
@@ -98,7 +98,7 @@ fn get_cached_password_from_file(cache_file: &Path) -> Option<String> {
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time should be after UNIX_EPOCH")
         .as_secs();
 
     let age = now.saturating_sub(timestamp);

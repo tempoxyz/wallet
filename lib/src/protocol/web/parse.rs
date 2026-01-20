@@ -13,7 +13,8 @@ fn www_authenticate_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         // Match key="value" pairs, handling escaped quotes in values
-        Regex::new(r#"(\w+)="([^"\\]*(\\.[^"\\]*)*)""#).unwrap()
+        Regex::new(r#"(\w+)="([^"\\]*(\\.[^"\\]*)*)""#)
+            .expect("WWW-Authenticate regex should be valid")
     })
 }
 

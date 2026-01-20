@@ -74,15 +74,15 @@ impl FromStr for HttpMethod {
 
 impl From<&String> for HttpMethod {
     fn from(s: &String) -> Self {
-        // Safe to unwrap since FromStr::Err is Infallible
-        s.parse().expect("HttpMethod::from_str is infallible")
+        // Safe because FromStr::Err is Infallible
+        s.parse().expect("HttpMethod::from_str cannot fail")
     }
 }
 
 impl From<String> for HttpMethod {
     fn from(s: String) -> Self {
-        // Safe to unwrap since FromStr::Err is Infallible
-        s.parse().expect("HttpMethod::from_str is infallible")
+        // Safe because FromStr::Err is Infallible
+        s.parse().expect("HttpMethod::from_str cannot fail")
     }
 }
 
@@ -327,8 +327,7 @@ pub fn has_header(headers: &[String], name: &str) -> bool {
     let name_lower = name.to_lowercase();
     headers.iter().any(|h| {
         h.split_once(':')
-            .map(|(k, _)| k.trim().to_lowercase() == name_lower)
-            .unwrap_or(false)
+            .is_some_and(|(k, _)| k.trim().to_lowercase() == name_lower)
     })
 }
 
