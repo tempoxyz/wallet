@@ -331,8 +331,9 @@ impl ChargeRequest {
     /// let amount: U256 = charge_req.amount_u256()?;
     /// ```
     pub fn amount_u256(&self) -> Result<U256> {
-        U256::from_str(&self.amount)
-            .map_err(|e| PurlError::InvalidAmount(format!("Invalid amount '{}': {}", self.amount, e)))
+        U256::from_str(&self.amount).map_err(|e| {
+            PurlError::InvalidAmount(format!("Invalid amount '{}': {}", self.amount, e))
+        })
     }
 }
 
@@ -690,7 +691,9 @@ mod tests {
             fee_payer: None,
         };
 
-        let addr = req.destination_address().expect("Should parse valid address");
+        let addr = req
+            .destination_address()
+            .expect("Should parse valid address");
         assert_eq!(
             format!("{:?}", addr),
             "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2"
@@ -744,7 +747,9 @@ mod tests {
     #[test]
     fn test_charge_request_amount_u256_large() {
         let req = ChargeRequest {
-            amount: "115792089237316195423570985008687907853269984665640564039457584007913129639935".to_string(),
+            amount:
+                "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+                    .to_string(),
             asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
             destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
             expires: "2024-01-01T00:00:00Z".to_string(),
