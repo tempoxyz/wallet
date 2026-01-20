@@ -17,7 +17,10 @@ const MAX_HEADER_SIZE: usize = 8 * 1024;
 
 fn validate_body_size(data: &str) -> Result<()> {
     if data.len() > MAX_BODY_SIZE {
-        bail!("Request body exceeds maximum size of {} bytes", MAX_BODY_SIZE);
+        bail!(
+            "Request body exceeds maximum size of {} bytes",
+            MAX_BODY_SIZE
+        );
     }
     Ok(())
 }
