@@ -55,6 +55,10 @@ pub use payment_provider::{
 };
 pub use types::TokenAmount;
 
+// Re-export alloy primitives for convenient access
+#[cfg(feature = "evm")]
+pub use alloy::primitives::{Address, U256};
+
 #[cfg(feature = "client")]
 pub use client::{Client, ClientBuilder, Configured, Unconfigured};
 

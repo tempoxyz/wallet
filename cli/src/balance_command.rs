@@ -1,11 +1,10 @@
 //! Balance command for checking token wallet balances on configured networks
 
-use alloy::primitives::U256;
 use anyhow::{Context, Result};
 use purl::currency::currencies;
 use purl::network::{ChainType, Network};
 use purl::payment_provider::NetworkBalance;
-use purl::{Config, PaymentMethod, PROVIDER_REGISTRY};
+use purl::{Config, PaymentMethod, U256, PROVIDER_REGISTRY};
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
