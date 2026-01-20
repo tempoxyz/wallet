@@ -175,6 +175,25 @@ impl WalletConfig for EvmConfig {
 }
 
 impl Config {
+    /// Create a new ConfigBuilder for programmatic configuration.
+    ///
+    /// This is useful when you want to create a configuration in code
+    /// rather than loading it from a file.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use purl::Config;
+    ///
+    /// let config = Config::builder()
+    ///     .evm_private_key("your_private_key_here")
+    ///     .rpc_override("base", "https://my-rpc.com")
+    ///     .build();
+    /// ```
+    pub fn builder() -> ConfigBuilder {
+        ConfigBuilder::new()
+    }
+
     /// Load config from the specified path or default location (~/.purl/config.toml)
     pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
         let config_path = if let Some(path) = config_path {
@@ -338,6 +357,175 @@ impl PaymentMethod {
 impl fmt::Display for PaymentMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.display_name())
+    }
+}
+
+/// Builder for creating [`Config`] programmatically.
+///
+/// This builder provides a fluent API for creating configuration in code,
+/// which is useful for SDK users who don't want to use config files.
+///
+/// # Example
+///
+/// ```
+/// use purl::ConfigBuilder;
+///
+/// let config = ConfigBuilder::new()
+///     .evm_private_key("your_private_key_here")
+///     .rpc_override("base", "https://my-custom-rpc.com")
+///     .rpc_override("ethereum", "https://eth-mainnet.example.com")
+///     .build();
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ConfigBuilder {
+    evm_keystore: Option<PathBuf>,
+    evm_private_key: Option<String>,
+    rpc_overrides: HashMap<String, String>,
+    custom_networks: Vec<CustomNetwork>,
+    custom_tokens: Vec<CustomToken>,
+}
+
+impl ConfigBuilder {
+    /// Create a new empty ConfigBuilder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the path to an EVM keystore file.
+    ///
+    /// This is mutually exclusive with `evm_private_key`.
+    #[must_use]
+    pub fn evm_keystore(mut self, path: impl Into<PathBuf>) -> Self {
+        self.evm_keystore = Some(path.into());
+        self
+    }
+
+    /// Set the EVM private key directly.
+    ///
+    /// This is mutually exclusive with `evm_keystore`.
+    ///
+    /// # Security Note
+    ///
+    /// Using a private key directly is less secure than using a keystore.
+    /// Only use this for testing or when the key is already in memory.
+    #[must_use]
+    pub fn evm_private_key(mut self, key: impl Into<String>) -> Self {
+        self.evm_private_key = Some(key.into());
+        self
+    }
+
+    /// Add an RPC URL override for a network.
+    ///
+    /// This overrides the default RPC URL for the specified network.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use purl::ConfigBuilder;
+    ///
+    /// let config = ConfigBuilder::new()
+    ///     .evm_private_key("test_key")
+    ///     .rpc_override("base", "https://my-base-rpc.com")
+    ///     .build();
+    /// ```
+    #[must_use]
+    pub fn rpc_override(mut self, network: impl Into<String>, url: impl Into<String>) -> Self {
+        self.rpc_overrides.insert(network.into(), url.into());
+        self
+    }
+
+    /// Add a custom network definition.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use purl::{ConfigBuilder, CustomNetwork};
+    /// use purl::network::ChainType;
+    ///
+    /// let network = CustomNetwork {
+    ///     id: "my-chain".to_string(),
+    ///     chain_type: ChainType::Evm,
+    ///     chain_id: Some(12345),
+    ///     mainnet: false,
+    ///     display_name: "My Custom Chain".to_string(),
+    ///     rpc_url: "https://rpc.mychain.com".to_string(),
+    /// };
+    ///
+    /// let config = ConfigBuilder::new()
+    ///     .evm_private_key("test_key")
+    ///     .custom_network(network)
+    ///     .build();
+    /// ```
+    #[must_use]
+    pub fn custom_network(mut self, network: CustomNetwork) -> Self {
+        self.custom_networks.push(network);
+        self
+    }
+
+    /// Add a custom token definition.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use purl::{ConfigBuilder, CustomToken};
+    ///
+    /// let token = CustomToken {
+    ///     network: "ethereum".to_string(),
+    ///     address: "0x1234567890123456789012345678901234567890".to_string(),
+    ///     symbol: "TEST".to_string(),
+    ///     name: "Test Token".to_string(),
+    ///     decimals: 18,
+    /// };
+    ///
+    /// let config = ConfigBuilder::new()
+    ///     .evm_private_key("test_key")
+    ///     .custom_token(token)
+    ///     .build();
+    /// ```
+    #[must_use]
+    pub fn custom_token(mut self, token: CustomToken) -> Self {
+        self.custom_tokens.push(token);
+        self
+    }
+
+    /// Build the [`Config`].
+    ///
+    /// This creates a Config from the builder's settings. Note that the
+    /// resulting Config may not pass validation if no wallet is configured.
+    pub fn build(self) -> Config {
+        let evm = if self.evm_keystore.is_some() || self.evm_private_key.is_some() {
+            Some(EvmConfig {
+                keystore: self.evm_keystore,
+                private_key: self.evm_private_key,
+            })
+        } else {
+            None
+        };
+
+        Config {
+            evm,
+            rpc: self.rpc_overrides,
+            networks: self.custom_networks,
+            tokens: self.custom_tokens,
+        }
+    }
+
+    /// Build and validate the [`Config`].
+    ///
+    /// This creates a Config from the builder's settings and validates it.
+    /// Returns an error if the configuration is invalid (e.g., no wallet configured).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Both keystore and private_key are set
+    /// - Neither keystore nor private_key is set
+    /// - The keystore path doesn't exist
+    /// - The private key format is invalid
+    pub fn build_validated(self) -> Result<Config> {
+        let config = self.build();
+        config.validate()?;
+        Ok(config)
     }
 }
 
