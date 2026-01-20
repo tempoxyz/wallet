@@ -192,7 +192,9 @@ mod tests {
     #[test]
     fn test_keystore_validate_not_object() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(b"[]").expect("Failed to write to temp file");
+        temp_file
+            .write_all(b"[]")
+            .expect("Failed to write to temp file");
         temp_file.flush().expect("Failed to flush temp file");
 
         let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");

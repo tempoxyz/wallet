@@ -75,13 +75,9 @@ pub enum PurlError {
     #[error("Signing error: {0}")]
     Signing(String),
 
-    /// Address parsing error (EVM or Solana)
+    /// Address parsing error
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
-
-    /// Solana-specific error
-    #[error("Solana error: {0}")]
-    Solana(String),
 
     /// JSON serialization/deserialization error
     #[error("JSON error: {0}")]
@@ -169,11 +165,6 @@ impl PurlError {
         Self::InvalidAddress(msg.into())
     }
 
-    /// Create a Solana-specific error
-    pub fn solana(msg: impl Into<String>) -> Self {
-        Self::Solana(msg.into())
-    }
-
     /// Create a config missing error
     pub fn config_missing(msg: impl Into<String>) -> Self {
         Self::ConfigMissing(msg.into())
@@ -207,12 +198,12 @@ mod tests {
     #[test]
     fn test_no_compatible_method_display() {
         let err = PurlError::NoCompatibleMethod {
-            networks: vec!["ethereum".to_string(), "solana".to_string()],
+            networks: vec!["ethereum".to_string(), "base".to_string()],
         };
         let display = err.to_string();
         assert!(display.contains("No compatible payment method found"));
         assert!(display.contains("ethereum"));
-        assert!(display.contains("solana"));
+        assert!(display.contains("base"));
     }
 
     #[test]
@@ -319,12 +310,6 @@ mod tests {
     }
 
     #[test]
-    fn test_solana_display() {
-        let err = PurlError::Solana("Transaction failed".to_string());
-        assert_eq!(err.to_string(), "Solana error: Transaction failed");
-    }
-
-    #[test]
     fn test_unsupported_payment_method_display() {
         let err = PurlError::UnsupportedPaymentMethod("bitcoin".to_string());
         assert_eq!(err.to_string(), "Unsupported payment method: bitcoin");
@@ -378,13 +363,6 @@ mod tests {
         let err = PurlError::invalid_address("test address");
         assert!(matches!(err, PurlError::InvalidAddress(_)));
         assert_eq!(err.to_string(), "Invalid address: test address");
-    }
-
-    #[test]
-    fn test_solana_constructor() {
-        let err = PurlError::solana("test solana error");
-        assert!(matches!(err, PurlError::Solana(_)));
-        assert_eq!(err.to_string(), "Solana error: test solana error");
     }
 
     #[test]
