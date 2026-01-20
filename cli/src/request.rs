@@ -4,7 +4,8 @@
 //! for building and executing HTTP requests.
 
 use anyhow::Result;
-use purl::{HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
+use purl::blocking::HttpClient;
+use purl::{HttpClientBuilder, HttpMethod, HttpResponse};
 
 use crate::cli::Cli;
 
@@ -47,7 +48,7 @@ impl RequestContext {
             builder = builder.user_agent(user_agent);
         }
 
-        Ok(builder.build()?)
+        Ok(builder.build_blocking()?)
     }
 
     /// Execute an HTTP request
@@ -56,7 +57,7 @@ impl RequestContext {
         url: &str,
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<HttpResponse> {
-        let mut client = self.build_client(extra_headers)?;
+        let client = self.build_client(extra_headers)?;
         Ok(client.request(self.method.clone(), url, self.body.as_deref())?)
     }
 }

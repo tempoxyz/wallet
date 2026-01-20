@@ -60,3 +60,6 @@ pub use client::{Client, ClientBuilder, Configured, Unconfigured};
 pub use http::{
     find_header, has_header, parse_headers, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse,
 };
+
+#[cfg(feature = "blocking")]
+pub use http::blocking;
