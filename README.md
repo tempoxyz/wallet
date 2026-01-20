@@ -513,12 +513,34 @@ purl config --unsafe-show-private-keys --no-cache-password  # Show keys without 
 git clone https://github.com/brendanjryan/purl.git
 cd purl
 
+# Install dependencies (for linting)
+npm install
+
 # Build
 make build
 
 # Run tests
 make test
 
+# Run lints
+npm run lint
+
 # Build release binary
 make release
+```
+
+### Linting
+
+This project uses [Tempo lints](https://github.com/tempoxyz/lints) for code quality checks:
+
+```bash
+# Run all Rust lints
+npm run lint
+
+```
+
+To disable a lint for a specific line:
+```rust
+// ast-grep-ignore: no-unwrap-in-lib
+let value = something.unwrap();
 ```
