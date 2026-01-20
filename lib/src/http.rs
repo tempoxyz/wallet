@@ -122,25 +122,13 @@ impl HttpResponse {
 ///
 /// This struct holds the configuration options that can be used to build
 /// both async and blocking HTTP clients.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct HttpClientConfig {
     pub(crate) verbose: bool,
     pub(crate) timeout: Option<u64>,
     pub(crate) follow_redirects: bool,
     pub(crate) user_agent: Option<String>,
     pub(crate) headers: Vec<(String, String)>,
-}
-
-impl Default for HttpClientConfig {
-    fn default() -> Self {
-        Self {
-            verbose: false,
-            timeout: None,
-            follow_redirects: false,
-            user_agent: None,
-            headers: Vec::new(),
-        }
-    }
 }
 
 /// Builder for configuring HTTP clients.
