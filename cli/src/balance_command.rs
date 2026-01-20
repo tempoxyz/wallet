@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use purl::currency::currencies;
+use purl::money::format_u256_with_decimals;
 use purl::network::{ChainType, Network};
 use purl::payment_provider::NetworkBalance;
 use purl::{Config, PaymentMethod, PROVIDER_REGISTRY, U256};
@@ -19,16 +20,17 @@ fn mock_balance(
 ) -> NetworkBalance {
     // Return a realistic-looking mock balance
     let mock_atomic = match network {
-        Network::Base | Network::Ethereum => "1000000", // 1 USDC
-        Network::BaseSepolia | Network::EthereumSepolia => "5000000", // 5 USDC
-        _ => "0",
+        Network::Base | Network::Ethereum => U256::from(1_000_000u64), // 1 USDC
+        Network::BaseSepolia | Network::EthereumSepolia => U256::from(5_000_000u64), // 5 USDC
+        _ => U256::ZERO,
     };
 
-    let atomic_value: u128 = mock_atomic.parse().unwrap_or(0);
+    // Use format_u256_with_decimals for consistent formatting without truncation
+    let balance_human = format_u256_with_decimals(mock_atomic, currency.decimals);
     NetworkBalance::new(
         network,
-        U256::from(atomic_value),
-        currency.format_atomic(atomic_value),
+        mock_atomic,
+        balance_human,
         format!("{} (mock)", currency.symbol),
     )
 }

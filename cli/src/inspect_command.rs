@@ -134,20 +134,21 @@ fn build_inspect_output(
     }
 }
 
-/// Format charge amount to human-readable string
+/// Format charge amount to human-readable string using Money type.
+///
+/// This uses the type-safe Money abstraction which:
+/// - Uses U256 internally to avoid truncation for large values
+/// - Validates the asset address against the network's configured token
 fn format_charge_amount(req: &ChargeRequest, challenge: &PaymentChallenge) -> Option<String> {
     use purl::Network;
     use std::str::FromStr;
 
     let network_name = challenge.network_name().ok()?;
     let network = Network::from_str(network_name).ok()?;
-    let token_config = network.require_usdc_config().ok()?;
 
-    let amount: u128 = req.amount.parse().ok()?;
-    let decimals = token_config.currency.decimals;
-    let symbol = token_config.currency.symbol;
-
-    purl::currency::format_atomic_trimmed(&amount.to_string(), decimals, symbol).ok()
+    // Use Money type for type-safe formatting (handles U256 without truncation)
+    let money = req.money(network).ok()?;
+    Some(money.format_trimmed())
 }
 
 fn output_json(

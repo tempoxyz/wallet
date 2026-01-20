@@ -1,6 +1,7 @@
 use crate::config::{Config, WalletConfig};
 use crate::currency::Currency;
 use crate::error::{PurlError, Result, ResultExt, SigningContext};
+use crate::money::format_u256_with_decimals;
 use crate::network::{get_network, ChainType, GasConfig, Network};
 use crate::payment_provider::{
     AddressProvider, BalanceProvider, NetworkBalance, PaymentProvider, Provider,
@@ -96,13 +97,8 @@ impl BalanceProvider for EvmProvider {
             ))
         })?;
 
-        let balance_atomic: u128 = balance.to_string().parse().map_err(|e| {
-            PurlError::BalanceQuery(format!(
-                "Failed to parse balance value '{}' as u128: {}",
-                balance, e
-            ))
-        })?;
-        let balance_human = token_config.currency.format_atomic(balance_atomic);
+        // Format balance directly from U256 to avoid truncation for large values
+        let balance_human = format_u256_with_decimals(balance, token_config.currency.decimals);
 
         Ok(NetworkBalance::new(
             network,

@@ -1,7 +1,8 @@
 //! Type definitions for the Web Payment Auth protocol
 
 use crate::error::{PurlError, Result};
-use crate::network::networks;
+use crate::money::{Money, TokenId};
+use crate::network::{networks, Network};
 use alloy::primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -334,6 +335,61 @@ impl ChargeRequest {
         U256::from_str(&self.amount).map_err(|e| {
             PurlError::InvalidAmount(format!("Invalid amount '{}': {}", self.amount, e))
         })
+    }
+
+    /// Create a type-safe Money value from this charge request.
+    ///
+    /// This method parses the amount, validates the asset address against
+    /// the network's configured token, and returns a fully typed Money value.
+    ///
+    /// # Arguments
+    ///
+    /// * `network` - The network this charge is for (used for token lookup)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The network has no token configuration
+    /// - The asset address doesn't match the network's configured token
+    /// - The amount cannot be parsed as U256
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let req: ChargeRequest = serde_json::from_value(challenge.request)?;
+    /// let money = req.money(Network::Base)?;
+    /// println!("Payment: {}", money);  // e.g., "1.5 USDC"
+    /// ```
+    pub fn money(&self, network: Network) -> Result<Money> {
+        let token_config = network.usdc_config().ok_or_else(|| {
+            PurlError::UnsupportedToken(format!("No token configuration for network '{}'", network))
+        })?;
+
+        let asset_addr = self.asset_address()?;
+        let expected_addr = Address::from_str(token_config.address).map_err(|e| {
+            PurlError::invalid_address(format!(
+                "Invalid configured token address for {}: {}",
+                network, e
+            ))
+        })?;
+
+        // Validate asset matches network's configured token
+        if asset_addr != expected_addr {
+            return Err(PurlError::UnsupportedToken(format!(
+                "Asset {} does not match configured token {} for network {}",
+                self.asset, token_config.address, network
+            )));
+        }
+
+        let amount = self.amount_u256()?;
+        let token = TokenId::new(network, asset_addr);
+
+        Ok(Money::new(
+            token,
+            amount,
+            token_config.currency.decimals,
+            token_config.currency.symbol,
+        ))
     }
 }
 
