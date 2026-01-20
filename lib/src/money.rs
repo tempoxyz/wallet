@@ -477,7 +477,8 @@ mod tests {
     fn test_token() -> TokenId {
         TokenId::new(
             Network::Base,
-            Address::from_str("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913").unwrap(),
+            Address::from_str("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+                .expect("valid test address"),
         )
     }
 
@@ -486,7 +487,8 @@ mod tests {
         let token1 = test_token();
         let token2 = TokenId::new(
             Network::Ethereum,
-            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap(),
+            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+                .expect("valid test address"),
         );
 
         // Same network and address = equal
@@ -501,7 +503,10 @@ mod tests {
     fn test_token_id_default_for_network() {
         let token = TokenId::default_for_network(Network::Base);
         assert!(token.is_some());
-        assert_eq!(token.unwrap().network(), Network::Base);
+        assert_eq!(
+            token.expect("Base should have token config").network(),
+            Network::Base
+        );
 
         // Network without token config
         let no_token = TokenId::default_for_network(Network::Polygon);
@@ -521,7 +526,8 @@ mod tests {
 
     #[test]
     fn test_money_from_network_config() {
-        let money = Money::from_network_config(Network::Base, U256::from(1_000_000u64)).unwrap();
+        let money = Money::from_network_config(Network::Base, U256::from(1_000_000u64))
+            .expect("Base has token config");
 
         assert_eq!(money.network(), Network::Base);
         assert_eq!(money.decimals(), 6);
@@ -531,7 +537,8 @@ mod tests {
     #[test]
     fn test_money_from_atomic_str() {
         let token = test_token();
-        let money = Money::from_atomic_str(token, "1500000", 6, "USDC").unwrap();
+        let money =
+            Money::from_atomic_str(token, "1500000", 6, "USDC").expect("valid atomic string");
 
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
     }
@@ -541,15 +548,15 @@ mod tests {
         let token = test_token();
 
         // Whole number
-        let money = Money::from_human("100", token, 6, "USDC").unwrap();
+        let money = Money::from_human("100", token, 6, "USDC").expect("valid whole number");
         assert_eq!(money.atomic(), U256::from(100_000_000u64));
 
         // With decimals
-        let money = Money::from_human("1.5", token, 6, "USDC").unwrap();
+        let money = Money::from_human("1.5", token, 6, "USDC").expect("valid decimal");
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
 
         // Small amount
-        let money = Money::from_human("0.000001", token, 6, "USDC").unwrap();
+        let money = Money::from_human("0.000001", token, 6, "USDC").expect("valid small amount");
         assert_eq!(money.atomic(), U256::from(1u64));
     }
 
@@ -612,7 +619,7 @@ mod tests {
         let money1 = Money::new(token, U256::from(1_000_000u64), 6, "USDC");
         let money2 = Money::new(token, U256::from(500_000u64), 6, "USDC");
 
-        let result = money1.checked_add(&money2).unwrap();
+        let result = money1.checked_add(&money2).expect("same token addition");
         assert_eq!(result.atomic(), U256::from(1_500_000u64));
     }
 
@@ -621,7 +628,8 @@ mod tests {
         let token1 = test_token();
         let token2 = TokenId::new(
             Network::Ethereum,
-            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap(),
+            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+                .expect("valid test address"),
         );
 
         let money1 = Money::new(token1, U256::from(1_000_000u64), 6, "USDC");
@@ -637,7 +645,7 @@ mod tests {
         let money1 = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
         let money2 = Money::new(token, U256::from(500_000u64), 6, "USDC");
 
-        let result = money1.checked_sub(&money2).unwrap();
+        let result = money1.checked_sub(&money2).expect("valid subtraction");
         assert_eq!(result.atomic(), U256::from(1_000_000u64));
     }
 
@@ -658,7 +666,7 @@ mod tests {
         let money2 = Money::new(token, U256::from(1_000_000u64), 6, "USDC");
 
         assert_eq!(
-            money1.checked_cmp(&money2).unwrap(),
+            money1.checked_cmp(&money2).expect("same token comparison"),
             std::cmp::Ordering::Greater
         );
     }
