@@ -12,7 +12,7 @@ use std::process::Command;
 mod common;
 use common::{
     mock_test_command, setup_test_config, test_command, TestConfigBuilder,
-    TEST_EVM_KEY as VALID_EVM_KEY, TEST_SOLANA_KEY,
+    TEST_EVM_KEY as VALID_EVM_KEY,
 };
 
 // ============================================================================
@@ -76,29 +76,6 @@ fn test_balance_with_evm_config() {
 }
 
 #[test]
-fn test_balance_with_solana_config() {
-    let temp = setup_test_config(None, Some(TEST_SOLANA_KEY));
-
-    mock_test_command(&temp)
-        .arg("balance")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("USDC Balances:"))
-        .stdout(predicate::str::contains("mock"));
-}
-
-#[test]
-fn test_balance_with_both_configs() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), Some(TEST_SOLANA_KEY));
-
-    mock_test_command(&temp)
-        .arg("balance")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("USDC Balances:"));
-}
-
-#[test]
 fn test_balance_with_network_filter() {
     let temp = setup_test_config(Some(VALID_EVM_KEY), None);
 
@@ -120,30 +97,6 @@ fn test_balance_with_network_filter_short() {
         .success()
         .stdout(predicate::str::contains("base-sepolia:"))
         .stdout(predicate::str::contains("5.000000")); // Mock returns 5 USDC for testnets
-}
-
-#[test]
-fn test_balance_with_solana_network_filter() {
-    let temp = setup_test_config(None, Some(TEST_SOLANA_KEY));
-
-    mock_test_command(&temp)
-        .args(["balance", "--network", "solana"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("solana:"))
-        .stdout(predicate::str::contains("2.500000")); // Mock returns 2.5 USDC for solana mainnet
-}
-
-#[test]
-fn test_balance_with_testnet_filter() {
-    let temp = setup_test_config(None, Some(TEST_SOLANA_KEY));
-
-    mock_test_command(&temp)
-        .args(["balance", "--network", "solana-devnet"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("solana-devnet:"))
-        .stdout(predicate::str::contains("10.000000")); // Mock returns 10 USDC for devnet
 }
 
 #[test]
@@ -178,35 +131,6 @@ fn test_balance_with_keystore_config() {
         .arg("balance")
         .assert()
         .code(predicate::in_iter([0, 1])); // May fail if keystore can't be read
-}
-
-#[test]
-fn test_balance_with_solana_keystore() {
-    let temp = TestConfigBuilder::new()
-        .with_solana_keystore("solana-wallet", TEST_SOLANA_KEY)
-        .build();
-
-    // Note: Dummy keystores can't extract addresses, so this may return
-    // ConfigError (3) in addition to success (0) or general error (1)
-    mock_test_command(&temp)
-        .arg("balance")
-        .assert()
-        .code(predicate::in_iter([0, 1, 3]));
-}
-
-#[test]
-fn test_balance_with_multiple_keystores() {
-    let temp = TestConfigBuilder::new()
-        .with_evm_keystore("evm-wallet", VALID_EVM_KEY)
-        .with_solana_keystore("solana-wallet", TEST_SOLANA_KEY)
-        .build();
-
-    // Note: Dummy keystores can't extract addresses, so this may return
-    // ConfigError (3) in addition to success (0) or general error (1)
-    mock_test_command(&temp)
-        .arg("balance")
-        .assert()
-        .code(predicate::in_iter([0, 1, 3]));
 }
 
 #[test]

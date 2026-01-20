@@ -234,20 +234,7 @@ fn show_config(cli: &Cli, output_format: OutputFormat, show_private_keys: bool) 
                 );
             }
 
-            if let Some(solana) = &config.solana {
-                print_payment_method_text(
-                    "solana",
-                    solana.keystore.as_ref(),
-                    solana.get_address().ok().as_deref(),
-                    "public_key",
-                    decrypted_keys
-                        .as_ref()
-                        .and_then(|k| k.solana_private_key.as_deref()),
-                    show_private_keys,
-                );
-            }
-
-            if config.evm.is_none() && config.solana.is_none() {
+            if config.evm.is_none() {
                 println!("No payment methods configured.");
                 println!("Run 'purl init' to configure payment methods.");
             }
@@ -309,17 +296,16 @@ fn init_color_support(cli: &Cli) {
 mod tests {
     use super::*;
     use output::DecryptedKeys;
-    use purl::{Config, EvmConfig, SolanaConfig};
+    use purl::{Config, EvmConfig};
 
     #[test]
     fn test_decrypt_keystores_upfront_with_plain_keys() {
         let config = Config {
             evm: Some(EvmConfig {
-                private_key: Some("0x1234567890123456789012345678901234567890123456789012345678901234".to_string()),
-                keystore: None,
-            }),
-            solana: Some(SolanaConfig {
-                private_key: Some("4s7ygkJfGbHqEN1KEGZmxq36FCaqPJreAZgjg7sQYMUWwjEWXQropga1vDe3itnvfFLd6sp7PBLkiDGazNTWrYKC".to_string()),
+                private_key: Some(
+                    "0x1234567890123456789012345678901234567890123456789012345678901234"
+                        .to_string(),
+                ),
                 keystore: None,
             }),
             ..Default::default()
@@ -330,14 +316,12 @@ mod tests {
 
         let keys = result.unwrap();
         assert!(keys.evm_private_key.is_some());
-        assert!(keys.solana_private_key.is_some());
     }
 
     #[test]
     fn test_decrypt_keystores_upfront_with_no_keys() {
         let config = Config {
             evm: None,
-            solana: None,
             ..Default::default()
         };
 
@@ -346,7 +330,6 @@ mod tests {
 
         let keys = result.unwrap();
         assert!(keys.evm_private_key.is_none());
-        assert!(keys.solana_private_key.is_none());
     }
 
     #[test]
@@ -359,7 +342,6 @@ mod tests {
                 ),
                 keystore: None,
             }),
-            solana: None,
             ..Default::default()
         };
 
@@ -374,19 +356,19 @@ mod tests {
     fn test_build_config_display_with_private_keys() {
         let config = Config {
             evm: Some(EvmConfig {
-                private_key: Some("0x1234567890123456789012345678901234567890123456789012345678901234".to_string()),
-                keystore: None,
-            }),
-            solana: Some(SolanaConfig {
-                private_key: Some("4s7ygkJfGbHqEN1KEGZmxq36FCaqPJreAZgjg7sQYMUWwjEWXQropga1vDe3itnvfFLd6sp7PBLkiDGazNTWrYKC".to_string()),
+                private_key: Some(
+                    "0x1234567890123456789012345678901234567890123456789012345678901234"
+                        .to_string(),
+                ),
                 keystore: None,
             }),
             ..Default::default()
         };
 
         let decrypted_keys = DecryptedKeys {
-            evm_private_key: Some("0x1234567890123456789012345678901234567890123456789012345678901234".to_string()),
-            solana_private_key: Some("4s7ygkJfGbHqEN1KEGZmxq36FCaqPJreAZgjg7sQYMUWwjEWXQropga1vDe3itnvfFLd6sp7PBLkiDGazNTWrYKC".to_string()),
+            evm_private_key: Some(
+                "0x1234567890123456789012345678901234567890123456789012345678901234".to_string(),
+            ),
         };
 
         let config_path = PathBuf::from("/test/config.toml");
@@ -394,8 +376,5 @@ mod tests {
 
         let evm = display.get("evm").unwrap();
         assert!(evm.get("private_key").is_some());
-
-        let solana = display.get("solana").unwrap();
-        assert!(solana.get("private_key").is_some());
     }
 }

@@ -30,7 +30,7 @@ pub trait WalletConfig {
 
 /// Helper function to validate wallet source configuration.
 ///
-/// This consolidates the common validation logic for both EVM and Solana configs.
+/// This consolidates the common validation logic for wallet configs.
 fn validate_wallet_source<V>(
     keystore: Option<&PathBuf>,
     private_key: Option<&String>,
@@ -68,8 +68,6 @@ where
 pub struct Config {
     #[serde(default)]
     pub evm: Option<EvmConfig>,
-    #[serde(default)]
-    pub solana: Option<SolanaConfig>,
     /// RPC URL overrides for built-in networks
     #[serde(default)]
     pub rpc: HashMap<String, String>,
@@ -86,9 +84,9 @@ pub struct Config {
 pub struct CustomNetwork {
     /// Network identifier (e.g., "my-custom-chain")
     pub id: String,
-    /// Chain type (evm or solana)
+    /// Chain type (currently only EVM is supported)
     pub chain_type: ChainType,
-    /// Chain ID for EVM networks (None for Solana)
+    /// Chain ID for EVM networks
     #[serde(default)]
     pub chain_id: Option<u64>,
     /// Whether this is a mainnet or testnet
@@ -173,80 +171,6 @@ impl WalletConfig for EvmConfig {
 
     fn chain_name(&self) -> &'static str {
         "EVM"
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SolanaConfig {
-    /// Path to encrypted keystore file
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub keystore: Option<PathBuf>,
-
-    /// Base58 encoded private key (keypair bytes)
-    /// DEPRECATED: Use keystore instead for better security
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub private_key: Option<String>,
-}
-
-impl SolanaConfig {
-    /// Get the Solana public key from config (legacy method, use get_address instead)
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use get_address() from WalletConfig trait instead"
-    )]
-    pub fn get_pubkey(&self) -> Result<String> {
-        self.get_address()
-    }
-
-    fn extract_pubkey_from_keypair(private_key: &str) -> Result<String> {
-        use crate::constants::{SOLANA_KEYPAIR_BYTES, SOLANA_PUBKEY_BYTES};
-
-        let keypair_bytes = bs58::decode(private_key).into_vec().map_err(|e| {
-            PurlError::InvalidKey(format!("Failed to decode Solana private key: {e}"))
-        })?;
-
-        if keypair_bytes.len() != SOLANA_KEYPAIR_BYTES {
-            return Err(PurlError::InvalidKey(format!(
-                "Invalid Solana keypair length: expected {} bytes, got {}",
-                SOLANA_KEYPAIR_BYTES,
-                keypair_bytes.len()
-            )));
-        }
-
-        // Public key is the last 32 bytes
-        let pubkey_bytes = &keypair_bytes[SOLANA_PUBKEY_BYTES..];
-        Ok(bs58::encode(pubkey_bytes).into_string())
-    }
-}
-
-impl WalletConfig for SolanaConfig {
-    type Address = String;
-
-    fn has_wallet(&self) -> bool {
-        self.keystore.is_some() || self.private_key.is_some()
-    }
-
-    fn validate(&self) -> Result<()> {
-        validate_wallet_source(
-            self.keystore.as_ref(),
-            self.private_key.as_ref(),
-            self.chain_name(),
-            crate::crypto::validate_solana_keypair,
-        )
-    }
-
-    fn get_address(&self) -> Result<String> {
-        if let Some(private_key) = &self.private_key {
-            Self::extract_pubkey_from_keypair(private_key)
-        } else {
-            Err(PurlError::ConfigMissing(
-                "No Solana wallet configured".to_string(),
-            ))
-        }
-    }
-
-    fn chain_name(&self) -> &'static str {
-        "Solana"
     }
 }
 
@@ -360,9 +284,6 @@ impl Config {
         if self.evm.is_some() {
             methods.push(PaymentMethod::Evm);
         }
-        if self.solana.is_some() {
-            methods.push(PaymentMethod::Solana);
-        }
         methods
     }
 
@@ -375,11 +296,6 @@ impl Config {
         if let Some(evm) = &self.evm {
             evm.validate()
                 .map_err(|e| PurlError::ConfigMissing(format!("EVM configuration invalid: {e}")))?;
-        }
-        if let Some(solana) = &self.solana {
-            solana.validate().map_err(|e| {
-                PurlError::ConfigMissing(format!("Solana configuration invalid: {e}"))
-            })?;
         }
         Ok(())
     }
@@ -394,17 +310,6 @@ impl Config {
             )
         })
     }
-
-    /// Get Solana configuration, returning an error if not configured.
-    ///
-    /// This is a convenience method to avoid repeated error handling boilerplate.
-    pub fn require_solana(&self) -> Result<&SolanaConfig> {
-        self.solana.as_ref().ok_or_else(|| {
-            PurlError::ConfigMissing(
-                "Solana configuration not found. Run 'purl init' to configure.".to_string(),
-            )
-        })
-    }
 }
 
 /// Payment method types supported by the library.
@@ -413,15 +318,12 @@ impl Config {
 pub enum PaymentMethod {
     /// Ethereum Virtual Machine compatible chains (Ethereum, Base, Polygon, etc.)
     Evm,
-    /// Solana blockchain
-    Solana,
 }
 
 impl PaymentMethod {
     pub fn as_str(&self) -> &'static str {
         match self {
             PaymentMethod::Evm => "evm",
-            PaymentMethod::Solana => "solana",
         }
     }
 
@@ -429,7 +331,6 @@ impl PaymentMethod {
     pub fn display_name(&self) -> &'static str {
         match self {
             PaymentMethod::Evm => "EVM",
-            PaymentMethod::Solana => "Solana",
         }
     }
 }
@@ -445,46 +346,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_config_with_both() {
+    fn test_parse_config_with_evm() {
         let toml = r#"
             [evm]
             private_key = "abcdef1234567890"
-
-            [solana]
-            private_key = "base58key"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse");
         assert!(config.evm.is_some());
-        assert!(config.solana.is_some());
         let evm = config.evm.as_ref().unwrap();
-        let solana = config.solana.as_ref().unwrap();
         assert_eq!(evm.private_key.as_ref().unwrap(), "abcdef1234567890");
-        assert_eq!(solana.private_key.as_ref().unwrap(), "base58key");
-    }
-
-    #[test]
-    fn test_parse_config_evm_only() {
-        let toml = r#"
-            [evm]
-            private_key = "abcdef1234567890"
-        "#;
-
-        let config: Config = toml::from_str(toml).expect("should parse");
-        assert!(config.evm.is_some());
-        assert!(config.solana.is_none());
-    }
-
-    #[test]
-    fn test_parse_config_solana_only() {
-        let toml = r#"
-            [solana]
-            private_key = "base58key"
-        "#;
-
-        let config: Config = toml::from_str(toml).expect("should parse");
-        assert!(config.evm.is_none());
-        assert!(config.solana.is_some());
     }
 
     #[test]
@@ -492,23 +363,14 @@ mod tests {
         let toml = r#"
             [evm]
             keystore = "/path/to/evm.json"
-
-            [solana]
-            keystore = "/path/to/solana.json"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse");
         assert!(config.evm.is_some());
-        assert!(config.solana.is_some());
         let evm = config.evm.as_ref().unwrap();
-        let solana = config.solana.as_ref().unwrap();
         assert_eq!(
             evm.keystore.as_ref().unwrap().to_str().unwrap(),
             "/path/to/evm.json"
-        );
-        assert_eq!(
-            solana.keystore.as_ref().unwrap().to_str().unwrap(),
-            "/path/to/solana.json"
         );
     }
 
@@ -519,28 +381,18 @@ mod tests {
                 keystore: None,
                 private_key: Some("test".to_string()),
             }),
-            solana: Some(SolanaConfig {
-                keystore: None,
-                private_key: Some("test".to_string()),
-            }),
-            ..Default::default()
-        };
-        let methods = config.available_payment_methods();
-        assert_eq!(methods.len(), 2);
-        assert!(methods.contains(&PaymentMethod::Evm));
-        assert!(methods.contains(&PaymentMethod::Solana));
-
-        let config = Config {
-            evm: None,
-            solana: Some(SolanaConfig {
-                keystore: None,
-                private_key: Some("test".to_string()),
-            }),
             ..Default::default()
         };
         let methods = config.available_payment_methods();
         assert_eq!(methods.len(), 1);
-        assert!(methods.contains(&PaymentMethod::Solana));
+        assert!(methods.contains(&PaymentMethod::Evm));
+
+        let config = Config {
+            evm: None,
+            ..Default::default()
+        };
+        let methods = config.available_payment_methods();
+        assert_eq!(methods.len(), 0);
     }
 
     #[test]
@@ -550,27 +402,6 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let config = Config {
             evm: Some(EvmConfig {
-                keystore: Some(temp_file.path().to_path_buf()),
-                private_key: Some("test_key".to_string()),
-            }),
-            ..Default::default()
-        };
-
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Cannot have both keystore and private_key"));
-    }
-
-    #[test]
-    fn test_validate_both_keystore_and_private_key_solana() {
-        use tempfile::NamedTempFile;
-
-        let temp_file = NamedTempFile::new().unwrap();
-        let config = Config {
-            solana: Some(SolanaConfig {
                 keystore: Some(temp_file.path().to_path_buf()),
                 private_key: Some("test_key".to_string()),
             }),
@@ -604,45 +435,9 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_no_wallet_source_solana() {
-        let config = Config {
-            solana: Some(SolanaConfig {
-                keystore: None,
-                private_key: None,
-            }),
-            ..Default::default()
-        };
-
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No Solana wallet configured"));
-    }
-
-    #[test]
     fn test_validate_missing_keystore_file_evm() {
         let config = Config {
             evm: Some(EvmConfig {
-                keystore: Some(PathBuf::from("/nonexistent/keystore.json")),
-                private_key: None,
-            }),
-            ..Default::default()
-        };
-
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("keystore file not found"));
-    }
-
-    #[test]
-    fn test_validate_missing_keystore_file_solana() {
-        let config = Config {
-            solana: Some(SolanaConfig {
                 keystore: Some(PathBuf::from("/nonexistent/keystore.json")),
                 private_key: None,
             }),
@@ -687,28 +482,12 @@ mod tests {
     }
 
     #[test]
-    fn test_require_solana_when_missing() {
-        let config = Config {
-            solana: None,
-            ..Default::default()
-        };
-
-        let result = config.require_solana();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Solana configuration not found"));
-    }
-
-    #[test]
     fn test_config_builder_with_rpc_override() {
         // Config builder with RPC override should work
         // We can't test full validation without a valid keystore,
         // so we just test that the RPC override is set correctly
         let config = Config {
             evm: None,
-            solana: None,
             rpc: {
                 let mut map = HashMap::new();
                 map.insert(
@@ -815,19 +594,16 @@ mod tests {
     #[test]
     fn test_payment_method_display() {
         assert_eq!(PaymentMethod::Evm.to_string(), "EVM");
-        assert_eq!(PaymentMethod::Solana.to_string(), "Solana");
     }
 
     #[test]
     fn test_payment_method_as_str() {
         assert_eq!(PaymentMethod::Evm.as_str(), "evm");
-        assert_eq!(PaymentMethod::Solana.as_str(), "solana");
     }
 
     #[test]
     fn test_payment_method_display_name() {
         assert_eq!(PaymentMethod::Evm.display_name(), "EVM");
-        assert_eq!(PaymentMethod::Solana.display_name(), "Solana");
     }
 
     #[test]
@@ -852,27 +628,6 @@ mod tests {
     }
 
     #[test]
-    fn test_solana_config_has_wallet() {
-        let config = SolanaConfig {
-            keystore: Some(PathBuf::from("/test/path")),
-            private_key: None,
-        };
-        assert!(config.has_wallet());
-
-        let config = SolanaConfig {
-            keystore: None,
-            private_key: Some("key".to_string()),
-        };
-        assert!(config.has_wallet());
-
-        let config = SolanaConfig {
-            keystore: None,
-            private_key: None,
-        };
-        assert!(!config.has_wallet());
-    }
-
-    #[test]
     fn test_evm_config_get_address_no_wallet() {
         let config = EvmConfig {
             keystore: None,
@@ -885,21 +640,6 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("No wallet configured"));
-    }
-
-    #[test]
-    fn test_solana_config_get_address_no_wallet() {
-        let config = SolanaConfig {
-            keystore: None,
-            private_key: None,
-        };
-
-        let result = config.get_address();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No Solana wallet configured"));
     }
 
     #[test]

@@ -1,9 +1,7 @@
 //! Integration tests for network and token configuration
 
 use purl::constants::get_token_decimals;
-use purl::network::{
-    get_evm_chain_id, get_network, is_evm_network, is_solana_network, ChainType, Network,
-};
+use purl::network::{get_evm_chain_id, get_network, is_evm_network, ChainType, Network};
 
 #[test]
 fn test_network_enum_has_entries() {
@@ -39,20 +37,6 @@ fn test_get_network() {
             name: "base-sepolia",
             expected_chain_type: ChainType::Evm,
             expected_chain_id: Some(84532),
-            expected_mainnet: false,
-            expected_display_name: None,
-        },
-        TestCase {
-            name: "solana",
-            expected_chain_type: ChainType::Solana,
-            expected_chain_id: None,
-            expected_mainnet: true,
-            expected_display_name: None,
-        },
-        TestCase {
-            name: "solana-devnet",
-            expected_chain_type: ChainType::Solana,
-            expected_chain_id: None,
             expected_mainnet: false,
             expected_display_name: None,
         },
@@ -98,8 +82,6 @@ fn test_is_evm_network() {
         ("polygon", true),
         ("arbitrum", true),
         ("optimism", true),
-        ("solana", false),
-        ("solana-devnet", false),
         ("unknown", false),
     ];
 
@@ -108,25 +90,6 @@ fn test_is_evm_network() {
             is_evm_network(network),
             expected,
             "is_evm_network({network}) should be {expected}"
-        );
-    }
-}
-
-#[test]
-fn test_is_solana_network() {
-    let test_cases = vec![
-        ("solana", true),
-        ("solana-devnet", true),
-        ("ethereum", false),
-        ("base", false),
-        ("unknown", false),
-    ];
-
-    for (network, expected) in test_cases {
-        assert_eq!(
-            is_solana_network(network),
-            expected,
-            "is_solana_network({network}) should be {expected}"
         );
     }
 }
@@ -143,8 +106,6 @@ fn test_get_evm_chain_id() {
         ("optimism", Some(10)),
         ("avalanche", Some(43114)),
         ("avalanche-fuji", Some(43113)),
-        // Solana networks don't have EVM chain IDs
-        ("solana", None),
         ("unknown", None),
     ];
 
@@ -162,10 +123,8 @@ fn test_network_mainnet_flag() {
     let test_cases = vec![
         ("ethereum", true),
         ("base", true),
-        ("solana", true),
         ("ethereum-sepolia", false),
         ("base-sepolia", false),
-        ("solana-devnet", false),
     ];
 
     for (network, expected_mainnet) in test_cases {
@@ -209,31 +168,12 @@ fn test_all_evm_networks_have_chain_ids() {
     }
 }
 
-#[test]
-fn test_solana_networks_have_no_chain_ids() {
-    for network in Network::all() {
-        let info = network.info();
-        if info.chain_type == ChainType::Solana {
-            assert!(
-                info.chain_id.is_none(),
-                "Solana network {network} should not have a chain_id"
-            );
-        }
-    }
-}
-
 // Token configuration tests
 
 #[test]
 fn test_get_token_decimals() {
     // Test success cases
     let success_cases = vec![
-        ("solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 6),
-        (
-            "solana-devnet",
-            "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-            6,
-        ),
         ("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", 6),
         // evm addresses not case sensitive
         ("base", "0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913", 6),
@@ -272,19 +212,6 @@ fn test_get_token_decimals() {
 }
 
 #[test]
-fn test_solana_addresses_are_case_sensitive() {
-    let decimals = get_token_decimals("solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-    assert!(decimals.is_ok());
-    assert_eq!(decimals.unwrap(), 6);
-
-    let decimals_wrong_case =
-        get_token_decimals("solana", "epjfwdd5aufqssqem2qn1xzybapC8G4wEGGkZwyTDt1v");
-    assert!(decimals_wrong_case.is_err());
-}
-
-#[test]
 fn test_chain_type_equality() {
     assert_eq!(ChainType::Evm, ChainType::Evm);
-    assert_eq!(ChainType::Solana, ChainType::Solana);
-    assert_ne!(ChainType::Evm, ChainType::Solana);
 }

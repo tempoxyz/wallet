@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Password};
 use purl::keystore::create_keystore;
-use purl::{Config, EvmConfig, SolanaConfig};
+use purl::{Config, EvmConfig};
 use std::path::PathBuf;
 
 const PURL_SKILL_CONTENT: &str = include_str!("../../.ai/skills/purl/SKILL.md");
@@ -78,47 +78,8 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
         None
     };
 
-    let configure_solana = Confirm::new()
-        .with_prompt("Configure Solana payment method?")
-        .default(true)
-        .interact()?;
-
-    let solana = if configure_solana {
-        println!("=== Solana Wallet Setup ===");
-        println!("Note: Solana keys are stored in plaintext in the config file.");
-
-        let generate = Confirm::new()
-            .with_prompt("Generate a new Solana keypair?")
-            .default(true)
-            .interact()?;
-
-        let private_key: String = if generate {
-            let (keypair_b58, pubkey_b58) = purl::crypto::generate_solana_keypair();
-
-            println!("Generated new Solana keypair:");
-            println!("Private key: {keypair_b58}");
-            println!("Public key:  {pubkey_b58}");
-            println!("Save this private key securely, you'll need it to recover your wallet.");
-            keypair_b58
-        } else {
-            Input::new()
-                .with_prompt("Enter Solana private key (base58 encoded)")
-                .interact_text()?
-        };
-
-        println!("Solana key configured");
-
-        Some(SolanaConfig {
-            keystore: None,
-            private_key: Some(private_key),
-        })
-    } else {
-        None
-    };
-
     let config = Config {
         evm,
-        solana,
         rpc: Default::default(),
         networks: Default::default(),
         tokens: Default::default(),

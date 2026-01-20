@@ -60,7 +60,6 @@ impl Client {
     ///         keystore: None,
     ///         private_key: Some("your_key_here".to_string()),
     ///     }),
-    ///     solana: None,
     ///     ..Default::default()
     /// };
     /// let client = Client::with_config(config);
@@ -346,7 +345,6 @@ mod tests {
                 keystore: None,
                 private_key: Some(TEST_EVM_KEY.to_string()),
             }),
-            solana: None,
             ..Default::default()
         }
     }

@@ -83,7 +83,6 @@ pub fn write_output(cli: &Cli, content: impl AsRef<str>) -> Result<()> {
 /// Decrypted private keys holder
 pub struct DecryptedKeys {
     pub evm_private_key: Option<String>,
-    pub solana_private_key: Option<String>,
 }
 
 /// Decrypt all keystores upfront before displaying
@@ -92,7 +91,6 @@ pub fn decrypt_keystores_upfront(
     use_password_cache: bool,
 ) -> Result<DecryptedKeys> {
     let mut evm_private_key = None;
-    let mut solana_private_key = None;
 
     if let Some(evm) = &config.evm {
         if let Some(keystore) = &evm.keystore {
@@ -106,22 +104,7 @@ pub fn decrypt_keystores_upfront(
         }
     }
 
-    if let Some(solana) = &config.solana {
-        if let Some(keystore) = &solana.keystore {
-            if let Ok(keypair_bytes) =
-                purl::keystore::decrypt_keystore(keystore, None, use_password_cache)
-            {
-                solana_private_key = Some(bs58::encode(&keypair_bytes).into_string());
-            }
-        } else if let Some(key) = &solana.private_key {
-            solana_private_key = Some(key.clone());
-        }
-    }
-
-    Ok(DecryptedKeys {
-        evm_private_key,
-        solana_private_key,
-    })
+    Ok(DecryptedKeys { evm_private_key })
 }
 
 /// Helper to build payment method display object
@@ -169,17 +152,6 @@ pub fn build_config_display(
                     &address,
                     "address",
                     decrypted_keys.and_then(|k| k.evm_private_key.as_ref()),
-                    show_private_keys,
-                )
-            })
-        }),
-        "solana": config.solana.as_ref().and_then(|solana| {
-            solana.get_address().ok().map(|pubkey| {
-                build_payment_method_display(
-                    solana.keystore.as_ref(),
-                    &pubkey,
-                    "public_key",
-                    decrypted_keys.and_then(|k| k.solana_private_key.as_ref()),
                     show_private_keys,
                 )
             })

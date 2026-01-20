@@ -22,14 +22,6 @@ pub fn get_command(cli: &Cli, key: &str, output_format: OutputFormat) -> Result<
                 .context("Failed to get EVM address")?;
             serde_json::Value::String(addr)
         }
-        "solana.public_key" | "solana.pubkey" => {
-            let pubkey = config
-                .require_solana()
-                .context("Solana configuration not found")?
-                .get_address()
-                .context("Failed to get Solana public key")?;
-            serde_json::Value::String(pubkey)
-        }
         _ => {
             // Read the raw TOML file to access nested keys
             let toml_content = std::fs::read_to_string(&config_path)
@@ -109,12 +101,6 @@ pub fn validate_command(cli: &Cli) -> Result<()> {
                 .evm
                 .as_ref()
                 .and_then(|evm| evm.get_address().ok())
-                .map(|addr| format!("OK ({addr})"))
-                .unwrap_or_else(|| "configured".to_string()),
-            purl::PaymentMethod::Solana => config
-                .solana
-                .as_ref()
-                .and_then(|sol| sol.get_address().ok())
                 .map(|addr| format!("OK ({addr})"))
                 .unwrap_or_else(|| "configured".to_string()),
         };

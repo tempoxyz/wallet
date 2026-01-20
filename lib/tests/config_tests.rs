@@ -1,6 +1,6 @@
 //! Integration tests for configuration management
 
-use purl::{Config, EvmConfig, PaymentMethod, SolanaConfig};
+use purl::{Config, EvmConfig, PaymentMethod};
 
 #[test]
 fn test_config_serialization_roundtrip() {
@@ -11,10 +11,6 @@ fn test_config_serialization_roundtrip() {
                 "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string(),
             ),
         }),
-        solana: Some(SolanaConfig {
-            keystore: None,
-            private_key: Some("5JGgKfRxbVz7WsNLhqJqBxu6CZWWqXW8HmqBxFKQxXqHkJ5KwRb".to_string()),
-        }),
         ..Default::default()
     };
 
@@ -22,14 +18,9 @@ fn test_config_serialization_roundtrip() {
     let deserialized: Config = toml::from_str(&toml_str).expect("Failed to deserialize");
 
     assert!(deserialized.evm.is_some());
-    assert!(deserialized.solana.is_some());
     assert_eq!(
         deserialized.evm.as_ref().unwrap().private_key,
         config.evm.as_ref().unwrap().private_key
-    );
-    assert_eq!(
-        deserialized.solana.as_ref().unwrap().private_key,
-        config.solana.as_ref().unwrap().private_key
     );
 }
 
@@ -37,10 +28,8 @@ fn test_config_serialization_roundtrip() {
 fn test_available_payment_methods() {
     struct TestCase {
         evm: Option<EvmConfig>,
-        solana: Option<SolanaConfig>,
         expected_len: usize,
         should_contain_evm: bool,
-        should_contain_solana: bool,
     }
 
     let test_cases = vec![
@@ -49,47 +38,19 @@ fn test_available_payment_methods() {
                 keystore: None,
                 private_key: Some("test".to_string()),
             }),
-            solana: Some(SolanaConfig {
-                keystore: None,
-                private_key: Some("test".to_string()),
-            }),
-            expected_len: 2,
-            should_contain_evm: true,
-            should_contain_solana: true,
-        },
-        TestCase {
-            evm: Some(EvmConfig {
-                keystore: None,
-                private_key: Some("test".to_string()),
-            }),
-            solana: None,
             expected_len: 1,
             should_contain_evm: true,
-            should_contain_solana: false,
         },
         TestCase {
             evm: None,
-            solana: Some(SolanaConfig {
-                keystore: None,
-                private_key: Some("test".to_string()),
-            }),
-            expected_len: 1,
-            should_contain_evm: false,
-            should_contain_solana: true,
-        },
-        TestCase {
-            evm: None,
-            solana: None,
             expected_len: 0,
             should_contain_evm: false,
-            should_contain_solana: false,
         },
     ];
 
     for test_case in test_cases {
         let config = Config {
             evm: test_case.evm,
-            solana: test_case.solana,
             ..Default::default()
         };
 
@@ -105,12 +66,6 @@ fn test_available_payment_methods() {
             test_case.should_contain_evm,
             "EVM method presence should be {}",
             test_case.should_contain_evm
-        );
-        assert_eq!(
-            methods.contains(&PaymentMethod::Solana),
-            test_case.should_contain_solana,
-            "Solana method presence should be {}",
-            test_case.should_contain_solana
         );
     }
 }
@@ -152,7 +107,6 @@ fn test_config_validation_evm() {
                 keystore: None,
                 private_key: Some(test_case.private_key.to_string()),
             }),
-            solana: None,
             ..Default::default()
         };
 
@@ -181,10 +135,7 @@ fn test_config_validation_evm() {
 
 #[test]
 fn test_payment_method_as_str() {
-    let test_cases = vec![
-        (PaymentMethod::Evm, "evm"),
-        (PaymentMethod::Solana, "solana"),
-    ];
+    let test_cases = vec![(PaymentMethod::Evm, "evm")];
 
     for (method, expected_str) in test_cases {
         assert_eq!(
@@ -204,7 +155,6 @@ fn test_config_partial_deserialization() {
 
     let config: Config = toml::from_str(toml).expect("Failed to parse");
     assert!(config.evm.is_some());
-    assert!(config.solana.is_none());
 }
 
 #[test]
@@ -213,5 +163,4 @@ fn test_config_empty_is_valid() {
 
     let config: Config = toml::from_str(toml).expect("Failed to parse empty config");
     assert!(config.evm.is_none());
-    assert!(config.solana.is_none());
 }

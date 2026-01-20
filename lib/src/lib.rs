@@ -13,7 +13,6 @@
 //! - `client`: High-level Client API (requires http-client and web-payment-auth)
 //! - `keystore`: Encrypted keystore management
 //! - `evm`: EVM provider support (Ethereum, Base, etc.)
-//! - `solana`: Solana provider support
 //! - `full`: All features enabled
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -36,7 +35,7 @@ pub mod http;
 #[cfg(feature = "keystore")]
 pub mod keystore;
 
-#[cfg(any(feature = "evm", feature = "solana"))]
+#[cfg(feature = "evm")]
 pub mod providers;
 
 #[cfg(feature = "client")]
@@ -45,9 +44,7 @@ pub mod client;
 pub use config::Config;
 pub use error::{PurlError, Result};
 
-pub use config::{
-    CustomNetwork, CustomToken, EvmConfig, PaymentMethod, SolanaConfig, WalletConfig,
-};
+pub use config::{CustomNetwork, CustomToken, EvmConfig, PaymentMethod, WalletConfig};
 pub use currency::{currencies, Currency};
 pub use network::{evm_chain_ids, networks, ChainType, GasConfig, Network, NetworkInfo};
 pub use path_validation::validate_path;

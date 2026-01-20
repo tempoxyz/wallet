@@ -301,7 +301,6 @@ mod tests {
                 keystore: None,
                 private_key: Some(TEST_EVM_KEY.to_string()),
             }),
-            solana: None,
             ..Default::default()
         }
     }
@@ -315,9 +314,9 @@ mod tests {
         assert!(provider.supports_network("ethereum"));
         assert!(provider.supports_network("tempo-moderato"));
 
-        assert!(!provider.supports_network("solana"));
-        assert!(!provider.supports_network("solana-devnet"));
         assert!(!provider.supports_network("unknown-network"));
+        assert!(!provider.supports_network("nonexistent-chain"));
+        assert!(!provider.supports_network("invalid"));
     }
 
     #[test]
@@ -370,8 +369,5 @@ mod tests {
         assert!(Network::Base.gas_config().is_some());
         assert!(Network::TempoModerato.gas_config().is_some());
         assert!(Network::Ethereum.gas_config().is_some());
-
-        assert!(Network::Solana.gas_config().is_none());
-        assert!(Network::SolanaDevnet.gas_config().is_none());
     }
 }
