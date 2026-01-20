@@ -536,8 +536,9 @@ This project uses [Tempo lints](https://github.com/tempoxyz/lints) for code qual
 ```bash
 # Run all Rust lints
 npm run lint
-
 ```
+
+**Note**: Use `npm` for linting instead of `pnpm`. The `@tempoxyz/lints` package uses build scripts that are blocked by pnpm v10's security features, preventing proper installation of the ast-grep binary.
 
 To disable a lint for a specific line:
 ```rust
