@@ -1,5 +1,6 @@
 //! Balance command for checking token wallet balances on configured networks
 
+use alloy::primitives::U256;
 use anyhow::{Context, Result};
 use purl::currency::currencies;
 use purl::network::{ChainType, Network};
@@ -24,12 +25,13 @@ fn mock_balance(
         _ => "0",
     };
 
-    NetworkBalance {
-        network: network.to_string(),
-        balance_atomic: mock_atomic.to_string(),
-        balance_human: currency.format_atomic(mock_atomic.parse().unwrap_or(0)),
-        asset: format!("{} (mock)", currency.symbol),
-    }
+    let atomic_value: u128 = mock_atomic.parse().unwrap_or(0);
+    NetworkBalance::new(
+        network,
+        U256::from(atomic_value),
+        currency.format_atomic(atomic_value),
+        format!("{} (mock)", currency.symbol),
+    )
 }
 
 /// Check token balances for configured networks
