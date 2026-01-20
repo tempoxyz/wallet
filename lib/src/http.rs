@@ -1,4 +1,9 @@
 //! HTTP client implementation using reqwest.
+//!
+//! This module provides an async-first HTTP client with an optional blocking wrapper.
+//! The default API is asynchronous, suitable for use with async runtimes.
+//!
+//! For synchronous code, enable the `blocking` feature and use `http::blocking::HttpClient`.
 
 use crate::error::Result;
 use std::collections::HashMap;
@@ -113,21 +118,21 @@ impl HttpResponse {
     }
 }
 
-/// Builder for configuring HTTP clients.
+/// Configuration for building HTTP clients.
 ///
-/// This provides a fluent API for setting up an HttpClient with various options.
-#[must_use]
-pub struct HttpClientBuilder {
-    verbose: bool,
-    timeout: Option<u64>,
-    follow_redirects: bool,
-    user_agent: Option<String>,
-    headers: Vec<(String, String)>,
+/// This struct holds the configuration options that can be used to build
+/// both async and blocking HTTP clients.
+#[derive(Clone)]
+pub struct HttpClientConfig {
+    pub(crate) verbose: bool,
+    pub(crate) timeout: Option<u64>,
+    pub(crate) follow_redirects: bool,
+    pub(crate) user_agent: Option<String>,
+    pub(crate) headers: Vec<(String, String)>,
 }
 
-impl HttpClientBuilder {
-    /// Create a new HTTP client builder with default settings.
-    pub fn new() -> Self {
+impl Default for HttpClientConfig {
+    fn default() -> Self {
         Self {
             verbose: false,
             timeout: None,
@@ -136,64 +141,113 @@ impl HttpClientBuilder {
             headers: Vec::new(),
         }
     }
+}
+
+/// Builder for configuring HTTP clients.
+///
+/// This provides a fluent API for setting up an HttpClient with various options.
+#[must_use]
+pub struct HttpClientBuilder {
+    config: HttpClientConfig,
+}
+
+impl HttpClientBuilder {
+    /// Create a new HTTP client builder with default settings.
+    pub fn new() -> Self {
+        Self {
+            config: HttpClientConfig::default(),
+        }
+    }
 
     /// Enable verbose output for debugging.
     pub fn verbose(mut self, verbose: bool) -> Self {
-        self.verbose = verbose;
+        self.config.verbose = verbose;
         self
     }
 
     /// Set request timeout in seconds.
     pub fn timeout(mut self, seconds: u64) -> Self {
-        self.timeout = Some(seconds);
+        self.config.timeout = Some(seconds);
         self
     }
 
     /// Enable following HTTP redirects.
     pub fn follow_redirects(mut self, follow: bool) -> Self {
-        self.follow_redirects = follow;
+        self.config.follow_redirects = follow;
         self
     }
 
     /// Set custom User-Agent header.
     pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
-        self.user_agent = Some(ua.into());
+        self.config.user_agent = Some(ua.into());
         self
     }
 
     /// Add a custom HTTP header.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.push((name.into(), value.into()));
+        self.config.headers.push((name.into(), value.into()));
         self
     }
 
     /// Add multiple headers at once.
     pub fn headers(mut self, headers: &[(String, String)]) -> Self {
-        self.headers.extend_from_slice(headers);
+        self.config.headers.extend_from_slice(headers);
         self
     }
 
-    /// Build the configured HTTP client.
+    /// Build the configured async HTTP client.
     pub fn build(self) -> Result<HttpClient> {
-        let mut builder = reqwest::blocking::Client::builder().connection_verbose(self.verbose);
+        HttpClient::from_config(self.config)
+    }
 
-        if let Some(timeout) = self.timeout {
+    /// Build a blocking HTTP client (requires `blocking` feature).
+    #[cfg(feature = "blocking")]
+    pub fn build_blocking(self) -> Result<blocking::HttpClient> {
+        blocking::HttpClient::from_config(self.config)
+    }
+}
+
+impl Default for HttpClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Async HTTP client for making HTTP requests.
+///
+/// This is the primary HTTP client, using async/await for non-blocking I/O.
+/// For synchronous code, use `http::blocking::HttpClient` instead (requires `blocking` feature).
+pub struct HttpClient {
+    client: reqwest::Client,
+}
+
+impl HttpClient {
+    /// Create a new async HTTP client with default settings.
+    pub fn new() -> Result<Self> {
+        HttpClientBuilder::new().build()
+    }
+
+    /// Create an async HTTP client from configuration.
+    pub(crate) fn from_config(config: HttpClientConfig) -> Result<Self> {
+        let mut builder = reqwest::Client::builder().connection_verbose(config.verbose);
+
+        if let Some(timeout) = config.timeout {
             builder = builder.timeout(Duration::from_secs(timeout));
         }
 
-        if self.follow_redirects {
+        if config.follow_redirects {
             builder = builder.redirect(reqwest::redirect::Policy::limited(10));
         } else {
             builder = builder.redirect(reqwest::redirect::Policy::none());
         }
 
-        if let Some(ref ua) = self.user_agent {
+        if let Some(ref ua) = config.user_agent {
             builder = builder.user_agent(ua);
         }
 
-        if !self.headers.is_empty() {
+        if !config.headers.is_empty() {
             let mut header_map = reqwest::header::HeaderMap::new();
-            for (name, value) in &self.headers {
+            for (name, value) in &config.headers {
                 if let (Ok(header_name), Ok(header_value)) = (
                     reqwest::header::HeaderName::from_bytes(name.as_bytes()),
                     reqwest::header::HeaderValue::from_str(value),
@@ -207,47 +261,31 @@ impl HttpClientBuilder {
         let client = builder.build()?;
         Ok(HttpClient { client })
     }
-}
-
-impl Default for HttpClientBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub struct HttpClient {
-    client: reqwest::blocking::Client,
-}
-
-impl HttpClient {
-    pub fn new() -> Result<Self> {
-        HttpClientBuilder::new().build()
-    }
 
     /// Perform a GET request
-    pub fn get(&mut self, url: &str) -> Result<HttpResponse> {
-        let response = self.client.get(url).send()?;
-        Self::convert_response(response)
+    pub async fn get(&self, url: &str) -> Result<HttpResponse> {
+        let response = self.client.get(url).send().await?;
+        Self::convert_response(response).await
     }
 
     /// Perform a POST request with optional body
-    pub fn post(&mut self, url: &str, body: Option<&[u8]>) -> Result<HttpResponse> {
+    pub async fn post(&self, url: &str, body: Option<&[u8]>) -> Result<HttpResponse> {
         let mut request = self.client.post(url);
 
         if let Some(data) = body {
             request = request.body(data.to_vec());
         }
 
-        let response = request.send()?;
-        Self::convert_response(response)
+        let response = request.send().await?;
+        Self::convert_response(response).await
     }
 
     /// Perform a request with the specified HTTP method and optional body.
     ///
     /// This method accepts any type that implements `Into<HttpMethod>`, including
     /// `&str` for convenience.
-    pub fn request(
-        &mut self,
+    pub async fn request(
+        &self,
         method: impl Into<HttpMethod>,
         url: &str,
         body: Option<&[u8]>,
@@ -272,12 +310,12 @@ impl HttpClient {
             request = request.body(data.to_vec());
         }
 
-        let response = request.send()?;
-        Self::convert_response(response)
+        let response = request.send().await?;
+        Self::convert_response(response).await
     }
 
     /// Convert a reqwest response to our HttpResponse type
-    fn convert_response(response: reqwest::blocking::Response) -> Result<HttpResponse> {
+    async fn convert_response(response: reqwest::Response) -> Result<HttpResponse> {
         let status_code = response.status().as_u16() as u32;
 
         // Convert headers to HashMap with lowercase keys
@@ -288,7 +326,7 @@ impl HttpClient {
             }
         }
 
-        let body = response.bytes()?.to_vec();
+        let body = response.bytes().await?.to_vec();
 
         Ok(HttpResponse {
             status_code,
@@ -305,8 +343,148 @@ impl Default for HttpClient {
         // since we're not doing any I/O or validation that could fail.
         // However, to be safe we provide a fallback that creates a basic client directly.
         Self::new().unwrap_or_else(|_| Self {
-            client: reqwest::blocking::Client::new(),
+            client: reqwest::Client::new(),
         })
+    }
+}
+
+/// Blocking HTTP client module (requires `blocking` feature).
+///
+/// This module provides a synchronous HTTP client API for use in non-async contexts.
+#[cfg(feature = "blocking")]
+pub mod blocking {
+    use super::*;
+
+    /// Blocking HTTP client for synchronous HTTP requests.
+    ///
+    /// This provides the same API as the async `HttpClient`, but with synchronous methods.
+    /// Use this in non-async contexts or when you need blocking I/O.
+    pub struct HttpClient {
+        client: reqwest::blocking::Client,
+    }
+
+    impl HttpClient {
+        /// Create a new blocking HTTP client with default settings.
+        pub fn new() -> Result<Self> {
+            HttpClientBuilder::new().build_blocking()
+        }
+
+        /// Create a blocking HTTP client from configuration.
+        pub(crate) fn from_config(config: HttpClientConfig) -> Result<Self> {
+            let mut builder =
+                reqwest::blocking::Client::builder().connection_verbose(config.verbose);
+
+            if let Some(timeout) = config.timeout {
+                builder = builder.timeout(Duration::from_secs(timeout));
+            }
+
+            if config.follow_redirects {
+                builder = builder.redirect(reqwest::redirect::Policy::limited(10));
+            } else {
+                builder = builder.redirect(reqwest::redirect::Policy::none());
+            }
+
+            if let Some(ref ua) = config.user_agent {
+                builder = builder.user_agent(ua);
+            }
+
+            if !config.headers.is_empty() {
+                let mut header_map = reqwest::header::HeaderMap::new();
+                for (name, value) in &config.headers {
+                    if let (Ok(header_name), Ok(header_value)) = (
+                        reqwest::header::HeaderName::from_bytes(name.as_bytes()),
+                        reqwest::header::HeaderValue::from_str(value),
+                    ) {
+                        header_map.insert(header_name, header_value);
+                    }
+                }
+                builder = builder.default_headers(header_map);
+            }
+
+            let client = builder.build()?;
+            Ok(HttpClient { client })
+        }
+
+        /// Perform a GET request
+        pub fn get(&self, url: &str) -> Result<HttpResponse> {
+            let response = self.client.get(url).send()?;
+            Self::convert_response(response)
+        }
+
+        /// Perform a POST request with optional body
+        pub fn post(&self, url: &str, body: Option<&[u8]>) -> Result<HttpResponse> {
+            let mut request = self.client.post(url);
+
+            if let Some(data) = body {
+                request = request.body(data.to_vec());
+            }
+
+            let response = request.send()?;
+            Self::convert_response(response)
+        }
+
+        /// Perform a request with the specified HTTP method and optional body.
+        ///
+        /// This method accepts any type that implements `Into<HttpMethod>`, including
+        /// `&str` for convenience.
+        pub fn request(
+            &self,
+            method: impl Into<HttpMethod>,
+            url: &str,
+            body: Option<&[u8]>,
+        ) -> Result<HttpResponse> {
+            let method = method.into();
+
+            let reqwest_method = match &method {
+                HttpMethod::Get => reqwest::Method::GET,
+                HttpMethod::Post => reqwest::Method::POST,
+                HttpMethod::Put => reqwest::Method::PUT,
+                HttpMethod::Patch => reqwest::Method::PATCH,
+                HttpMethod::Delete => reqwest::Method::DELETE,
+                HttpMethod::Head => reqwest::Method::HEAD,
+                HttpMethod::Options => reqwest::Method::OPTIONS,
+                HttpMethod::Custom(s) => reqwest::Method::from_bytes(s.as_bytes())
+                    .map_err(|e| crate::error::PurlError::UnsupportedHttpMethod(e.to_string()))?,
+            };
+
+            let mut request = self.client.request(reqwest_method, url);
+
+            if let Some(data) = body {
+                request = request.body(data.to_vec());
+            }
+
+            let response = request.send()?;
+            Self::convert_response(response)
+        }
+
+        /// Convert a reqwest response to our HttpResponse type
+        fn convert_response(response: reqwest::blocking::Response) -> Result<HttpResponse> {
+            let status_code = response.status().as_u16() as u32;
+
+            // Convert headers to HashMap with lowercase keys
+            let mut headers = HashMap::new();
+            for (key, value) in response.headers() {
+                if let Ok(value_str) = value.to_str() {
+                    headers.insert(key.as_str().to_lowercase(), value_str.to_string());
+                }
+            }
+
+            let body = response.bytes()?.to_vec();
+
+            Ok(HttpResponse {
+                status_code,
+                headers,
+                body,
+            })
+        }
+    }
+
+    impl Default for HttpClient {
+        fn default() -> Self {
+            Self::new().unwrap_or_else(|_| Self {
+                client: reqwest::blocking::Client::new(),
+            })
+        }
     }
 }
 

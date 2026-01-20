@@ -22,8 +22,11 @@ utils = ["dep:bs58", "dep:hex", "dep:base64", "dep:rand"]
 # Configuration file support
 config = ["dep:toml", "dep:regex"]
 
-# HTTP client support (using reqwest)
+# HTTP client support (using reqwest) - async by default
 http-client = ["dep:reqwest", "runtime"]
+
+# Blocking HTTP client (synchronous API wrapper)
+blocking = ["http-client", "reqwest/blocking"]
 
 # High-level client API (requires http-client and web-payment-auth)
 client = ["http-client", "web-payment-auth", "utils", "runtime"]
@@ -43,7 +46,7 @@ evm = [
 ]
 
 # Full featured (all functionality)
-full = ["evm", "client", "keystore", "http-client", "config"]
+full = ["evm", "client", "keystore", "http-client", "config", "blocking"]
 
 [dependencies]
 # Core dependencies (minimal - only for protocol and error types)

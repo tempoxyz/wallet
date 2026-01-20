@@ -181,23 +181,23 @@ impl Client {
     }
 
     /// Execute an HTTP request with the configured method and data
-    fn execute_request(
+    async fn execute_request(
         &self,
-        client: &mut HttpClient,
+        client: &HttpClient,
         method: &str,
         url: &str,
         data: Option<&[u8]>,
     ) -> Result<HttpResponse> {
         match method {
-            "GET" => client.get(url),
-            "POST" => client.post(url, data),
+            "GET" => client.get(url).await,
+            "POST" => client.post(url, data).await,
             _ => Err(PurlError::UnsupportedHttpMethod(method.to_string())),
         }
     }
 
     async fn request(&self, method: &str, url: &str, data: Option<&[u8]>) -> Result<PaymentResult> {
-        let mut client = self.configure_client(&[])?;
-        let response = self.execute_request(&mut client, method, url, data)?;
+        let client = self.configure_client(&[])?;
+        let response = self.execute_request(&client, method, url, data).await?;
 
         if !response.is_payment_required() {
             return Ok(PaymentResult::Success(response));
@@ -300,8 +300,8 @@ impl Client {
         let auth_header = crate::protocol::web::format_authorization(&credential)?;
 
         let payment_header = vec![("Authorization".to_string(), auth_header)];
-        let mut client = self.configure_client(&payment_header)?;
-        let response = self.execute_request(&mut client, method, url, data)?;
+        let client = self.configure_client(&payment_header)?;
+        let response = self.execute_request(&client, method, url, data).await?;
 
         let receipt = if let Some(receipt_header) =
             response.get_header(crate::protocol::web::PAYMENT_RECEIPT_HEADER)
