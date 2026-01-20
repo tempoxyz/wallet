@@ -2,7 +2,9 @@ use crate::config::{Config, WalletConfig};
 use crate::currency::Currency;
 use crate::error::{PurlError, Result};
 use crate::network::{get_network, ChainType, GasConfig, Network};
-use crate::payment_provider::{NetworkBalance, PaymentProvider};
+use crate::payment_provider::{
+    AddressProvider, BalanceProvider, NetworkBalance, PaymentProvider, Provider,
+};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
@@ -30,22 +32,26 @@ impl EvmProvider {
     }
 }
 
-#[async_trait]
-impl PaymentProvider for EvmProvider {
+impl Provider for EvmProvider {
+    fn name(&self) -> &str {
+        PROVIDER_NAME
+    }
+
     fn supports_network(&self, network: &str) -> bool {
         get_network(network)
             .map(|n| n.chain_type == ChainType::Evm)
             .unwrap_or(false)
     }
+}
 
-    fn name(&self) -> &str {
-        PROVIDER_NAME
-    }
-
+impl AddressProvider for EvmProvider {
     fn get_address(&self, config: &Config) -> Result<String> {
         config.require_evm()?.get_address()
     }
+}
 
+#[async_trait]
+impl BalanceProvider for EvmProvider {
     async fn get_balance(
         &self,
         address: &str,
@@ -105,7 +111,10 @@ impl PaymentProvider for EvmProvider {
             asset: token_config.currency.symbol.to_string(),
         })
     }
+}
 
+#[async_trait]
+impl PaymentProvider for EvmProvider {
     async fn create_web_payment(
         &self,
         challenge: &crate::protocol::web::PaymentChallenge,
