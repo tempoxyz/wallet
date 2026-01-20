@@ -25,6 +25,7 @@ pub mod constants;
 pub mod crypto;
 pub mod currency;
 pub mod error;
+pub mod money;
 pub mod network;
 pub mod path_validation;
 pub mod payment_provider;
@@ -55,6 +56,7 @@ pub use error::{PurlError, Result, ResultExt, SigningContext};
 
 pub use config::{CustomNetwork, CustomToken, EvmConfig, PaymentMethod, WalletConfig};
 pub use currency::{currencies, Currency};
+pub use money::{format_u256_trimmed, format_u256_with_decimals, Money, TokenId};
 pub use network::{evm_chain_ids, networks, ChainType, GasConfig, Network, NetworkInfo};
 pub use path_validation::validate_path;
 pub use payment_provider::{
