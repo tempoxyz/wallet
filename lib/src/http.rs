@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
+use tracing::warn;
 
 /// HTTP request methods.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -236,12 +237,21 @@ impl HttpClient {
         if !config.headers.is_empty() {
             let mut header_map = reqwest::header::HeaderMap::new();
             for (name, value) in &config.headers {
-                if let (Ok(header_name), Ok(header_value)) = (
-                    reqwest::header::HeaderName::from_bytes(name.as_bytes()),
-                    reqwest::header::HeaderValue::from_str(value),
-                ) {
-                    header_map.insert(header_name, header_value);
-                }
+                let header_name = match reqwest::header::HeaderName::from_bytes(name.as_bytes()) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        warn!(header_name = %name, error = %e, "dropping header with invalid name");
+                        continue;
+                    }
+                };
+                let header_value = match reqwest::header::HeaderValue::from_str(value) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!(header_name = %name, header_value = %value, error = %e, "dropping header with invalid value");
+                        continue;
+                    }
+                };
+                header_map.insert(header_name, header_value);
             }
             builder = builder.default_headers(header_map);
         }
@@ -379,12 +389,22 @@ pub mod blocking {
             if !config.headers.is_empty() {
                 let mut header_map = reqwest::header::HeaderMap::new();
                 for (name, value) in &config.headers {
-                    if let (Ok(header_name), Ok(header_value)) = (
-                        reqwest::header::HeaderName::from_bytes(name.as_bytes()),
-                        reqwest::header::HeaderValue::from_str(value),
-                    ) {
-                        header_map.insert(header_name, header_value);
-                    }
+                    let header_name = match reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                    {
+                        Ok(n) => n,
+                        Err(e) => {
+                            warn!(header_name = %name, error = %e, "dropping header with invalid name");
+                            continue;
+                        }
+                    };
+                    let header_value = match reqwest::header::HeaderValue::from_str(value) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!(header_name = %name, header_value = %value, error = %e, "dropping header with invalid value");
+                            continue;
+                        }
+                    };
+                    header_map.insert(header_name, header_value);
                 }
                 builder = builder.default_headers(header_map);
             }
