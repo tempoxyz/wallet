@@ -20,12 +20,11 @@ fn mock_balance(
 ) -> NetworkBalance {
     // Return a realistic-looking mock balance
     let mock_atomic = match network {
-        Network::Base | Network::Ethereum => U256::from(1_000_000u64), // 1 USDC
-        Network::BaseSepolia | Network::EthereumSepolia => U256::from(5_000_000u64), // 5 USDC
+        Network::Base | Network::Ethereum => U256::from(1_000_000u64),
+        Network::BaseSepolia | Network::EthereumSepolia => U256::from(5_000_000u64),
         _ => U256::ZERO,
     };
 
-    // Use format_u256_with_decimals for consistent formatting without truncation
     let balance_human = format_u256_with_decimals(mock_atomic, currency.decimals);
     NetworkBalance::new(
         network,

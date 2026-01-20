@@ -1,19 +1,4 @@
-//! Unified money abstraction for type-safe token amount handling.
-//!
-//! This module provides a single source of truth for representing token amounts,
-//! preventing cross-token confusion and truncation errors.
-//!
-//! # Key Types
-//!
-//! - [`TokenId`]: Canonical identity for a token (network + asset address)
-//! - [`Money`]: A token amount with full type information
-//!
-//! # Design Goals
-//!
-//! 1. **No truncation**: Always use U256 for amounts, never u128
-//! 2. **Cross-token safety**: TokenId prevents mixing different tokens
-//! 3. **Centralized formatting**: All formatting logic in one place
-//! 4. **Checked arithmetic**: Operations verify token identity matches
+//! Type-safe token amount handling with [`TokenId`] and [`Money`].
 
 use crate::error::{PurlError, Result};
 use crate::network::Network;
