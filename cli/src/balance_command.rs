@@ -162,8 +162,8 @@ mod tests {
         let usdc = currencies::USDC;
 
         let balance = mock_balance(Network::Base, "0x123", &usdc);
-        assert_eq!(balance.network, "base");
-        assert_eq!(balance.balance_atomic, "1000000");
+        assert_eq!(balance.network, Network::Base);
+        assert_eq!(balance.balance, U256::from(1_000_000u64));
         assert!(balance.asset.contains("mock"));
     }
 
