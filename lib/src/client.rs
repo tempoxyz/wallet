@@ -1,11 +1,191 @@
 //! Library API - high-level client for making payment-enabled HTTP requests
 
+use std::marker::PhantomData;
+
 use crate::config::Config;
 use crate::error::{PurlError, Result};
 use crate::http::{HttpClient, HttpClientBuilder, HttpResponse};
 use crate::payment_provider::PROVIDER_REGISTRY;
 
-/// Builder for making payment-enabled HTTP requests.
+/// Marker for unconfigured client builder
+pub struct Unconfigured;
+
+/// Marker for configured client builder (has Config)
+pub struct Configured;
+
+/// Builder for creating payment-enabled HTTP clients.
+///
+/// Uses the typestate pattern to ensure a Config is provided before building.
+/// This provides compile-time guarantees that you cannot build a Client
+/// without first providing configuration.
+///
+/// # Example
+/// ```no_run
+/// # use purl::{Client, Config};
+/// # fn example() -> purl::Result<()> {
+/// // Using the builder with explicit config
+/// let client = Client::builder()
+///     .max_amount("1000000")
+///     .verbose(true)
+///     .config(Config::default())
+///     .build();
+///
+/// // Or load config from default location
+/// let client = Client::builder()
+///     .max_amount("1000000")
+///     .load_config()?
+///     .build();
+/// # Ok(())
+/// # }
+/// ```
+pub struct ClientBuilder<State = Unconfigured> {
+    config: Option<Config>,
+    max_amount: Option<String>,
+    allowed_networks: Vec<String>,
+    headers: Vec<(String, String)>,
+    timeout: Option<u64>,
+    follow_redirects: bool,
+    user_agent: Option<String>,
+    verbose: bool,
+    dry_run: bool,
+    _state: PhantomData<State>,
+}
+
+impl ClientBuilder<Unconfigured> {
+    /// Create a new unconfigured client builder
+    pub fn new() -> Self {
+        Self {
+            config: None,
+            max_amount: None,
+            allowed_networks: Vec::new(),
+            headers: Vec::new(),
+            timeout: None,
+            follow_redirects: false,
+            user_agent: None,
+            verbose: false,
+            dry_run: false,
+            _state: PhantomData,
+        }
+    }
+
+    /// Set the configuration, transitioning to Configured state
+    pub fn config(self, config: Config) -> ClientBuilder<Configured> {
+        ClientBuilder {
+            config: Some(config),
+            max_amount: self.max_amount,
+            allowed_networks: self.allowed_networks,
+            headers: self.headers,
+            timeout: self.timeout,
+            follow_redirects: self.follow_redirects,
+            user_agent: self.user_agent,
+            verbose: self.verbose,
+            dry_run: self.dry_run,
+            _state: PhantomData,
+        }
+    }
+
+    /// Load config from default location and transition to Configured state
+    pub fn load_config(self) -> Result<ClientBuilder<Configured>> {
+        let config = Config::load()?;
+        Ok(self.config(config))
+    }
+}
+
+impl Default for ClientBuilder<Unconfigured> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// Methods available on any state
+impl<S> ClientBuilder<S> {
+    /// Set the maximum amount (in token base units) willing to pay.
+    ///
+    /// If a payment request exceeds this amount, the request will fail
+    /// with an `AmountExceedsMax` error.
+    #[must_use]
+    pub fn max_amount(mut self, amount: impl Into<String>) -> Self {
+        self.max_amount = Some(amount.into());
+        self
+    }
+
+    /// Restrict payments to only these networks.
+    ///
+    /// If specified, only payment requirements for these networks will be considered.
+    /// Pass an empty slice to allow all networks.
+    #[must_use]
+    pub fn allowed_networks(mut self, networks: &[&str]) -> Self {
+        self.allowed_networks = networks.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    /// Add a custom HTTP header to all requests.
+    ///
+    /// Can be called multiple times to add multiple headers.
+    #[must_use]
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// Set the HTTP request timeout in seconds.
+    #[must_use]
+    pub fn timeout(mut self, seconds: u64) -> Self {
+        self.timeout = Some(seconds);
+        self
+    }
+
+    /// Enable or disable automatic following of HTTP redirects.
+    #[must_use]
+    pub fn follow_redirects(mut self, follow: bool) -> Self {
+        self.follow_redirects = follow;
+        self
+    }
+
+    /// Set a custom User-Agent header.
+    #[must_use]
+    pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
+        self.user_agent = Some(ua.into());
+        self
+    }
+
+    /// Enable or disable verbose output for debugging.
+    #[must_use]
+    pub fn verbose(mut self, verbose: bool) -> Self {
+        self.verbose = verbose;
+        self
+    }
+
+    /// Enable or disable dry-run mode.
+    ///
+    /// In dry-run mode, payment requirements are negotiated but no actual
+    /// payment is made. Returns `PaymentResult::DryRun` with payment details.
+    #[must_use]
+    pub fn dry_run(mut self, dry_run: bool) -> Self {
+        self.dry_run = dry_run;
+        self
+    }
+}
+
+// Build is only available on Configured state
+impl ClientBuilder<Configured> {
+    /// Build the client. Only available when Config has been provided.
+    pub fn build(self) -> Client {
+        Client {
+            config: self.config.expect("Config guaranteed by typestate"),
+            max_amount: self.max_amount,
+            allowed_networks: self.allowed_networks,
+            headers: self.headers,
+            timeout: self.timeout,
+            follow_redirects: self.follow_redirects,
+            user_agent: self.user_agent,
+            verbose: self.verbose,
+            dry_run: self.dry_run,
+        }
+    }
+}
+
+/// A payment-enabled HTTP client for making requests.
 ///
 /// This is the main entry point for making HTTP requests with automatic payment handling.
 /// Requests that return a 402 Payment Required status will automatically negotiate payment
@@ -36,18 +216,40 @@ pub struct Client {
 }
 
 impl Client {
+    /// Create a builder for configuring a Client.
+    ///
+    /// The builder uses the typestate pattern to ensure a Config is provided
+    /// before building. You can set configuration options before or after
+    /// providing the config.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use purl::{Client, Config};
+    /// # fn example() -> purl::Result<()> {
+    /// let client = Client::builder()
+    ///     .max_amount("1000000")
+    ///     .config(Config::default())
+    ///     .build();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn builder() -> ClientBuilder<Unconfigured> {
+        ClientBuilder::new()
+    }
+
     /// Create a new Client by loading configuration from the default location.
     ///
     /// This loads the config from `~/.config/purl/purl.toml`.
+    /// Convenience method equivalent to `Client::builder().load_config()?.build()`
     ///
     /// # Errors
     /// Returns an error if the config file cannot be found or parsed.
     pub fn new() -> Result<Self> {
-        let config = Config::load()?;
-        Ok(Self::with_config(config))
+        Ok(Client::builder().load_config()?.build())
     }
 
     /// Create a new Client with the provided configuration.
+    /// Convenience method equivalent to `Client::builder().config(config).build()`
     ///
     /// Use this when you want to provide configuration programmatically
     /// rather than loading it from a file.
@@ -65,17 +267,7 @@ impl Client {
     /// let client = Client::with_config(config);
     /// ```
     pub fn with_config(config: Config) -> Self {
-        Self {
-            config,
-            max_amount: None,
-            allowed_networks: Vec::new(),
-            headers: Vec::new(),
-            timeout: None,
-            follow_redirects: false,
-            user_agent: None,
-            verbose: false,
-            dry_run: false,
-        }
+        Client::builder().config(config).build()
     }
 
     /// Set the maximum amount (in token base units) willing to pay.
@@ -531,5 +723,94 @@ mod tests {
         let additional = vec![("X-Additional".to_string(), "additional".to_string())];
         let result = client.configure_client(&additional);
         assert!(result.is_ok());
+    }
+
+    // Typestate builder pattern tests
+
+    #[test]
+    fn test_client_builder_new() {
+        let builder = ClientBuilder::new();
+        assert!(builder.config.is_none());
+        assert!(builder.max_amount.is_none());
+        assert!(builder.allowed_networks.is_empty());
+    }
+
+    #[test]
+    fn test_client_builder_default() {
+        let builder = ClientBuilder::default();
+        assert!(builder.config.is_none());
+        assert!(builder.max_amount.is_none());
+    }
+
+    #[test]
+    fn test_client_builder_with_config() {
+        let config = test_config();
+        let client = Client::builder().config(config).build();
+
+        assert!(client.max_amount.is_none());
+        assert!(client.allowed_networks.is_empty());
+        assert!(client.headers.is_empty());
+        assert!(client.timeout.is_none());
+        assert!(!client.follow_redirects);
+        assert!(client.user_agent.is_none());
+        assert!(!client.verbose);
+        assert!(!client.dry_run);
+    }
+
+    #[test]
+    fn test_client_builder_sets_options_before_config() {
+        let config = test_config();
+        let client = Client::builder()
+            .max_amount("1000000")
+            .allowed_networks(&["base"])
+            .header("X-Custom", "value")
+            .timeout(30)
+            .follow_redirects(true)
+            .user_agent("TestAgent/1.0")
+            .verbose(true)
+            .dry_run(true)
+            .config(config)
+            .build();
+
+        assert_eq!(client.max_amount, Some("1000000".to_string()));
+        assert_eq!(client.allowed_networks, vec!["base".to_string()]);
+        assert_eq!(client.headers.len(), 1);
+        assert_eq!(client.timeout, Some(30));
+        assert!(client.follow_redirects);
+        assert_eq!(client.user_agent, Some("TestAgent/1.0".to_string()));
+        assert!(client.verbose);
+        assert!(client.dry_run);
+    }
+
+    #[test]
+    fn test_client_builder_sets_options_after_config() {
+        let config = test_config();
+        let client = Client::builder()
+            .config(config)
+            .max_amount("2000000")
+            .allowed_networks(&["ethereum"])
+            .header("X-Another", "value2")
+            .timeout(60)
+            .follow_redirects(true)
+            .user_agent("AnotherAgent/2.0")
+            .verbose(true)
+            .dry_run(true)
+            .build();
+
+        assert_eq!(client.max_amount, Some("2000000".to_string()));
+        assert_eq!(client.allowed_networks, vec!["ethereum".to_string()]);
+        assert_eq!(client.headers.len(), 1);
+        assert_eq!(client.timeout, Some(60));
+        assert!(client.follow_redirects);
+        assert_eq!(client.user_agent, Some("AnotherAgent/2.0".to_string()));
+        assert!(client.verbose);
+        assert!(client.dry_run);
+    }
+
+    #[test]
+    fn test_client_builder_static_method() {
+        let config = test_config();
+        let client = Client::builder().config(config).build();
+        assert!(client.max_amount.is_none());
     }
 }
