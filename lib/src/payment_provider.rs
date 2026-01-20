@@ -16,16 +16,53 @@ use crate::config::Config;
 use crate::currency::Currency;
 use crate::error::Result;
 use crate::network::Network;
+use alloy::primitives::U256;
 use async_trait::async_trait;
 use std::sync::LazyLock;
 
 /// Balance information for a single network
 #[derive(Debug, Clone)]
 pub struct NetworkBalance {
-    pub network: String,
-    pub balance_atomic: String,
+    /// The network this balance is for (typed enum)
+    pub network: Network,
+    /// The balance as a typed U256 value
+    pub balance: U256,
+    /// Human-readable balance string (for display)
     pub balance_human: String,
+    /// Asset symbol (e.g., "USDC")
     pub asset: String,
+
+    // Backwards compatibility fields (deprecated but kept for compatibility)
+    /// Network name as string (deprecated: use `network` field)
+    #[deprecated(note = "Use `network` field instead")]
+    pub network_str: String,
+    /// Atomic balance as string (deprecated: use `balance` field)
+    #[deprecated(note = "Use `balance` field instead")]
+    pub balance_atomic: String,
+}
+
+impl NetworkBalance {
+    /// Create a new NetworkBalance with proper typed fields.
+    ///
+    /// This constructor ensures backwards compatibility by populating
+    /// both the new typed fields and the deprecated string fields.
+    #[allow(deprecated)]
+    pub fn new(network: Network, balance: U256, balance_human: String, asset: String) -> Self {
+        Self {
+            network,
+            balance,
+            balance_human,
+            asset,
+            // Populate deprecated fields for backwards compatibility
+            network_str: network.to_string(),
+            balance_atomic: balance.to_string(),
+        }
+    }
+
+    /// Get the network name as a string (convenience method).
+    pub fn network_name(&self) -> &str {
+        self.network.as_str()
+    }
 }
 
 impl std::fmt::Display for NetworkBalance {
