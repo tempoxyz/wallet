@@ -48,7 +48,10 @@ pub use config::{CustomNetwork, CustomToken, EvmConfig, PaymentMethod, WalletCon
 pub use currency::{currencies, Currency};
 pub use network::{evm_chain_ids, networks, ChainType, GasConfig, Network, NetworkInfo};
 pub use path_validation::validate_path;
-pub use payment_provider::{BuiltinProvider, NetworkBalance, PaymentProvider, PROVIDER_REGISTRY};
+pub use payment_provider::{
+    AddressProvider, BalanceProvider, BuiltinProvider, NetworkBalance, PaymentProvider, Provider,
+    PROVIDER_REGISTRY,
+};
 
 #[cfg(feature = "client")]
 pub use client::Client;
