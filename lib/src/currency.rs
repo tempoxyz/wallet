@@ -27,8 +27,16 @@ impl Currency {
 
     /// Format atomic units to human-readable string with appropriate decimal places
     pub fn format_atomic(&self, atomic: u128) -> String {
-        let value = atomic as f64 / self.divisor as f64;
-        format!("{:.1$}", value, self.decimals as usize)
+        let divisor = self.divisor as u128;
+        let whole = atomic / divisor;
+        let remainder = atomic % divisor;
+
+        if self.decimals == 0 {
+            whole.to_string()
+        } else {
+            let frac_str = format!("{:0width$}", remainder, width = self.decimals as usize);
+            format!("{whole}.{frac_str}")
+        }
     }
 
     /// Parse atomic units from a string
