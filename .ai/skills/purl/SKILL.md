@@ -9,7 +9,6 @@ A curl-like CLI tool for making HTTP requests with automatic support for payment
 
 ## Supported Payment Protocols
 
-- **x402** - HTTP 402 payment protocol for EVM
 - **Web Payment Auth** - IETF standard for HTTP authentication-based payments
 
 ## Overview

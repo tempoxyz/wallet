@@ -27,3 +27,7 @@ purl.toml
 
 # OS
 Thumbs.db
+
+# Node
+node_modules/
+package-lock.json
