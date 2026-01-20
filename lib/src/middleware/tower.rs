@@ -18,7 +18,7 @@
 //!
 //! let config = purl::Config::load()?;
 //! let payment_config = PaymentHandlerConfig::new(config)
-//!     .max_amount("1000000")
+//!     .max_amount(1_000_000u128)
 //!     .allowed_networks(&["base", "tempo"]);
 //!
 //! let service = ServiceBuilder::new()
@@ -36,7 +36,6 @@ use std::task::{Context, Poll};
 
 use http::{Request, Response};
 use http_body::Body;
-use pin_project_lite::pin_project;
 use tower::{Layer, Service};
 
 use super::{PaymentHandler, PaymentHandlerConfig};
@@ -81,9 +80,9 @@ impl PaymentLayer {
         Self::new(PaymentHandlerConfig::new(config))
     }
 
-    /// Set the maximum amount willing to pay.
+    /// Set the maximum amount (in token base units) willing to pay.
     #[must_use]
-    pub fn max_amount(self, amount: impl Into<String>) -> Self {
+    pub fn max_amount(self, amount: u128) -> Self {
         Self {
             handler: Arc::new(PaymentHandler::new(
                 self.handler.config().clone().max_amount(amount),
@@ -207,41 +206,6 @@ impl<E> From<PurlError> for PaymentServiceError<E> {
     }
 }
 
-pin_project! {
-    /// Future returned by [`PaymentService`].
-    ///
-    /// This future handles the payment retry logic, including parsing challenges,
-    /// creating credentials, and retrying requests.
-    pub struct PaymentFuture<F, ReqBody> {
-        #[pin]
-        state: PaymentFutureState<F, ReqBody>,
-        handler: Arc<PaymentHandler>,
-    }
-}
-
-pin_project! {
-    #[project = PaymentFutureStateProj]
-    enum PaymentFutureState<F, ReqBody> {
-        /// Initial request in progress
-        Initial {
-            #[pin]
-            future: F,
-            request: Option<Request<ReqBody>>,
-        },
-        /// Creating payment credential
-        CreatingPayment {
-            challenge_id: String,
-            www_authenticate: String,
-            request: Option<Request<ReqBody>>,
-        },
-        /// Retry request with payment in progress
-        Retry {
-            #[pin]
-            future: F,
-        },
-    }
-}
-
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for PaymentService<S>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
@@ -281,7 +245,7 @@ where
             // Get WWW-Authenticate header
             let www_auth = response
                 .headers()
-                .get("www-authenticate")
+                .get(PaymentHandler::www_authenticate_header())
                 .and_then(|v| v.to_str().ok())
                 .ok_or_else(|| {
                     PaymentServiceError::Payment(PurlError::MissingHeader(
@@ -373,7 +337,7 @@ mod tests {
     fn test_payment_layer_builder() {
         let config = Config::default();
         let layer = PaymentLayer::from_config(config)
-            .max_amount("1000000")
+            .max_amount(1_000_000u128)
             .allowed_networks(&["base"])
             .dry_run(true);
 

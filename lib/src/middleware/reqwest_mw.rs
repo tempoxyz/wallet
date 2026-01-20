@@ -18,7 +18,7 @@
 //!
 //! let config = purl::Config::load()?;
 //! let payment_config = PaymentHandlerConfig::new(config)
-//!     .max_amount("1000000")
+//!     .max_amount(1_000_000u128)
 //!     .allowed_networks(&["base", "tempo"]);
 //!
 //! let client = ClientBuilder::new(reqwest::Client::new())
@@ -77,9 +77,9 @@ impl PaymentMiddleware {
         Self::new(PaymentHandlerConfig::new(config))
     }
 
-    /// Set the maximum amount willing to pay.
+    /// Set the maximum amount (in token base units) willing to pay.
     #[must_use]
-    pub fn max_amount(self, amount: impl Into<String>) -> Self {
+    pub fn max_amount(self, amount: u128) -> Self {
         Self {
             handler: Arc::new(PaymentHandler::new(
                 self.handler.config().clone().max_amount(amount),
@@ -158,7 +158,7 @@ impl Middleware for PaymentMiddleware {
         // Get WWW-Authenticate header
         let www_auth = response
             .headers()
-            .get("www-authenticate")
+            .get(PaymentHandler::www_authenticate_header())
             .and_then(|v| v.to_str().ok());
 
         let www_auth = match www_auth {
@@ -251,7 +251,7 @@ mod tests {
     fn test_payment_middleware_builder() {
         let config = Config::default();
         let middleware = PaymentMiddleware::from_config(config)
-            .max_amount("1000000")
+            .max_amount(1_000_000u128)
             .allowed_networks(&["base"])
             .dry_run(true);
 

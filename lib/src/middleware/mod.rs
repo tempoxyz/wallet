@@ -26,19 +26,19 @@
 //!
 //! let config = purl::Config::load()?;
 //! let service = ServiceBuilder::new()
-//!     .layer(PaymentLayer::new(config).max_amount("1000000"))
+//!     .layer(PaymentLayer::from_config(config).max_amount(1_000_000u128))
 //!     .service(hyper_client);
 //! ```
 //!
 //! ## Reqwest Middleware
 //!
 //! ```ignore
-//! use purl::middleware::PaymentMiddleware;
+//! use purl::middleware::{PaymentMiddleware, PaymentHandlerConfig};
 //! use reqwest_middleware::ClientBuilder;
 //!
 //! let config = purl::Config::load()?;
 //! let client = ClientBuilder::new(reqwest::Client::new())
-//!     .with(PaymentMiddleware::new(config))
+//!     .with(PaymentMiddleware::from_config(config))
 //!     .build();
 //! ```
 
