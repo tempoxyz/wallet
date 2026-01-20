@@ -87,79 +87,89 @@ mod tests {
         let result = Keystore::load(Path::new("/nonexistent/keystore.json"));
         assert!(result.is_err());
         assert!(result
-            .unwrap_err()
+            .expect_err("Expected error for nonexistent file")
             .to_string()
             .contains("Failed to read keystore"));
     }
 
     #[test]
     fn test_keystore_load_invalid_json() {
-        let mut temp_file = NamedTempFile::new().unwrap();
-        temp_file.write_all(b"not valid json {{{").unwrap();
-        temp_file.flush().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(b"not valid json {{{")
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
         let result = Keystore::load(temp_file.path());
         assert!(result.is_err());
         assert!(result
-            .unwrap_err()
+            .expect_err("Expected error for invalid JSON")
             .to_string()
             .contains("Invalid keystore JSON"));
     }
 
     #[test]
     fn test_keystore_load_valid() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{
             "address": "abc123",
             "crypto": {
                 "cipher": "aes-128-ctr"
             }
         }"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
         let result = Keystore::load(temp_file.path());
         assert!(result.is_ok());
-        let keystore = result.unwrap();
+        let keystore = result.expect("Failed to load keystore");
         assert_eq!(keystore.address(), Some("abc123"));
     }
 
     #[test]
     fn test_keystore_address() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{
             "address": "1234567890abcdef",
             "crypto": {}
         }"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         assert_eq!(keystore.address(), Some("1234567890abcdef"));
     }
 
     #[test]
     fn test_keystore_address_missing() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{"crypto": {}}"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         assert_eq!(keystore.address(), None);
     }
 
     #[test]
     fn test_keystore_formatted_address() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{
             "address": "1234567890abcdef",
             "crypto": {}
         }"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         assert_eq!(
             keystore.formatted_address(),
             Some("0x1234567890abcdef".to_string())
@@ -168,78 +178,88 @@ mod tests {
 
     #[test]
     fn test_keystore_formatted_address_missing() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{"crypto": {}}"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         assert_eq!(keystore.formatted_address(), None);
     }
 
     #[test]
     fn test_keystore_validate_not_object() {
-        let mut temp_file = NamedTempFile::new().unwrap();
-        temp_file.write_all(b"[]").unwrap();
-        temp_file.flush().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(b"[]")
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         let result = keystore.validate();
         assert!(result.is_err());
         assert!(result
-            .unwrap_err()
+            .expect_err("Expected validation error")
             .to_string()
             .contains("must be a JSON object"));
     }
 
     #[test]
     fn test_keystore_validate_missing_crypto_field() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{
             "address": "abc123",
             "version": 3
         }"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         let result = keystore.validate();
         assert!(result.is_err());
         assert!(result
-            .unwrap_err()
+            .expect_err("Expected validation error")
             .to_string()
             .contains("missing crypto field"));
     }
 
     #[test]
     fn test_keystore_validate_with_lowercase_crypto() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{
             "address": "abc123",
             "crypto": {
                 "cipher": "aes-128-ctr"
             }
         }"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         assert!(keystore.validate().is_ok());
     }
 
     #[test]
     fn test_keystore_validate_with_uppercase_crypto() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let keystore_json = r#"{
             "address": "abc123",
             "Crypto": {
                 "cipher": "aes-128-ctr"
             }
         }"#;
-        temp_file.write_all(keystore_json.as_bytes()).unwrap();
-        temp_file.flush().unwrap();
+        temp_file
+            .write_all(keystore_json.as_bytes())
+            .expect("Failed to write to temp file");
+        temp_file.flush().expect("Failed to flush temp file");
 
-        let keystore = Keystore::load(temp_file.path()).unwrap();
+        let keystore = Keystore::load(temp_file.path()).expect("Failed to load keystore");
         assert!(keystore.validate().is_ok());
     }
 }
