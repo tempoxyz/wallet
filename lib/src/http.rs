@@ -753,6 +753,6 @@ mod tests {
         ];
         let map = parse_headers(&headers);
         assert_eq!(map.len(), 2);
-        assert!(map.get("malformedheader").is_none());
+        assert!(!map.contains_key("malformedheader"));
     }
 }
