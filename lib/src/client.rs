@@ -28,13 +28,13 @@ pub struct Configured;
 ///     .max_amount("1000000")
 ///     .verbose(true)
 ///     .config(Config::default())
-///     .build();
+///     .build()?;
 ///
 /// // Or load config from default location
 /// let client = Client::builder()
 ///     .max_amount("1000000")
 ///     .load_config()?
-///     .build();
+///     .build()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -170,9 +170,14 @@ impl<S> ClientBuilder<S> {
 // Build is only available on Configured state
 impl ClientBuilder<Configured> {
     /// Build the client. Only available when Config has been provided.
-    pub fn build(self) -> Client {
-        Client {
-            config: self.config.expect("Config guaranteed by typestate"),
+    ///
+    /// # Errors
+    /// Returns an error if configuration is missing (should not happen with typestate pattern).
+    pub fn build(self) -> Result<Client> {
+        Ok(Client {
+            config: self
+                .config
+                .ok_or_else(|| PurlError::InvalidConfig("Config missing in builder".to_string()))?,
             max_amount: self.max_amount,
             allowed_networks: self.allowed_networks,
             headers: self.headers,
@@ -181,7 +186,7 @@ impl ClientBuilder<Configured> {
             user_agent: self.user_agent,
             verbose: self.verbose,
             dry_run: self.dry_run,
-        }
+        })
     }
 }
 
@@ -229,7 +234,7 @@ impl Client {
     /// let client = Client::builder()
     ///     .max_amount("1000000")
     ///     .config(Config::default())
-    ///     .build();
+    ///     .build()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -240,23 +245,27 @@ impl Client {
     /// Create a new Client by loading configuration from the default location.
     ///
     /// This loads the config from `~/.config/purl/purl.toml`.
-    /// Convenience method equivalent to `Client::builder().load_config()?.build()`
+    /// Convenience method equivalent to `Client::builder().load_config()?.build()?`
     ///
     /// # Errors
     /// Returns an error if the config file cannot be found or parsed.
     pub fn new() -> Result<Self> {
-        Ok(Client::builder().load_config()?.build())
+        Client::builder().load_config()?.build()
     }
 
     /// Create a new Client with the provided configuration.
-    /// Convenience method equivalent to `Client::builder().config(config).build()`
+    /// Convenience method equivalent to `Client::builder().config(config).build()?`
     ///
     /// Use this when you want to provide configuration programmatically
     /// rather than loading it from a file.
     ///
+    /// # Errors
+    /// Returns an error if building the client fails.
+    ///
     /// # Example
     /// ```no_run
     /// # use purl::{Client, Config, EvmConfig};
+    /// # fn example() -> purl::Result<()> {
     /// let config = Config {
     ///     evm: Some(EvmConfig {
     ///         keystore: None,
@@ -264,9 +273,11 @@ impl Client {
     ///     }),
     ///     ..Default::default()
     /// };
-    /// let client = Client::with_config(config);
+    /// let client = Client::with_config(config)?;
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn with_config(config: Config) -> Self {
+    pub fn with_config(config: Config) -> Result<Self> {
         Client::builder().config(config).build()
     }
 
@@ -544,7 +555,7 @@ mod tests {
     #[test]
     fn test_client_with_config() {
         let config = test_config();
-        let client = Client::with_config(config);
+        let client = Client::with_config(config).unwrap();
 
         assert!(client.max_amount.is_none());
         assert!(client.allowed_networks.is_empty());
@@ -559,7 +570,7 @@ mod tests {
     #[test]
     fn test_client_max_amount() {
         let config = test_config();
-        let client = Client::with_config(config).max_amount("1000000");
+        let client = Client::with_config(config).unwrap().max_amount("1000000");
 
         assert_eq!(client.max_amount, Some("1000000".to_string()));
     }
@@ -568,17 +579,23 @@ mod tests {
     fn test_client_max_amount_from_various_types() {
         let config = test_config();
 
-        let client = Client::with_config(config.clone()).max_amount("1000000");
+        let client = Client::with_config(config.clone())
+            .unwrap()
+            .max_amount("1000000");
         assert_eq!(client.max_amount, Some("1000000".to_string()));
 
-        let client = Client::with_config(config.clone()).max_amount(String::from("2000000"));
+        let client = Client::with_config(config.clone())
+            .unwrap()
+            .max_amount(String::from("2000000"));
         assert_eq!(client.max_amount, Some("2000000".to_string()));
     }
 
     #[test]
     fn test_client_allowed_networks() {
         let config = test_config();
-        let client = Client::with_config(config).allowed_networks(&["base", "ethereum"]);
+        let client = Client::with_config(config)
+            .unwrap()
+            .allowed_networks(&["base", "ethereum"]);
 
         assert_eq!(client.allowed_networks.len(), 2);
         assert!(client.allowed_networks.contains(&"base".to_string()));
@@ -588,7 +605,7 @@ mod tests {
     #[test]
     fn test_client_allowed_networks_empty() {
         let config = test_config();
-        let client = Client::with_config(config).allowed_networks(&[]);
+        let client = Client::with_config(config).unwrap().allowed_networks(&[]);
 
         assert!(client.allowed_networks.is_empty());
     }
@@ -597,6 +614,7 @@ mod tests {
     fn test_client_header() {
         let config = test_config();
         let client = Client::with_config(config)
+            .unwrap()
             .header("X-Custom-Header", "value1")
             .header("X-Another-Header", "value2");
 
@@ -612,7 +630,7 @@ mod tests {
     #[test]
     fn test_client_timeout() {
         let config = test_config();
-        let client = Client::with_config(config).timeout(30);
+        let client = Client::with_config(config).unwrap().timeout(30);
 
         assert_eq!(client.timeout, Some(30));
     }
@@ -620,7 +638,7 @@ mod tests {
     #[test]
     fn test_client_follow_redirects() {
         let config = test_config();
-        let client = Client::with_config(config).follow_redirects();
+        let client = Client::with_config(config).unwrap().follow_redirects();
 
         assert!(client.follow_redirects);
     }
@@ -628,7 +646,7 @@ mod tests {
     #[test]
     fn test_client_user_agent() {
         let config = test_config();
-        let client = Client::with_config(config).user_agent("MyApp/1.0");
+        let client = Client::with_config(config).unwrap().user_agent("MyApp/1.0");
 
         assert_eq!(client.user_agent, Some("MyApp/1.0".to_string()));
     }
@@ -636,7 +654,7 @@ mod tests {
     #[test]
     fn test_client_verbose() {
         let config = test_config();
-        let client = Client::with_config(config).verbose();
+        let client = Client::with_config(config).unwrap().verbose();
 
         assert!(client.verbose);
     }
@@ -644,7 +662,7 @@ mod tests {
     #[test]
     fn test_client_dry_run() {
         let config = test_config();
-        let client = Client::with_config(config).dry_run();
+        let client = Client::with_config(config).unwrap().dry_run();
 
         assert!(client.dry_run);
     }
@@ -653,6 +671,7 @@ mod tests {
     fn test_client_builder_chaining() {
         let config = test_config();
         let client = Client::with_config(config)
+            .unwrap()
             .max_amount("1000000")
             .allowed_networks(&["base"])
             .header("Authorization", "Bearer token")
@@ -706,6 +725,7 @@ mod tests {
     fn test_configure_client() {
         let config = test_config();
         let client = Client::with_config(config)
+            .unwrap()
             .timeout(30)
             .follow_redirects()
             .user_agent("TestAgent/1.0")
@@ -718,7 +738,9 @@ mod tests {
     #[test]
     fn test_configure_client_with_additional_headers() {
         let config = test_config();
-        let client = Client::with_config(config).header("X-Existing", "existing");
+        let client = Client::with_config(config)
+            .unwrap()
+            .header("X-Existing", "existing");
 
         let additional = vec![("X-Additional".to_string(), "additional".to_string())];
         let result = client.configure_client(&additional);
@@ -745,7 +767,7 @@ mod tests {
     #[test]
     fn test_client_builder_with_config() {
         let config = test_config();
-        let client = Client::builder().config(config).build();
+        let client = Client::builder().config(config).build().unwrap();
 
         assert!(client.max_amount.is_none());
         assert!(client.allowed_networks.is_empty());
@@ -770,7 +792,8 @@ mod tests {
             .verbose(true)
             .dry_run(true)
             .config(config)
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(client.max_amount, Some("1000000".to_string()));
         assert_eq!(client.allowed_networks, vec!["base".to_string()]);
@@ -795,7 +818,8 @@ mod tests {
             .user_agent("AnotherAgent/2.0")
             .verbose(true)
             .dry_run(true)
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(client.max_amount, Some("2000000".to_string()));
         assert_eq!(client.allowed_networks, vec!["ethereum".to_string()]);
@@ -810,7 +834,7 @@ mod tests {
     #[test]
     fn test_client_builder_static_method() {
         let config = test_config();
-        let client = Client::builder().config(config).build();
+        let client = Client::builder().config(config).build().unwrap();
         assert!(client.max_amount.is_none());
     }
 }
