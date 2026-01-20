@@ -165,8 +165,9 @@ mod tests {
             description: None,
         };
 
-        let header = format_www_authenticate(&challenge).unwrap();
-        let parsed = parse_www_authenticate(&header).unwrap();
+        let header =
+            format_www_authenticate(&challenge).expect("Failed to format WWW-Authenticate");
+        let parsed = parse_www_authenticate(&header).expect("Failed to parse WWW-Authenticate");
 
         assert_eq!(parsed.id, "abc123");
         assert_eq!(parsed.realm, "api");
@@ -189,8 +190,9 @@ mod tests {
             description: Some("Test \"quoted\" text".to_string()),
         };
 
-        let header = format_www_authenticate(&challenge).unwrap();
-        let parsed = parse_www_authenticate(&header).unwrap();
+        let header =
+            format_www_authenticate(&challenge).expect("Failed to format WWW-Authenticate");
+        let parsed = parse_www_authenticate(&header).expect("Failed to parse WWW-Authenticate");
 
         // ast-grep-ignore: no-leading-whitespace-strings
         assert_eq!(parsed.description, Some("Test \"quoted\" text".to_string()));
@@ -207,8 +209,8 @@ mod tests {
             },
         };
 
-        let header = format_authorization(&credential).unwrap();
-        let parsed = parse_authorization(&header).unwrap();
+        let header = format_authorization(&credential).expect("Failed to format Authorization");
+        let parsed = parse_authorization(&header).expect("Failed to parse Authorization");
 
         assert_eq!(parsed.id, "abc123");
         assert_eq!(
@@ -230,8 +232,8 @@ mod tests {
             error: None,
         };
 
-        let header = format_receipt(&receipt).unwrap();
-        let parsed = parse_receipt(&header).unwrap();
+        let header = format_receipt(&receipt).expect("Failed to format receipt");
+        let parsed = parse_receipt(&header).expect("Failed to parse receipt");
 
         assert_eq!(parsed.status, ReceiptStatus::Success);
         assert_eq!(parsed.method, PaymentMethod::Tempo);
@@ -273,8 +275,8 @@ mod tests {
             description: Some("Complex description with symbols: @#$%".to_string()),
         };
 
-        let header = format_www_authenticate(&original).unwrap();
-        let parsed = parse_www_authenticate(&header).unwrap();
+        let header = format_www_authenticate(&original).expect("Failed to format WWW-Authenticate");
+        let parsed = parse_www_authenticate(&header).expect("Failed to parse WWW-Authenticate");
 
         assert_eq!(parsed.id, original.id);
         assert_eq!(parsed.realm, original.realm);
