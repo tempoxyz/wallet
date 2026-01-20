@@ -48,6 +48,15 @@ evm = [
 # Full featured (all functionality)
 full = ["evm", "client", "keystore", "http-client", "config", "blocking"]
 
+# Tower middleware (hyper, axum, tonic, etc.)
+tower-middleware = ["dep:tower", "dep:tower-service", "dep:http", "dep:http-body", "dep:http-body-util", "dep:pin-project-lite", "runtime", "web-payment-auth", "evm", "config", "keystore"]
+
+# Reqwest middleware (reqwest-middleware crate)
+reqwest-middleware = ["dep:reqwest-middleware", "dep:http", "http-client", "web-payment-auth", "evm", "config", "keystore"]
+
+# All middleware features
+middleware = ["tower-middleware", "reqwest-middleware"]
+
 [dependencies]
 # Core dependencies (minimal - only for protocol and error types)
 serde.workspace = true
@@ -82,6 +91,17 @@ alloy = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
 eth-keystore = { workspace = true, optional = true }
 tempo-primitives = { workspace = true, optional = true }
+
+# Tower middleware
+tower = { workspace = true, optional = true }
+tower-service = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+http-body = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
+pin-project-lite = { workspace = true, optional = true }
+
+# Reqwest middleware
+reqwest-middleware = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
