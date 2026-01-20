@@ -534,6 +534,7 @@ pub enum PaymentResult {
     DryRun(crate::payment_provider::DryRunInfo),
 }
 
+// ast-grep-ignore: no-unwrap-in-lib
 #[cfg(test)]
 mod tests {
     use super::*;
