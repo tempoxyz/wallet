@@ -1,4 +1,6 @@
 //! Integration tests for HTTP client and builder
+//!
+//! These tests verify the blocking HTTP client functionality.
 
 use purl::HttpClientBuilder;
 
@@ -16,7 +18,7 @@ fn test_http_client_builder_basic_builders() {
 
     for (i, builder_fn) in test_cases.iter().enumerate() {
         let builder = builder_fn();
-        let client = builder.build();
+        let client = builder.build_blocking();
         assert!(client.is_ok(), "Builder test case {i} should succeed");
     }
 }
@@ -28,7 +30,7 @@ fn test_http_client_builder_with_multiple_headers() {
         ("X-Header-2".to_string(), "value2".to_string()),
     ];
     let builder = HttpClientBuilder::new().headers(&headers);
-    let client = builder.build();
+    let client = builder.build_blocking();
     assert!(client.is_ok());
 }
 
@@ -41,7 +43,7 @@ fn test_http_client_builder_chained() {
         .user_agent("TestAgent/1.0")
         .header("X-Custom", "value");
 
-    let client = builder.build();
+    let client = builder.build_blocking();
     assert!(client.is_ok());
 }
 
@@ -52,7 +54,7 @@ fn test_http_client_builder_multiple_headers_via_header_method() {
         .header("X-Header-2", "value2")
         .header("X-Header-3", "value3");
 
-    let client = builder.build();
+    let client = builder.build_blocking();
     assert!(client.is_ok());
 }
 
@@ -65,7 +67,7 @@ fn test_http_client_builder_mixed_header_methods() {
         .headers(&headers)
         .header("X-Another", "another-value");
 
-    let client = builder.build();
+    let client = builder.build_blocking();
     assert!(client.is_ok());
 }
 
@@ -73,7 +75,7 @@ fn test_http_client_builder_mixed_header_methods() {
 fn test_http_client_builder_empty_headers() {
     let headers: Vec<(String, String)> = vec![];
     let builder = HttpClientBuilder::new().headers(&headers);
-    let client = builder.build();
+    let client = builder.build_blocking();
     assert!(client.is_ok());
 }
 
@@ -87,7 +89,7 @@ fn test_http_client_builder_boolean_options() {
     for builder_fn in test_cases {
         for value in [true, false] {
             let builder = builder_fn(value);
-            let client = builder.build();
+            let client = builder.build_blocking();
             assert!(client.is_ok(), "Builder with value {value} should succeed");
         }
     }
@@ -96,7 +98,7 @@ fn test_http_client_builder_boolean_options() {
 #[test]
 fn test_http_client_builder_minimal_config() {
     // Just build with no configuration
-    let client = HttpClientBuilder::new().build();
+    let client = HttpClientBuilder::new().build_blocking();
     assert!(client.is_ok());
 }
 
@@ -116,7 +118,7 @@ fn test_http_client_builder_maximal_config() {
         .headers(&headers)
         .header("X-Extra", "extra-value");
 
-    let client = builder.build();
+    let client = builder.build_blocking();
     assert!(client.is_ok());
 }
 
@@ -128,6 +130,6 @@ fn test_http_client_builder_string_conversions() {
         .header("X-Str", "str-value")
         .user_agent(String::from("StringAgent/1.0"));
 
-    let client = builder.build();
+    let client = builder.build_blocking();
     assert!(client.is_ok());
 }
