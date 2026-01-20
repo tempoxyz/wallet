@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
-        let cli = Cli::try_parse_from(["purl", "--network", "solana"]).unwrap();
+        let cli = Cli::try_parse_from(["purl", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -337,8 +337,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_multiple_networks() {
         // PaymentMethod::Base maps to "base-sepolia"
-        let cli =
-            Cli::try_parse_from(["purl", "--network", "solana, base-sepolia, ethereum"]).unwrap();
+        let cli = Cli::try_parse_from(["purl", "--network", "base-sepolia, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);

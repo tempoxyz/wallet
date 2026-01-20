@@ -7,9 +7,3 @@
 # Your EVM private key (hex string, without 0x prefix)
 # This will be used to sign EIP-3009 payment authorizations
 private_key = "your_evm_private_key_here"
-
-# Solana configuration
-[solana]
-# Your Solana private key (base58 encoded keypair)
-# This will be used to sign Solana transactions
-private_key = "your_solana_private_key_here"

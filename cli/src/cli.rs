@@ -361,7 +361,7 @@ pub enum NetworkCommands {
     },
     /// Show detailed information about a network
     Info {
-        /// Network name (e.g., "base", "ethereum", "solana")
+        /// Network name (e.g., "base", "ethereum")
         network: String,
         /// Output format
         #[arg(long, value_name = "FORMAT", default_value = "text")]

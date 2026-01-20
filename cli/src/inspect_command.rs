@@ -310,13 +310,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_compatible_method_with_wrong_config() {
-        let challenge = mock_challenge();
-        let methods = vec![PaymentMethod::Solana];
-        assert!(!is_compatible_method(&challenge, &methods));
-    }
-
-    #[test]
     fn test_build_inspect_output_structure() {
         let challenge = mock_challenge();
         let available_methods = vec![PaymentMethod::Evm];
@@ -335,15 +328,6 @@ mod tests {
             charge.destination,
             "0x1234567890123456789012345678901234567890"
         );
-    }
-
-    #[test]
-    fn test_build_inspect_output_no_compatible_methods() {
-        let challenge = mock_challenge();
-        let available_methods = vec![PaymentMethod::Solana];
-        let output = build_inspect_output(&challenge, &available_methods);
-
-        assert!(!output.challenge.compatible);
     }
 
     #[test]

@@ -42,19 +42,8 @@ evm = [
     "runtime",
 ]
 
-# Solana provider support
-solana = [
-    "dep:solana-sdk",
-    "dep:solana-client",
-    "dep:spl-associated-token-account",
-    "dep:bincode",
-    "web-payment-auth",
-    "utils",
-    "runtime",
-]
-
 # Full featured (all functionality)
-full = ["evm", "solana", "client", "keystore", "http-client", "config"]
+full = ["evm", "client", "keystore", "http-client", "config"]
 
 [dependencies]
 # Core dependencies (minimal - only for protocol and error types)
@@ -90,12 +79,6 @@ alloy = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
 eth-keystore = { workspace = true, optional = true }
 tempo-primitives = { workspace = true, optional = true }
-
-# Solana
-solana-sdk = { workspace = true, optional = true }
-solana-client = { workspace = true, optional = true }
-spl-associated-token-account = { workspace = true, optional = true }
-bincode = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

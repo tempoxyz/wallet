@@ -97,9 +97,6 @@ pub mod currencies {
     /// Ethereum (ETH) - 18 decimals
     pub const ETH: Currency = Currency::new("ETH", "Ethereum", 18);
 
-    /// Solana (SOL) - 9 decimals
-    pub const SOL: Currency = Currency::new("SOL", "Solana", 9);
-
     /// AlphaUSD (Tempo testnet stablecoin) - 6 decimals
     pub const ALPHA_USD: Currency = Currency::new("AlphaUSD", "AlphaUSD", 6);
 }
@@ -138,13 +135,6 @@ mod tests {
             eth.format_atomic(500_000_000_000_000_000),
             "0.500000000000000000"
         );
-    }
-
-    #[test]
-    fn test_format_atomic_sol() {
-        let sol = currencies::SOL;
-        assert_eq!(sol.format_atomic(1_000_000_000), "1.000000000");
-        assert_eq!(sol.format_atomic(500_000_000), "0.500000000");
     }
 
     #[test]
@@ -195,6 +185,5 @@ mod tests {
     fn test_divisor_calculation() {
         assert_eq!(currencies::USDC.divisor, 1_000_000);
         assert_eq!(currencies::ETH.divisor, 1_000_000_000_000_000_000);
-        assert_eq!(currencies::SOL.divisor, 1_000_000_000);
     }
 }

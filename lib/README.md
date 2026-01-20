@@ -2,12 +2,12 @@
 
 A Rust library for implementing the [Web Payment Auth protocol](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) (IETF draft).
 
-This library provides everything needed to build applications that can make HTTP requests with automatic payment handling, supporting multiple blockchain networks (EVM, Solana) and payment protocols.
+This library provides everything needed to build applications that can make HTTP requests with automatic payment handling, supporting multiple blockchain networks (EVM) and payment protocols.
 
 ## Features
 
 - **Protocol Implementation**: Core Web Payment Auth types, parsing, and encoding
-- **Multiple Providers**: Built-in support for EVM (Ethereum, Base, Polygon, etc.) and Solana chains
+- **Multiple Providers**: Built-in support for EVM (Ethereum, Base, Polygon, etc.) chains
 - **HTTP Client**: Payment-enabled HTTP client with automatic 402 handling (optional)
 - **Keystore Management**: Secure encrypted key storage using Ethereum keystore v3 format (optional)
 - **Type-safe**: Strongly-typed protocol definitions and configuration
@@ -127,7 +127,6 @@ The library uses fine-grained features for minimal dependencies:
 | `client` | High-level `Client` API | ✓ |
 | `keystore` | Encrypted keystore management | ✓ |
 | `evm` | EVM provider (Ethereum, Base, etc.) | ✓ |
-| `solana` | Solana provider | ✓ |
 | `full` | All features | - |
 
 ### Example Configurations
@@ -137,7 +136,7 @@ The library uses fine-grained features for minimal dependencies:
 purl = { version = "0.2", default-features = false, features = ["web-payment"] }
 ```
 
-**EVM only (no Solana):**
+**EVM only:**
 ```toml
 purl = { version = "0.2", default-features = false, features = ["evm", "client"] }
 ```
@@ -154,7 +153,6 @@ purl = { version = "0.2", features = ["full"] }
 - **`provider`**: Payment provider abstraction
   - `provider::PaymentProvider`: Trait for blockchain providers
   - `provider::evm::EvmProvider`: EVM implementation (feature: `evm`)
-  - `provider::solana::SolanaProvider`: Solana implementation (feature: `solana`)
 - **`client`**: High-level client API (feature: `client`)
   - `Client`: Payment-enabled HTTP client
 - **`http`**: Low-level HTTP client (feature: `http-client`)
@@ -188,9 +186,6 @@ You can use any layer independently:
 - Optimism
 - Avalanche
 - Tempo (moderato testnet)
-
-### Solana Networks (feature: `solana`)
-- Solana (mainnet-beta, devnet)
 
 Custom networks can be configured via the `Config` type.
 

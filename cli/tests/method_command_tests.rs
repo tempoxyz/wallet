@@ -317,7 +317,6 @@ fn test_method_show_with_configured_keystore() {
 fn test_method_list_after_config_init() {
     let temp = TestConfigBuilder::new()
         .with_evm_keystore("init-wallet", VALID_EVM_KEY)
-        .with_solana_keystore("solana-wallet", common::TEST_SOLANA_KEY)
         .build();
 
     test_command(&temp)
@@ -325,8 +324,7 @@ fn test_method_list_after_config_init() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Available keystores:"))
-        .stdout(predicate::str::contains("init-wallet.json"))
-        .stdout(predicate::str::contains("solana-wallet.json"));
+        .stdout(predicate::str::contains("init-wallet.json"));
 }
 
 #[test]

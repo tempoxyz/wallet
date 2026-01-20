@@ -18,7 +18,6 @@ Purl follows a library-first architecture inspired by Alloy/Foundry, with clear 
 │  │           Provider Layer (optional)                │     │
 │  │  • payment_provider/  Provider trait               │     │
 │  │  • providers/evm/     EVM implementation          │     │
-│  │  • providers/solana/  Solana implementation       │     │
 │  │  • signer/            Signing abstractions         │     │
 │  └────────────────────────────────────────────────────┘     │
 │  ┌────────────────────────────────────────────────────┐     │
@@ -98,9 +97,9 @@ Purl follows a library-first architecture inspired by Alloy/Foundry, with clear 
 **Responsibility**: Network/chain definitions and metadata
 
 **Contents**:
-- `Network`: Network identifier enum (Ethereum, Base, Solana, etc.)
+- `Network`: Network identifier enum (Ethereum, Base, etc.)
 - `NetworkInfo`: Network metadata (chain ID, RPC URL, native currency)
-- `ChainType`: EVM vs Solana
+- `ChainType`: EVM chain type
 - `GasConfig`: Gas settings for EVM networks
 - `networks`: Module with constants for all supported networks
 - `evm_chain_ids()`: Mapping of network names to chain IDs
@@ -137,11 +136,10 @@ Purl follows a library-first architecture inspired by Alloy/Foundry, with clear 
 **Contents**:
 - `Config`: Main configuration struct
 - `EvmConfig`: EVM-specific configuration (keystore path, private key)
-- `SolanaConfig`: Solana-specific configuration
 - `WalletConfig`: Combined wallet configuration
 - `CustomNetwork`: User-defined network configuration
 - `CustomToken`: User-defined token configuration
-- `PaymentMethod`: Payment method enum (EVM/Solana)
+- `PaymentMethod`: Payment method enum (EVM)
 - Configuration file loading and validation
 
 **Dependencies**: `serde`, `toml`, `dirs`
@@ -161,7 +159,7 @@ Purl follows a library-first architecture inspired by Alloy/Foundry, with clear 
   - `get_address()`: Get wallet address
   - `get_balance()`: Query token balance
   - `create_web_payment()`: Create payment credential
-- `BuiltinProvider`: Enum for built-in providers (EVM, Solana)
+- `BuiltinProvider`: Enum for built-in providers (EVM)
 - `PaymentProviderRegistry`: Registry for looking up providers by network
 - `PROVIDER_REGISTRY`: Global static registry
 - `NetworkBalance`: Balance information
@@ -196,11 +194,10 @@ Purl follows a library-first architecture inspired by Alloy/Foundry, with clear 
 
 **Contents**:
 - Key generation utilities
-- Solana keypair generation
 - Random number generation
 - Cryptographic utilities
 
-**Dependencies**: `rand`, `bs58` (for Solana), `hex`
+**Dependencies**: `rand`, `hex`
 
 **Feature Flag**: Always compiled
 
@@ -297,7 +294,7 @@ Purl follows a library-first architecture inspired by Alloy/Foundry, with clear 
 
 ---
 
-#### `providers/` (feature: `evm` or `solana`)
+#### `providers/` (feature: `evm`)
 **Responsibility**: Blockchain-specific provider implementations
 
 **Contents**:
@@ -312,16 +309,7 @@ Purl follows a library-first architecture inspired by Alloy/Foundry, with clear 
 
 **Dependencies**: `alloy`, `alloy-signer`, `alloy-signer-local`, `eth-keystore`, `tempo-primitives`
 
-**`providers/solana/` (feature: `solana`)**:
-- `SolanaProvider`: Solana blockchain provider
-- `create_web_payment()`: Create Solana payment transaction
-- `get_balance()`: Query SPL token balance
-- Transaction building with Solana SDK
-- Commitment level configuration
-
-**Dependencies**: `solana-sdk`, `solana-client`, `solana-program`, `spl-token`, `spl-token-2022`, `spl-associated-token-account`, `bincode`
-
-**Feature Flag**: `evm` and/or `solana`
+**Feature Flag**: `evm`
 
 **Use Case**: Blockchain-specific payment operations
 
@@ -542,7 +530,6 @@ purl completions <SHELL>          # Generate shell completions
 | `client` | Core + `http/` + `client/` | curl | Full HTTP + payment client |
 | `keystore` | Core + `keystore/` | eth-keystore, zeroize, etc. | Secure key storage |
 | `evm` | Core + `providers/evm/` | alloy, alloy-signer, etc. | EVM payments |
-| `solana` | Core + `providers/solana/` | solana-sdk, spl-token, etc. | Solana payments |
 | `full` | All modules | All optional deps | Complete functionality |
 | (default) | All except `full` marker | Most deps | Typical usage |
 
@@ -572,15 +559,6 @@ evm (optional)
   ├─ eth-keystore
   └─ tempo-primitives
 
-solana (optional)
-  ├─ solana-sdk
-  ├─ solana-client
-  ├─ solana-program
-  ├─ spl-token
-  ├─ spl-token-2022
-  ├─ spl-associated-token-account
-  └─ bincode
-
 client (optional)
   └─ (requires http-client)
 
@@ -604,14 +582,14 @@ purl = { version = "0.1", default-features = false }
 - Size: ~50 KB compiled
 - Use: Building custom HTTP client with payment support
 
-### Pattern 2: EVM-Only Application
+### Pattern 2: EVM Application
 ```toml
 [dependencies]
 purl = { version = "0.1", default-features = false, features = ["evm", "client"] }
 ```
 - Gets: Core + EVM provider + HTTP client + high-level API
 - Size: ~2 MB compiled (includes Alloy)
-- Use: EVM-specific payment application
+- Use: EVM payment application
 
 ### Pattern 3: Full-Featured Application
 ```toml
@@ -619,8 +597,8 @@ purl = { version = "0.1", default-features = false, features = ["evm", "client"]
 purl = "0.1"  # or features = ["full"]
 ```
 - Gets: Everything
-- Size: ~5 MB compiled
-- Use: Multi-chain payment application or CLI tool
+- Size: ~2 MB compiled
+- Use: Payment application or CLI tool
 
 ### Pattern 4: Custom Provider Implementation
 ```toml

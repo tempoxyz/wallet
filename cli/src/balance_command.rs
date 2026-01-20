@@ -21,8 +21,6 @@ fn mock_balance(
     let mock_atomic = match network {
         Network::Base | Network::Ethereum => "1000000", // 1 USDC
         Network::BaseSepolia | Network::EthereumSepolia => "5000000", // 5 USDC
-        Network::Solana => "2500000",                   // 2.5 USDC
-        Network::SolanaDevnet => "10000000",            // 10 USDC
         _ => "0",
     };
 
@@ -53,7 +51,6 @@ pub async fn balance_command(
     for method in available_methods {
         let chain_type = match method {
             PaymentMethod::Evm => ChainType::Evm,
-            PaymentMethod::Solana => ChainType::Solana,
         };
 
         let networks = Network::by_chain_type(chain_type, network_filter.as_deref());
@@ -122,11 +119,6 @@ mod tests {
         assert!(!evm_networks.is_empty());
         assert!(evm_networks.contains(&Network::Base));
         assert!(evm_networks.contains(&Network::Ethereum));
-
-        let solana_networks = Network::by_chain_type(ChainType::Solana, None);
-        assert!(!solana_networks.is_empty());
-        assert!(solana_networks.contains(&Network::Solana));
-        assert!(solana_networks.contains(&Network::SolanaDevnet));
     }
 
     #[test]
@@ -134,10 +126,6 @@ mod tests {
         let filtered = Network::by_chain_type(ChainType::Evm, Some("base"));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0], Network::Base);
-
-        let filtered = Network::by_chain_type(ChainType::Solana, Some("solana-devnet"));
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0], Network::SolanaDevnet);
     }
 
     #[test]
@@ -147,8 +135,6 @@ mod tests {
         assert!(Network::BaseSepolia.usdc_config().is_some());
         assert!(Network::Ethereum.usdc_config().is_some());
         assert!(Network::EthereumSepolia.usdc_config().is_some());
-        assert!(Network::Solana.usdc_config().is_some());
-        assert!(Network::SolanaDevnet.usdc_config().is_some());
 
         // Tempo has AlphaUSD support (testnet stablecoin)
         assert!(Network::TempoModerato.usdc_config().is_some());
@@ -168,15 +154,6 @@ mod tests {
 
         let base_info = Network::Base.info();
         assert!(!base_info.rpc_url.is_empty());
-
-        let solana_config = Network::Solana.usdc_config().unwrap();
-        assert!(!solana_config.address.is_empty());
-        assert!(!solana_config.address.starts_with("0x"));
-        assert_eq!(solana_config.currency.symbol, "USDC");
-        assert_eq!(solana_config.currency.decimals, 6);
-
-        let solana_info = Network::Solana.info();
-        assert!(!solana_info.rpc_url.is_empty());
     }
 
     #[test]
@@ -187,10 +164,6 @@ mod tests {
         assert_eq!(balance.network, "base");
         assert_eq!(balance.balance_atomic, "1000000");
         assert!(balance.asset.contains("mock"));
-
-        let balance = mock_balance(Network::SolanaDevnet, "abc123", &usdc);
-        assert_eq!(balance.network, "solana-devnet");
-        assert_eq!(balance.balance_atomic, "10000000");
     }
 
     #[test]

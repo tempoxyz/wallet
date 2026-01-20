@@ -6,7 +6,7 @@ use predicates::prelude::*;
 mod common;
 use common::{
     get_test_keystores_dir, setup_test_config, test_command, TestConfigBuilder,
-    TEST_EVM_KEY as VALID_EVM_KEY, TEST_SOLANA_KEY,
+    TEST_EVM_KEY as VALID_EVM_KEY,
 };
 
 #[test]
@@ -67,32 +67,7 @@ fn test_config_evm_only() {
         .arg("config")
         .assert()
         .success()
-        .stdout(predicate::str::contains("[evm]"))
-        .stdout(predicate::str::contains("[solana]").not());
-}
-
-#[test]
-fn test_config_solana_only() {
-    let temp = setup_test_config(None, Some(TEST_SOLANA_KEY));
-
-    test_command(&temp)
-        .arg("config")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[solana]"))
-        .stdout(predicate::str::contains("[evm]").not());
-}
-
-#[test]
-fn test_config_evm_and_solana() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), Some(TEST_SOLANA_KEY));
-
-    test_command(&temp)
-        .arg("config")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[evm]"))
-        .stdout(predicate::str::contains("[solana]"));
+        .stdout(predicate::str::contains("[evm]"));
 }
 
 #[test]
@@ -106,20 +81,6 @@ fn test_config_evm_keystore() {
         .assert()
         .success()
         .stdout(predicate::str::contains("[evm]"))
-        .stdout(predicate::str::contains("keystore"));
-}
-
-#[test]
-fn test_config_solana_keystore() {
-    let temp = TestConfigBuilder::new()
-        .with_solana_keystore("solana-wallet", TEST_SOLANA_KEY)
-        .build();
-
-    test_command(&temp)
-        .arg("config")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[solana]"))
         .stdout(predicate::str::contains("keystore"));
 }
 
@@ -147,16 +108,6 @@ fn test_config_get_evm_keystore() {
         .stdout(predicate::str::contains("purl"))
         .stdout(predicate::str::contains("keystores"))
         .stdout(predicate::str::contains("test-wallet.json"));
-}
-
-#[test]
-fn test_config_get_solana_public_key() {
-    let temp = setup_test_config(None, Some(TEST_SOLANA_KEY));
-
-    test_command(&temp)
-        .args(["config", "get", "solana.public_key"])
-        .assert()
-        .success();
 }
 
 #[test]
@@ -207,7 +158,7 @@ fn test_config_get_missing_section() {
     let temp = setup_test_config(Some(VALID_EVM_KEY), None);
 
     test_command(&temp)
-        .args(["config", "get", "solana.public_key"])
+        .args(["config", "get", "missing.key"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("not found"));
@@ -222,18 +173,6 @@ fn test_config_validate_valid_config() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Configuration is valid"));
-}
-
-#[test]
-fn test_config_validate_with_both_methods() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), Some(TEST_SOLANA_KEY));
-
-    test_command(&temp)
-        .args(["config", "validate"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("evm configuration: OK"))
-        .stdout(predicate::str::contains("solana configuration: OK"));
 }
 
 #[test]

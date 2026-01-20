@@ -19,17 +19,12 @@ pub mod networks {
     pub const ARBITRUM: &str = "arbitrum";
     pub const OPTIMISM: &str = "optimism";
     pub const TEMPO_MODERATO: &str = "tempo-moderato";
-    pub const SOLANA: &str = "solana";
-    pub const SOLANA_DEVNET: &str = "solana-devnet";
 }
 
 /// EVM Chain ID constants.
 ///
 /// These constants provide self-documenting, compile-time checked chain IDs
 /// for use throughout the codebase instead of magic numbers.
-///
-/// Only EVM-compatible networks have numeric chain IDs. Solana uses
-/// genesis hash identifiers instead.
 pub mod evm_chain_ids {
     /// Ethereum Mainnet
     pub const ETHEREUM: u64 = 1;
@@ -58,7 +53,6 @@ pub mod evm_chain_ids {
 #[serde(rename_all = "lowercase")]
 pub enum ChainType {
     Evm,
-    Solana,
 }
 
 /// Built-in network definition (compile-time constant)
@@ -165,30 +159,12 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
         rpc_url: "https://rpc.moderato.tempo.xyz",
         aliases: &["eip155:42431"],
     },
-    BuiltinNetwork {
-        id: networks::SOLANA,
-        chain_type: ChainType::Solana,
-        chain_id: None,
-        mainnet: true,
-        display_name: "Solana Mainnet",
-        rpc_url: "https://api.mainnet-beta.solana.com",
-        aliases: &["solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"],
-    },
-    BuiltinNetwork {
-        id: networks::SOLANA_DEVNET,
-        chain_type: ChainType::Solana,
-        chain_id: None,
-        mainnet: false,
-        display_name: "Solana Devnet",
-        rpc_url: "https://api.devnet.solana.com",
-        aliases: &["solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"],
-    },
 ];
 
 /// Runtime network information
 ///
 /// Contains metadata about a blockchain network including its type,
-/// chain ID (for EVM networks), mainnet/testnet status, display name,
+/// chain ID, mainnet/testnet status, display name,
 /// and RPC endpoint URL.
 ///
 /// # Examples
@@ -202,9 +178,9 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
 /// ```
 #[derive(Debug, Clone)]
 pub struct NetworkInfo {
-    /// The blockchain family (EVM or Solana)
+    /// The blockchain family
     pub chain_type: ChainType,
-    /// Chain ID for EVM networks (None for Solana)
+    /// Chain ID for EVM networks
     pub chain_id: Option<u64>,
     /// True if this is a mainnet, false for testnets
     pub mainnet: bool,
@@ -346,13 +322,6 @@ impl NetworkRegistry {
             .unwrap_or(false)
     }
 
-    /// Check if a network ID is a Solana network
-    pub fn is_solana(&self, id: &str) -> bool {
-        self.get(id)
-            .map(|n| n.chain_type == ChainType::Solana)
-            .unwrap_or(false)
-    }
-
     /// Get the number of registered networks
     pub fn len(&self) -> usize {
         self.networks.len()
@@ -383,8 +352,6 @@ pub enum Network {
     Arbitrum,
     Optimism,
     TempoModerato,
-    Solana,
-    SolanaDevnet,
 }
 
 impl Network {
@@ -401,8 +368,6 @@ impl Network {
             Network::Arbitrum => networks::ARBITRUM,
             Network::Optimism => networks::OPTIMISM,
             Network::TempoModerato => networks::TEMPO_MODERATO,
-            Network::Solana => networks::SOLANA,
-            Network::SolanaDevnet => networks::SOLANA_DEVNET,
         }
     }
 
@@ -416,7 +381,7 @@ impl Network {
     }
 
     /// Get all network variants as a const array.
-    pub const fn all() -> [Network; 12] {
+    pub const fn all() -> [Network; 10] {
         [
             Network::Ethereum,
             Network::EthereumSepolia,
@@ -428,8 +393,6 @@ impl Network {
             Network::Arbitrum,
             Network::Optimism,
             Network::TempoModerato,
-            Network::Solana,
-            Network::SolanaDevnet,
         ]
     }
 
@@ -475,8 +438,6 @@ impl FromStr for Network {
             networks::ARBITRUM => Ok(Network::Arbitrum),
             networks::OPTIMISM => Ok(Network::Optimism),
             networks::TEMPO_MODERATO => Ok(Network::TempoModerato),
-            networks::SOLANA => Ok(Network::Solana),
-            networks::SOLANA_DEVNET => Ok(Network::SolanaDevnet),
             _ => Err(format!("Unknown network: {s}")),
         }
     }
@@ -491,7 +452,7 @@ impl fmt::Display for Network {
 /// Token configuration for a specific token on a network
 ///
 /// Contains the currency metadata (symbol, decimals) and the token's
-/// on-chain address (contract address for EVM, mint address for Solana).
+/// on-chain address (contract address for EVM).
 ///
 /// # Examples
 ///
@@ -507,7 +468,7 @@ impl fmt::Display for Network {
 pub struct TokenConfig {
     /// Currency information (symbol, decimals, etc.)
     pub currency: Currency,
-    /// Token address - contract address for EVM chains (ERC20), mint address for Solana (SPL)
+    /// Token address - contract address for EVM chains (ERC20)
     pub address: &'static str,
 }
 
@@ -594,14 +555,6 @@ impl Network {
                 currency: currencies::USDC,
                 address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
             }),
-            Network::Solana => Some(TokenConfig {
-                currency: currencies::USDC,
-                address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-            }),
-            Network::SolanaDevnet => Some(TokenConfig {
-                currency: currencies::USDC,
-                address: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-            }),
             Network::TempoModerato => Some(TokenConfig {
                 currency: currencies::ALPHA_USD,
                 address: "0x20c0000000000000000000000000000000000001",
@@ -631,7 +584,6 @@ impl Network {
 
     /// Get gas configuration for EVM networks.
     ///
-    /// Returns `None` for non-EVM networks (e.g., Solana).
     /// Networks can have custom gas settings; if not specified, defaults are used.
     ///
     /// # Examples
@@ -642,9 +594,6 @@ impl Network {
     /// // EVM networks have gas config
     /// assert!(Network::Base.gas_config().is_some());
     /// assert!(Network::TempoModerato.gas_config().is_some());
-    ///
-    /// // Non-EVM networks don't
-    /// assert!(Network::Solana.gas_config().is_none());
     /// ```
     pub const fn gas_config(&self) -> Option<GasConfig> {
         match self {
@@ -660,9 +609,6 @@ impl Network {
             | Network::Arbitrum
             | Network::Optimism
             | Network::TempoModerato => Some(GasConfig::DEFAULT),
-
-            // Non-EVM networks don't use gas
-            Network::Solana | Network::SolanaDevnet => None,
         }
     }
 }
@@ -685,15 +631,6 @@ pub fn get_network(name: &str) -> Option<NetworkInfo> {
 pub fn is_evm_network(name: &str) -> bool {
     let canonical = NETWORK_REGISTRY.resolve_alias(name);
     NETWORK_REGISTRY.is_evm(canonical)
-}
-
-/// Check if a network name refers to a Solana network.
-///
-/// Supports both v1 names and v2 CAIP-2 formats.
-#[must_use]
-pub fn is_solana_network(name: &str) -> bool {
-    let canonical = NETWORK_REGISTRY.resolve_alias(name);
-    NETWORK_REGISTRY.is_solana(canonical)
 }
 
 /// Get the EVM chain ID for a network by name.
@@ -732,27 +669,13 @@ mod tests {
         assert_eq!(base.chain_type, ChainType::Evm);
         assert_eq!(base.chain_id, Some(8453));
         assert!(base.mainnet);
-
-        let solana = get_network("solana-devnet").expect("solana-devnet should exist");
-        assert_eq!(solana.chain_type, ChainType::Solana);
-        assert_eq!(solana.chain_id, None);
-        assert!(!solana.mainnet);
     }
 
     #[test]
     fn test_is_evm_network() {
         assert!(is_evm_network("base"));
         assert!(is_evm_network("ethereum"));
-        assert!(!is_evm_network("solana"));
         assert!(!is_evm_network("unknown"));
-    }
-
-    #[test]
-    fn test_is_solana_network() {
-        assert!(is_solana_network("solana"));
-        assert!(is_solana_network("solana-devnet"));
-        assert!(!is_solana_network("base"));
-        assert!(!is_solana_network("unknown"));
     }
 
     #[test]
@@ -770,7 +693,6 @@ mod tests {
             "ethereum-sepolia".parse::<Network>().unwrap(),
             Network::EthereumSepolia
         );
-        assert_eq!("solana".parse::<Network>().unwrap(), Network::Solana);
         assert!("unknown-network".parse::<Network>().is_err());
     }
 
@@ -778,7 +700,6 @@ mod tests {
     fn test_network_enum_to_str() {
         assert_eq!(Network::Base.as_str(), "base");
         assert_eq!(Network::EthereumSepolia.as_str(), "ethereum-sepolia");
-        assert_eq!(Network::Solana.as_str(), "solana");
         assert_eq!(Network::Base.to_string(), "base");
     }
 
@@ -793,11 +714,6 @@ mod tests {
         assert_eq!(sepolia.chain_type(), ChainType::Evm);
         assert!(!sepolia.is_mainnet());
         assert!(sepolia.is_testnet());
-
-        let solana_devnet = Network::SolanaDevnet;
-        assert_eq!(solana_devnet.chain_type(), ChainType::Solana);
-        assert!(!solana_devnet.is_mainnet());
-        assert!(solana_devnet.is_testnet());
     }
 
     #[test]
@@ -813,8 +729,6 @@ mod tests {
             "arbitrum",
             "optimism",
             "tempo-moderato",
-            "solana",
-            "solana-devnet",
         ] {
             let network: Network = network_str.parse().expect("should parse");
             assert_eq!(network.as_str(), *network_str);
@@ -840,19 +754,8 @@ mod tests {
         assert_eq!(resolve_network_alias("eip155:84532"), "base-sepolia");
         assert_eq!(resolve_network_alias("eip155:1"), "ethereum");
 
-        // Solana networks
-        assert_eq!(
-            resolve_network_alias("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"),
-            "solana"
-        );
-        assert_eq!(
-            resolve_network_alias("solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"),
-            "solana-devnet"
-        );
-
         // Already v1 format - should return unchanged
         assert_eq!(resolve_network_alias("base"), "base");
-        assert_eq!(resolve_network_alias("solana"), "solana");
 
         // Unknown network - should return unchanged
         assert_eq!(resolve_network_alias("eip155:999999"), "eip155:999999");
@@ -871,10 +774,6 @@ mod tests {
         // is_evm_network
         assert!(is_evm_network("base"));
         assert!(is_evm_network("eip155:8453"));
-
-        // is_solana_network
-        assert!(is_solana_network("solana"));
-        assert!(is_solana_network("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"));
 
         // get_evm_chain_id
         assert_eq!(get_evm_chain_id("base"), Some(8453));

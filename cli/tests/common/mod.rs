@@ -11,8 +11,6 @@ pub struct TestConfigBuilder {
     temp_dir: TempDir,
     evm_keystore: Option<(String, String)>, // (name, private_key)
     evm_private_key: Option<String>,
-    solana_keystore: Option<(String, String)>, // (name, private_key)
-    solana_private_key: Option<String>,
 }
 
 impl TestConfigBuilder {
@@ -22,8 +20,6 @@ impl TestConfigBuilder {
             temp_dir: TempDir::new().expect("Failed to create temp directory"),
             evm_keystore: None,
             evm_private_key: None,
-            solana_keystore: None,
-            solana_private_key: None,
         }
     }
 
@@ -39,31 +35,9 @@ impl TestConfigBuilder {
         self
     }
 
-    /// Add a Solana keystore
-    pub fn with_solana_keystore(mut self, name: &str, private_key: &str) -> Self {
-        self.solana_keystore = Some((name.to_string(), private_key.to_string()));
-        self
-    }
-
-    /// Add a Solana private key
-    pub fn with_solana_private_key(mut self, key: &str) -> Self {
-        self.solana_private_key = Some(key.to_string());
-        self
-    }
-
     /// Add default EVM private key (uses TEST_EVM_KEY)
     pub fn with_default_evm(self) -> Self {
         self.with_evm_private_key(TEST_EVM_KEY)
-    }
-
-    /// Add default Solana private key (uses TEST_SOLANA_KEY)
-    pub fn with_default_solana(self) -> Self {
-        self.with_solana_private_key(TEST_SOLANA_KEY)
-    }
-
-    /// Add both default EVM and Solana private keys
-    pub fn with_defaults(self) -> Self {
-        self.with_default_evm().with_default_solana()
     }
 
     /// Build the test configuration
@@ -105,33 +79,17 @@ impl TestConfigBuilder {
             config.push('\n');
         }
 
-        // Add Solana config
-        if self.solana_keystore.is_some() || self.solana_private_key.is_some() {
-            config.push_str("[solana]\n");
-            if let Some((name, _key)) = &self.solana_keystore {
-                let keystore_path = data_dir.join("keystores").join(format!("{name}.json"));
-                fs::create_dir_all(keystore_path.parent().unwrap()).ok();
-                fs::write(&keystore_path, r#"{}"#).ok();
-                config.push_str(&format!("keystore = \"{}\"\n", keystore_path.display()));
-            } else if let Some(key) = &self.solana_private_key {
-                config.push_str(&format!("private_key = \"{key}\"\n"));
-            }
-        }
-
         fs::write(config_dir.join("config.toml"), config).expect("Failed to write config");
         self.temp_dir
     }
 }
 
-/// Set up a test configuration with optional EVM and Solana keys (backward compatibility)
-pub fn setup_test_config(evm_key: Option<&str>, solana_key: Option<&str>) -> TempDir {
+/// Set up a test configuration with optional EVM key (backward compatibility)
+pub fn setup_test_config(evm_key: Option<&str>, _unused: Option<&str>) -> TempDir {
     let mut builder = TestConfigBuilder::new();
 
     if let Some(key) = evm_key {
         builder = builder.with_evm_private_key(key);
-    }
-    if let Some(key) = solana_key {
-        builder = builder.with_solana_private_key(key);
     }
 
     builder.build()
@@ -139,10 +97,6 @@ pub fn setup_test_config(evm_key: Option<&str>, solana_key: Option<&str>) -> Tem
 
 /// Common test EVM private key
 pub const TEST_EVM_KEY: &str = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-
-/// Common test Solana private key
-pub const TEST_SOLANA_KEY: &str =
-    "4Z7cXSyeFR8wNGMVXUE1TwtKn5D5Vu7FzEv69dokLv7KrQk7h6pu4LF8ZRR9yQBhc7uSM6RTTZtU1fmaxiNrxXrs";
 
 /// Get the keystores directory path for a test temp directory
 pub fn get_test_keystores_dir(temp_dir: &TempDir) -> std::path::PathBuf {

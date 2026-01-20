@@ -1,12 +1,11 @@
 //! Integration tests for payment providers
 
-use purl::{Config, EvmConfig, SolanaConfig, PROVIDER_REGISTRY};
+use purl::{Config, EvmConfig, PROVIDER_REGISTRY};
 
 #[test]
 fn test_provider_registry_is_initialized() {
     let registry = &*PROVIDER_REGISTRY;
     assert!(registry.find_provider("base").is_some());
-    assert!(registry.find_provider("solana").is_some());
 }
 
 #[test]
@@ -17,8 +16,6 @@ fn test_find_provider_for_networks() {
         ("ethereum", true),
         ("base", true),
         ("base-sepolia", true),
-        ("solana", true),
-        ("solana-devnet", true),
         ("xx-unknown", false),
     ];
 
@@ -51,7 +48,7 @@ fn test_provider_not_found_for_unknown_network() {
 fn test_provider_names() {
     let registry = &*PROVIDER_REGISTRY;
 
-    let test_cases = vec![("base", "EVM"), ("solana", "Solana")];
+    let test_cases = vec![("base", "EVM")];
 
     for (network, expected_name) in test_cases {
         let provider = registry
@@ -70,7 +67,6 @@ fn test_provider_names() {
 fn test_validate_empty_config() {
     let config = Config {
         evm: None,
-        solana: None,
         ..Default::default()
     };
 
@@ -102,7 +98,6 @@ fn test_validate_evm_config() {
                 keystore: None,
                 private_key: Some(private_key.to_string()),
             }),
-            solana: None,
             ..Default::default()
         };
 
@@ -122,51 +117,17 @@ fn test_validate_evm_config() {
 }
 
 #[test]
-fn test_validate_both_configs_valid() {
-    let config = Config {
-        evm: Some(EvmConfig {
-            keystore: None,
-            private_key: Some(
-                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string(),
-            ),
-        }),
-        solana: Some(SolanaConfig {
-            keystore: None,
-            private_key: Some("5JGgKfRxbVz7WsNLhqJqBxu6CZWWqXW8HmqBxFKQxXqHkJ5KwRb".to_string()),
-        }),
-        ..Default::default()
-    };
-
-    // Note: Solana keypair validation may fail if the key isn't the right length
-    // This test just ensures both configs can be checked together
-    let _ = config.validate();
-}
-
-#[test]
 fn test_provider_supports_correct_networks() {
     let registry = &*PROVIDER_REGISTRY;
 
     let evm_provider = registry.find_provider("base").unwrap();
-    let evm_test_cases = vec![("base", true), ("ethereum", true), ("solana", false)];
+    let evm_test_cases = vec![("base", true), ("ethereum", true)];
 
     for (network, should_support) in evm_test_cases {
         assert_eq!(
             evm_provider.supports_network(network),
             should_support,
             "EVM provider should {} support network {}",
-            if should_support { "" } else { "not" },
-            network
-        );
-    }
-
-    let solana_provider = registry.find_provider("solana").unwrap();
-    let solana_test_cases = vec![("solana", true), ("solana-devnet", true), ("base", false)];
-
-    for (network, should_support) in solana_test_cases {
-        assert_eq!(
-            solana_provider.supports_network(network),
-            should_support,
-            "Solana provider should {} support network {}",
             if should_support { "" } else { "not" },
             network
         );
@@ -188,16 +149,4 @@ fn test_find_provider_is_case_sensitive() {
             if should_exist { "succeed" } else { "fail" }
         );
     }
-}
-
-#[test]
-fn test_multiple_providers_dont_conflict() {
-    let registry = &*PROVIDER_REGISTRY;
-
-    let evm = registry.find_provider("base");
-    let solana = registry.find_provider("solana");
-
-    assert!(evm.is_some());
-    assert!(solana.is_some());
-    assert_ne!(evm.unwrap().name(), solana.unwrap().name());
 }
