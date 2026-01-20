@@ -336,7 +336,9 @@ mod tests {
         let provider = registry.find_balance_provider("base");
         assert!(provider.is_some());
         assert_eq!(
-            provider.expect("Balance provider should exist for base").name(),
+            provider
+                .expect("Balance provider should exist for base")
+                .name(),
             "EVM"
         );
     }

@@ -2,7 +2,9 @@ use crate::config::{Config, WalletConfig};
 use crate::currency::Currency;
 use crate::error::{PurlError, Result};
 use crate::network::{get_network, ChainType, GasConfig, Network};
-use crate::payment_provider::{AddressProvider, BalanceProvider, NetworkBalance, PaymentProvider, Provider};
+use crate::payment_provider::{
+    AddressProvider, BalanceProvider, NetworkBalance, PaymentProvider, Provider,
+};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
