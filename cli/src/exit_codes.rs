@@ -121,9 +121,10 @@ impl From<&purl::PurlError> for ExitCode {
             | PurlError::Reqwest(_) => ExitCode::NetworkError,
 
             // Auth/signing errors
-            PurlError::InvalidKey(_) | PurlError::Signing(_) | PurlError::InvalidAddress(_) => {
-                ExitCode::AuthError
-            }
+            PurlError::InvalidKey(_)
+            | PurlError::Signing { .. }
+            | PurlError::SigningSimple(_)
+            | PurlError::InvalidAddress(_) => ExitCode::AuthError,
 
             // Not found errors
             PurlError::TokenConfigNotFound { .. } => ExitCode::NotFound,
