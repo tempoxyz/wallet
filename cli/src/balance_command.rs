@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use purl::currency::currencies;
 use purl::network::{ChainType, Network};
 use purl::payment_provider::NetworkBalance;
-use purl::{Config, PaymentMethod, U256, PROVIDER_REGISTRY};
+use purl::{Config, PaymentMethod, PROVIDER_REGISTRY, U256};
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
