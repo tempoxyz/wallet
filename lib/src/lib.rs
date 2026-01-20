@@ -42,7 +42,7 @@ pub mod providers;
 pub mod client;
 
 pub use config::Config;
-pub use error::{PurlError, Result};
+pub use error::{PurlError, Result, ResultExt, SigningContext};
 
 pub use config::{CustomNetwork, CustomToken, EvmConfig, PaymentMethod, WalletConfig};
 pub use currency::{currencies, Currency};

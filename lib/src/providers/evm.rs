@@ -1,6 +1,6 @@
 use crate::config::{Config, WalletConfig};
 use crate::currency::Currency;
-use crate::error::{PurlError, Result};
+use crate::error::{PurlError, Result, ResultExt, SigningContext};
 use crate::network::{get_network, ChainType, GasConfig, Network};
 use crate::payment_provider::{NetworkBalance, PaymentProvider};
 use alloy::primitives::{Address, U256};
@@ -163,7 +163,11 @@ impl PaymentProvider for EvmProvider {
         let nonce = provider
             .get_transaction_count(from)
             .await
-            .map_err(|e| PurlError::signing(format!("Failed to get nonce: {}", e)))?;
+            .with_signing_context(SigningContext {
+                network: Some(network_name.to_string()),
+                address: Some(format!("{:#x}", from)),
+                operation: "get_nonce",
+            })?;
 
         let signed_tx = match &challenge.method {
             crate::protocol::web::PaymentMethod::Tempo => create_tempo_transaction(
@@ -240,7 +244,11 @@ fn create_tempo_transaction(
     let signing_hash = tx.signature_hash();
     let signature = signer
         .sign_hash_sync(&signing_hash)
-        .map_err(|e| PurlError::signing(format!("Failed to sign Tempo transaction: {}", e)))?;
+        .with_signing_context(SigningContext {
+            network: Some(format!("chain_id:{}", chain_id)),
+            address: None,
+            operation: "sign_tempo_transaction",
+        })?;
 
     let signed_tx: AASigned = tx.into_signed(signature.into());
     let mut buf = Vec::new();
@@ -278,7 +286,11 @@ async fn create_eip1559_transaction(
     let signature = signer
         .sign_transaction(&mut tx_mut)
         .await
-        .map_err(|e| PurlError::signing(format!("Failed to sign transaction: {}", e)))?;
+        .with_signing_context(SigningContext {
+            network: Some(format!("chain_id:{}", chain_id)),
+            address: None,
+            operation: "sign_eip1559_transaction",
+        })?;
 
     let mut buf = Vec::new();
     buf.push(0x02);

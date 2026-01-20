@@ -1,9 +1,41 @@
 //! Error types for the purl library.
 
+use std::error::Error as StdError;
 use thiserror::Error;
 
 /// Result type alias for purl operations.
 pub type Result<T> = std::result::Result<T, PurlError>;
+
+/// Context for signing errors
+#[derive(Debug, Clone)]
+pub struct SigningContext {
+    pub network: Option<String>,
+    pub address: Option<String>,
+    pub operation: &'static str,
+}
+
+impl Default for SigningContext {
+    fn default() -> Self {
+        Self {
+            network: None,
+            address: None,
+            operation: "sign",
+        }
+    }
+}
+
+impl std::fmt::Display for SigningContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "operation: {}", self.operation)?;
+        if let Some(ref network) = self.network {
+            write!(f, ", network: {}", network)?;
+        }
+        if let Some(ref address) = self.address {
+            write!(f, ", address: {}", address)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum PurlError {
@@ -71,9 +103,17 @@ pub enum PurlError {
     #[error("Unsupported HTTP method: {0}")]
     UnsupportedHttpMethod(String),
 
-    /// EVM/Alloy signing error
+    /// EVM/Alloy signing error with context and source chain
+    #[error("signing failed ({context})")]
+    Signing {
+        #[source]
+        source: Box<dyn StdError + Send + Sync>,
+        context: SigningContext,
+    },
+
+    /// Simple signing error for backwards compatibility
     #[error("Signing error: {0}")]
-    Signing(String),
+    SigningSimple(String),
 
     /// Address parsing error
     #[error("Invalid address: {0}")]
@@ -154,9 +194,31 @@ pub enum PurlError {
 }
 
 impl PurlError {
-    /// Create a signing error
+    /// Create a signing error with context and source chain
+    pub fn signing_with_context(
+        source: impl StdError + Send + Sync + 'static,
+        context: SigningContext,
+    ) -> Self {
+        Self::Signing {
+            source: Box::new(source),
+            context,
+        }
+    }
+
+    /// Create a signing error with just a message (backwards compat)
     pub fn signing(msg: impl Into<String>) -> Self {
-        Self::Signing(msg.into())
+        Self::SigningSimple(msg.into())
+    }
+
+    /// Add network context to an existing error
+    pub fn with_network(self, network: impl Into<String>) -> Self {
+        match self {
+            Self::Signing { source, mut context } => {
+                context.network = Some(network.into());
+                Self::Signing { source, context }
+            }
+            other => other,
+        }
     }
 
     /// Create an invalid address error
@@ -172,6 +234,33 @@ impl PurlError {
     /// Create an unsupported payment method error
     pub fn unsupported_method(method: &impl std::fmt::Display) -> Self {
         Self::UnsupportedPaymentMethod(format!("Payment method '{}' is not supported", method))
+    }
+}
+
+/// Extension trait for adding context to Results
+pub trait ResultExt<T> {
+    /// Add signing context to an error
+    fn with_signing_context(self, context: SigningContext) -> Result<T>;
+
+    /// Add network context to an error
+    fn with_network(self, network: &str) -> Result<T>;
+}
+
+impl<T, E: StdError + Send + Sync + 'static> ResultExt<T> for std::result::Result<T, E> {
+    fn with_signing_context(self, context: SigningContext) -> Result<T> {
+        self.map_err(|e| PurlError::signing_with_context(e, context))
+    }
+
+    fn with_network(self, network: &str) -> Result<T> {
+        self.map_err(|e| {
+            PurlError::signing_with_context(
+                e,
+                SigningContext {
+                    network: Some(network.to_string()),
+                    ..Default::default()
+                },
+            )
+        })
     }
 }
 
@@ -297,8 +386,8 @@ mod tests {
     }
 
     #[test]
-    fn test_signing_display() {
-        let err = PurlError::Signing("Failed to sign transaction".to_string());
+    fn test_signing_simple_display() {
+        let err = PurlError::SigningSimple("Failed to sign transaction".to_string());
         assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
     }
 
@@ -353,8 +442,85 @@ mod tests {
     #[test]
     fn test_signing_constructor() {
         let err = PurlError::signing("test error");
-        assert!(matches!(err, PurlError::Signing(_)));
+        assert!(matches!(err, PurlError::SigningSimple(_)));
         assert_eq!(err.to_string(), "Signing error: test error");
+    }
+
+    #[test]
+    fn test_signing_with_context() {
+        use std::io::{Error as IoError, ErrorKind};
+        let source = IoError::new(ErrorKind::Other, "underlying error");
+        let ctx = SigningContext {
+            network: Some("base".to_string()),
+            address: Some("0x123".to_string()),
+            operation: "sign_transaction",
+        };
+        let err = PurlError::signing_with_context(source, ctx);
+        let display = err.to_string();
+        assert!(display.contains("signing failed"));
+        assert!(display.contains("sign_transaction"));
+        assert!(display.contains("base"));
+        assert!(display.contains("0x123"));
+    }
+
+    #[test]
+    fn test_signing_context_display() {
+        let ctx = SigningContext {
+            network: Some("ethereum".to_string()),
+            address: Some("0xabc".to_string()),
+            operation: "get_nonce",
+        };
+        let display = ctx.to_string();
+        assert!(display.contains("operation: get_nonce"));
+        assert!(display.contains("network: ethereum"));
+        assert!(display.contains("address: 0xabc"));
+    }
+
+    #[test]
+    fn test_signing_context_default() {
+        let ctx = SigningContext::default();
+        assert_eq!(ctx.operation, "sign");
+        assert!(ctx.network.is_none());
+        assert!(ctx.address.is_none());
+    }
+
+    #[test]
+    fn test_result_ext_with_signing_context() {
+        use std::io::{Error as IoError, ErrorKind};
+        let result: std::result::Result<(), IoError> =
+            Err(IoError::new(ErrorKind::Other, "test"));
+        let ctx = SigningContext {
+            network: Some("tempo".to_string()),
+            address: None,
+            operation: "test_op",
+        };
+        let purl_result = result.with_signing_context(ctx);
+        assert!(purl_result.is_err());
+        let err = purl_result.unwrap_err();
+        assert!(err.to_string().contains("signing failed"));
+    }
+
+    #[test]
+    fn test_result_ext_with_network() {
+        use std::io::{Error as IoError, ErrorKind};
+        let result: std::result::Result<(), IoError> =
+            Err(IoError::new(ErrorKind::Other, "test"));
+        let purl_result = result.with_network("base-sepolia");
+        assert!(purl_result.is_err());
+        let err = purl_result.unwrap_err();
+        assert!(err.to_string().contains("base-sepolia"));
+    }
+
+    #[test]
+    fn test_with_network_on_signing_error() {
+        use std::io::{Error as IoError, ErrorKind};
+        let source = IoError::new(ErrorKind::Other, "test");
+        let err = PurlError::signing_with_context(
+            source,
+            SigningContext::default(),
+        );
+        let err_with_network = err.with_network("optimism");
+        assert!(err_with_network.to_string().contains("optimism"));
     }
 
     #[test]
