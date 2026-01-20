@@ -65,9 +65,9 @@ impl PaymentHandlerConfig {
     ///
     /// Returns an error if the string cannot be parsed as a valid u128.
     pub fn max_amount_str(mut self, amount: &str) -> Result<Self> {
-        let parsed = amount.parse::<u128>().map_err(|_| {
-            PurlError::InvalidAmount(format!("Invalid max amount: {}", amount))
-        })?;
+        let parsed = amount
+            .parse::<u128>()
+            .map_err(|_| PurlError::InvalidAmount(format!("Invalid max amount: {}", amount)))?;
         self.max_amount = Some(parsed);
         Ok(self)
     }
