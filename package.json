@@ -1,0 +1,13 @@
+{
+  "name": "purl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Payment via URL - Rust library and CLI",
+  "scripts": {
+    "lint": "npx @tempoxyz/lints rust lib/src"
+  },
+  "devDependencies": {
+    "@tempoxyz/lints": "github:tempoxyz/lints",
+    "tsx": "^4.19.2"
+  }
+}
