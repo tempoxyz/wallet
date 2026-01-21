@@ -18,16 +18,16 @@ clean:
 
 # Run all tests (uses mocks, no network required)
 test:
-	cargo test
+	cargo test -- --quiet
 
 # Unit tests only (fastest, library tests only)
 test-fast:
-	cargo test --lib
+	cargo test --lib -- --quiet
 
 check:
 	cargo fmt --check
 	cargo clippy -- -D warnings
-	cargo test
+	cargo test -- --quiet
 	cargo build
 
 fix:
