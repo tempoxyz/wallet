@@ -106,11 +106,14 @@ pub trait Provider: Send + Sync {
 #[async_trait]
 pub trait BalanceProvider: Provider {
     /// Get token balance for an address on a specific network
+    ///
+    /// The `config` parameter is used to resolve RPC overrides and custom networks.
     async fn get_balance(
         &self,
         address: &str,
         network: Network,
         currency: Currency,
+        config: &Config,
     ) -> Result<NetworkBalance>;
 }
 
@@ -221,10 +224,15 @@ impl BalanceProvider for BuiltinProvider {
         address: &str,
         network: Network,
         currency: Currency,
+        config: &Config,
     ) -> Result<NetworkBalance> {
         match self {
             #[cfg(feature = "evm")]
-            BuiltinProvider::Evm => Self::evm().get_balance(address, network, currency).await,
+            BuiltinProvider::Evm => {
+                Self::evm()
+                    .get_balance(address, network, currency, config)
+                    .await
+            }
         }
     }
 }
