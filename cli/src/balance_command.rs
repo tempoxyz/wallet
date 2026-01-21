@@ -74,7 +74,7 @@ pub async fn balance_command(
                 balances.push(mock_balance(network, &check_address, &currency));
             } else {
                 match provider
-                    .get_balance(&check_address, network, currency)
+                    .get_balance(&check_address, network, currency, config)
                     .await
                 {
                     Ok(balance) => balances.push(balance),

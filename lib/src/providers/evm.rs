@@ -58,6 +58,7 @@ impl BalanceProvider for EvmProvider {
         address: &str,
         network: Network,
         currency: Currency,
+        config: &Config,
     ) -> Result<NetworkBalance> {
         sol! {
             #[sol(rpc)]
@@ -73,7 +74,8 @@ impl BalanceProvider for EvmProvider {
             ))
         })?;
 
-        let network_info = network.info();
+        // Use config.resolve_network() to respect RPC overrides and custom networks
+        let network_info = config.resolve_network(network.as_str())?;
         let provider =
             ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
                 PurlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
@@ -145,8 +147,8 @@ impl PaymentProvider for EvmProvider {
             .method
             .network_name()
             .ok_or_else(|| PurlError::unsupported_method(&challenge.method))?;
-        let network_info = crate::network::get_network(network_name)
-            .ok_or_else(|| PurlError::UnknownNetwork(format!("{} not found", network_name)))?;
+        // Use config.resolve_network() to respect RPC overrides and custom networks
+        let network_info = config.resolve_network(network_name)?;
         let chain_id = network_info.chain_id.ok_or_else(|| {
             PurlError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;

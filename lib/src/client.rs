@@ -596,11 +596,12 @@ mod tests {
         let config = test_config();
         let client = Client::with_config(config)
             .unwrap()
-            .allowed_networks(&["base", "ethereum"]);
+            .allowed_networks(&["tempo-moderato"]);
 
-        assert_eq!(client.allowed_networks.len(), 2);
-        assert!(client.allowed_networks.contains(&"base".to_string()));
-        assert!(client.allowed_networks.contains(&"ethereum".to_string()));
+        assert_eq!(client.allowed_networks.len(), 1);
+        assert!(client
+            .allowed_networks
+            .contains(&"tempo-moderato".to_string()));
     }
 
     #[test]
@@ -674,7 +675,7 @@ mod tests {
         let client = Client::with_config(config)
             .unwrap()
             .max_amount("1000000")
-            .allowed_networks(&["base"])
+            .allowed_networks(&["tempo-moderato"])
             .header("Authorization", "Bearer token")
             .timeout(60)
             .follow_redirects()
@@ -683,7 +684,7 @@ mod tests {
             .dry_run();
 
         assert_eq!(client.max_amount, Some("1000000".to_string()));
-        assert_eq!(client.allowed_networks, vec!["base".to_string()]);
+        assert_eq!(client.allowed_networks, vec!["tempo-moderato".to_string()]);
         assert_eq!(client.headers.len(), 1);
         assert_eq!(client.timeout, Some(60));
         assert!(client.follow_redirects);
@@ -785,7 +786,7 @@ mod tests {
         let config = test_config();
         let client = Client::builder()
             .max_amount("1000000")
-            .allowed_networks(&["base"])
+            .allowed_networks(&["tempo-moderato"])
             .header("X-Custom", "value")
             .timeout(30)
             .follow_redirects(true)
@@ -797,7 +798,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(client.max_amount, Some("1000000".to_string()));
-        assert_eq!(client.allowed_networks, vec!["base".to_string()]);
+        assert_eq!(client.allowed_networks, vec!["tempo-moderato".to_string()]);
         assert_eq!(client.headers.len(), 1);
         assert_eq!(client.timeout, Some(30));
         assert!(client.follow_redirects);
