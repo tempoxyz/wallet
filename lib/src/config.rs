@@ -329,6 +329,57 @@ impl Config {
             )
         })
     }
+
+    /// Resolve network information with config overrides applied.
+    ///
+    /// This method checks networks in the following order:
+    /// 1. Custom networks defined in `[[networks]]` config section
+    /// 2. Built-in networks with `[rpc]` URL overrides applied
+    ///
+    /// Use this instead of `network::get_network()` when you need to respect
+    /// user-configured RPC overrides and custom networks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use purl::Config;
+    ///
+    /// let config = Config::builder()
+    ///     .evm_private_key("test_key")
+    ///     .rpc_override("tempo-moderato", "https://my-custom-rpc.com")
+    ///     .build();
+    ///
+    /// let network_info = config.resolve_network("tempo-moderato").unwrap();
+    /// assert_eq!(network_info.rpc_url, "https://my-custom-rpc.com");
+    /// ```
+    pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
+        use crate::network::{get_network, resolve_network_alias};
+
+        let canonical_id = resolve_network_alias(network_id);
+
+        // Check custom networks first
+        if let Some(custom) = self.networks.iter().find(|n| n.id == canonical_id) {
+            return Ok(crate::network::NetworkInfo {
+                chain_type: custom.chain_type,
+                chain_id: custom.chain_id,
+                mainnet: custom.mainnet,
+                display_name: custom.display_name.clone(),
+                rpc_url: custom.rpc_url.clone(),
+            });
+        }
+
+        // Fall back to built-in networks with RPC overrides
+        let mut network_info = get_network(canonical_id).ok_or_else(|| {
+            PurlError::UnknownNetwork(format!("Network '{}' not found", network_id))
+        })?;
+
+        // Apply RPC override if configured
+        if let Some(rpc_override) = self.rpc.get(canonical_id) {
+            network_info.rpc_url = rpc_override.clone();
+        }
+
+        Ok(network_info)
+    }
 }
 
 /// Payment method types supported by the library.
@@ -917,5 +968,101 @@ mod tests {
         let token = &config.tokens[0];
         assert_eq!(token.symbol, "TEST");
         assert_eq!(token.decimals, 18);
+    }
+
+    #[test]
+    fn test_resolve_network_with_rpc_override() {
+        let config = Config::builder()
+            .evm_private_key("test")
+            .rpc_override("tempo-moderato", "https://custom-tempo-rpc.com")
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo-moderato")
+            .expect("tempo-moderato should resolve");
+        assert_eq!(network_info.rpc_url, "https://custom-tempo-rpc.com");
+    }
+
+    #[test]
+    fn test_resolve_network_without_override() {
+        let config = Config::builder().evm_private_key("test").build();
+
+        let network_info = config
+            .resolve_network("tempo-moderato")
+            .expect("tempo-moderato should resolve");
+        // Should use the default RPC URL from the registry
+        assert!(network_info.rpc_url.contains("tempo"));
+    }
+
+    #[test]
+    fn test_resolve_network_with_custom_network() {
+        let custom = CustomNetwork {
+            id: "my-custom-chain".to_string(),
+            chain_type: ChainType::Evm,
+            chain_id: Some(12345),
+            mainnet: false,
+            display_name: "My Custom Chain".to_string(),
+            rpc_url: "https://rpc.custom.example.com".to_string(),
+        };
+
+        let config = Config::builder()
+            .evm_private_key("test")
+            .custom_network(custom)
+            .build();
+
+        let network_info = config
+            .resolve_network("my-custom-chain")
+            .expect("custom network should resolve");
+        assert_eq!(network_info.rpc_url, "https://rpc.custom.example.com");
+        assert_eq!(network_info.chain_id, Some(12345));
+        assert_eq!(network_info.display_name, "My Custom Chain");
+    }
+
+    #[test]
+    fn test_resolve_network_custom_overrides_builtin() {
+        // Custom network with same ID as a built-in should override it
+        let custom = CustomNetwork {
+            id: "tempo-moderato".to_string(),
+            chain_type: ChainType::Evm,
+            chain_id: Some(42431),
+            mainnet: false,
+            display_name: "Custom Tempo".to_string(),
+            rpc_url: "https://my-private-tempo-rpc.com".to_string(),
+        };
+
+        let config = Config::builder()
+            .evm_private_key("test")
+            .custom_network(custom)
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo-moderato")
+            .expect("tempo-moderato should resolve");
+        assert_eq!(network_info.rpc_url, "https://my-private-tempo-rpc.com");
+        assert_eq!(network_info.display_name, "Custom Tempo");
+    }
+
+    #[test]
+    fn test_resolve_network_unknown() {
+        let config = Config::builder().evm_private_key("test").build();
+
+        let result = config.resolve_network("unknown-network");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not found"));
+    }
+
+    #[test]
+    fn test_resolve_network_with_alias() {
+        let config = Config::builder()
+            .evm_private_key("test")
+            .rpc_override("tempo-moderato", "https://aliased-rpc.com")
+            .build();
+
+        // CAIP-2 alias should resolve to the canonical network and apply RPC override
+        let network_info = config
+            .resolve_network("eip155:42431")
+            .expect("alias should resolve");
+        assert_eq!(network_info.rpc_url, "https://aliased-rpc.com");
     }
 }
