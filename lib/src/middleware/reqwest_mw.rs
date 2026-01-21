@@ -19,7 +19,7 @@
 //! let config = purl::Config::load()?;
 //! let payment_config = PaymentHandlerConfig::new(config)
 //!     .max_amount(1_000_000u128)
-//!     .allowed_networks(&["base", "tempo"]);
+//!     .allowed_networks(&["tempo-moderato"]);
 //!
 //! let client = ClientBuilder::new(reqwest::Client::new())
 //!     .with(PaymentMiddleware::new(payment_config))
@@ -252,7 +252,7 @@ mod tests {
         let config = Config::default();
         let middleware = PaymentMiddleware::from_config(config)
             .max_amount(1_000_000u128)
-            .allowed_networks(&["base"])
+            .allowed_networks(&["tempo-moderato"])
             .dry_run(true);
 
         assert!(middleware.handler.is_dry_run());

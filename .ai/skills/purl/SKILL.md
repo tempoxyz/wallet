@@ -45,7 +45,7 @@ purl --confirm https://api.example.com/data
 | `--dry-run` | Show what would be paid without executing |
 | `--confirm` | Require confirmation before paying |
 | `--max-amount <AMOUNT>` | Set maximum payment amount (atomic units) |
-| `--network <NETWORKS>` | Filter to specific networks (e.g., "base,base-sepolia") |
+| `--network <NETWORKS>` | Filter to specific networks (e.g., "tempo-moderato") |
 | `-v, --verbose` | Verbose output with headers |
 | `-o, --output <FILE>` | Write output to file |
 
@@ -59,7 +59,7 @@ purl -v https://api.example.com/data
 purl -X POST --json '{"key": "value"}' https://api.example.com/endpoint
 
 # Filter to specific network
-purl --network base-sepolia https://api.example.com/data
+purl --network tempo-moderato https://api.example.com/data
 
 # Set maximum payment amount
 purl --max-amount 10000 https://api.example.com/data

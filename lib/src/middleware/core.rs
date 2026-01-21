@@ -126,7 +126,7 @@ impl PaymentHandlerConfig {
 /// let config = purl::Config::load()?;
 /// let handler = PaymentHandler::new(PaymentHandlerConfig::new(config)
 ///     .max_amount(1_000_000u128)
-///     .allowed_networks(&["base", "tempo"]));
+///     .allowed_networks(&["tempo-moderato"]));
 ///
 /// // Check if response requires payment
 /// if handler.requires_payment(status_code) {
@@ -318,17 +318,14 @@ mod tests {
         let config = test_config();
         let handler_config = PaymentHandlerConfig::new(config)
             .max_amount(1_000_000u128)
-            .allowed_networks(&["base", "tempo"])
+            .allowed_networks(&["tempo-moderato"])
             .dry_run(true);
 
         assert_eq!(handler_config.get_max_amount(), Some(1_000_000u128));
-        assert_eq!(handler_config.get_allowed_networks().len(), 2);
+        assert_eq!(handler_config.get_allowed_networks().len(), 1);
         assert!(handler_config
             .get_allowed_networks()
-            .contains(&"base".to_string()));
-        assert!(handler_config
-            .get_allowed_networks()
-            .contains(&"tempo".to_string()));
+            .contains(&"tempo-moderato".to_string()));
         assert!(handler_config.is_dry_run());
     }
 

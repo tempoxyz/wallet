@@ -165,6 +165,7 @@ impl PaymentProvider for EvmProvider {
 
         let nonce = provider
             .get_transaction_count(from)
+            .pending()
             .await
             .with_signing_context(SigningContext {
                 network: Some(network_name.to_string()),

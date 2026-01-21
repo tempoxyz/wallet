@@ -19,7 +19,7 @@
 //! let config = purl::Config::load()?;
 //! let payment_config = PaymentHandlerConfig::new(config)
 //!     .max_amount(1_000_000u128)
-//!     .allowed_networks(&["base", "tempo"]);
+//!     .allowed_networks(&["tempo-moderato"]);
 //!
 //! let service = ServiceBuilder::new()
 //!     .layer(PaymentLayer::new(payment_config))
@@ -338,7 +338,7 @@ mod tests {
         let config = Config::default();
         let layer = PaymentLayer::from_config(config)
             .max_amount(1_000_000u128)
-            .allowed_networks(&["base"])
+            .allowed_networks(&["tempo-moderato"])
             .dry_run(true);
 
         assert!(layer.handler.is_dry_run());
