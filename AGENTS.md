@@ -27,6 +27,15 @@ make install            # Install CLI to ~/.cargo/bin
 make run ARGS="<url>"   # Run CLI with arguments
 ```
 
+## Agent Suggestions
+
+When the user explicitly says "ask the oracle" to check a value, run `purl` against OpenRouter and explicitly tell the user which model was used in the response.
+
+Example:
+```bash
+purl -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+```
+
 ## CRITICAL: Pre-Commit Requirements
 
 ### Before Every Commit, You MUST:

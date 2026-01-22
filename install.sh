@@ -16,9 +16,10 @@ echo "$PURL_BANNER"
 echo "purl installer"
 echo ""
 
-REPO="brendanjryan/purl"
+REPO="tempoxyz/purl"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="purl"
+R2_BASE_URL="https://purl.tempo.xyz"
 
 detect_platform() {
     local platform="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -46,27 +47,15 @@ detect_arch() {
     esac
 }
 
-get_latest_release() {
-    echo "Fetching latest release..."
-    LATEST_RELEASE=$(curl --silent "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-
-    if [ -z "$LATEST_RELEASE" ]; then
-        echo "Error: Could not fetch latest release"
-        exit 1
-    fi
-
-    echo "Latest version: ${LATEST_RELEASE}"
-}
-
 install_purl() {
-    local download_url="https://github.com/${REPO}/releases/download/${LATEST_RELEASE}/purl-${PLATFORM}-${ARCH}"
+    local download_url="${R2_BASE_URL}/purl-${PLATFORM}-${ARCH}"
     local tmp_file="/tmp/${BINARY_NAME}"
 
     echo ""
     echo "Downloading purl..."
     echo "URL: ${download_url}"
 
-    if ! curl -L --progress-bar "${download_url}" -o "${tmp_file}"; then
+    if ! curl -fL --progress-bar "${download_url}" -o "${tmp_file}"; then
         echo "Error: Download failed"
         exit 1
     fi
@@ -103,7 +92,6 @@ verify_installation() {
 main() {
     detect_platform
     detect_arch
-    get_latest_release
     install_purl
     verify_installation
 
