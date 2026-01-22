@@ -28,8 +28,8 @@
         buildInputs = with pkgs; [
           openssl
         ] ++ lib.optionals stdenv.isDarwin [
-          darwin.apple_sdk.frameworks.Security
-          darwin.apple_sdk.frameworks.SystemConfiguration
+          apple-sdk_15
+          darwinMinVersionHook "10.15"
         ];
         
       in {
