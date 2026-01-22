@@ -29,7 +29,7 @@
           openssl
         ] ++ lib.optionals stdenv.isDarwin [
           apple-sdk_15
-          darwinMinVersionHook "10.15"
+          (darwinMinVersionHook "10.15")
         ];
         
       in {
