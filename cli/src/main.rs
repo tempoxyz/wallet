@@ -6,6 +6,7 @@ mod config_commands;
 mod config_utils;
 mod errors;
 mod exit_codes;
+mod hyperlink;
 mod init;
 mod inspect_command;
 mod network_commands;
