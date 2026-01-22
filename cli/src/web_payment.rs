@@ -5,14 +5,42 @@
 
 use anyhow::{Context, Result};
 use dialoguer::Confirm;
+use purl::explorer::ExplorerConfig;
 use purl::protocol::web::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
 use purl::{Config, HttpResponse, Network, PROVIDER_REGISTRY};
 use std::str::FromStr;
 
 use crate::cli::Cli;
 use crate::exit_codes::ExitCode;
+use crate::hyperlink::hyperlink;
 use crate::request::RequestContext;
 use purl::utils::truncate_address;
+
+/// Format an address as a clickable hyperlink if explorer is available.
+fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> String {
+    if let Some(exp) = explorer {
+        let url = exp.address_url(address);
+        hyperlink(address, &url)
+    } else {
+        address.to_string()
+    }
+}
+
+/// Format and truncate an address as a clickable hyperlink if explorer is available.
+/// The displayed text is truncated but the link points to the full address.
+fn format_truncated_address_link(
+    address: &str,
+    max_len: usize,
+    explorer: Option<&ExplorerConfig>,
+) -> String {
+    let truncated = truncate_address(address, max_len);
+    if let Some(exp) = explorer {
+        let url = exp.address_url(address);
+        hyperlink(&truncated, &url)
+    } else {
+        truncated
+    }
+}
 
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
 pub async fn handle_web_payment_request(
@@ -28,6 +56,14 @@ pub async fn handle_web_payment_request(
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
+    // Get network and explorer config early for clickable links
+    let network = challenge
+        .network_name()
+        .context("Failed to determine network from payment method")?;
+    let explorer = Network::from_str(network)
+        .ok()
+        .and_then(|n| n.info().explorer);
+
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Challenge ID: {}", challenge.id);
         eprintln!("Payment method: {}", challenge.method);
@@ -42,8 +78,14 @@ pub async fn handle_web_payment_request(
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Amount: {} (atomic units)", charge_req.amount);
-        eprintln!("Asset: {}", charge_req.asset);
-        eprintln!("Destination: {}", charge_req.destination);
+        eprintln!(
+            "Asset: {}",
+            format_address_link(&charge_req.asset, explorer.as_ref())
+        );
+        eprintln!(
+            "Destination: {}",
+            format_address_link(&charge_req.destination, explorer.as_ref())
+        );
     }
 
     challenge
@@ -53,16 +95,13 @@ pub async fn handle_web_payment_request(
     validate_web_payment_constraints(&request_ctx.cli, &challenge, &charge_req)?;
 
     if request_ctx.cli.dry_run {
-        return handle_web_dry_run(config, &challenge, &charge_req);
+        return handle_web_dry_run(config, &challenge, &charge_req, explorer.as_ref());
     }
 
     if request_ctx.cli.confirm {
-        confirm_web_payment(config, &challenge, &charge_req)?;
+        confirm_web_payment(config, &challenge, &charge_req, explorer.as_ref())?;
     }
 
-    let network = challenge
-        .network_name()
-        .context("Failed to determine network from payment method")?;
     let provider = PROVIDER_REGISTRY
         .find_provider(network)
         .ok_or_else(|| anyhow::anyhow!("No provider found for network: {}", network))?;
@@ -87,7 +126,7 @@ pub async fn handle_web_payment_request(
     let payment_headers = vec![("Authorization".to_string(), auth_header)];
     let response = request_ctx.execute(url, Some(&payment_headers))?;
 
-    display_web_receipt(&request_ctx.cli, &response)?;
+    display_web_receipt(&request_ctx.cli, &response, explorer.as_ref())?;
 
     Ok(response)
 }
@@ -125,6 +164,7 @@ fn handle_web_dry_run(
     config: &Config,
     challenge: &PaymentChallenge,
     charge_req: &ChargeRequest,
+    explorer: Option<&ExplorerConfig>,
 ) -> Result<HttpResponse> {
     let network = challenge
         .network_name()
@@ -141,9 +181,12 @@ fn handle_web_dry_run(
     println!("Intent: {}", challenge.intent);
     println!("Network: {}", network);
     println!("Amount: {} (atomic units)", charge_req.amount);
-    println!("Asset: {}", charge_req.asset);
-    println!("From: {}", from_address);
-    println!("To: {}", charge_req.destination);
+    println!("Asset: {}", format_address_link(&charge_req.asset, explorer));
+    println!("From: {}", format_address_link(&from_address, explorer));
+    println!(
+        "To: {}",
+        format_address_link(&charge_req.destination, explorer)
+    );
     if let Some(ref expires) = challenge.expires {
         println!("Expires: {}", expires);
     }
@@ -156,6 +199,7 @@ fn confirm_web_payment(
     config: &Config,
     challenge: &PaymentChallenge,
     charge_req: &ChargeRequest,
+    explorer: Option<&ExplorerConfig>,
 ) -> Result<()> {
     use std::io::IsTerminal;
 
@@ -184,24 +228,20 @@ fn confirm_web_payment(
     let divisor = 10u128.pow(decimals as u32) as f64;
     let amount_display = format!("{:.6} {}", amount_u128 as f64 / divisor, symbol);
 
+    // Format addresses with clickable links (truncated for display, full URL)
+    let asset_display = format_truncated_address_link(&charge_req.asset, 45, explorer);
+    let to_display = format_truncated_address_link(&charge_req.destination, 45, explorer);
+    let from_display = format_truncated_address_link(&from_address, 45, explorer);
+
     eprintln!();
     eprintln!("┌─────────────────────────────────────────────────────────────┐");
     eprintln!("│                  Web Payment Details                        │");
     eprintln!("├─────────────────────────────────────────────────────────────┤");
     eprintln!("│  Amount:    {:<47} │", amount_display);
-    eprintln!(
-        "│  Asset:     {:<47} │",
-        truncate_address(&charge_req.asset, 45)
-    );
+    eprintln!("│  Asset:     {} │", pad_with_hyperlink(&asset_display, 47));
     eprintln!("│  Network:   {:<47} │", network_name);
-    eprintln!(
-        "│  To:        {:<47} │",
-        truncate_address(&charge_req.destination, 45)
-    );
-    eprintln!(
-        "│  From:      {:<47} │",
-        truncate_address(&from_address, 45)
-    );
+    eprintln!("│  To:        {} │", pad_with_hyperlink(&to_display, 47));
+    eprintln!("│  From:      {} │", pad_with_hyperlink(&from_display, 47));
     eprintln!("└─────────────────────────────────────────────────────────────┘");
     eprintln!();
 
@@ -217,18 +257,87 @@ fn confirm_web_payment(
     Ok(())
 }
 
-/// Display receipt information from response
-fn display_web_receipt(cli: &Cli, response: &HttpResponse) -> Result<()> {
+/// Pad a string containing possible hyperlink escape codes to a target visible width.
+/// Hyperlink escape codes don't contribute to visible width.
+fn pad_with_hyperlink(s: &str, width: usize) -> String {
+    // Count visible characters (excluding ANSI escape sequences)
+    let visible_len = strip_ansi_codes_len(s);
+    if visible_len >= width {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(width - visible_len))
+    }
+}
+
+/// Count the visible length of a string, excluding ANSI escape codes.
+fn strip_ansi_codes_len(s: &str) -> usize {
+    let mut len = 0;
+    let mut in_escape = false;
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            in_escape = true;
+            // Check for OSC sequence (ESC ])
+            if chars.peek() == Some(&']') {
+                chars.next(); // consume ]
+                // Skip until BEL (\x07) or ST (ESC \)
+                while let Some(c2) = chars.next() {
+                    if c2 == '\x07' {
+                        break;
+                    }
+                    if c2 == '\x1b' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        break;
+                    }
+                }
+                in_escape = false;
+            }
+        } else if in_escape {
+            // CSI sequence ends at letter
+            if c.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+        } else {
+            len += 1;
+        }
+    }
+    len
+}
+
+/// Display receipt information from response with optional clickable explorer links.
+fn display_web_receipt(
+    cli: &Cli,
+    response: &HttpResponse,
+    explorer: Option<&ExplorerConfig>,
+) -> Result<()> {
     if let Some(receipt_header) = response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_header) {
             if cli.is_verbose() && cli.should_show_output() {
                 eprintln!("Payment receipt:");
                 eprintln!("  Status: {}", receipt.status);
                 eprintln!("  Method: {}", receipt.method);
-                eprintln!("  TX Hash: {}", receipt.reference);
+
+                // TX Hash with optional clickable link
+                let tx_display = if let Some(exp) = explorer {
+                    let url = exp.tx_url(&receipt.reference);
+                    hyperlink(&receipt.reference, &url)
+                } else {
+                    receipt.reference.clone()
+                };
+                eprintln!("  TX Hash: {}", tx_display);
+
                 eprintln!("  Timestamp: {}", receipt.timestamp);
+
+                // Block number with optional clickable link
                 if let Some(ref block) = receipt.block_number {
-                    eprintln!("  Block: {}", block);
+                    let block_display = if let Some(exp) = explorer {
+                        let url = exp.block_url(block);
+                        hyperlink(block, &url)
+                    } else {
+                        block.clone()
+                    };
+                    eprintln!("  Block: {}", block_display);
                 }
                 if let Some(ref error) = receipt.error {
                     eprintln!("  Error: {}", error);
@@ -369,5 +478,35 @@ mod tests {
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_strip_ansi_codes_len_plain_text() {
+        assert_eq!(strip_ansi_codes_len("hello"), 5);
+        assert_eq!(strip_ansi_codes_len("0x1234567890"), 12);
+    }
+
+    #[test]
+    fn test_strip_ansi_codes_len_with_osc8() {
+        // OSC 8 hyperlink format: ESC ] 8 ; ; URL BEL text ESC ] 8 ; ; BEL
+        let hyperlink = "\x1b]8;;https://example.com\x07click me\x1b]8;;\x07";
+        assert_eq!(strip_ansi_codes_len(hyperlink), 8); // "click me" = 8 chars
+    }
+
+    #[test]
+    fn test_pad_with_hyperlink_plain() {
+        let result = pad_with_hyperlink("hello", 10);
+        assert_eq!(result, "hello     ");
+    }
+
+    #[test]
+    fn test_pad_with_hyperlink_with_escape() {
+        let hyperlink = "\x1b]8;;https://example.com\x07text\x1b]8;;\x07";
+        let result = pad_with_hyperlink(hyperlink, 10);
+        // "text" is 4 chars, so we need 6 spaces
+        assert_eq!(
+            result,
+            "\x1b]8;;https://example.com\x07text\x1b]8;;\x07      "
+        );
     }
 }
