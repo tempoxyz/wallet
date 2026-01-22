@@ -82,13 +82,13 @@ fn detect_hyperlink_support() -> bool {
 
     // Environment variables that indicate a terminal with OSC 8 support (presence check)
     const SUPPORTED_TERMINAL_VARS: &[&str] = &[
-        "ITERM_SESSION_ID",     // iTerm2
-        "WT_SESSION",           // Windows Terminal
-        "WEZTERM_PANE",         // WezTerm
+        "ITERM_SESSION_ID",      // iTerm2
+        "WT_SESSION",            // Windows Terminal
+        "WEZTERM_PANE",          // WezTerm
         "GHOSTTY_RESOURCES_DIR", // Ghostty
-        "KITTY_WINDOW_ID",      // Kitty
-        "ALACRITTY_SOCKET",     // Alacritty (supports OSC 8 since v0.11)
-        "KONSOLE_VERSION",      // Konsole
+        "KITTY_WINDOW_ID",       // Kitty
+        "ALACRITTY_SOCKET",      // Alacritty (supports OSC 8 since v0.11)
+        "KONSOLE_VERSION",       // Konsole
     ];
 
     // Check presence-based env vars

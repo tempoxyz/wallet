@@ -299,8 +299,8 @@ mod tests {
             "block_path": "/blk/{num}"
         }"#;
 
-        let explorer: ExplorerConfig =
-            serde_json::from_str(json).expect("should deserialize explorer config with custom paths");
+        let explorer: ExplorerConfig = serde_json::from_str(json)
+            .expect("should deserialize explorer config with custom paths");
         assert_eq!(explorer.tx_path, "/txn/{hash}");
         assert_eq!(explorer.block_path, "/blk/{num}");
         // Default for address_path
