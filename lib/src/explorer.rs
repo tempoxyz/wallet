@@ -283,7 +283,8 @@ mod tests {
             "base_url": "https://etherscan.io"
         }"#;
 
-        let explorer: ExplorerConfig = serde_json::from_str(json).unwrap();
+        let explorer: ExplorerConfig =
+            serde_json::from_str(json).expect("should deserialize explorer config");
         assert_eq!(explorer.base_url, "https://etherscan.io");
         assert_eq!(explorer.tx_path, "/tx/{hash}");
         assert_eq!(explorer.block_path, "/block/{num}");
@@ -298,7 +299,8 @@ mod tests {
             "block_path": "/blk/{num}"
         }"#;
 
-        let explorer: ExplorerConfig = serde_json::from_str(json).unwrap();
+        let explorer: ExplorerConfig =
+            serde_json::from_str(json).expect("should deserialize explorer config with custom paths");
         assert_eq!(explorer.tx_path, "/txn/{hash}");
         assert_eq!(explorer.block_path, "/blk/{num}");
         // Default for address_path
@@ -308,11 +310,13 @@ mod tests {
     #[test]
     fn test_deserialize_explorer_type() {
         let json = r#""tempo""#;
-        let explorer_type: ExplorerType = serde_json::from_str(json).unwrap();
+        let explorer_type: ExplorerType =
+            serde_json::from_str(json).expect("should deserialize tempo explorer type");
         assert_eq!(explorer_type, ExplorerType::Tempo);
 
         let json = r#""etherscan""#;
-        let explorer_type: ExplorerType = serde_json::from_str(json).unwrap();
+        let explorer_type: ExplorerType =
+            serde_json::from_str(json).expect("should deserialize etherscan explorer type");
         assert_eq!(explorer_type, ExplorerType::Etherscan);
     }
 }

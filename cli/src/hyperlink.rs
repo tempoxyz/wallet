@@ -75,64 +75,48 @@ fn detect_hyperlink_support() -> bool {
         return false;
     }
 
-    // Check if stdout is a terminal
+    // Check if stderr is a terminal
     if !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
         return false;
     }
 
-    // Check for known terminals that support OSC 8
-    // iTerm2
-    if env::var("ITERM_SESSION_ID").is_ok() {
+    // Environment variables that indicate a terminal with OSC 8 support (presence check)
+    const SUPPORTED_TERMINAL_VARS: &[&str] = &[
+        "ITERM_SESSION_ID",     // iTerm2
+        "WT_SESSION",           // Windows Terminal
+        "WEZTERM_PANE",         // WezTerm
+        "GHOSTTY_RESOURCES_DIR", // Ghostty
+        "KITTY_WINDOW_ID",      // Kitty
+        "ALACRITTY_SOCKET",     // Alacritty (supports OSC 8 since v0.11)
+        "KONSOLE_VERSION",      // Konsole
+    ];
+
+    // Check presence-based env vars
+    if SUPPORTED_TERMINAL_VARS
+        .iter()
+        .any(|var| env::var(var).is_ok())
+    {
         return true;
     }
 
-    // VSCode integrated terminal
-    if env::var("TERM_PROGRAM").is_ok_and(|v| v == "vscode") {
-        return true;
-    }
+    // TERM_PROGRAM values that indicate OSC 8 support
+    const SUPPORTED_TERM_PROGRAMS: &[&str] = &["vscode", "Hyper"];
 
-    // Windows Terminal
-    if env::var("WT_SESSION").is_ok() {
-        return true;
-    }
-
-    // WezTerm
-    if env::var("WEZTERM_PANE").is_ok() {
-        return true;
-    }
-
-    // Ghostty
-    if env::var("GHOSTTY_RESOURCES_DIR").is_ok() {
-        return true;
-    }
-
-    // Kitty terminal
-    if env::var("KITTY_WINDOW_ID").is_ok() {
-        return true;
-    }
-
-    // Alacritty (supports OSC 8 since v0.11)
-    if env::var("ALACRITTY_SOCKET").is_ok() {
-        return true;
-    }
-
-    // Hyper terminal
-    if env::var("TERM_PROGRAM").is_ok_and(|v| v == "Hyper") {
-        return true;
-    }
-
-    // Konsole
-    if env::var("KONSOLE_VERSION").is_ok() {
-        return true;
+    if let Ok(term_program) = env::var("TERM_PROGRAM") {
+        if SUPPORTED_TERM_PROGRAMS.contains(&term_program.as_str()) {
+            return true;
+        }
     }
 
     // GNOME Terminal (VTE-based, version 0.50+)
-    if env::var("VTE_VERSION").is_ok_and(|v| {
-        v.parse::<u32>()
-            .map(|version| version >= 5000)
+    if let Ok(vte_version) = env::var("VTE_VERSION") {
+        if vte_version
+            .parse::<u32>()
+            .map(|v| v >= 5000)
             .unwrap_or(false)
-    }) {
-        return true;
+        {
+            return true;
+        }
     }
 
     // Default to false for unknown terminals
