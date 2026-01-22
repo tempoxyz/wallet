@@ -56,8 +56,8 @@ pub use config::{Config, ConfigBuilder};
 pub use error::{PurlError, Result, ResultExt, SigningContext};
 
 pub use config::{CustomNetwork, CustomToken, EvmConfig, PaymentMethod, WalletConfig};
-pub use explorer::{ExplorerConfig, ExplorerType};
 pub use currency::{currencies, Currency};
+pub use explorer::{ExplorerConfig, ExplorerType};
 pub use money::{format_u256_trimmed, format_u256_with_decimals, Money, TokenId};
 pub use network::{evm_chain_ids, networks, ChainType, GasConfig, Network, NetworkInfo};
 pub use path_validation::validate_path;

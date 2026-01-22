@@ -181,7 +181,10 @@ fn handle_web_dry_run(
     println!("Intent: {}", challenge.intent);
     println!("Network: {}", network);
     println!("Amount: {} (atomic units)", charge_req.amount);
-    println!("Asset: {}", format_address_link(&charge_req.asset, explorer));
+    println!(
+        "Asset: {}",
+        format_address_link(&charge_req.asset, explorer)
+    );
     println!("From: {}", format_address_link(&from_address, explorer));
     println!(
         "To: {}",
@@ -281,7 +284,7 @@ fn strip_ansi_codes_len(s: &str) -> usize {
             // Check for OSC sequence (ESC ])
             if chars.peek() == Some(&']') {
                 chars.next(); // consume ]
-                // Skip until BEL (\x07) or ST (ESC \)
+                              // Skip until BEL (\x07) or ST (ESC \)
                 while let Some(c2) = chars.next() {
                     if c2 == '\x07' {
                         break;
