@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - master
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -46,6 +49,7 @@ jobs:
   release:
     name: Release
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v7
@@ -56,3 +60,32 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+
+  upload-r2:
+    name: Upload to R2
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Upload binaries to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          # Always upload as "latest"
+          for f in artifacts/*; do
+            aws s3 cp "$f" "s3://purl-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
+          done
+          
+          # If this is a tag, also upload with version prefix
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            for f in artifacts/*; do
+              BASENAME=$(basename "$f")
+              aws s3 cp "$f" "s3://purl-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            done
+          fi
