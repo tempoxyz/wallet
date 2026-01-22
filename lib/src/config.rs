@@ -1,6 +1,7 @@
 //! Configuration management for purl.
 
 use crate::error::{PurlError, Result};
+use crate::explorer::{ExplorerConfig, ExplorerType};
 use crate::network::ChainType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -96,6 +97,36 @@ pub struct CustomNetwork {
     pub display_name: String,
     /// RPC endpoint URL
     pub rpc_url: String,
+    /// Simple explorer URL (uses etherscan-style paths by default)
+    #[serde(default)]
+    pub explorer_url: Option<String>,
+    /// Explorer type preset (etherscan, tempo, blockscout)
+    #[serde(default)]
+    pub explorer_type: Option<ExplorerType>,
+    /// Full explorer configuration (overrides explorer_url and explorer_type)
+    #[serde(default, rename = "explorer")]
+    pub explorer_config: Option<ExplorerConfig>,
+}
+
+impl CustomNetwork {
+    /// Get the resolved explorer configuration.
+    ///
+    /// Resolution order:
+    /// 1. Full `explorer` config (if present)
+    /// 2. `explorer_url` + `explorer_type` (if explorer_url present)
+    /// 3. None
+    pub fn explorer(&self) -> Option<ExplorerConfig> {
+        if let Some(config) = &self.explorer_config {
+            return Some(config.clone());
+        }
+
+        if let Some(url) = &self.explorer_url {
+            let explorer_type = self.explorer_type.unwrap_or_default();
+            return Some(explorer_type.with_base_url(url));
+        }
+
+        None
+    }
 }
 
 /// Custom token definition for extending built-in tokens
@@ -365,6 +396,7 @@ impl Config {
                 mainnet: custom.mainnet,
                 display_name: custom.display_name.clone(),
                 rpc_url: custom.rpc_url.clone(),
+                explorer: custom.explorer(),
             });
         }
 
@@ -500,6 +532,9 @@ impl ConfigBuilder {
     ///     mainnet: false,
     ///     display_name: "My Custom Chain".to_string(),
     ///     rpc_url: "https://rpc.mychain.com".to_string(),
+    ///     explorer_url: Some("https://explorer.mychain.com".to_string()),
+    ///     explorer_type: None,
+    ///     explorer_config: None,
     /// };
     ///
     /// let config = ConfigBuilder::new()
@@ -765,6 +800,9 @@ mod tests {
             mainnet: false,
             display_name: "My Test Network".to_string(),
             rpc_url: "https://rpc.example.com".to_string(),
+            explorer_url: None,
+            explorer_type: None,
+            explorer_config: None,
         };
 
         // Test that custom network is stored correctly
@@ -1003,6 +1041,9 @@ mod tests {
             mainnet: false,
             display_name: "My Custom Chain".to_string(),
             rpc_url: "https://rpc.custom.example.com".to_string(),
+            explorer_url: None,
+            explorer_type: None,
+            explorer_config: None,
         };
 
         let config = Config::builder()
@@ -1028,6 +1069,9 @@ mod tests {
             mainnet: false,
             display_name: "Custom Tempo".to_string(),
             rpc_url: "https://my-private-tempo-rpc.com".to_string(),
+            explorer_url: None,
+            explorer_type: None,
+            explorer_config: None,
         };
 
         let config = Config::builder()
