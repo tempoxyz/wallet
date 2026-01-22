@@ -2,7 +2,9 @@
 /target
 **/*.rs.bk
 *.pdb
-Cargo.lock
+
+# Nix
+result
 
 # IDE
 .vscode/
