@@ -41,7 +41,7 @@
             lockFile = ./Cargo.lock;
             outputHashes = {
               "reth-chainspec-1.9.3" = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-              "tempo-primitives-1.0.0-rc.5" = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";
+              "tempo-primitives-1.0.0-rc.5" = "sha256-GaHsGk6KxZSmevJphvJ2F7StNOr1BVkxa//x+tNQ7hY=";
             };
           };
           
