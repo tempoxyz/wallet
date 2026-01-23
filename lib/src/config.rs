@@ -218,7 +218,7 @@ impl Config {
     ///
     /// let config = Config::builder()
     ///     .evm_private_key("your_private_key_here")
-    ///     .rpc_override("base", "https://my-rpc.com")
+    ///     .rpc_override("tempo", "https://my-rpc.com")
     ///     .build();
     /// ```
     pub fn builder() -> ConfigBuilder {
@@ -455,7 +455,7 @@ impl fmt::Display for PaymentMethod {
 ///
 /// let config = ConfigBuilder::new()
 ///     .evm_private_key("your_private_key_here")
-///     .rpc_override("base", "https://my-custom-rpc.com")
+///     .rpc_override("tempo", "https://my-custom-rpc.com")
 ///     .rpc_override("ethereum", "https://eth-mainnet.example.com")
 ///     .build();
 /// ```
@@ -508,7 +508,7 @@ impl ConfigBuilder {
     ///
     /// let config = ConfigBuilder::new()
     ///     .evm_private_key("test_key")
-    ///     .rpc_override("base", "https://my-base-rpc.com")
+    ///     .rpc_override("tempo", "https://my-tempo-rpc.com")
     ///     .build();
     /// ```
     #[must_use]
@@ -943,7 +943,7 @@ mod tests {
 
             [rpc]
             ethereum = "https://custom-eth-rpc.com"
-            base = "https://custom-base-rpc.com"
+            tempo = "https://custom-tempo-rpc.com"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse");
@@ -958,9 +958,9 @@ mod tests {
         assert_eq!(
             config
                 .rpc
-                .get("base")
-                .expect("Base RPC should be configured"),
-            "https://custom-base-rpc.com"
+                .get("tempo")
+                .expect("Tempo RPC should be configured"),
+            "https://custom-tempo-rpc.com"
         );
     }
 

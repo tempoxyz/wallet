@@ -108,9 +108,9 @@ fn build_inspect_output(
         .map(|req| ChargeInfo {
             amount: req.amount.clone(),
             amount_human: format_charge_amount(&req, challenge),
-            asset: req.asset.clone(),
-            destination: req.destination.clone(),
-            expires: req.expires.clone(),
+            asset: req.currency.clone(),
+            destination: req.recipient.clone().unwrap_or_default(),
+            expires: req.expires.clone().unwrap_or_default(),
         });
 
     let compatible = is_compatible_method(challenge, available_methods);
@@ -269,18 +269,22 @@ mod tests {
     fn mock_challenge() -> PaymentChallenge {
         let charge_req = ChargeRequest {
             amount: "1000000".to_string(),
-            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
-            destination: "0x1234567890123456789012345678901234567890".to_string(),
-            expires: "2099-12-31T23:59:59Z".to_string(),
-            fee_payer: None,
+            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            recipient: Some("0x1234567890123456789012345678901234567890".to_string()),
+            expires: Some("2099-12-31T23:59:59Z".to_string()),
+            description: None,
+            external_id: None,
+            method_details: None,
         };
 
         PaymentChallenge {
             id: "test-challenge-id".to_string(),
             realm: "api.example.com".to_string(),
-            method: WebPaymentMethod::Base,
+            method: WebPaymentMethod::Tempo,
             intent: PaymentIntent::Charge,
             request: serde_json::to_value(&charge_req).unwrap(),
+            request_raw: String::new(),
+            digest: None,
             description: Some("Test payment".to_string()),
             expires: Some("2099-12-31T23:59:59Z".to_string()),
         }
@@ -308,7 +312,7 @@ mod tests {
 
         assert_eq!(output.message, "Test payment");
         assert_eq!(output.challenge.id, "test-challenge-id");
-        assert_eq!(output.challenge.method, "base");
+        assert_eq!(output.challenge.method, "tempo");
         assert_eq!(output.challenge.intent, "charge");
         assert!(output.challenge.compatible);
         assert!(output.challenge.charge.is_some());
@@ -331,7 +335,7 @@ mod tests {
 
         assert_eq!(json["message"], "Test payment");
         assert_eq!(json["challenge"]["id"], "test-challenge-id");
-        assert_eq!(json["challenge"]["method"], "base");
+        assert_eq!(json["challenge"]["method"], "tempo");
         assert_eq!(json["configured_methods"][0], "evm");
     }
 }

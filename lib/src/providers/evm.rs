@@ -118,7 +118,9 @@ impl PaymentProvider for EvmProvider {
         challenge: &crate::protocol::web::PaymentChallenge,
         config: &Config,
     ) -> Result<crate::protocol::web::PaymentCredential> {
-        use crate::protocol::web::{ChargeRequest, PayloadType, PaymentCredential, PaymentPayload};
+        use crate::protocol::web::{
+            ChallengeEcho, ChargeRequest, PayloadType, PaymentCredential, PaymentPayload,
+        };
         use alloy::primitives::Bytes;
         use alloy::providers::Provider;
         use alloy::sol_types::SolCall;
@@ -130,15 +132,15 @@ impl PaymentProvider for EvmProvider {
         let from = signer.address();
 
         // Use typed accessor methods for type-safe parsing
-        let asset = charge_req.asset_address()?;
-        let destination = charge_req.destination_address()?;
+        let currency = charge_req.currency_address()?;
+        let recipient = charge_req.recipient_address()?;
         let amount = charge_req.amount_u256()?;
 
         sol! {
             function transfer(address to, uint256 amount) external returns (bool);
         }
         let transfer_call = transferCall {
-            to: destination,
+            to: recipient,
             amount,
         };
         let transfer_data = Bytes::from(transfer_call.abi_encode());
@@ -178,7 +180,7 @@ impl PaymentProvider for EvmProvider {
                 &signer,
                 chain_id,
                 nonce,
-                asset,
+                currency,
                 transfer_data,
                 &gas_config,
             )?,
@@ -187,7 +189,7 @@ impl PaymentProvider for EvmProvider {
                     &signer,
                     chain_id,
                     nonce,
-                    asset,
+                    currency,
                     transfer_data,
                     &gas_config,
                 )
@@ -203,11 +205,11 @@ impl PaymentProvider for EvmProvider {
         let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
 
         Ok(PaymentCredential {
-            id: challenge.id.clone(),
+            challenge: ChallengeEcho::from_challenge(challenge),
             source: Some(did),
             payload: PaymentPayload {
-                payload_type: PayloadType::Transaction,
                 signature: format!("0x{}", signed_tx),
+                payload_type: Some(PayloadType::Transaction),
             },
         })
     }
@@ -325,10 +327,9 @@ mod tests {
     fn test_evm_provider_supports_evm_networks() {
         let provider = EvmProvider::new();
 
-        assert!(provider.supports_network("base"));
-        assert!(provider.supports_network("base-sepolia"));
-        assert!(provider.supports_network("ethereum"));
+        assert!(provider.supports_network("tempo"));
         assert!(provider.supports_network("tempo-moderato"));
+        assert!(provider.supports_network("ethereum"));
 
         assert!(!provider.supports_network("unknown-network"));
         assert!(!provider.supports_network("nonexistent-chain"));
