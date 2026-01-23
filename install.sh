@@ -19,7 +19,7 @@ echo ""
 REPO="tempoxyz/purl"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="purl"
-R2_BASE_URL="https://purl.tempo.xyz"
+R2_BASE_URL="https://purl-binaries.tempo.xyz"
 
 detect_platform() {
     local platform="$(uname -s | tr '[:upper:]' '[:lower:]')"
