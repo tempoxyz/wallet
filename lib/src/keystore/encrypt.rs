@@ -10,6 +10,100 @@ pub fn default_keystore_dir() -> Result<PathBuf> {
     default_keystores_dir().ok_or(PurlError::NoConfigDir)
 }
 
+/// Validate and sanitize a keystore name to prevent path traversal attacks.
+///
+/// # Security
+///
+/// This function prevents:
+/// - Path traversal via `..` components
+/// - Absolute paths via leading `/` or Windows drive letters
+/// - Hidden files via leading `.`
+/// - Control characters that could cause issues
+/// - Path separators (`/`, `\`) in the name
+///
+/// # Returns
+///
+/// The sanitized name if valid, or an error describing the issue.
+fn validate_keystore_name(name: &str) -> Result<&str> {
+    if name.is_empty() {
+        return Err(PurlError::InvalidConfig(
+            "Keystore name cannot be empty".to_string(),
+        ));
+    }
+
+    if name.contains('/') || name.contains('\\') {
+        return Err(PurlError::InvalidConfig(format!(
+            "Keystore name cannot contain path separators: '{name}'"
+        )));
+    }
+
+    if name == "." || name == ".." || name.contains("..") {
+        return Err(PurlError::InvalidConfig(format!(
+            "Keystore name cannot contain path traversal sequences: '{name}'"
+        )));
+    }
+
+    if name.starts_with('.') {
+        return Err(PurlError::InvalidConfig(format!(
+            "Keystore name cannot start with a dot: '{name}'"
+        )));
+    }
+
+    if name.chars().any(|c| c.is_control()) {
+        return Err(PurlError::InvalidConfig(
+            "Keystore name cannot contain control characters".to_string(),
+        ));
+    }
+
+    const MAX_NAME_LENGTH: usize = 255;
+    if name.len() > MAX_NAME_LENGTH {
+        return Err(PurlError::InvalidConfig(format!(
+            "Keystore name too long (max {MAX_NAME_LENGTH} characters)"
+        )));
+    }
+
+    Ok(name)
+}
+
+/// Verify that the final keystore path is within the expected directory.
+///
+/// # Security
+///
+/// This is a defense-in-depth check to ensure that even after name validation,
+/// the final path doesn't escape the keystore directory through symlinks or
+/// other filesystem tricks.
+fn verify_path_within_directory(path: &Path, directory: &Path) -> Result<()> {
+    let canonical_dir = directory
+        .canonicalize()
+        .unwrap_or_else(|_| directory.to_path_buf());
+
+    let canonical_path =
+        if path.exists() {
+            path.canonicalize()
+                .map_err(|e| PurlError::InvalidConfig(format!("Failed to resolve path: {e}")))?
+        } else {
+            let parent = path.parent().ok_or_else(|| {
+                PurlError::InvalidConfig("Keystore path has no parent directory".to_string())
+            })?;
+            let parent_canonical = parent.canonicalize().map_err(|e| {
+                PurlError::InvalidConfig(format!("Failed to resolve parent path: {e}"))
+            })?;
+            parent_canonical.join(path.file_name().ok_or_else(|| {
+                PurlError::InvalidConfig("Keystore path has no filename".to_string())
+            })?)
+        };
+
+    if !canonical_path.starts_with(&canonical_dir) {
+        return Err(PurlError::InvalidConfig(format!(
+            "Keystore path escapes the keystore directory: {} is not within {}",
+            canonical_path.display(),
+            canonical_dir.display()
+        )));
+    }
+
+    Ok(())
+}
+
 /// Create an encrypted keystore file from a private key
 ///
 /// # Examples
@@ -37,6 +131,8 @@ pub(crate) fn create_keystore_in_dir(
     name: &str,
     keystore_dir: &Path,
 ) -> Result<PathBuf> {
+    let validated_name = validate_keystore_name(name)?;
+
     let key_hex = crate::utils::strip_0x_prefix(private_key);
     let key_bytes = hex::decode(key_hex)
         .map_err(|e| PurlError::InvalidKey(format!("Invalid private key hex: {e}")))?;
@@ -60,6 +156,13 @@ pub(crate) fn create_keystore_in_dir(
         ))
     })?;
 
+    #[cfg(unix)]
+    {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(keystore_dir, Permissions::from_mode(0o700)).ok();
+    }
+
     if !keystore_dir.exists() {
         return Err(PurlError::ConfigMissing(format!(
             "Keystore directory does not exist after creation: {}",
@@ -68,7 +171,10 @@ pub(crate) fn create_keystore_in_dir(
     }
 
     let mut rng = rand::thread_rng();
-    let filename_with_ext = format!("{name}.{KEYSTORE_EXTENSION}");
+    let filename_with_ext = format!("{validated_name}.{KEYSTORE_EXTENSION}");
+    let keystore_path = keystore_dir.join(&filename_with_ext);
+
+    verify_path_within_directory(&keystore_path, keystore_dir)?;
 
     eth_keystore::encrypt_key(
         keystore_dir,
@@ -78,8 +184,6 @@ pub(crate) fn create_keystore_in_dir(
         Some(&filename_with_ext),
     )
     .map_err(|e| PurlError::ConfigMissing(format!("Failed to encrypt keystore: {e}")))?;
-
-    let keystore_path = keystore_dir.join(&filename_with_ext);
 
     let keystore_content = std::fs::read_to_string(&keystore_path)
         .map_err(|e| PurlError::ConfigMissing(format!("Failed to read keystore: {e}")))?;
@@ -319,6 +423,94 @@ mod tests {
         assert!(result.is_err());
 
         let result = create_keystore_in_dir("0xGGGG", "password", "invalid", &keystore_dir);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_keystore_name_valid() {
+        assert!(validate_keystore_name("my-wallet").is_ok());
+        assert!(validate_keystore_name("wallet_123").is_ok());
+        assert!(validate_keystore_name("MyWallet").is_ok());
+        assert!(validate_keystore_name("test").is_ok());
+    }
+
+    #[test]
+    fn test_validate_keystore_name_empty() {
+        let result = validate_keystore_name("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn test_validate_keystore_name_path_traversal() {
+        let result = validate_keystore_name("../outside");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("path traversal") || err_msg.contains("path separators"),
+            "Expected 'path traversal' or 'path separators' in error, got: {}",
+            err_msg
+        );
+
+        let result = validate_keystore_name("..");
+        assert!(result.is_err());
+
+        let result = validate_keystore_name("foo/../bar");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_keystore_name_path_separators() {
+        let result = validate_keystore_name("path/to/file");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("path separators"));
+
+        let result = validate_keystore_name("path\\to\\file");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_keystore_name_hidden_files() {
+        let result = validate_keystore_name(".hidden");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("start with a dot"));
+    }
+
+    #[test]
+    fn test_validate_keystore_name_control_chars() {
+        let result = validate_keystore_name("file\x00name");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("control characters"));
+
+        let result = validate_keystore_name("file\nname");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_keystore_name_too_long() {
+        let long_name = "a".repeat(300);
+        let result = validate_keystore_name(&long_name);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too long"));
+    }
+
+    #[test]
+    fn test_path_traversal_in_create_keystore() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let keystore_dir = temp_dir.path().join("keystores");
+        std::fs::create_dir_all(&keystore_dir).expect("Failed to create keystore directory");
+
+        let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
+
+        let result = create_keystore_in_dir(private_key, "password", "../escape", &keystore_dir);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("path traversal") || err.contains("path separators"));
+
+        let result = create_keystore_in_dir(private_key, "password", "foo/bar", &keystore_dir);
         assert!(result.is_err());
     }
 }

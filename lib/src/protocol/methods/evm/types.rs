@@ -33,9 +33,7 @@ mod tests {
 
     #[test]
     fn test_evm_method_details_serialization() {
-        let details = EvmMethodDetails {
-            chain_id: Some(1),
-        };
+        let details = EvmMethodDetails { chain_id: Some(1) };
 
         let json = serde_json::to_string(&details).unwrap();
         assert!(json.contains("\"chainId\":1"));

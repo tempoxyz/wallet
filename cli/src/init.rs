@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 const PURL_SKILL_CONTENT: &str = include_str!("../../.ai/skills/purl/SKILL.md");
 
+#[allow(deprecated)]
 pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
     let config_path = Config::default_config_path()?;
 

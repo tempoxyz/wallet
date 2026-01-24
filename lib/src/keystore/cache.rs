@@ -1,23 +1,13 @@
 //! Password caching for keystores
+//!
+//! SECURITY: Passwords are cached in-memory only (never written to disk).
+//! Cache entries expire after the configured duration (default 5 minutes).
 
-use crate::constants::{password_cache_dir, password_cache_duration};
-use crate::error::{PurlError, Result};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use crate::constants::password_cache_duration;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(unix)]
-fn set_secure_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
-    use std::fs::Permissions;
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, Permissions::from_mode(mode))
-}
-
-#[cfg(not(unix))]
-fn set_secure_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
-    Ok(())
-}
+use std::sync::{LazyLock, Mutex};
+use std::time::Instant;
 
 /// Type-safe identifier for a keystore
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -34,183 +24,125 @@ impl KeystoreId {
     }
 }
 
-/// Get the password cache directory
-fn get_password_cache_dir() -> Result<PathBuf> {
-    password_cache_dir().ok_or(PurlError::NoConfigDir)
+/// In-memory cache entry with timestamp
+struct CacheEntry {
+    password: String,
+    created_at: Instant,
 }
 
-/// Get the cache file path for a keystore
-fn get_cache_file_path(id: &KeystoreId) -> Result<PathBuf> {
-    let cache_dir = get_password_cache_dir()?;
-    get_cache_file_path_in_dir(id, &cache_dir)
-}
+/// Global in-memory password cache
+///
+/// SECURITY: This cache is never persisted to disk. Passwords are stored
+/// only in process memory and are cleared when:
+/// - The cache entry expires (default 5 minutes)
+/// - The process exits
+/// - `clear_password_cache()` is called
+/// - A decryption attempt fails (the specific entry is cleared)
+static PASSWORD_CACHE: LazyLock<Mutex<HashMap<KeystoreId, CacheEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Get the cache file path for a keystore in a specific directory (for testing)
-fn get_cache_file_path_in_dir(id: &KeystoreId, cache_dir: &Path) -> Result<PathBuf> {
-    if std::fs::create_dir_all(cache_dir).is_ok() {
-        set_secure_permissions(cache_dir, 0o700).ok();
-    }
-
-    let mut hasher = DefaultHasher::new();
-    id.0.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    Ok(cache_dir.join(format!("{hash:x}.cache")))
-}
-
-/// Store a password in the cache
+/// Store a password in the in-memory cache
+///
+/// SECURITY: Passwords are stored in process memory only, never on disk.
+/// They expire after the configured duration (see `password_cache_duration()`).
 pub(crate) fn cache_password(id: KeystoreId, password: String) {
-    if let Ok(cache_file) = get_cache_file_path(&id) {
-        cache_password_to_file(&cache_file, &password);
+    let entry = CacheEntry {
+        password,
+        created_at: Instant::now(),
+    };
+
+    if let Ok(mut cache) = PASSWORD_CACHE.lock() {
+        cache.insert(id, entry);
     }
 }
 
-/// Store a password in a specific cache file
-fn cache_password_to_file(cache_file: &Path, password: &str) {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after UNIX_EPOCH")
-        .as_secs();
-
-    let cache_entry = format!("{now}|{password}");
-    if std::fs::write(cache_file, &cache_entry).is_ok() {
-        set_secure_permissions(cache_file, 0o600).ok();
-    }
-}
-
-/// Retrieve a password from the cache
+/// Retrieve a password from the in-memory cache
+///
+/// Returns None if:
+/// - No password is cached for this keystore
+/// - The cached password has expired
 pub(crate) fn get_cached_password(id: &KeystoreId) -> Option<String> {
-    let cache_file = get_cache_file_path(id).ok()?;
-    get_cached_password_from_file(&cache_file)
-}
+    let mut cache = PASSWORD_CACHE.lock().ok()?;
 
-/// Retrieve a password from a specific cache file
-fn get_cached_password_from_file(cache_file: &Path) -> Option<String> {
-    let contents = std::fs::read_to_string(cache_file).ok()?;
-
-    let parts: Vec<&str> = contents.splitn(2, '|').collect();
-    if parts.len() != 2 {
-        return None;
+    if let Some(entry) = cache.get(id) {
+        let age = entry.created_at.elapsed();
+        if age <= password_cache_duration() {
+            return Some(entry.password.clone());
+        }
+        cache.remove(id);
     }
 
-    let timestamp: u64 = parts[0].parse().ok()?;
-    let password = parts[1];
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after UNIX_EPOCH")
-        .as_secs();
-
-    let age = now.saturating_sub(timestamp);
-    if age > password_cache_duration().as_secs() {
-        std::fs::remove_file(cache_file).ok();
-        return None;
-    }
-
-    Some(password.to_string())
+    None
 }
 
 /// Clear the cached password for a specific keystore
 pub(crate) fn clear_cached_password(id: &KeystoreId) {
-    if let Ok(cache_file) = get_cache_file_path(id) {
-        std::fs::remove_file(&cache_file).ok();
+    if let Ok(mut cache) = PASSWORD_CACHE.lock() {
+        cache.remove(id);
     }
 }
 
-/// Clear all cached passwords
+/// Clear all cached passwords from memory
 pub fn clear_password_cache() {
-    if let Ok(cache_dir) = get_password_cache_dir() {
-        if cache_dir.exists() {
-            std::fs::remove_dir_all(&cache_dir).ok();
-        }
+    if let Ok(mut cache) = PASSWORD_CACHE.lock() {
+        cache.clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::DEFAULT_PASSWORD_CACHE_DURATION;
     use tempfile::TempDir;
-
-    // NOTE: These tests use isolated temp directories and don't modify HOME,
-    // so they can run in parallel without #[serial]
 
     #[test]
     fn test_password_cache_basic() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let cache_dir = temp_dir.path().join("cache");
 
         let test_path = temp_dir.path().join("test.json");
         std::fs::write(&test_path, "{}").expect("Failed to write test file");
 
         let keystore_id = KeystoreId::new(&test_path);
-        let password = "test_password";
+        let password = "test_password".to_string();
 
-        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
-            .expect("Failed to get cache file path");
+        assert!(get_cached_password(&keystore_id).is_none());
 
-        assert!(get_cached_password_from_file(&cache_file).is_none());
+        cache_password(keystore_id.clone(), password.clone());
 
-        cache_password_to_file(&cache_file, password);
-
-        let cached = get_cached_password_from_file(&cache_file);
+        let cached = get_cached_password(&keystore_id);
         assert!(cached.is_some());
         assert_eq!(cached.expect("Password should be cached"), password);
+
+        clear_cached_password(&keystore_id);
+        assert!(get_cached_password(&keystore_id).is_none());
     }
 
     #[test]
-    fn test_password_cache_expiration() {
+    fn test_clear_password_cache() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let cache_dir = temp_dir.path().join("cache");
-        std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
 
-        let test_path = temp_dir.path().join("expire.json");
-        std::fs::write(&test_path, "{}").expect("Failed to write test file");
+        let test_path1 = temp_dir.path().join("test1.json");
+        let test_path2 = temp_dir.path().join("test2.json");
+        std::fs::write(&test_path1, "{}").expect("Failed to write test file");
+        std::fs::write(&test_path2, "{}").expect("Failed to write test file");
 
-        let keystore_id = KeystoreId::new(&test_path);
-        let password = "test_password";
+        let id1 = KeystoreId::new(&test_path1);
+        let id2 = KeystoreId::new(&test_path2);
 
-        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
-            .expect("Failed to get cache file path");
+        cache_password(id1.clone(), "password1".to_string());
+        cache_password(id2.clone(), "password2".to_string());
 
-        let expired_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs()
-            - DEFAULT_PASSWORD_CACHE_DURATION.as_secs()
-            - 10;
+        assert!(get_cached_password(&id1).is_some());
+        assert!(get_cached_password(&id2).is_some());
 
-        let cache_entry = format!("{expired_timestamp}|{password}");
-        std::fs::write(&cache_file, cache_entry).expect("Failed to write cache entry");
+        clear_password_cache();
 
-        assert!(get_cached_password_from_file(&cache_file).is_none());
-        assert!(!cache_file.exists());
-    }
-
-    #[test]
-    fn test_clear_password_cache_in_dir() {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let cache_dir = temp_dir.path().join("cache");
-        std::fs::create_dir_all(&cache_dir).expect("Failed to create cache directory");
-
-        let test_path = temp_dir.path().join("clear.json");
-        std::fs::write(&test_path, "{}").expect("Failed to write test file");
-
-        let keystore_id = KeystoreId::new(&test_path);
-        let cache_file = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
-            .expect("Failed to get cache file path");
-
-        cache_password_to_file(&cache_file, "test_password");
-        assert!(get_cached_password_from_file(&cache_file).is_some());
-
-        std::fs::remove_dir_all(&cache_dir).expect("Failed to remove cache directory");
-        assert!(!cache_file.exists());
+        assert!(get_cached_password(&id1).is_none());
+        assert!(get_cached_password(&id2).is_none());
     }
 
     #[test]
     fn test_keystore_id_canonicalization() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let cache_dir = temp_dir.path().join("cache");
 
         let test_path = temp_dir.path().join("canonical.json");
         std::fs::write(&test_path, "{}").expect("Failed to write test file");
@@ -224,33 +156,40 @@ mod tests {
 
         assert_eq!(id1, id2);
 
-        let file1 =
-            get_cache_file_path_in_dir(&id1, &cache_dir).expect("Failed to get cache file path");
-        let file2 =
-            get_cache_file_path_in_dir(&id2, &cache_dir).expect("Failed to get cache file path");
-        assert_eq!(file1, file2);
+        cache_password(id1.clone(), "password".to_string());
 
-        cache_password_to_file(&file1, "password");
-
-        let cached = get_cached_password_from_file(&file2);
+        let cached = get_cached_password(&id2);
         assert!(cached.is_some());
         assert_eq!(cached.expect("Password should be cached"), "password");
+
+        clear_cached_password(&id1);
     }
 
     #[test]
-    fn test_cache_file_path_hash_consistency() {
+    fn test_in_memory_only() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let cache_dir = temp_dir.path().join("cache");
 
-        let test_path = temp_dir.path().join("hash_test.json");
+        let test_path = temp_dir.path().join("memory_test.json");
         std::fs::write(&test_path, "{}").expect("Failed to write test file");
 
         let keystore_id = KeystoreId::new(&test_path);
+        cache_password(keystore_id.clone(), "secret_password".to_string());
 
-        let path1 = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
-            .expect("Failed to get cache file path");
-        let path2 = get_cache_file_path_in_dir(&keystore_id, &cache_dir)
-            .expect("Failed to get cache file path");
-        assert_eq!(path1, path2);
+        let cache_dir_entries: Vec<_> = std::fs::read_dir(temp_dir.path())
+            .expect("Failed to read temp directory")
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "cache")
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(
+            cache_dir_entries.is_empty(),
+            "No .cache files should be created"
+        );
+
+        clear_cached_password(&keystore_id);
     }
 }
