@@ -282,7 +282,7 @@ impl PaymentProviderRegistry {
 
     /// Find a provider that supports the given network
     ///
-    /// Supports both v1 (e.g., "tempo") and v2 CAIP-2 (e.g., "eip155:42420") network formats
+    /// Supports both v1 (e.g., "tempo") and v2 CAIP-2 (e.g., "eip155:4217") network formats
     #[must_use]
     pub fn find_provider(&self, network: &str) -> Option<&dyn PaymentProvider> {
         // Resolve network aliases (v2 CAIP-2 to v1 name)

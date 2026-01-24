@@ -47,7 +47,7 @@ pub mod evm_chain_ids {
     /// Optimism Mainnet
     pub const OPTIMISM: u64 = 10;
     /// Tempo Mainnet
-    pub const TEMPO: u64 = 42420;
+    pub const TEMPO: u64 = 4217;
     /// Tempo Moderato Testnet
     pub const TEMPO_MODERATO: u64 = 42431;
 }
@@ -179,7 +179,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
         mainnet: true,
         display_name: "Tempo",
         rpc_url: "https://rpc.tempo.xyz",
-        aliases: &["eip155:42420"],
+        aliases: &["eip155:4217"],
         explorer: Some(("https://explorer.tempo.xyz", ExplorerKind::Tempo)),
     },
     BuiltinNetwork {
@@ -708,7 +708,7 @@ mod tests {
     fn test_network_lookup() {
         let tempo = get_network("tempo").expect("tempo network should exist");
         assert_eq!(tempo.chain_type, ChainType::Evm);
-        assert_eq!(tempo.chain_id, Some(42420));
+        assert_eq!(tempo.chain_id, Some(4217));
         assert!(tempo.mainnet);
     }
 
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_get_evm_chain_id() {
-        assert_eq!(get_evm_chain_id("tempo"), Some(42420));
+        assert_eq!(get_evm_chain_id("tempo"), Some(4217));
         assert_eq!(get_evm_chain_id("ethereum"), Some(1));
         assert_eq!(get_evm_chain_id("tempo-moderato"), Some(42431));
         assert_eq!(get_evm_chain_id("unknown"), None);
@@ -802,7 +802,7 @@ mod tests {
     #[test]
     fn test_resolve_network_alias() {
         // EVM networks - v2 CAIP-2 format should resolve to v1 names
-        assert_eq!(resolve_network_alias("eip155:42420"), "tempo");
+        assert_eq!(resolve_network_alias("eip155:4217"), "tempo");
         assert_eq!(resolve_network_alias("eip155:42431"), "tempo-moderato");
         assert_eq!(resolve_network_alias("eip155:1"), "ethereum");
 
@@ -819,17 +819,17 @@ mod tests {
 
         // get_network
         let tempo_v1 = get_network("tempo").expect("tempo should exist");
-        let tempo_v2 = get_network("eip155:42420").expect("eip155:42420 should resolve to tempo");
+        let tempo_v2 = get_network("eip155:4217").expect("eip155:4217 should resolve to tempo");
         assert_eq!(tempo_v1.chain_id, tempo_v2.chain_id);
-        assert_eq!(tempo_v1.chain_id, Some(42420));
+        assert_eq!(tempo_v1.chain_id, Some(4217));
 
         // is_evm_network
         assert!(is_evm_network("tempo"));
-        assert!(is_evm_network("eip155:42420"));
+        assert!(is_evm_network("eip155:4217"));
 
         // get_evm_chain_id
-        assert_eq!(get_evm_chain_id("tempo"), Some(42420));
-        assert_eq!(get_evm_chain_id("eip155:42420"), Some(42420));
+        assert_eq!(get_evm_chain_id("tempo"), Some(4217));
+        assert_eq!(get_evm_chain_id("eip155:4217"), Some(4217));
         assert_eq!(get_evm_chain_id("eip155:42431"), Some(42431));
     }
 }
