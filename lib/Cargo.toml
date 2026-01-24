@@ -47,14 +47,11 @@ evm = [
 # Tempo blockchain support (chain_id=88153, TIP-20, 2D nonces)
 tempo = ["evm", "dep:tempo-primitives"]
 
-# Base blockchain support (chain_id=84532, EIP-1559)
-base = ["evm"]
-
 # Stripe payment support (non-EVM, no blockchain deps)
 stripe = []
 
 # Full featured (all functionality)
-full = ["tempo", "base", "stripe", "client", "keystore", "http-client", "config", "blocking"]
+full = ["tempo", "stripe", "client", "keystore", "http-client", "config", "blocking"]
 
 # Tower middleware (hyper, axum, tonic, etc.)
 tower-middleware = ["dep:tower", "dep:tower-service", "dep:http", "dep:http-body", "dep:http-body-util", "dep:pin-project-lite", "runtime", "web-payment-auth", "tempo", "config", "keystore"]

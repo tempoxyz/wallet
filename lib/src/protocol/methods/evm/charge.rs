@@ -11,6 +11,10 @@ use crate::protocol::intents::ChargeRequest;
 
 /// Extension trait for ChargeRequest with EVM-specific accessors.
 ///
+/// This provides the minimal common functionality for all EVM chains.
+/// Chain-specific extensions (like Tempo's `fee_payer()`) are in their
+/// respective method modules.
+///
 /// # Examples
 ///
 /// ```ignore
@@ -35,9 +39,6 @@ pub trait EvmChargeExt {
 
     /// Parse the method_details as EVM-specific details.
     fn evm_method_details(&self) -> Result<EvmMethodDetails>;
-
-    /// Check if server pays fees (from methodDetails.feePayer).
-    fn fee_payer(&self) -> bool;
 
     /// Get chain ID from methodDetails.
     fn chain_id(&self) -> Option<u64>;
@@ -69,14 +70,6 @@ impl EvmChargeExt for ChargeRequest {
         }
     }
 
-    fn fee_payer(&self) -> bool {
-        self.method_details
-            .as_ref()
-            .and_then(|v| v.get("feePayer"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-    }
-
     fn chain_id(&self) -> Option<u64> {
         self.method_details
             .as_ref()
@@ -98,8 +91,7 @@ mod tests {
             description: None,
             external_id: None,
             method_details: Some(serde_json::json!({
-                "chainId": 88153,
-                "feePayer": true
+                "chainId": 1
             })),
         }
     }
@@ -135,26 +127,13 @@ mod tests {
     fn test_evm_method_details() {
         let req = test_charge_request();
         let details = req.evm_method_details().unwrap();
-        assert_eq!(details.chain_id, Some(88153));
-        assert!(details.fee_payer());
-    }
-
-    #[test]
-    fn test_fee_payer() {
-        let req = test_charge_request();
-        assert!(req.fee_payer());
-
-        let req_no_fee = ChargeRequest {
-            method_details: None,
-            ..test_charge_request()
-        };
-        assert!(!req_no_fee.fee_payer());
+        assert_eq!(details.chain_id, Some(1));
     }
 
     #[test]
     fn test_chain_id() {
         let req = test_charge_request();
-        assert_eq!(req.chain_id(), Some(88153));
+        assert_eq!(req.chain_id(), Some(1));
     }
 
     #[test]

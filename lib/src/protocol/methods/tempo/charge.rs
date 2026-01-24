@@ -26,6 +26,9 @@ pub trait TempoChargeExt: EvmChargeExt {
     /// Parse the method_details as Tempo-specific details.
     fn tempo_method_details(&self) -> Result<TempoMethodDetails>;
 
+    /// Check if server pays transaction fees (Tempo-specific feature).
+    fn fee_payer(&self) -> bool;
+
     /// Get the 2D nonce key.
     ///
     /// Returns U256::ZERO if not specified (default nonce stream).
@@ -55,6 +58,14 @@ impl TempoChargeExt for ChargeRequest {
             }),
             None => Ok(TempoMethodDetails::default()),
         }
+    }
+
+    fn fee_payer(&self) -> bool {
+        self.method_details
+            .as_ref()
+            .and_then(|v| v.get("feePayer"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 
     fn nonce_key(&self) -> U256 {
@@ -126,6 +137,18 @@ mod tests {
         assert!(details.fee_payer());
         assert_eq!(details.nonce_key, Some("42".to_string()));
         assert_eq!(details.fee_token, Some("0xDEF".to_string()));
+    }
+
+    #[test]
+    fn test_fee_payer() {
+        let req = test_charge_request();
+        assert!(req.fee_payer());
+
+        let req_no_fee = ChargeRequest {
+            method_details: None,
+            ..test_charge_request()
+        };
+        assert!(!req_no_fee.fee_payer());
     }
 
     #[test]
