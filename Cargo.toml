@@ -17,7 +17,7 @@ serde_yaml = "0.9"
 toml = "0.9"
 thiserror = "2.0"
 anyhow = "1.0"
-mpay = { git = "ssh://git@github.com/tempoxyz/mpay-rs.git", features = ["tempo", "evm", "utils"] }
+mpay = { version = "0.1", features = ["tempo", "evm", "utils"] }
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
 async-trait = "0.1"
 bs58 = "0.5"
