@@ -66,20 +66,24 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
-      - name: Upload binaries to R2
+      - name: Upload binaries and install script to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          # Always upload as "latest"
+          # Always upload binaries as "latest"
           for f in artifacts/*; do
             aws s3 cp "$f" "s3://purl-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
           done
+          
+          # Upload install script
+          aws s3 cp install.sh "s3://purl-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
           
           # If this is a tag, also upload with version prefix
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
