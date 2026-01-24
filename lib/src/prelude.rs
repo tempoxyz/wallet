@@ -24,7 +24,6 @@
 //!   [`PaymentHandler`], [`PaymentHandlerConfig`]
 //! - **EVM** (`evm` feature): [`EvmChargeExt`], [`Address`], [`U256`]
 //! - **Tempo** (`tempo` feature): [`TempoChargeExt`]
-//! - **Base** (`base` feature): [`BaseChargeExt`]
 
 // Core types - always available
 pub use crate::config::{Config, ConfigBuilder, EvmConfig};
@@ -68,10 +67,6 @@ pub use alloy::primitives::{Address, U256};
 // Tempo types (feature-gated)
 #[cfg(feature = "tempo")]
 pub use crate::protocol::methods::tempo::{TempoChargeExt, TempoMethodDetails};
-
-// Base types (feature-gated)
-#[cfg(feature = "base")]
-pub use crate::protocol::methods::base::{BaseChargeExt, BaseMethodDetails};
 
 // Stripe types (feature-gated)
 #[cfg(feature = "stripe")]

@@ -7,7 +7,6 @@
 //!
 //! - [`evm`]: Shared EVM types (requires `evm` feature)
 //! - [`tempo`]: Tempo blockchain (requires `tempo` feature, implies `evm`)
-//! - [`base`]: Base blockchain (requires `base` feature, implies `evm`)
 //! - [`stripe`]: Stripe payments (requires `stripe` feature, no EVM deps)
 //!
 //! # Architecture
@@ -23,10 +22,6 @@
 //! │   ├── types.rs    # TempoMethodDetails
 //! │   └── charge.rs   # TempoChargeExt trait
 //! │
-//! ├── base/       # Base-specific (chain_id=84532, EIP-1559)
-//! │   ├── types.rs    # BaseMethodDetails
-//! │   └── charge.rs   # BaseChargeExt trait
-//! │
 //! └── stripe/     # Non-EVM method (no blockchain deps)
 //!     ├── types.rs    # StripeMethodDetails
 //!     └── charge.rs   # StripeChargePayload
@@ -37,9 +32,6 @@ pub mod evm;
 
 #[cfg(feature = "tempo")]
 pub mod tempo;
-
-#[cfg(feature = "base")]
-pub mod base;
 
 #[cfg(feature = "stripe")]
 pub mod stripe;
