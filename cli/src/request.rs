@@ -4,8 +4,7 @@
 //! for building and executing HTTP requests.
 
 use anyhow::{bail, Result};
-use purl::blocking::HttpClient;
-use purl::{HttpClientBuilder, HttpMethod, HttpResponse};
+use purl::{HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
 
 use crate::cli::Cli;
 
@@ -84,17 +83,19 @@ impl RequestContext {
             builder = builder.user_agent(user_agent);
         }
 
-        Ok(builder.build_blocking()?)
+        Ok(builder.build()?)
     }
 
     /// Execute an HTTP request
-    pub fn execute(
+    pub async fn execute(
         &self,
         url: &str,
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<HttpResponse> {
         let client = self.build_client(extra_headers)?;
-        Ok(client.request(self.method.clone(), url, self.body.as_deref())?)
+        Ok(client
+            .request(self.method.clone(), url, self.body.as_deref())
+            .await?)
     }
 }
 

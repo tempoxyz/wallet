@@ -158,8 +158,16 @@ pub struct PaymentChallenge {
     /// Payment intent
     pub intent: PaymentIntent,
 
-    /// Method+intent specific request data
+    /// Method+intent specific request data (decoded JSON)
     pub request: serde_json::Value,
+
+    /// Raw base64url-encoded request (for credential echo)
+    #[serde(skip)]
+    pub request_raw: String,
+
+    /// Content digest for body binding (RFC 9530)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 
     /// Challenge expiration time (ISO 8601)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -225,24 +233,50 @@ impl PaymentChallenge {
     }
 }
 
+/// Method-specific details for payment requests
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MethodDetails {
+    /// Chain ID for EVM-based methods
+    #[serde(rename = "chainId", skip_serializing_if = "Option::is_none")]
+    pub chain_id: Option<u64>,
+
+    /// Whether server pays transaction fees
+    #[serde(rename = "feePayer", skip_serializing_if = "Option::is_none")]
+    pub fee_payer: Option<bool>,
+
+    /// Valid from time (ISO 8601, for authorize/subscription)
+    #[serde(rename = "validFrom", skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<String>,
+}
+
 /// Charge request (for charge intent)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChargeRequest {
     /// Amount in base units (e.g., wei, satoshi)
     pub amount: String,
 
-    /// Token/asset contract address
-    pub asset: String,
+    /// Currency/asset identifier (token address, ISO 4217, or symbol)
+    pub currency: String,
 
-    /// Recipient address
-    pub destination: String,
+    /// Recipient address (optional, server may be recipient)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient: Option<String>,
 
     /// Request expiration (ISO 8601)
-    pub expires: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
 
-    /// Whether server pays fees (optional)
-    #[serde(rename = "feePayer", skip_serializing_if = "Option::is_none")]
-    pub fee_payer: Option<bool>,
+    /// Human-readable description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Merchant reference ID
+    #[serde(rename = "externalId", skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+
+    /// Method-specific extension fields
+    #[serde(rename = "methodDetails", skip_serializing_if = "Option::is_none")]
+    pub method_details: Option<MethodDetails>,
 }
 
 impl ChargeRequest {
@@ -280,42 +314,57 @@ impl ChargeRequest {
 
     // ==================== Typed Accessor Methods ====================
 
-    /// Get the destination address as a typed Address.
+    /// Get the recipient address as a typed Address.
     ///
     /// # Errors
     ///
-    /// Returns `InvalidAddress` if the destination string cannot be parsed
-    /// as a valid Ethereum address.
+    /// Returns `InvalidAddress` if the recipient string cannot be parsed
+    /// as a valid Ethereum address, or if no recipient is specified.
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// let charge_req = ChargeRequest { destination: "0x1234...".to_string(), ... };
-    /// let addr: Address = charge_req.destination_address()?;
+    /// let charge_req = ChargeRequest { recipient: Some("0x1234...".to_string()), ... };
+    /// let addr: Address = charge_req.recipient_address()?;
     /// ```
-    pub fn destination_address(&self) -> Result<Address> {
-        self.destination
+    pub fn recipient_address(&self) -> Result<Address> {
+        self.recipient
+            .as_ref()
+            .ok_or_else(|| PurlError::InvalidChallenge("No recipient specified".to_string()))?
             .parse()
-            .map_err(|e| PurlError::invalid_address(format!("Invalid destination address: {}", e)))
+            .map_err(|e| PurlError::invalid_address(format!("Invalid recipient address: {}", e)))
     }
 
-    /// Get the asset address as a typed Address.
+    /// Get the currency/asset address as a typed Address.
     ///
     /// # Errors
     ///
-    /// Returns `InvalidAddress` if the asset string cannot be parsed
+    /// Returns `InvalidAddress` if the currency string cannot be parsed
     /// as a valid Ethereum address.
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// let charge_req = ChargeRequest { asset: "0xA0b8...".to_string(), ... };
-    /// let addr: Address = charge_req.asset_address()?;
+    /// let charge_req = ChargeRequest { currency: "0xA0b8...".to_string(), ... };
+    /// let addr: Address = charge_req.currency_address()?;
     /// ```
-    pub fn asset_address(&self) -> Result<Address> {
-        self.asset
+    pub fn currency_address(&self) -> Result<Address> {
+        self.currency
             .parse()
-            .map_err(|e| PurlError::invalid_address(format!("Invalid asset address: {}", e)))
+            .map_err(|e| PurlError::invalid_address(format!("Invalid currency address: {}", e)))
+    }
+
+    /// Check if server pays fees (from methodDetails.feePayer)
+    pub fn fee_payer(&self) -> bool {
+        self.method_details
+            .as_ref()
+            .and_then(|md| md.fee_payer)
+            .unwrap_or(false)
+    }
+
+    /// Get chain ID from methodDetails
+    pub fn chain_id(&self) -> Option<u64> {
+        self.method_details.as_ref().and_then(|md| md.chain_id)
     }
 
     /// Get the amount as a typed U256.
@@ -339,7 +388,7 @@ impl ChargeRequest {
 
     /// Create a type-safe Money value from this charge request.
     ///
-    /// This method parses the amount, validates the asset address against
+    /// This method parses the amount, validates the currency address against
     /// the network's configured token, and returns a fully typed Money value.
     ///
     /// # Arguments
@@ -350,7 +399,7 @@ impl ChargeRequest {
     ///
     /// Returns an error if:
     /// - The network has no token configuration
-    /// - The asset address doesn't match the network's configured token
+    /// - The currency address doesn't match the network's configured token
     /// - The amount cannot be parsed as U256
     ///
     /// # Examples
@@ -365,7 +414,7 @@ impl ChargeRequest {
             PurlError::UnsupportedToken(format!("No token configuration for network '{}'", network))
         })?;
 
-        let asset_addr = self.asset_address()?;
+        let currency_addr = self.currency_address()?;
         let expected_addr = Address::from_str(token_config.address).map_err(|e| {
             PurlError::invalid_address(format!(
                 "Invalid configured token address for {}: {}",
@@ -373,16 +422,16 @@ impl ChargeRequest {
             ))
         })?;
 
-        // Validate asset matches network's configured token
-        if asset_addr != expected_addr {
+        // Validate currency matches network's configured token
+        if currency_addr != expected_addr {
             return Err(PurlError::UnsupportedToken(format!(
-                "Asset {} does not match configured token {} for network {}",
-                self.asset, token_config.address, network
+                "Currency {} does not match configured token {} for network {}",
+                self.currency, token_config.address, network
             )));
         }
 
         let amount = self.amount_u256()?;
-        let token = TokenId::new(network, asset_addr);
+        let token = TokenId::new(network, currency_addr);
 
         Ok(Money::new(
             token,
@@ -441,11 +490,53 @@ pub struct SubscriptionRequest {
     pub fee_payer: Option<bool>,
 }
 
+/// Challenge echo in credential (echoes server challenge parameters)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChallengeEcho {
+    /// Challenge identifier
+    pub id: String,
+
+    /// Protection space / realm
+    pub realm: String,
+
+    /// Payment method
+    pub method: PaymentMethod,
+
+    /// Payment intent
+    pub intent: PaymentIntent,
+
+    /// Base64url-encoded request (as received from server)
+    pub request: String,
+
+    /// Content digest for body binding (RFC 9530)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+
+    /// Challenge expiration time (ISO 8601)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
+}
+
+impl ChallengeEcho {
+    /// Create a ChallengeEcho from a PaymentChallenge
+    pub fn from_challenge(challenge: &PaymentChallenge) -> Self {
+        Self {
+            id: challenge.id.clone(),
+            realm: challenge.realm.clone(),
+            method: challenge.method.clone(),
+            intent: challenge.intent.clone(),
+            request: challenge.request_raw.clone(),
+            digest: challenge.digest.clone(),
+            expires: challenge.expires.clone(),
+        }
+    }
+}
+
 /// Payment credential from client (Authorization header)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentCredential {
-    /// Matching challenge ID
-    pub id: String,
+    /// Echo of challenge parameters from server
+    pub challenge: ChallengeEcho,
 
     /// Payer identifier (DID format: did:pkh:eip155:chainId:address)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -463,6 +554,8 @@ pub enum PayloadType {
     Transaction,
     /// Key authorization signature
     KeyAuthorization,
+    /// Transaction hash (already broadcast)
+    Hash,
 }
 
 impl fmt::Display for PayloadType {
@@ -470,6 +563,7 @@ impl fmt::Display for PayloadType {
         match self {
             PayloadType::Transaction => write!(f, "transaction"),
             PayloadType::KeyAuthorization => write!(f, "keyAuthorization"),
+            PayloadType::Hash => write!(f, "hash"),
         }
     }
 }
@@ -477,12 +571,12 @@ impl fmt::Display for PayloadType {
 /// Payment payload
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentPayload {
-    /// Payload type
-    #[serde(rename = "type")]
-    pub payload_type: PayloadType,
-
     /// Signature (hex-encoded signed transaction or authorization)
     pub signature: String,
+
+    /// Payload type (optional, defaults to "transaction")
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub payload_type: Option<PayloadType>,
 }
 
 /// Receipt status
@@ -598,10 +692,6 @@ mod tests {
             serde_json::to_string(&PaymentMethod::Tempo).expect("Failed to serialize Tempo"),
             "\"tempo\""
         );
-        assert_eq!(
-            serde_json::to_string(&PaymentMethod::Base).expect("Failed to serialize Base"),
-            "\"base\""
-        );
     }
 
     #[test]
@@ -613,14 +703,6 @@ mod tests {
         assert_eq!(
             PaymentMethod::from_str("TEMPO").expect("Failed to parse TEMPO"),
             PaymentMethod::Tempo
-        );
-        assert_eq!(
-            PaymentMethod::from_str("base").expect("Failed to parse base"),
-            PaymentMethod::Base
-        );
-        assert_eq!(
-            PaymentMethod::from_str("Base").expect("Failed to parse Base"),
-            PaymentMethod::Base
         );
         // Custom methods are accepted (but not supported for payments)
         assert_eq!(
@@ -635,10 +717,6 @@ mod tests {
             PaymentMethod::Tempo.network_name(),
             Some(networks::TEMPO_MODERATO)
         );
-        assert_eq!(
-            PaymentMethod::Base.network_name(),
-            Some(networks::BASE_SEPOLIA)
-        );
         // Custom methods return None
         assert_eq!(
             PaymentMethod::Custom("unknown".to_string()).network_name(),
@@ -649,7 +727,6 @@ mod tests {
     #[test]
     fn test_payment_method_is_supported() {
         assert!(PaymentMethod::Tempo.is_supported());
-        assert!(PaymentMethod::Base.is_supported());
         assert!(!PaymentMethod::Custom("unknown".to_string()).is_supported());
     }
 
@@ -661,6 +738,8 @@ mod tests {
             method: PaymentMethod::Tempo,
             intent: PaymentIntent::Charge,
             request: serde_json::json!({}),
+            request_raw: String::new(),
+            digest: None,
             expires: None,
             description: None,
         };
@@ -698,10 +777,16 @@ mod tests {
     fn test_charge_request_serialization() {
         let req = ChargeRequest {
             amount: "10000".to_string(),
-            asset: "0x123".to_string(),
-            destination: "0x456".to_string(),
-            expires: "2024-01-01T00:00:00Z".to_string(),
-            fee_payer: Some(false),
+            currency: "0x123".to_string(),
+            recipient: Some("0x456".to_string()),
+            expires: Some("2024-01-01T00:00:00Z".to_string()),
+            description: None,
+            external_id: None,
+            method_details: Some(MethodDetails {
+                chain_id: None,
+                fee_payer: Some(false),
+                valid_from: None,
+            }),
         };
 
         let json = serde_json::to_string(&req).expect("Failed to serialize ChargeRequest");
@@ -712,11 +797,19 @@ mod tests {
     #[test]
     fn test_payment_credential_serialization() {
         let cred = PaymentCredential {
-            id: "abc123".to_string(),
+            challenge: ChallengeEcho {
+                id: "abc123".to_string(),
+                realm: "api".to_string(),
+                method: PaymentMethod::Tempo,
+                intent: PaymentIntent::Charge,
+                request: String::new(),
+                digest: None,
+                expires: None,
+            },
             source: Some("did:pkh:eip155:88153:0x123".to_string()),
             payload: PaymentPayload {
-                payload_type: PayloadType::Transaction,
                 signature: "0xabc".to_string(),
+                payload_type: Some(PayloadType::Transaction),
             },
         };
 
@@ -737,20 +830,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_charge_request_destination_address() {
-        let req = ChargeRequest {
+    fn test_charge_request() -> ChargeRequest {
+        ChargeRequest {
             amount: "1000000".to_string(),
-            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
-            expires: "2024-01-01T00:00:00Z".to_string(),
-            fee_payer: None,
-        };
+            currency: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+            recipient: Some("0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string()),
+            expires: Some("2024-01-01T00:00:00Z".to_string()),
+            description: None,
+            external_id: None,
+            method_details: None,
+        }
+    }
 
-        let addr = req
-            .destination_address()
-            .expect("Should parse valid address");
-        // Compare lowercase since Address normalizes to lowercase
+    #[test]
+    fn test_charge_request_recipient_address() {
+        let req = test_charge_request();
+        let addr = req.recipient_address().expect("Should parse valid address");
         assert_eq!(
             format!("{:?}", addr).to_lowercase(),
             "0x742d35cc6634c0532925a3b844bc9e7595f1b0f2"
@@ -758,30 +853,18 @@ mod tests {
     }
 
     #[test]
-    fn test_charge_request_destination_address_invalid() {
+    fn test_charge_request_recipient_address_invalid() {
         let req = ChargeRequest {
-            amount: "1000000".to_string(),
-            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            destination: "not-an-address".to_string(),
-            expires: "2024-01-01T00:00:00Z".to_string(),
-            fee_payer: None,
+            recipient: Some("not-an-address".to_string()),
+            ..test_charge_request()
         };
-
-        assert!(req.destination_address().is_err());
+        assert!(req.recipient_address().is_err());
     }
 
     #[test]
-    fn test_charge_request_asset_address() {
-        let req = ChargeRequest {
-            amount: "1000000".to_string(),
-            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
-            expires: "2024-01-01T00:00:00Z".to_string(),
-            fee_payer: None,
-        };
-
-        let addr = req.asset_address().expect("Should parse valid address");
-        // Compare lowercase since Address normalizes to lowercase
+    fn test_charge_request_currency_address() {
+        let req = test_charge_request();
+        let addr = req.currency_address().expect("Should parse valid address");
         assert_eq!(
             format!("{:?}", addr).to_lowercase(),
             "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
@@ -790,14 +873,7 @@ mod tests {
 
     #[test]
     fn test_charge_request_amount_u256() {
-        let req = ChargeRequest {
-            amount: "1000000".to_string(),
-            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
-            expires: "2024-01-01T00:00:00Z".to_string(),
-            fee_payer: None,
-        };
-
+        let req = test_charge_request();
         let amount = req.amount_u256().expect("Should parse valid amount");
         assert_eq!(amount, U256::from(1_000_000u64));
     }
@@ -808,12 +884,8 @@ mod tests {
             amount:
                 "115792089237316195423570985008687907853269984665640564039457584007913129639935"
                     .to_string(),
-            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
-            expires: "2024-01-01T00:00:00Z".to_string(),
-            fee_payer: None,
+            ..test_charge_request()
         };
-
         let amount = req.amount_u256().expect("Should parse large U256");
         assert_eq!(amount, U256::MAX);
     }
@@ -822,12 +894,8 @@ mod tests {
     fn test_charge_request_amount_u256_invalid() {
         let req = ChargeRequest {
             amount: "not-a-number".to_string(),
-            asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            destination: "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string(),
-            expires: "2024-01-01T00:00:00Z".to_string(),
-            fee_payer: None,
+            ..test_charge_request()
         };
-
         assert!(req.amount_u256().is_err());
     }
 }

@@ -79,13 +79,15 @@ pub async fn handle_web_payment_request(
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Amount: {} (atomic units)", charge_req.amount);
         eprintln!(
-            "Asset: {}",
-            format_address_link(&charge_req.asset, explorer.as_ref())
+            "Currency: {}",
+            format_address_link(&charge_req.currency, explorer.as_ref())
         );
-        eprintln!(
-            "Destination: {}",
-            format_address_link(&charge_req.destination, explorer.as_ref())
-        );
+        if let Some(ref recipient) = charge_req.recipient {
+            eprintln!(
+                "Recipient: {}",
+                format_address_link(recipient, explorer.as_ref())
+            );
+        }
     }
 
     challenge
@@ -124,7 +126,7 @@ pub async fn handle_web_payment_request(
     }
 
     let payment_headers = vec![("Authorization".to_string(), auth_header)];
-    let response = request_ctx.execute(url, Some(&payment_headers))?;
+    let response = request_ctx.execute(url, Some(&payment_headers)).await?;
 
     display_web_receipt(&request_ctx.cli, &response, explorer.as_ref())?;
 
@@ -182,14 +184,13 @@ fn handle_web_dry_run(
     println!("Network: {}", network);
     println!("Amount: {} (atomic units)", charge_req.amount);
     println!(
-        "Asset: {}",
-        format_address_link(&charge_req.asset, explorer)
+        "Currency: {}",
+        format_address_link(&charge_req.currency, explorer)
     );
     println!("From: {}", format_address_link(&from_address, explorer));
-    println!(
-        "To: {}",
-        format_address_link(&charge_req.destination, explorer)
-    );
+    if let Some(ref recipient) = charge_req.recipient {
+        println!("To: {}", format_address_link(recipient, explorer));
+    }
     if let Some(ref expires) = challenge.expires {
         println!("Expires: {}", expires);
     }
@@ -232,8 +233,12 @@ fn confirm_web_payment(
     let amount_display = format!("{:.6} {}", amount_u128 as f64 / divisor, symbol);
 
     // Format addresses with clickable links (truncated for display, full URL)
-    let asset_display = format_truncated_address_link(&charge_req.asset, 45, explorer);
-    let to_display = format_truncated_address_link(&charge_req.destination, 45, explorer);
+    let asset_display = format_truncated_address_link(&charge_req.currency, 45, explorer);
+    let to_display = format_truncated_address_link(
+        charge_req.recipient.as_deref().unwrap_or("(server)"),
+        45,
+        explorer,
+    );
     let from_display = format_truncated_address_link(&from_address, 45, explorer);
 
     eprintln!();
@@ -360,10 +365,12 @@ mod tests {
     fn mock_challenge(method: PaymentMethod, amount: &str) -> (PaymentChallenge, ChargeRequest) {
         let charge_req = ChargeRequest {
             amount: amount.to_string(),
-            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
-            destination: "0x1234567890123456789012345678901234567890".to_string(),
-            expires: "2099-12-31T23:59:59Z".to_string(),
-            fee_payer: None,
+            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            recipient: Some("0x1234567890123456789012345678901234567890".to_string()),
+            expires: Some("2099-12-31T23:59:59Z".to_string()),
+            description: None,
+            external_id: None,
+            method_details: None,
         };
 
         let challenge = PaymentChallenge {
@@ -372,6 +379,8 @@ mod tests {
             method,
             intent: PaymentIntent::Charge,
             request: serde_json::to_value(&charge_req).unwrap(),
+            request_raw: String::new(),
+            digest: None,
             description: None,
             expires: None,
         };
@@ -382,7 +391,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_no_constraints() {
         let cli = Cli::try_parse_from(["purl"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_ok());
@@ -391,7 +400,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_ok() {
         let cli = Cli::try_parse_from(["purl", "--max-amount", "2000000"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_ok());
@@ -400,7 +409,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_exceeded() {
         let cli = Cli::try_parse_from(["purl", "--max-amount", "500000"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_err());
@@ -415,7 +424,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_equal() {
         let cli = Cli::try_parse_from(["purl", "--max-amount", "1000000"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_ok());
@@ -423,9 +432,9 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_network_filter_match() {
-        // PaymentMethod::Base maps to "base-sepolia" network
-        let cli = Cli::try_parse_from(["purl", "--network", "base-sepolia"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        // PaymentMethod::Tempo maps to "tempo-moderato" network
+        let cli = Cli::try_parse_from(["purl", "--network", "tempo-moderato"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_ok());
@@ -434,7 +443,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
         let cli = Cli::try_parse_from(["purl", "--network", "ethereum"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_err());
@@ -448,9 +457,9 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_multiple_networks() {
-        // PaymentMethod::Base maps to "base-sepolia"
-        let cli = Cli::try_parse_from(["purl", "--network", "base-sepolia, ethereum"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        // PaymentMethod::Tempo maps to "tempo-moderato"
+        let cli = Cli::try_parse_from(["purl", "--network", "tempo-moderato, ethereum"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_ok());
@@ -468,16 +477,16 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_combined() {
-        // PaymentMethod::Base maps to "base-sepolia"
+        // PaymentMethod::Tempo maps to "tempo-moderato"
         let cli = Cli::try_parse_from([
             "purl",
             "--max-amount",
             "2000000",
             "--network",
-            "base-sepolia",
+            "tempo-moderato",
         ])
         .unwrap();
-        let (challenge, charge_req) = mock_challenge(PaymentMethod::Base, "1000000");
+        let (challenge, charge_req) = mock_challenge(PaymentMethod::Tempo, "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
         assert!(result.is_ok());

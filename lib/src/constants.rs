@@ -163,20 +163,6 @@ struct BuiltinToken {
 /// Default built-in tokens defined in code
 const BUILTIN_TOKENS: &[BuiltinToken] = &[
     BuiltinToken {
-        network: crate::network::networks::BASE,
-        address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-        name: "USD Coin",
-        symbol: "USDC",
-        decimals: 6,
-    },
-    BuiltinToken {
-        network: crate::network::networks::BASE_SEPOLIA,
-        address: "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
-        name: "USD Coin",
-        symbol: "USDC",
-        decimals: 6,
-    },
-    BuiltinToken {
         network: crate::network::networks::ETHEREUM,
         address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
         name: "USD Coin",
@@ -186,6 +172,20 @@ const BUILTIN_TOKENS: &[BuiltinToken] = &[
     BuiltinToken {
         network: crate::network::networks::ETHEREUM_SEPOLIA,
         address: "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+        name: "USD Coin",
+        symbol: "USDC",
+        decimals: 6,
+    },
+    BuiltinToken {
+        network: crate::network::networks::BASE,
+        address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        name: "USD Coin",
+        symbol: "USDC",
+        decimals: 6,
+    },
+    BuiltinToken {
+        network: crate::network::networks::BASE_SEPOLIA,
+        address: "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
         name: "USD Coin",
         symbol: "USDC",
         decimals: 6,
@@ -487,8 +487,11 @@ mod tests {
     }
 
     #[test]
-    fn test_get_token_decimals_usdc_base() {
-        let result = get_token_decimals("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+    fn test_get_token_decimals_tempo_moderato() {
+        let result = get_token_decimals(
+            "tempo-moderato",
+            "0x20c0000000000000000000000000000000000001",
+        );
         assert!(result.is_ok());
         assert_eq!(result.expect("Should have valid decimals"), 6);
     }
@@ -496,14 +499,20 @@ mod tests {
     #[test]
     fn test_get_token_decimals_case_insensitive_evm() {
         // Test with uppercase address
-        let result = get_token_decimals("base", "0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913");
+        let result = get_token_decimals(
+            "tempo-moderato",
+            "0x20C0000000000000000000000000000000000001",
+        );
         assert!(result.is_ok());
         assert_eq!(result.expect("Should have valid decimals"), 6);
     }
 
     #[test]
     fn test_get_token_decimals_unknown_token() {
-        let result = get_token_decimals("base", "0x0000000000000000000000000000000000000000");
+        let result = get_token_decimals(
+            "tempo-moderato",
+            "0x0000000000000000000000000000000000000000",
+        );
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -515,15 +524,18 @@ mod tests {
     fn test_get_token_decimals_unknown_network() {
         let result = get_token_decimals(
             "unknown-network",
-            "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            "0x20c0000000000000000000000000000000000001",
         );
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_get_token_symbol_usdc_base() {
-        let symbol = get_token_symbol("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
-        assert_eq!(symbol, Some("USDC"));
+    fn test_get_token_symbol_tempo_moderato() {
+        let symbol = get_token_symbol(
+            "tempo-moderato",
+            "0x20c0000000000000000000000000000000000001",
+        );
+        assert_eq!(symbol, Some("AlphaUSD"));
     }
 
     #[test]
