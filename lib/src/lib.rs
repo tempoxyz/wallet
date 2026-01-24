@@ -41,7 +41,7 @@ pub mod http;
 #[cfg(feature = "keystore")]
 pub mod keystore;
 
-#[cfg(feature = "evm")]
+#[cfg(feature = "tempo")]
 pub mod providers;
 
 #[cfg(feature = "client")]
