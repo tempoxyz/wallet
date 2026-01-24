@@ -86,6 +86,7 @@ pub struct DecryptedKeys {
 }
 
 /// Decrypt all keystores upfront before displaying
+#[allow(deprecated)]
 pub fn decrypt_keystores_upfront(
     config: &purl::Config,
     use_password_cache: bool,

@@ -15,6 +15,7 @@ pub fn load_config(config_path: Option<impl AsRef<Path>>) -> Result<Config> {
     Config::load_from(config_path).context("Failed to load configuration")
 }
 
+#[allow(deprecated)]
 pub fn load_config_with_overrides(cli: &Cli) -> Result<Config> {
     let mut config = load_config(cli.config.as_ref())?;
 

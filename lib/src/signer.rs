@@ -38,6 +38,7 @@ impl WalletSource for WalletOpts {
     }
 }
 
+#[allow(deprecated)]
 impl WalletSource for crate::config::EvmConfig {
     fn load_signer(&self, password: Option<&str>) -> Result<PrivateKeySigner> {
         if let Some(keystore_path) = &self.keystore {
