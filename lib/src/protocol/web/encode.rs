@@ -30,6 +30,8 @@ pub fn base64url_decode(input: &str) -> Result<Vec<u8>> {
 ///     method: PaymentMethod::Tempo,
 ///     intent: PaymentIntent::Charge,
 ///     request: serde_json::json!({"amount": "10000"}),
+///     request_raw: String::new(),
+///     digest: None,
 ///     expires: Some("2024-01-01T00:00:00Z".to_string()),
 ///     description: None,
 /// };
@@ -71,13 +73,21 @@ pub fn format_www_authenticate(challenge: &PaymentChallenge) -> Result<String> {
 /// # Example
 ///
 /// ```no_run
-/// # use purl::protocol::web::{PaymentCredential, PaymentPayload, PayloadType};
+/// # use purl::protocol::web::{PaymentCredential, PaymentPayload, PayloadType, ChallengeEcho, PaymentMethod, PaymentIntent};
 /// let credential = PaymentCredential {
-///     id: "abc123".to_string(),
+///     challenge: ChallengeEcho {
+///         id: "abc123".to_string(),
+///         realm: "api".to_string(),
+///         method: PaymentMethod::Tempo,
+///         intent: PaymentIntent::Charge,
+///         request: String::new(),
+///         digest: None,
+///         expires: None,
+///     },
 ///     source: Some("did:pkh:eip155:88153:0x123".to_string()),
 ///     payload: PaymentPayload {
-///         payload_type: PayloadType::Transaction,
 ///         signature: "0xabc".to_string(),
+///         payload_type: Some(PayloadType::Transaction),
 ///     },
 /// };
 ///
@@ -122,8 +132,24 @@ pub fn format_receipt(receipt: &PaymentReceipt) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::{PayloadType, PaymentIntent, PaymentMethod, ReceiptStatus};
+    use super::super::types::{
+        ChallengeEcho, PayloadType, PaymentIntent, PaymentMethod, ReceiptStatus,
+    };
     use super::*;
+
+    fn test_challenge() -> PaymentChallenge {
+        PaymentChallenge {
+            id: "abc123".to_string(),
+            realm: "api".to_string(),
+            method: PaymentMethod::Tempo,
+            intent: PaymentIntent::Charge,
+            request: serde_json::json!({"amount": "10000"}),
+            request_raw: String::new(),
+            digest: None,
+            expires: Some("2024-01-01T00:00:00Z".to_string()),
+            description: None,
+        }
+    }
 
     #[test]
     fn test_base64url_encode_decode() {
@@ -142,15 +168,7 @@ mod tests {
 
     #[test]
     fn test_format_www_authenticate() {
-        let challenge = PaymentChallenge {
-            id: "abc123".to_string(),
-            realm: "api".to_string(),
-            method: PaymentMethod::Tempo,
-            intent: PaymentIntent::Charge,
-            request: serde_json::json!({"amount": "10000"}),
-            expires: Some("2024-01-01T00:00:00Z".to_string()),
-            description: None,
-        };
+        let challenge = test_challenge();
 
         let header =
             format_www_authenticate(&challenge).expect("Failed to format WWW-Authenticate");
@@ -166,11 +184,19 @@ mod tests {
     #[test]
     fn test_format_authorization() {
         let credential = PaymentCredential {
-            id: "abc123".to_string(),
+            challenge: ChallengeEcho {
+                id: "abc123".to_string(),
+                realm: "api".to_string(),
+                method: PaymentMethod::Tempo,
+                intent: PaymentIntent::Charge,
+                request: String::new(),
+                digest: None,
+                expires: None,
+            },
             source: Some("did:pkh:eip155:88153:0x123".to_string()),
             payload: super::super::types::PaymentPayload {
-                payload_type: PayloadType::Transaction,
                 signature: "0xabc".to_string(),
+                payload_type: Some(PayloadType::Transaction),
             },
         };
 
@@ -183,7 +209,7 @@ mod tests {
         let decoded = base64url_decode(parts[1]).expect("Failed to decode base64url");
         let parsed: PaymentCredential =
             serde_json::from_slice(&decoded).expect("Failed to parse PaymentCredential");
-        assert_eq!(parsed.id, "abc123");
+        assert_eq!(parsed.challenge.id, "abc123");
     }
 
     #[test]
@@ -210,14 +236,10 @@ mod tests {
     #[test]
     fn test_format_www_authenticate_with_description() {
         let challenge = PaymentChallenge {
-            id: "abc123".to_string(),
-            realm: "api".to_string(),
-            method: PaymentMethod::Tempo,
-            intent: PaymentIntent::Charge,
-            request: serde_json::json!({"amount": "10000"}),
-            expires: None,
             // ast-grep-ignore: no-leading-whitespace-strings
             description: Some("Test \"payment\" here".to_string()),
+            expires: None,
+            ..test_challenge()
         };
 
         let header =

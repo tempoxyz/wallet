@@ -282,7 +282,7 @@ impl PaymentProviderRegistry {
 
     /// Find a provider that supports the given network
     ///
-    /// Supports both v1 (e.g., "base") and v2 CAIP-2 (e.g., "eip155:8453") network formats
+    /// Supports both v1 (e.g., "tempo") and v2 CAIP-2 (e.g., "eip155:4217") network formats
     #[must_use]
     pub fn find_provider(&self, network: &str) -> Option<&dyn PaymentProvider> {
         // Resolve network aliases (v2 CAIP-2 to v1 name)
@@ -357,10 +357,10 @@ mod tests {
     fn test_registry_finds_evm_provider() {
         let registry = &*PROVIDER_REGISTRY;
 
-        let provider = registry.find_provider("base");
+        let provider = registry.find_provider("tempo");
         assert!(provider.is_some());
         assert_eq!(
-            provider.expect("Provider should exist for base").name(),
+            provider.expect("Provider should exist for tempo").name(),
             "EVM"
         );
 
@@ -378,11 +378,11 @@ mod tests {
     fn test_registry_finds_balance_provider() {
         let registry = &*PROVIDER_REGISTRY;
 
-        let provider = registry.find_balance_provider("base");
+        let provider = registry.find_balance_provider("tempo");
         assert!(provider.is_some());
         assert_eq!(
             provider
-                .expect("Balance provider should exist for base")
+                .expect("Balance provider should exist for tempo")
                 .name(),
             "EVM"
         );
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn test_builtin_provider_for_network() {
         assert!(matches!(
-            BuiltinProvider::for_network("base"),
+            BuiltinProvider::for_network("tempo"),
             Some(BuiltinProvider::Evm)
         ));
         assert!(BuiltinProvider::for_network("unknown").is_none());

@@ -290,12 +290,12 @@ mod tests {
     #[test]
     fn test_no_compatible_method_display() {
         let err = PurlError::NoCompatibleMethod {
-            networks: vec!["ethereum".to_string(), "base".to_string()],
+            networks: vec!["ethereum".to_string(), "tempo".to_string()],
         };
         let display = err.to_string();
         assert!(display.contains("No compatible payment method found"));
         assert!(display.contains("ethereum"));
-        assert!(display.contains("base"));
+        assert!(display.contains("tempo"));
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
         use std::io::{Error as IoError, ErrorKind};
         let source = IoError::new(ErrorKind::Other, "underlying error");
         let ctx = SigningContext {
-            network: Some("base".to_string()),
+            network: Some("tempo".to_string()),
             address: Some("0x123".to_string()),
             operation: "sign_transaction",
         };
@@ -463,7 +463,7 @@ mod tests {
         let display = err.to_string();
         assert!(display.contains("signing failed"));
         assert!(display.contains("sign_transaction"));
-        assert!(display.contains("base"));
+        assert!(display.contains("tempo"));
         assert!(display.contains("0x123"));
     }
 

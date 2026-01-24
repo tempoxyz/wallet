@@ -485,9 +485,9 @@ impl Client {
                 provider: "EVM".to_string(),
                 network: network_name.to_string(),
                 amount: charge_req.amount.clone(),
-                asset: charge_req.asset.clone(),
+                asset: charge_req.currency.clone(),
                 from: address,
-                to: charge_req.destination.clone(),
+                to: charge_req.recipient.clone().unwrap_or_default(),
                 estimated_fee: None,
             }));
         }
@@ -714,9 +714,9 @@ mod tests {
 
         let _dry_run = PaymentResult::DryRun(crate::payment_provider::DryRunInfo {
             provider: "EVM".to_string(),
-            network: "base".to_string(),
+            network: "tempo".to_string(),
             amount: "1000000".to_string(),
-            asset: "USDC".to_string(),
+            asset: "AlphaUSD".to_string(),
             from: "0x123".to_string(),
             to: "0x456".to_string(),
             estimated_fee: Some("0".to_string()),

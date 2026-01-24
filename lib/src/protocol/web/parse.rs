@@ -78,11 +78,13 @@ pub fn parse_www_authenticate(header: &str) -> Result<PaymentChallenge> {
 
     let request_b64 = params
         .get("request")
-        .ok_or_else(|| PurlError::InvalidChallenge("Missing 'request' field".to_string()))?;
-    let request_bytes = base64url_decode(request_b64)?;
+        .ok_or_else(|| PurlError::InvalidChallenge("Missing 'request' field".to_string()))?
+        .clone();
+    let request_bytes = base64url_decode(&request_b64)?;
     let request: serde_json::Value = serde_json::from_slice(&request_bytes)
         .map_err(|e| PurlError::InvalidChallenge(format!("Invalid request JSON: {}", e)))?;
 
+    let digest = params.get("digest").cloned();
     let expires = params.get("expires").cloned();
     let description = params.get("description").cloned();
 
@@ -92,6 +94,8 @@ pub fn parse_www_authenticate(header: &str) -> Result<PaymentChallenge> {
         method,
         intent,
         request,
+        request_raw: request_b64,
+        digest,
         expires,
         description,
     })
@@ -105,9 +109,10 @@ pub fn parse_www_authenticate(header: &str) -> Result<PaymentChallenge> {
 ///
 /// ```no_run
 /// # use purl::protocol::web::parse_authorization;
-/// let header = "Payment eyJpZCI6ImFiYzEyMyIsInNvdXJjZSI6ImRpZDpwa2g6ZWlwMTU1Ojg4MTUzOjB4MTIzIiwicGF5bG9hZCI6eyJ0eXBlIjoidHJhbnNhY3Rpb24iLCJzaWduYXR1cmUiOiIweGFiYyJ9fQ";
+/// // Note: This base64url string should encode a valid PaymentCredential JSON with challenge echo
+/// let header = "Payment eyJjaGFsbGVuZ2UiOnsiaWQiOiJhYmMxMjMiLCJyZWFsbSI6ImFwaSIsIm1ldGhvZCI6InRlbXBvIiwiaW50ZW50IjoiY2hhcmdlIiwicmVxdWVzdCI6IiJ9LCJwYXlsb2FkIjp7InNpZ25hdHVyZSI6IjB4YWJjIn19";
 /// let credential = parse_authorization(header)?;
-/// assert_eq!(credential.id, "abc123");
+/// assert_eq!(credential.challenge.id, "abc123");
 /// # Ok::<(), purl::error::PurlError>(())
 /// ```
 pub fn parse_authorization(header: &str) -> Result<PaymentCredential> {
@@ -150,20 +155,26 @@ pub fn parse_receipt(header: &str) -> Result<PaymentReceipt> {
 #[cfg(test)]
 mod tests {
     use super::super::encode::{format_authorization, format_receipt, format_www_authenticate};
-    use super::super::types::{PayloadType, PaymentPayload, ReceiptStatus};
+    use super::super::types::{ChallengeEcho, PayloadType, PaymentPayload, ReceiptStatus};
     use super::*;
 
-    #[test]
-    fn test_parse_www_authenticate() {
-        let challenge = PaymentChallenge {
+    fn test_challenge() -> PaymentChallenge {
+        PaymentChallenge {
             id: "abc123".to_string(),
             realm: "api".to_string(),
             method: PaymentMethod::Tempo,
             intent: PaymentIntent::Charge,
-            request: serde_json::json!({"amount": "10000", "asset": "0x123"}),
+            request: serde_json::json!({"amount": "10000", "currency": "0x123"}),
+            request_raw: String::new(),
+            digest: None,
             expires: Some("2024-01-01T00:00:00Z".to_string()),
             description: None,
-        };
+        }
+    }
+
+    #[test]
+    fn test_parse_www_authenticate() {
+        let challenge = test_challenge();
 
         let header =
             format_www_authenticate(&challenge).expect("Failed to format WWW-Authenticate");
@@ -182,9 +193,11 @@ mod tests {
         let challenge = PaymentChallenge {
             id: "test123".to_string(),
             realm: "test".to_string(),
-            method: PaymentMethod::Base,
+            method: PaymentMethod::Tempo,
             intent: PaymentIntent::Authorize,
             request: serde_json::json!({}),
+            request_raw: String::new(),
+            digest: None,
             expires: None,
             // ast-grep-ignore: no-leading-whitespace-strings
             description: Some("Test \"quoted\" text".to_string()),
@@ -201,23 +214,31 @@ mod tests {
     #[test]
     fn test_parse_authorization() {
         let credential = PaymentCredential {
-            id: "abc123".to_string(),
+            challenge: ChallengeEcho {
+                id: "abc123".to_string(),
+                realm: "api".to_string(),
+                method: PaymentMethod::Tempo,
+                intent: PaymentIntent::Charge,
+                request: String::new(),
+                digest: None,
+                expires: None,
+            },
             source: Some("did:pkh:eip155:88153:0x123".to_string()),
             payload: PaymentPayload {
-                payload_type: PayloadType::Transaction,
                 signature: "0xabc".to_string(),
+                payload_type: Some(PayloadType::Transaction),
             },
         };
 
         let header = format_authorization(&credential).expect("Failed to format Authorization");
         let parsed = parse_authorization(&header).expect("Failed to parse Authorization");
 
-        assert_eq!(parsed.id, "abc123");
+        assert_eq!(parsed.challenge.id, "abc123");
         assert_eq!(
             parsed.source,
             Some("did:pkh:eip155:88153:0x123".to_string())
         );
-        assert_eq!(parsed.payload.payload_type, PayloadType::Transaction);
+        assert_eq!(parsed.payload.payload_type, Some(PayloadType::Transaction));
         assert_eq!(parsed.payload.signature, "0xabc");
     }
 
@@ -271,6 +292,8 @@ mod tests {
                     "key": "value"
                 }
             }),
+            request_raw: String::new(),
+            digest: None,
             expires: Some("2025-12-31T23:59:59Z".to_string()),
             description: Some("Complex description with symbols: @#$%".to_string()),
         };

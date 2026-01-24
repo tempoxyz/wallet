@@ -2,7 +2,7 @@
 # Copy this to ~/.config/purl/purl.toml and fill in your keys
 # Alternatively, you can run `purl init` to create this file automatically.
 
-# EVM configuration (for Ethereum, Base, Avalanche, etc.)
+# EVM configuration (for Tempo, Ethereum, Avalanche, etc.)
 [evm]
 # Your EVM private key (hex string, without 0x prefix)
 # This will be used to sign EIP-3009 payment authorizations

@@ -19,6 +19,7 @@ pub mod networks {
     pub const POLYGON: &str = "polygon";
     pub const ARBITRUM: &str = "arbitrum";
     pub const OPTIMISM: &str = "optimism";
+    pub const TEMPO: &str = "tempo";
     pub const TEMPO_MODERATO: &str = "tempo-moderato";
 }
 
@@ -45,6 +46,8 @@ pub mod evm_chain_ids {
     pub const ARBITRUM: u64 = 42161;
     /// Optimism Mainnet
     pub const OPTIMISM: u64 = 10;
+    /// Tempo Mainnet
+    pub const TEMPO: u64 = 4217;
     /// Tempo Moderato Testnet
     pub const TEMPO_MODERATO: u64 = 42431;
 }
@@ -170,6 +173,16 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
         explorer: Some(("https://optimistic.etherscan.io", ExplorerKind::Etherscan)),
     },
     BuiltinNetwork {
+        id: networks::TEMPO,
+        chain_type: ChainType::Evm,
+        chain_id: Some(evm_chain_ids::TEMPO),
+        mainnet: true,
+        display_name: "Tempo",
+        rpc_url: "https://rpc.tempo.xyz",
+        aliases: &["eip155:4217"],
+        explorer: Some(("https://explorer.tempo.xyz", ExplorerKind::Tempo)),
+    },
+    BuiltinNetwork {
         id: networks::TEMPO_MODERATO,
         chain_type: ChainType::Evm,
         chain_id: Some(evm_chain_ids::TEMPO_MODERATO),
@@ -177,7 +190,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
         display_name: "Tempo Moderato (Testnet)",
         rpc_url: "https://rpc.moderato.tempo.xyz",
         aliases: &["eip155:42431"],
-        explorer: Some(("https://explore.tempo.xyz", ExplorerKind::Tempo)),
+        explorer: Some(("https://explorer.moderato.tempo.xyz", ExplorerKind::Tempo)),
     },
 ];
 
@@ -192,9 +205,9 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
 /// ```
 /// use purl::network::get_network;
 ///
-/// let base = get_network("base").expect("base network exists");
-/// assert!(base.mainnet);
-/// assert!(!base.is_testnet());
+/// let tempo = get_network("tempo").expect("tempo network exists");
+/// assert!(tempo.mainnet);
+/// assert!(!tempo.is_testnet());
 /// ```
 #[derive(Debug, Clone)]
 pub struct NetworkInfo {
@@ -227,7 +240,7 @@ impl NetworkInfo {
 ///
 /// # Structure
 ///
-/// Maps network ID (e.g., "base", "ethereum") to [`NetworkInfo`]
+/// Maps network ID (e.g., "tempo", "ethereum") to [`NetworkInfo`]
 ///
 /// # Custom Networks
 ///
@@ -236,7 +249,7 @@ impl NetworkInfo {
 /// ```toml
 /// # Override RPC URLs for built-in networks
 /// [rpc]
-/// base = "https://my-custom-rpc.com"
+/// tempo = "https://my-custom-rpc.com"
 ///
 /// # Add custom networks
 /// [[networks]]
@@ -488,10 +501,9 @@ impl fmt::Display for Network {
 /// ```
 /// use purl::network::Network;
 ///
-/// let base = Network::Base;
-/// let usdc_config = base.usdc_config().expect("Base has USDC");
-/// assert_eq!(usdc_config.currency.symbol, "USDC");
-/// assert_eq!(usdc_config.currency.decimals, 6);
+/// let tempo = Network::TempoModerato;
+/// let token_config = tempo.usdc_config().expect("Tempo has token support");
+/// assert_eq!(token_config.currency.decimals, 6);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct TokenConfig {
@@ -694,29 +706,35 @@ mod tests {
 
     #[test]
     fn test_network_lookup() {
-        let base = get_network("base").expect("base network should exist");
-        assert_eq!(base.chain_type, ChainType::Evm);
-        assert_eq!(base.chain_id, Some(8453));
-        assert!(base.mainnet);
+        let tempo = get_network("tempo").expect("tempo network should exist");
+        assert_eq!(tempo.chain_type, ChainType::Evm);
+        assert_eq!(tempo.chain_id, Some(4217));
+        assert!(tempo.mainnet);
     }
 
     #[test]
     fn test_is_evm_network() {
-        assert!(is_evm_network("base"));
+        assert!(is_evm_network("tempo"));
         assert!(is_evm_network("ethereum"));
         assert!(!is_evm_network("unknown"));
     }
 
     #[test]
     fn test_get_evm_chain_id() {
-        assert_eq!(get_evm_chain_id("base"), Some(8453));
+        assert_eq!(get_evm_chain_id("tempo"), Some(4217));
         assert_eq!(get_evm_chain_id("ethereum"), Some(1));
-        assert_eq!(get_evm_chain_id("base-sepolia"), Some(84532));
+        assert_eq!(get_evm_chain_id("tempo-moderato"), Some(42431));
         assert_eq!(get_evm_chain_id("unknown"), None);
     }
 
     #[test]
     fn test_network_enum_from_str() {
+        assert_eq!(
+            "tempo-moderato"
+                .parse::<Network>()
+                .expect("Failed to parse tempo-moderato"),
+            Network::TempoModerato
+        );
         assert_eq!(
             "base".parse::<Network>().expect("Failed to parse base"),
             Network::Base
@@ -732,17 +750,17 @@ mod tests {
 
     #[test]
     fn test_network_enum_to_str() {
-        assert_eq!(Network::Base.as_str(), "base");
+        assert_eq!(Network::TempoModerato.as_str(), "tempo-moderato");
         assert_eq!(Network::EthereumSepolia.as_str(), "ethereum-sepolia");
         assert_eq!(Network::Base.to_string(), "base");
     }
 
     #[test]
     fn test_network_enum_info() {
-        let base = Network::Base;
-        assert_eq!(base.chain_type(), ChainType::Evm);
-        assert!(base.is_mainnet());
-        assert!(!base.is_testnet());
+        let tempo = Network::TempoModerato;
+        assert_eq!(tempo.chain_type(), ChainType::Evm);
+        assert!(!tempo.is_mainnet()); // tempo-moderato is testnet
+        assert!(tempo.is_testnet());
 
         let sepolia = Network::EthereumSepolia;
         assert_eq!(sepolia.chain_type(), ChainType::Evm);
@@ -784,12 +802,12 @@ mod tests {
     #[test]
     fn test_resolve_network_alias() {
         // EVM networks - v2 CAIP-2 format should resolve to v1 names
-        assert_eq!(resolve_network_alias("eip155:8453"), "base");
-        assert_eq!(resolve_network_alias("eip155:84532"), "base-sepolia");
+        assert_eq!(resolve_network_alias("eip155:4217"), "tempo");
+        assert_eq!(resolve_network_alias("eip155:42431"), "tempo-moderato");
         assert_eq!(resolve_network_alias("eip155:1"), "ethereum");
 
         // Already v1 format - should return unchanged
-        assert_eq!(resolve_network_alias("base"), "base");
+        assert_eq!(resolve_network_alias("tempo"), "tempo");
 
         // Unknown network - should return unchanged
         assert_eq!(resolve_network_alias("eip155:999999"), "eip155:999999");
@@ -800,18 +818,18 @@ mod tests {
         // Test that convenience functions work with v2 CAIP-2 formats
 
         // get_network
-        let base_v1 = get_network("base").expect("base should exist");
-        let base_v2 = get_network("eip155:8453").expect("eip155:8453 should resolve to base");
-        assert_eq!(base_v1.chain_id, base_v2.chain_id);
-        assert_eq!(base_v1.chain_id, Some(8453));
+        let tempo_v1 = get_network("tempo").expect("tempo should exist");
+        let tempo_v2 = get_network("eip155:4217").expect("eip155:4217 should resolve to tempo");
+        assert_eq!(tempo_v1.chain_id, tempo_v2.chain_id);
+        assert_eq!(tempo_v1.chain_id, Some(4217));
 
         // is_evm_network
-        assert!(is_evm_network("base"));
-        assert!(is_evm_network("eip155:8453"));
+        assert!(is_evm_network("tempo"));
+        assert!(is_evm_network("eip155:4217"));
 
         // get_evm_chain_id
-        assert_eq!(get_evm_chain_id("base"), Some(8453));
-        assert_eq!(get_evm_chain_id("eip155:8453"), Some(8453));
-        assert_eq!(get_evm_chain_id("eip155:84532"), Some(84532));
+        assert_eq!(get_evm_chain_id("tempo"), Some(4217));
+        assert_eq!(get_evm_chain_id("eip155:4217"), Some(4217));
+        assert_eq!(get_evm_chain_id("eip155:42431"), Some(42431));
     }
 }

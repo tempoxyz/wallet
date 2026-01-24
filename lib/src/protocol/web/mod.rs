@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```no_run
-//! # use purl::protocol::web::{PaymentChallenge, PaymentCredential, PaymentMethod, PaymentIntent};
+//! # use purl::protocol::web::{PaymentChallenge, PaymentCredential, PaymentMethod, PaymentIntent, ChallengeEcho};
 //! # fn main() -> Result<(), purl::error::PurlError> {
 //! // Parse challenge from WWW-Authenticate header
 //! let header = "Payment id=\"abc123\", realm=\"api\"";
@@ -22,11 +22,19 @@
 //! // After creating payment credential via provider...
 //! // Format Authorization header for retrying the request
 //! # let credential = PaymentCredential {
-//! #     id: "abc123".to_string(),
+//! #     challenge: ChallengeEcho {
+//! #         id: "abc123".to_string(),
+//! #         realm: "api".to_string(),
+//! #         method: PaymentMethod::Tempo,
+//! #         intent: PaymentIntent::Charge,
+//! #         request: String::new(),
+//! #         digest: None,
+//! #         expires: None,
+//! #     },
 //! #     source: None,
 //! #     payload: purl::protocol::web::PaymentPayload {
-//! #         payload_type: purl::protocol::web::PayloadType::Transaction,
 //! #         signature: "0x...".to_string(),
+//! #         payload_type: Some(purl::protocol::web::PayloadType::Transaction),
 //! #     },
 //! # };
 //! let auth_header = purl::protocol::web::format_authorization(&credential)?;
@@ -44,9 +52,9 @@ pub use encode::{
 };
 pub use parse::{parse_authorization, parse_receipt, parse_www_authenticate};
 pub use types::{
-    AuthorizeRequest, ChargeRequest, PayloadType, PaymentChallenge, PaymentCredential,
-    PaymentIntent, PaymentMethod, PaymentPayload, PaymentProtocol, PaymentReceipt, ReceiptStatus,
-    SubscriptionRequest,
+    AuthorizeRequest, ChallengeEcho, ChargeRequest, MethodDetails, PayloadType, PaymentChallenge,
+    PaymentCredential, PaymentIntent, PaymentMethod, PaymentPayload, PaymentProtocol,
+    PaymentReceipt, ReceiptStatus, SubscriptionRequest,
 };
 
 /// Header name for payment challenges (from server)

@@ -12,7 +12,7 @@
 //! - `http-client`: HTTP client using reqwest
 //! - `client`: High-level Client API (requires http-client and web-payment-auth)
 //! - `keystore`: Encrypted keystore management
-//! - `evm`: EVM provider support (Ethereum, Base, etc.)
+//! - `evm`: EVM provider support (Tempo, Ethereum, etc.)
 //! - `full`: All features enabled
 //! - `tower-middleware`: Tower middleware for hyper, axum, tonic, etc.
 //! - `reqwest-middleware`: Reqwest middleware integration

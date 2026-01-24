@@ -150,7 +150,7 @@ async fn make_request(cli: Cli) -> Result<()> {
         eprintln!("Making {} request to: {url}", request_ctx.method);
     }
 
-    let response = request_ctx.execute(url, None)?;
+    let response = request_ctx.execute(url, None).await?;
 
     if !response.is_payment_required() {
         handle_regular_response(&request_ctx.cli, response)?;
