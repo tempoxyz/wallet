@@ -41,7 +41,7 @@ http-body-util = "0.1"
 pin-project-lite = "0.2"
 
 # Reqwest middleware
-reqwest-middleware = "0.4"
+reqwest-middleware = "0.5"
 
 # Logging
 tracing = "0.1"
