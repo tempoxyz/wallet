@@ -2,17 +2,19 @@
 
 ## Repository Overview
 
-This is a **Rust workspace** for `purl` - a curl-like CLI tool for making HTTP requests with automatic payment support.
+This is `purl-cli` - a pure binary crate providing a curl-like CLI tool for making HTTP requests with automatic payment support.
 
 **Supported Payment Protocols:**
 - [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
 
-### Workspace Structure
+### Crate Structure
 
-| Crate | Description |
-| ----- | ----------- |
-| `lib/` | Core library (`purl-lib`) - payment providers, HTTP client, config, crypto, HTTP 402 protocol |
-| `cli/` | CLI binary (`purl`) - command-line interface using clap |
+Single binary crate with all source in `src/`:
+- `src/main.rs` - CLI entry point and module declarations
+- `src/*.rs` - Internal modules (config, network, keystore, http, payment_provider, etc.)
+- `tests/` - Integration tests (black-box CLI testing via assert_cmd)
+
+**Package:** `purl-cli` | **Binary:** `purl`
 
 ## Commands
 
@@ -64,19 +66,22 @@ Example summary format:
 
 - **Edition**: Rust 2021
 - **Error handling**: Use `thiserror` for error types, `anyhow` for propagation
-- **Async runtime**: Tokio with full features
+- **Async runtime**: Tokio (minimal features: macros, rt-multi-thread, signal)
 - **Serialization**: Serde with derive macros
 
 ### Imports
 
-- Group imports: std → external crates → internal modules
-- Use `pub use` to re-export commonly used types from `lib.rs`
+- Group imports: std → external crates → crate modules
+- Use `use crate::` for internal module imports
 
 ```rust
-// lib.rs re-exports common types
-pub use config::Config;
-pub use error::{PurlError, Result};
-pub use client::PurlClient;
+use std::path::PathBuf;
+
+use anyhow::Result;
+use clap::Parser;
+
+use crate::config::Config;
+use crate::error::PurlError;
 ```
 
 ### Error Handling Pattern
@@ -97,18 +102,13 @@ pub enum MyError {
 
 - Each module should have a clear single responsibility
 - Use `mod.rs` for modules with submodules
-- Re-export public types at module root
+- CLI commands go in `*_commands.rs` files
 
 ### Testing
 
-- Integration tests go in `<crate>/tests/`
-- Use the `common/mod.rs` pattern for shared test utilities
+- Integration tests in `tests/` use assert_cmd for black-box CLI testing
 - Use `TestConfigBuilder` for setting up test configurations
-- Test constants: `TEST_EVM_KEY` in `common/mod.rs`
-
-**Writing Tests:**
-- Avoid using `#[serial]` - prefer isolated temp directories with internal `_in_dir` helper functions
-- Library tests should use `_in_dir` variants to avoid HOME env var conflicts
+- Use `test_command(&temp)` helper to create properly configured CLI commands
 
 **Mock Mode for Network Tests:**
 - Set `PURL_MOCK_NETWORK=1` environment variable to enable mock mode
@@ -151,15 +151,14 @@ pub struct Cli {
 ## Making Changes
 
 ### Before Starting Any Code Changes:
-- [ ] Understand which crate(s) you're modifying (`lib/` vs `cli/`)
 - [ ] Check existing patterns in similar files
 - [ ] Identify affected tests
 
 ### Adding New Features
 
-1. **Library changes** (`lib/`): Add core logic, expose via `lib.rs`
-2. **CLI changes** (`cli/`): Add commands/flags in `cli.rs`, implement in appropriate `*_commands.rs`
-3. **Add tests**: Both unit tests (in source files) and integration tests (in `tests/`)
+1. Add core logic in appropriate module under `src/`
+2. Add CLI commands/flags in `cli.rs`, implement in `*_commands.rs`
+3. Add tests: unit tests in source files, integration tests in `tests/`
 
 ## Dependencies
 
@@ -168,25 +167,20 @@ pub struct Cli {
 | Crate | Purpose |
 | ----- | ------- |
 | `clap` | CLI argument parsing |
-| `alloy` / `alloy-signer` | EVM interactions and signing |
-| `curl` | HTTP client backend |
+| `alloy` | EVM interactions and signing (minimal features) |
+| `reqwest` | HTTP client |
 | `serde` / `serde_json` / `toml` | Serialization |
-| `tokio` | Async runtime |
+| `tokio` | Async runtime (minimal features) |
 | `eth-keystore` | Encrypted keystore format |
+| `mpay` | Payment protocol types (local path dep) |
 
 ### Adding Dependencies
 
-- Add workspace-level dependencies in root `Cargo.toml` under `[workspace.dependencies]`
-- Reference from crate `Cargo.toml` as `{ workspace = true }`
+Add dependencies directly to `Cargo.toml`:
 
 ```toml
-# Root Cargo.toml
-[workspace.dependencies]
-new-crate = "1.0"
-
-# lib/Cargo.toml or cli/Cargo.toml
 [dependencies]
-new-crate = { workspace = true }
+new-crate = "1.0"
 ```
 
 ## Environment Variables

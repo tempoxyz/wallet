@@ -1,50 +1,44 @@
-[workspace]
-members = ["lib", "cli"]
-resolver = "2"
-
-# Note: Despite directory names, the actual crate names are:
-# - lib/ contains the 'purl' crate (the library)
-# - cli/ contains the 'purl-cli' crate (the CLI binary)
-
-[workspace.package]
+[package]
+name = "purl-cli"
 version = "0.1.0"
 edition = "2021"
+description = "A curl-like CLI tool for making HTTP requests with automatic payment support"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tempoxyz/purl"
 
-[workspace.dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+[[bin]]
+name = "purl"
+path = "src/main.rs"
+
+[dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 toml = "0.9"
-alloy = { version = "1.2", features = ["full"] }
-alloy-signer-local = "1.2"
+thiserror = "2.0"
+anyhow = "1.0"
+mpay = { path = "../mpay-rs", features = ["tempo", "evm", "utils"] }
+tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
+async-trait = "0.1"
 bs58 = "0.5"
 hex = "0.4"
 base64 = "0.22"
 rand = "0.8"
-regex = "1.11"
-zeroize = { version = "1.8", features = ["derive"] }
-eth-keystore = "0.5"
-anyhow = "1.0"
-thiserror = "2.0"
-dirs = "6.0"
-rpassword = "7.4"
-tokio = { version = "1.49", features = ["full"] }
-async-trait = "0.1"
-
-# Tower middleware
-tower = "0.5"
-tower-service = "0.3"
-http = "1.2"
-http-body = "1.0"
-http-body-util = "0.1"
-pin-project-lite = "0.2"
-
-# Reqwest middleware
-reqwest-middleware = "0.4"
-
-# Logging
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tracing = "0.1"
-
-# Tempo transaction types (used for Tempo network support)
+zeroize = { version = "1.8", features = ["derive"] }
+rpassword = "7.4"
+dirs = "6.0"
+eth-keystore = "0.5"
+alloy = { version = "1.2", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
 tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "07dfcd2d2b8c109d6b8502515c7db00198a8b3a3", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+clap_complete = "4.5"
+dialoguer = "0.12"
+colored = "3.0"
+
+[dev-dependencies]
+assert_cmd = "2.1"
+predicates = "3.1"
+tempfile = "3.24"
+serial_test = "3.2"
