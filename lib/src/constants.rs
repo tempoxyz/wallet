@@ -15,7 +15,8 @@ pub const CONFIG_FILE: &str = "config.toml";
 /// Keystores subdirectory name
 pub const KEYSTORES_DIR: &str = "keystores";
 
-/// Password cache subdirectory name
+/// Password cache subdirectory name (deprecated - cache is now in-memory only)
+#[deprecated(note = "Password cache is now in-memory only, not stored on disk")]
 pub const PASSWORD_CACHE_DIR: &str = "password_cache";
 
 /// Get the configured password cache duration
@@ -138,15 +139,16 @@ pub fn default_keystores_dir() -> Option<PathBuf> {
     purl_data_dir().map(|p| p.join(KEYSTORES_DIR))
 }
 
-/// Get the password cache directory (`~/.cache/purl/password_cache/`)
+/// Get the password cache directory (deprecated)
 ///
-/// Returns the path to the directory where temporarily cached keystore
-/// passwords are stored for the duration specified by [`password_cache_duration()`].
+/// # Deprecated
 ///
-/// # Returns
-///
-/// - `Some(PathBuf)` pointing to the password cache directory
-/// - `None` if the cache directory cannot be determined
+/// Password caching is now in-memory only for security reasons.
+/// This function is kept for backwards compatibility but the directory
+/// is no longer used. Use `clear_password_cache()` from the keystore module
+/// to clear the in-memory cache.
+#[deprecated(note = "Password cache is now in-memory only, not stored on disk")]
+#[allow(deprecated)]
 pub fn password_cache_dir() -> Option<PathBuf> {
     purl_cache_dir().map(|p| p.join(PASSWORD_CACHE_DIR))
 }

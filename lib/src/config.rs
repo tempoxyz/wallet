@@ -151,11 +151,26 @@ pub struct EvmConfig {
     pub keystore: Option<PathBuf>,
 
     /// Private key for EVM wallet (hex string without 0x prefix)
-    /// DEPRECATED: Use keystore instead for better security
+    ///
+    /// # Security Warning
+    ///
+    /// **DEPRECATED**: Storing private keys in configuration files is insecure.
+    /// Use an encrypted keystore instead (`purl method new`).
+    ///
+    /// Risks of plaintext private keys:
+    /// - Config files may be accidentally committed to version control
+    /// - Config files may be included in backups
+    /// - Config files may have incorrect permissions
+    /// - Other processes on the system may read the config file
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use encrypted keystore instead. Plaintext private keys are insecure."
+    )]
     pub private_key: Option<String>,
 }
 
+#[allow(deprecated)]
 impl EvmConfig {
     fn address_from_keystore(path: &Path) -> Result<String> {
         use crate::keystore::Keystore;
@@ -174,6 +189,7 @@ impl EvmConfig {
     }
 }
 
+#[allow(deprecated)]
 impl WalletConfig for EvmConfig {
     type Address = String;
 
@@ -460,6 +476,7 @@ impl fmt::Display for PaymentMethod {
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Default)]
+#[allow(deprecated)]
 pub struct ConfigBuilder {
     evm_keystore: Option<PathBuf>,
     evm_private_key: Option<String>,
@@ -468,6 +485,7 @@ pub struct ConfigBuilder {
     custom_tokens: Vec<CustomToken>,
 }
 
+#[allow(deprecated)]
 impl ConfigBuilder {
     /// Create a new empty ConfigBuilder.
     pub fn new() -> Self {
