@@ -34,25 +34,33 @@ client = ["http-client", "web-payment-auth", "utils", "runtime"]
 # Keystore management for secure key storage
 keystore = ["dep:eth-keystore", "dep:zeroize", "dep:rpassword", "dep:dirs", "utils"]
 
-# EVM provider support (Ethereum, Base, Polygon, Tempo, etc.)
+# EVM provider support (shared foundation for EVM-based methods)
 evm = [
     "dep:alloy",
     "dep:alloy-signer-local",
     "dep:eth-keystore",
-    "dep:tempo-primitives",
     "web-payment-auth",
     "utils",
     "runtime",
 ]
 
+# Tempo blockchain support (chain_id=88153, TIP-20, 2D nonces)
+tempo = ["evm", "dep:tempo-primitives"]
+
+# Base blockchain support (chain_id=84532, EIP-1559)
+base = ["evm"]
+
+# Stripe payment support (non-EVM, no blockchain deps)
+stripe = []
+
 # Full featured (all functionality)
-full = ["evm", "client", "keystore", "http-client", "config", "blocking"]
+full = ["tempo", "base", "stripe", "client", "keystore", "http-client", "config", "blocking"]
 
 # Tower middleware (hyper, axum, tonic, etc.)
-tower-middleware = ["dep:tower", "dep:tower-service", "dep:http", "dep:http-body", "dep:http-body-util", "dep:pin-project-lite", "runtime", "web-payment-auth", "evm", "config", "keystore"]
+tower-middleware = ["dep:tower", "dep:tower-service", "dep:http", "dep:http-body", "dep:http-body-util", "dep:pin-project-lite", "runtime", "web-payment-auth", "tempo", "config", "keystore"]
 
 # Reqwest middleware (reqwest-middleware crate)
-reqwest-middleware = ["dep:reqwest-middleware", "dep:http", "http-client", "web-payment-auth", "evm", "config", "keystore"]
+reqwest-middleware = ["dep:reqwest-middleware", "dep:http", "http-client", "web-payment-auth", "tempo", "config", "keystore"]
 
 # All middleware features
 middleware = ["tower-middleware", "reqwest-middleware"]
