@@ -37,23 +37,30 @@ Use as `purl <URL> [OPTIONS]` or `purl <COMMAND> [OPTIONS]`
 |---------|---------|
 | Initialize configuration (first time setup) | `purl init` or `purl i` |
 | Make a payment request | `purl https://api.example.com/premium-data` |
-| Preview payment without executing | `purl --dry-run https://api.example.com/data` |
-| Require confirmation before payment | `purl --confirm https://api.example.com/data` |
-| Set maximum payment amount (in atomic units) | `purl --max-amount 10000 https://api.example.com/data` |
-| Filter to specific networks | `purl --network base-sepolia https://api.example.com/data` |
+| Preview payment without executing | `purl -D https://api.example.com/data` |
+| Require confirmation before payment | `purl -y https://api.example.com/data` |
+| Set maximum payment amount (in atomic units) | `purl -M 10000 https://api.example.com/data` |
+| Filter to specific networks | `purl -n base-sepolia https://api.example.com/data` |
 | Verbose output with headers | `purl -vi https://api.example.com/data` |
 | Multi-level verbosity | `purl -vvv https://api.example.com/data` |
 | Quiet mode (suppress output) | `purl -q https://api.example.com/data` or `purl -s https://api.example.com/data` |
 | Control color output | `purl --color never https://api.example.com/data` |
 | Save output to file | `purl -o output.json https://api.example.com/data` |
-| JSON output format | `purl --output-format json https://api.example.com/data` |
+| JSON output format | `purl --json-output https://api.example.com/data` |
 | Custom headers | `purl -H "Authorization: Bearer token" https://api.example.com/data` |
+| Use specific account by name | `purl -a my-wallet https://api.example.com/data` |
+| Use specific sender address | `purl --from 0x1234... https://api.example.com/data` |
+| Override RPC URL | `purl -r https://my-rpc.com https://api.example.com/data` |
 | View configuration | `purl config` or `purl c` |
 | View configuration with private keys | `purl config --unsafe-show-private-keys` |
-| Disable password caching | `purl --no-cache-password config --unsafe-show-private-keys` |
+| Disable password caching | `purl --no-cache config --unsafe-show-private-keys` |
 | List all payment methods (keystores) | `purl method list` or `purl m list` |
 | Create a new payment method | `purl method new my-wallet --generate` |
 | Import an existing private key | `purl method import my-wallet` |
+| Check wallet balance | `purl balance` or `purl b` |
+| Check balance on specific network | `purl balance -n base` |
+| Inspect payment requirements | `purl inspect https://api.example.com/data` |
+| List supported networks | `purl networks` or `purl n` |
 | Generate shell completions | `purl completions bash` or `purl com bash` |
 
 ## Installation
@@ -61,13 +68,13 @@ Use as `purl <URL> [OPTIONS]` or `purl <COMMAND> [OPTIONS]`
 **Method 1: Quick install script**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/brendanjryan/purl/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tempoxyz/purl/main/install.sh | bash
 ```
 
 **Method 2: Install from source**
 
 ```bash
-git clone https://github.com/brendanjryan/purl.git
+git clone https://github.com/tempoxyz/purl.git
 cd purl
 cargo install --path .
 ```
@@ -88,19 +95,16 @@ Purl uses platform-native directories:
 
 - **Configuration**: `~/Library/Application Support/purl/config.toml`
 - **Keystores**: `~/Library/Application Support/purl/keystores/`
-- **Cache**: `~/Library/Caches/purl/password_cache/`
 
 **Linux:**
 
 - **Configuration**: `~/.config/purl/config.toml`
 - **Keystores**: `~/.local/share/purl/keystores/`
-- **Cache**: `~/.cache/purl/password_cache/`
 
 **Windows:**
 
 - **Configuration**: `%APPDATA%\purl\config.toml`
 - **Keystores**: `%APPDATA%\purl\keystores\`
-- **Cache**: `%LOCALAPPDATA%\purl\password_cache\`
 
 All keystores use Ethereum keystore v3 format for encrypted storage.
 
@@ -208,6 +212,12 @@ purl config --output-format yaml
 
 # View configuration with private keys (⚠️ use with caution)
 purl config --unsafe-show-private-keys
+
+# Get a specific configuration value
+purl config get evm.keystore
+
+# Validate configuration file
+purl config validate
 ```
 
 Example output:
@@ -254,7 +264,7 @@ This will:
 1. Generate a new random private key
 1. Display the private key for manual backup
 1. Prompt for a password to encrypt the keystore
-1. Save the encrypted keystore to `~/.purl/keystores/my-wallet.json`
+1. Save the encrypted keystore to the platform keystores directory (see [Data Locations](#data-locations))
 1. Show instructions for updating your config file
 
 You can also create a keystore without generating a new key:
@@ -279,6 +289,22 @@ Or provide the private key directly (not recommended for security reasons):
 purl method import my-wallet --private-key 0x1234...
 ```
 
+### Show Keystore Details
+
+View details of a specific keystore without revealing the private key:
+
+```bash
+purl method show my-wallet
+```
+
+### Verify Keystore Integrity
+
+Verify that a keystore can be decrypted with your password:
+
+```bash
+purl method verify my-wallet
+```
+
 ### Using a Payment Method
 
 After creating a keystore, update your configuration file to use it:
@@ -293,40 +319,37 @@ Or use `purl init --force` to reconfigure interactively.
 
 ### Password Caching
 
-To improve user experience, purl automatically caches keystore passwords for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
+To improve user experience, purl automatically caches keystore passwords in memory for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
 
 **How it works:**
 
-- Passwords are cached in `~/.purl/.password_cache/` with a timestamp
+- Passwords are cached in-memory only (never written to disk)
 - Cache entries automatically expire after 5 minutes
 - Failed decryption attempts automatically clear the cached password
 - Each keystore has its own cached password (identified by canonical file path)
+- Cache is cleared when the process exits
 
 **Managing password cache:**
 
 ```bash
 # Disable password caching for a specific command
-purl --no-cache-password config --unsafe-show-private-keys
-
-# Clear all cached passwords (useful when switching accounts or for security)
-rm -rf ~/.purl/.password_cache/
+purl --no-cache config --unsafe-show-private-keys
 ```
 
 **Security considerations:**
 
 - Cache files are stored in your home directory with standard file permissions
-- Passwords are stored in plain text in the cache (protected only by filesystem permissions)
-- For maximum security, use `--no-cache-password` flag or clear the cache regularly
-- Cache directory is automatically created and managed by purl
+- Passwords are stored in process memory only, never persisted to disk
+- For maximum security, use `--no-cache` flag to disable caching entirely
 
 ### Security Best Practices
 
 1. **Always use keystores for EVM wallets** - Encrypted keystores are more secure than plain private keys
 1. **Use strong passwords** - Your keystore is only as secure as your password
-1. **Back up your keystores** - Keep encrypted copies of `~/.purl/keystores/` in a secure location
+1. **Back up your keystores** - Keep encrypted copies of your keystores directory in a secure location
 1. **Save your private keys** - When generating new keys, save them securely (you'll need them to recover your wallet)
 1. **Never commit keys to git** - The `.gitignore` should exclude `~/.purl/` and `~/.config/purl/`
-1. **Consider password caching security** - On shared systems, disable caching with `--no-cache-password` or clear the cache after use
+1. **Consider password caching security** - On shared systems, disable caching with `--no-cache`
 
 ## Shell Completions
 
@@ -374,10 +397,12 @@ Purl provides short aliases for common commands to speed up your workflow:
 | Full Command | Alias | Description |
 |--------------|-------|-------------|
 | `purl init` | `purl i` | Initialize configuration |
-| `purl config` | `purl c` | Show configuration |
+| `purl config` | `purl c` | Manage configuration |
 | `purl version` | `purl v` | Show version information |
 | `purl method` | `purl m` | Manage payment methods |
 | `purl completions` | `purl com` | Generate shell completions |
+| `purl balance` | `purl b` | Check wallet balance |
+| `purl networks` | `purl n` | Manage and inspect networks |
 
 **Examples:**
 
@@ -473,41 +498,61 @@ Usage: purl [OPTIONS] [URL]
        purl <COMMAND>
 
 Commands:
-  init     Initialize purl configuration
-  config   Show current configuration (with obfuscated keys)
-  version  Show version information
-  method   Manage payment methods (keystores)
-  help     Print this message or the help of the given subcommand(s)
+  init         Initialize purl configuration
+  config       Manage configuration
+  version      Show version information
+  method       Manage payment methods (keystores)
+  completions  Generate shell completions script
+  balance      Check wallet balance (uses global --network/-n filter)
+  networks     Manage and inspect supported networks
+  inspect      Inspect payment requirements without executing payment
+  help         Print this message or the help of the given subcommand(s)
 
 Arguments:
   [URL]  URL to request
 
 Options:
-      --max-amount <AMOUNT>        Maximum amount willing to pay (in atomic units) [env: PURL_MAX_AMOUNT=]
-      --confirm                    Require confirmation before paying [env: PURL_CONFIRM=]
-      --network <NETWORKS>         Filter to specific networks (comma-separated, e.g. "base,base-sepolia") Overrides configured payment methods [env: PURL_NETWORK=]
-      --dry-run                    Dry run mode - show what would be paid without executing
-      --output-format <FORMAT>     Output format for response [default: text] [possible values: text, json, yaml]
-  -v, --verbose                    Verbose mode (equivalent to curl -v)
-  -i, --include                    Include HTTP headers in output (equivalent to curl -i)
-  -I, --head                       Show only HTTP headers (equivalent to curl -I)
-  -X, --request <METHOD>           Custom request method (equivalent to curl -X)
-  -H, --header <HEADER>            Add custom header (equivalent to curl -H)
-  -A, --user-agent <AGENT>         Set user agent (equivalent to curl -A)
-  -L, --location                   Follow redirects (equivalent to curl -L)
-      --connect-timeout <SECONDS>  Connection timeout in seconds (equivalent to curl --connect-timeout)
-  -m, --max-time <SECONDS>         Maximum time for the request (equivalent to curl -m/--max-time)
-  -o, --output <FILE>              Write output to file (equivalent to curl -o)
-  -s, --silent                     Silent mode (equivalent to curl -s)
-  -d, --data <DATA>                POST data (equivalent to curl -d)
+  -C, --config <PATH>  Configuration file path
+  -h, --help           Print help
+  -V, --version        Print version
+
+Payment Options:
+  -M, --max-amount <AMOUNT>  Maximum amount willing to pay (in atomic units) [env: PURL_MAX_AMOUNT=]
+  -y, --confirm              Require confirmation before paying [env: PURL_CONFIRM=]
+  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PURL_NETWORK=]
+  -D, --dry-run              Dry run mode - show what would be paid without executing
+
+Display Options:
+  -v, --verbosity...            Verbosity level (can be used multiple times: -v, -vv, -vvv)
+      --color <MODE>            Control color output [default: auto] [possible values: auto, always, never]
+  -q, --quiet                   Do not print log messages (aliases: -s, --silent)
+  -i, --include                 Include HTTP headers in output
+  -I, --head                    Show only HTTP headers
+      --output-format <FORMAT>  Output format for response [default: text] [possible values: text, json, yaml]
+      --json-output             Format output as JSON (shorthand for --output-format json)
+  -o, --output <FILE>           Write output to file
+
+HTTP Options:
+  -X, --request <METHOD>           Custom request method
+  -H, --header <HEADER>            Add custom header
+  -A, --user-agent <AGENT>         Set user agent
+  -L, --location                   Follow redirects
+      --connect-timeout <SECONDS>  Connection timeout in seconds
+  -m, --max-time <SECONDS>         Maximum time for the request
+  -d, --data <DATA>                POST data
       --json <JSON>                Send JSON data with Content-Type header
-      --keystore <PATH>            Path to encrypted keystore file [env: PURL_KEYSTORE=]
-      --password <PASSWORD>        Password for keystore decryption [env: PURL_PASSWORD=]
-      --private-key <KEY>          Raw private key (hex, for EVM; use keystore for better security) [env: PURL_PRIVATE_KEY=]
-      --no-cache-password          Disable password caching for keystores
-  -C, --config <PATH>              Configuration file path (default: ~/.purl/config.toml)
-  -h, --help                       Print help
-  -V, --version                    Print version
+
+Wallet Options:
+      --keystore <PATH>       Path to encrypted keystore file [env: PURL_KEYSTORE=]
+  -a, --account <NAME>        Use keystore by name (without .json extension) [env: PURL_ACCOUNT=]
+      --from <ADDRESS>        Specify sender address (uses configured keystore for this address) [env: PURL_FROM=]
+      --password <PASSWORD>   Password for keystore decryption [env: PURL_PASSWORD=]
+      --password-file <PATH>  Path to file containing keystore password [env: PURL_PASSWORD_FILE=]
+      --no-cache              Disable password caching for keystores
+      --private-key <KEY>     Raw private key (hex, with or without 0x prefix) [env: PURL_PRIVATE_KEY]
+
+RPC Options:
+  -r, --rpc <URL>  Override RPC URL for the request [env: PURL_RPC_URL=]
 ```
 
 **purl init**
@@ -535,7 +580,7 @@ purl config --unsafe-show-private-keys --no-cache-password  # Show keys without 
 
 ```bash
 # Clone repository
-git clone https://github.com/brendanjryan/purl.git
+git clone https://github.com/tempoxyz/purl.git
 cd purl
 
 # Install dependencies (for linting)
