@@ -2,8 +2,14 @@
 //!
 //! This module handles the IETF Web Payment Auth protocol (draft-ietf-httpauth-payment-01)
 //! which uses WWW-Authenticate and Authorization headers for blockchain payments.
+//!
+//! # Security Model
+//!
+//! Origin validation ensures the challenge `realm` matches the request host,
+//! preventing malicious servers from returning payment challenges for different origins.
 
 use anyhow::{Context, Result};
+use reqwest::Url;
 use std::str::FromStr;
 
 use mpay::Challenge::{parse_www_authenticate, PaymentChallenge};
@@ -22,7 +28,52 @@ use crate::network::Network;
 use crate::payment::mpay_ext::{method_to_network, validate_challenge};
 use crate::payment::provider::PROVIDER_REGISTRY;
 
+/// Validate that the challenge realm matches the request origin.
+///
+/// # Security
+///
+/// This prevents a malicious server from returning a challenge for a different
+/// origin, which could trick the client into making a payment to an unintended
+/// recipient. The realm should match the host of the original request.
+fn validate_origin(url: &str, challenge: &PaymentChallenge, skip_check: bool) -> Result<()> {
+    if skip_check {
+        return Ok(());
+    }
+
+    let parsed_url = Url::parse(url).context("Failed to parse request URL")?;
+    let request_host = parsed_url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("Request URL has no host"))?;
+
+    // The realm should match the request host (or be a subdomain/related domain)
+    // For strict security, we require an exact host match
+    let realm_lower = challenge.realm.to_lowercase();
+    let host_lower = request_host.to_lowercase();
+
+    // Check for exact match or if realm ends with the host (subdomain case)
+    let is_valid = realm_lower == host_lower
+        || realm_lower.ends_with(&format!(".{}", host_lower))
+        || host_lower.ends_with(&format!(".{}", realm_lower));
+
+    if !is_valid {
+        anyhow::bail!(
+            "Payment challenge realm '{}' does not match request host '{}'. \
+             This could indicate a malicious server. \
+             Use --insecure-skip-origin-check to bypass (DANGEROUS).",
+            challenge.realm,
+            request_host
+        );
+    }
+
+    Ok(())
+}
+
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
+///
+/// # Security Requirements
+///
+/// - Origin validation ensures challenge realm matches request host
+/// - Additional constraints from CLI flags (max-amount, network) are enforced
 pub async fn handle_web_payment_request(
     config: &Config,
     request_ctx: &RequestContext,
@@ -35,6 +86,9 @@ pub async fn handle_web_payment_request(
 
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
+
+    // SECURITY: Validate origin before proceeding
+    validate_origin(url, &challenge, request_ctx.cli.insecure_skip_origin_check)?;
 
     // Get network and explorer config early for clickable links
     let network = method_to_network(&challenge.method)
@@ -225,7 +279,11 @@ mod tests {
     use mpay::Challenge::PaymentChallenge;
     use mpay::Schema::MethodName;
 
-    fn mock_challenge(method: MethodName, amount: &str) -> (PaymentChallenge, ChargeRequest) {
+    fn mock_challenge_with_realm(
+        method: MethodName,
+        amount: &str,
+        realm: &str,
+    ) -> (PaymentChallenge, ChargeRequest) {
         use mpay::Schema::Base64UrlJson;
 
         let charge_req = ChargeRequest {
@@ -240,7 +298,7 @@ mod tests {
 
         let challenge = PaymentChallenge {
             id: "test-challenge-id".to_string(),
-            realm: "api.example.com".to_string(),
+            realm: realm.to_string(),
             method,
             intent: "charge".into(),
             request: Base64UrlJson::from_typed(&charge_req).expect("serialize charge request"),
@@ -251,6 +309,74 @@ mod tests {
 
         (challenge, charge_req)
     }
+
+    fn mock_challenge(method: MethodName, amount: &str) -> (PaymentChallenge, ChargeRequest) {
+        mock_challenge_with_realm(method, amount, "api.example.com")
+    }
+
+    // ==================== Origin Validation Tests ====================
+
+    #[test]
+    fn test_validate_origin_exact_match() {
+        let (challenge, _) =
+            mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "api.example.com");
+        let result = validate_origin("https://api.example.com/pay", &challenge, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_case_insensitive() {
+        let (challenge, _) =
+            mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "API.EXAMPLE.COM");
+        let result = validate_origin("https://api.example.com/pay", &challenge, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_subdomain_of_realm() {
+        let (challenge, _) =
+            mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "example.com");
+        let result = validate_origin("https://api.example.com/pay", &challenge, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_realm_is_subdomain() {
+        let (challenge, _) =
+            mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "api.example.com");
+        let result = validate_origin("https://example.com/pay", &challenge, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_mismatch() {
+        let (challenge, _) =
+            mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "evil.com");
+        let result = validate_origin("https://api.example.com/pay", &challenge, false);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("does not match request host"));
+        assert!(err.contains("evil.com"));
+    }
+
+    #[test]
+    fn test_validate_origin_skip_check() {
+        let (challenge, _) =
+            mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "evil.com");
+        let result = validate_origin("https://api.example.com/pay", &challenge, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_partial_match_rejected() {
+        // "example.com" should NOT match "notexample.com"
+        let (challenge, _) =
+            mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "example.com");
+        let result = validate_origin("https://notexample.com/pay", &challenge, false);
+        assert!(result.is_err());
+    }
+
+    // ==================== Payment Constraints Tests ====================
 
     #[test]
     fn test_validate_constraints_no_constraints() {
