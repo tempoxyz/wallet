@@ -73,6 +73,7 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
 
         Some(EvmConfig {
             keystore: Some(keystore_path),
+            private_key: None,
         })
     } else {
         None

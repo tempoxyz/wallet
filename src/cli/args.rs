@@ -68,6 +68,14 @@ pub struct Cli {
     #[arg(short = 'D', long, help_heading = "Payment Options")]
     pub dry_run: bool,
 
+    /// Skip origin validation for payment challenges (DANGEROUS)
+    #[arg(
+        long = "insecure-skip-origin-check",
+        hide = true,
+        help_heading = "Payment Options"
+    )]
+    pub insecure_skip_origin_check: bool,
+
     // Display Options
     /// Verbosity level (can be used multiple times: -v, -vv, -vvv)
     #[arg(short = 'v', long = "verbosity", action = clap::ArgAction::Count, global = true, help_heading = "Display Options")]
@@ -246,6 +254,16 @@ pub struct Cli {
         help_heading = "Wallet Options"
     )]
     pub no_cache_password: bool,
+
+    /// Raw private key (hex, with or without 0x prefix)
+    #[arg(
+        long = "private-key",
+        value_name = "KEY",
+        env = "PURL_PRIVATE_KEY",
+        help_heading = "Wallet Options",
+        hide_env_values = true
+    )]
+    pub private_key: Option<String>,
 
     // RPC Options
     /// Override RPC URL for the request

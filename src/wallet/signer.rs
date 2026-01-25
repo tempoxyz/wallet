@@ -17,6 +17,9 @@ pub trait WalletSource {
 
 impl WalletSource for crate::config::EvmConfig {
     fn load_signer(&self, password: Option<&str>) -> Result<PrivateKeySigner> {
+        if let Some(ref private_key) = self.private_key {
+            return load_private_key_signer(private_key);
+        }
         if let Some(keystore_path) = &self.keystore {
             load_keystore_signer(keystore_path, password)
         } else {

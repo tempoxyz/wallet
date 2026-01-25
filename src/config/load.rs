@@ -20,8 +20,13 @@ pub fn load_config_with_overrides(cli: &Cli) -> Result<Config> {
 
     if let Some(ref keystore) = cli.keystore {
         validate_path(keystore, true).context("Invalid keystore path")?;
-        let evm = config.evm.get_or_insert(EvmConfig { keystore: None });
+        let evm = config.evm.get_or_insert(EvmConfig::default());
         evm.keystore = Some(keystore.clone().into());
+    }
+
+    if let Some(ref private_key) = cli.private_key {
+        let evm = config.evm.get_or_insert(EvmConfig::default());
+        evm.private_key = Some(private_key.clone());
     }
 
     Ok(config)
