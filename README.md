@@ -1,11 +1,21 @@
-# `purl` - p(ay)URL
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
+    <img src="assets/logo-light.png" alt="PURL">
+  </picture>
+</p>
+
+# p(ay)URL
 
 A curl-like CLI tool for making HTTP requests with automatic support for payments.
 
 **Supported Protocols:**
+
 - [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
 
 **Contents**
+
 - [Example Usage](#example-usage)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -82,14 +92,17 @@ Purl uses a configuration file and encrypted keystores for secure wallet managem
 Purl uses platform-native directories:
 
 **macOS:**
+
 - **Configuration**: `~/Library/Application Support/purl/config.toml`
 - **Keystores**: `~/Library/Application Support/purl/keystores/`
 
 **Linux:**
+
 - **Configuration**: `~/.config/purl/config.toml`
 - **Keystores**: `~/.local/share/purl/keystores/`
 
 **Windows:**
+
 - **Configuration**: `%APPDATA%\purl\config.toml`
 - **Keystores**: `%APPDATA%\purl\keystores\`
 
@@ -105,6 +118,7 @@ purl init --force      # Force overwrite existing configuration
 ```
 
 The setup process will:
+
 1. Ask if you want to configure EVM payment methods
 1. Offer to generate a new private key or import an existing one
 1. Encrypt your key with a password and save as a keystore
@@ -177,6 +191,7 @@ decimals = 6
 ```
 
 **Built-in networks:**
+
 - EVM: `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`
 
 Custom networks and RPC overrides are loaded at runtime and merged with built-in defaults.
@@ -206,6 +221,7 @@ purl config validate
 ```
 
 Example output:
+
 ```
 Config file: /Users/username/.config/purl/purl.toml
 
@@ -227,6 +243,7 @@ purl method list
 ```
 
 Example output:
+
 ```
 Available keystores:
   my-wallet.json (0xe676e0f661bfe316793a8ad576fe7be02b93bd96)
@@ -243,6 +260,7 @@ purl method new my-wallet --generate
 ```
 
 This will:
+
 1. Generate a new random private key
 1. Display the private key for manual backup
 1. Prompt for a password to encrypt the keystore
@@ -304,6 +322,7 @@ Or use `purl init --force` to reconfigure interactively.
 To improve user experience, purl automatically caches keystore passwords in memory for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
 
 **How it works:**
+
 - Passwords are cached in-memory only (never written to disk)
 - Cache entries automatically expire after 5 minutes
 - Failed decryption attempts automatically clear the cached password
@@ -318,6 +337,8 @@ purl --no-cache config --unsafe-show-private-keys
 ```
 
 **Security considerations:**
+
+- Cache files are stored in your home directory with standard file permissions
 - Passwords are stored in process memory only, never persisted to disk
 - For maximum security, use `--no-cache` flag to disable caching entirely
 
@@ -339,6 +360,7 @@ Purl supports shell completions for Bash, Zsh, Fish, and PowerShell to make comm
 Generate completions for your shell and save them to the appropriate location:
 
 **Bash:**
+
 ```bash
 purl completions bash > /usr/local/etc/bash_completion.d/purl
 # Or use the alias:
@@ -346,6 +368,7 @@ purl com bash > /usr/local/etc/bash_completion.d/purl
 ```
 
 **Zsh:**
+
 ```bash
 purl completions zsh > ~/.zfunc/_purl
 # Then add to ~/.zshrc if not already present:
@@ -354,11 +377,13 @@ autoload -Uz compinit && compinit
 ```
 
 **Fish:**
+
 ```bash
 purl completions fish > ~/.config/fish/completions/purl.fish
 ```
 
 **PowerShell:**
+
 ```powershell
 purl completions power-shell | Out-File -FilePath $PROFILE -Append
 ```
@@ -380,6 +405,7 @@ Purl provides short aliases for common commands to speed up your workflow:
 | `purl networks` | `purl n` | Manage and inspect networks |
 
 **Examples:**
+
 ```bash
 purl i --force           # Same as: purl init --force
 purl c --output-format json  # Same as: purl config --output-format json
@@ -585,6 +611,7 @@ npm run lint
 **Note**: Use `npm` for linting instead of `pnpm`. The `@tempoxyz/lints` package uses build scripts that are blocked by pnpm v10's security features, preventing proper installation of the ast-grep binary.
 
 To disable a lint for a specific line:
+
 ```rust
 // ast-grep-ignore: no-unwrap-in-lib
 let value = something.unwrap();
