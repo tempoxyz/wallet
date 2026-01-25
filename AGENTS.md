@@ -9,9 +9,16 @@ This is `purl-cli` - a pure binary crate providing a curl-like CLI tool for maki
 
 ### Crate Structure
 
-Single binary crate with all source in `src/`:
+Single binary crate with source organized by module directories:
 - `src/main.rs` - CLI entry point and module declarations
-- `src/*.rs` - Internal modules (config, network, keystore, http, payment_provider, etc.)
+- `src/cli/` - CLI argument parsing and command implementations
+- `src/config/` - Configuration file handling
+- `src/http/` - HTTP client and request handling
+- `src/network/` - Network definitions and RPC
+- `src/payment/` - Payment protocol implementations
+- `src/wallet/` - Keystore management and signing
+- `src/util/` - Shared utilities
+- `src/error.rs` - Error types
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
 **Package:** `purl-cli` | **Binary:** `purl`
@@ -172,7 +179,7 @@ pub struct Cli {
 | `serde` / `serde_json` / `toml` | Serialization |
 | `tokio` | Async runtime (minimal features) |
 | `eth-keystore` | Encrypted keystore format |
-| `mpay` | Payment protocol types (local path dep) |
+| `mpay` | Payment protocol types |
 
 ### Adding Dependencies
 
@@ -192,12 +199,16 @@ For testing and development, these environment variables are used:
 | `HOME` | User home directory (for config/keystore paths) |
 | `XDG_CONFIG_HOME` | Linux config directory |
 | `XDG_DATA_HOME` | Linux data directory |
-| `XDG_CACHE_HOME` | Linux cache directory |
 | `PURL_MAX_AMOUNT` | Default max payment amount |
 | `PURL_NETWORK` | Default network filter |
 | `PURL_CONFIRM` | Require payment confirmation |
 | `PURL_KEYSTORE` | Path to keystore file |
+| `PURL_ACCOUNT` | Keystore name (without .json extension) |
+| `PURL_FROM` | Sender address |
 | `PURL_PASSWORD` | Keystore password (for CI/testing) |
+| `PURL_PASSWORD_FILE` | Path to file containing keystore password |
+| `PURL_PRIVATE_KEY` | Raw private key (hex) |
+| `PURL_RPC_URL` | Override RPC URL |
 
 ## Data Locations
 
