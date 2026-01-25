@@ -255,6 +255,16 @@ pub struct Cli {
     )]
     pub no_cache_password: bool,
 
+    /// Raw private key (hex, with or without 0x prefix)
+    #[arg(
+        long = "private-key",
+        value_name = "KEY",
+        env = "PURL_PRIVATE_KEY",
+        help_heading = "Wallet Options",
+        hide_env_values = true
+    )]
+    pub private_key: Option<String>,
+
     // RPC Options
     /// Override RPC URL for the request
     #[arg(
