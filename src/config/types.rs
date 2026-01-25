@@ -115,6 +115,10 @@ pub struct EvmConfig {
     /// Path to encrypted keystore file
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keystore: Option<PathBuf>,
+
+    /// Raw private key (runtime only, never serialized)
+    #[serde(skip)]
+    pub private_key: Option<String>,
 }
 
 impl EvmConfig {
@@ -132,10 +136,13 @@ impl WalletConfig for EvmConfig {
     type Address = String;
 
     fn has_wallet(&self) -> bool {
-        self.keystore.is_some()
+        self.private_key.is_some() || self.keystore.is_some()
     }
 
     fn validate(&self) -> Result<()> {
+        if self.private_key.is_some() {
+            return Ok(());
+        }
         if let Some(keystore_path) = &self.keystore {
             if !keystore_path.exists() {
                 return Err(PurlError::ConfigMissing(format!(
@@ -155,6 +162,11 @@ impl WalletConfig for EvmConfig {
     }
 
     fn get_address(&self) -> Result<String> {
+        if let Some(ref private_key) = self.private_key {
+            use crate::wallet::signer::load_private_key_signer;
+            let signer = load_private_key_signer(private_key)?;
+            return Ok(format!("{:?}", signer.address()));
+        }
         if let Some(keystore_path) = &self.keystore {
             Self::address_from_keystore(keystore_path)
         } else {
@@ -489,6 +501,7 @@ impl ConfigBuilder {
         let evm = if self.evm_keystore.is_some() {
             Some(EvmConfig {
                 keystore: self.evm_keystore,
+                private_key: None,
             })
         } else {
             None
@@ -552,6 +565,7 @@ mod tests {
         let config = Config {
             evm: Some(EvmConfig {
                 keystore: Some(temp_file.path().to_path_buf()),
+                private_key: None,
             }),
             ..Default::default()
         };
@@ -570,7 +584,10 @@ mod tests {
     #[test]
     fn test_validate_no_wallet_source_evm() {
         let config = Config {
-            evm: Some(EvmConfig { keystore: None }),
+            evm: Some(EvmConfig {
+                keystore: None,
+                private_key: None,
+            }),
             ..Default::default()
         };
 
@@ -587,6 +604,7 @@ mod tests {
         let config = Config {
             evm: Some(EvmConfig {
                 keystore: Some(PathBuf::from("/nonexistent/keystore.json")),
+                private_key: None,
             }),
             ..Default::default()
         };
@@ -753,16 +771,23 @@ mod tests {
     fn test_evm_config_has_wallet() {
         let config = EvmConfig {
             keystore: Some(PathBuf::from("/test/path")),
+            private_key: None,
         };
         assert!(config.has_wallet());
 
-        let config = EvmConfig { keystore: None };
+        let config = EvmConfig {
+            keystore: None,
+            private_key: None,
+        };
         assert!(!config.has_wallet());
     }
 
     #[test]
     fn test_evm_config_get_address_no_wallet() {
-        let config = EvmConfig { keystore: None };
+        let config = EvmConfig {
+            keystore: None,
+            private_key: None,
+        };
 
         let result = config.get_address();
         assert!(result.is_err());
