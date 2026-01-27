@@ -59,7 +59,7 @@ fn validate_origin(url: &str, challenge: &PaymentChallenge, skip_check: bool) ->
         anyhow::bail!(
             "Payment challenge realm '{}' does not match request host '{}'. \
              This could indicate a malicious server. \
-             Use --insecure-skip-origin-check to bypass (DANGEROUS).",
+             Use --insecure to bypass (DANGEROUS).",
             challenge.realm,
             request_host
         );
@@ -88,7 +88,7 @@ pub async fn handle_web_payment_request(
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // SECURITY: Validate origin before proceeding
-    validate_origin(url, &challenge, request_ctx.cli.insecure_skip_origin_check)?;
+    validate_origin(url, &challenge, request_ctx.cli.insecure)?;
 
     // Get network and explorer config early for clickable links
     let network = method_to_network(&challenge.method)
