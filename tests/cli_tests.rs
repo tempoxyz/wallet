@@ -216,6 +216,24 @@ fn test_help_has_http_options_section() {
 }
 
 #[test]
+fn test_help_has_request_options_section() {
+    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Request Options:"));
+}
+
+#[test]
+fn test_insecure_flag_short() {
+    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("-k, --insecure"));
+}
+
+#[test]
 fn test_help_has_wallet_options_section() {
     Command::new(assert_cmd::cargo::cargo_bin!("purl"))
         .arg("--help")

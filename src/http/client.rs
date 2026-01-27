@@ -128,6 +128,7 @@ pub struct HttpClientConfig {
     pub(crate) follow_redirects: bool,
     pub(crate) user_agent: Option<String>,
     pub(crate) headers: Vec<(String, String)>,
+    pub(crate) insecure: bool,
 }
 
 /// Builder for configuring HTTP clients.
@@ -182,6 +183,12 @@ impl HttpClientBuilder {
         self
     }
 
+    /// Skip TLS certificate verification (DANGEROUS).
+    pub fn insecure(mut self, insecure: bool) -> Self {
+        self.config.insecure = insecure;
+        self
+    }
+
     /// Build the configured async HTTP client.
     pub fn build(self) -> Result<HttpClient> {
         HttpClient::from_config(self.config)
@@ -219,6 +226,12 @@ impl HttpClient {
             builder = builder.redirect(reqwest::redirect::Policy::limited(10));
         } else {
             builder = builder.redirect(reqwest::redirect::Policy::none());
+        }
+
+        if config.insecure {
+            builder = builder
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true);
         }
 
         if let Some(ref ua) = config.user_agent {

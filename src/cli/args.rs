@@ -68,13 +68,9 @@ pub struct Cli {
     #[arg(short = 'D', long, help_heading = "Payment Options")]
     pub dry_run: bool,
 
-    /// Skip origin validation for payment challenges (DANGEROUS)
-    #[arg(
-        long = "insecure-skip-origin-check",
-        hide = true,
-        help_heading = "Payment Options"
-    )]
-    pub insecure_skip_origin_check: bool,
+    /// Allow insecure operations (skip TLS verification and origin checks)
+    #[arg(short = 'k', long = "insecure", help_heading = "Request Options")]
+    pub insecure: bool,
 
     // Display Options
     /// Verbosity level (can be used multiple times: -v, -vv, -vvv)
