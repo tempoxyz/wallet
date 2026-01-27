@@ -73,6 +73,7 @@ impl RequestContext {
         let mut builder = HttpClientBuilder::new()
             .verbose(self.cli.is_verbose())
             .follow_redirects(self.cli.follow_redirects)
+            .insecure(self.cli.insecure)
             .headers(&headers);
 
         if let Some(timeout) = self.cli.get_timeout() {

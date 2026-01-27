@@ -76,6 +76,10 @@ pub struct Cli {
     )]
     pub insecure_skip_origin_check: bool,
 
+    /// Allow insecure TLS connections (skip certificate verification)
+    #[arg(short = 'k', long = "insecure", help_heading = "Request Options")]
+    pub insecure: bool,
+
     // Display Options
     /// Verbosity level (can be used multiple times: -v, -vv, -vvv)
     #[arg(short = 'v', long = "verbosity", action = clap::ArgAction::Count, global = true, help_heading = "Display Options")]
