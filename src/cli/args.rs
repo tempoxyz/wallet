@@ -261,6 +261,17 @@ pub struct Cli {
     )]
     pub private_key: Option<String>,
 
+    /// Wallet address for keychain (access key) signing mode.
+    /// When set, the private key is treated as an access key that signs
+    /// on behalf of this wallet address using keychain signatures (0x03).
+    #[arg(
+        long = "wallet",
+        value_name = "ADDRESS",
+        env = "PURL_WALLET_ADDRESS",
+        help_heading = "Wallet Options"
+    )]
+    pub wallet_address: Option<String>,
+
     // RPC Options
     /// Override RPC URL for the request
     #[arg(
