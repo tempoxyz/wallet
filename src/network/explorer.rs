@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```
-/// use purl::network::explorer::ExplorerConfig;
+/// use pget::network::explorer::ExplorerConfig;
 ///
 /// // Etherscan-style explorer
 /// let etherscan = ExplorerConfig::etherscan("https://etherscan.io");
@@ -111,7 +111,7 @@ impl ExplorerConfig {
     /// # Example
     ///
     /// ```
-    /// use purl::network::explorer::ExplorerConfig;
+    /// use pget::network::explorer::ExplorerConfig;
     ///
     /// let explorer = ExplorerConfig::etherscan("https://etherscan.io");
     /// let url = explorer.tx_url("0x123abc");
@@ -126,7 +126,7 @@ impl ExplorerConfig {
     /// # Example
     ///
     /// ```
-    /// use purl::network::explorer::ExplorerConfig;
+    /// use pget::network::explorer::ExplorerConfig;
     ///
     /// let explorer = ExplorerConfig::etherscan("https://etherscan.io");
     /// let url = explorer.block_url("12345678");
@@ -141,7 +141,7 @@ impl ExplorerConfig {
     /// # Example
     ///
     /// ```
-    /// use purl::network::explorer::ExplorerConfig;
+    /// use pget::network::explorer::ExplorerConfig;
     ///
     /// let explorer = ExplorerConfig::etherscan("https://etherscan.io");
     /// let url = explorer.address_url("0x742d35Cc6634C0532925a3b844Bc9e7595f");

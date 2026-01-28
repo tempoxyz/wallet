@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-This is `purl-cli` - a pure binary crate providing a curl-like CLI tool for making HTTP requests with automatic payment support.
+This is `pget-cli` - a pure binary crate providing a wget-like CLI tool for making HTTP requests with automatic payment support.
 
 **Supported Payment Protocols:**
 - [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
@@ -21,7 +21,7 @@ Single binary crate with source organized by module directories:
 - `src/error.rs` - Error types
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
-**Package:** `purl-cli` | **Binary:** `purl`
+**Package:** `pget-cli` | **Binary:** `pget`
 
 ## Commands
 
@@ -38,11 +38,11 @@ make run ARGS="<url>"   # Run CLI with arguments
 
 ## Agent Suggestions
 
-When the user explicitly says "ask the oracle" to check a value, run `purl` against OpenRouter and explicitly tell the user which model was used in the response.
+When the user explicitly says "ask the oracle" to check a value, run `pget` against OpenRouter and explicitly tell the user which model was used in the response.
 
 Example:
 ```bash
-purl -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+pget -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements
@@ -56,15 +56,15 @@ purl -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user"
 When creating pull requests:
 
 1. **Always include the PR link** in your response after creating a PR
-2. Format as a clickable link: `[#123](https://github.com/tempoxyz/purl/pull/123)`
+2. Format as a clickable link: `[#123](https://github.com/tempoxyz/pget/pull/123)`
 3. When creating multiple PRs, provide a summary table with all links
 
 Example summary format:
 ```
 | PR | Title | Link |
 |----|-------|------|
-| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/purl/pull/123) |
-| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/purl/pull/124) |
+| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/pget/pull/123) |
+| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/pget/pull/124) |
 ```
 
 ## Code Style Guidelines
@@ -88,7 +88,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::config::Config;
-use crate::error::PurlError;
+use crate::error::PgetError;
 ```
 
 ### Error Handling Pattern
@@ -118,7 +118,7 @@ pub enum MyError {
 - Use `test_command(&temp)` helper to create properly configured CLI commands
 
 **Mock Mode for Network Tests:**
-- Set `PURL_MOCK_NETWORK=1` environment variable to enable mock mode
+- Set `PGET_MOCK_NETWORK=1` environment variable to enable mock mode
 - When enabled, the balance command returns fake data instead of making RPC calls
 - Use `mock_test_command(&temp)` helper in integration tests for mock mode
 
@@ -142,7 +142,7 @@ fn test_something() {
 - Use derive macros for argument parsing
 - Group related args with `help_heading`
 - Support short aliases (`-v`) and long aliases (`--verbose`)
-- Use environment variable fallbacks with `env = "PURL_*"`
+- Use environment variable fallbacks with `env = "PGET_*"`
 
 ```rust
 #[derive(Parser, Debug)]
@@ -150,7 +150,7 @@ pub struct Cli {
     #[arg(short = 'v', long = "verbosity", action = clap::ArgAction::Count)]
     pub verbosity: u8,
     
-    #[arg(long, env = "PURL_MAX_AMOUNT", help_heading = "Payment Options")]
+    #[arg(long, env = "PGET_MAX_AMOUNT", help_heading = "Payment Options")]
     pub max_amount: Option<String>,
 }
 ```
@@ -199,26 +199,26 @@ For testing and development, these environment variables are used:
 | `HOME` | User home directory (for config/keystore paths) |
 | `XDG_CONFIG_HOME` | Linux config directory |
 | `XDG_DATA_HOME` | Linux data directory |
-| `PURL_MAX_AMOUNT` | Default max payment amount |
-| `PURL_NETWORK` | Default network filter |
-| `PURL_CONFIRM` | Require payment confirmation |
-| `PURL_KEYSTORE` | Path to keystore file |
-| `PURL_ACCOUNT` | Keystore name (without .json extension) |
-| `PURL_FROM` | Sender address |
-| `PURL_PASSWORD` | Keystore password (for CI/testing) |
-| `PURL_PASSWORD_FILE` | Path to file containing keystore password |
-| `PURL_PRIVATE_KEY` | Raw private key (hex) |
-| `PURL_RPC_URL` | Override RPC URL |
+| `PGET_MAX_AMOUNT` | Default max payment amount |
+| `PGET_NETWORK` | Default network filter |
+| `PGET_CONFIRM` | Require payment confirmation |
+| `PGET_KEYSTORE` | Path to keystore file |
+| `PGET_ACCOUNT` | Keystore name (without .json extension) |
+| `PGET_FROM` | Sender address |
+| `PGET_PASSWORD` | Keystore password (for CI/testing) |
+| `PGET_PASSWORD_FILE` | Path to file containing keystore password |
+| `PGET_PRIVATE_KEY` | Raw private key (hex) |
+| `PGET_RPC_URL` | Override RPC URL |
 
 ## Data Locations
 
 **macOS:**
-- Config: `~/Library/Application Support/purl/config.toml`
-- Keystores: `~/Library/Application Support/purl/keystores/`
+- Config: `~/Library/Application Support/pget/config.toml`
+- Keystores: `~/Library/Application Support/pget/keystores/`
 
 **Linux:**
-- Config: `~/.config/purl/config.toml`
-- Keystores: `~/.local/share/purl/keystores/`
+- Config: `~/.config/pget/config.toml`
+- Keystores: `~/.local/share/pget/keystores/`
 
 ## Documentation
 

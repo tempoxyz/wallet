@@ -1,13 +1,13 @@
 [package]
-name = "purl-cli"
+name = "pget-cli"
 version = "0.1.0"
 edition = "2021"
-description = "A curl-like CLI tool for making HTTP requests with automatic payment support"
+description = "A wget-like CLI tool for making HTTP requests with automatic payment support"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/tempoxyz/purl"
+repository = "https://github.com/tempoxyz/pget"
 
 [[bin]]
-name = "purl"
+name = "pget"
 path = "src/main.rs"
 
 [dependencies]

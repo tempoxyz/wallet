@@ -2,7 +2,7 @@
 //!
 //! Tests for the balance command that checks wallet balances across networks.
 //!
-//! These tests use mock network mode (PURL_MOCK_NETWORK=1) to avoid real RPC calls,
+//! These tests use mock network mode (PGET_MOCK_NETWORK=1) to avoid real RPC calls,
 //! making them fast and reliable without network access.
 
 use assert_cmd::prelude::*;
@@ -32,7 +32,7 @@ fn test_balance_no_config() {
 
 #[test]
 fn test_balance_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["balance", "--help"])
         .assert()
         .success()
@@ -43,7 +43,7 @@ fn test_balance_help() {
 
 #[test]
 fn test_balance_help_shows_network_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["balance", "--help"])
         .assert()
         .success()
@@ -52,7 +52,7 @@ fn test_balance_help_shows_network_flag() {
 
 #[test]
 fn test_balance_help_via_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["b", "--help"])
         .assert()
         .success()
@@ -60,7 +60,7 @@ fn test_balance_help_via_alias() {
 }
 
 // ============================================================================
-// Mock network tests (use PURL_MOCK_NETWORK=1 for fast, reliable tests)
+// Mock network tests (use PGET_MOCK_NETWORK=1 for fast, reliable tests)
 // ============================================================================
 
 #[test]

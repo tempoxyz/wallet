@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# purl installer script
+# pget installer script
 
-PURL_BANNER='
+PGET_BANNER='
  /$$$$$$$  /$$   /$$ /$$$$$$$  /$$
 | $$__  $$| $$  | $$| $$__  $$| $$
 | $$  \ $$| $$  | $$| $$  \ $$| $$
@@ -14,12 +14,12 @@ PURL_BANNER='
 |__/       \______/ |__/  |__/|________/
 '
 
-echo "$PURL_BANNER"
+echo "$PGET_BANNER"
 echo ""
 
-REPO="tempoxyz/purl"
+REPO="tempoxyz/pget"
 INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="purl"
+BINARY_NAME="pget"
 R2_BASE_URL="https://purl-binaries.tempo.xyz"
 
 # Temp directory for downloads (cleaned up on exit)
@@ -67,8 +67,8 @@ detect_arch() {
     esac
 }
 
-install_purl() {
-    local binary_name="purl-${PLATFORM}-${ARCH}"
+install_pget() {
+    local binary_name="pget-${PLATFORM}-${ARCH}"
     local download_url="${R2_BASE_URL}/${binary_name}"
     
     # Create secure temp directory
@@ -78,7 +78,7 @@ install_purl() {
     local tmp_file="${TMP_DIR}/${BINARY_NAME}"
 
     echo ""
-    echo "Downloading purl..."
+    echo "Downloading pget..."
     echo "URL: ${download_url}"
 
     if ! curl -fsSL "${download_url}" -o "${tmp_file}"; then
@@ -117,12 +117,12 @@ install_purl() {
 
 verify_installation() {
     echo ""
-    if command -v purl >/dev/null 2>&1; then
-        echo "purl is installed and available in PATH"
+    if command -v pget >/dev/null 2>&1; then
+        echo "pget is installed and available in PATH"
         echo ""
-        purl --version
+        pget --version
     else
-        echo "purl was installed but is not in PATH"
+        echo "pget was installed but is not in PATH"
         echo "Make sure ${INSTALL_DIR} is in your PATH"
     fi
 }
@@ -131,15 +131,15 @@ main() {
     check_dependencies
     detect_platform
     detect_arch
-    install_purl
+    install_pget
     verify_installation
 
     echo ""
     echo "Installation complete!"
     echo ""
     echo "Get started:"
-    echo "  purl init          # Configure your wallets"
-    echo "  purl --help        # Show all options"
+    echo "  pget init          # Configure your wallets"
+    echo "  pget --help        # Show all options"
     echo ""
     echo "Documentation:"
     echo "  https://github.com/${REPO}"

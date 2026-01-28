@@ -8,7 +8,7 @@
 
 # p(ay)URL
 
-A curl-like CLI tool for making HTTP requests with automatic support for payments.
+A wget-like CLI tool for making HTTP requests with automatic support for payments.
 
 **Supported Protocols:**
 
@@ -31,51 +31,51 @@ A curl-like CLI tool for making HTTP requests with automatic support for payment
 
 ## Example Usage
 
-Use as `purl <URL> [OPTIONS]` or `purl <COMMAND> [OPTIONS]`
+Use as `pget <URL> [OPTIONS]` or `pget <COMMAND> [OPTIONS]`
 
 | Example | Command |
 |---------|---------|
-| Initialize configuration (first time setup) | `purl init` or `purl i` |
-| Make a payment request | `purl https://api.example.com/premium-data` |
-| Preview payment without executing | `purl -D https://api.example.com/data` |
-| Require confirmation before payment | `purl -y https://api.example.com/data` |
-| Set maximum payment amount (in atomic units) | `purl -M 10000 https://api.example.com/data` |
-| Filter to specific networks | `purl -n base-sepolia https://api.example.com/data` |
-| Verbose output with headers | `purl -vi https://api.example.com/data` |
-| Multi-level verbosity | `purl -vvv https://api.example.com/data` |
-| Quiet mode (suppress output) | `purl -q https://api.example.com/data` or `purl -s https://api.example.com/data` |
-| Control color output | `purl --color never https://api.example.com/data` |
-| Save output to file | `purl -o output.json https://api.example.com/data` |
-| JSON output format | `purl --json-output https://api.example.com/data` |
-| Custom headers | `purl -H "Authorization: Bearer token" https://api.example.com/data` |
-| Use specific account by name | `purl -a my-wallet https://api.example.com/data` |
-| Use specific sender address | `purl --from 0x1234... https://api.example.com/data` |
-| Override RPC URL | `purl -r https://my-rpc.com https://api.example.com/data` |
-| View configuration | `purl config` or `purl c` |
-| View configuration with private keys | `purl config --unsafe-show-private-keys` |
-| Disable password caching | `purl --no-cache config --unsafe-show-private-keys` |
-| List all payment methods (keystores) | `purl method list` or `purl m list` |
-| Create a new payment method | `purl method new my-wallet --generate` |
-| Import an existing private key | `purl method import my-wallet` |
-| Check wallet balance | `purl balance` or `purl b` |
-| Check balance on specific network | `purl balance -n base` |
-| Inspect payment requirements | `purl inspect https://api.example.com/data` |
-| List supported networks | `purl networks` or `purl n` |
-| Generate shell completions | `purl completions bash` or `purl com bash` |
+| Initialize configuration (first time setup) | `pget init` or `pget i` |
+| Make a payment request | `pget https://api.example.com/premium-data` |
+| Preview payment without executing | `pget -D https://api.example.com/data` |
+| Require confirmation before payment | `pget -y https://api.example.com/data` |
+| Set maximum payment amount (in atomic units) | `pget -M 10000 https://api.example.com/data` |
+| Filter to specific networks | `pget -n base-sepolia https://api.example.com/data` |
+| Verbose output with headers | `pget -vi https://api.example.com/data` |
+| Multi-level verbosity | `pget -vvv https://api.example.com/data` |
+| Quiet mode (suppress output) | `pget -q https://api.example.com/data` or `pget -s https://api.example.com/data` |
+| Control color output | `pget --color never https://api.example.com/data` |
+| Save output to file | `pget -o output.json https://api.example.com/data` |
+| JSON output format | `pget --json-output https://api.example.com/data` |
+| Custom headers | `pget -H "Authorization: Bearer token" https://api.example.com/data` |
+| Use specific account by name | `pget -a my-wallet https://api.example.com/data` |
+| Use specific sender address | `pget --from 0x1234... https://api.example.com/data` |
+| Override RPC URL | `pget -r https://my-rpc.com https://api.example.com/data` |
+| View configuration | `pget config` or `pget c` |
+| View configuration with private keys | `pget config --unsafe-show-private-keys` |
+| Disable password caching | `pget --no-cache config --unsafe-show-private-keys` |
+| List all payment methods (keystores) | `pget method list` or `pget m list` |
+| Create a new payment method | `pget method new my-wallet --generate` |
+| Import an existing private key | `pget method import my-wallet` |
+| Check wallet balance | `pget balance` or `pget b` |
+| Check balance on specific network | `pget balance -n base` |
+| Inspect payment requirements | `pget inspect https://api.example.com/data` |
+| List supported networks | `pget networks` or `pget n` |
+| Generate shell completions | `pget completions bash` or `pget com bash` |
 
 ## Installation
 
 **Method 1: Quick install script**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tempoxyz/purl/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tempoxyz/pget/main/install.sh | bash
 ```
 
 **Method 2: Install from source**
 
 ```bash
-git clone https://github.com/tempoxyz/purl.git
-cd purl
+git clone https://github.com/tempoxyz/pget.git
+cd pget
 cargo install --path .
 ```
 
@@ -93,28 +93,28 @@ Purl uses platform-native directories:
 
 **macOS:**
 
-- **Configuration**: `~/Library/Application Support/purl/config.toml`
-- **Keystores**: `~/Library/Application Support/purl/keystores/`
+- **Configuration**: `~/Library/Application Support/pget/config.toml`
+- **Keystores**: `~/Library/Application Support/pget/keystores/`
 
 **Linux:**
 
-- **Configuration**: `~/.config/purl/config.toml`
-- **Keystores**: `~/.local/share/purl/keystores/`
+- **Configuration**: `~/.config/pget/config.toml`
+- **Keystores**: `~/.local/share/pget/keystores/`
 
 **Windows:**
 
-- **Configuration**: `%APPDATA%\purl\config.toml`
-- **Keystores**: `%APPDATA%\purl\keystores\`
+- **Configuration**: `%APPDATA%\pget\config.toml`
+- **Keystores**: `%APPDATA%\pget\keystores\`
 
 All keystores use Ethereum keystore v3 format for encrypted storage.
 
 ### Initial Setup
 
-Run `purl init` for interactive setup:
+Run `pget init` for interactive setup:
 
 ```bash
-purl init              # Create configuration and generate/import wallets
-purl init --force      # Force overwrite existing configuration
+pget init              # Create configuration and generate/import wallets
+pget init --force      # Force overwrite existing configuration
 ```
 
 The setup process will:
@@ -129,7 +129,7 @@ The configuration file (see paths above) references encrypted keystores:
 
 ```toml
 [evm]
-keystore = "/Users/username/.purl/keystores/my-wallet.json"
+keystore = "/Users/username/.pget/keystores/my-wallet.json"
 ```
 
 **Note**: EVM keys are stored in encrypted keystores for security.
@@ -142,7 +142,7 @@ Purl includes built-in support for common networks (Ethereum, Base, etc.) with d
 
 ```toml
 [evm]
-keystore = "/Users/username/.purl/keystores/my-wallet.json"
+keystore = "/Users/username/.pget/keystores/my-wallet.json"
 
 # Override default RPC URLs for built-in networks
 [rpc]
@@ -202,31 +202,31 @@ View your current configuration using the `config` command:
 
 ```bash
 # View configuration in text format (default)
-purl config
+pget config
 
 # View configuration as JSON
-purl config --output-format json
+pget config --output-format json
 
 # View configuration as YAML
-purl config --output-format yaml
+pget config --output-format yaml
 
 # View configuration with private keys (⚠️ use with caution)
-purl config --unsafe-show-private-keys
+pget config --unsafe-show-private-keys
 
 # Get a specific configuration value
-purl config get evm.keystore
+pget config get evm.keystore
 
 # Validate configuration file
-purl config validate
+pget config validate
 ```
 
 Example output:
 
 ```
-Config file: /Users/username/.config/purl/purl.toml
+Config file: /Users/username/.config/pget/pget.toml
 
 [evm]
-keystore = "/Users/username/.purl/keystores/my-wallet.json"
+keystore = "/Users/username/.pget/keystores/my-wallet.json"
 address = "0xe676e0f661bfe316793a8ad576fe7be02b93bd96"
 ```
 
@@ -239,7 +239,7 @@ Purl provides commands to manage multiple encrypted wallets (payment methods) wi
 View all available keystores:
 
 ```bash
-purl method list
+pget method list
 ```
 
 Example output:
@@ -256,7 +256,7 @@ Available keystores:
 Generate a new wallet and save it as an encrypted keystore:
 
 ```bash
-purl method new my-wallet --generate
+pget method new my-wallet --generate
 ```
 
 This will:
@@ -270,7 +270,7 @@ This will:
 You can also create a keystore without generating a new key:
 
 ```bash
-purl method new my-wallet
+pget method new my-wallet
 # You'll be prompted to enter an existing private key
 ```
 
@@ -279,14 +279,14 @@ purl method new my-wallet
 Import an existing private key into a new encrypted keystore:
 
 ```bash
-purl method import my-wallet
+pget method import my-wallet
 # You'll be prompted to enter your private key and a password
 ```
 
 Or provide the private key directly (not recommended for security reasons):
 
 ```bash
-purl method import my-wallet --private-key 0x1234...
+pget method import my-wallet --private-key 0x1234...
 ```
 
 ### Show Keystore Details
@@ -294,7 +294,7 @@ purl method import my-wallet --private-key 0x1234...
 View details of a specific keystore without revealing the private key:
 
 ```bash
-purl method show my-wallet
+pget method show my-wallet
 ```
 
 ### Verify Keystore Integrity
@@ -302,7 +302,7 @@ purl method show my-wallet
 Verify that a keystore can be decrypted with your password:
 
 ```bash
-purl method verify my-wallet
+pget method verify my-wallet
 ```
 
 ### Using a Payment Method
@@ -310,16 +310,16 @@ purl method verify my-wallet
 After creating a keystore, update your configuration file to use it:
 
 ```bash
-# Edit ~/.config/purl/purl.toml
+# Edit ~/.config/pget/pget.toml
 [evm]
-keystore = "/Users/username/.purl/keystores/my-wallet.json"
+keystore = "/Users/username/.pget/keystores/my-wallet.json"
 ```
 
-Or use `purl init --force` to reconfigure interactively.
+Or use `pget init --force` to reconfigure interactively.
 
 ### Password Caching
 
-To improve user experience, purl automatically caches keystore passwords in memory for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
+To improve user experience, pget automatically caches keystore passwords in memory for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
 
 **How it works:**
 
@@ -333,7 +333,7 @@ To improve user experience, purl automatically caches keystore passwords in memo
 
 ```bash
 # Disable password caching for a specific command
-purl --no-cache config --unsafe-show-private-keys
+pget --no-cache config --unsafe-show-private-keys
 ```
 
 **Security considerations:**
@@ -348,7 +348,7 @@ purl --no-cache config --unsafe-show-private-keys
 1. **Use strong passwords** - Your keystore is only as secure as your password
 1. **Back up your keystores** - Keep encrypted copies of your keystores directory in a secure location
 1. **Save your private keys** - When generating new keys, save them securely (you'll need them to recover your wallet)
-1. **Never commit keys to git** - The `.gitignore` should exclude `~/.purl/` and `~/.config/purl/`
+1. **Never commit keys to git** - The `.gitignore` should exclude `~/.pget/` and `~/.config/pget/`
 1. **Consider password caching security** - On shared systems, disable caching with `--no-cache`
 
 ## Shell Completions
@@ -362,15 +362,15 @@ Generate completions for your shell and save them to the appropriate location:
 **Bash:**
 
 ```bash
-purl completions bash > /usr/local/etc/bash_completion.d/purl
+pget completions bash > /usr/local/etc/bash_completion.d/pget
 # Or use the alias:
-purl com bash > /usr/local/etc/bash_completion.d/purl
+pget com bash > /usr/local/etc/bash_completion.d/pget
 ```
 
 **Zsh:**
 
 ```bash
-purl completions zsh > ~/.zfunc/_purl
+pget completions zsh > ~/.zfunc/_pget
 # Then add to ~/.zshrc if not already present:
 fpath=(~/.zfunc $fpath)
 autoload -Uz compinit && compinit
@@ -379,16 +379,16 @@ autoload -Uz compinit && compinit
 **Fish:**
 
 ```bash
-purl completions fish > ~/.config/fish/completions/purl.fish
+pget completions fish > ~/.config/fish/completions/pget.fish
 ```
 
 **PowerShell:**
 
 ```powershell
-purl completions power-shell | Out-File -FilePath $PROFILE -Append
+pget completions power-shell | Out-File -FilePath $PROFILE -Append
 ```
 
-After installing, restart your shell or source the configuration file. You'll then be able to use Tab to autocomplete purl commands, flags, and values.
+After installing, restart your shell or source the configuration file. You'll then be able to use Tab to autocomplete pget commands, flags, and values.
 
 ## Command Aliases
 
@@ -396,21 +396,21 @@ Purl provides short aliases for common commands to speed up your workflow:
 
 | Full Command | Alias | Description |
 |--------------|-------|-------------|
-| `purl init` | `purl i` | Initialize configuration |
-| `purl config` | `purl c` | Manage configuration |
-| `purl version` | `purl v` | Show version information |
-| `purl method` | `purl m` | Manage payment methods |
-| `purl completions` | `purl com` | Generate shell completions |
-| `purl balance` | `purl b` | Check wallet balance |
-| `purl networks` | `purl n` | Manage and inspect networks |
+| `pget init` | `pget i` | Initialize configuration |
+| `pget config` | `pget c` | Manage configuration |
+| `pget version` | `pget v` | Show version information |
+| `pget method` | `pget m` | Manage payment methods |
+| `pget completions` | `pget com` | Generate shell completions |
+| `pget balance` | `pget b` | Check wallet balance |
+| `pget networks` | `pget n` | Manage and inspect networks |
 
 **Examples:**
 
 ```bash
-purl i --force           # Same as: purl init --force
-purl c --output-format json  # Same as: purl config --output-format json
-purl m list              # Same as: purl method list
-purl com bash            # Same as: purl completions bash
+pget i --force           # Same as: pget init --force
+pget c --output-format json  # Same as: pget config --output-format json
+pget m list              # Same as: pget method list
+pget com bash            # Same as: pget completions bash
 ```
 
 ## Display Options
@@ -419,13 +419,13 @@ Purl offers flexible output control to suit different use cases and preferences.
 
 ### Verbosity Levels
 
-Control how much information purl outputs:
+Control how much information pget outputs:
 
 ```bash
-purl <URL>           # Normal output
-purl -v <URL>        # Verbose: show detailed request/response info
-purl -vv <URL>       # Debug: show even more details (reserved for future use)
-purl -vvv <URL>      # Trace: show all possible details (reserved for future use)
+pget <URL>           # Normal output
+pget -v <URL>        # Verbose: show detailed request/response info
+pget -vv <URL>       # Debug: show even more details (reserved for future use)
+pget -vvv <URL>      # Trace: show all possible details (reserved for future use)
 ```
 
 ### Quiet Mode
@@ -433,9 +433,9 @@ purl -vvv <URL>      # Trace: show all possible details (reserved for future use
 Suppress all non-essential output:
 
 ```bash
-purl -q <URL>        # Quiet mode
-purl -s <URL>        # Short alias for quiet (curl-compatible)
-purl --silent <URL>  # Long alias for quiet
+pget -q <URL>        # Quiet mode
+pget -s <URL>        # Short alias for quiet ()
+pget --silent <URL>  # Long alias for quiet
 ```
 
 ### Color Output
@@ -443,15 +443,15 @@ purl --silent <URL>  # Long alias for quiet
 Control color in terminal output:
 
 ```bash
-purl --color auto <URL>    # Auto-detect TTY (default)
-purl --color always <URL>  # Always use colors
-purl --color never <URL>   # Never use colors
+pget --color auto <URL>    # Auto-detect TTY (default)
+pget --color always <URL>  # Always use colors
+pget --color never <URL>   # Never use colors
 ```
 
 Purl respects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org/)):
 
 ```bash
-NO_COLOR=1 purl <URL>  # Disables colors regardless of --color setting
+NO_COLOR=1 pget <URL>  # Disables colors regardless of --color setting
 ```
 
 ### Output Formatting
@@ -459,12 +459,12 @@ NO_COLOR=1 purl <URL>  # Disables colors regardless of --color setting
 Format response output in different ways:
 
 ```bash
-purl --output-format text <URL>  # Plain text (default)
-purl --output-format json <URL>  # Pretty-printed JSON
-purl --output-format yaml <URL>  # YAML format
+pget --output-format text <URL>  # Plain text (default)
+pget --output-format json <URL>  # Pretty-printed JSON
+pget --output-format yaml <URL>  # YAML format
 
 # Combined with display options:
-purl -q --color never --output-format json <URL>
+pget -q --color never --output-format json <URL>
 ```
 
 ## Protocols
@@ -478,27 +478,27 @@ Purl supports multiple payment protocols for HTTP-based payments.
 ## Environment Variables
 
 ```bash
-export PURL_MAX_AMOUNT=10000
-export PURL_NETWORK=base-sepolia
-export PURL_CONFIRM=true
+export PGET_MAX_AMOUNT=10000
+export PGET_NETWORK=base-sepolia
+export PGET_CONFIRM=true
 
-purl https://api.example.com/data
+pget https://api.example.com/data
 ```
 
 ## Documentation
 
-**purl help**
+**pget help**
 
-Run `purl --help` to see all available options:
+Run `pget --help` to see all available options:
 
 ```
-A curl-like tool for HTTP-based payment requests
+A wget-like tool for HTTP-based payment requests
 
-Usage: purl [OPTIONS] [URL]
-       purl <COMMAND>
+Usage: pget [OPTIONS] [URL]
+       pget <COMMAND>
 
 Commands:
-  init         Initialize purl configuration
+  init         Initialize pget configuration
   config       Manage configuration
   version      Show version information
   method       Manage payment methods (keystores)
@@ -517,9 +517,9 @@ Options:
   -V, --version        Print version
 
 Payment Options:
-  -M, --max-amount <AMOUNT>  Maximum amount willing to pay (in atomic units) [env: PURL_MAX_AMOUNT=]
-  -y, --confirm              Require confirmation before paying [env: PURL_CONFIRM=]
-  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PURL_NETWORK=]
+  -M, --max-amount <AMOUNT>  Maximum amount willing to pay (in atomic units) [env: PGET_MAX_AMOUNT=]
+  -y, --confirm              Require confirmation before paying [env: PGET_CONFIRM=]
+  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PGET_NETWORK=]
   -D, --dry-run              Dry run mode - show what would be paid without executing
 
 Display Options:
@@ -543,45 +543,45 @@ HTTP Options:
       --json <JSON>                Send JSON data with Content-Type header
 
 Wallet Options:
-      --keystore <PATH>       Path to encrypted keystore file [env: PURL_KEYSTORE=]
-  -a, --account <NAME>        Use keystore by name (without .json extension) [env: PURL_ACCOUNT=]
-      --from <ADDRESS>        Specify sender address (uses configured keystore for this address) [env: PURL_FROM=]
-      --password <PASSWORD>   Password for keystore decryption [env: PURL_PASSWORD=]
-      --password-file <PATH>  Path to file containing keystore password [env: PURL_PASSWORD_FILE=]
+      --keystore <PATH>       Path to encrypted keystore file [env: PGET_KEYSTORE=]
+  -a, --account <NAME>        Use keystore by name (without .json extension) [env: PGET_ACCOUNT=]
+      --from <ADDRESS>        Specify sender address (uses configured keystore for this address) [env: PGET_FROM=]
+      --password <PASSWORD>   Password for keystore decryption [env: PGET_PASSWORD=]
+      --password-file <PATH>  Path to file containing keystore password [env: PGET_PASSWORD_FILE=]
       --no-cache              Disable password caching for keystores
-      --private-key <KEY>     Raw private key (hex, with or without 0x prefix) [env: PURL_PRIVATE_KEY]
+      --private-key <KEY>     Raw private key (hex, with or without 0x prefix) [env: PGET_PRIVATE_KEY]
 
 RPC Options:
-  -r, --rpc <URL>  Override RPC URL for the request [env: PURL_RPC_URL=]
+  -r, --rpc <URL>  Override RPC URL for the request [env: PGET_RPC_URL=]
 ```
 
-**purl init**
+**pget init**
 
-Initialize or reconfigure your purl setup:
+Initialize or reconfigure your pget setup:
 
 ```bash
-purl init              # Interactive setup
-purl init --force      # Force overwrite existing config
+pget init              # Interactive setup
+pget init --force      # Force overwrite existing config
 ```
 
-**purl config**
+**pget config**
 
 View your current configuration:
 
 ```bash
-purl config                                          # Text format (default)
-purl config --output-format json                     # JSON format
-purl config --output-format yaml                     # YAML format
-purl config --unsafe-show-private-keys               # Show private keys (password prompt appears first)
-purl config --unsafe-show-private-keys --no-cache-password  # Show keys without caching password
+pget config                                          # Text format (default)
+pget config --output-format json                     # JSON format
+pget config --output-format yaml                     # YAML format
+pget config --unsafe-show-private-keys               # Show private keys (password prompt appears first)
+pget config --unsafe-show-private-keys --no-cache-password  # Show keys without caching password
 ```
 
 ## Development Setup
 
 ```bash
 # Clone repository
-git clone https://github.com/tempoxyz/purl.git
-cd purl
+git clone https://github.com/tempoxyz/pget.git
+cd pget
 
 # Install dependencies (for linting)
 npm install

@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use purl::wallet::keystore::{create_keystore, decrypt_keystore, list_keystores, Keystore};
+//! use pget::wallet::keystore::{create_keystore, decrypt_keystore, list_keystores, Keystore};
 //!
 //! // Create a new keystore
 //! let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";

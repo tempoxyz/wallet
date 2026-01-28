@@ -23,13 +23,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            asset: purl-linux-amd64
+            asset: pget-linux-amd64
           - os: macos-latest
             target: x86_64-apple-darwin
-            asset: purl-darwin-amd64
+            asset: pget-darwin-amd64
           - os: macos-latest
             target: aarch64-apple-darwin
-            asset: purl-darwin-arm64
+            asset: pget-darwin-arm64
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -39,8 +39,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - run: strip target/${{ matrix.target }}/release/purl
-      - run: mv target/${{ matrix.target }}/release/purl ${{ matrix.asset }}
+      - run: strip target/${{ matrix.target }}/release/pget
+      - run: mv target/${{ matrix.target }}/release/pget ${{ matrix.asset }}
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.asset }}
