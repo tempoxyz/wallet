@@ -113,6 +113,12 @@ pub trait ChargeRequestExt {
     /// Returns `None` if not specified in `methodDetails`.
     fn chain_id(&self) -> Option<u64>;
 
+    /// Get the memo from method details as a bytes32 value.
+    ///
+    /// Returns `None` if not specified in `methodDetails`.
+    /// The memo should be a hex-encoded 32-byte value (with or without 0x prefix).
+    fn memo(&self) -> Option<[u8; 32]>;
+
     /// Create a type-safe `Money` value from this charge request.
     ///
     /// Validates that the currency address matches the network's configured token.
@@ -159,6 +165,24 @@ impl ChargeRequestExt for ChargeRequest {
             .as_ref()
             .and_then(|v| v.get("chainId"))
             .and_then(|v| v.as_u64())
+    }
+
+    fn memo(&self) -> Option<[u8; 32]> {
+        self.method_details
+            .as_ref()
+            .and_then(|v| v.get("memo"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| {
+                let hex_str = s.strip_prefix("0x").unwrap_or(s);
+                let bytes = hex::decode(hex_str).ok()?;
+                if bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    Some(arr)
+                } else {
+                    None
+                }
+            })
     }
 
     fn money(&self, network: Network) -> Result<Money> {
@@ -338,5 +362,76 @@ mod tests {
             ..Default::default()
         };
         assert!(req.money(Network::BaseSepolia).is_err());
+    }
+
+    #[test]
+    fn test_charge_request_memo_with_0x_prefix() {
+        // 32 bytes = 64 hex chars
+        let memo_hex = "0xc70864128216764ddcf3cc9b9fc1edb49c453e615e904f2847ba79dd0ec71001";
+        let req = ChargeRequest {
+            amount: "1000".to_string(),
+            currency: "0x123".to_string(),
+            method_details: Some(serde_json::json!({
+                "memo": memo_hex
+            })),
+            ..Default::default()
+        };
+        let memo = req.memo();
+        assert!(memo.is_some());
+        let memo_bytes = memo.unwrap();
+        assert_eq!(memo_bytes[0], 0xc7);
+        assert_eq!(memo_bytes[1], 0x08);
+    }
+
+    #[test]
+    fn test_charge_request_memo_without_prefix() {
+        // 32 bytes = 64 hex chars
+        let memo_hex = "c70864128216764ddcf3cc9b9fc1edb49c453e615e904f2847ba79dd0ec71001";
+        let req = ChargeRequest {
+            amount: "1000".to_string(),
+            currency: "0x123".to_string(),
+            method_details: Some(serde_json::json!({
+                "memo": memo_hex
+            })),
+            ..Default::default()
+        };
+        let memo = req.memo();
+        assert!(memo.is_some());
+    }
+
+    #[test]
+    fn test_charge_request_memo_missing() {
+        let req = ChargeRequest {
+            amount: "1000".to_string(),
+            currency: "0x123".to_string(),
+            ..Default::default()
+        };
+        assert!(req.memo().is_none());
+    }
+
+    #[test]
+    fn test_charge_request_memo_wrong_length() {
+        let req = ChargeRequest {
+            amount: "1000".to_string(),
+            currency: "0x123".to_string(),
+            method_details: Some(serde_json::json!({
+                "memo": "0x1234"  // Too short
+            })),
+            ..Default::default()
+        };
+        assert!(req.memo().is_none());
+    }
+
+    #[test]
+    fn test_charge_request_memo_invalid_hex() {
+        let req = ChargeRequest {
+            amount: "1000".to_string(),
+            currency: "0x123".to_string(),
+            method_details: Some(serde_json::json!({
+                "memo": "0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+            })),
+            ..Default::default()
+        };
+        assert!(req.memo().is_none());
     }
 }

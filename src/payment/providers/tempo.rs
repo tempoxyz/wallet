@@ -96,15 +96,28 @@ impl PaymentProvider for TempoProvider {
         let currency = charge_req.currency_address()?;
         let recipient = charge_req.recipient_address()?;
         let amount = charge_req.amount_u256()?;
+        let memo = charge_req.memo();
 
-        sol! {
-            function transfer(address to, uint256 amount) external returns (bool);
-        }
-        let transfer_call = transferCall {
-            to: recipient,
-            amount,
+        let transfer_data = if let Some(memo_bytes) = memo {
+            sol! {
+                function transferWithMemo(address to, uint256 amount, bytes32 memo) external returns (bool);
+            }
+            let call = transferWithMemoCall {
+                to: recipient,
+                amount,
+                memo: memo_bytes.into(),
+            };
+            Bytes::from(call.abi_encode())
+        } else {
+            sol! {
+                function transfer(address to, uint256 amount) external returns (bool);
+            }
+            let call = transferCall {
+                to: recipient,
+                amount,
+            };
+            Bytes::from(call.abi_encode())
         };
-        let transfer_data = Bytes::from(transfer_call.abi_encode());
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
             PurlError::UnsupportedPaymentMethod(format!(
