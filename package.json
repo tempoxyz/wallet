@@ -1,5 +1,5 @@
 {
-  "name": "purl",
+  "name": "pget",
   "version": "0.1.0",
   "private": true,
   "description": "Payment via URL - Rust library and CLI",

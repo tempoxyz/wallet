@@ -1,4 +1,4 @@
-//! Wallet management commands for purl CLI
+//! Wallet management commands for pget CLI
 
 use crate::wallet::keystore::{create_keystore, list_keystores, Keystore};
 use anyhow::Result;
@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 /// List all available keystores in the keystores directory
 ///
-/// Scans the default keystores directory (`~/.purl/keystores/`) and displays
+/// Scans the default keystores directory (`~/.pget/keystores/`) and displays
 /// all found keystore files along with their addresses (if available).
 ///
 /// # Examples
 ///
 /// ```text
-/// $ purl method list
+/// $ pget method list
 /// Available keystores:
 ///   evm.json (0xabcd1234...)
 ///   test-wallet.json (0x5678efgh...)
@@ -27,7 +27,7 @@ pub fn list_command() -> Result<()> {
 
     if keystores.is_empty() {
         println!("No keystores found.");
-        println!("Create one with: purl method new");
+        println!("Create one with: pget method new");
         return Ok(());
     }
 
@@ -84,12 +84,12 @@ pub fn list_command() -> Result<()> {
 /// # Examples
 ///
 /// ```text
-/// $ purl method new --name my-wallet --generate
+/// $ pget method new --name my-wallet --generate
 /// Creating new keystore: my-wallet
 /// Generated new private key: 0x1234...
 /// Save this private key securely! You'll need it to recover your wallet.
 /// Enter password to encrypt the keystore: ****
-/// Keystore created at: /home/user/.purl/keystores/my-wallet.json
+/// Keystore created at: /home/user/.pget/keystores/my-wallet.json
 ///   Address: 0xabcd...
 /// ```
 ///
@@ -166,11 +166,11 @@ pub fn new_command(name: &str, generate: bool) -> Result<()> {
 /// # Examples
 ///
 /// ```text
-/// $ purl method import --name imported-wallet
+/// $ pget method import --name imported-wallet
 /// Importing private key to keystore: imported-wallet
 /// Enter private key to import: 0x1234...
 /// Enter password to encrypt the keystore: ****
-/// Private key imported to: /home/user/.purl/keystores/imported-wallet.json
+/// Private key imported to: /home/user/.pget/keystores/imported-wallet.json
 ///   Address: 0xabcd...
 /// ```
 ///
@@ -234,7 +234,7 @@ fn find_keystore_by_name(name: &str) -> Result<PathBuf> {
         }
     }
 
-    anyhow::bail!("Keystore '{name}' not found. Use 'purl method list' to see available keystores.")
+    anyhow::bail!("Keystore '{name}' not found. Use 'pget method list' to see available keystores.")
 }
 
 /// Display keystore details without revealing the private key
@@ -250,11 +250,11 @@ fn find_keystore_by_name(name: &str) -> Result<PathBuf> {
 /// # Examples
 ///
 /// ```text
-/// $ purl method show --name my-wallet
+/// $ pget method show --name my-wallet
 /// Keystore Details:
 ///
 /// Name: my-wallet
-/// Path: /home/user/.purl/keystores/my-wallet.json
+/// Path: /home/user/.pget/keystores/my-wallet.json
 /// Address: 0xabcd1234...
 ///   Created: SystemTime { ... }
 ///   Modified: SystemTime { ... }
@@ -348,7 +348,7 @@ pub fn show_command(name: &str) -> Result<()> {
 /// # Examples
 ///
 /// ```text
-/// $ purl method verify --name my-wallet
+/// $ pget method verify --name my-wallet
 /// Verifying keystore: my-wallet
 ///
 /// [OK] Keystore format is valid

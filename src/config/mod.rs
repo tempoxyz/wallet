@@ -1,4 +1,4 @@
-//! Configuration module for purl.
+//! Configuration module for pget.
 
 mod load;
 mod path_validation;

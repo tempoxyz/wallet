@@ -1,6 +1,6 @@
-//! Configuration management for purl.
+//! Configuration management for pget.
 
-use crate::error::{PurlError, Result};
+use crate::error::{PgetError, Result};
 use crate::network::explorer::{ExplorerConfig, ExplorerType};
 use crate::network::ChainType;
 use serde::{Deserialize, Serialize};
@@ -134,7 +134,7 @@ impl EvmConfig {
         let keystore = Keystore::load(path)?;
         keystore
             .formatted_address()
-            .ok_or_else(|| PurlError::ConfigMissing("Keystore missing address field".to_string()))
+            .ok_or_else(|| PgetError::ConfigMissing("Keystore missing address field".to_string()))
     }
 }
 
@@ -151,16 +151,16 @@ impl WalletConfig for EvmConfig {
         }
         if let Some(keystore_path) = &self.keystore {
             if !keystore_path.exists() {
-                return Err(PurlError::ConfigMissing(format!(
+                return Err(PgetError::ConfigMissing(format!(
                     "EVM keystore file not found: {}. \
-                     Run 'purl method list' to see available keystores or 'purl method new' to create one.",
+                     Run 'pget method list' to see available keystores or 'pget method new' to create one.",
                     keystore_path.display()
                 )));
             }
             Ok(())
         } else {
-            Err(PurlError::ConfigMissing(
-                "No EVM wallet configured. Run 'purl init' to configure a wallet, \
+            Err(PgetError::ConfigMissing(
+                "No EVM wallet configured. Run 'pget init' to configure a wallet, \
                  or add 'keystore' to your config."
                     .to_string(),
             ))
@@ -176,7 +176,7 @@ impl WalletConfig for EvmConfig {
         if let Some(keystore_path) = &self.keystore {
             Self::address_from_keystore(keystore_path)
         } else {
-            Err(PurlError::ConfigMissing("No wallet configured".to_string()))
+            Err(PgetError::ConfigMissing("No wallet configured".to_string()))
         }
     }
 
@@ -194,7 +194,7 @@ impl Config {
     /// # Example
     ///
     /// ```
-    /// use purl::Config;
+    /// use pget::Config;
     ///
     /// let config = Config::builder()
     ///     .evm_keystore("/path/to/keystore.json")
@@ -206,7 +206,7 @@ impl Config {
         ConfigBuilder::new()
     }
 
-    /// Load config from the specified path or default location (~/.purl/config.toml)
+    /// Load config from the specified path or default location (~/.pget/config.toml)
     pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
         let config_path = if let Some(path) = config_path {
             PathBuf::from(path.as_ref())
@@ -215,14 +215,14 @@ impl Config {
         };
 
         if !config_path.exists() {
-            return Err(PurlError::ConfigMissing(format!(
-                "Config file not found at {}. Run 'purl init' to create one.",
+            return Err(PgetError::ConfigMissing(format!(
+                "Config file not found at {}. Run 'pget init' to create one.",
                 config_path.display()
             )));
         }
 
         let content = std::fs::read_to_string(&config_path).map_err(|e| {
-            PurlError::ConfigMissing(format!(
+            PgetError::ConfigMissing(format!(
                 "Failed to read config file at {}: {}",
                 config_path.display(),
                 e
@@ -230,7 +230,7 @@ impl Config {
         })?;
 
         let config: Config = toml::from_str(&content).map_err(|e| {
-            PurlError::ConfigMissing(format!(
+            PgetError::ConfigMissing(format!(
                 "Failed to parse config file at {}: {}",
                 config_path.display(),
                 e
@@ -238,7 +238,7 @@ impl Config {
         })?;
 
         config.validate().map_err(|e| {
-            PurlError::ConfigMissing(format!(
+            PgetError::ConfigMissing(format!(
                 "Invalid configuration in {}: {}",
                 config_path.display(),
                 e
@@ -248,7 +248,7 @@ impl Config {
         Ok(config)
     }
 
-    /// Load config from the default location (~/.purl/config.toml)
+    /// Load config from the default location (~/.pget/config.toml)
     #[allow(dead_code)]
     pub fn load() -> Result<Self> {
         Self::load_from(None::<&str>)
@@ -266,14 +266,14 @@ impl Config {
         };
 
         if !config_path.exists() {
-            return Err(PurlError::ConfigMissing(format!(
-                "Config file not found at {}. Run 'purl init' to create one.",
+            return Err(PgetError::ConfigMissing(format!(
+                "Config file not found at {}. Run 'pget init' to create one.",
                 config_path.display()
             )));
         }
 
         let content = std::fs::read_to_string(&config_path).map_err(|e| {
-            PurlError::ConfigMissing(format!(
+            PgetError::ConfigMissing(format!(
                 "Failed to read config file at {}: {}",
                 config_path.display(),
                 e
@@ -281,7 +281,7 @@ impl Config {
         })?;
 
         toml::from_str(&content).map_err(|e| {
-            PurlError::ConfigMissing(format!(
+            PgetError::ConfigMissing(format!(
                 "Failed to parse config file at {}: {}",
                 config_path.display(),
                 e
@@ -289,9 +289,9 @@ impl Config {
         })
     }
 
-    /// Get the default config file path (~/.purl/config.toml)
+    /// Get the default config file path (~/.pget/config.toml)
     pub fn default_config_path() -> Result<PathBuf> {
-        crate::util::constants::default_config_path().ok_or(PurlError::NoConfigDir)
+        crate::util::constants::default_config_path().ok_or(PgetError::NoConfigDir)
     }
 
     /// Save config to the default location with validation
@@ -326,7 +326,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if let Some(evm) = &self.evm {
             evm.validate()
-                .map_err(|e| PurlError::ConfigMissing(format!("EVM configuration invalid: {e}")))?;
+                .map_err(|e| PgetError::ConfigMissing(format!("EVM configuration invalid: {e}")))?;
         }
         Ok(())
     }
@@ -336,8 +336,8 @@ impl Config {
     /// This is a convenience method to avoid repeated error handling boilerplate.
     pub fn require_evm(&self) -> Result<&EvmConfig> {
         self.evm.as_ref().ok_or_else(|| {
-            PurlError::ConfigMissing(
-                "EVM configuration not found. Run 'purl init' to configure.".to_string(),
+            PgetError::ConfigMissing(
+                "EVM configuration not found. Run 'pget init' to configure.".to_string(),
             )
         })
     }
@@ -354,7 +354,7 @@ impl Config {
     /// # Examples
     ///
     /// ```
-    /// use purl::Config;
+    /// use pget::Config;
     ///
     /// let config = Config::builder()
     ///     .rpc_override("tempo-moderato", "https://my-custom-rpc.com")
@@ -380,7 +380,7 @@ impl Config {
 
         // Fall back to built-in networks with RPC overrides
         let mut network_info = get_network(network_id).ok_or_else(|| {
-            PurlError::UnknownNetwork(format!("Network '{}' not found", network_id))
+            PgetError::UnknownNetwork(format!("Network '{}' not found", network_id))
         })?;
 
         // Apply RPC override if configured
@@ -429,7 +429,7 @@ impl fmt::Display for PaymentMethod {
 /// # Example
 ///
 /// ```
-/// use purl::ConfigBuilder;
+/// use pget::ConfigBuilder;
 ///
 /// let config = ConfigBuilder::new()
 ///     .evm_keystore("/path/to/keystore.json")
@@ -468,7 +468,7 @@ impl ConfigBuilder {
     /// # Example
     ///
     /// ```
-    /// use purl::ConfigBuilder;
+    /// use pget::ConfigBuilder;
     ///
     /// let config = ConfigBuilder::new()
     ///     .evm_keystore("/path/to/keystore.json")

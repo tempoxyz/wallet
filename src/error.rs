@@ -1,10 +1,10 @@
-//! Error types for the purl library.
+//! Error types for the pget library.
 
 use std::error::Error as StdError;
 use thiserror::Error;
 
-/// Result type alias for purl operations.
-pub type Result<T> = std::result::Result<T, PurlError>;
+/// Result type alias for pget operations.
+pub type Result<T> = std::result::Result<T, PgetError>;
 
 /// Context for signing errors
 #[derive(Debug, Clone)]
@@ -38,7 +38,7 @@ impl std::fmt::Display for SigningContext {
 }
 
 #[derive(Error, Debug)]
-pub enum PurlError {
+pub enum PgetError {
     #[error("Payment provider not found for network: {0}")]
     ProviderNotFound(String),
 
@@ -190,7 +190,7 @@ pub enum PurlError {
     SystemTime(#[from] std::time::SystemTimeError),
 }
 
-impl PurlError {
+impl PgetError {
     /// Create a signing error with context and source chain
     pub fn signing_with_context(
         source: impl StdError + Send + Sync + 'static,
@@ -249,12 +249,12 @@ pub trait ResultExt<T> {
 
 impl<T, E: StdError + Send + Sync + 'static> ResultExt<T> for std::result::Result<T, E> {
     fn with_signing_context(self, context: SigningContext) -> Result<T> {
-        self.map_err(|e| PurlError::signing_with_context(e, context))
+        self.map_err(|e| PgetError::signing_with_context(e, context))
     }
 
     fn with_network(self, network: &str) -> Result<T> {
         self.map_err(|e| {
-            PurlError::signing_with_context(
+            PgetError::signing_with_context(
                 e,
                 SigningContext {
                     network: Some(network.to_string()),
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_provider_not_found_display() {
-        let err = PurlError::ProviderNotFound("ethereum".to_string());
+        let err = PgetError::ProviderNotFound("ethereum".to_string());
         assert_eq!(
             err.to_string(),
             "Payment provider not found for network: ethereum"
@@ -280,13 +280,13 @@ mod tests {
 
     #[test]
     fn test_no_payment_methods_display() {
-        let err = PurlError::NoPaymentMethods;
+        let err = PgetError::NoPaymentMethods;
         assert_eq!(err.to_string(), "No payment methods configured");
     }
 
     #[test]
     fn test_no_compatible_method_display() {
-        let err = PurlError::NoCompatibleMethod {
+        let err = PgetError::NoCompatibleMethod {
             networks: vec!["ethereum".to_string(), "tempo".to_string()],
         };
         let display = err.to_string();
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_amount_exceeds_max_display() {
-        let err = PurlError::AmountExceedsMax {
+        let err = PgetError::AmountExceedsMax {
             required: 1000,
             max: 500,
         };
@@ -307,19 +307,19 @@ mod tests {
 
     #[test]
     fn test_invalid_amount_display() {
-        let err = PurlError::InvalidAmount("not a number".to_string());
+        let err = PgetError::InvalidAmount("not a number".to_string());
         assert_eq!(err.to_string(), "Invalid amount: not a number");
     }
 
     #[test]
     fn test_missing_requirement_display() {
-        let err = PurlError::MissingRequirement("network".to_string());
+        let err = PgetError::MissingRequirement("network".to_string());
         assert_eq!(err.to_string(), "Missing payment requirement: network");
     }
 
     #[test]
     fn test_config_missing_display() {
-        let err = PurlError::ConfigMissing("wallet not configured".to_string());
+        let err = PgetError::ConfigMissing("wallet not configured".to_string());
         assert_eq!(
             err.to_string(),
             "Configuration missing: wallet not configured"
@@ -328,31 +328,31 @@ mod tests {
 
     #[test]
     fn test_invalid_config_display() {
-        let err = PurlError::InvalidConfig("invalid rpc url".to_string());
+        let err = PgetError::InvalidConfig("invalid rpc url".to_string());
         assert_eq!(err.to_string(), "Invalid configuration: invalid rpc url");
     }
 
     #[test]
     fn test_invalid_key_display() {
-        let err = PurlError::InvalidKey("wrong format".to_string());
+        let err = PgetError::InvalidKey("wrong format".to_string());
         assert_eq!(err.to_string(), "Invalid private key: wrong format");
     }
 
     #[test]
     fn test_no_config_dir_display() {
-        let err = PurlError::NoConfigDir;
+        let err = PgetError::NoConfigDir;
         assert_eq!(err.to_string(), "Failed to determine config directory");
     }
 
     #[test]
     fn test_unknown_network_display() {
-        let err = PurlError::UnknownNetwork("custom-chain".to_string());
+        let err = PgetError::UnknownNetwork("custom-chain".to_string());
         assert_eq!(err.to_string(), "Unknown network: custom-chain");
     }
 
     #[test]
     fn test_token_config_not_found_display() {
-        let err = PurlError::TokenConfigNotFound {
+        let err = PgetError::TokenConfigNotFound {
             asset: "USDC".to_string(),
             network: "ethereum".to_string(),
         };
@@ -364,86 +364,86 @@ mod tests {
 
     #[test]
     fn test_unsupported_token_display() {
-        let err = PurlError::UnsupportedToken("UNKNOWN".to_string());
+        let err = PgetError::UnsupportedToken("UNKNOWN".to_string());
         assert_eq!(err.to_string(), "Unsupported token: UNKNOWN");
     }
 
     #[test]
     fn test_balance_query_display() {
-        let err = PurlError::BalanceQuery("RPC timeout".to_string());
+        let err = PgetError::BalanceQuery("RPC timeout".to_string());
         assert_eq!(err.to_string(), "Balance query failed: RPC timeout");
     }
 
     #[test]
     fn test_http_display() {
-        let err = PurlError::Http("404 Not Found".to_string());
+        let err = PgetError::Http("404 Not Found".to_string());
         assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
     }
 
     #[test]
     fn test_unsupported_http_method_display() {
-        let err = PurlError::UnsupportedHttpMethod("TRACE".to_string());
+        let err = PgetError::UnsupportedHttpMethod("TRACE".to_string());
         assert_eq!(err.to_string(), "Unsupported HTTP method: TRACE");
     }
 
     #[test]
     fn test_signing_simple_display() {
-        let err = PurlError::SigningSimple("Failed to sign transaction".to_string());
+        let err = PgetError::SigningSimple("Failed to sign transaction".to_string());
         assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
     }
 
     #[test]
     fn test_invalid_address_display() {
-        let err = PurlError::InvalidAddress("Not a valid address".to_string());
+        let err = PgetError::InvalidAddress("Not a valid address".to_string());
         assert_eq!(err.to_string(), "Invalid address: Not a valid address");
     }
 
     #[test]
     fn test_unsupported_payment_method_display() {
-        let err = PurlError::UnsupportedPaymentMethod("bitcoin".to_string());
+        let err = PgetError::UnsupportedPaymentMethod("bitcoin".to_string());
         assert_eq!(err.to_string(), "Unsupported payment method: bitcoin");
     }
 
     #[test]
     fn test_unsupported_payment_intent_display() {
-        let err = PurlError::UnsupportedPaymentIntent("subscription".to_string());
+        let err = PgetError::UnsupportedPaymentIntent("subscription".to_string());
         assert_eq!(err.to_string(), "Unsupported payment intent: subscription");
     }
 
     #[test]
     fn test_invalid_challenge_display() {
-        let err = PurlError::InvalidChallenge("Malformed challenge".to_string());
+        let err = PgetError::InvalidChallenge("Malformed challenge".to_string());
         assert_eq!(err.to_string(), "Invalid challenge: Malformed challenge");
     }
 
     #[test]
     fn test_missing_header_display() {
-        let err = PurlError::MissingHeader("WWW-Authenticate".to_string());
+        let err = PgetError::MissingHeader("WWW-Authenticate".to_string());
         assert_eq!(err.to_string(), "Missing required header: WWW-Authenticate");
     }
 
     #[test]
     fn test_invalid_base64_url_display() {
-        let err = PurlError::InvalidBase64Url("Invalid padding".to_string());
+        let err = PgetError::InvalidBase64Url("Invalid padding".to_string());
         assert_eq!(err.to_string(), "Invalid base64url: Invalid padding");
     }
 
     #[test]
     fn test_challenge_expired_display() {
-        let err = PurlError::ChallengeExpired("Expired 5 minutes ago".to_string());
+        let err = PgetError::ChallengeExpired("Expired 5 minutes ago".to_string());
         assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
     }
 
     #[test]
     fn test_invalid_did_display() {
-        let err = PurlError::InvalidDid("Not a valid DID".to_string());
+        let err = PgetError::InvalidDid("Not a valid DID".to_string());
         assert_eq!(err.to_string(), "Invalid DID: Not a valid DID");
     }
 
     #[test]
     fn test_signing_constructor() {
-        let err = PurlError::signing("test error");
-        assert!(matches!(err, PurlError::SigningSimple(_)));
+        let err = PgetError::signing("test error");
+        assert!(matches!(err, PgetError::SigningSimple(_)));
         assert_eq!(err.to_string(), "Signing error: test error");
     }
 
@@ -456,7 +456,7 @@ mod tests {
             address: Some("0x123".to_string()),
             operation: "sign_transaction",
         };
-        let err = PurlError::signing_with_context(source, ctx);
+        let err = PgetError::signing_with_context(source, ctx);
         let display = err.to_string();
         assert!(display.contains("signing failed"));
         assert!(display.contains("sign_transaction"));
@@ -494,9 +494,9 @@ mod tests {
             address: None,
             operation: "test_op",
         };
-        let purl_result = result.with_signing_context(ctx);
-        assert!(purl_result.is_err());
-        let err = purl_result.unwrap_err();
+        let pget_result = result.with_signing_context(ctx);
+        assert!(pget_result.is_err());
+        let err = pget_result.unwrap_err();
         assert!(err.to_string().contains("signing failed"));
     }
 
@@ -504,9 +504,9 @@ mod tests {
     fn test_result_ext_with_network() {
         use std::io::{Error as IoError, ErrorKind};
         let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
-        let purl_result = result.with_network("base-sepolia");
-        assert!(purl_result.is_err());
-        let err = purl_result.unwrap_err();
+        let pget_result = result.with_network("base-sepolia");
+        assert!(pget_result.is_err());
+        let err = pget_result.unwrap_err();
         assert!(err.to_string().contains("base-sepolia"));
     }
 
@@ -514,29 +514,29 @@ mod tests {
     fn test_with_network_on_signing_error() {
         use std::io::{Error as IoError, ErrorKind};
         let source = IoError::new(ErrorKind::Other, "test");
-        let err = PurlError::signing_with_context(source, SigningContext::default());
+        let err = PgetError::signing_with_context(source, SigningContext::default());
         let err_with_network = err.with_network("optimism");
         assert!(err_with_network.to_string().contains("optimism"));
     }
 
     #[test]
     fn test_invalid_address_constructor() {
-        let err = PurlError::invalid_address("test address");
-        assert!(matches!(err, PurlError::InvalidAddress(_)));
+        let err = PgetError::invalid_address("test address");
+        assert!(matches!(err, PgetError::InvalidAddress(_)));
         assert_eq!(err.to_string(), "Invalid address: test address");
     }
 
     #[test]
     fn test_config_missing_constructor() {
-        let err = PurlError::config_missing("test config");
-        assert!(matches!(err, PurlError::ConfigMissing(_)));
+        let err = PgetError::config_missing("test config");
+        assert!(matches!(err, PgetError::ConfigMissing(_)));
         assert_eq!(err.to_string(), "Configuration missing: test config");
     }
 
     #[test]
     fn test_unsupported_method_constructor() {
-        let err = PurlError::unsupported_method(&"bitcoin");
-        assert!(matches!(err, PurlError::UnsupportedPaymentMethod(_)));
+        let err = PgetError::unsupported_method(&"bitcoin");
+        assert!(matches!(err, PgetError::UnsupportedPaymentMethod(_)));
         assert!(err.to_string().contains("bitcoin"));
         assert!(err.to_string().contains("not supported"));
     }

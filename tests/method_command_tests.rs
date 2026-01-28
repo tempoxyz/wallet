@@ -19,7 +19,7 @@ fn test_method_list_no_keystores() {
         .assert()
         .success()
         .stdout(predicate::str::contains("No keystores found"))
-        .stdout(predicate::str::contains("purl method new"));
+        .stdout(predicate::str::contains("pget method new"));
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn test_method_show_displays_path() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Path:"))
-        .stdout(predicate::str::contains("purl"))
+        .stdout(predicate::str::contains("pget"))
         .stdout(predicate::str::contains("keystores"))
         .stdout(predicate::str::contains("test-wallet.json"));
 }
@@ -176,7 +176,7 @@ fn test_method_alias_show() {
 
 #[test]
 fn test_method_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["method", "--help"])
         .assert()
         .success()
@@ -190,7 +190,7 @@ fn test_method_help() {
 
 #[test]
 fn test_method_list_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["method", "list", "--help"])
         .assert()
         .success()
@@ -199,7 +199,7 @@ fn test_method_list_help() {
 
 #[test]
 fn test_method_new_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["method", "new", "--help"])
         .assert()
         .success()
@@ -210,7 +210,7 @@ fn test_method_new_help() {
 
 #[test]
 fn test_method_import_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["method", "import", "--help"])
         .assert()
         .success()
@@ -221,7 +221,7 @@ fn test_method_import_help() {
 
 #[test]
 fn test_method_show_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["method", "show", "--help"])
         .assert()
         .success()
@@ -230,7 +230,7 @@ fn test_method_show_help() {
 
 #[test]
 fn test_method_verify_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["method", "verify", "--help"])
         .assert()
         .success()
@@ -239,7 +239,7 @@ fn test_method_verify_help() {
 
 #[test]
 fn test_method_invalid_subcommand() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["method", "invalid"])
         .assert()
         .failure();

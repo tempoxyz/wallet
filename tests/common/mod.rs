@@ -1,4 +1,4 @@
-//! Common test utilities for purl CLI tests
+//! Common test utilities for pget CLI tests
 
 #![allow(dead_code)]
 
@@ -39,17 +39,17 @@ impl TestConfigBuilder {
         let config_dir = self
             .temp_dir
             .path()
-            .join("Library/Application Support/purl");
+            .join("Library/Application Support/pget");
         #[cfg(not(target_os = "macos"))]
-        let config_dir = self.temp_dir.path().join(".config/purl");
+        let config_dir = self.temp_dir.path().join(".config/pget");
 
         #[cfg(target_os = "macos")]
         let data_dir = self
             .temp_dir
             .path()
-            .join("Library/Application Support/purl");
+            .join("Library/Application Support/pget");
         #[cfg(not(target_os = "macos"))]
-        let data_dir = self.temp_dir.path().join(".local/share/purl");
+        let data_dir = self.temp_dir.path().join(".local/share/pget");
 
         fs::create_dir_all(&config_dir).expect("Failed to create config directory");
         fs::create_dir_all(&data_dir).expect("Failed to create data directory");
@@ -96,9 +96,9 @@ pub fn get_test_keystores_dir(temp_dir: &TempDir) -> std::path::PathBuf {
     #[cfg(target_os = "macos")]
     let path = temp_dir
         .path()
-        .join("Library/Application Support/purl/keystores");
+        .join("Library/Application Support/pget/keystores");
     #[cfg(not(target_os = "macos"))]
-    let path = temp_dir.path().join(".local/share/purl/keystores");
+    let path = temp_dir.path().join(".local/share/pget/keystores");
     path
 }
 
@@ -118,9 +118,9 @@ pub fn create_test_keystore(
     #[cfg(target_os = "macos")]
     let keystores_dir = temp_dir
         .path()
-        .join("Library/Application Support/purl/keystores");
+        .join("Library/Application Support/pget/keystores");
     #[cfg(not(target_os = "macos"))]
-    let keystores_dir = temp_dir.path().join(".local/share/purl/keystores");
+    let keystores_dir = temp_dir.path().join(".local/share/pget/keystores");
 
     std::fs::create_dir_all(&keystores_dir).expect("Failed to create keystores directory");
 
@@ -146,7 +146,7 @@ pub fn create_test_keystore(
     )
     .expect("Failed to create keystore");
 
-    // Read the keystore and add the address field (purl expects this)
+    // Read the keystore and add the address field (pget expects this)
     let keystore_content =
         std::fs::read_to_string(&keystore_path).expect("Failed to read keystore");
     let mut keystore_json: serde_json::Value =
@@ -165,7 +165,7 @@ pub fn create_test_keystore(
 /// tests to work consistently across platforms, especially Linux where the
 /// dirs crate v6+ respects XDG environment variables.
 pub fn test_command(temp_dir: &TempDir) -> Command {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("purl"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("pget"));
 
     // Set HOME for both macOS and Linux
     cmd.env("HOME", temp_dir.path());
@@ -181,10 +181,10 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 /// Create a test command with mock network mode enabled
 ///
 /// Use this for tests that would normally make network/RPC calls.
-/// When PURL_MOCK_NETWORK=1 is set, the CLI returns fake data instead
+/// When PGET_MOCK_NETWORK=1 is set, the CLI returns fake data instead
 /// of making actual network requests.
 pub fn mock_test_command(temp_dir: &TempDir) -> Command {
     let mut cmd = test_command(temp_dir);
-    cmd.env("PURL_MOCK_NETWORK", "1");
+    cmd.env("PGET_MOCK_NETWORK", "1");
     cmd
 }

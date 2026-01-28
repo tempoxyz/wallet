@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
-    std::env::var("PURL_MOCK_NETWORK").is_ok()
+    std::env::var("PGET_MOCK_NETWORK").is_ok()
 }
 
 /// Generate mock balance data for testing
@@ -48,7 +48,7 @@ pub async fn balance_command(
     let available_methods = config.available_payment_methods();
 
     if available_methods.is_empty() {
-        anyhow::bail!("No payment methods configured. Run 'purl init' to configure.");
+        anyhow::bail!("No payment methods configured. Run 'pget init' to configure.");
     }
 
     let mock_mode = is_mock_mode();

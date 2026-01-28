@@ -1,11 +1,11 @@
 ---
-name: purl
-description: A curl-like CLI tool for making HTTP requests with automatic payment support
+name: pget
+description: A wget-like CLI tool for making HTTP requests with automatic payment support
 ---
 
-# purl - p(ay)URL
+# pget - p(ay)GET
 
-A curl-like CLI tool for making HTTP requests with automatic support for payments.
+A wget-like CLI tool for making HTTP requests with automatic support for payments.
 
 ## Supported Payment Protocols
 
@@ -15,28 +15,28 @@ A curl-like CLI tool for making HTTP requests with automatic support for payment
 
 ```bash
 # Initialize configuration (first time setup)
-purl init
+pget init
 
 # Make a payment-enabled HTTP request
-purl https://api.example.com/premium-data
+pget https://api.example.com/premium-data
 
 # Preview payment without executing
-purl --dry-run https://api.example.com/data
+pget --dry-run https://api.example.com/data
 
 # Require confirmation before payment
-purl --confirm https://api.example.com/data
+pget --confirm https://api.example.com/data
 ```
 
 ## Common Commands
 
 | Command | Description |
 |---------|-------------|
-| `purl init` | Initialize or reconfigure your purl setup |
-| `purl <URL>` | Make an HTTP request (handles 402 payments automatically) |
-| `purl --help` | Show all available options |
-| `purl config` | View current configuration |
-| `purl balance` | Check wallet balance |
-| `purl method list` | List available payment methods/keystores |
+| `pget init` | Initialize or reconfigure your pget setup |
+| `pget <URL>` | Make an HTTP request (handles 402 payments automatically) |
+| `pget --help` | Show all available options |
+| `pget config` | View current configuration |
+| `pget balance` | Check wallet balance |
+| `pget method list` | List available payment methods/keystores |
 
 ## Key Options
 
@@ -53,14 +53,14 @@ purl --confirm https://api.example.com/data
 
 ```bash
 # Basic request with verbose output
-purl -v https://api.example.com/data
+pget -v https://api.example.com/data
 
 # POST request with JSON data
-purl -X POST --json '{"key": "value"}' https://api.example.com/endpoint
+pget -X POST --json '{"key": "value"}' https://api.example.com/endpoint
 
 # Filter to specific network
-purl --network base-sepolia https://api.example.com/data
+pget --network base-sepolia https://api.example.com/data
 
 # Set maximum payment amount
-purl --max-amount 10000 https://api.example.com/data
+pget --max-amount 10000 https://api.example.com/data
 ```

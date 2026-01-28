@@ -2,7 +2,7 @@
 //!
 //! Provides types for representing and loading keystore files.
 
-use crate::error::{PurlError, Result};
+use crate::error::{PgetError, Result};
 use crate::util::helpers::format_eth_address;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ impl Keystore {
     /// Load a keystore from a file path
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path).map_err(|e| {
-            PurlError::ConfigMissing(format!(
+            PgetError::ConfigMissing(format!(
                 "Failed to read keystore at {}: {}",
                 path.display(),
                 e
@@ -28,7 +28,7 @@ impl Keystore {
         })?;
 
         let json: Value = serde_json::from_str(&content).map_err(|e| {
-            PurlError::ConfigMissing(format!(
+            PgetError::ConfigMissing(format!(
                 "Invalid keystore JSON at {}: {}",
                 path.display(),
                 e
@@ -54,20 +54,20 @@ impl Keystore {
     /// Decrypt the keystore with the given password
     pub fn decrypt(&self, password: &str) -> Result<Vec<u8>> {
         eth_keystore::decrypt_key(&self.path, password)
-            .map_err(|e| PurlError::InvalidKey(format!("Failed to decrypt keystore: {e}")))
+            .map_err(|e| PgetError::InvalidKey(format!("Failed to decrypt keystore: {e}")))
     }
 
     /// Validate that this is a properly formatted keystore file
     pub fn validate(&self) -> Result<()> {
         if !self.content.is_object() {
-            return Err(PurlError::ConfigMissing(
+            return Err(PgetError::ConfigMissing(
                 "Keystore must be a JSON object".to_string(),
             ));
         }
 
         // Support both 'crypto' and 'Crypto' (standard v3 keystore uses 'crypto')
         if !self.content["crypto"].is_object() && !self.content["Crypto"].is_object() {
-            return Err(PurlError::ConfigMissing(
+            return Err(PgetError::ConfigMissing(
                 "Keystore missing crypto field".to_string(),
             ));
         }

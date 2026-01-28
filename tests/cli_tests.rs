@@ -14,35 +14,35 @@ use common::{setup_test_config, test_command, TEST_EVM_KEY as VALID_EVM_KEY};
 
 #[test]
 fn test_completions_bash() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["completions", "bash"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("_purl"))
+        .stdout(predicate::str::contains("_pget"))
         .stdout(predicate::str::contains("complete"));
 }
 
 #[test]
 fn test_completions_zsh() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["completions", "zsh"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("#compdef purl"));
+        .stdout(predicate::str::contains("#compdef pget"));
 }
 
 #[test]
 fn test_completions_fish() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["completions", "fish"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("complete -c purl"));
+        .stdout(predicate::str::contains("complete -c pget"));
 }
 
 #[test]
 fn test_completions_powershell() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["completions", "power-shell"])
         .assert()
         .success()
@@ -51,11 +51,11 @@ fn test_completions_powershell() {
 
 #[test]
 fn test_completions_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["com", "bash"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("_purl"));
+        .stdout(predicate::str::contains("_pget"));
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn test_init_alias() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialize purl configuration"));
+        .stdout(predicate::str::contains("Initialize pget configuration"));
 }
 
 #[test]
@@ -84,11 +84,11 @@ fn test_config_alias() {
 
 #[test]
 fn test_version_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("v")
         .assert()
         .success()
-        .stdout(predicate::str::contains("purl:"));
+        .stdout(predicate::str::contains("pget:"));
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn test_color_never() {
 
 #[test]
 fn test_help_has_payment_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -199,7 +199,7 @@ fn test_help_has_payment_options_section() {
 
 #[test]
 fn test_help_has_display_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -208,7 +208,7 @@ fn test_help_has_display_options_section() {
 
 #[test]
 fn test_help_has_http_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -217,7 +217,7 @@ fn test_help_has_http_options_section() {
 
 #[test]
 fn test_help_has_request_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -226,7 +226,7 @@ fn test_help_has_request_options_section() {
 
 #[test]
 fn test_insecure_flag_short() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -235,7 +235,7 @@ fn test_insecure_flag_short() {
 
 #[test]
 fn test_help_has_wallet_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -244,18 +244,18 @@ fn test_help_has_wallet_options_section() {
 
 #[test]
 fn test_help_shows_env_vars() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("[env: PURL_MAX_AMOUNT=]"))
-        .stdout(predicate::str::contains("[env: PURL_CONFIRM=]"))
-        .stdout(predicate::str::contains("[env: PURL_NETWORK=]"));
+        .stdout(predicate::str::contains("[env: PGET_MAX_AMOUNT=]"))
+        .stdout(predicate::str::contains("[env: PGET_CONFIRM=]"))
+        .stdout(predicate::str::contains("[env: PGET_NETWORK=]"));
 }
 
 #[test]
 fn test_help_shows_default_values() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -265,7 +265,7 @@ fn test_help_shows_default_values() {
 
 #[test]
 fn test_help_shows_aliases() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -274,7 +274,7 @@ fn test_help_shows_aliases() {
 
 #[test]
 fn test_help_shows_possible_values() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -294,11 +294,11 @@ fn test_alias_with_display_options() {
 
 #[test]
 fn test_completions_alias_with_verbosity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["com", "bash", "-v"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("_purl"));
+        .stdout(predicate::str::contains("_pget"));
 }
 
 #[test]
@@ -343,7 +343,7 @@ fn test_method_verify_nonexistent() {
 
 #[test]
 fn test_networks_list() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "list"])
         .assert()
         .success()
@@ -357,7 +357,7 @@ fn test_networks_list() {
 
 #[test]
 fn test_networks_list_json() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "list", "--output-format", "json"])
         .assert()
         .success()
@@ -368,7 +368,7 @@ fn test_networks_list_json() {
 
 #[test]
 fn test_networks_list_yaml() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "list", "--output-format", "yaml"])
         .assert()
         .success()
@@ -379,7 +379,7 @@ fn test_networks_list_yaml() {
 
 #[test]
 fn test_networks_no_subcommand_defaults_to_list() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks"])
         .assert()
         .success()
@@ -390,7 +390,7 @@ fn test_networks_no_subcommand_defaults_to_list() {
 
 #[test]
 fn test_networks_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["n", "list"])
         .assert()
         .success()
@@ -399,7 +399,7 @@ fn test_networks_alias() {
 
 #[test]
 fn test_networks_info_base() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "info", "base"])
         .assert()
         .success()
@@ -416,7 +416,7 @@ fn test_networks_info_base() {
 
 #[test]
 fn test_networks_info_testnet() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "info", "base-sepolia"])
         .assert()
         .success()
@@ -428,7 +428,7 @@ fn test_networks_info_testnet() {
 
 #[test]
 fn test_networks_info_json() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "info", "base", "--output-format", "json"])
         .assert()
         .success()
@@ -438,7 +438,7 @@ fn test_networks_info_json() {
 
 #[test]
 fn test_networks_info_yaml() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "info", "ethereum", "--output-format", "yaml"])
         .assert()
         .success()
@@ -448,7 +448,7 @@ fn test_networks_info_yaml() {
 
 #[test]
 fn test_networks_info_unknown_network() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "info", "unknown-network"])
         .assert()
         .failure()
@@ -458,7 +458,7 @@ fn test_networks_info_unknown_network() {
 
 #[test]
 fn test_networks_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "--help"])
         .assert()
         .success()
@@ -471,7 +471,7 @@ fn test_networks_help() {
 
 #[test]
 fn test_inspect_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["inspect", "--help"])
         .assert()
         .success()
@@ -480,7 +480,7 @@ fn test_inspect_help() {
 
 #[test]
 fn test_inspect_missing_url() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("inspect")
         .assert()
         .failure();
@@ -582,16 +582,16 @@ fn test_inspect_with_all_output_formats() {
 
 #[test]
 fn test_version_command() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("purl:"));
+        .stdout(predicate::str::contains("pget:"));
 }
 
 #[test]
 fn test_version_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--version")
         .assert()
         .success();
@@ -599,30 +599,30 @@ fn test_version_flag() {
 
 #[test]
 fn test_version_alias_v() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("v")
         .assert()
         .success()
-        .stdout(predicate::str::contains("purl:"));
+        .stdout(predicate::str::contains("pget:"));
 }
 
 #[test]
 fn test_init_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["init", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialize purl configuration"))
+        .stdout(predicate::str::contains("Initialize pget configuration"))
         .stdout(predicate::str::contains("--force"));
 }
 
 #[test]
 fn test_init_alias_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["i", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialize purl configuration"));
+        .stdout(predicate::str::contains("Initialize pget configuration"));
 }
 
 #[test]
@@ -684,7 +684,7 @@ fn test_all_output_formats_with_config() {
 
 #[test]
 fn test_completions_invalid_shell() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["completions", "invalid-shell"])
         .assert()
         .failure();
@@ -692,7 +692,7 @@ fn test_completions_invalid_shell() {
 
 #[test]
 fn test_completions_case_sensitivity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["completions", "BASH"])
         .assert()
         .failure();
@@ -700,7 +700,7 @@ fn test_completions_case_sensitivity() {
 
 #[test]
 fn test_networks_info_case_sensitivity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "info", "BASE"])
         .assert()
         .failure()
@@ -709,7 +709,7 @@ fn test_networks_info_case_sensitivity() {
 
 #[test]
 fn test_networks_info_with_quiet() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["networks", "info", "base", "-q"])
         .assert()
         .success();
@@ -718,7 +718,7 @@ fn test_networks_info_with_quiet() {
 #[test]
 fn test_networks_list_with_all_formats() {
     for format in ["text", "json", "yaml"] {
-        Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+        Command::new(assert_cmd::cargo::cargo_bin!("pget"))
             .args(["networks", "list", "--output-format", format])
             .assert()
             .success();
@@ -727,7 +727,7 @@ fn test_networks_list_with_all_formats() {
 
 #[test]
 fn test_main_help_lists_all_commands() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
         .assert()
         .success()
@@ -743,7 +743,7 @@ fn test_main_help_lists_all_commands() {
 
 #[test]
 fn test_help_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("-h")
         .assert()
         .success();
@@ -751,7 +751,7 @@ fn test_help_flag() {
 
 #[test]
 fn test_invalid_command() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .args(["config", "invalid-subcommand"])
         .assert()
         .failure();
@@ -759,7 +759,7 @@ fn test_invalid_command() {
 
 #[test]
 fn test_invalid_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("purl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--invalid-flag")
         .assert()
         .failure();

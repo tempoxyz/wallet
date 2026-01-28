@@ -1,5 +1,5 @@
 use crate::config::{Config, WalletConfig};
-use crate::error::{PurlError, Result, ResultExt, SigningContext};
+use crate::error::{PgetError, Result, ResultExt, SigningContext};
 use crate::network::{get_network, ChainType, GasConfig, Network};
 use crate::payment::currency::Currency;
 use crate::payment::provider::{
@@ -90,7 +90,7 @@ impl PaymentProvider for TempoProvider {
         let charge_req: ChargeRequest = challenge
             .request
             .decode()
-            .map_err(|e| PurlError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
+            .map_err(|e| PgetError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
         let signer = Self::load_signer(config)?;
         let evm_config = config.require_evm()?;
@@ -103,7 +103,7 @@ impl PaymentProvider for TempoProvider {
             .as_ref()
             .map(|addr| {
                 Address::from_str(addr)
-                    .map_err(|e| PurlError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+                    .map_err(|e| PgetError::InvalidConfig(format!("Invalid wallet address: {}", e)))
             })
             .transpose()?;
 
@@ -137,7 +137,7 @@ impl PaymentProvider for TempoProvider {
         };
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            PurlError::UnsupportedPaymentMethod(format!(
+            PgetError::UnsupportedPaymentMethod(format!(
                 "Unsupported payment method: {}",
                 challenge.method
             ))
@@ -145,7 +145,7 @@ impl PaymentProvider for TempoProvider {
 
         let network_info = config.resolve_network(network_name)?;
         let chain_id = network_info.chain_id.ok_or_else(|| {
-            PurlError::InvalidConfig(format!("{} network missing chain ID", network_name))
+            PgetError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
         let gas_config = Network::from_str(network_name)
@@ -155,7 +155,7 @@ impl PaymentProvider for TempoProvider {
 
         let provider = alloy::providers::ProviderBuilder::new().connect_http(
             network_info.rpc_url.parse().map_err(|e| {
-                PurlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+                PgetError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
             })?,
         );
 
