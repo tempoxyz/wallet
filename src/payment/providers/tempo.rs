@@ -10,7 +10,9 @@ use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use async_trait::async_trait;
 use std::str::FromStr;
 
-use tempo_primitives::transaction::{AASigned, Call, TempoTransaction};
+use tempo_primitives::transaction::{
+    AASigned, Call, KeychainSignature, PrimitiveSignature, TempoSignature, TempoTransaction,
+};
 
 const PROVIDER_NAME: &str = "Tempo";
 
@@ -91,7 +93,22 @@ impl PaymentProvider for TempoProvider {
             .map_err(|e| PurlError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
         let signer = Self::load_signer(config)?;
-        let from = signer.address();
+        let evm_config = config.require_evm()?;
+
+        // If wallet_address is set, use keychain signing mode:
+        // - from = wallet address (the passkey wallet that holds funds)
+        // - signature = keychain-wrapped signature with access key's inner signature
+        let wallet_address = evm_config
+            .wallet_address
+            .as_ref()
+            .map(|addr| {
+                Address::from_str(addr)
+                    .map_err(|e| PurlError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+            })
+            .transpose()?;
+
+        // The 'from' address is the wallet address if in keychain mode, otherwise the signer address
+        let from = wallet_address.unwrap_or_else(|| signer.address());
 
         let currency = charge_req.currency_address()?;
         let recipient = charge_req.recipient_address()?;
@@ -159,6 +176,7 @@ impl PaymentProvider for TempoProvider {
             currency,
             transfer_data,
             &gas_config,
+            wallet_address,
         )?;
 
         let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
@@ -172,6 +190,10 @@ impl PaymentProvider for TempoProvider {
 }
 
 /// Create a Tempo transaction (type 0x76) with network-specific gas configuration.
+///
+/// If `wallet_address` is provided, uses keychain signing mode where:
+/// - The private key is treated as an access key
+/// - The signature is wrapped in keychain format (0x03 || wallet_address || inner_signature)
 fn create_tempo_transaction(
     signer: &PrivateKeySigner,
     chain_id: u64,
@@ -179,6 +201,7 @@ fn create_tempo_transaction(
     asset: Address,
     transfer_data: alloy::primitives::Bytes,
     gas_config: &GasConfig,
+    wallet_address: Option<Address>,
 ) -> Result<String> {
     use alloy::primitives::TxKind;
 
@@ -204,15 +227,28 @@ fn create_tempo_transaction(
     };
 
     let signing_hash = tx.signature_hash();
-    let signature = signer
-        .sign_hash_sync(&signing_hash)
-        .with_signing_context(SigningContext {
-            network: Some(format!("chain_id:{}", chain_id)),
-            address: None,
-            operation: "sign_tempo_transaction",
-        })?;
+    let inner_signature =
+        signer
+            .sign_hash_sync(&signing_hash)
+            .with_signing_context(SigningContext {
+                network: Some(format!("chain_id:{}", chain_id)),
+                address: None,
+                operation: "sign_tempo_transaction",
+            })?;
 
-    let signed_tx: AASigned = tx.into_signed(signature.into());
+    // Build the final signature - either keychain-wrapped or direct
+    let tempo_signature: TempoSignature = if let Some(wallet_addr) = wallet_address {
+        // Keychain signing mode: wrap the signature with the wallet address
+        // Format: 0x03 || wallet_address (20 bytes) || inner_signature (65 bytes)
+        let keychain_sig =
+            KeychainSignature::new(wallet_addr, PrimitiveSignature::Secp256k1(inner_signature));
+        TempoSignature::Keychain(keychain_sig)
+    } else {
+        // Direct signing mode: use the signature as-is
+        TempoSignature::Primitive(PrimitiveSignature::Secp256k1(inner_signature))
+    };
+
+    let signed_tx: AASigned = tx.into_signed(tempo_signature);
     let mut buf = Vec::new();
     signed_tx.eip2718_encode(&mut buf);
 
@@ -260,5 +296,103 @@ mod tests {
 
         let address = provider.get_address(&config);
         assert!(address.is_err());
+    }
+
+    #[test]
+    fn test_create_tempo_transaction_direct_signing() {
+        use crate::network::GasConfig;
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let asset = Address::ZERO;
+        let transfer_data = alloy::primitives::Bytes::new();
+
+        let result = create_tempo_transaction(
+            &signer,
+            42431, // tempo-moderato chain id
+            0,
+            asset,
+            transfer_data,
+            &GasConfig::DEFAULT,
+            None, // No wallet address = direct signing
+        );
+
+        assert!(result.is_ok());
+        let tx_hex = result.unwrap();
+        // Tempo tx type is 0x76, should start with 76
+        assert!(tx_hex.starts_with("76"));
+    }
+
+    #[test]
+    fn test_create_tempo_transaction_keychain_signing() {
+        use crate::network::GasConfig;
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let asset = Address::ZERO;
+        let transfer_data = alloy::primitives::Bytes::new();
+        let wallet_address = Address::repeat_byte(0xAB);
+
+        let result = create_tempo_transaction(
+            &signer,
+            42431, // tempo-moderato chain id
+            0,
+            asset,
+            transfer_data,
+            &GasConfig::DEFAULT,
+            Some(wallet_address), // Keychain signing mode
+        );
+
+        assert!(result.is_ok());
+        let tx_hex = result.unwrap();
+        // Tempo tx type is 0x76, should start with 76
+        assert!(tx_hex.starts_with("76"));
+        // The transaction should be different due to keychain signature format
+        // (0x03 prefix in signature instead of direct secp256k1)
+    }
+
+    #[test]
+    fn test_keychain_vs_direct_signing_produces_different_tx() {
+        use crate::network::GasConfig;
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let asset = Address::ZERO;
+        let transfer_data = alloy::primitives::Bytes::new();
+        let wallet_address = Address::repeat_byte(0xAB);
+
+        let direct_tx = create_tempo_transaction(
+            &signer,
+            42431,
+            0,
+            asset,
+            transfer_data.clone(),
+            &GasConfig::DEFAULT,
+            None,
+        )
+        .unwrap();
+
+        let keychain_tx = create_tempo_transaction(
+            &signer,
+            42431,
+            0,
+            asset,
+            transfer_data,
+            &GasConfig::DEFAULT,
+            Some(wallet_address),
+        )
+        .unwrap();
+
+        // Keychain signature is longer due to the extra wallet address bytes
+        assert!(keychain_tx.len() > direct_tx.len());
     }
 }

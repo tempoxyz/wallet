@@ -119,6 +119,12 @@ pub struct EvmConfig {
     /// Raw private key (runtime only, never serialized)
     #[serde(skip)]
     pub private_key: Option<String>,
+
+    /// Wallet address for keychain (access key) signing mode.
+    /// When set, the private key is treated as an access key that signs
+    /// on behalf of this wallet address using keychain signatures (0x03).
+    #[serde(skip)]
+    pub wallet_address: Option<String>,
 }
 
 impl EvmConfig {
@@ -502,6 +508,7 @@ impl ConfigBuilder {
             Some(EvmConfig {
                 keystore: self.evm_keystore,
                 private_key: None,
+                wallet_address: None,
             })
         } else {
             None
@@ -566,6 +573,7 @@ mod tests {
             evm: Some(EvmConfig {
                 keystore: Some(temp_file.path().to_path_buf()),
                 private_key: None,
+                wallet_address: None,
             }),
             ..Default::default()
         };
@@ -587,6 +595,7 @@ mod tests {
             evm: Some(EvmConfig {
                 keystore: None,
                 private_key: None,
+                wallet_address: None,
             }),
             ..Default::default()
         };
@@ -605,6 +614,7 @@ mod tests {
             evm: Some(EvmConfig {
                 keystore: Some(PathBuf::from("/nonexistent/keystore.json")),
                 private_key: None,
+                wallet_address: None,
             }),
             ..Default::default()
         };
@@ -772,12 +782,14 @@ mod tests {
         let config = EvmConfig {
             keystore: Some(PathBuf::from("/test/path")),
             private_key: None,
+            wallet_address: None,
         };
         assert!(config.has_wallet());
 
         let config = EvmConfig {
             keystore: None,
             private_key: None,
+            wallet_address: None,
         };
         assert!(!config.has_wallet());
     }
@@ -787,6 +799,7 @@ mod tests {
         let config = EvmConfig {
             keystore: None,
             private_key: None,
+            wallet_address: None,
         };
 
         let result = config.get_address();

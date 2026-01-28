@@ -29,5 +29,10 @@ pub fn load_config_with_overrides(cli: &Cli) -> Result<Config> {
         evm.private_key = Some(private_key.clone());
     }
 
+    if let Some(ref wallet_address) = cli.wallet_address {
+        let evm = config.evm.get_or_insert(EvmConfig::default());
+        evm.wallet_address = Some(wallet_address.clone());
+    }
+
     Ok(config)
 }
