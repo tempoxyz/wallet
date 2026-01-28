@@ -105,7 +105,7 @@ fn test_config_get_evm_keystore() {
         .args(["config", "get", "evm.keystore"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("purl"))
+        .stdout(predicate::str::contains("pget"))
         .stdout(predicate::str::contains("keystores"))
         .stdout(predicate::str::contains("test-wallet.json"));
 }

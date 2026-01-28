@@ -1,4 +1,4 @@
-//! purl CLI - A curl-like tool for payment-enabled HTTP requests
+//! pget CLI - A wget-like tool for payment-enabled HTTP requests
 
 // Library modules (from lib.rs)
 mod config;
@@ -147,7 +147,7 @@ async fn make_request(cli: Cli) -> Result<()> {
         .cli
         .url
         .as_ref()
-        .context("URL is required (or use 'purl init' to initialize configuration)")?;
+        .context("URL is required (or use 'pget init' to initialize configuration)")?;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Making {} request to: {url}", request_ctx.method);
@@ -240,7 +240,7 @@ fn show_config(cli: &Cli, output_format: OutputFormat, show_private_keys: bool) 
 
             if config.evm.is_none() {
                 println!("No payment methods configured.");
-                println!("Run 'purl init' to configure payment methods.");
+                println!("Run 'pget init' to configure payment methods.");
             }
         }
     }
@@ -252,7 +252,7 @@ fn show_config(cli: &Cli, output_format: OutputFormat, show_private_keys: bool) 
 
 /// Show version information
 fn show_version() -> Result<()> {
-    println!("purl: v{VERSION}");
+    println!("pget: v{VERSION}");
 
     Ok(())
 }

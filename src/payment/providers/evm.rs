@@ -1,5 +1,5 @@
 use crate::config::{Config, WalletConfig};
-use crate::error::{PurlError, Result, ResultExt, SigningContext};
+use crate::error::{PgetError, Result, ResultExt, SigningContext};
 use crate::network::{get_network, ChainType, GasConfig, Network};
 use crate::payment::currency::Currency;
 use crate::payment::money::format_u256_with_decimals;
@@ -67,7 +67,7 @@ impl BalanceProvider for EvmProvider {
         }
 
         let token_config = network.usdc_config().ok_or_else(|| {
-            PurlError::UnsupportedToken(format!(
+            PgetError::UnsupportedToken(format!(
                 "Network {} does not support {}",
                 network, currency.symbol
             ))
@@ -77,13 +77,13 @@ impl BalanceProvider for EvmProvider {
         let network_info = config.resolve_network(network.as_str())?;
         let provider =
             ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-                PurlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+                PgetError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
             })?);
 
         let user_addr = Address::from_str(address)
-            .map_err(|e| PurlError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
+            .map_err(|e| PgetError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
         let token_addr = Address::from_str(token_config.address).map_err(|e| {
-            PurlError::invalid_address(format!(
+            PgetError::invalid_address(format!(
                 "Invalid {} contract address for {}: {}",
                 token_config.currency.symbol, network, e
             ))
@@ -92,7 +92,7 @@ impl BalanceProvider for EvmProvider {
         let contract = IERC20::new(token_addr, &provider);
 
         let balance = contract.balanceOf(user_addr).call().await.map_err(|e| {
-            PurlError::BalanceQuery(format!(
+            PgetError::BalanceQuery(format!(
                 "Failed to get {} balance for {} on {}: {}",
                 token_config.currency.symbol, address, network, e
             ))
@@ -128,7 +128,7 @@ impl PaymentProvider for EvmProvider {
         let charge_req: ChargeRequest = challenge
             .request
             .decode()
-            .map_err(|e| PurlError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
+            .map_err(|e| PgetError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
         let signer = Self::load_signer(config)?;
         let from = signer.address();
@@ -160,7 +160,7 @@ impl PaymentProvider for EvmProvider {
         };
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            PurlError::UnsupportedPaymentMethod(format!(
+            PgetError::UnsupportedPaymentMethod(format!(
                 "Unsupported payment method: {}",
                 challenge.method
             ))
@@ -168,7 +168,7 @@ impl PaymentProvider for EvmProvider {
 
         let network_info = config.resolve_network(network_name)?;
         let chain_id = network_info.chain_id.ok_or_else(|| {
-            PurlError::InvalidConfig(format!("{} network missing chain ID", network_name))
+            PgetError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
         let gas_config = Network::from_str(network_name)
@@ -178,7 +178,7 @@ impl PaymentProvider for EvmProvider {
 
         let provider =
             ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-                PurlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+                PgetError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
             })?);
 
         let nonce = provider

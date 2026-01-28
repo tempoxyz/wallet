@@ -1,9 +1,9 @@
-//! Exit codes for the purl CLI.
+//! Exit codes for the pget CLI.
 //!
 //! Following standard Unix conventions and providing specific codes
 //! for different error categories to aid scripting and automation.
 
-/// Exit codes for the purl CLI.
+/// Exit codes for the pget CLI.
 ///
 /// These codes follow Unix conventions where possible:
 /// - 0: Success
@@ -71,9 +71,9 @@ impl From<ExitCode> for i32 {
 
 impl From<&anyhow::Error> for ExitCode {
     fn from(err: &anyhow::Error) -> Self {
-        // Try to downcast to PurlError for specific handling
-        if let Some(purl_err) = err.downcast_ref::<crate::error::PurlError>() {
-            return ExitCode::from(purl_err);
+        // Try to downcast to PgetError for specific handling
+        if let Some(pget_err) = err.downcast_ref::<crate::error::PgetError>() {
+            return ExitCode::from(pget_err);
         }
 
         // Check error message for common patterns
@@ -93,41 +93,41 @@ impl From<&anyhow::Error> for ExitCode {
     }
 }
 
-impl From<&crate::error::PurlError> for ExitCode {
-    fn from(err: &crate::error::PurlError) -> Self {
-        use crate::error::PurlError;
+impl From<&crate::error::PgetError> for ExitCode {
+    fn from(err: &crate::error::PgetError) -> Self {
+        use crate::error::PgetError;
 
         match err {
             // Configuration errors
-            PurlError::ConfigMissing(_)
-            | PurlError::InvalidConfig(_)
-            | PurlError::NoConfigDir
-            | PurlError::TomlParse(_)
-            | PurlError::TomlSerialize(_) => ExitCode::ConfigError,
+            PgetError::ConfigMissing(_)
+            | PgetError::InvalidConfig(_)
+            | PgetError::NoConfigDir
+            | PgetError::TomlParse(_)
+            | PgetError::TomlSerialize(_) => ExitCode::ConfigError,
 
             // Payment/funds errors
-            PurlError::AmountExceedsMax { .. } | PurlError::InvalidAmount(_) => {
+            PgetError::AmountExceedsMax { .. } | PgetError::InvalidAmount(_) => {
                 ExitCode::InsufficientFunds
             }
 
-            PurlError::NoPaymentMethods | PurlError::NoCompatibleMethod { .. } => {
+            PgetError::NoPaymentMethods | PgetError::NoCompatibleMethod { .. } => {
                 ExitCode::PaymentFailed
             }
 
             // Network/provider errors
-            PurlError::ProviderNotFound(_)
-            | PurlError::UnknownNetwork(_)
-            | PurlError::Http(_)
-            | PurlError::Reqwest(_) => ExitCode::NetworkError,
+            PgetError::ProviderNotFound(_)
+            | PgetError::UnknownNetwork(_)
+            | PgetError::Http(_)
+            | PgetError::Reqwest(_) => ExitCode::NetworkError,
 
             // Auth/signing errors
-            PurlError::InvalidKey(_)
-            | PurlError::Signing { .. }
-            | PurlError::SigningSimple(_)
-            | PurlError::InvalidAddress(_) => ExitCode::AuthError,
+            PgetError::InvalidKey(_)
+            | PgetError::Signing { .. }
+            | PgetError::SigningSimple(_)
+            | PgetError::InvalidAddress(_) => ExitCode::AuthError,
 
             // Not found errors
-            PurlError::TokenConfigNotFound { .. } => ExitCode::NotFound,
+            PgetError::TokenConfigNotFound { .. } => ExitCode::NotFound,
 
             // General errors
             _ => ExitCode::GeneralError,
@@ -147,19 +147,19 @@ mod tests {
     }
 
     #[test]
-    fn test_exit_code_from_purl_error() {
-        use crate::error::PurlError;
+    fn test_exit_code_from_pget_error() {
+        use crate::error::PgetError;
 
         assert_eq!(
-            ExitCode::from(&PurlError::ConfigMissing("test".into())),
+            ExitCode::from(&PgetError::ConfigMissing("test".into())),
             ExitCode::ConfigError
         );
         assert_eq!(
-            ExitCode::from(&PurlError::NoPaymentMethods),
+            ExitCode::from(&PgetError::NoPaymentMethods),
             ExitCode::PaymentFailed
         );
         assert_eq!(
-            ExitCode::from(&PurlError::UnknownNetwork("test".into())),
+            ExitCode::from(&PgetError::UnknownNetwork("test".into())),
             ExitCode::NetworkError
         );
     }

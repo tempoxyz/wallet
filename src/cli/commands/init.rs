@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Password};
 use std::path::PathBuf;
 
-const PURL_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/purl/SKILL.md");
+const PGET_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/pget/SKILL.md");
 
 #[allow(deprecated)]
 pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
@@ -25,7 +25,7 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
         }
     }
 
-    println!("Initializing purl configuration...");
+    println!("Initializing pget configuration...");
     println!("Wallets will be stored as encrypted keystore files");
 
     let configure_evm = Confirm::new()
@@ -98,7 +98,7 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
         }
     }
 
-    println!("You can now use purl to make HTTP-based payment requests!");
+    println!("You can now use pget to make HTTP-based payment requests!");
 
     Ok(())
 }
@@ -111,11 +111,11 @@ fn install_ai_integrations() -> Result<PathBuf> {
     let skills_dir =
         claude_skills_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
 
-    let purl_skill_dir = skills_dir.join("purl");
-    std::fs::create_dir_all(&purl_skill_dir).context("Failed to create Claude skills directory")?;
+    let pget_skill_dir = skills_dir.join("pget");
+    std::fs::create_dir_all(&pget_skill_dir).context("Failed to create Claude skills directory")?;
 
-    let skill_path = purl_skill_dir.join("SKILL.md");
-    std::fs::write(&skill_path, PURL_SKILL_CONTENT).context("Failed to write SKILL.md")?;
+    let skill_path = pget_skill_dir.join("SKILL.md");
+    std::fs::write(&skill_path, PGET_SKILL_CONTENT).context("Failed to write SKILL.md")?;
 
     Ok(skill_path)
 }

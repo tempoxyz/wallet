@@ -16,8 +16,8 @@ pub enum ColorMode {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "purl")]
-#[command(about = "A curl-like tool for HTTP-based payment requests", long_about = None)]
+#[command(name = "pget")]
+#[command(about = "A wget-like tool for HTTP-based payment requests", long_about = None)]
 #[command(version)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct Cli {
@@ -39,7 +39,7 @@ pub struct Cli {
         long,
         visible_alias = "max",
         value_name = "AMOUNT",
-        env = "PURL_MAX_AMOUNT",
+        env = "PGET_MAX_AMOUNT",
         help_heading = "Payment Options"
     )]
     pub max_amount: Option<String>,
@@ -48,7 +48,7 @@ pub struct Cli {
     #[arg(
         short = 'y',
         long,
-        env = "PURL_CONFIRM",
+        env = "PGET_CONFIRM",
         help_heading = "Payment Options"
     )]
     pub confirm: bool,
@@ -58,7 +58,7 @@ pub struct Cli {
         short = 'n',
         long,
         value_name = "NETWORKS",
-        env = "PURL_NETWORK",
+        env = "PGET_NETWORK",
         global = true,
         help_heading = "Payment Options"
     )]
@@ -200,7 +200,7 @@ pub struct Cli {
     #[arg(
         long = "keystore",
         value_name = "PATH",
-        env = "PURL_KEYSTORE",
+        env = "PGET_KEYSTORE",
         help_heading = "Wallet Options"
     )]
     pub keystore: Option<String>,
@@ -210,7 +210,7 @@ pub struct Cli {
         short = 'a',
         long = "account",
         value_name = "NAME",
-        env = "PURL_ACCOUNT",
+        env = "PGET_ACCOUNT",
         help_heading = "Wallet Options"
     )]
     pub account: Option<String>,
@@ -219,7 +219,7 @@ pub struct Cli {
     #[arg(
         long = "from",
         value_name = "ADDRESS",
-        env = "PURL_FROM",
+        env = "PGET_FROM",
         help_heading = "Wallet Options"
     )]
     pub from: Option<String>,
@@ -228,7 +228,7 @@ pub struct Cli {
     #[arg(
         long = "password",
         value_name = "PASSWORD",
-        env = "PURL_PASSWORD",
+        env = "PGET_PASSWORD",
         help_heading = "Wallet Options"
     )]
     pub password: Option<String>,
@@ -237,7 +237,7 @@ pub struct Cli {
     #[arg(
         long = "password-file",
         value_name = "PATH",
-        env = "PURL_PASSWORD_FILE",
+        env = "PGET_PASSWORD_FILE",
         help_heading = "Wallet Options"
     )]
     pub password_file: Option<String>,
@@ -255,7 +255,7 @@ pub struct Cli {
     #[arg(
         long = "private-key",
         value_name = "KEY",
-        env = "PURL_PRIVATE_KEY",
+        env = "PGET_PRIVATE_KEY",
         help_heading = "Wallet Options",
         hide_env_values = true
     )]
@@ -267,7 +267,7 @@ pub struct Cli {
     #[arg(
         long = "wallet",
         value_name = "ADDRESS",
-        env = "PURL_WALLET_ADDRESS",
+        env = "PGET_WALLET_ADDRESS",
         help_heading = "Wallet Options"
     )]
     pub wallet_address: Option<String>,
@@ -279,7 +279,7 @@ pub struct Cli {
         long = "rpc",
         visible_alias = "rpc-url",
         value_name = "URL",
-        env = "PURL_RPC_URL",
+        env = "PGET_RPC_URL",
         help_heading = "RPC Options"
     )]
     pub rpc_url: Option<String>,
@@ -287,7 +287,7 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Initialize purl configuration
+    /// Initialize pget configuration
     #[command(alias = "i")]
     Init {
         /// Force overwrite existing config
@@ -494,7 +494,7 @@ pub mod test_utils {
 
     /// Create a Cli instance from command-line arguments for testing.
     ///
-    /// The "purl" program name is automatically prepended.
+    /// The "pget" program name is automatically prepended.
     ///
     /// # Example
     ///
@@ -503,7 +503,7 @@ pub mod test_utils {
     /// assert!(cli.data.is_some());
     /// ```
     pub fn make_cli(args: &[&str]) -> Cli {
-        let mut full_args = vec!["purl"];
+        let mut full_args = vec!["pget"];
         full_args.extend(args);
         Cli::parse_from(full_args)
     }

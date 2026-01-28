@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_no_constraints() {
-        let cli = Cli::try_parse_from(["purl"]).unwrap();
+        let cli = Cli::try_parse_from(["pget"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_max_amount_ok() {
-        let cli = Cli::try_parse_from(["purl", "--max-amount", "2000000"]).unwrap();
+        let cli = Cli::try_parse_from(["pget", "--max-amount", "2000000"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_max_amount_exceeded() {
-        let cli = Cli::try_parse_from(["purl", "--max-amount", "500000"]).unwrap();
+        let cli = Cli::try_parse_from(["pget", "--max-amount", "500000"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_max_amount_equal() {
-        let cli = Cli::try_parse_from(["purl", "--max-amount", "1000000"]).unwrap();
+        let cli = Cli::try_parse_from(["pget", "--max-amount", "1000000"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_match() {
         // MethodName::new("tempo") maps to "tempo-moderato" network
-        let cli = Cli::try_parse_from(["purl", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
-        let cli = Cli::try_parse_from(["purl", "--network", "ethereum"]).unwrap();
+        let cli = Cli::try_parse_from(["pget", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_multiple_networks() {
         // MethodName::new("tempo") maps to "tempo-moderato"
-        let cli = Cli::try_parse_from(["purl", "--network", "tempo-moderato, ethereum"]).unwrap();
+        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_tempo_network() {
         // MethodName::new("tempo") maps to "tempo-moderato" network
-        let cli = Cli::try_parse_from(["purl", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
@@ -469,7 +469,7 @@ mod tests {
     fn test_validate_constraints_combined() {
         // MethodName::new("tempo") maps to "tempo-moderato"
         let cli = Cli::try_parse_from([
-            "purl",
+            "pget",
             "--max-amount",
             "2000000",
             "--network",

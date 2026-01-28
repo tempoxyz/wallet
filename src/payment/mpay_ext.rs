@@ -1,7 +1,7 @@
 //! Purl-specific extensions to mpay types.
 //!
 //! This module provides helper functions that bridge mpay's protocol types
-//! to purl's network abstractions. Import mpay types directly from `mpay::*`.
+//! to pget's network abstractions. Import mpay types directly from `mpay::*`.
 
 #![allow(dead_code)]
 
@@ -11,11 +11,11 @@ use mpay::Challenge::PaymentChallenge;
 use mpay::Intent::ChargeRequest;
 use mpay::Schema::MethodName;
 
-use crate::error::{PurlError, Result};
+use crate::error::{PgetError, Result};
 use crate::network::{networks, Network};
 use crate::payment::money::{Money, TokenId};
 
-/// Map an mpay `MethodName` to a purl network name.
+/// Map an mpay `MethodName` to a pget network name.
 ///
 /// Returns the canonical network name for supported payment methods,
 /// or `None` for unsupported methods.
@@ -32,7 +32,7 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
     }
 }
 
-/// Check if a payment method is supported by purl.
+/// Check if a payment method is supported by pget.
 pub fn is_method_supported(method: &MethodName) -> bool {
     method_to_network(method).is_some()
 }
@@ -47,7 +47,7 @@ pub fn is_base(method: &MethodName) -> bool {
     method.eq_ignore_ascii_case("base")
 }
 
-/// Validate that a payment challenge can be processed by purl.
+/// Validate that a payment challenge can be processed by pget.
 ///
 /// # Validation Checks
 ///
@@ -60,14 +60,14 @@ pub fn is_base(method: &MethodName) -> bool {
 /// Returns `UnsupportedPaymentIntent` if the intent is not "charge".
 pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
     if !is_method_supported(&challenge.method) {
-        return Err(PurlError::UnsupportedPaymentMethod(format!(
+        return Err(PgetError::UnsupportedPaymentMethod(format!(
             "Payment method '{}' is not supported. Supported methods: tempo, base",
             challenge.method
         )));
     }
 
     if !challenge.intent.is_charge() {
-        return Err(PurlError::UnsupportedPaymentIntent(format!(
+        return Err(PgetError::UnsupportedPaymentIntent(format!(
             "Only 'charge' intent is supported, got: {}",
             challenge.intent
         )));
@@ -79,7 +79,7 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
 /// Extension trait for mpay's `ChargeRequest` with EVM-specific accessors.
 ///
 /// Provides typed accessors for parsing string fields into EVM primitives
-/// and purl money types.
+/// and pget money types.
 pub trait ChargeRequestExt {
     /// Get the recipient address as a typed `Address`.
     ///
@@ -139,17 +139,17 @@ pub trait ChargeRequestExt {
 impl ChargeRequestExt for ChargeRequest {
     fn recipient_address(&self) -> Result<Address> {
         let recipient = self.recipient.as_ref().ok_or_else(|| {
-            PurlError::InvalidChallenge("No recipient specified in charge request".to_string())
+            PgetError::InvalidChallenge("No recipient specified in charge request".to_string())
         })?;
-        parse_address(recipient).map_err(|e| PurlError::InvalidAddress(e.to_string()))
+        parse_address(recipient).map_err(|e| PgetError::InvalidAddress(e.to_string()))
     }
 
     fn currency_address(&self) -> Result<Address> {
-        parse_address(&self.currency).map_err(|e| PurlError::InvalidAddress(e.to_string()))
+        parse_address(&self.currency).map_err(|e| PgetError::InvalidAddress(e.to_string()))
     }
 
     fn amount_u256(&self) -> Result<U256> {
-        parse_amount(&self.amount).map_err(|e| PurlError::InvalidAmount(e.to_string()))
+        parse_amount(&self.amount).map_err(|e| PgetError::InvalidAmount(e.to_string()))
     }
 
     fn fee_payer(&self) -> bool {
@@ -187,19 +187,19 @@ impl ChargeRequestExt for ChargeRequest {
 
     fn money(&self, network: Network) -> Result<Money> {
         let token_config = network.usdc_config().ok_or_else(|| {
-            PurlError::UnsupportedToken(format!("No token configuration for network '{}'", network))
+            PgetError::UnsupportedToken(format!("No token configuration for network '{}'", network))
         })?;
 
         let currency_addr = self.currency_address()?;
         let expected_addr: Address = token_config.address.parse().map_err(|e| {
-            PurlError::InvalidAddress(format!(
+            PgetError::InvalidAddress(format!(
                 "Invalid configured token address for {}: {}",
                 network, e
             ))
         })?;
 
         if currency_addr != expected_addr {
-            return Err(PurlError::UnsupportedToken(format!(
+            return Err(PgetError::UnsupportedToken(format!(
                 "Currency {} does not match configured token {} for network {}",
                 self.currency, token_config.address, network
             )));

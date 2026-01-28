@@ -2,23 +2,23 @@
 
 use std::path::{Component, PathBuf};
 
-use crate::error::PurlError;
+use crate::error::PgetError;
 
 /// Validates that a path doesn't contain directory traversal sequences.
 /// Returns the validated path or an error if traversal is detected.
-pub fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PurlError> {
+pub fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PgetError> {
     let path = PathBuf::from(path);
 
     // Check for parent directory components (..)
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(PurlError::ConfigMissing(
+        return Err(PgetError::ConfigMissing(
             "Path traversal (..) not allowed".to_string(),
         ));
     }
 
     // Optionally reject absolute paths
     if !allow_absolute && path.is_absolute() {
-        return Err(PurlError::ConfigMissing(
+        return Err(PgetError::ConfigMissing(
             "Absolute paths not allowed for this option".to_string(),
         ));
     }

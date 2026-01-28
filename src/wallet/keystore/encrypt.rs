@@ -1,13 +1,13 @@
 //! Keystore encryption and decryption functionality
 
 use super::cache::{cache_password, clear_cached_password, get_cached_password, KeystoreId};
-use crate::error::{PurlError, Result};
+use crate::error::{PgetError, Result};
 use crate::util::constants::{default_keystores_dir, EVM_PRIVATE_KEY_BYTES, KEYSTORE_EXTENSION};
 use std::path::{Path, PathBuf};
 
-/// Get the default keystore directory (~/.purl/keystores)
+/// Get the default keystore directory (~/.pget/keystores)
 pub fn default_keystore_dir() -> Result<PathBuf> {
-    default_keystores_dir().ok_or(PurlError::NoConfigDir)
+    default_keystores_dir().ok_or(PgetError::NoConfigDir)
 }
 
 /// Validate and sanitize a keystore name to prevent path traversal attacks.
@@ -26,38 +26,38 @@ pub fn default_keystore_dir() -> Result<PathBuf> {
 /// The sanitized name if valid, or an error describing the issue.
 fn validate_keystore_name(name: &str) -> Result<&str> {
     if name.is_empty() {
-        return Err(PurlError::InvalidConfig(
+        return Err(PgetError::InvalidConfig(
             "Keystore name cannot be empty".to_string(),
         ));
     }
 
     if name.contains('/') || name.contains('\\') {
-        return Err(PurlError::InvalidConfig(format!(
+        return Err(PgetError::InvalidConfig(format!(
             "Keystore name cannot contain path separators: '{name}'"
         )));
     }
 
     if name == "." || name == ".." || name.contains("..") {
-        return Err(PurlError::InvalidConfig(format!(
+        return Err(PgetError::InvalidConfig(format!(
             "Keystore name cannot contain path traversal sequences: '{name}'"
         )));
     }
 
     if name.starts_with('.') {
-        return Err(PurlError::InvalidConfig(format!(
+        return Err(PgetError::InvalidConfig(format!(
             "Keystore name cannot start with a dot: '{name}'"
         )));
     }
 
     if name.chars().any(|c| c.is_control()) {
-        return Err(PurlError::InvalidConfig(
+        return Err(PgetError::InvalidConfig(
             "Keystore name cannot contain control characters".to_string(),
         ));
     }
 
     const MAX_NAME_LENGTH: usize = 255;
     if name.len() > MAX_NAME_LENGTH {
-        return Err(PurlError::InvalidConfig(format!(
+        return Err(PgetError::InvalidConfig(format!(
             "Keystore name too long (max {MAX_NAME_LENGTH} characters)"
         )));
     }
@@ -80,21 +80,21 @@ fn verify_path_within_directory(path: &Path, directory: &Path) -> Result<()> {
     let canonical_path =
         if path.exists() {
             path.canonicalize()
-                .map_err(|e| PurlError::InvalidConfig(format!("Failed to resolve path: {e}")))?
+                .map_err(|e| PgetError::InvalidConfig(format!("Failed to resolve path: {e}")))?
         } else {
             let parent = path.parent().ok_or_else(|| {
-                PurlError::InvalidConfig("Keystore path has no parent directory".to_string())
+                PgetError::InvalidConfig("Keystore path has no parent directory".to_string())
             })?;
             let parent_canonical = parent.canonicalize().map_err(|e| {
-                PurlError::InvalidConfig(format!("Failed to resolve parent path: {e}"))
+                PgetError::InvalidConfig(format!("Failed to resolve parent path: {e}"))
             })?;
             parent_canonical.join(path.file_name().ok_or_else(|| {
-                PurlError::InvalidConfig("Keystore path has no filename".to_string())
+                PgetError::InvalidConfig("Keystore path has no filename".to_string())
             })?)
         };
 
     if !canonical_path.starts_with(&canonical_dir) {
-        return Err(PurlError::InvalidConfig(format!(
+        return Err(PgetError::InvalidConfig(format!(
             "Keystore path escapes the keystore directory: {} is not within {}",
             canonical_path.display(),
             canonical_dir.display()
@@ -109,7 +109,7 @@ fn verify_path_within_directory(path: &Path, directory: &Path) -> Result<()> {
 /// # Examples
 ///
 /// ```no_run
-/// use purl::wallet::keystore::create_keystore;
+/// use pget::wallet::keystore::create_keystore;
 ///
 /// // Create a keystore with a private key
 /// let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
@@ -135,21 +135,21 @@ pub(crate) fn create_keystore_in_dir(
 
     let key_hex = crate::util::helpers::strip_0x_prefix(private_key);
     let key_bytes = hex::decode(key_hex)
-        .map_err(|e| PurlError::InvalidKey(format!("Invalid private key hex: {e}")))?;
+        .map_err(|e| PgetError::InvalidKey(format!("Invalid private key hex: {e}")))?;
 
     if key_bytes.len() != EVM_PRIVATE_KEY_BYTES {
-        return Err(PurlError::InvalidKey(format!(
+        return Err(PgetError::InvalidKey(format!(
             "Private key must be {EVM_PRIVATE_KEY_BYTES} bytes"
         )));
     }
 
     use alloy::signers::local::PrivateKeySigner;
     let signer = PrivateKeySigner::from_slice(&key_bytes)
-        .map_err(|e| PurlError::InvalidKey(format!("Invalid private key: {e}")))?;
+        .map_err(|e| PgetError::InvalidKey(format!("Invalid private key: {e}")))?;
     let address_no_prefix = format!("{:x}", signer.address());
 
     std::fs::create_dir_all(keystore_dir).map_err(|e| {
-        PurlError::ConfigMissing(format!(
+        PgetError::ConfigMissing(format!(
             "Failed to create keystore directory {}: {}",
             keystore_dir.display(),
             e
@@ -164,7 +164,7 @@ pub(crate) fn create_keystore_in_dir(
     }
 
     if !keystore_dir.exists() {
-        return Err(PurlError::ConfigMissing(format!(
+        return Err(PgetError::ConfigMissing(format!(
             "Keystore directory does not exist after creation: {}",
             keystore_dir.display()
         )));
@@ -183,21 +183,21 @@ pub(crate) fn create_keystore_in_dir(
         password,
         Some(&filename_with_ext),
     )
-    .map_err(|e| PurlError::ConfigMissing(format!("Failed to encrypt keystore: {e}")))?;
+    .map_err(|e| PgetError::ConfigMissing(format!("Failed to encrypt keystore: {e}")))?;
 
     let keystore_content = std::fs::read_to_string(&keystore_path)
-        .map_err(|e| PurlError::ConfigMissing(format!("Failed to read keystore: {e}")))?;
+        .map_err(|e| PgetError::ConfigMissing(format!("Failed to read keystore: {e}")))?;
 
     let mut keystore_json: serde_json::Value = serde_json::from_str(&keystore_content)
-        .map_err(|e| PurlError::ConfigMissing(format!("Failed to parse keystore: {e}")))?;
+        .map_err(|e| PgetError::ConfigMissing(format!("Failed to parse keystore: {e}")))?;
 
     keystore_json["address"] = serde_json::Value::String(address_no_prefix);
 
     let updated_keystore = serde_json::to_string_pretty(&keystore_json)
-        .map_err(|e| PurlError::ConfigMissing(format!("Failed to serialize keystore: {e}")))?;
+        .map_err(|e| PgetError::ConfigMissing(format!("Failed to serialize keystore: {e}")))?;
 
     std::fs::write(&keystore_path, updated_keystore)
-        .map_err(|e| PurlError::ConfigMissing(format!("Failed to write keystore: {e}")))?;
+        .map_err(|e| PgetError::ConfigMissing(format!("Failed to write keystore: {e}")))?;
 
     #[cfg(unix)]
     {
@@ -246,7 +246,7 @@ pub fn decrypt_keystore(
     use_cache: bool,
 ) -> Result<Vec<u8>> {
     if !keystore_path.exists() {
-        return Err(PurlError::ConfigMissing(format!(
+        return Err(PgetError::ConfigMissing(format!(
             "Keystore file not found: {}",
             keystore_path.display()
         )));
@@ -268,14 +268,14 @@ pub fn decrypt_keystore(
         None => {
             print!("Enter keystore password: ");
             std::io::Write::flush(&mut std::io::stdout())
-                .map_err(|e| PurlError::ConfigMissing(format!("Failed to flush stdout: {e}")))?;
+                .map_err(|e| PgetError::ConfigMissing(format!("Failed to flush stdout: {e}")))?;
             rpassword::read_password()
-                .map_err(|e| PurlError::ConfigMissing(format!("Failed to read password: {e}")))?
+                .map_err(|e| PgetError::ConfigMissing(format!("Failed to read password: {e}")))?
         }
     };
 
     let private_key = eth_keystore::decrypt_key(keystore_path, &password)
-        .map_err(|e| PurlError::InvalidKey(format!("Failed to decrypt keystore: {e}")))?;
+        .map_err(|e| PgetError::InvalidKey(format!("Failed to decrypt keystore: {e}")))?;
 
     if use_cache {
         cache_password(keystore_id, password);
@@ -288,14 +288,14 @@ pub fn decrypt_keystore(
 #[cfg(test)]
 fn decrypt_keystore_no_cache(keystore_path: &Path, password: &str) -> Result<Vec<u8>> {
     if !keystore_path.exists() {
-        return Err(PurlError::ConfigMissing(format!(
+        return Err(PgetError::ConfigMissing(format!(
             "Keystore file not found: {}",
             keystore_path.display()
         )));
     }
 
     let private_key = eth_keystore::decrypt_key(keystore_path, password)
-        .map_err(|e| PurlError::InvalidKey(format!("Failed to decrypt keystore: {e}")))?;
+        .map_err(|e| PgetError::InvalidKey(format!("Failed to decrypt keystore: {e}")))?;
 
     Ok(private_key)
 }

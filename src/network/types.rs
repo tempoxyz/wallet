@@ -191,7 +191,7 @@ const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
 /// # Examples
 ///
 /// ```
-/// use purl::network::get_network;
+/// use pget::network::get_network;
 ///
 /// let tempo = get_network("tempo").expect("tempo network exists");
 /// assert!(tempo.mainnet);
@@ -222,7 +222,7 @@ impl NetworkInfo {
 /// Registry for managing network configurations
 ///
 /// Loads network definitions from built-in defaults and config.toml overrides.
-/// Custom networks and RPC overrides can be configured in `~/.purl/config.toml`.
+/// Custom networks and RPC overrides can be configured in `~/.pget/config.toml`.
 ///
 /// The registry provides lookup and filtering capabilities for all configured networks.
 ///
@@ -232,7 +232,7 @@ impl NetworkInfo {
 ///
 /// # Custom Networks
 ///
-/// To add custom networks or override RPC URLs, edit `~/.purl/config.toml`:
+/// To add custom networks or override RPC URLs, edit `~/.pget/config.toml`:
 ///
 /// ```toml
 /// # Override RPC URLs for built-in networks
@@ -467,7 +467,7 @@ impl fmt::Display for Network {
 /// # Examples
 ///
 /// ```
-/// use purl::network::Network;
+/// use pget::network::Network;
 ///
 /// let tempo = Network::TempoModerato;
 /// let token_config = tempo.usdc_config().expect("Tempo has token support");
@@ -489,7 +489,7 @@ pub struct TokenConfig {
 /// # Examples
 ///
 /// ```
-/// use purl::network::Network;
+/// use pget::network::Network;
 ///
 /// let tempo = Network::TempoModerato;
 /// let gas_config = tempo.gas_config().expect("Tempo has gas config");
@@ -583,7 +583,7 @@ impl Network {
     /// Returns `UnsupportedToken` if the network doesn't have token configuration.
     pub fn require_usdc_config(&self) -> crate::error::Result<TokenConfig> {
         self.usdc_config().ok_or_else(|| {
-            crate::error::PurlError::UnsupportedToken(format!(
+            crate::error::PgetError::UnsupportedToken(format!(
                 "No token configuration for network '{}'. \
                  Use --dry-run to see raw payment details.",
                 self
@@ -598,7 +598,7 @@ impl Network {
     /// # Examples
     ///
     /// ```
-    /// use purl::network::Network;
+    /// use pget::network::Network;
     ///
     /// // EVM networks have gas config
     /// assert!(Network::Base.gas_config().is_some());
