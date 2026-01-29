@@ -36,12 +36,6 @@ impl NetworkBalance {
             asset,
         }
     }
-
-    /// Get the network name as a string (convenience method).
-    #[allow(dead_code)]
-    pub fn network_name(&self) -> &str {
-        self.network.as_str()
-    }
 }
 
 impl std::fmt::Display for NetworkBalance {
@@ -69,19 +63,6 @@ impl PgetPaymentProvider {
         Self {
             config: Arc::new(config),
         }
-    }
-
-    /// Create from an existing Arc<Config>.
-    #[allow(dead_code)]
-    pub fn from_arc(config: Arc<Config>) -> Self {
-        Self { config }
-    }
-
-    /// Get the wallet address for display/confirmation.
-    #[allow(dead_code)]
-    pub fn get_address(&self) -> Result<String> {
-        use crate::config::WalletConfig;
-        self.config.require_evm()?.get_address()
     }
 }
 
@@ -119,15 +100,6 @@ impl PgetPaymentProvider {
             .await
             .map_err(|e| mpay::MppError::Http(e.to_string()))
     }
-}
-
-/// Build a payment provider from configuration.
-///
-/// Returns a provider that implements mpay::client::PaymentProvider and can be used
-/// with mpay::client::PaymentExt::send_with_payment().
-#[allow(dead_code)]
-pub fn build_payment_provider(config: Config) -> PgetPaymentProvider {
-    PgetPaymentProvider::new(config)
 }
 
 sol! {
