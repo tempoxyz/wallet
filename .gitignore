@@ -13,13 +13,13 @@ Cargo.lock
 .DS_Store
 
 # Configuration (contains private keys!)
-purl.toml
+pget.toml
 *.toml
-!purl.toml.example
+!pget.toml.example
 !Cargo.toml
 
 # Build artifacts
-/purl
+/pget
 *.tar.gz
 
 # Logs
