@@ -42,3 +42,7 @@ assert_cmd = "2.1"
 predicates = "3.1"
 tempfile = "3.24"
 serial_test = "3.2"
+
+[patch.crates-io]
+tempo-alloy = { git = "https://github.com/tempoxyz/tempo" }
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo" }
