@@ -84,6 +84,8 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
         evm,
         tempo_rpc: None,
         moderato_rpc: None,
+        rpc: Default::default(),
+        networks: Default::default(),
     };
 
     config.save().context("Failed to save configuration")?;

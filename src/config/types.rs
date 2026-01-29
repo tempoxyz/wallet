@@ -1,7 +1,9 @@
 //! Configuration management for pget.
 
 use crate::error::{PgetError, Result};
+use crate::network::explorer::ExplorerConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -38,6 +40,45 @@ pub struct Config {
     /// RPC URL override for Tempo Moderato testnet
     #[serde(default)]
     pub moderato_rpc: Option<String>,
+    /// RPC URL overrides for any network (by network id)
+    #[serde(default)]
+    pub rpc: HashMap<String, String>,
+    /// Custom network definitions
+    #[serde(default)]
+    pub networks: Vec<CustomNetwork>,
+}
+
+/// Custom network definition for extending built-in networks.
+///
+/// This provides a way to define additional EVM networks beyond
+/// the built-in Tempo mainnet and Moderato testnet.
+///
+/// # Example
+///
+/// ```toml
+/// [[networks]]
+/// id = "my-local-chain"
+/// chain_id = 31337
+/// display_name = "Local Dev Chain"
+/// rpc_url = "http://localhost:8545"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomNetwork {
+    /// Network identifier (e.g., "my-custom-chain")
+    pub id: String,
+    /// Chain ID for EVM networks
+    #[serde(default)]
+    pub chain_id: Option<u64>,
+    /// Whether this is a mainnet or testnet (default: false = testnet)
+    #[serde(default)]
+    pub mainnet: bool,
+    /// Human-readable display name
+    pub display_name: String,
+    /// RPC endpoint URL
+    pub rpc_url: String,
+    /// Block explorer base URL (optional)
+    #[serde(default)]
+    pub explorer_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -275,8 +316,13 @@ impl Config {
 
     /// Resolve network information with config overrides applied.
     ///
-    /// Returns the network info for Tempo or Tempo Moderato, with any
-    /// configured RPC URL overrides applied.
+    /// This method checks networks in the following order:
+    /// 1. Custom networks defined in `[[networks]]` config section
+    /// 2. Built-in networks (Tempo, Tempo Moderato) with RPC overrides applied
+    ///
+    /// RPC overrides are resolved in order:
+    /// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
+    /// 2. General `[rpc]` table overrides (for any network by id)
     ///
     /// # Examples
     ///
@@ -293,19 +339,34 @@ impl Config {
     pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
         use crate::network::{get_network, networks};
 
+        // Check custom networks first
+        if let Some(custom) = self.networks.iter().find(|n| n.id == network_id) {
+            let explorer = custom.explorer_url.as_ref().map(ExplorerConfig::tempo);
+            return Ok(crate::network::NetworkInfo {
+                chain_id: custom.chain_id,
+                mainnet: custom.mainnet,
+                display_name: custom.display_name.clone(),
+                rpc_url: custom.rpc_url.clone(),
+                explorer,
+            });
+        }
+
+        // Fall back to built-in networks
         let mut network_info = get_network(network_id).ok_or_else(|| {
             PgetError::UnknownNetwork(format!(
-                "Network '{}' not found. Supported: tempo, tempo-moderato",
+                "Network '{}' not found. Supported: tempo, tempo-moderato, or define in [[networks]]",
                 network_id
             ))
         })?;
 
-        // Apply RPC override if configured
+        // Apply RPC override if configured (typed overrides take precedence)
         let rpc_override = match network_id {
             networks::TEMPO => self.tempo_rpc.as_ref(),
             networks::TEMPO_MODERATO => self.moderato_rpc.as_ref(),
             _ => None,
-        };
+        }
+        .or_else(|| self.rpc.get(network_id));
+
         if let Some(url) = rpc_override {
             network_info.rpc_url = url.clone();
         }
@@ -356,6 +417,7 @@ impl fmt::Display for PaymentMethod {
 /// let config = ConfigBuilder::new()
 ///     .evm_keystore("/path/to/keystore.json")
 ///     .tempo_rpc("https://my-custom-rpc.com")
+///     .rpc_override("my-network", "https://my-rpc.com")
 ///     .build();
 /// ```
 #[allow(dead_code)]
@@ -364,6 +426,8 @@ pub struct ConfigBuilder {
     evm_keystore: Option<PathBuf>,
     tempo_rpc: Option<String>,
     moderato_rpc: Option<String>,
+    rpc_overrides: HashMap<String, String>,
+    custom_networks: Vec<CustomNetwork>,
 }
 
 impl ConfigBuilder {
@@ -397,6 +461,27 @@ impl ConfigBuilder {
         self
     }
 
+    /// Add an RPC URL override for any network by id.
+    ///
+    /// This is useful for overriding built-in networks or custom networks.
+    /// For built-in Tempo networks, prefer `tempo_rpc()` and `moderato_rpc()`.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn rpc_override(mut self, network: impl Into<String>, url: impl Into<String>) -> Self {
+        self.rpc_overrides.insert(network.into(), url.into());
+        self
+    }
+
+    /// Add a custom network definition.
+    ///
+    /// Custom networks are checked before built-in networks when resolving.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn custom_network(mut self, network: CustomNetwork) -> Self {
+        self.custom_networks.push(network);
+        self
+    }
+
     /// Build the [`Config`].
     ///
     /// This creates a Config from the builder's settings. Note that the
@@ -417,6 +502,8 @@ impl ConfigBuilder {
             evm,
             tempo_rpc: self.tempo_rpc,
             moderato_rpc: self.moderato_rpc,
+            rpc: self.rpc_overrides,
+            networks: self.custom_networks,
         }
     }
 
@@ -547,6 +634,8 @@ mod tests {
             evm: None,
             tempo_rpc: Some("https://custom-tempo-rpc.com".to_string()),
             moderato_rpc: Some("https://custom-moderato-rpc.com".to_string()),
+            rpc: Default::default(),
+            networks: Default::default(),
         };
 
         assert_eq!(
@@ -751,6 +840,114 @@ mod tests {
         assert_eq!(
             config.evm.as_ref().unwrap().keystore,
             Some(PathBuf::from("/path/to/keystore.json"))
+        );
+    }
+
+    #[test]
+    fn test_custom_network_definition() {
+        let toml = r#"
+            [[networks]]
+            id = "my-local-chain"
+            chain_id = 31337
+            display_name = "Local Dev Chain"
+            rpc_url = "http://localhost:8545"
+            explorer_url = "http://localhost:4000"
+        "#;
+
+        let config: Config = toml::from_str(toml).expect("should parse custom network");
+        assert_eq!(config.networks.len(), 1);
+        let network = &config.networks[0];
+        assert_eq!(network.id, "my-local-chain");
+        assert_eq!(network.chain_id, Some(31337));
+        assert_eq!(network.display_name, "Local Dev Chain");
+        assert_eq!(network.rpc_url, "http://localhost:8545");
+        assert!(!network.mainnet);
+    }
+
+    #[test]
+    fn test_resolve_custom_network() {
+        let config = Config::builder()
+            .custom_network(CustomNetwork {
+                id: "my-local-chain".to_string(),
+                chain_id: Some(31337),
+                mainnet: false,
+                display_name: "Local Dev Chain".to_string(),
+                rpc_url: "http://localhost:8545".to_string(),
+                explorer_url: Some("http://localhost:4000".to_string()),
+            })
+            .build();
+
+        let network_info = config
+            .resolve_network("my-local-chain")
+            .expect("custom network should resolve");
+        assert_eq!(network_info.chain_id, Some(31337));
+        assert_eq!(network_info.display_name, "Local Dev Chain");
+        assert_eq!(network_info.rpc_url, "http://localhost:8545");
+        assert!(!network_info.mainnet);
+        assert!(network_info.explorer.is_some());
+    }
+
+    #[test]
+    fn test_rpc_override_via_hashmap() {
+        let config = Config::builder()
+            .rpc_override("tempo", "https://my-custom-tempo.com")
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo")
+            .expect("tempo should resolve");
+        assert_eq!(network_info.rpc_url, "https://my-custom-tempo.com");
+    }
+
+    #[test]
+    fn test_typed_rpc_override_takes_precedence() {
+        // typed tempo_rpc should take precedence over rpc HashMap
+        let config = Config::builder()
+            .tempo_rpc("https://typed-override.com")
+            .rpc_override("tempo", "https://hashmap-override.com")
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo")
+            .expect("tempo should resolve");
+        assert_eq!(network_info.rpc_url, "https://typed-override.com");
+    }
+
+    #[test]
+    fn test_custom_network_overrides_builtin() {
+        // Custom network with same id as builtin should take precedence
+        let config = Config::builder()
+            .custom_network(CustomNetwork {
+                id: "tempo".to_string(),
+                chain_id: Some(99999),
+                mainnet: true,
+                display_name: "My Custom Tempo".to_string(),
+                rpc_url: "https://my-tempo-fork.com".to_string(),
+                explorer_url: None,
+            })
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo")
+            .expect("custom tempo should resolve");
+        assert_eq!(network_info.chain_id, Some(99999));
+        assert_eq!(network_info.display_name, "My Custom Tempo");
+        assert_eq!(network_info.rpc_url, "https://my-tempo-fork.com");
+    }
+
+    #[test]
+    fn test_parse_rpc_hashmap_from_toml() {
+        let toml = r#"
+            [rpc]
+            tempo = "https://custom-tempo.com"
+            "tempo-moderato" = "https://custom-moderato.com"
+        "#;
+
+        let config: Config = toml::from_str(toml).expect("should parse rpc overrides");
+        assert_eq!(config.rpc.get("tempo").unwrap(), "https://custom-tempo.com");
+        assert_eq!(
+            config.rpc.get("tempo-moderato").unwrap(),
+            "https://custom-moderato.com"
         );
     }
 }
