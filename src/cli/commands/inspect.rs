@@ -256,9 +256,10 @@ fn output_text(
 
 /// Check if a challenge is compatible with configured payment methods
 fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[PaymentMethod]) -> bool {
-    use crate::payment::mpay_ext::{is_base, is_tempo};
+    use crate::payment::mpay_ext::method_to_network;
 
-    if is_tempo(&challenge.method) || is_base(&challenge.method) {
+    // If the method maps to a known network, it requires EVM
+    if method_to_network(&challenge.method).is_some() {
         available_methods.contains(&PaymentMethod::Evm)
     } else {
         false

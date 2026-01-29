@@ -8,7 +8,7 @@
 use crate::config::Config;
 use crate::error::{PgetError, Result, ResultExt, SigningContext};
 use crate::network::{GasConfig, Network};
-use crate::payment::mpay_ext::ChargeRequestExt;
+use crate::payment::mpay_ext::{ChargeRequestExt, TempoChargeExt};
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use std::str::FromStr;

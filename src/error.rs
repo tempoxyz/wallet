@@ -188,6 +188,10 @@ pub enum PgetError {
     /// System time error
     #[error("System time error: {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
+
+    /// mpay protocol error
+    #[error("{0}")]
+    Mpay(#[from] mpay::MppError),
 }
 
 impl PgetError {

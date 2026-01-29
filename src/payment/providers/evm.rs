@@ -10,7 +10,7 @@ use crate::error::{PgetError, Result, ResultExt, SigningContext};
 use crate::network::{GasConfig, Network};
 use crate::payment::currency::Currency;
 use crate::payment::money::format_u256_with_decimals;
-use crate::payment::mpay_ext::ChargeRequestExt;
+use crate::payment::mpay_ext::{ChargeRequestExt, TempoChargeExt};
 use crate::payment::provider::NetworkBalance;
 use crate::wallet::signer::WalletSource;
 use alloy::primitives::Address;
