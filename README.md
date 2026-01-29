@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-# p(ay)URL
+# pget
 
 A wget-like CLI tool for making HTTP requests with automatic support for payments.
 
