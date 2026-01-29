@@ -7,11 +7,10 @@ use anyhow::{Context, Result};
 use dialoguer::Confirm;
 use std::str::FromStr;
 
-use crate::config::Config;
+use crate::config::{Config, WalletConfig};
 use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
 use crate::payment::mpay_ext::method_to_network;
-use crate::payment::provider::PROVIDER_REGISTRY;
 use mpay::{ChargeRequest, PaymentChallenge};
 
 use super::exit_codes::ExitCode;
@@ -39,14 +38,16 @@ pub fn confirm_web_payment(
 
     let network_name = method_to_network(&challenge.method)
         .ok_or_else(|| anyhow::anyhow!("Unsupported payment method: {}", challenge.method))?;
-    let provider = PROVIDER_REGISTRY.find_provider(network_name);
-    let from_address = provider
-        .and_then(|p| p.get_address(config).ok())
-        .unwrap_or_else(|| "unknown".to_string());
 
-    let token_config = Network::from_str(network_name)
-        .map_err(|e| anyhow::anyhow!("Unknown network '{}': {}", network_name, e))?
-        .require_usdc_config()
+    let from_address = config
+        .require_evm()
+        .and_then(|evm| evm.get_address())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    let network = Network::from_str(network_name)
+        .map_err(|e| anyhow::anyhow!("Unknown network '{}': {}", network_name, e))?;
+    let token_config = network
+        .require_token_config(&charge_req.currency)
         .context("Cannot display formatted payment amount")?;
     let (decimals, symbol) = (token_config.currency.decimals, token_config.currency.symbol);
 
@@ -54,7 +55,6 @@ pub fn confirm_web_payment(
     let divisor = 10u128.pow(decimals as u32) as f64;
     let amount_display = format!("{:.6} {}", amount_u128 as f64 / divisor, symbol);
 
-    // Format addresses with clickable links (truncated for display, full URL)
     let asset_display = format_truncated_address_link(&charge_req.currency, 45, explorer);
     let to_display = format_truncated_address_link(
         charge_req.recipient.as_deref().unwrap_or("(server)"),

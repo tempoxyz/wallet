@@ -1,198 +1,121 @@
-use crate::config::{Config, WalletConfig};
+//! Tempo payment provider implementation.
+//!
+//! This module provides Tempo-specific payment functionality with support for:
+//! - Type 0x76 (Tempo) transactions
+//! - Keychain (access key) signing mode
+//! - Memo support via transferWithMemo
+
+use crate::config::Config;
 use crate::error::{PgetError, Result, ResultExt, SigningContext};
-use crate::network::{get_network, ChainType, GasConfig, Network};
-use crate::payment::currency::Currency;
-use crate::payment::provider::{
-    AddressProvider, BalanceProvider, NetworkBalance, PaymentProvider, Provider,
-};
+use crate::network::{GasConfig, Network};
+use crate::payment::abi::encode_transfer;
+use crate::payment::mpay_ext::{ChargeRequestExt, TempoChargeExt};
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
-use async_trait::async_trait;
 use std::str::FromStr;
 
 use tempo_primitives::transaction::{
     AASigned, Call, KeychainSignature, PrimitiveSignature, TempoSignature, TempoTransaction,
 };
 
-const PROVIDER_NAME: &str = "Tempo";
-
 /// Check if a network name refers to a Tempo network.
+#[allow(dead_code)]
 pub fn is_tempo_network(name: &str) -> bool {
     matches!(name.to_lowercase().as_str(), "tempo" | "tempo-moderato")
 }
 
-#[derive(Default)]
-pub struct TempoProvider;
+/// Create a Tempo payment credential for a Web Payment Auth challenge.
+///
+/// Supports keychain signing mode when `wallet_address` is configured.
+pub async fn create_tempo_payment(
+    config: &Config,
+    challenge: &mpay::PaymentChallenge,
+) -> Result<mpay::PaymentCredential> {
+    use mpay::{ChargeRequest, PaymentCredential, PaymentPayload};
 
-impl TempoProvider {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self
-    }
+    use crate::payment::mpay_ext::method_to_network;
+    use crate::wallet::signer::WalletSource;
+    use alloy::providers::Provider;
 
-    fn load_signer(config: &Config) -> Result<PrivateKeySigner> {
-        use crate::wallet::signer::WalletSource;
-        let evm_config = config.require_evm()?;
-        evm_config.load_signer(None)
-    }
-}
+    let charge_req: ChargeRequest = challenge
+        .request
+        .decode()
+        .map_err(|e| PgetError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
-impl Provider for TempoProvider {
-    fn name(&self) -> &str {
-        PROVIDER_NAME
-    }
+    let evm_config = config.require_evm()?;
+    let signer = evm_config.load_signer(None)?;
 
-    fn supports_network(&self, network: &str) -> bool {
-        get_network(network)
-            .map(|n| n.chain_type == ChainType::Evm && is_tempo_network(network))
-            .unwrap_or(false)
-    }
-}
-
-impl AddressProvider for TempoProvider {
-    fn get_address(&self, config: &Config) -> Result<String> {
-        config.require_evm()?.get_address()
-    }
-}
-
-#[async_trait]
-impl BalanceProvider for TempoProvider {
-    async fn get_balance(
-        &self,
-        address: &str,
-        network: Network,
-        currency: Currency,
-        config: &Config,
-    ) -> Result<NetworkBalance> {
-        // Delegate to shared EVM balance logic
-        super::evm::EvmProvider
-            .get_balance(address, network, currency, config)
-            .await
-    }
-}
-
-#[async_trait]
-impl PaymentProvider for TempoProvider {
-    async fn create_web_payment(
-        &self,
-        challenge: &mpay::PaymentChallenge,
-        config: &Config,
-    ) -> Result<mpay::PaymentCredential> {
-        use mpay::{ChargeRequest, PaymentCredential, PaymentPayload};
-
-        use crate::payment::mpay_ext::{method_to_network, ChargeRequestExt};
-        use alloy::primitives::Bytes;
-        use alloy::providers::Provider;
-        use alloy::sol;
-        use alloy::sol_types::SolCall;
-
-        let charge_req: ChargeRequest = challenge
-            .request
-            .decode()
-            .map_err(|e| PgetError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
-
-        let signer = Self::load_signer(config)?;
-        let evm_config = config.require_evm()?;
-
-        // If wallet_address is set, use keychain signing mode:
-        // - from = wallet address (the passkey wallet that holds funds)
-        // - signature = keychain-wrapped signature with access key's inner signature
-        let wallet_address = evm_config
-            .wallet_address
-            .as_ref()
-            .map(|addr| {
-                Address::from_str(addr)
-                    .map_err(|e| PgetError::InvalidConfig(format!("Invalid wallet address: {}", e)))
-            })
-            .transpose()?;
-
-        // The 'from' address is the wallet address if in keychain mode, otherwise the signer address
-        let from = wallet_address.unwrap_or_else(|| signer.address());
-
-        let currency = charge_req.currency_address()?;
-        let recipient = charge_req.recipient_address()?;
-        let amount = charge_req.amount_u256()?;
-        let memo = charge_req.memo();
-
-        let transfer_data = if let Some(memo_bytes) = memo {
-            sol! {
-                function transferWithMemo(address to, uint256 amount, bytes32 memo) external returns (bool);
-            }
-            let call = transferWithMemoCall {
-                to: recipient,
-                amount,
-                memo: memo_bytes.into(),
-            };
-            Bytes::from(call.abi_encode())
-        } else {
-            sol! {
-                function transfer(address to, uint256 amount) external returns (bool);
-            }
-            let call = transferCall {
-                to: recipient,
-                amount,
-            };
-            Bytes::from(call.abi_encode())
-        };
-
-        let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            PgetError::UnsupportedPaymentMethod(format!(
-                "Unsupported payment method: {}",
-                challenge.method
-            ))
-        })?;
-
-        let network_info = config.resolve_network(network_name)?;
-        let chain_id = network_info.chain_id.ok_or_else(|| {
-            PgetError::InvalidConfig(format!("{} network missing chain ID", network_name))
-        })?;
-
-        let gas_config = Network::from_str(network_name)
-            .ok()
-            .and_then(|n| n.gas_config())
-            .unwrap_or(GasConfig::DEFAULT);
-
-        let provider = alloy::providers::ProviderBuilder::new().connect_http(
-            network_info.rpc_url.parse().map_err(|e| {
-                PgetError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
-            })?,
-        );
-
-        let nonce = provider
-            .get_transaction_count(from)
-            .pending()
-            .await
-            .with_signing_context(SigningContext {
-                network: Some(network_name.to_string()),
-                address: Some(format!("{:#x}", from)),
-                operation: "get_nonce",
-            })?;
-
-        let signed_tx = create_tempo_transaction(
-            &signer,
-            chain_id,
-            nonce,
-            currency,
-            transfer_data,
-            &gas_config,
-            wallet_address,
-        )?;
-
-        let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
-
-        Ok(PaymentCredential {
-            challenge: challenge.to_echo(),
-            source: Some(did),
-            payload: PaymentPayload::transaction(format!("0x{}", signed_tx)),
+    // If wallet_address is set, use keychain signing mode
+    let wallet_address = evm_config
+        .wallet_address
+        .as_ref()
+        .map(|addr| {
+            Address::from_str(addr)
+                .map_err(|e| PgetError::InvalidConfig(format!("Invalid wallet address: {}", e)))
         })
-    }
+        .transpose()?;
+
+    let from = wallet_address.unwrap_or_else(|| signer.address());
+
+    let currency = charge_req.currency_address()?;
+    let recipient = charge_req.recipient_address()?;
+    let amount = charge_req.amount_u256()?;
+    let memo = charge_req.memo();
+
+    let transfer_data = encode_transfer(recipient, amount, memo);
+
+    let network_name = method_to_network(&challenge.method).ok_or_else(|| {
+        PgetError::UnsupportedPaymentMethod(format!(
+            "Unsupported payment method: {}",
+            challenge.method
+        ))
+    })?;
+
+    let network_info = config.resolve_network(network_name)?;
+    let chain_id = network_info.chain_id.ok_or_else(|| {
+        PgetError::InvalidConfig(format!("{} network missing chain ID", network_name))
+    })?;
+
+    let gas_config = Network::from_str(network_name)
+        .map(|n| n.gas_config())
+        .unwrap_or(GasConfig::DEFAULT);
+
+    let provider = alloy::providers::ProviderBuilder::new().connect_http(
+        network_info.rpc_url.parse().map_err(|e| {
+            PgetError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+        })?,
+    );
+
+    let nonce = provider
+        .get_transaction_count(from)
+        .pending()
+        .await
+        .with_signing_context(SigningContext {
+            network: Some(network_name.to_string()),
+            address: Some(format!("{:#x}", from)),
+            operation: "get_nonce",
+        })?;
+
+    let signed_tx = create_tempo_transaction(
+        &signer,
+        chain_id,
+        nonce,
+        currency,
+        transfer_data,
+        &gas_config,
+        wallet_address,
+    )?;
+
+    let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
+
+    Ok(PaymentCredential {
+        challenge: challenge.to_echo(),
+        source: Some(did),
+        payload: PaymentPayload::transaction(format!("0x{}", signed_tx)),
+    })
 }
 
 /// Create a Tempo transaction (type 0x76) with network-specific gas configuration.
-///
-/// If `wallet_address` is provided, uses keychain signing mode where:
-/// - The private key is treated as an access key
-/// - The signature is wrapped in keychain format (0x03 || wallet_address || inner_signature)
 fn create_tempo_transaction(
     signer: &PrivateKeySigner,
     chain_id: u64,
@@ -235,15 +158,11 @@ fn create_tempo_transaction(
                 operation: "sign_tempo_transaction",
             })?;
 
-    // Build the final signature - either keychain-wrapped or direct
     let tempo_signature: TempoSignature = if let Some(wallet_addr) = wallet_address {
-        // Keychain signing mode: wrap the signature with the wallet address
-        // Format: 0x03 || wallet_address (20 bytes) || inner_signature (65 bytes)
         let keychain_sig =
             KeychainSignature::new(wallet_addr, PrimitiveSignature::Secp256k1(inner_signature));
         TempoSignature::Keychain(keychain_sig)
     } else {
-        // Direct signing mode: use the signature as-is
         TempoSignature::Primitive(PrimitiveSignature::Secp256k1(inner_signature))
     };
 
@@ -259,24 +178,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tempo_provider_supports_only_tempo_networks() {
-        let provider = TempoProvider::new();
-
-        assert!(provider.supports_network("tempo"));
-        assert!(provider.supports_network("tempo-moderato"));
-
-        assert!(!provider.supports_network("ethereum"));
-        assert!(!provider.supports_network("base"));
-        assert!(!provider.supports_network("unknown-network"));
-    }
-
-    #[test]
-    fn test_tempo_provider_name() {
-        let provider = TempoProvider::new();
-        assert_eq!(provider.name(), "Tempo");
-    }
-
-    #[test]
     fn test_is_tempo_network() {
         assert!(is_tempo_network("tempo"));
         assert!(is_tempo_network("tempo-moderato"));
@@ -289,18 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tempo_get_address_without_config() {
-        let provider = TempoProvider::new();
-        let config = Config::default();
-
-        let address = provider.get_address(&config);
-        assert!(address.is_err());
-    }
-
-    #[test]
     fn test_create_tempo_transaction_direct_signing() {
-        use crate::network::GasConfig;
-
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
@@ -311,24 +201,21 @@ mod tests {
 
         let result = create_tempo_transaction(
             &signer,
-            42431, // tempo-moderato chain id
+            42431,
             0,
             asset,
             transfer_data,
             &GasConfig::DEFAULT,
-            None, // No wallet address = direct signing
+            None,
         );
 
         assert!(result.is_ok());
         let tx_hex = result.unwrap();
-        // Tempo tx type is 0x76, should start with 76
         assert!(tx_hex.starts_with("76"));
     }
 
     #[test]
     fn test_create_tempo_transaction_keychain_signing() {
-        use crate::network::GasConfig;
-
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
@@ -340,26 +227,21 @@ mod tests {
 
         let result = create_tempo_transaction(
             &signer,
-            42431, // tempo-moderato chain id
+            42431,
             0,
             asset,
             transfer_data,
             &GasConfig::DEFAULT,
-            Some(wallet_address), // Keychain signing mode
+            Some(wallet_address),
         );
 
         assert!(result.is_ok());
         let tx_hex = result.unwrap();
-        // Tempo tx type is 0x76, should start with 76
         assert!(tx_hex.starts_with("76"));
-        // The transaction should be different due to keychain signature format
-        // (0x03 prefix in signature instead of direct secp256k1)
     }
 
     #[test]
     fn test_keychain_vs_direct_signing_produces_different_tx() {
-        use crate::network::GasConfig;
-
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
@@ -391,7 +273,6 @@ mod tests {
         )
         .unwrap();
 
-        // Keychain signature is longer due to the extra wallet address bytes
         assert!(keychain_tx.len() > direct_tx.len());
     }
 }

@@ -2,6 +2,7 @@
 //!
 //! This module provides payment providers, currencies, and protocol handling.
 
+pub mod abi;
 pub mod currency;
 pub mod money;
 pub mod mpay_ext;

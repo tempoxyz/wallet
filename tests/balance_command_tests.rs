@@ -71,7 +71,7 @@ fn test_balance_with_evm_config() {
         .arg("balance")
         .assert()
         .success()
-        .stdout(predicate::str::contains("USDC Balances:"))
+        .stdout(predicate::str::contains("Tempo Stablecoin Balances:"))
         .stdout(predicate::str::contains("mock"));
 }
 
@@ -80,11 +80,11 @@ fn test_balance_with_network_filter() {
     let temp = setup_test_config(Some(VALID_EVM_KEY), None);
 
     mock_test_command(&temp)
-        .args(["balance", "--network", "base"])
+        .args(["balance", "--network", "tempo"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("base:"))
-        .stdout(predicate::str::contains("1.000000")); // Mock returns 1 USDC for base
+        .stdout(predicate::str::contains("tempo:"))
+        .stdout(predicate::str::contains("1.000000")); // Mock returns 1 αUSD for tempo
 }
 
 #[test]
@@ -92,11 +92,11 @@ fn test_balance_with_network_filter_short() {
     let temp = setup_test_config(Some(VALID_EVM_KEY), None);
 
     mock_test_command(&temp)
-        .args(["balance", "-n", "base-sepolia"])
+        .args(["balance", "-n", "tempo-moderato"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("base-sepolia:"))
-        .stdout(predicate::str::contains("5.000000")); // Mock returns 5 USDC for testnets
+        .stdout(predicate::str::contains("tempo-moderato:"))
+        .stdout(predicate::str::contains("5.000000")); // Mock returns 5 αUSD for testnets
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn test_balance_alias() {
         .arg("b")
         .assert()
         .success()
-        .stdout(predicate::str::contains("USDC Balances:"));
+        .stdout(predicate::str::contains("Tempo Stablecoin Balances:"));
 }
 
 #[test]
@@ -115,10 +115,10 @@ fn test_balance_alias_with_network() {
     let temp = setup_test_config(Some(VALID_EVM_KEY), None);
 
     mock_test_command(&temp)
-        .args(["b", "-n", "base"])
+        .args(["b", "-n", "tempo"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("base:"));
+        .stdout(predicate::str::contains("tempo:"));
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn test_balance_after_init() {
         .arg("balance")
         .assert()
         .success()
-        .stdout(predicate::str::contains("USDC Balances:"));
+        .stdout(predicate::str::contains("Tempo Stablecoin Balances:"));
 }
 
 #[test]
@@ -206,11 +206,11 @@ fn test_balance_output_format() {
 
     // Verify the output format includes expected fields
     mock_test_command(&temp)
-        .args(["balance", "-n", "base"])
+        .args(["balance", "-n", "tempo"])
         .assert()
         .success()
         .stdout(predicate::str::contains("atomic units"))
-        .stdout(predicate::str::contains("USDC"));
+        .stdout(predicate::str::contains("tempo:"));
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn test_balance_multiple_networks_evm() {
     // Without network filter, should show multiple networks
     let output = mock_test_command(&temp).arg("balance").assert().success();
 
-    // Should have output for multiple EVM networks
+    // Should have output for Tempo networks
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
-    assert!(stdout.contains("base") || stdout.contains("ethereum"));
+    assert!(stdout.contains("tempo") || stdout.contains("tempo-moderato"));
 }

@@ -1,9 +1,51 @@
-# Example purl configuration file
-# Copy this to ~/.config/purl/purl.toml and fill in your keys
-# Alternatively, you can run `purl init` to create this file automatically.
+# Example pget configuration file
+#
+# Locations:
+#   macOS:   ~/Library/Application Support/pget/config.toml
+#   Linux:   ~/.config/pget/config.toml
+#   Windows: %APPDATA%\pget\config.toml
+#
+# Alternatively, run `pget init` to create this file interactively.
 
-# EVM configuration (for Tempo, Ethereum, Avalanche, etc.)
+# =============================================================================
+# EVM Wallet Configuration
+# =============================================================================
+# Also accepts [tempo] as an alias for [evm]
+
 [evm]
-# Your EVM private key (hex string, without 0x prefix)
-# This will be used to sign EIP-3009 payment authorizations
-private_key = "your_evm_private_key_here"
+# Path to encrypted keystore file (recommended for security)
+keystore = "/path/to/keystores/my-wallet.json"
+
+# =============================================================================
+# RPC Overrides for Built-in Networks
+# =============================================================================
+# Typed overrides for Tempo networks (highest priority)
+
+# tempo_rpc = "https://my-custom-tempo-rpc.com"
+# moderato_rpc = "https://my-custom-moderato-rpc.com"
+
+# General RPC overrides (for any network by id)
+# [rpc]
+# tempo = "https://alternate-tempo-rpc.com"
+# "tempo-moderato" = "https://alternate-moderato-rpc.com"
+
+# =============================================================================
+# Custom Network Definitions
+# =============================================================================
+# Define additional EVM networks beyond the built-in Tempo networks.
+# Custom networks are checked before built-in networks when resolving.
+
+# [[networks]]
+# id = "my-local-chain"
+# chain_id = 31337
+# mainnet = false
+# display_name = "Local Dev Chain"
+# rpc_url = "http://localhost:8545"
+# explorer_url = "http://localhost:4000"
+
+# [[networks]]
+# id = "my-tempo-fork"
+# chain_id = 99999
+# mainnet = true
+# display_name = "My Tempo Fork"
+# rpc_url = "https://rpc.mytempofork.com"

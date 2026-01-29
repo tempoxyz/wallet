@@ -220,6 +220,29 @@ For testing and development, these environment variables are used:
 - Config: `~/.config/pget/config.toml`
 - Keystores: `~/.local/share/pget/keystores/`
 
+## Configuration Structure
+
+```rust
+struct Config {
+    evm: Option<EvmConfig>,       // Wallet config (alias: tempo)
+    tempo_rpc: Option<String>,    // Typed RPC override for Tempo mainnet
+    moderato_rpc: Option<String>, // Typed RPC override for Moderato testnet
+    rpc: HashMap<String, String>, // General RPC overrides by network id
+    networks: Vec<CustomNetwork>, // Custom network definitions
+}
+```
+
+**Network Resolution Priority:**
+1. Custom networks from `[[networks]]` config section
+2. Built-in networks (Tempo, Tempo Moderato) with RPC overrides:
+   - Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence
+   - General `[rpc]` table as fallback
+   - Default RPC if no override
+
+**Built-in Networks:** `tempo` (chain 4217, mainnet), `tempo-moderato` (chain 42431, testnet)
+
+**Built-in Tokens:** pathUSD, AlphaUSD, BetaUSD, ThetaUSD at fixed addresses
+
 ## Documentation
 
 - [Rust Book](https://doc.rust-lang.org/book/)

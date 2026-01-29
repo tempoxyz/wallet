@@ -1,8 +1,7 @@
 //! Configuration management for pget.
 
 use crate::error::{PgetError, Result};
-use crate::network::explorer::{ExplorerConfig, ExplorerType};
-use crate::network::ChainType;
+use crate::network::explorer::ExplorerConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -35,79 +34,51 @@ pub struct Config {
     /// EVM wallet configuration (also accepts `[tempo]` as an alias)
     #[serde(default, alias = "tempo")]
     pub evm: Option<EvmConfig>,
-    /// RPC URL overrides for built-in networks
+    /// RPC URL override for Tempo mainnet
+    #[serde(default)]
+    pub tempo_rpc: Option<String>,
+    /// RPC URL override for Tempo Moderato testnet
+    #[serde(default)]
+    pub moderato_rpc: Option<String>,
+    /// RPC URL overrides for any network (by network id)
     #[serde(default)]
     pub rpc: HashMap<String, String>,
     /// Custom network definitions
     #[serde(default)]
     pub networks: Vec<CustomNetwork>,
-    /// Custom token definitions
-    #[serde(default)]
-    pub tokens: Vec<CustomToken>,
 }
 
-/// Custom network definition for extending built-in networks
+/// Custom network definition for extending built-in networks.
+///
+/// This provides a way to define additional EVM networks beyond
+/// the built-in Tempo mainnet and Moderato testnet.
+///
+/// # Example
+///
+/// ```toml
+/// [[networks]]
+/// id = "my-local-chain"
+/// chain_id = 31337
+/// display_name = "Local Dev Chain"
+/// rpc_url = "http://localhost:8545"
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomNetwork {
     /// Network identifier (e.g., "my-custom-chain")
     pub id: String,
-    /// Chain type (currently only EVM is supported)
-    pub chain_type: ChainType,
     /// Chain ID for EVM networks
     #[serde(default)]
     pub chain_id: Option<u64>,
-    /// Whether this is a mainnet or testnet
+    /// Whether this is a mainnet or testnet (default: false = testnet)
     #[serde(default)]
     pub mainnet: bool,
     /// Human-readable display name
     pub display_name: String,
     /// RPC endpoint URL
     pub rpc_url: String,
-    /// Simple explorer URL (uses etherscan-style paths by default)
+    /// Block explorer base URL (optional)
     #[serde(default)]
     pub explorer_url: Option<String>,
-    /// Explorer type preset (etherscan, tempo, blockscout)
-    #[serde(default)]
-    pub explorer_type: Option<ExplorerType>,
-    /// Full explorer configuration (overrides explorer_url and explorer_type)
-    #[serde(default, rename = "explorer")]
-    pub explorer_config: Option<ExplorerConfig>,
-}
-
-impl CustomNetwork {
-    /// Get the resolved explorer configuration.
-    ///
-    /// Resolution order:
-    /// 1. Full `explorer` config (if present)
-    /// 2. `explorer_url` + `explorer_type` (if explorer_url present)
-    /// 3. None
-    pub fn explorer(&self) -> Option<ExplorerConfig> {
-        if let Some(config) = &self.explorer_config {
-            return Some(config.clone());
-        }
-
-        if let Some(url) = &self.explorer_url {
-            let explorer_type = self.explorer_type.unwrap_or_default();
-            return Some(explorer_type.with_base_url(url));
-        }
-
-        None
-    }
-}
-
-/// Custom token definition for extending built-in tokens
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CustomToken {
-    /// Network ID this token belongs to
-    pub network: String,
-    /// Token contract address
-    pub address: String,
-    /// Token symbol (e.g., "USDC")
-    pub symbol: String,
-    /// Token full name (e.g., "USD Coin")
-    pub name: String,
-    /// Number of decimal places
-    pub decimals: u8,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -258,6 +229,7 @@ impl Config {
     ///
     /// This is useful during initialization or when you want to inspect
     /// a potentially invalid config file. Use `load_from` for normal usage.
+    #[allow(dead_code)]
     pub fn load_unchecked(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
         let config_path = if let Some(path) = config_path {
             PathBuf::from(path.as_ref())
@@ -346,10 +318,11 @@ impl Config {
     ///
     /// This method checks networks in the following order:
     /// 1. Custom networks defined in `[[networks]]` config section
-    /// 2. Built-in networks with `[rpc]` URL overrides applied
+    /// 2. Built-in networks (Tempo, Tempo Moderato) with RPC overrides applied
     ///
-    /// Use this instead of `network::get_network()` when you need to respect
-    /// user-configured RPC overrides and custom networks.
+    /// RPC overrides are resolved in order:
+    /// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
+    /// 2. General `[rpc]` table overrides (for any network by id)
     ///
     /// # Examples
     ///
@@ -357,35 +330,45 @@ impl Config {
     /// use pget::Config;
     ///
     /// let config = Config::builder()
-    ///     .rpc_override("tempo-moderato", "https://my-custom-rpc.com")
+    ///     .moderato_rpc("https://my-custom-rpc.com")
     ///     .build();
     ///
     /// let network_info = config.resolve_network("tempo-moderato").unwrap();
     /// assert_eq!(network_info.rpc_url, "https://my-custom-rpc.com");
     /// ```
     pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
-        use crate::network::get_network;
+        use crate::network::{get_network, networks};
 
         // Check custom networks first
         if let Some(custom) = self.networks.iter().find(|n| n.id == network_id) {
+            let explorer = custom.explorer_url.as_ref().map(ExplorerConfig::tempo);
             return Ok(crate::network::NetworkInfo {
-                chain_type: custom.chain_type,
                 chain_id: custom.chain_id,
                 mainnet: custom.mainnet,
                 display_name: custom.display_name.clone(),
                 rpc_url: custom.rpc_url.clone(),
-                explorer: custom.explorer(),
+                explorer,
             });
         }
 
-        // Fall back to built-in networks with RPC overrides
+        // Fall back to built-in networks
         let mut network_info = get_network(network_id).ok_or_else(|| {
-            PgetError::UnknownNetwork(format!("Network '{}' not found", network_id))
+            PgetError::UnknownNetwork(format!(
+                "Network '{}' not found. Supported: tempo, tempo-moderato, or define in [[networks]]",
+                network_id
+            ))
         })?;
 
-        // Apply RPC override if configured
-        if let Some(rpc_override) = self.rpc.get(network_id) {
-            network_info.rpc_url = rpc_override.clone();
+        // Apply RPC override if configured (typed overrides take precedence)
+        let rpc_override = match network_id {
+            networks::TEMPO => self.tempo_rpc.as_ref(),
+            networks::TEMPO_MODERATO => self.moderato_rpc.as_ref(),
+            _ => None,
+        }
+        .or_else(|| self.rpc.get(network_id));
+
+        if let Some(url) = rpc_override {
+            network_info.rpc_url = url.clone();
         }
 
         Ok(network_info)
@@ -433,17 +416,18 @@ impl fmt::Display for PaymentMethod {
 ///
 /// let config = ConfigBuilder::new()
 ///     .evm_keystore("/path/to/keystore.json")
-///     .rpc_override("tempo", "https://my-custom-rpc.com")
-///     .rpc_override("ethereum", "https://eth-mainnet.example.com")
+///     .tempo_rpc("https://my-custom-rpc.com")
+///     .rpc_override("my-network", "https://my-rpc.com")
 ///     .build();
 /// ```
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct ConfigBuilder {
     evm_keystore: Option<PathBuf>,
+    tempo_rpc: Option<String>,
+    moderato_rpc: Option<String>,
     rpc_overrides: HashMap<String, String>,
     custom_networks: Vec<CustomNetwork>,
-    custom_tokens: Vec<CustomToken>,
 }
 
 impl ConfigBuilder {
@@ -461,20 +445,26 @@ impl ConfigBuilder {
         self
     }
 
-    /// Add an RPC URL override for a network.
+    /// Set the RPC URL for Tempo mainnet.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn tempo_rpc(mut self, url: impl Into<String>) -> Self {
+        self.tempo_rpc = Some(url.into());
+        self
+    }
+
+    /// Set the RPC URL for Tempo Moderato testnet.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn moderato_rpc(mut self, url: impl Into<String>) -> Self {
+        self.moderato_rpc = Some(url.into());
+        self
+    }
+
+    /// Add an RPC URL override for any network by id.
     ///
-    /// This overrides the default RPC URL for the specified network.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use pget::ConfigBuilder;
-    ///
-    /// let config = ConfigBuilder::new()
-    ///     .evm_keystore("/path/to/keystore.json")
-    ///     .rpc_override("tempo", "https://my-tempo-rpc.com")
-    ///     .build();
-    /// ```
+    /// This is useful for overriding built-in networks or custom networks.
+    /// For built-in Tempo networks, prefer `tempo_rpc()` and `moderato_rpc()`.
     #[must_use]
     #[allow(dead_code)]
     pub fn rpc_override(mut self, network: impl Into<String>, url: impl Into<String>) -> Self {
@@ -483,18 +473,12 @@ impl ConfigBuilder {
     }
 
     /// Add a custom network definition.
+    ///
+    /// Custom networks are checked before built-in networks when resolving.
     #[must_use]
     #[allow(dead_code)]
     pub fn custom_network(mut self, network: CustomNetwork) -> Self {
         self.custom_networks.push(network);
-        self
-    }
-
-    /// Add a custom token definition.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn custom_token(mut self, token: CustomToken) -> Self {
-        self.custom_tokens.push(token);
         self
     }
 
@@ -516,9 +500,10 @@ impl ConfigBuilder {
 
         Config {
             evm,
+            tempo_rpc: self.tempo_rpc,
+            moderato_rpc: self.moderato_rpc,
             rpc: self.rpc_overrides,
             networks: self.custom_networks,
-            tokens: self.custom_tokens,
         }
     }
 
@@ -643,74 +628,24 @@ mod tests {
     }
 
     #[test]
-    fn test_config_builder_with_rpc_override() {
-        // Config builder with RPC override should work
-        // We can't test full validation without a valid keystore,
-        // so we just test that the RPC override is set correctly
+    fn test_config_with_rpc_overrides() {
+        // Test that RPC overrides are stored correctly
         let config = Config {
             evm: None,
-            rpc: {
-                let mut map = HashMap::new();
-                map.insert(
-                    "ethereum".to_string(),
-                    "https://custom-rpc.example.com".to_string(),
-                );
-                map
-            },
-            ..Default::default()
+            tempo_rpc: Some("https://custom-tempo-rpc.com".to_string()),
+            moderato_rpc: Some("https://custom-moderato-rpc.com".to_string()),
+            rpc: Default::default(),
+            networks: Default::default(),
         };
 
         assert_eq!(
-            config
-                .rpc
-                .get("ethereum")
-                .expect("Ethereum RPC should be configured"),
-            "https://custom-rpc.example.com"
+            config.tempo_rpc.as_ref().unwrap(),
+            "https://custom-tempo-rpc.com"
         );
-    }
-
-    #[test]
-    fn test_config_builder_with_custom_network() {
-        let network = CustomNetwork {
-            id: "my-network".to_string(),
-            chain_type: ChainType::Evm,
-            chain_id: Some(12345),
-            mainnet: false,
-            display_name: "My Test Network".to_string(),
-            rpc_url: "https://rpc.example.com".to_string(),
-            explorer_url: None,
-            explorer_type: None,
-            explorer_config: None,
-        };
-
-        // Test that custom network is stored correctly
-        let config = Config {
-            networks: vec![network.clone()],
-            ..Default::default()
-        };
-
-        assert_eq!(config.networks.len(), 1);
-        assert_eq!(config.networks[0].id, "my-network");
-    }
-
-    #[test]
-    fn test_config_builder_with_custom_token() {
-        let token = CustomToken {
-            network: "ethereum".to_string(),
-            address: "0x1234567890123456789012345678901234567890".to_string(),
-            symbol: "TEST".to_string(),
-            name: "Test Token".to_string(),
-            decimals: 18,
-        };
-
-        // Test that custom token is stored correctly
-        let config = Config {
-            tokens: vec![token.clone()],
-            ..Default::default()
-        };
-
-        assert_eq!(config.tokens.len(), 1);
-        assert_eq!(config.tokens[0].symbol, "TEST");
+        assert_eq!(
+            config.moderato_rpc.as_ref().unwrap(),
+            "https://custom-moderato-rpc.com"
+        );
     }
 
     #[test]
@@ -811,88 +746,48 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_config_with_rpc_overrides() {
+    fn test_parse_config_with_typed_rpc_overrides() {
         let toml = r#"
-            [evm]
-            keystore = "/path/to/keystore.json"
+        tempo_rpc = "https://custom-tempo-rpc.com"
+        moderato_rpc = "https://custom-moderato-rpc.com"
 
-            [rpc]
-            ethereum = "https://custom-eth-rpc.com"
-            tempo = "https://custom-tempo-rpc.com"
+        [evm]
+        keystore = "/path/to/keystore.json"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse");
-        assert_eq!(config.rpc.len(), 2);
         assert_eq!(
-            config
-                .rpc
-                .get("ethereum")
-                .expect("Ethereum RPC should be configured"),
-            "https://custom-eth-rpc.com"
-        );
-        assert_eq!(
-            config
-                .rpc
-                .get("tempo")
-                .expect("Tempo RPC should be configured"),
+            config.tempo_rpc.as_ref().unwrap(),
             "https://custom-tempo-rpc.com"
         );
+        assert_eq!(
+            config.moderato_rpc.as_ref().unwrap(),
+            "https://custom-moderato-rpc.com"
+        );
     }
 
     #[test]
-    fn test_parse_config_with_custom_networks() {
-        let toml = r#"
-            [evm]
-            keystore = "/path/to/keystore.json"
-
-            [[networks]]
-            id = "my-chain"
-            chain_type = "evm"
-            chain_id = 99999
-            mainnet = false
-            display_name = "My Custom Chain"
-            rpc_url = "https://rpc.mychain.com"
-        "#;
-
-        let config: Config = toml::from_str(toml).expect("should parse");
-        assert_eq!(config.networks.len(), 1);
-        let network = &config.networks[0];
-        assert_eq!(network.id, "my-chain");
-        assert_eq!(network.chain_id, Some(99999));
-        assert_eq!(network.display_name, "My Custom Chain");
-    }
-
-    #[test]
-    fn test_parse_config_with_custom_tokens() {
-        let toml = r#"
-            [evm]
-            keystore = "/path/to/keystore.json"
-
-            [[tokens]]
-            network = "ethereum"
-            address = "0x1234567890123456789012345678901234567890"
-            symbol = "TEST"
-            name = "Test Token"
-            decimals = 18
-        "#;
-
-        let config: Config = toml::from_str(toml).expect("should parse");
-        assert_eq!(config.tokens.len(), 1);
-        let token = &config.tokens[0];
-        assert_eq!(token.symbol, "TEST");
-        assert_eq!(token.decimals, 18);
-    }
-
-    #[test]
-    fn test_resolve_network_with_rpc_override() {
+    fn test_resolve_network_with_tempo_rpc_override() {
         let config = Config::builder()
-            .rpc_override("tempo-moderato", "https://custom-tempo-rpc.com")
+            .tempo_rpc("https://custom-tempo-rpc.com")
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo")
+            .expect("tempo should resolve");
+        assert_eq!(network_info.rpc_url, "https://custom-tempo-rpc.com");
+    }
+
+    #[test]
+    fn test_resolve_network_with_moderato_rpc_override() {
+        let config = Config::builder()
+            .moderato_rpc("https://custom-moderato-rpc.com")
             .build();
 
         let network_info = config
             .resolve_network("tempo-moderato")
             .expect("tempo-moderato should resolve");
-        assert_eq!(network_info.rpc_url, "https://custom-tempo-rpc.com");
+        assert_eq!(network_info.rpc_url, "https://custom-moderato-rpc.com");
     }
 
     #[test]
@@ -904,54 +799,6 @@ mod tests {
             .expect("tempo-moderato should resolve");
         // Should use the default RPC URL from the registry
         assert!(network_info.rpc_url.contains("tempo"));
-    }
-
-    #[test]
-    fn test_resolve_network_with_custom_network() {
-        let custom = CustomNetwork {
-            id: "my-custom-chain".to_string(),
-            chain_type: ChainType::Evm,
-            chain_id: Some(12345),
-            mainnet: false,
-            display_name: "My Custom Chain".to_string(),
-            rpc_url: "https://rpc.custom.example.com".to_string(),
-            explorer_url: None,
-            explorer_type: None,
-            explorer_config: None,
-        };
-
-        let config = Config::builder().custom_network(custom).build();
-
-        let network_info = config
-            .resolve_network("my-custom-chain")
-            .expect("custom network should resolve");
-        assert_eq!(network_info.rpc_url, "https://rpc.custom.example.com");
-        assert_eq!(network_info.chain_id, Some(12345));
-        assert_eq!(network_info.display_name, "My Custom Chain");
-    }
-
-    #[test]
-    fn test_resolve_network_custom_overrides_builtin() {
-        // Custom network with same ID as a built-in should override it
-        let custom = CustomNetwork {
-            id: "tempo-moderato".to_string(),
-            chain_type: ChainType::Evm,
-            chain_id: Some(42431),
-            mainnet: false,
-            display_name: "Custom Tempo".to_string(),
-            rpc_url: "https://my-private-tempo-rpc.com".to_string(),
-            explorer_url: None,
-            explorer_type: None,
-            explorer_config: None,
-        };
-
-        let config = Config::builder().custom_network(custom).build();
-
-        let network_info = config
-            .resolve_network("tempo-moderato")
-            .expect("tempo-moderato should resolve");
-        assert_eq!(network_info.rpc_url, "https://my-private-tempo-rpc.com");
-        assert_eq!(network_info.display_name, "Custom Tempo");
     }
 
     #[test]
@@ -993,6 +840,114 @@ mod tests {
         assert_eq!(
             config.evm.as_ref().unwrap().keystore,
             Some(PathBuf::from("/path/to/keystore.json"))
+        );
+    }
+
+    #[test]
+    fn test_custom_network_definition() {
+        let toml = r#"
+            [[networks]]
+            id = "my-local-chain"
+            chain_id = 31337
+            display_name = "Local Dev Chain"
+            rpc_url = "http://localhost:8545"
+            explorer_url = "http://localhost:4000"
+        "#;
+
+        let config: Config = toml::from_str(toml).expect("should parse custom network");
+        assert_eq!(config.networks.len(), 1);
+        let network = &config.networks[0];
+        assert_eq!(network.id, "my-local-chain");
+        assert_eq!(network.chain_id, Some(31337));
+        assert_eq!(network.display_name, "Local Dev Chain");
+        assert_eq!(network.rpc_url, "http://localhost:8545");
+        assert!(!network.mainnet);
+    }
+
+    #[test]
+    fn test_resolve_custom_network() {
+        let config = Config::builder()
+            .custom_network(CustomNetwork {
+                id: "my-local-chain".to_string(),
+                chain_id: Some(31337),
+                mainnet: false,
+                display_name: "Local Dev Chain".to_string(),
+                rpc_url: "http://localhost:8545".to_string(),
+                explorer_url: Some("http://localhost:4000".to_string()),
+            })
+            .build();
+
+        let network_info = config
+            .resolve_network("my-local-chain")
+            .expect("custom network should resolve");
+        assert_eq!(network_info.chain_id, Some(31337));
+        assert_eq!(network_info.display_name, "Local Dev Chain");
+        assert_eq!(network_info.rpc_url, "http://localhost:8545");
+        assert!(!network_info.mainnet);
+        assert!(network_info.explorer.is_some());
+    }
+
+    #[test]
+    fn test_rpc_override_via_hashmap() {
+        let config = Config::builder()
+            .rpc_override("tempo", "https://my-custom-tempo.com")
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo")
+            .expect("tempo should resolve");
+        assert_eq!(network_info.rpc_url, "https://my-custom-tempo.com");
+    }
+
+    #[test]
+    fn test_typed_rpc_override_takes_precedence() {
+        // typed tempo_rpc should take precedence over rpc HashMap
+        let config = Config::builder()
+            .tempo_rpc("https://typed-override.com")
+            .rpc_override("tempo", "https://hashmap-override.com")
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo")
+            .expect("tempo should resolve");
+        assert_eq!(network_info.rpc_url, "https://typed-override.com");
+    }
+
+    #[test]
+    fn test_custom_network_overrides_builtin() {
+        // Custom network with same id as builtin should take precedence
+        let config = Config::builder()
+            .custom_network(CustomNetwork {
+                id: "tempo".to_string(),
+                chain_id: Some(99999),
+                mainnet: true,
+                display_name: "My Custom Tempo".to_string(),
+                rpc_url: "https://my-tempo-fork.com".to_string(),
+                explorer_url: None,
+            })
+            .build();
+
+        let network_info = config
+            .resolve_network("tempo")
+            .expect("custom tempo should resolve");
+        assert_eq!(network_info.chain_id, Some(99999));
+        assert_eq!(network_info.display_name, "My Custom Tempo");
+        assert_eq!(network_info.rpc_url, "https://my-tempo-fork.com");
+    }
+
+    #[test]
+    fn test_parse_rpc_hashmap_from_toml() {
+        let toml = r#"
+            [rpc]
+            tempo = "https://custom-tempo.com"
+            "tempo-moderato" = "https://custom-moderato.com"
+        "#;
+
+        let config: Config = toml::from_str(toml).expect("should parse rpc overrides");
+        assert_eq!(config.rpc.get("tempo").unwrap(), "https://custom-tempo.com");
+        assert_eq!(
+            config.rpc.get("tempo-moderato").unwrap(),
+            "https://custom-moderato.com"
         );
     }
 }
