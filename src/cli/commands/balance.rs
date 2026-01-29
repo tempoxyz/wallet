@@ -1,13 +1,10 @@
 //! Balance command for checking token wallet balances on configured networks
 
+use crate::config::{Config, PaymentMethod, WalletConfig};
 use crate::network::{ChainType, Network};
 use crate::payment::currency::currencies;
 use crate::payment::money::format_u256_with_decimals;
-use crate::payment::provider::NetworkBalance;
-use crate::{
-    config::{Config, PaymentMethod},
-    payment::provider::PROVIDER_REGISTRY,
-};
+use crate::payment::provider::{get_balance, NetworkBalance};
 use alloy::primitives::U256;
 use anyhow::{Context, Result};
 
@@ -22,7 +19,6 @@ fn mock_balance(
     _address: &str,
     currency: &crate::payment::currency::Currency,
 ) -> NetworkBalance {
-    // Return a realistic-looking mock balance
     let mock_atomic = match network {
         Network::Base | Network::Ethereum => U256::from(1_000_000u64),
         Network::BaseSepolia | Network::EthereumSepolia => U256::from(5_000_000u64),
@@ -62,25 +58,18 @@ pub async fn balance_command(
         let networks = Network::by_chain_type(chain_type, network_filter.as_deref());
 
         for network in networks {
-            let provider = PROVIDER_REGISTRY
-                .find_provider(network.as_str())
-                .context(format!("No provider found for network: {network}"))?;
-
             let check_address = match address.as_deref() {
                 Some(addr) => addr.to_string(),
-                None => provider
-                    .get_address(config)
-                    .context(format!("Failed to get address for {}", provider.name()))?,
+                None => config
+                    .require_evm()
+                    .and_then(|evm| evm.get_address())
+                    .context(format!("Failed to get address for {}", method))?,
             };
 
             if mock_mode {
-                // Return mock data instead of making network calls
                 balances.push(mock_balance(network, &check_address, &currency));
             } else {
-                match provider
-                    .get_balance(&check_address, network, currency, config)
-                    .await
-                {
+                match get_balance(config, &check_address, network, currency).await {
                     Ok(balance) => balances.push(balance),
                     Err(e) => eprintln!("Warning: Failed to get balance for {network}: {e}"),
                 }
@@ -136,16 +125,12 @@ mod tests {
 
     #[test]
     fn test_usdc_config_presence() {
-        // Networks with USDC support
         assert!(Network::Base.usdc_config().is_some());
         assert!(Network::BaseSepolia.usdc_config().is_some());
         assert!(Network::Ethereum.usdc_config().is_some());
         assert!(Network::EthereumSepolia.usdc_config().is_some());
-
-        // Tempo has AlphaUSD support (testnet stablecoin)
         assert!(Network::TempoModerato.usdc_config().is_some());
 
-        // Networks without token support yet
         assert!(Network::Avalanche.usdc_config().is_none());
         assert!(Network::Polygon.usdc_config().is_none());
     }
@@ -174,8 +159,6 @@ mod tests {
 
     #[test]
     fn test_is_mock_mode_respects_env() {
-        // This test doesn't set the env var, so should return false
-        // Note: Other tests might set it, so we check the function works
-        let _ = is_mock_mode(); // Just verify it doesn't panic
+        let _ = is_mock_mode();
     }
 }
