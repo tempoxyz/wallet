@@ -16,22 +16,22 @@ use std::str::FromStr;
 ///
 /// ```
 /// use pget::payment::money::TokenId;
-/// use pget::network::Network;
+/// use pget::network::{Network, tempo_tokens};
 /// use alloy::primitives::Address;
 /// use std::str::FromStr;
 ///
-/// let usdc_base = TokenId::new(
-///     Network::Base,
-///     Address::from_str("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913").unwrap(),
+/// let path_usd = TokenId::new(
+///     Network::Tempo,
+///     Address::from_str(tempo_tokens::PATH_USD).unwrap(),
 /// );
 ///
-/// let usdc_eth = TokenId::new(
-///     Network::Ethereum,
-///     Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap(),
+/// let alpha_usd = TokenId::new(
+///     Network::Tempo,
+///     Address::from_str(tempo_tokens::ALPHA_USD).unwrap(),
 /// );
 ///
-/// // Different networks = different tokens
-/// assert_ne!(usdc_base, usdc_eth);
+/// // Different tokens on same network
+/// assert_ne!(path_usd, alpha_usd);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TokenId {
@@ -69,11 +69,11 @@ impl TokenId {
         Ok(Self { network, asset })
     }
 
-    /// Get the configured token for this network (USDC or equivalent).
+    /// Get the default token for this network (pathUSD).
     ///
     /// Returns None if the network doesn't have a configured token.
     pub fn default_for_network(network: Network) -> Option<Self> {
-        let config = network.usdc_config()?;
+        let config = network.default_token_config();
         let asset = Address::from_str(config.address).ok()?;
         Some(Self { network, asset })
     }
@@ -102,19 +102,19 @@ impl fmt::Display for TokenId {
 ///
 /// ```
 /// use pget::payment::money::{Money, TokenId};
-/// use pget::network::Network;
+/// use pget::network::{Network, tempo_tokens};
 /// use alloy::primitives::{Address, U256};
 /// use std::str::FromStr;
 ///
-/// // Create 1.5 USDC on Base
+/// // Create 1.5 pathUSD on Tempo
 /// let token = TokenId::new(
-///     Network::Base,
-///     Address::from_str("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913").unwrap(),
+///     Network::Tempo,
+///     Address::from_str(tempo_tokens::PATH_USD).unwrap(),
 /// );
-/// let amount = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
+/// let amount = Money::new(token, U256::from(1_500_000u64), 6, "pathUSD");
 ///
 /// assert_eq!(amount.format_human(), "1.500000");
-/// assert_eq!(amount.format_trimmed(), "1.5 USDC");
+/// assert_eq!(amount.format_trimmed(), "1.5 pathUSD");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Money {
@@ -136,7 +136,7 @@ impl Money {
     /// * `token` - The token identity (network + asset address)
     /// * `atomic` - The amount in atomic units (e.g., wei, base units)
     /// * `decimals` - Number of decimal places for human formatting
-    /// * `symbol` - Token symbol for display (e.g., "USDC", "ETH")
+    /// * `symbol` - Token symbol for display (e.g., "pathUSD", "AlphaUSD")
     pub fn new(token: TokenId, atomic: U256, decimals: u8, symbol: impl Into<String>) -> Self {
         Self {
             token,
@@ -146,18 +146,12 @@ impl Money {
         }
     }
 
-    /// Create Money from a network's default token configuration.
+    /// Create Money from a network's default token configuration (pathUSD).
     ///
     /// This is the recommended way to create Money for balance queries
-    /// and payment operations.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the network doesn't have a configured token.
+    /// and payment operations when no specific token is specified.
     pub fn from_network_config(network: Network, atomic: U256) -> Result<Self> {
-        let config = network.usdc_config().ok_or_else(|| {
-            PgetError::UnsupportedToken(format!("No token configuration for network '{}'", network))
-        })?;
+        let config = network.default_token_config();
 
         let token = TokenId::from_network_and_address(network, config.address)?;
 
@@ -311,7 +305,7 @@ impl Money {
 
     /// Format the amount with trimmed trailing zeros.
     ///
-    /// More compact display: "1.5 USDC" instead of "1.500000 USDC"
+    /// More compact display: "1.5 pathUSD" instead of "1.500000 pathUSD"
     pub fn format_trimmed(&self) -> String {
         format_u256_trimmed(self.atomic, self.decimals, &self.symbol)
     }
@@ -462,8 +456,8 @@ mod tests {
 
     fn test_token() -> TokenId {
         TokenId::new(
-            Network::Base,
-            Address::from_str("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+            Network::TempoModerato,
+            Address::from_str("0x20c0000000000000000000000000000000000001")
                 .expect("valid test address"),
         )
     }
@@ -472,8 +466,8 @@ mod tests {
     fn test_token_id_equality() {
         let token1 = test_token();
         let token2 = TokenId::new(
-            Network::Ethereum,
-            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+            Network::Tempo,
+            Address::from_str("0x20c0000000000000000000000000000000000001")
                 .expect("valid test address"),
         );
 
@@ -487,44 +481,45 @@ mod tests {
 
     #[test]
     fn test_token_id_default_for_network() {
-        let token = TokenId::default_for_network(Network::Base);
+        let token = TokenId::default_for_network(Network::TempoModerato);
         assert!(token.is_some());
         assert_eq!(
-            token.expect("Base should have token config").network(),
-            Network::Base
+            token
+                .expect("TempoModerato should have token config")
+                .network(),
+            Network::TempoModerato
         );
 
-        // Network without token config
-        let no_token = TokenId::default_for_network(Network::Polygon);
-        assert!(no_token.is_none());
+        let token2 = TokenId::default_for_network(Network::Tempo);
+        assert!(token2.is_some());
     }
 
     #[test]
     fn test_money_new() {
         let token = test_token();
-        let money = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
+        let money = Money::new(token, U256::from(1_500_000u64), 6, "αUSD");
 
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
         assert_eq!(money.decimals(), 6);
-        assert_eq!(money.symbol(), "USDC");
-        assert_eq!(money.network(), Network::Base);
+        assert_eq!(money.symbol(), "αUSD");
+        assert_eq!(money.network(), Network::TempoModerato);
     }
 
     #[test]
     fn test_money_from_network_config() {
-        let money = Money::from_network_config(Network::Base, U256::from(1_000_000u64))
-            .expect("Base has token config");
+        let money = Money::from_network_config(Network::TempoModerato, U256::from(1_000_000u64))
+            .expect("TempoModerato has token config");
 
-        assert_eq!(money.network(), Network::Base);
+        assert_eq!(money.network(), Network::TempoModerato);
         assert_eq!(money.decimals(), 6);
-        assert_eq!(money.symbol(), "USDC");
+        assert_eq!(money.symbol(), "pathUSD"); // default token is pathUSD
     }
 
     #[test]
     fn test_money_from_atomic_str() {
         let token = test_token();
         let money =
-            Money::from_atomic_str(token, "1500000", 6, "USDC").expect("valid atomic string");
+            Money::from_atomic_str(token, "1500000", 6, "AlphaUSD").expect("valid atomic string");
 
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
     }
@@ -534,15 +529,16 @@ mod tests {
         let token = test_token();
 
         // Whole number
-        let money = Money::from_human("100", token, 6, "USDC").expect("valid whole number");
+        let money = Money::from_human("100", token, 6, "AlphaUSD").expect("valid whole number");
         assert_eq!(money.atomic(), U256::from(100_000_000u64));
 
         // With decimals
-        let money = Money::from_human("1.5", token, 6, "USDC").expect("valid decimal");
+        let money = Money::from_human("1.5", token, 6, "AlphaUSD").expect("valid decimal");
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
 
         // Small amount
-        let money = Money::from_human("0.000001", token, 6, "USDC").expect("valid small amount");
+        let money =
+            Money::from_human("0.000001", token, 6, "AlphaUSD").expect("valid small amount");
         assert_eq!(money.atomic(), U256::from(1u64));
     }
 
@@ -551,26 +547,26 @@ mod tests {
         let token = test_token();
 
         // Too many decimals
-        assert!(Money::from_human("1.1234567", token, 6, "USDC").is_err());
+        assert!(Money::from_human("1.1234567", token, 6, "AlphaUSD").is_err());
 
         // Invalid format
-        assert!(Money::from_human("1.2.3", token, 6, "USDC").is_err());
+        assert!(Money::from_human("1.2.3", token, 6, "AlphaUSD").is_err());
 
         // Invalid number
-        assert!(Money::from_human("abc", token, 6, "USDC").is_err());
+        assert!(Money::from_human("abc", token, 6, "AlphaUSD").is_err());
     }
 
     #[test]
     fn test_format_human() {
         let token = test_token();
 
-        let money = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
+        let money = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
         assert_eq!(money.format_human(), "1.500000");
 
-        let money = Money::new(token, U256::from(1u64), 6, "USDC");
+        let money = Money::new(token, U256::from(1u64), 6, "AlphaUSD");
         assert_eq!(money.format_human(), "0.000001");
 
-        let money = Money::new(token, U256::ZERO, 6, "USDC");
+        let money = Money::new(token, U256::ZERO, 6, "AlphaUSD");
         assert_eq!(money.format_human(), "0.000000");
     }
 
@@ -578,14 +574,14 @@ mod tests {
     fn test_format_trimmed() {
         let token = test_token();
 
-        let money = Money::new(token, U256::from(1_000_000u64), 6, "USDC");
-        assert_eq!(money.format_trimmed(), "1 USDC");
+        let money = Money::new(token, U256::from(1_000_000u64), 6, "AlphaUSD");
+        assert_eq!(money.format_trimmed(), "1 AlphaUSD");
 
-        let money = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
-        assert_eq!(money.format_trimmed(), "1.5 USDC");
+        let money = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
+        assert_eq!(money.format_trimmed(), "1.5 AlphaUSD");
 
-        let money = Money::new(token, U256::from(1_234_567u64), 6, "USDC");
-        assert_eq!(money.format_trimmed(), "1.234567 USDC");
+        let money = Money::new(token, U256::from(1_234_567u64), 6, "AlphaUSD");
+        assert_eq!(money.format_trimmed(), "1.234567 AlphaUSD");
     }
 
     #[test]
@@ -602,8 +598,8 @@ mod tests {
     #[test]
     fn test_checked_add() {
         let token = test_token();
-        let money1 = Money::new(token, U256::from(1_000_000u64), 6, "USDC");
-        let money2 = Money::new(token, U256::from(500_000u64), 6, "USDC");
+        let money1 = Money::new(token, U256::from(1_000_000u64), 6, "AlphaUSD");
+        let money2 = Money::new(token, U256::from(500_000u64), 6, "AlphaUSD");
 
         let result = money1.checked_add(&money2).expect("same token addition");
         assert_eq!(result.atomic(), U256::from(1_500_000u64));
@@ -613,23 +609,23 @@ mod tests {
     fn test_checked_add_different_tokens() {
         let token1 = test_token();
         let token2 = TokenId::new(
-            Network::Ethereum,
-            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+            Network::Tempo,
+            Address::from_str("0x20c0000000000000000000000000000000000001")
                 .expect("valid test address"),
         );
 
-        let money1 = Money::new(token1, U256::from(1_000_000u64), 6, "USDC");
-        let money2 = Money::new(token2, U256::from(500_000u64), 6, "USDC");
+        let money1 = Money::new(token1, U256::from(1_000_000u64), 6, "αUSD");
+        let money2 = Money::new(token2, U256::from(500_000u64), 6, "αUSD");
 
-        // Should fail because tokens are different
+        // Should fail because tokens are different (different networks)
         assert!(money1.checked_add(&money2).is_err());
     }
 
     #[test]
     fn test_checked_sub() {
         let token = test_token();
-        let money1 = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
-        let money2 = Money::new(token, U256::from(500_000u64), 6, "USDC");
+        let money1 = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
+        let money2 = Money::new(token, U256::from(500_000u64), 6, "AlphaUSD");
 
         let result = money1.checked_sub(&money2).expect("valid subtraction");
         assert_eq!(result.atomic(), U256::from(1_000_000u64));
@@ -638,8 +634,8 @@ mod tests {
     #[test]
     fn test_checked_sub_underflow() {
         let token = test_token();
-        let money1 = Money::new(token, U256::from(500_000u64), 6, "USDC");
-        let money2 = Money::new(token, U256::from(1_000_000u64), 6, "USDC");
+        let money1 = Money::new(token, U256::from(500_000u64), 6, "AlphaUSD");
+        let money2 = Money::new(token, U256::from(1_000_000u64), 6, "AlphaUSD");
 
         // Should fail due to underflow
         assert!(money1.checked_sub(&money2).is_err());
@@ -648,8 +644,8 @@ mod tests {
     #[test]
     fn test_checked_cmp() {
         let token = test_token();
-        let money1 = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
-        let money2 = Money::new(token, U256::from(1_000_000u64), 6, "USDC");
+        let money1 = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
+        let money2 = Money::new(token, U256::from(1_000_000u64), 6, "AlphaUSD");
 
         assert_eq!(
             money1.checked_cmp(&money2).expect("same token comparison"),
@@ -661,25 +657,25 @@ mod tests {
     fn test_is_zero() {
         let token = test_token();
 
-        let zero = Money::new(token, U256::ZERO, 6, "USDC");
+        let zero = Money::new(token, U256::ZERO, 6, "AlphaUSD");
         assert!(zero.is_zero());
 
-        let nonzero = Money::new(token, U256::from(1u64), 6, "USDC");
+        let nonzero = Money::new(token, U256::from(1u64), 6, "AlphaUSD");
         assert!(!nonzero.is_zero());
     }
 
     #[test]
     fn test_display() {
         let token = test_token();
-        let money = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
-        assert_eq!(format!("{}", money), "1.5 USDC");
+        let money = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
+        assert_eq!(format!("{}", money), "1.5 AlphaUSD");
     }
 
     #[test]
     fn test_token_id_display() {
         let token = test_token();
         let display = format!("{}", token);
-        assert!(display.contains("base"));
+        assert!(display.contains("tempo-moderato"));
         assert!(display.contains("0x"));
     }
 }

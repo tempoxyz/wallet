@@ -110,24 +110,16 @@ impl From<&crate::error::PgetError> for ExitCode {
                 ExitCode::InsufficientFunds
             }
 
-            PgetError::NoPaymentMethods | PgetError::NoCompatibleMethod { .. } => {
-                ExitCode::PaymentFailed
-            }
-
             // Network/provider errors
-            PgetError::ProviderNotFound(_)
-            | PgetError::UnknownNetwork(_)
-            | PgetError::Http(_)
-            | PgetError::Reqwest(_) => ExitCode::NetworkError,
+            PgetError::UnknownNetwork(_) | PgetError::Http(_) | PgetError::Reqwest(_) => {
+                ExitCode::NetworkError
+            }
 
             // Auth/signing errors
             PgetError::InvalidKey(_)
             | PgetError::Signing { .. }
             | PgetError::SigningSimple(_)
             | PgetError::InvalidAddress(_) => ExitCode::AuthError,
-
-            // Not found errors
-            PgetError::TokenConfigNotFound { .. } => ExitCode::NotFound,
 
             // General errors
             _ => ExitCode::GeneralError,
@@ -153,10 +145,6 @@ mod tests {
         assert_eq!(
             ExitCode::from(&PgetError::ConfigMissing("test".into())),
             ExitCode::ConfigError
-        );
-        assert_eq!(
-            ExitCode::from(&PgetError::NoPaymentMethods),
-            ExitCode::PaymentFailed
         );
         assert_eq!(
             ExitCode::from(&PgetError::UnknownNetwork("test".into())),

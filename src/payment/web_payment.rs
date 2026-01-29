@@ -18,13 +18,13 @@ use crate::cli::confirm::confirm_web_payment;
 use crate::cli::formatting::format_address_link;
 use crate::cli::hyperlink::hyperlink;
 use crate::cli::Cli;
-use crate::config::Config;
+use crate::config::{Config, WalletConfig};
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
 use crate::payment::mpay_ext::{method_to_network, validate_challenge};
-use crate::payment::provider::PROVIDER_REGISTRY;
+use crate::payment::provider::PgetPaymentProvider;
 
 /// Validate that the challenge realm matches the request origin.
 ///
@@ -43,12 +43,9 @@ fn validate_origin(url: &str, challenge: &PaymentChallenge, skip_check: bool) ->
         .host_str()
         .ok_or_else(|| anyhow::anyhow!("Request URL has no host"))?;
 
-    // The realm should match the request host (or be a subdomain/related domain)
-    // For strict security, we require an exact host match
     let realm_lower = challenge.realm.to_lowercase();
     let host_lower = request_host.to_lowercase();
 
-    // Check for exact match or if realm ends with the host (subdomain case)
     let is_valid = realm_lower == host_lower
         || realm_lower.ends_with(&format!(".{}", host_lower))
         || host_lower.ends_with(&format!(".{}", realm_lower));
@@ -135,16 +132,16 @@ pub async fn handle_web_payment_request(
         confirm_web_payment(config, &challenge, &charge_req, explorer.as_ref())?;
     }
 
-    let provider = PROVIDER_REGISTRY
-        .find_provider(network)
-        .ok_or_else(|| anyhow::anyhow!("No provider found for network: {}", network))?;
+    // Use mpay::client::PaymentProvider to create the credential
+    let provider = PgetPaymentProvider::new(config.clone());
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
     }
 
+    use mpay::client::PaymentProvider;
     let credential = provider
-        .create_web_payment(&challenge, config)
+        .pay(&challenge)
         .await
         .context("Failed to create payment credential")?;
 
@@ -200,11 +197,11 @@ fn handle_web_dry_run(
 ) -> Result<HttpResponse> {
     let network = method_to_network(&challenge.method)
         .ok_or_else(|| anyhow::anyhow!("Unsupported payment method: {}", challenge.method))?;
-    let provider = PROVIDER_REGISTRY
-        .find_provider(network)
-        .ok_or_else(|| anyhow::anyhow!("No provider found for network: {}", network))?;
 
-    let from_address = provider.get_address(config)?;
+    let from_address = config
+        .require_evm()
+        .and_then(|evm| evm.get_address())
+        .unwrap_or_else(|_| "unknown".to_string());
 
     println!("[DRY RUN] Web Payment would be made:");
     println!("Protocol: Web Payment Auth");
@@ -240,7 +237,6 @@ fn display_web_receipt(
                 eprintln!("  Status: {}", receipt.status);
                 eprintln!("  Method: {}", receipt.method);
 
-                // TX Hash with optional clickable link
                 let tx_display = if let Some(exp) = explorer {
                     let url = exp.tx_url(&receipt.reference);
                     hyperlink(&receipt.reference, &url)
@@ -275,7 +271,7 @@ mod tests {
 
         let charge_req = ChargeRequest {
             amount: amount.to_string(),
-            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            currency: "0x20c0000000000000000000000000000000000001".to_string(),
             recipient: Some("0x1234567890123456789012345678901234567890".to_string()),
             expires: Some("2099-12-31T23:59:59Z".to_string()),
             description: None,
@@ -300,8 +296,6 @@ mod tests {
     fn mock_challenge(method: MethodName, amount: &str) -> (PaymentChallenge, ChargeRequest) {
         mock_challenge_with_realm(method, amount, "api.example.com")
     }
-
-    // ==================== Origin Validation Tests ====================
 
     #[test]
     fn test_validate_origin_exact_match() {
@@ -356,14 +350,11 @@ mod tests {
 
     #[test]
     fn test_validate_origin_partial_match_rejected() {
-        // "example.com" should NOT match "notexample.com"
         let (challenge, _) =
             mock_challenge_with_realm(MethodName::new("tempo"), "1000000", "example.com");
         let result = validate_origin("https://notexample.com/pay", &challenge, false);
         assert!(result.is_err());
     }
-
-    // ==================== Payment Constraints Tests ====================
 
     #[test]
     fn test_validate_constraints_no_constraints() {
@@ -409,7 +400,6 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_network_filter_match() {
-        // MethodName::new("tempo") maps to "tempo-moderato" network
         let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -434,7 +424,6 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_multiple_networks() {
-        // MethodName::new("tempo") maps to "tempo-moderato"
         let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -444,7 +433,6 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_tempo_network() {
-        // MethodName::new("tempo") maps to "tempo-moderato" network
         let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -454,7 +442,6 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_combined() {
-        // MethodName::new("tempo") maps to "tempo-moderato"
         let cli = Cli::try_parse_from([
             "pget",
             "--max-amount",

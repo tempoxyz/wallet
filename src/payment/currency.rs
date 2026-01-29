@@ -4,9 +4,9 @@
 /// Represents a cryptocurrency or token with its metadata
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Currency {
-    /// Symbol/ticker (e.g., "USDC", "ETH")
+    /// Symbol/ticker (e.g., "pathUSD", "AlphaUSD")
     pub symbol: &'static str,
-    /// Full name (e.g., "USD Coin")
+    /// Full name (e.g., "pathUSD")
     pub name: &'static str,
     /// Number of decimal places
     pub decimals: u8,
@@ -53,7 +53,7 @@ impl Currency {
     /// Format atomic units with trimmed trailing zeros
     ///
     /// Unlike `format_atomic`, this trims trailing zeros for cleaner display.
-    /// e.g., "1.500000 USDC" becomes "1.5 USDC"
+    /// e.g., "1.500000 pathUSD" becomes "1.5 pathUSD"
     pub fn format_trimmed(&self, atomic: u128) -> String {
         let divisor = self.divisor as u128;
         let whole = atomic / divisor;
@@ -111,18 +111,21 @@ pub fn format_atomic_trimmed(
     }
 }
 
-/// Common currency definitions
+/// Tempo stablecoin definitions
 pub mod currencies {
     use super::Currency;
 
-    /// USD Coin (USDC) - 6 decimals
-    pub const USDC: Currency = Currency::new("USDC", "USD Coin", 6);
+    /// pathUSD - primary Tempo stablecoin at 0x20c0000000000000000000000000000000000000
+    pub const PATH_USD: Currency = Currency::new("pathUSD", "pathUSD", 6);
 
-    /// Ethereum (ETH) - 18 decimals
-    pub const ETH: Currency = Currency::new("ETH", "Ethereum", 18);
-
-    /// AlphaUSD (Tempo testnet stablecoin) - 6 decimals
+    /// AlphaUSD - Tempo stablecoin at 0x20c0000000000000000000000000000000000001
     pub const ALPHA_USD: Currency = Currency::new("AlphaUSD", "AlphaUSD", 6);
+
+    /// BetaUSD - Tempo stablecoin at 0x20c0000000000000000000000000000000000002
+    pub const BETA_USD: Currency = Currency::new("BetaUSD", "BetaUSD", 6);
+
+    /// ThetaUSD - Tempo stablecoin at 0x20c0000000000000000000000000000000000003
+    pub const THETA_USD: Currency = Currency::new("ThetaUSD", "ThetaUSD", 6);
 }
 
 #[cfg(test)]
@@ -130,88 +133,91 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_usdc_currency() {
-        let usdc = currencies::USDC;
-        assert_eq!(usdc.symbol, "USDC");
-        assert_eq!(usdc.name, "USD Coin");
-        assert_eq!(usdc.decimals, 6);
-        assert_eq!(usdc.divisor, 1_000_000);
+    fn test_path_usd_currency() {
+        let path = currencies::PATH_USD;
+        assert_eq!(path.symbol, "pathUSD");
+        assert_eq!(path.name, "pathUSD");
+        assert_eq!(path.decimals, 6);
+        assert_eq!(path.divisor, 1_000_000);
     }
 
     #[test]
-    fn test_format_atomic_usdc() {
-        let usdc = currencies::USDC;
-        assert_eq!(usdc.format_atomic(1_000_000), "1.000000");
-        assert_eq!(usdc.format_atomic(500_000), "0.500000");
-        assert_eq!(usdc.format_atomic(1), "0.000001");
-        assert_eq!(usdc.format_atomic(0), "0.000000");
-        assert_eq!(usdc.format_atomic(1_500_000), "1.500000");
+    fn test_all_tempo_currencies_have_6_decimals() {
+        assert_eq!(currencies::PATH_USD.decimals, 6);
+        assert_eq!(currencies::ALPHA_USD.decimals, 6);
+        assert_eq!(currencies::BETA_USD.decimals, 6);
+        assert_eq!(currencies::THETA_USD.decimals, 6);
     }
 
     #[test]
-    fn test_format_atomic_eth() {
-        let eth = currencies::ETH;
-        assert_eq!(
-            eth.format_atomic(1_000_000_000_000_000_000),
-            "1.000000000000000000"
-        );
-        assert_eq!(
-            eth.format_atomic(500_000_000_000_000_000),
-            "0.500000000000000000"
-        );
+    fn test_format_atomic() {
+        let currency = currencies::PATH_USD;
+        assert_eq!(currency.format_atomic(1_000_000), "1.000000");
+        assert_eq!(currency.format_atomic(500_000), "0.500000");
+        assert_eq!(currency.format_atomic(1), "0.000001");
+        assert_eq!(currency.format_atomic(0), "0.000000");
+        assert_eq!(currency.format_atomic(1_500_000), "1.500000");
     }
 
     #[test]
     fn test_format_with_symbol() {
-        let usdc = currencies::USDC;
-        assert_eq!(usdc.format_with_symbol(1_000_000), "1.000000 USDC");
-        assert_eq!(usdc.format_with_symbol(500_000), "0.500000 USDC");
+        let currency = currencies::PATH_USD;
+        assert_eq!(currency.format_with_symbol(1_000_000), "1.000000 pathUSD");
+        assert_eq!(currency.format_with_symbol(500_000), "0.500000 pathUSD");
     }
 
     #[test]
     fn test_format_trimmed() {
-        let usdc = currencies::USDC;
-        assert_eq!(usdc.format_trimmed(1_000_000), "1 USDC");
-        assert_eq!(usdc.format_trimmed(1_500_000), "1.5 USDC");
-        assert_eq!(usdc.format_trimmed(1_234_567), "1.234567 USDC");
-        assert_eq!(usdc.format_trimmed(100_000), "0.1 USDC");
-        assert_eq!(usdc.format_trimmed(0), "0 USDC");
+        let path = currencies::PATH_USD;
+        assert_eq!(path.format_trimmed(1_000_000), "1 pathUSD");
+        assert_eq!(path.format_trimmed(1_500_000), "1.5 pathUSD");
+        assert_eq!(path.format_trimmed(1_234_567), "1.234567 pathUSD");
+        assert_eq!(path.format_trimmed(100_000), "0.1 pathUSD");
+        assert_eq!(path.format_trimmed(0), "0 pathUSD");
 
-        let eth = currencies::ETH;
-        assert_eq!(eth.format_trimmed(1_000_000_000_000_000_000), "1 ETH");
-        assert_eq!(eth.format_trimmed(100_000_000_000_000_000), "0.1 ETH");
+        let alpha = currencies::ALPHA_USD;
+        assert_eq!(alpha.format_trimmed(1_000_000), "1 AlphaUSD");
     }
 
     #[test]
     fn test_format_trimmed_from_str() {
-        let usdc = currencies::USDC;
-        assert_eq!(usdc.format_trimmed_from_str("1000000").unwrap(), "1 USDC");
-        assert_eq!(usdc.format_trimmed_from_str("1500000").unwrap(), "1.5 USDC");
-        assert!(usdc.format_trimmed_from_str("invalid").is_err());
+        let currency = currencies::PATH_USD;
+        assert_eq!(
+            currency.format_trimmed_from_str("1000000").unwrap(),
+            "1 pathUSD"
+        );
+        assert_eq!(
+            currency.format_trimmed_from_str("1500000").unwrap(),
+            "1.5 pathUSD"
+        );
+        assert!(currency.format_trimmed_from_str("invalid").is_err());
     }
 
     #[test]
     fn test_parse_atomic() {
-        let usdc = currencies::USDC;
+        let currency = currencies::PATH_USD;
         assert_eq!(
-            usdc.parse_atomic("1000000")
+            currency
+                .parse_atomic("1000000")
                 .expect("Failed to parse 1000000"),
             1_000_000
         );
-        assert_eq!(usdc.parse_atomic("0").expect("Failed to parse 0"), 0);
-        assert!(usdc.parse_atomic("invalid").is_err());
+        assert_eq!(currency.parse_atomic("0").expect("Failed to parse 0"), 0);
+        assert!(currency.parse_atomic("invalid").is_err());
     }
 
     #[test]
     fn test_currency_equality() {
-        let usdc1 = currencies::USDC;
-        let usdc2 = Currency::new("USDC", "USD Coin", 6);
-        assert_eq!(usdc1, usdc2);
+        let path1 = currencies::PATH_USD;
+        let path2 = Currency::new("pathUSD", "pathUSD", 6);
+        assert_eq!(path1, path2);
     }
 
     #[test]
     fn test_divisor_calculation() {
-        assert_eq!(currencies::USDC.divisor, 1_000_000);
-        assert_eq!(currencies::ETH.divisor, 1_000_000_000_000_000_000);
+        assert_eq!(currencies::PATH_USD.divisor, 1_000_000);
+        assert_eq!(currencies::ALPHA_USD.divisor, 1_000_000);
+        assert_eq!(currencies::BETA_USD.divisor, 1_000_000);
+        assert_eq!(currencies::THETA_USD.divisor, 1_000_000);
     }
 }

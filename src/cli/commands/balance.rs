@@ -1,13 +1,9 @@
 //! Balance command for checking token wallet balances on configured networks
 
-use crate::network::{ChainType, Network};
-use crate::payment::currency::currencies;
+use crate::config::{Config, WalletConfig};
+use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
-use crate::payment::provider::NetworkBalance;
-use crate::{
-    config::{Config, PaymentMethod},
-    payment::provider::PROVIDER_REGISTRY,
-};
+use crate::payment::provider::{get_balances, NetworkBalance};
 use alloy::primitives::U256;
 use anyhow::{Context, Result};
 
@@ -16,26 +12,28 @@ fn is_mock_mode() -> bool {
     std::env::var("PGET_MOCK_NETWORK").is_ok()
 }
 
-/// Generate mock balance data for testing
-fn mock_balance(
-    network: Network,
-    _address: &str,
-    currency: &crate::payment::currency::Currency,
-) -> NetworkBalance {
-    // Return a realistic-looking mock balance
-    let mock_atomic = match network {
-        Network::Base | Network::Ethereum => U256::from(1_000_000u64),
-        Network::BaseSepolia | Network::EthereumSepolia => U256::from(5_000_000u64),
-        _ => U256::ZERO,
+/// Generate mock balance data for testing (returns one balance per supported token)
+fn mock_balances(network: Network, _address: &str) -> Vec<NetworkBalance> {
+    let base_amount = match network {
+        Network::Tempo => 1_000_000u64,
+        Network::TempoModerato => 5_000_000u64,
     };
 
-    let balance_human = format_u256_with_decimals(mock_atomic, currency.decimals);
-    NetworkBalance::new(
-        network,
-        mock_atomic,
-        balance_human,
-        format!("{} (mock)", currency.symbol),
-    )
+    network
+        .supported_tokens()
+        .into_iter()
+        .map(|token_config| {
+            let mock_atomic = U256::from(base_amount);
+            let balance_human =
+                format_u256_with_decimals(mock_atomic, token_config.currency.decimals);
+            NetworkBalance::new(
+                network,
+                mock_atomic,
+                balance_human,
+                format!("{} (mock)", token_config.currency.symbol),
+            )
+        })
+        .collect()
 }
 
 /// Check token balances for configured networks
@@ -44,7 +42,6 @@ pub async fn balance_command(
     address: Option<String>,
     network_filter: Option<String>,
 ) -> Result<()> {
-    let currency = currencies::USDC;
     let available_methods = config.available_payment_methods();
 
     if available_methods.is_empty() {
@@ -54,35 +51,25 @@ pub async fn balance_command(
     let mock_mode = is_mock_mode();
     let mut balances = Vec::new();
 
-    for method in available_methods {
-        let chain_type = match method {
-            PaymentMethod::Evm => ChainType::Evm,
-        };
-
-        let networks = Network::by_chain_type(chain_type, network_filter.as_deref());
+    for _ in available_methods {
+        // All payment methods use Tempo networks
+        let networks = Network::by_name_filter(network_filter.as_deref());
 
         for network in networks {
-            let provider = PROVIDER_REGISTRY
-                .find_provider(network.as_str())
-                .context(format!("No provider found for network: {network}"))?;
-
             let check_address = match address.as_deref() {
                 Some(addr) => addr.to_string(),
-                None => provider
-                    .get_address(config)
-                    .context(format!("Failed to get address for {}", provider.name()))?,
+                None => config
+                    .require_evm()
+                    .and_then(|evm| evm.get_address())
+                    .context("Failed to get wallet address")?,
             };
 
             if mock_mode {
-                // Return mock data instead of making network calls
-                balances.push(mock_balance(network, &check_address, &currency));
+                balances.extend(mock_balances(network, &check_address));
             } else {
-                match provider
-                    .get_balance(&check_address, network, currency, config)
-                    .await
-                {
-                    Ok(balance) => balances.push(balance),
-                    Err(e) => eprintln!("Warning: Failed to get balance for {network}: {e}"),
+                match get_balances(config, &check_address, network).await {
+                    Ok(network_balances) => balances.extend(network_balances),
+                    Err(e) => eprintln!("Warning: Failed to get balances for {network}: {e}"),
                 }
             }
         }
@@ -93,7 +80,7 @@ pub async fn balance_command(
         return Ok(());
     }
 
-    println!("{} Balances:", currency.symbol);
+    println!("Tempo Stablecoin Balances:");
     println!();
     for balance in balances {
         println!(
@@ -108,74 +95,72 @@ pub async fn balance_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::tempo_tokens;
+    use crate::payment::currency::currencies;
 
     #[test]
     fn test_format_currency() {
-        let usdc = currencies::USDC;
-        assert_eq!(usdc.format_atomic(1_000_000), "1.000000");
-        assert_eq!(usdc.format_atomic(500_000), "0.500000");
-        assert_eq!(usdc.format_atomic(1), "0.000001");
-        assert_eq!(usdc.format_atomic(0), "0.000000");
-        assert_eq!(usdc.format_atomic(1_500_000), "1.500000");
+        let currency = currencies::PATH_USD;
+        assert_eq!(currency.format_atomic(1_000_000), "1.000000");
+        assert_eq!(currency.format_atomic(500_000), "0.500000");
+        assert_eq!(currency.format_atomic(1), "0.000001");
+        assert_eq!(currency.format_atomic(0), "0.000000");
+        assert_eq!(currency.format_atomic(1_500_000), "1.500000");
     }
 
     #[test]
-    fn test_by_chain_type() {
-        let evm_networks = Network::by_chain_type(ChainType::Evm, None);
-        assert!(!evm_networks.is_empty());
-        assert!(evm_networks.contains(&Network::Base));
-        assert!(evm_networks.contains(&Network::Ethereum));
+    fn test_all_networks() {
+        let networks = Network::by_name_filter(None);
+        assert!(!networks.is_empty());
+        assert!(networks.contains(&Network::Tempo));
+        assert!(networks.contains(&Network::TempoModerato));
     }
 
     #[test]
-    fn test_by_chain_type_with_filter() {
-        let filtered = Network::by_chain_type(ChainType::Evm, Some("base"));
+    fn test_by_name_filter() {
+        let filtered = Network::by_name_filter(Some("moderato"));
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0], Network::Base);
+        assert_eq!(filtered[0], Network::TempoModerato);
     }
 
     #[test]
-    fn test_usdc_config_presence() {
-        // Networks with USDC support
-        assert!(Network::Base.usdc_config().is_some());
-        assert!(Network::BaseSepolia.usdc_config().is_some());
-        assert!(Network::Ethereum.usdc_config().is_some());
-        assert!(Network::EthereumSepolia.usdc_config().is_some());
+    fn test_supported_tokens() {
+        let tokens = Network::Tempo.supported_tokens();
+        assert_eq!(tokens.len(), 4);
 
-        // Tempo has AlphaUSD support (testnet stablecoin)
-        assert!(Network::TempoModerato.usdc_config().is_some());
-
-        // Networks without token support yet
-        assert!(Network::Avalanche.usdc_config().is_none());
-        assert!(Network::Polygon.usdc_config().is_none());
+        let symbols: Vec<_> = tokens.iter().map(|t| t.currency.symbol).collect();
+        assert!(symbols.contains(&"pathUSD"));
+        assert!(symbols.contains(&"AlphaUSD"));
+        assert!(symbols.contains(&"BetaUSD"));
+        assert!(symbols.contains(&"ThetaUSD"));
     }
 
     #[test]
-    fn test_usdc_config_structure() {
-        let base_config = Network::Base.usdc_config().unwrap();
-        assert!(!base_config.address.is_empty());
-        assert!(base_config.address.starts_with("0x"));
-        assert_eq!(base_config.currency.symbol, "USDC");
-        assert_eq!(base_config.currency.decimals, 6);
+    fn test_token_config_by_address() {
+        let config = Network::Tempo
+            .token_config_by_address(tempo_tokens::ALPHA_USD)
+            .unwrap();
+        assert_eq!(config.currency.symbol, "AlphaUSD");
+        assert_eq!(config.currency.decimals, 6);
 
-        let base_info = Network::Base.info();
-        assert!(!base_info.rpc_url.is_empty());
+        let tempo_info = Network::Tempo.info();
+        assert!(!tempo_info.rpc_url.is_empty());
     }
 
     #[test]
-    fn test_mock_balance_returns_data() {
-        let usdc = currencies::USDC;
+    fn test_mock_balances_returns_all_tokens() {
+        let balances = mock_balances(Network::Tempo, "0x123");
+        assert_eq!(balances.len(), 4);
 
-        let balance = mock_balance(Network::Base, "0x123", &usdc);
-        assert_eq!(balance.network, Network::Base);
-        assert_eq!(balance.balance, U256::from(1_000_000u64));
-        assert!(balance.asset.contains("mock"));
+        for balance in &balances {
+            assert_eq!(balance.network, Network::Tempo);
+            assert_eq!(balance.balance, U256::from(1_000_000u64));
+            assert!(balance.asset.contains("mock"));
+        }
     }
 
     #[test]
     fn test_is_mock_mode_respects_env() {
-        // This test doesn't set the env var, so should return false
-        // Note: Other tests might set it, so we check the function works
-        let _ = is_mock_mode(); // Just verify it doesn't panic
+        let _ = is_mock_mode();
     }
 }

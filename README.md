@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
-    <img src="assets/logo-light.png" alt="PURL">
+    <img src="assets/logo-light.png" alt="pget">
   </picture>
 </p>
 
@@ -40,7 +40,7 @@ Use as `pget <URL> [OPTIONS]` or `pget <COMMAND> [OPTIONS]`
 | Preview payment without executing | `pget -D https://api.example.com/data` |
 | Require confirmation before payment | `pget -y https://api.example.com/data` |
 | Set maximum payment amount (in atomic units) | `pget -M 10000 https://api.example.com/data` |
-| Filter to specific networks | `pget -n base-sepolia https://api.example.com/data` |
+| Filter to specific networks | `pget -n tempo-moderato https://api.example.com/data` |
 | Verbose output with headers | `pget -vi https://api.example.com/data` |
 | Multi-level verbosity | `pget -vvv https://api.example.com/data` |
 | Quiet mode (suppress output) | `pget -q https://api.example.com/data` or `pget -s https://api.example.com/data` |
@@ -58,7 +58,7 @@ Use as `pget <URL> [OPTIONS]` or `pget <COMMAND> [OPTIONS]`
 | Create a new payment method | `pget method new my-wallet --generate` |
 | Import an existing private key | `pget method import my-wallet` |
 | Check wallet balance | `pget balance` or `pget b` |
-| Check balance on specific network | `pget balance -n base` |
+| Check balance on specific network | `pget balance -n tempo` |
 | Inspect payment requirements | `pget inspect https://api.example.com/data` |
 | List supported networks | `pget networks` or `pget n` |
 | Generate shell completions | `pget completions bash` or `pget com bash` |
@@ -85,11 +85,11 @@ Make sure that `~/.cargo/bin` is on your PATH. One way to do this is by adding t
 
 ## Configuration
 
-Purl uses a configuration file and encrypted keystores for secure wallet management.
+pget uses a configuration file and encrypted keystores for secure wallet management.
 
 ### Data Locations
 
-Purl uses platform-native directories:
+pget uses platform-native directories:
 
 **macOS:**
 
@@ -136,7 +136,23 @@ keystore = "/Users/username/.pget/keystores/my-wallet.json"
 
 ### Custom Networks and RPC Overrides
 
-Purl includes built-in support for common networks (Ethereum, Base, etc.) with default RPC endpoints. You can customize these or add new networks in your configuration file.
+pget includes built-in support for Tempo networks with default RPC endpoints. You can customize these or add new networks in your configuration file.
+
+**Built-in networks:**
+
+| Network | ID | Chain ID | Type | Default RPC |
+|---------|------|----------|------|-------------|
+| Tempo | `tempo` | 4217 | Mainnet | https://rpc.tempo.xyz |
+| Tempo Moderato | `tempo-moderato` | 42431 | Testnet | https://rpc.moderato.tempo.xyz |
+
+**Built-in tokens** (available on all Tempo networks):
+
+| Token | Address |
+|-------|---------|
+| pathUSD | `0x20c0000000000000000000000000000000000000` |
+| AlphaUSD | `0x20c0000000000000000000000000000000000001` |
+| BetaUSD | `0x20c0000000000000000000000000000000000002` |
+| ThetaUSD | `0x20c0000000000000000000000000000000000003` |
 
 **Override RPC URLs for built-in networks:**
 
@@ -144,11 +160,17 @@ Purl includes built-in support for common networks (Ethereum, Base, etc.) with d
 [evm]
 keystore = "/Users/username/.pget/keystores/my-wallet.json"
 
-# Override default RPC URLs for built-in networks
+# Typed RPC overrides for built-in networks (highest priority)
+tempo_rpc = "https://my-custom-tempo-rpc.com"
+moderato_rpc = "https://my-custom-moderato-rpc.com"
+
+# General RPC overrides (for any network by id)
 [rpc]
-base = "https://my-private-base-rpc.com"
-ethereum = "https://my-infura-endpoint.io/v3/key"
+tempo = "https://alternate-tempo-rpc.com"
+"tempo-moderato" = "https://alternate-moderato-rpc.com"
 ```
+
+**Note:** Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence over the general `[rpc]` table.
 
 **Add custom networks:**
 
@@ -156,45 +178,21 @@ ethereum = "https://my-infura-endpoint.io/v3/key"
 # Add custom networks (e.g., private chains or testnets)
 [[networks]]
 id = "my-private-chain"
-chain_type = "evm"
 chain_id = 12345
 mainnet = false
 display_name = "My Private Chain"
 rpc_url = "https://rpc.myprivatechain.com"
+explorer_url = "https://explorer.myprivatechain.com"
 
 [[networks]]
-id = "another-testnet"
-chain_type = "evm"
+id = "my-tempo-fork"
 chain_id = 99999
-mainnet = false
-display_name = "Another Testnet"
-rpc_url = "https://rpc.anothertestnet.com"
+mainnet = true
+display_name = "My Tempo Fork"
+rpc_url = "https://rpc.mytempofork.com"
 ```
 
-**Add custom tokens:**
-
-```toml
-# Add custom token addresses for balance checks
-[[tokens]]
-network = "base"
-address = "0x..."
-symbol = "MYTOKEN"
-name = "My Custom Token"
-decimals = 18
-
-[[tokens]]
-network = "my-private-chain"
-address = "0x..."
-symbol = "PTOKEN"
-name = "Private Token"
-decimals = 6
-```
-
-**Built-in networks:**
-
-- EVM: `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism`
-
-Custom networks and RPC overrides are loaded at runtime and merged with built-in defaults.
+Custom networks are checked before built-in networks when resolving, so you can override built-in networks by defining a custom network with the same ID.
 
 ### Viewing Configuration
 
@@ -232,7 +230,7 @@ address = "0xe676e0f661bfe316793a8ad576fe7be02b93bd96"
 
 ## Payment Method Management
 
-Purl provides commands to manage multiple encrypted wallets (payment methods) without editing configuration files directly.
+pget provides commands to manage multiple encrypted wallets (payment methods) without editing configuration files directly.
 
 ### List Payment Methods
 
@@ -353,7 +351,7 @@ pget --no-cache config --unsafe-show-private-keys
 
 ## Shell Completions
 
-Purl supports shell completions for Bash, Zsh, Fish, and PowerShell to make command-line usage faster and more convenient.
+pget supports shell completions for Bash, Zsh, Fish, and PowerShell to make command-line usage faster and more convenient.
 
 ### Installing Shell Completions
 
@@ -392,7 +390,7 @@ After installing, restart your shell or source the configuration file. You'll th
 
 ## Command Aliases
 
-Purl provides short aliases for common commands to speed up your workflow:
+pget provides short aliases for common commands to speed up your workflow:
 
 | Full Command | Alias | Description |
 |--------------|-------|-------------|
@@ -415,7 +413,7 @@ pget com bash            # Same as: pget completions bash
 
 ## Display Options
 
-Purl offers flexible output control to suit different use cases and preferences.
+pget offers flexible output control to suit different use cases and preferences.
 
 ### Verbosity Levels
 
@@ -448,7 +446,7 @@ pget --color always <URL>  # Always use colors
 pget --color never <URL>   # Never use colors
 ```
 
-Purl respects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org/)):
+pget respects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org/)):
 
 ```bash
 NO_COLOR=1 pget <URL>  # Disables colors regardless of --color setting
@@ -469,17 +467,17 @@ pget -q --color never --output-format json <URL>
 
 ## Protocols
 
-Purl supports multiple payment protocols for HTTP-based payments.
+pget supports the Web Payment Auth protocol for HTTP-based payments.
 
 | Protocol | Description | Supported Networks |
 |----------|-------------|-------------------|
-| [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) | IETF standard for HTTP authentication-based payments | `ethereum`, `ethereum-sepolia`, `base`, `base-sepolia`, `tempo-moderato`, `avalanche`, `avalanche-fuji`, `polygon`, `arbitrum`, `optimism` |
+| [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) | IETF standard for HTTP authentication-based payments | `tempo`, `tempo-moderato` (plus any custom networks you define) |
 
 ## Environment Variables
 
 ```bash
 export PGET_MAX_AMOUNT=10000
-export PGET_NETWORK=base-sepolia
+export PGET_NETWORK=tempo-moderato
 export PGET_CONFIRM=true
 
 pget https://api.example.com/data

@@ -455,36 +455,6 @@ impl Cli {
             self.output_format
         }
     }
-
-    /// Get the effective password (from --password or --password-file)
-    #[allow(dead_code)]
-    pub fn get_password(&self) -> std::io::Result<Option<String>> {
-        if let Some(password) = &self.password {
-            return Ok(Some(password.clone()));
-        }
-        if let Some(password_file) = &self.password_file {
-            let content = std::fs::read_to_string(password_file)?;
-            return Ok(Some(content.trim().to_string()));
-        }
-        Ok(None)
-    }
-
-    /// Resolve the keystore path from --keystore, --account, or config
-    #[allow(dead_code)]
-    pub fn resolve_keystore_path(&self) -> Option<std::path::PathBuf> {
-        if let Some(keystore) = &self.keystore {
-            return Some(std::path::PathBuf::from(keystore));
-        }
-        if let Some(account) = &self.account {
-            if let Some(keystores_dir) = crate::util::constants::default_keystores_dir() {
-                let keystore_path = keystores_dir.join(format!("{}.json", account));
-                if keystore_path.exists() {
-                    return Some(keystore_path);
-                }
-            }
-        }
-        None
-    }
 }
 
 #[cfg(test)]

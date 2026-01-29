@@ -256,9 +256,10 @@ fn output_text(
 
 /// Check if a challenge is compatible with configured payment methods
 fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[PaymentMethod]) -> bool {
-    use crate::payment::mpay_ext::{is_base, is_tempo};
+    use crate::payment::mpay_ext::method_to_network;
 
-    if is_tempo(&challenge.method) || is_base(&challenge.method) {
+    // If the method maps to a known network, it requires EVM
+    if method_to_network(&challenge.method).is_some() {
         available_methods.contains(&PaymentMethod::Evm)
     } else {
         false
@@ -273,7 +274,7 @@ mod tests {
     fn mock_challenge() -> PaymentChallenge {
         let charge_req = ChargeRequest {
             amount: "1000000".to_string(),
-            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            currency: "0x20c0000000000000000000000000000000000001".to_string(),
             recipient: Some("0x1234567890123456789012345678901234567890".to_string()),
             expires: Some("2099-12-31T23:59:59Z".to_string()),
             description: None,
