@@ -126,9 +126,9 @@ pub trait PaymentProvider: BalanceProvider + AddressProvider {
     /// This method supports the Web Payment Auth protocol (IETF draft).
     async fn create_web_payment(
         &self,
-        challenge: &mpay::Challenge::PaymentChallenge,
+        challenge: &mpay::PaymentChallenge,
         config: &Config,
-    ) -> Result<mpay::Credential::PaymentCredential>;
+    ) -> Result<mpay::PaymentCredential>;
 }
 
 macro_rules! dispatch_provider {
@@ -232,9 +232,9 @@ impl BalanceProvider for BuiltinProvider {
 impl PaymentProvider for BuiltinProvider {
     async fn create_web_payment(
         &self,
-        challenge: &mpay::Challenge::PaymentChallenge,
+        challenge: &mpay::PaymentChallenge,
         config: &Config,
-    ) -> Result<mpay::Credential::PaymentCredential> {
+    ) -> Result<mpay::PaymentCredential> {
         match self {
             BuiltinProvider::Evm => Self::evm().create_web_payment(challenge, config).await,
             BuiltinProvider::Tempo => Self::tempo().create_web_payment(challenge, config).await,

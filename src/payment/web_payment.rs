@@ -12,9 +12,7 @@ use anyhow::{Context, Result};
 use reqwest::Url;
 use std::str::FromStr;
 
-use mpay::Challenge::{parse_www_authenticate, PaymentChallenge};
-use mpay::Intent::ChargeRequest;
-use mpay::Receipt::parse_receipt;
+use mpay::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
 
 use crate::cli::confirm::confirm_web_payment;
 use crate::cli::formatting::format_address_link;
@@ -150,8 +148,8 @@ pub async fn handle_web_payment_request(
         .await
         .context("Failed to create payment credential")?;
 
-    let auth_header = mpay::Credential::format_authorization(&credential)
-        .context("Failed to format Authorization header")?;
+    let auth_header =
+        mpay::format_authorization(&credential).context("Failed to format Authorization header")?;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Authorization header length: {} bytes", auth_header.len());
@@ -253,16 +251,6 @@ fn display_web_receipt(
 
                 eprintln!("  Timestamp: {}", receipt.timestamp);
 
-                // Block number with optional clickable link
-                if let Some(ref block) = receipt.block_number {
-                    let block_display = if let Some(exp) = explorer {
-                        let url = exp.block_url(block);
-                        hyperlink(block, &url)
-                    } else {
-                        block.clone()
-                    };
-                    eprintln!("  Block: {}", block_display);
-                }
                 if let Some(ref error) = receipt.error {
                     eprintln!("  Error: {}", error);
                 }
@@ -276,15 +264,14 @@ fn display_web_receipt(
 mod tests {
     use super::*;
     use clap::Parser;
-    use mpay::Challenge::PaymentChallenge;
-    use mpay::Schema::MethodName;
+    use mpay::{MethodName, PaymentChallenge};
 
     fn mock_challenge_with_realm(
         method: MethodName,
         amount: &str,
         realm: &str,
     ) -> (PaymentChallenge, ChargeRequest) {
-        use mpay::Schema::Base64UrlJson;
+        use mpay::Base64UrlJson;
 
         let charge_req = ChargeRequest {
             amount: amount.to_string(),

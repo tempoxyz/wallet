@@ -7,9 +7,7 @@
 
 use alloy::primitives::{Address, U256};
 use mpay::evm::{parse_address, parse_amount};
-use mpay::Challenge::PaymentChallenge;
-use mpay::Intent::ChargeRequest;
-use mpay::Schema::MethodName;
+use mpay::{ChargeRequest, MethodName, PaymentChallenge};
 
 use crate::error::{PgetError, Result};
 use crate::network::{networks, Network};
