@@ -21,11 +21,9 @@ pub use mpay::protocol::methods::tempo::TempoChargeExt;
 /// # Supported Mappings
 ///
 /// - "tempo" → "tempo-moderato"
-/// - "base" → "base-sepolia"
 pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
     match method.as_str().to_lowercase().as_str() {
         "tempo" => Some(networks::TEMPO_MODERATO),
-        "base" => Some(networks::BASE_SEPOLIA),
         _ => None,
     }
 }
@@ -39,7 +37,7 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
 pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
     if method_to_network(&challenge.method).is_none() {
         return Err(PgetError::UnsupportedPaymentMethod(format!(
-            "Payment method '{}' is not supported. Supported methods: tempo, base",
+            "Payment method '{}' is not supported. Supported methods: tempo",
             challenge.method
         )));
     }
@@ -138,12 +136,6 @@ mod tests {
     }
 
     #[test]
-    fn test_method_to_network_base() {
-        let method = MethodName::new("base");
-        assert_eq!(method_to_network(&method), Some(networks::BASE_SEPOLIA));
-    }
-
-    #[test]
     fn test_method_to_network_case_insensitive() {
         let method = MethodName::new("TEMPO");
         assert_eq!(method_to_network(&method), Some(networks::TEMPO_MODERATO));
@@ -152,6 +144,9 @@ mod tests {
     #[test]
     fn test_method_to_network_unsupported() {
         let method = MethodName::new("unknown");
+        assert_eq!(method_to_network(&method), None);
+
+        let method = MethodName::new("base");
         assert_eq!(method_to_network(&method), None);
     }
 
@@ -246,12 +241,12 @@ mod tests {
     fn test_charge_request_money() {
         let req = ChargeRequest {
             amount: "1000000".to_string(),
-            currency: "0x036CbD53842c5426634e7929541eC2318f3dCF7e".to_string(),
+            currency: "0x20c0000000000000000000000000000000000001".to_string(),
             ..Default::default()
         };
-        let money = req.money(Network::BaseSepolia).expect("valid money");
+        let money = req.money(Network::TempoModerato).expect("valid money");
         assert_eq!(money.atomic(), U256::from(1_000_000u64));
-        assert_eq!(money.network(), Network::BaseSepolia);
+        assert_eq!(money.network(), Network::TempoModerato);
     }
 
     #[test]
@@ -261,6 +256,6 @@ mod tests {
             currency: "0x1234567890123456789012345678901234567890".to_string(),
             ..Default::default()
         };
-        assert!(req.money(Network::BaseSepolia).is_err());
+        assert!(req.money(Network::TempoModerato).is_err());
     }
 }

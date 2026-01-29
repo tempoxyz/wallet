@@ -11,15 +11,6 @@ use std::sync::LazyLock;
 
 /// Network name constants for use in configuration and matching
 pub mod networks {
-    pub const ETHEREUM: &str = "ethereum";
-    pub const ETHEREUM_SEPOLIA: &str = "ethereum-sepolia";
-    pub const BASE: &str = "base";
-    pub const BASE_SEPOLIA: &str = "base-sepolia";
-    pub const AVALANCHE: &str = "avalanche";
-    pub const AVALANCHE_FUJI: &str = "avalanche-fuji";
-    pub const POLYGON: &str = "polygon";
-    pub const ARBITRUM: &str = "arbitrum";
-    pub const OPTIMISM: &str = "optimism";
     pub const TEMPO: &str = "tempo";
     pub const TEMPO_MODERATO: &str = "tempo-moderato";
 }
@@ -29,24 +20,6 @@ pub mod networks {
 /// These constants provide self-documenting, compile-time checked chain IDs
 /// for use throughout the codebase instead of magic numbers.
 pub mod evm_chain_ids {
-    /// Ethereum Mainnet
-    pub const ETHEREUM: u64 = 1;
-    /// Ethereum Sepolia Testnet
-    pub const ETHEREUM_SEPOLIA: u64 = 11155111;
-    /// Base Mainnet
-    pub const BASE: u64 = 8453;
-    /// Base Sepolia Testnet
-    pub const BASE_SEPOLIA: u64 = 84532;
-    /// Avalanche C-Chain
-    pub const AVALANCHE: u64 = 43114;
-    /// Avalanche Fuji Testnet
-    pub const AVALANCHE_FUJI: u64 = 43113;
-    /// Polygon Mainnet
-    pub const POLYGON: u64 = 137;
-    /// Arbitrum One
-    pub const ARBITRUM: u64 = 42161;
-    /// Optimism Mainnet
-    pub const OPTIMISM: u64 = 10;
     /// Tempo Mainnet
     pub const TEMPO: u64 = 4217;
     /// Tempo Moderato Testnet
@@ -81,87 +54,6 @@ enum ExplorerKind {
 
 /// Default built-in networks defined in code
 const BUILTIN_NETWORKS: &[BuiltinNetwork] = &[
-    BuiltinNetwork {
-        id: networks::ETHEREUM,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::ETHEREUM),
-        mainnet: true,
-        display_name: "Ethereum",
-        rpc_url: "https://eth.llamarpc.com",
-        explorer: Some(("https://etherscan.io", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::ETHEREUM_SEPOLIA,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::ETHEREUM_SEPOLIA),
-        mainnet: false,
-        display_name: "Ethereum Sepolia",
-        rpc_url: "https://ethereum-sepolia-rpc.publicnode.com",
-        explorer: Some(("https://sepolia.etherscan.io", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::BASE,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::BASE),
-        mainnet: true,
-        display_name: "Base",
-        rpc_url: "https://mainnet.base.org",
-        explorer: Some(("https://basescan.org", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::BASE_SEPOLIA,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::BASE_SEPOLIA),
-        mainnet: false,
-        display_name: "Base Sepolia",
-        rpc_url: "https://sepolia.base.org",
-        explorer: Some(("https://sepolia.basescan.org", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::AVALANCHE,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::AVALANCHE),
-        mainnet: true,
-        display_name: "Avalanche C-Chain",
-        rpc_url: "https://api.avax.network/ext/bc/C/rpc",
-        explorer: Some(("https://snowtrace.io", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::AVALANCHE_FUJI,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::AVALANCHE_FUJI),
-        mainnet: false,
-        display_name: "Avalanche Fuji",
-        rpc_url: "https://api.avax-test.network/ext/bc/C/rpc",
-        explorer: Some(("https://testnet.snowtrace.io", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::POLYGON,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::POLYGON),
-        mainnet: true,
-        display_name: "Polygon",
-        rpc_url: "https://polygon-rpc.com",
-        explorer: Some(("https://polygonscan.com", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::ARBITRUM,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::ARBITRUM),
-        mainnet: true,
-        display_name: "Arbitrum One",
-        rpc_url: "https://arb1.arbitrum.io/rpc",
-        explorer: Some(("https://arbiscan.io", ExplorerKind::Etherscan)),
-    },
-    BuiltinNetwork {
-        id: networks::OPTIMISM,
-        chain_type: ChainType::Evm,
-        chain_id: Some(evm_chain_ids::OPTIMISM),
-        mainnet: true,
-        display_name: "Optimism",
-        rpc_url: "https://mainnet.optimism.io",
-        explorer: Some(("https://optimistic.etherscan.io", ExplorerKind::Etherscan)),
-    },
     BuiltinNetwork {
         id: networks::TEMPO,
         chain_type: ChainType::Evm,
@@ -352,15 +244,7 @@ pub static NETWORK_REGISTRY: LazyLock<NetworkRegistry> = LazyLock::new(NetworkRe
 /// For dynamic/custom networks, use the NetworkRegistry directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Network {
-    Ethereum,
-    EthereumSepolia,
-    Base,
-    BaseSepolia,
-    Avalanche,
-    AvalancheFuji,
-    Polygon,
-    Arbitrum,
-    Optimism,
+    Tempo,
     TempoModerato,
 }
 
@@ -368,15 +252,7 @@ impl Network {
     /// Get the string identifier for this network.
     pub const fn as_str(&self) -> &'static str {
         match self {
-            Network::Ethereum => networks::ETHEREUM,
-            Network::EthereumSepolia => networks::ETHEREUM_SEPOLIA,
-            Network::Base => networks::BASE,
-            Network::BaseSepolia => networks::BASE_SEPOLIA,
-            Network::Avalanche => networks::AVALANCHE,
-            Network::AvalancheFuji => networks::AVALANCHE_FUJI,
-            Network::Polygon => networks::POLYGON,
-            Network::Arbitrum => networks::ARBITRUM,
-            Network::Optimism => networks::OPTIMISM,
+            Network::Tempo => networks::TEMPO,
             Network::TempoModerato => networks::TEMPO_MODERATO,
         }
     }
@@ -391,19 +267,8 @@ impl Network {
     }
 
     /// Get all network variants as a const array.
-    pub const fn all() -> [Network; 10] {
-        [
-            Network::Ethereum,
-            Network::EthereumSepolia,
-            Network::Base,
-            Network::BaseSepolia,
-            Network::Avalanche,
-            Network::AvalancheFuji,
-            Network::Polygon,
-            Network::Arbitrum,
-            Network::Optimism,
-            Network::TempoModerato,
-        ]
+    pub const fn all() -> [Network; 2] {
+        [Network::Tempo, Network::TempoModerato]
     }
 
     /// Get the chain type for this network.
@@ -438,15 +303,7 @@ impl FromStr for Network {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            networks::ETHEREUM => Ok(Network::Ethereum),
-            networks::ETHEREUM_SEPOLIA => Ok(Network::EthereumSepolia),
-            networks::BASE => Ok(Network::Base),
-            networks::BASE_SEPOLIA => Ok(Network::BaseSepolia),
-            networks::AVALANCHE => Ok(Network::Avalanche),
-            networks::AVALANCHE_FUJI => Ok(Network::AvalancheFuji),
-            networks::POLYGON => Ok(Network::Polygon),
-            networks::ARBITRUM => Ok(Network::Arbitrum),
-            networks::OPTIMISM => Ok(Network::Optimism),
+            networks::TEMPO => Ok(Network::Tempo),
             networks::TEMPO_MODERATO => Ok(Network::TempoModerato),
             _ => Err(format!("Unknown network: {s}")),
         }
@@ -548,28 +405,14 @@ impl Network {
         use crate::payment::currency::currencies;
 
         match self {
-            Network::Ethereum => Some(TokenConfig {
-                currency: currencies::USDC,
-                address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-            }),
-            Network::EthereumSepolia => Some(TokenConfig {
-                currency: currencies::USDC,
-                address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-            }),
-            Network::Base => Some(TokenConfig {
-                currency: currencies::USDC,
-                address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-            }),
-            Network::BaseSepolia => Some(TokenConfig {
-                currency: currencies::USDC,
-                address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+            Network::Tempo => Some(TokenConfig {
+                currency: currencies::ALPHA_USD,
+                address: "0x20c0000000000000000000000000000000000001",
             }),
             Network::TempoModerato => Some(TokenConfig {
                 currency: currencies::ALPHA_USD,
                 address: "0x20c0000000000000000000000000000000000001",
             }),
-            // Other networks don't have token support yet
-            _ => None,
         }
     }
 
@@ -600,24 +443,13 @@ impl Network {
     /// ```
     /// use pget::network::Network;
     ///
-    /// // EVM networks have gas config
-    /// assert!(Network::Base.gas_config().is_some());
+    /// // Tempo networks have gas config
+    /// assert!(Network::Tempo.gas_config().is_some());
     /// assert!(Network::TempoModerato.gas_config().is_some());
     /// ```
     pub const fn gas_config(&self) -> Option<GasConfig> {
         match self {
-            // EVM networks use default gas configuration
-            // Individual networks can override if needed (e.g., L2s with different fee structures)
-            Network::Ethereum
-            | Network::EthereumSepolia
-            | Network::Base
-            | Network::BaseSepolia
-            | Network::Avalanche
-            | Network::AvalancheFuji
-            | Network::Polygon
-            | Network::Arbitrum
-            | Network::Optimism
-            | Network::TempoModerato => Some(GasConfig::DEFAULT),
+            Network::Tempo | Network::TempoModerato => Some(GasConfig::DEFAULT),
         }
     }
 }
@@ -657,14 +489,13 @@ mod tests {
     #[test]
     fn test_is_evm_network() {
         assert!(is_evm_network("tempo"));
-        assert!(is_evm_network("ethereum"));
+        assert!(is_evm_network("tempo-moderato"));
         assert!(!is_evm_network("unknown"));
     }
 
     #[test]
     fn test_get_evm_chain_id() {
         assert_eq!(get_evm_chain_id("tempo"), Some(4217));
-        assert_eq!(get_evm_chain_id("ethereum"), Some(1));
         assert_eq!(get_evm_chain_id("tempo-moderato"), Some(42431));
         assert_eq!(get_evm_chain_id("unknown"), None);
     }
@@ -672,58 +503,42 @@ mod tests {
     #[test]
     fn test_network_enum_from_str() {
         assert_eq!(
+            "tempo".parse::<Network>().expect("Failed to parse tempo"),
+            Network::Tempo
+        );
+        assert_eq!(
             "tempo-moderato"
                 .parse::<Network>()
                 .expect("Failed to parse tempo-moderato"),
             Network::TempoModerato
         );
-        assert_eq!(
-            "base".parse::<Network>().expect("Failed to parse base"),
-            Network::Base
-        );
-        assert_eq!(
-            "ethereum-sepolia"
-                .parse::<Network>()
-                .expect("Failed to parse ethereum-sepolia"),
-            Network::EthereumSepolia
-        );
         assert!("unknown-network".parse::<Network>().is_err());
+        assert!("base".parse::<Network>().is_err());
     }
 
     #[test]
     fn test_network_enum_to_str() {
+        assert_eq!(Network::Tempo.as_str(), "tempo");
         assert_eq!(Network::TempoModerato.as_str(), "tempo-moderato");
-        assert_eq!(Network::EthereumSepolia.as_str(), "ethereum-sepolia");
-        assert_eq!(Network::Base.to_string(), "base");
+        assert_eq!(Network::Tempo.to_string(), "tempo");
     }
 
     #[test]
     fn test_network_enum_info() {
-        let tempo = Network::TempoModerato;
+        let tempo = Network::Tempo;
         assert_eq!(tempo.chain_type(), ChainType::Evm);
-        assert!(!tempo.is_mainnet()); // tempo-moderato is testnet
-        assert!(tempo.is_testnet());
+        assert!(tempo.is_mainnet());
+        assert!(!tempo.is_testnet());
 
-        let sepolia = Network::EthereumSepolia;
-        assert_eq!(sepolia.chain_type(), ChainType::Evm);
-        assert!(!sepolia.is_mainnet());
-        assert!(sepolia.is_testnet());
+        let moderato = Network::TempoModerato;
+        assert_eq!(moderato.chain_type(), ChainType::Evm);
+        assert!(!moderato.is_mainnet());
+        assert!(moderato.is_testnet());
     }
 
     #[test]
     fn test_network_enum_roundtrip() {
-        for network_str in &[
-            "ethereum",
-            "ethereum-sepolia",
-            "base",
-            "base-sepolia",
-            "avalanche",
-            "avalanche-fuji",
-            "polygon",
-            "arbitrum",
-            "optimism",
-            "tempo-moderato",
-        ] {
+        for network_str in &["tempo", "tempo-moderato"] {
             let network: Network = network_str.parse().expect("should parse");
             assert_eq!(network.as_str(), *network_str);
             assert_eq!(network.to_string(), *network_str);

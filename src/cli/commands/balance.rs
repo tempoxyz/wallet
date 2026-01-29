@@ -20,9 +20,8 @@ fn mock_balance(
     currency: &crate::payment::currency::Currency,
 ) -> NetworkBalance {
     let mock_atomic = match network {
-        Network::Base | Network::Ethereum => U256::from(1_000_000u64),
-        Network::BaseSepolia | Network::EthereumSepolia => U256::from(5_000_000u64),
-        _ => U256::ZERO,
+        Network::Tempo => U256::from(1_000_000u64),
+        Network::TempoModerato => U256::from(5_000_000u64),
     };
 
     let balance_human = format_u256_with_decimals(mock_atomic, currency.decimals);
@@ -112,47 +111,41 @@ mod tests {
     fn test_by_chain_type() {
         let evm_networks = Network::by_chain_type(ChainType::Evm, None);
         assert!(!evm_networks.is_empty());
-        assert!(evm_networks.contains(&Network::Base));
-        assert!(evm_networks.contains(&Network::Ethereum));
+        assert!(evm_networks.contains(&Network::Tempo));
+        assert!(evm_networks.contains(&Network::TempoModerato));
     }
 
     #[test]
     fn test_by_chain_type_with_filter() {
-        let filtered = Network::by_chain_type(ChainType::Evm, Some("base"));
+        let filtered = Network::by_chain_type(ChainType::Evm, Some("tempo"));
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0], Network::Base);
+        assert_eq!(filtered[0], Network::Tempo);
     }
 
     #[test]
     fn test_usdc_config_presence() {
-        assert!(Network::Base.usdc_config().is_some());
-        assert!(Network::BaseSepolia.usdc_config().is_some());
-        assert!(Network::Ethereum.usdc_config().is_some());
-        assert!(Network::EthereumSepolia.usdc_config().is_some());
+        assert!(Network::Tempo.usdc_config().is_some());
         assert!(Network::TempoModerato.usdc_config().is_some());
-
-        assert!(Network::Avalanche.usdc_config().is_none());
-        assert!(Network::Polygon.usdc_config().is_none());
     }
 
     #[test]
     fn test_usdc_config_structure() {
-        let base_config = Network::Base.usdc_config().unwrap();
-        assert!(!base_config.address.is_empty());
-        assert!(base_config.address.starts_with("0x"));
-        assert_eq!(base_config.currency.symbol, "USDC");
-        assert_eq!(base_config.currency.decimals, 6);
+        let tempo_config = Network::Tempo.usdc_config().unwrap();
+        assert!(!tempo_config.address.is_empty());
+        assert!(tempo_config.address.starts_with("0x"));
+        assert_eq!(tempo_config.currency.symbol, "AlphaUSD");
+        assert_eq!(tempo_config.currency.decimals, 6);
 
-        let base_info = Network::Base.info();
-        assert!(!base_info.rpc_url.is_empty());
+        let tempo_info = Network::Tempo.info();
+        assert!(!tempo_info.rpc_url.is_empty());
     }
 
     #[test]
     fn test_mock_balance_returns_data() {
-        let usdc = currencies::USDC;
+        let usdc = currencies::ALPHA_USD;
 
-        let balance = mock_balance(Network::Base, "0x123", &usdc);
-        assert_eq!(balance.network, Network::Base);
+        let balance = mock_balance(Network::Tempo, "0x123", &usdc);
+        assert_eq!(balance.network, Network::Tempo);
         assert_eq!(balance.balance, U256::from(1_000_000u64));
         assert!(balance.asset.contains("mock"));
     }

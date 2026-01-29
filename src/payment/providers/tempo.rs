@@ -8,6 +8,7 @@
 use crate::config::Config;
 use crate::error::{PgetError, Result, ResultExt, SigningContext};
 use crate::network::{GasConfig, Network};
+use crate::payment::abi::encode_transfer;
 use crate::payment::mpay_ext::{ChargeRequestExt, TempoChargeExt};
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
@@ -34,10 +35,7 @@ pub async fn create_tempo_payment(
 
     use crate::payment::mpay_ext::method_to_network;
     use crate::wallet::signer::WalletSource;
-    use alloy::primitives::Bytes;
     use alloy::providers::Provider;
-    use alloy::sol;
-    use alloy::sol_types::SolCall;
 
     let charge_req: ChargeRequest = challenge
         .request
@@ -64,26 +62,7 @@ pub async fn create_tempo_payment(
     let amount = charge_req.amount_u256()?;
     let memo = charge_req.memo();
 
-    let transfer_data = if let Some(memo_bytes) = memo {
-        sol! {
-            function transferWithMemo(address to, uint256 amount, bytes32 memo) external returns (bool);
-        }
-        let call = transferWithMemoCall {
-            to: recipient,
-            amount,
-            memo: memo_bytes.into(),
-        };
-        Bytes::from(call.abi_encode())
-    } else {
-        sol! {
-            function transfer(address to, uint256 amount) external returns (bool);
-        }
-        let call = transferCall {
-            to: recipient,
-            amount,
-        };
-        Bytes::from(call.abi_encode())
-    };
+    let transfer_data = encode_transfer(recipient, amount, memo);
 
     let network_name = method_to_network(&challenge.method).ok_or_else(|| {
         PgetError::UnsupportedPaymentMethod(format!(

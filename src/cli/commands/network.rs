@@ -179,13 +179,13 @@ mod tests {
     }
 
     #[test]
-    fn test_show_network_info_base() {
-        let result = show_network_info("base", OutputFormat::Text);
+    fn test_show_network_info_tempo() {
+        let result = show_network_info("tempo", OutputFormat::Text);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_show_network_info_tempo() {
+    fn test_show_network_info_tempo_moderato() {
         let result = show_network_info("tempo-moderato", OutputFormat::Text);
         assert!(result.is_ok());
     }
@@ -199,25 +199,25 @@ mod tests {
 
     #[test]
     fn test_network_list_item_conversion() {
-        let network = Network::Base;
+        let network = Network::Tempo;
         let item = NetworkListItem::from(network);
 
-        assert_eq!(item.name, "base");
-        assert_eq!(item.display_name, "Base");
+        assert_eq!(item.name, "tempo");
+        assert_eq!(item.display_name, "Tempo");
         assert_eq!(item.chain_type, "EVM");
-        assert_eq!(item.chain_id, Some(8453));
+        assert_eq!(item.chain_id, Some(4217));
         assert_eq!(item.network_type, "mainnet");
     }
 
     #[test]
     fn test_network_detail_conversion() {
-        let network = Network::BaseSepolia;
+        let network = Network::TempoModerato;
         let detail = NetworkDetail::from(network);
 
-        assert_eq!(detail.name, "base-sepolia");
-        assert_eq!(detail.display_name, "Base Sepolia");
+        assert_eq!(detail.name, "tempo-moderato");
+        assert_eq!(detail.display_name, "Tempo Moderato (Testnet)");
         assert_eq!(detail.chain_type, "EVM");
-        assert_eq!(detail.chain_id, Some(84532));
+        assert_eq!(detail.chain_id, Some(42431));
         assert!(!detail.mainnet);
         assert!(detail.testnet);
     }

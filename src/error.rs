@@ -39,17 +39,6 @@ impl std::fmt::Display for SigningContext {
 
 #[derive(Error, Debug)]
 pub enum PgetError {
-    #[error("Payment provider not found for network: {0}")]
-    ProviderNotFound(String),
-
-    /// No payment methods are configured
-    #[error("No payment methods configured")]
-    NoPaymentMethods,
-
-    /// No compatible payment method for the server's requirements
-    #[error("No compatible payment method found. Available networks: {networks:?}")]
-    NoCompatibleMethod { networks: Vec<String> },
-
     /// Required amount exceeds user's maximum allowed
     #[error("Required amount ({required}) exceeds maximum allowed ({max})")]
     AmountExceedsMax { required: u128, max: u128 },
@@ -81,10 +70,6 @@ pub enum PgetError {
     /// Unknown network identifier
     #[error("Unknown network: {0}")]
     UnknownNetwork(String),
-
-    /// Token not configured for network
-    #[error("Token configuration not found for asset {asset} on network {network}")]
-    TokenConfigNotFound { asset: String, network: String },
 
     /// Unsupported token type
     #[error("Unsupported token: {0}")]
@@ -274,32 +259,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_provider_not_found_display() {
-        let err = PgetError::ProviderNotFound("ethereum".to_string());
-        assert_eq!(
-            err.to_string(),
-            "Payment provider not found for network: ethereum"
-        );
-    }
-
-    #[test]
-    fn test_no_payment_methods_display() {
-        let err = PgetError::NoPaymentMethods;
-        assert_eq!(err.to_string(), "No payment methods configured");
-    }
-
-    #[test]
-    fn test_no_compatible_method_display() {
-        let err = PgetError::NoCompatibleMethod {
-            networks: vec!["ethereum".to_string(), "tempo".to_string()],
-        };
-        let display = err.to_string();
-        assert!(display.contains("No compatible payment method found"));
-        assert!(display.contains("ethereum"));
-        assert!(display.contains("tempo"));
-    }
-
-    #[test]
     fn test_amount_exceeds_max_display() {
         let err = PgetError::AmountExceedsMax {
             required: 1000,
@@ -352,18 +311,6 @@ mod tests {
     fn test_unknown_network_display() {
         let err = PgetError::UnknownNetwork("custom-chain".to_string());
         assert_eq!(err.to_string(), "Unknown network: custom-chain");
-    }
-
-    #[test]
-    fn test_token_config_not_found_display() {
-        let err = PgetError::TokenConfigNotFound {
-            asset: "USDC".to_string(),
-            network: "ethereum".to_string(),
-        };
-        let display = err.to_string();
-        assert!(
-            display.contains("Token configuration not found for asset USDC on network ethereum")
-        );
     }
 
     #[test]

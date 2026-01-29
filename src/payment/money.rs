@@ -462,8 +462,8 @@ mod tests {
 
     fn test_token() -> TokenId {
         TokenId::new(
-            Network::Base,
-            Address::from_str("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+            Network::TempoModerato,
+            Address::from_str("0x20c0000000000000000000000000000000000001")
                 .expect("valid test address"),
         )
     }
@@ -472,8 +472,8 @@ mod tests {
     fn test_token_id_equality() {
         let token1 = test_token();
         let token2 = TokenId::new(
-            Network::Ethereum,
-            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+            Network::Tempo,
+            Address::from_str("0x20c0000000000000000000000000000000000001")
                 .expect("valid test address"),
         );
 
@@ -487,37 +487,38 @@ mod tests {
 
     #[test]
     fn test_token_id_default_for_network() {
-        let token = TokenId::default_for_network(Network::Base);
+        let token = TokenId::default_for_network(Network::TempoModerato);
         assert!(token.is_some());
         assert_eq!(
-            token.expect("Base should have token config").network(),
-            Network::Base
+            token
+                .expect("TempoModerato should have token config")
+                .network(),
+            Network::TempoModerato
         );
 
-        // Network without token config
-        let no_token = TokenId::default_for_network(Network::Polygon);
-        assert!(no_token.is_none());
+        let token2 = TokenId::default_for_network(Network::Tempo);
+        assert!(token2.is_some());
     }
 
     #[test]
     fn test_money_new() {
         let token = test_token();
-        let money = Money::new(token, U256::from(1_500_000u64), 6, "USDC");
+        let money = Money::new(token, U256::from(1_500_000u64), 6, "αUSD");
 
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
         assert_eq!(money.decimals(), 6);
-        assert_eq!(money.symbol(), "USDC");
-        assert_eq!(money.network(), Network::Base);
+        assert_eq!(money.symbol(), "αUSD");
+        assert_eq!(money.network(), Network::TempoModerato);
     }
 
     #[test]
     fn test_money_from_network_config() {
-        let money = Money::from_network_config(Network::Base, U256::from(1_000_000u64))
-            .expect("Base has token config");
+        let money = Money::from_network_config(Network::TempoModerato, U256::from(1_000_000u64))
+            .expect("TempoModerato has token config");
 
-        assert_eq!(money.network(), Network::Base);
+        assert_eq!(money.network(), Network::TempoModerato);
         assert_eq!(money.decimals(), 6);
-        assert_eq!(money.symbol(), "USDC");
+        assert_eq!(money.symbol(), "AlphaUSD");
     }
 
     #[test]
@@ -613,15 +614,15 @@ mod tests {
     fn test_checked_add_different_tokens() {
         let token1 = test_token();
         let token2 = TokenId::new(
-            Network::Ethereum,
-            Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+            Network::Tempo,
+            Address::from_str("0x20c0000000000000000000000000000000000001")
                 .expect("valid test address"),
         );
 
-        let money1 = Money::new(token1, U256::from(1_000_000u64), 6, "USDC");
-        let money2 = Money::new(token2, U256::from(500_000u64), 6, "USDC");
+        let money1 = Money::new(token1, U256::from(1_000_000u64), 6, "αUSD");
+        let money2 = Money::new(token2, U256::from(500_000u64), 6, "αUSD");
 
-        // Should fail because tokens are different
+        // Should fail because tokens are different (different networks)
         assert!(money1.checked_add(&money2).is_err());
     }
 
@@ -679,7 +680,7 @@ mod tests {
     fn test_token_id_display() {
         let token = test_token();
         let display = format!("{}", token);
-        assert!(display.contains("base"));
+        assert!(display.contains("tempo-moderato"));
         assert!(display.contains("0x"));
     }
 }

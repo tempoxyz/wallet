@@ -46,13 +46,6 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
 /// Get suggestion for a specific PgetError variant.
 fn get_pget_error_suggestion(err: &PgetError) -> Option<String> {
     match err {
-        PgetError::NoPaymentMethods => Some(
-            "To configure payment methods:\n  \
-             • Run 'pget init' for interactive setup\n  \
-             • Or run 'pget method new <name> --generate' to create a wallet"
-                .into(),
-        ),
-
         PgetError::ConfigMissing(_) => {
             Some("Run 'pget init' to create a configuration file.".into())
         }
@@ -75,14 +68,6 @@ fn get_pget_error_suggestion(err: &PgetError) -> Option<String> {
             Some("EVM private keys should be 64 hex characters (with optional 0x prefix).".into())
         }
 
-        PgetError::NoCompatibleMethod { networks } => {
-            let networks_str = networks.join(", ");
-            Some(format!(
-                "Server accepts: {networks_str}\n\
-                 Configure a wallet for one of these networks with 'pget init'."
-            ))
-        }
-
         PgetError::AmountExceedsMax { required, max } => Some(format!(
             "The server requires {required} but your max is {max}.\n\
              Increase with --max-amount or remove the limit."
@@ -92,16 +77,6 @@ fn get_pget_error_suggestion(err: &PgetError) -> Option<String> {
             "Network '{network}' is not recognized.\n\
              Run 'pget networks list' to see available networks.\n\
              Or add a custom network in ~/.pget/config.toml"
-        )),
-
-        PgetError::TokenConfigNotFound { asset, network } => Some(format!(
-            "Token {asset} not configured for {network}.\n\
-             Add it to ~/.pget/config.toml under [[tokens]]."
-        )),
-
-        PgetError::ProviderNotFound(network) => Some(format!(
-            "No payment provider for network '{network}'.\n\
-             Run 'pget networks list' to see supported networks."
         )),
 
         PgetError::Http(msg) => {
@@ -148,14 +123,6 @@ pub fn format_error_with_suggestion(err: &anyhow::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_no_payment_methods_suggestion() {
-        let err = PgetError::NoPaymentMethods;
-        let suggestion = get_pget_error_suggestion(&err);
-        assert!(suggestion.is_some());
-        assert!(suggestion.unwrap().contains("pget init"));
-    }
 
     #[test]
     fn test_config_missing_suggestion() {

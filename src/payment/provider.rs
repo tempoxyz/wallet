@@ -4,10 +4,14 @@
 //! enabling automatic Web Payment Auth handling with pget-specific features like keychain signing.
 
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{PgetError, Result};
 use crate::network::Network;
 use crate::payment::currency::Currency;
-use alloy::primitives::U256;
+use crate::payment::money::format_u256_with_decimals;
+use alloy::primitives::{Address, U256};
+use alloy::providers::ProviderBuilder;
+use alloy::sol;
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// Balance information for a single network
@@ -85,7 +89,7 @@ impl PgetPaymentProvider {
 impl mpay::client::PaymentProvider for PgetPaymentProvider {
     fn supports(&self, method: &str, intent: &str) -> bool {
         let method_lower = method.to_lowercase();
-        let is_supported_method = method_lower == "tempo" || method_lower == "base";
+        let is_supported_method = method_lower == "tempo";
         let is_charge = intent == "charge";
         is_supported_method && is_charge
     }
@@ -95,10 +99,9 @@ impl mpay::client::PaymentProvider for PgetPaymentProvider {
         challenge: &mpay::PaymentChallenge,
     ) -> std::result::Result<mpay::PaymentCredential, mpay::MppError> {
         let method = challenge.method.as_str().to_lowercase();
-        
+
         match method.as_str() {
             "tempo" => self.create_tempo_payment(challenge).await,
-            "base" => self.create_evm_payment(challenge).await,
             _ => Err(mpay::MppError::UnsupportedPaymentMethod(format!(
                 "Payment method '{}' is not supported",
                 challenge.method
@@ -117,16 +120,6 @@ impl PgetPaymentProvider {
             .await
             .map_err(|e| mpay::MppError::Http(e.to_string()))
     }
-
-    async fn create_evm_payment(
-        &self,
-        challenge: &mpay::PaymentChallenge,
-    ) -> std::result::Result<mpay::PaymentCredential, mpay::MppError> {
-        use crate::payment::providers::evm::create_evm_payment;
-        create_evm_payment(&self.config, challenge)
-            .await
-            .map_err(|e| mpay::MppError::Http(e.to_string()))
-    }
 }
 
 /// Build a payment provider from configuration.
@@ -136,6 +129,13 @@ impl PgetPaymentProvider {
 #[allow(dead_code)]
 pub fn build_payment_provider(config: Config) -> PgetPaymentProvider {
     PgetPaymentProvider::new(config)
+}
+
+sol! {
+    #[sol(rpc)]
+    interface IERC20 {
+        function balanceOf(address account) external view returns (uint256);
+    }
 }
 
 /// Query token balance on a network.
@@ -148,8 +148,45 @@ pub async fn get_balance(
     network: Network,
     currency: Currency,
 ) -> Result<NetworkBalance> {
-    use crate::payment::providers::evm::query_erc20_balance;
-    query_erc20_balance(config, address, network, currency).await
+    let token_config = network.usdc_config().ok_or_else(|| {
+        PgetError::UnsupportedToken(format!(
+            "Network {} does not support {}",
+            network, currency.symbol
+        ))
+    })?;
+
+    let network_info = config.resolve_network(network.as_str())?;
+    let provider =
+        ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
+            PgetError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+        })?);
+
+    let user_addr = Address::from_str(address)
+        .map_err(|e| PgetError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
+    let token_addr = Address::from_str(token_config.address).map_err(|e| {
+        PgetError::invalid_address(format!(
+            "Invalid {} contract address for {}: {}",
+            token_config.currency.symbol, network, e
+        ))
+    })?;
+
+    let contract = IERC20::new(token_addr, &provider);
+
+    let balance = contract.balanceOf(user_addr).call().await.map_err(|e| {
+        PgetError::BalanceQuery(format!(
+            "Failed to get {} balance for {} on {}: {}",
+            token_config.currency.symbol, address, network, e
+        ))
+    })?;
+
+    let balance_human = format_u256_with_decimals(balance, token_config.currency.decimals);
+
+    Ok(NetworkBalance::new(
+        network,
+        balance,
+        balance_human,
+        token_config.currency.symbol.to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -161,7 +198,7 @@ mod tests {
     fn test_provider_supports_tempo() {
         let config = Config::default();
         let provider = PgetPaymentProvider::new(config);
-        
+
         assert!(provider.supports("tempo", "charge"));
         assert!(provider.supports("TEMPO", "charge"));
         assert!(!provider.supports("tempo", "authorize"));
@@ -169,19 +206,11 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_supports_base() {
-        let config = Config::default();
-        let provider = PgetPaymentProvider::new(config);
-        
-        assert!(provider.supports("base", "charge"));
-        assert!(provider.supports("BASE", "charge"));
-    }
-
-    #[test]
     fn test_provider_rejects_unknown_methods() {
         let config = Config::default();
         let provider = PgetPaymentProvider::new(config);
-        
+
+        assert!(!provider.supports("base", "charge"));
         assert!(!provider.supports("ethereum", "charge"));
         assert!(!provider.supports("bitcoin", "charge"));
         assert!(!provider.supports("unknown", "charge"));

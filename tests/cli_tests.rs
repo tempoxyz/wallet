@@ -351,8 +351,8 @@ fn test_networks_list() {
         .stdout(predicate::str::contains("DISPLAY NAME"))
         .stdout(predicate::str::contains("TYPE"))
         .stdout(predicate::str::contains("CHAIN ID"))
-        .stdout(predicate::str::contains("base"))
-        .stdout(predicate::str::contains("ethereum"));
+        .stdout(predicate::str::contains("tempo"))
+        .stdout(predicate::str::contains("tempo-moderato"));
 }
 
 #[test]
@@ -363,7 +363,7 @@ fn test_networks_list_json() {
         .success()
         .stdout(predicate::str::contains("\"name\""))
         .stdout(predicate::str::contains("\"type\""))
-        .stdout(predicate::str::contains("\"base\""));
+        .stdout(predicate::str::contains("\"tempo\""));
 }
 
 #[test]
@@ -374,7 +374,7 @@ fn test_networks_list_yaml() {
         .success()
         .stdout(predicate::str::contains("name:"))
         .stdout(predicate::str::contains("type:"))
-        .stdout(predicate::str::contains("base"));
+        .stdout(predicate::str::contains("tempo"));
 }
 
 #[test]
@@ -384,8 +384,8 @@ fn test_networks_no_subcommand_defaults_to_list() {
         .assert()
         .success()
         .stdout(predicate::str::contains("NAME"))
-        .stdout(predicate::str::contains("base"))
-        .stdout(predicate::str::contains("ethereum"));
+        .stdout(predicate::str::contains("tempo"))
+        .stdout(predicate::str::contains("tempo-moderato"));
 }
 
 #[test]
@@ -398,18 +398,18 @@ fn test_networks_alias() {
 }
 
 #[test]
-fn test_networks_info_base() {
+fn test_networks_info_tempo() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .args(["networks", "info", "base"])
+        .args(["networks", "info", "tempo"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Network Information"))
         .stdout(predicate::str::contains("Name:"))
-        .stdout(predicate::str::contains("base"))
+        .stdout(predicate::str::contains("tempo"))
         .stdout(predicate::str::contains("Display Name:"))
-        .stdout(predicate::str::contains("Base"))
+        .stdout(predicate::str::contains("Tempo"))
         .stdout(predicate::str::contains("Chain ID:"))
-        .stdout(predicate::str::contains("8453"))
+        .stdout(predicate::str::contains("4217"))
         .stdout(predicate::str::contains("Mainnet:"))
         .stdout(predicate::str::contains("yes"));
 }
@@ -417,11 +417,11 @@ fn test_networks_info_base() {
 #[test]
 fn test_networks_info_testnet() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .args(["networks", "info", "base-sepolia"])
+        .args(["networks", "info", "tempo-moderato"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("base-sepolia"))
-        .stdout(predicate::str::contains("84532"))
+        .stdout(predicate::str::contains("tempo-moderato"))
+        .stdout(predicate::str::contains("42431"))
         .stdout(predicate::str::contains("Testnet:"))
         .stdout(predicate::str::contains("yes"));
 }
@@ -429,21 +429,27 @@ fn test_networks_info_testnet() {
 #[test]
 fn test_networks_info_json() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .args(["networks", "info", "base", "--output-format", "json"])
+        .args(["networks", "info", "tempo", "--output-format", "json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"name\": \"base\""))
-        .stdout(predicate::str::contains("\"chain_id\": 8453"));
+        .stdout(predicate::str::contains("\"name\": \"tempo\""))
+        .stdout(predicate::str::contains("\"chain_id\": 4217"));
 }
 
 #[test]
 fn test_networks_info_yaml() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .args(["networks", "info", "ethereum", "--output-format", "yaml"])
+        .args([
+            "networks",
+            "info",
+            "tempo-moderato",
+            "--output-format",
+            "yaml",
+        ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("name: ethereum"))
-        .stdout(predicate::str::contains("chain_id: 1"));
+        .stdout(predicate::str::contains("name: tempo-moderato"))
+        .stdout(predicate::str::contains("chain_id: 42431"));
 }
 
 #[test]
@@ -710,7 +716,7 @@ fn test_networks_info_case_sensitivity() {
 #[test]
 fn test_networks_info_with_quiet() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .args(["networks", "info", "base", "-q"])
+        .args(["networks", "info", "tempo", "-q"])
         .assert()
         .success();
 }
