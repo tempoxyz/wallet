@@ -75,11 +75,10 @@ impl BalanceProvider for TempoProvider {
 impl PaymentProvider for TempoProvider {
     async fn create_web_payment(
         &self,
-        challenge: &mpay::Challenge::PaymentChallenge,
+        challenge: &mpay::PaymentChallenge,
         config: &Config,
-    ) -> Result<mpay::Credential::PaymentCredential> {
-        use mpay::Credential::{PaymentCredential, PaymentPayload};
-        use mpay::Intent::ChargeRequest;
+    ) -> Result<mpay::PaymentCredential> {
+        use mpay::{ChargeRequest, PaymentCredential, PaymentPayload};
 
         use crate::payment::mpay_ext::{method_to_network, ChargeRequestExt};
         use alloy::primitives::Bytes;

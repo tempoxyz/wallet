@@ -15,7 +15,7 @@ mod cli;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use config::{Config, WalletConfig};
-use mpay::Schema::PaymentProtocol;
+use mpay::PaymentProtocol;
 
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
