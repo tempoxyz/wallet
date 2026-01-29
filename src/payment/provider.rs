@@ -6,7 +6,6 @@
 use crate::config::Config;
 use crate::error::{PgetError, Result};
 use crate::network::Network;
-use crate::payment::currency::Currency;
 use crate::payment::money::format_u256_with_decimals;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
@@ -14,7 +13,7 @@ use alloy::sol;
 use std::str::FromStr;
 use std::sync::Arc;
 
-/// Balance information for a single network
+/// Balance information for a single token on a network
 #[derive(Debug, Clone)]
 pub struct NetworkBalance {
     /// The network this balance is for (typed enum)
@@ -23,7 +22,7 @@ pub struct NetworkBalance {
     pub balance: U256,
     /// Human-readable balance string (for display)
     pub balance_human: String,
-    /// Asset symbol (e.g., "USDC")
+    /// Asset symbol (e.g., "pathUSD", "AlphaUSD")
     pub asset: String,
 }
 
@@ -138,23 +137,14 @@ sol! {
     }
 }
 
-/// Query token balance on a network.
+/// Query balances for all supported tokens on a network.
 ///
-/// This is a standalone function rather than part of PaymentProvider because
-/// balance querying is not part of the Web Payment Auth protocol.
-pub async fn get_balance(
+/// Returns balances for pathUSD, AlphaUSD, BetaUSD, and ThetaUSD.
+pub async fn get_balances(
     config: &Config,
     address: &str,
     network: Network,
-    currency: Currency,
-) -> Result<NetworkBalance> {
-    let token_config = network.usdc_config().ok_or_else(|| {
-        PgetError::UnsupportedToken(format!(
-            "Network {} does not support {}",
-            network, currency.symbol
-        ))
-    })?;
-
+) -> Result<Vec<NetworkBalance>> {
     let network_info = config.resolve_network(network.as_str())?;
     let provider =
         ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
@@ -163,30 +153,40 @@ pub async fn get_balance(
 
     let user_addr = Address::from_str(address)
         .map_err(|e| PgetError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
-    let token_addr = Address::from_str(token_config.address).map_err(|e| {
-        PgetError::invalid_address(format!(
-            "Invalid {} contract address for {}: {}",
-            token_config.currency.symbol, network, e
-        ))
-    })?;
 
-    let contract = IERC20::new(token_addr, &provider);
+    let mut balances = Vec::new();
 
-    let balance = contract.balanceOf(user_addr).call().await.map_err(|e| {
-        PgetError::BalanceQuery(format!(
-            "Failed to get {} balance for {} on {}: {}",
-            token_config.currency.symbol, address, network, e
-        ))
-    })?;
+    for token_config in network.supported_tokens() {
+        let token_addr = Address::from_str(token_config.address).map_err(|e| {
+            PgetError::invalid_address(format!(
+                "Invalid {} contract address for {}: {}",
+                token_config.currency.symbol, network, e
+            ))
+        })?;
 
-    let balance_human = format_u256_with_decimals(balance, token_config.currency.decimals);
+        let contract = IERC20::new(token_addr, &provider);
 
-    Ok(NetworkBalance::new(
-        network,
-        balance,
-        balance_human,
-        token_config.currency.symbol.to_string(),
-    ))
+        match contract.balanceOf(user_addr).call().await {
+            Ok(balance) => {
+                let balance_human =
+                    format_u256_with_decimals(balance, token_config.currency.decimals);
+                balances.push(NetworkBalance::new(
+                    network,
+                    balance,
+                    balance_human,
+                    token_config.currency.symbol.to_string(),
+                ));
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: Failed to get {} balance on {}: {}",
+                    token_config.currency.symbol, network, e
+                );
+            }
+        }
+    }
+
+    Ok(balances)
 }
 
 #[cfg(test)]

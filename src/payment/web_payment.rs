@@ -271,7 +271,7 @@ mod tests {
 
         let charge_req = ChargeRequest {
             amount: amount.to_string(),
-            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            currency: "0x20c0000000000000000000000000000000000001".to_string(),
             recipient: Some("0x1234567890123456789012345678901234567890".to_string()),
             expires: Some("2099-12-31T23:59:59Z".to_string()),
             description: None,

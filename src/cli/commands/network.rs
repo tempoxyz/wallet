@@ -1,7 +1,7 @@
 //! Network command handlers for listing and inspecting supported networks.
 
 use crate::cli::OutputFormat;
-use crate::network::{ChainType, Network};
+use crate::network::Network;
 use anyhow::{Context, Result};
 use serde::Serialize;
 
@@ -36,9 +36,7 @@ impl From<Network> for NetworkListItem {
         NetworkListItem {
             name: network.as_str().to_string(),
             display_name: info.display_name.to_string(),
-            chain_type: match info.chain_type {
-                ChainType::Evm => "EVM".to_string(),
-            },
+            chain_type: "EVM".to_string(),
             chain_id: info.chain_id,
             network_type: if info.mainnet {
                 "mainnet".to_string()
@@ -55,9 +53,7 @@ impl From<Network> for NetworkDetail {
         NetworkDetail {
             name: network.as_str().to_string(),
             display_name: info.display_name.to_string(),
-            chain_type: match info.chain_type {
-                ChainType::Evm => "EVM".to_string(),
-            },
+            chain_type: "EVM".to_string(),
             chain_id: info.chain_id,
             mainnet: info.mainnet,
             testnet: info.is_testnet(),

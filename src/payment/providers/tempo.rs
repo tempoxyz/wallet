@@ -77,8 +77,7 @@ pub async fn create_tempo_payment(
     })?;
 
     let gas_config = Network::from_str(network_name)
-        .ok()
-        .and_then(|n| n.gas_config())
+        .map(|n| n.gas_config())
         .unwrap_or(GasConfig::DEFAULT);
 
     let provider = alloy::providers::ProviderBuilder::new().connect_http(

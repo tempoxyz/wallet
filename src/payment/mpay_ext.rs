@@ -90,26 +90,11 @@ impl ChargeRequestExt for ChargeRequest {
     fn money(&self, network: Network) -> Result<Money> {
         use mpay::protocol::methods::tempo::TempoChargeExt;
 
-        let token_config = network.usdc_config().ok_or_else(|| {
-            PgetError::UnsupportedToken(format!("No token configuration for network '{}'", network))
-        })?;
-
         let currency_addr: Address = self
             .currency_address()
             .map_err(|e| PgetError::InvalidAddress(e.to_string()))?;
-        let expected_addr: Address = token_config.address.parse().map_err(|e| {
-            PgetError::InvalidAddress(format!(
-                "Invalid configured token address for {}: {}",
-                network, e
-            ))
-        })?;
 
-        if currency_addr != expected_addr {
-            return Err(PgetError::UnsupportedToken(format!(
-                "Currency {} does not match configured token {} for network {}",
-                self.currency, token_config.address, network
-            )));
-        }
+        let token_config = network.require_token_config(&self.currency)?;
 
         let amount: U256 = self
             .amount_u256()

@@ -44,9 +44,10 @@ pub fn confirm_web_payment(
         .and_then(|evm| evm.get_address())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    let token_config = Network::from_str(network_name)
-        .map_err(|e| anyhow::anyhow!("Unknown network '{}': {}", network_name, e))?
-        .require_usdc_config()
+    let network = Network::from_str(network_name)
+        .map_err(|e| anyhow::anyhow!("Unknown network '{}': {}", network_name, e))?;
+    let token_config = network
+        .require_token_config(&charge_req.currency)
         .context("Cannot display formatted payment amount")?;
     let (decimals, symbol) = (token_config.currency.decimals, token_config.currency.symbol);
 

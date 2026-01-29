@@ -82,9 +82,8 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
 
     let config = Config {
         evm,
-        rpc: Default::default(),
-        networks: Default::default(),
-        tokens: Default::default(),
+        tempo_rpc: None,
+        moderato_rpc: None,
     };
 
     config.save().context("Failed to save configuration")?;

@@ -71,7 +71,7 @@ fn test_balance_with_evm_config() {
         .arg("balance")
         .assert()
         .success()
-        .stdout(predicate::str::contains("USDC Balances:"))
+        .stdout(predicate::str::contains("Tempo Stablecoin Balances:"))
         .stdout(predicate::str::contains("mock"));
 }
 
@@ -107,7 +107,7 @@ fn test_balance_alias() {
         .arg("b")
         .assert()
         .success()
-        .stdout(predicate::str::contains("USDC Balances:"));
+        .stdout(predicate::str::contains("Tempo Stablecoin Balances:"));
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn test_balance_after_init() {
         .arg("balance")
         .assert()
         .success()
-        .stdout(predicate::str::contains("USDC Balances:"));
+        .stdout(predicate::str::contains("Tempo Stablecoin Balances:"));
 }
 
 #[test]
