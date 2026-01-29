@@ -1,9 +1,20 @@
 //! Wallet management commands for pget CLI
 
 use crate::wallet::keystore::{create_keystore, list_keystores, Keystore};
+use alloy::primitives::Address;
+use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
 use dialoguer::{Input, Password};
 use std::path::PathBuf;
+
+/// Derive an EVM address from raw private key bytes.
+fn derive_evm_address(private_key_bytes: &[u8]) -> Result<Address, anyhow::Error> {
+    let hex_key = hex::encode(private_key_bytes);
+    let signer: PrivateKeySigner = hex_key
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
+    Ok(signer.address())
+}
 
 /// List all available keystores in the keystores directory
 ///
@@ -400,18 +411,18 @@ pub fn verify_command(name: &str) -> Result<()> {
             println!("[OK] Successfully decrypted keystore");
 
             if let Some(stored_address) = keystore.address() {
-                match mpay::crypto::derive_evm_address(&private_key_bytes) {
+                match derive_evm_address(&private_key_bytes) {
                     Ok(derived_address) => {
-                        let derived_no_prefix = &derived_address[2..];
+                        let derived_hex = format!("{:x}", derived_address);
 
-                        if stored_address.to_lowercase() == derived_no_prefix.to_lowercase() {
+                        if stored_address.to_lowercase() == derived_hex.to_lowercase() {
                             println!("[OK] Address derivation matches");
                             println!("Verification successful!");
                             println!("Address: 0x{stored_address}");
                         } else {
                             println!("[FAIL] Address mismatch!");
                             println!("Stored:  0x{stored_address}");
-                            println!("Derived: {derived_address}");
+                            println!("Derived: 0x{derived_hex}");
                             anyhow::bail!("Address derivation does not match stored address");
                         }
                     }

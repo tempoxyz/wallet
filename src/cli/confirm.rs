@@ -12,8 +12,7 @@ use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
 use crate::payment::mpay_ext::method_to_network;
 use crate::payment::provider::PROVIDER_REGISTRY;
-use mpay::Challenge::PaymentChallenge;
-use mpay::Intent::ChargeRequest;
+use mpay::{ChargeRequest, PaymentChallenge};
 
 use super::exit_codes::ExitCode;
 use super::formatting::{format_truncated_address_link, pad_with_hyperlink};

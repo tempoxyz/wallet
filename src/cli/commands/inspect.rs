@@ -1,7 +1,6 @@
 //! Inspect command for viewing payment requirements without executing payment
 
-use mpay::Challenge::{parse_www_authenticate, PaymentChallenge};
-use mpay::Intent::ChargeRequest;
+use mpay::{parse_www_authenticate, ChargeRequest, PaymentChallenge};
 
 use crate::payment::mpay_ext::ChargeRequestExt;
 use crate::{config::PaymentMethod, http::HttpClientBuilder, http::HttpMethod};
@@ -269,7 +268,7 @@ fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[Payme
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mpay::Schema::{Base64UrlJson, IntentName, MethodName};
+    use mpay::{Base64UrlJson, IntentName, MethodName};
 
     fn mock_challenge() -> PaymentChallenge {
         let charge_req = ChargeRequest {
