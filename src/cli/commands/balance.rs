@@ -16,7 +16,7 @@ fn is_mock_mode() -> bool {
 fn mock_balances(network: Network, _address: &str) -> Vec<NetworkBalance> {
     let base_amount = match network {
         Network::Tempo => 1_000_000u64,
-        Network::TempoModerato => 5_000_000u64,
+        Network::TempoModerato | Network::TempoLocalnet => 5_000_000u64,
     };
 
     network

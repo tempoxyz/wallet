@@ -121,7 +121,11 @@ impl Network {
 
     /// Get all available networks.
     pub const fn all() -> &'static [Network] {
-        &[Network::Tempo, Network::TempoModerato, Network::TempoLocalnet]
+        &[
+            Network::Tempo,
+            Network::TempoModerato,
+            Network::TempoLocalnet,
+        ]
     }
 
     /// Get the chain ID for this network.
