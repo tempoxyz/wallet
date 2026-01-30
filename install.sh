@@ -20,7 +20,7 @@ echo ""
 REPO="tempoxyz/pget"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="pget"
-R2_BASE_URL="https://purl-binaries.tempo.xyz"
+R2_BASE_URL="https://pget-binaries.tempo.xyz"
 
 # Temp directory for downloads (cleaned up on exit)
 TMP_DIR=""
