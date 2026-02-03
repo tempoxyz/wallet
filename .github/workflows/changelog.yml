@@ -1,0 +1,21 @@
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wevm/changelogs-rs/gen@master
+        with:
+          ai: 'claude'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

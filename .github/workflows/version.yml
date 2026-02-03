@@ -1,0 +1,19 @@
+name: Version
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wevm/changelogs-rs@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
