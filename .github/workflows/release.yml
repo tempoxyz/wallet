@@ -6,7 +6,18 @@ on:
       - 'v*'
     branches:
       - main
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.2.3)'
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.2.3)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -52,7 +63,7 @@ jobs:
   upload-latest:
     name: Upload Latest to R2
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && !inputs.version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,11 +86,11 @@ jobs:
 
           echo "Uploaded latest binaries to R2"
 
-  # On tag: create GitHub release, upload versioned to R2, publish to crates.io
+  # On tag or workflow_call: create GitHub release, upload versioned to R2, publish to crates.io
   release:
     name: Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,9 +99,19 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=v${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.version }}
           files: artifacts/*
           generate_release_notes: true
 
@@ -100,7 +121,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${{ steps.version.outputs.version }}"
 
           # Upload with version prefix
           for f in artifacts/*; do
@@ -110,11 +131,11 @@ jobs:
 
           echo "Uploaded ${VERSION} binaries to R2"
 
-  # Publish to crates.io on tag
+  # Publish to crates.io on tag or workflow_call
   publish:
     name: Publish to crates.io
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
