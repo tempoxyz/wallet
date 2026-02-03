@@ -13,6 +13,11 @@ format = "root"
 # Packages to ignore
 ignore = []
 
+# Explicit package configuration (required for single-crate projects)
+[[packages]]
+name = "pget-cli"
+path = "."
+
 # AI-assisted changelog generation
 [ai]
 command = "claude"
