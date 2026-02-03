@@ -51,6 +51,7 @@ Use as `pget <URL> [OPTIONS]` or `pget <COMMAND> [OPTIONS]`
 | Use specific account by name | `pget -a my-wallet https://api.example.com/data` |
 | Use specific sender address | `pget --from 0x1234... https://api.example.com/data` |
 | Override RPC URL | `pget -r https://my-rpc.com https://api.example.com/data` |
+| Disable automatic token swaps | `pget --no-swap https://api.example.com/data` |
 | View configuration | `pget config` or `pget c` |
 | View configuration with private keys | `pget config --unsafe-show-private-keys` |
 | Disable password caching | `pget --no-cache config --unsafe-show-private-keys` |
@@ -473,12 +474,53 @@ pget supports the Web Payment Auth protocol for HTTP-based payments.
 |----------|-------------|-------------------|
 | [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) | IETF standard for HTTP authentication-based payments | `tempo`, `tempo-moderato` (plus any custom networks you define) |
 
+## Automatic Token Swapping
+
+When a merchant requests payment in a specific stablecoin that you don't have, pget can automatically swap from a stablecoin you do have. This feature is enabled by default.
+
+**How it works:**
+
+1. When a payment is requested, pget checks your balance of the required token
+2. If you have sufficient balance, the payment proceeds directly
+3. If you don't have enough of the required token, pget queries your balances of other supported stablecoins (pathUSD, AlphaUSD, BetaUSD, ThetaUSD)
+4. If another token has sufficient balance (including 0.5% slippage), pget automatically swaps via the Tempo StablecoinDEX and completes the payment in a single atomic transaction
+
+**Token selection:**
+
+pget checks tokens in order and uses the first one with sufficient balance. The balance check includes a 0.5% slippage buffer to ensure the swap succeeds.
+
+**Atomic execution:**
+
+The swap and payment are executed atomically in a single Tempo transaction containing three calls:
+1. Approve the DEX to spend your tokens
+2. Swap to the required token
+3. Transfer to the merchant
+
+If any step fails, the entire transaction reverts.
+
+**Disabling automatic swaps:**
+
+To disable automatic swapping and require exact token balance:
+
+```bash
+pget --no-swap https://api.example.com/data
+```
+
+Or set the environment variable:
+
+```bash
+export PGET_NO_SWAP=true
+```
+
+When swaps are disabled and you don't have enough of the required token, pget will display an error with your current balance and the required amount.
+
 ## Environment Variables
 
 ```bash
 export PGET_MAX_AMOUNT=10000
 export PGET_NETWORK=tempo-moderato
 export PGET_CONFIRM=true
+export PGET_NO_SWAP=true
 
 pget https://api.example.com/data
 ```
@@ -519,6 +561,7 @@ Payment Options:
   -y, --confirm              Require confirmation before paying [env: PGET_CONFIRM=]
   -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PGET_NETWORK=]
   -D, --dry-run              Dry run mode - show what would be paid without executing
+      --no-swap              Disable automatic token swaps [env: PGET_NO_SWAP=]
 
 Display Options:
   -v, --verbosity...            Verbosity level (can be used multiple times: -v, -vv, -vvv)

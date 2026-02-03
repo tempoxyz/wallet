@@ -133,7 +133,7 @@ pub async fn handle_web_payment_request(
     }
 
     // Use mpay::client::PaymentProvider to create the credential
-    let provider = PgetPaymentProvider::new(config.clone());
+    let provider = PgetPaymentProvider::with_no_swap(config.clone(), request_ctx.cli.no_swap);
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
