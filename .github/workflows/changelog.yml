@@ -20,13 +20,13 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          # Skip if only changelog files changed
-          if ! git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qvE '^\.changelog/'; then
-            echo "No code changes, skipping changelog generation"
+          # Skip if only infra/config files changed (no code changes requiring changelog)
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          CODE_CHANGES=$(echo "$CHANGED" | grep -vE '^(\.changelog/|\.github/|\.gitignore|README\.md|AGENTS\.md)' || true)
+          if [ -z "$CODE_CHANGES" ]; then
+            echo "No code changes requiring changelog, skipping"
             exit 0
           fi
-          # Re-init to ensure ecosystem is detected
-          ~/.local/bin/changelogs init --ecosystem rust --force || true
           ~/.local/bin/changelogs add --ai "claude" --ref origin/${{ github.base_ref }}
       - name: Commit changelog
         run: |
