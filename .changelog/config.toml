@@ -1,5 +1,5 @@
 # Ecosystem: "rust" | "python" (auto-detected if not specified)
-# ecosystem = "rust"
+ecosystem = "rust"
 
 # How to bump packages that depend on changed packages
 # "patch" | "minor" | "none"
@@ -9,14 +9,6 @@ dependent_bump = "patch"
 # "per-crate" - CHANGELOG.md in each package
 # "root" - Single CHANGELOG.md at workspace root
 format = "root"
-
-# Fixed groups: all packages always share the same version
-# [[fixed]]
-# members = ["package-a", "package-b"]
-
-# Linked groups: versions sync when released together
-# [[linked]]
-# members = ["sdk-core", "sdk-macros"]
 
 # Packages to ignore
 ignore = []
