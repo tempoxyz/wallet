@@ -20,6 +20,7 @@ anyhow = "1.0"
 mpay = { git = "https://github.com/tempoxyz/mpay-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client"] }
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
 async-trait = "0.1"
+futures = "0.3"
 bs58 = "0.5"
 hex = "0.4"
 base64 = "0.22"

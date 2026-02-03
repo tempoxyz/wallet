@@ -68,6 +68,14 @@ pub struct Cli {
     #[arg(short = 'D', long, help_heading = "Payment Options")]
     pub dry_run: bool,
 
+    /// Disable automatic token swaps when you don't have the requested currency
+    #[arg(
+        long = "no-swap",
+        env = "PGET_NO_SWAP",
+        help_heading = "Payment Options"
+    )]
+    pub no_swap: bool,
+
     /// Allow insecure operations (skip TLS verification and origin checks)
     #[arg(short = 'k', long = "insecure", help_heading = "Request Options")]
     pub insecure: bool,

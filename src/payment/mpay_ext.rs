@@ -54,14 +54,8 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
 
 /// Pget-specific extensions to ChargeRequest.
 ///
-/// For core EVM accessors, use `TempoChargeExt` from mpay.
+/// For core EVM accessors (including `memo()`), use `TempoChargeExt` from mpay.
 pub trait ChargeRequestExt {
-    /// Get the memo from method details as a bytes32 value.
-    ///
-    /// Returns `None` if not specified in `methodDetails`.
-    /// The memo should be a hex-encoded 32-byte value (with or without 0x prefix).
-    fn memo(&self) -> Option<[u8; 32]>;
-
     /// Create a type-safe `Money` value from this charge request.
     ///
     /// Validates that the currency address matches the network's configured token.
@@ -69,24 +63,6 @@ pub trait ChargeRequestExt {
 }
 
 impl ChargeRequestExt for ChargeRequest {
-    fn memo(&self) -> Option<[u8; 32]> {
-        self.method_details
-            .as_ref()
-            .and_then(|v| v.get("memo"))
-            .and_then(|v| v.as_str())
-            .and_then(|s| {
-                let hex_str = s.strip_prefix("0x").unwrap_or(s);
-                let bytes = hex::decode(hex_str).ok()?;
-                if bytes.len() == 32 {
-                    let mut arr = [0u8; 32];
-                    arr.copy_from_slice(&bytes);
-                    Some(arr)
-                } else {
-                    None
-                }
-            })
-    }
-
     fn money(&self, network: Network) -> Result<Money> {
         use mpay::protocol::methods::tempo::TempoChargeExt;
 
@@ -165,61 +141,6 @@ mod tests {
             expires: None,
         };
         assert!(validate_challenge(&challenge).is_err());
-    }
-
-    #[test]
-    fn test_charge_request_memo_with_0x_prefix() {
-        let memo_hex = "0xc70864128216764ddcf3cc9b9fc1edb49c453e615e904f2847ba79dd0ec71001";
-        let req = ChargeRequest {
-            amount: "1000".to_string(),
-            currency: "0x123".to_string(),
-            method_details: Some(serde_json::json!({
-                "memo": memo_hex
-            })),
-            ..Default::default()
-        };
-        let memo = req.memo();
-        assert!(memo.is_some());
-        let memo_bytes = memo.unwrap();
-        assert_eq!(memo_bytes[0], 0xc7);
-        assert_eq!(memo_bytes[1], 0x08);
-    }
-
-    #[test]
-    fn test_charge_request_memo_without_prefix() {
-        let memo_hex = "c70864128216764ddcf3cc9b9fc1edb49c453e615e904f2847ba79dd0ec71001";
-        let req = ChargeRequest {
-            amount: "1000".to_string(),
-            currency: "0x123".to_string(),
-            method_details: Some(serde_json::json!({
-                "memo": memo_hex
-            })),
-            ..Default::default()
-        };
-        assert!(req.memo().is_some());
-    }
-
-    #[test]
-    fn test_charge_request_memo_missing() {
-        let req = ChargeRequest {
-            amount: "1000".to_string(),
-            currency: "0x123".to_string(),
-            ..Default::default()
-        };
-        assert!(req.memo().is_none());
-    }
-
-    #[test]
-    fn test_charge_request_memo_wrong_length() {
-        let req = ChargeRequest {
-            amount: "1000".to_string(),
-            currency: "0x123".to_string(),
-            method_details: Some(serde_json::json!({
-                "memo": "0x1234"
-            })),
-            ..Default::default()
-        };
-        assert!(req.memo().is_none());
     }
 
     #[test]
