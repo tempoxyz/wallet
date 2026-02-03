@@ -1,0 +1,23 @@
+# Ecosystem: "rust" | "python" (auto-detected if not specified)
+ecosystem = "rust"
+
+# How to bump packages that depend on changed packages
+# "patch" | "minor" | "none"
+dependent_bump = "patch"
+
+[changelog]
+# "per-crate" - CHANGELOG.md in each package
+# "root" - Single CHANGELOG.md at workspace root
+format = "root"
+
+# Packages to ignore
+ignore = []
+
+# Explicit package configuration (required for single-crate projects)
+[[packages]]
+name = "pget-cli"
+path = "."
+
+# AI-assisted changelog generation
+[ai]
+command = "claude"

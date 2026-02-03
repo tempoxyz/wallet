@@ -17,6 +17,7 @@ pget.toml
 *.toml
 !pget.toml.example
 !Cargo.toml
+!.changelog/config.toml
 
 # Build artifacts
 /pget
