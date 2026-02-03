@@ -31,7 +31,7 @@ jobs:
             target: aarch64-apple-darwin
             asset: pget-darwin-arm64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - name: Configure git for private repos
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - uses: dtolnay/rust-toolchain@stable
@@ -43,55 +43,85 @@ jobs:
       - run: cargo build --release --target ${{ matrix.target }}
       - run: strip target/${{ matrix.target }}/release/pget
       - run: mv target/${{ matrix.target }}/release/pget ${{ matrix.asset }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
 
+  # Always upload to R2 as "latest" on main
+  upload-latest:
+    name: Upload Latest to R2
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Upload binaries as latest
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          for f in artifacts/*; do
+            aws s3 cp "$f" "s3://pget-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
+          done
+
+          # Upload install script
+          aws s3 cp install.sh "s3://pget-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+
+          echo "Uploaded latest binaries to R2"
+
+  # On tag: create GitHub release, upload versioned to R2, publish to crates.io
   release:
     name: Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
           generate_release_notes: true
 
-  upload-r2:
-    name: Upload to R2
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          path: artifacts
-          merge-multiple: true
-      - name: Upload binaries and install script to R2
+      - name: Upload versioned binaries to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          # Always upload binaries as "latest"
+          VERSION="${GITHUB_REF#refs/tags/}"
+
+          # Upload with version prefix
           for f in artifacts/*; do
-            aws s3 cp "$f" "s3://pget-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
+            BASENAME=$(basename "$f")
+            aws s3 cp "$f" "s3://pget-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
-          
-          # Upload install script
-          aws s3 cp install.sh "s3://pget-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
-          
-          # If this is a tag, also upload with version prefix
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
-            for f in artifacts/*; do
-              BASENAME=$(basename "$f")
-              aws s3 cp "$f" "s3://pget-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
-            done
-          fi
+
+          echo "Uploaded ${VERSION} binaries to R2"
+
+  # Publish to crates.io on tag
+  publish:
+    name: Publish to crates.io
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure git for private repos
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --no-verify
