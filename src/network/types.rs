@@ -1,7 +1,7 @@
 //! Network types for Tempo blockchain networks.
 //!
-//! This module provides a simple `Network` enum for the two Tempo networks
-//! (mainnet and Moderato testnet) with all network metadata accessible directly
+//! This module provides a simple `Network` enum for the Tempo networks
+//! (mainnet, Moderato testnet, and localnet) with all network metadata accessible directly
 //! from the enum variants.
 
 use crate::network::explorer::ExplorerConfig;
@@ -13,6 +13,7 @@ use std::str::FromStr;
 pub mod networks {
     pub const TEMPO: &str = "tempo";
     pub const TEMPO_MODERATO: &str = "tempo-moderato";
+    pub const TEMPO_LOCALNET: &str = "tempo-localnet";
 }
 
 /// EVM Chain ID constants.
@@ -21,6 +22,8 @@ pub mod evm_chain_ids {
     pub const TEMPO: u64 = 4217;
     /// Tempo Moderato Testnet
     pub const TEMPO_MODERATO: u64 = 42431;
+    /// Tempo Localnet (local development)
+    pub const TEMPO_LOCALNET: u64 = 1337;
 }
 
 /// Supported Tempo stablecoin token addresses
@@ -103,6 +106,7 @@ impl GasConfig {
 pub enum Network {
     Tempo,
     TempoModerato,
+    TempoLocalnet,
 }
 
 impl Network {
@@ -111,12 +115,17 @@ impl Network {
         match self {
             Network::Tempo => networks::TEMPO,
             Network::TempoModerato => networks::TEMPO_MODERATO,
+            Network::TempoLocalnet => networks::TEMPO_LOCALNET,
         }
     }
 
     /// Get all available networks.
     pub const fn all() -> &'static [Network] {
-        &[Network::Tempo, Network::TempoModerato]
+        &[
+            Network::Tempo,
+            Network::TempoModerato,
+            Network::TempoLocalnet,
+        ]
     }
 
     /// Get the chain ID for this network.
@@ -124,6 +133,7 @@ impl Network {
         match self {
             Network::Tempo => evm_chain_ids::TEMPO,
             Network::TempoModerato => evm_chain_ids::TEMPO_MODERATO,
+            Network::TempoLocalnet => evm_chain_ids::TEMPO_LOCALNET,
         }
     }
 
@@ -131,7 +141,7 @@ impl Network {
     pub const fn is_mainnet(&self) -> bool {
         match self {
             Network::Tempo => true,
-            Network::TempoModerato => false,
+            Network::TempoModerato | Network::TempoLocalnet => false,
         }
     }
 
@@ -146,6 +156,7 @@ impl Network {
         match self {
             Network::Tempo => "Tempo",
             Network::TempoModerato => "Tempo Moderato (Testnet)",
+            Network::TempoLocalnet => "Tempo Localnet",
         }
     }
 
@@ -154,14 +165,16 @@ impl Network {
         match self {
             Network::Tempo => "https://rpc.tempo.xyz",
             Network::TempoModerato => "https://rpc.moderato.tempo.xyz",
+            Network::TempoLocalnet => "http://localhost:8545",
         }
     }
 
-    /// Get the explorer base URL for this network.
-    pub const fn explorer_url(&self) -> &'static str {
+    /// Get the explorer base URL for this network (if available).
+    pub const fn explorer_url(&self) -> Option<&'static str> {
         match self {
-            Network::Tempo => "https://explorer.tempo.xyz",
-            Network::TempoModerato => "https://explorer.moderato.tempo.xyz",
+            Network::Tempo => Some("https://explorer.tempo.xyz"),
+            Network::TempoModerato => Some("https://explorer.moderato.tempo.xyz"),
+            Network::TempoLocalnet => None,
         }
     }
 
@@ -172,7 +185,7 @@ impl Network {
             mainnet: self.is_mainnet(),
             display_name: self.display_name().to_string(),
             rpc_url: self.rpc_url().to_string(),
-            explorer: Some(ExplorerConfig::tempo(self.explorer_url())),
+            explorer: self.explorer_url().map(ExplorerConfig::tempo),
         }
     }
 
@@ -253,6 +266,7 @@ impl FromStr for Network {
         match s.to_lowercase().as_str() {
             "tempo" => Ok(Network::Tempo),
             "tempo-moderato" => Ok(Network::TempoModerato),
+            "tempo-localnet" => Ok(Network::TempoLocalnet),
             _ => Err(format!("Unknown network: {}", s)),
         }
     }
@@ -294,6 +308,7 @@ mod tests {
     fn test_get_evm_chain_id() {
         assert_eq!(get_evm_chain_id("tempo"), Some(4217));
         assert_eq!(get_evm_chain_id("tempo-moderato"), Some(42431));
+        assert_eq!(get_evm_chain_id("tempo-localnet"), Some(1337));
         assert_eq!(get_evm_chain_id("unknown"), None);
     }
 
@@ -309,6 +324,12 @@ mod tests {
                 .expect("Failed to parse tempo-moderato"),
             Network::TempoModerato
         );
+        assert_eq!(
+            "tempo-localnet"
+                .parse::<Network>()
+                .expect("Failed to parse tempo-localnet"),
+            Network::TempoLocalnet
+        );
         assert!("unknown-network".parse::<Network>().is_err());
     }
 
@@ -316,6 +337,7 @@ mod tests {
     fn test_network_enum_to_str() {
         assert_eq!(Network::Tempo.as_str(), "tempo");
         assert_eq!(Network::TempoModerato.as_str(), "tempo-moderato");
+        assert_eq!(Network::TempoLocalnet.as_str(), "tempo-localnet");
         assert_eq!(Network::Tempo.to_string(), "tempo");
     }
 
@@ -330,11 +352,16 @@ mod tests {
         assert!(!moderato.is_mainnet());
         assert!(moderato.is_testnet());
         assert_eq!(moderato.chain_id(), 42431);
+
+        let localnet = Network::TempoLocalnet;
+        assert!(!localnet.is_mainnet());
+        assert!(localnet.is_testnet());
+        assert_eq!(localnet.chain_id(), 1337);
     }
 
     #[test]
     fn test_network_enum_roundtrip() {
-        for network_str in &["tempo", "tempo-moderato"] {
+        for network_str in &["tempo", "tempo-moderato", "tempo-localnet"] {
             let network: Network = network_str.parse().expect("should parse");
             assert_eq!(network.as_str(), *network_str);
             assert_eq!(network.to_string(), *network_str);
@@ -372,11 +399,15 @@ mod tests {
     #[test]
     fn test_by_name_filter() {
         let all = Network::by_name_filter(None);
-        assert_eq!(all.len(), 2);
+        assert_eq!(all.len(), 3);
 
         let filtered = Network::by_name_filter(Some("moderato"));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0], Network::TempoModerato);
+
+        let localnet_filtered = Network::by_name_filter(Some("localnet"));
+        assert_eq!(localnet_filtered.len(), 1);
+        assert_eq!(localnet_filtered[0], Network::TempoLocalnet);
     }
 
     #[test]
@@ -386,5 +417,9 @@ mod tests {
         assert!(info.mainnet);
         assert_eq!(info.display_name, "Tempo");
         assert!(info.explorer.is_some());
+
+        // Localnet has no explorer
+        let localnet_info = Network::TempoLocalnet.info();
+        assert!(localnet_info.explorer.is_none());
     }
 }
