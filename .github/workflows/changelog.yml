@@ -25,7 +25,9 @@ jobs:
             echo "No code changes, skipping changelog generation"
             exit 0
           fi
-          ~/.local/bin/changelogs --ecosystem rust add --ai "claude" --ref origin/${{ github.base_ref }}
+          # Re-init to ensure ecosystem is detected
+          ~/.local/bin/changelogs init --ecosystem rust --force || true
+          ~/.local/bin/changelogs add --ai "claude" --ref origin/${{ github.base_ref }}
       - name: Commit changelog
         run: |
           if [ -n "$(git status --porcelain .changelog/)" ]; then
