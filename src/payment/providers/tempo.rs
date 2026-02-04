@@ -12,7 +12,7 @@ use crate::payment::abi::{
     encode_approve, encode_swap_exact_amount_out, encode_transfer, DEX_ADDRESS,
 };
 use crate::payment::mpay_ext::TempoChargeExt;
-use crate::wallet::signer::WalletSource;
+use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use std::str::FromStr;
@@ -104,11 +104,12 @@ impl PaymentSetupContext {
             .decode()
             .map_err(|e| PgetError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
-        let evm_config = config.require_evm()?;
-        let signer = evm_config.load_signer(None)?;
+        // Load signer with priority: Tempo wallet → Keystore/PrivateKey
+        let signer_ctx = load_signer_with_priority(config.evm.as_ref())?;
+        let signer = signer_ctx.signer;
 
         // If wallet_address is set, use keychain signing mode
-        let wallet_address = evm_config
+        let wallet_address = signer_ctx
             .wallet_address
             .as_ref()
             .map(|addr| {

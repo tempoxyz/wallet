@@ -6,6 +6,7 @@ mod error;
 mod http;
 mod network;
 mod payment;
+mod services;
 mod util;
 mod wallet;
 
@@ -70,7 +71,11 @@ async fn run() -> Result<()> {
 /// Handle CLI subcommands
 async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
     match command {
-        Commands::Init { force, skip_ai } => cli::commands::init::run_init(*force, *skip_ai),
+        Commands::Init {
+            force,
+            skip_ai,
+            keystore,
+        } => cli::commands::init::run_init(*force, *skip_ai, *keystore).await,
 
         Commands::Config {
             command,
@@ -134,6 +139,98 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
         }
 
         Commands::Inspect { url } => cli::commands::inspect::inspect_command(cli, url).await,
+
+        Commands::Wallet {
+            command,
+            output_format,
+        } => {
+            let network = cli.network.as_deref();
+            if let Some(subcommand) = command {
+                match subcommand {
+                    cli::WalletCommands::Connect => {
+                        cli::commands::tempo_wallet::connect_wallet(network)
+                            .await
+                            .map_err(Into::into)
+                    }
+                    cli::WalletCommands::Disconnect { yes } => {
+                        cli::commands::tempo_wallet::disconnect_wallet(*yes, network)
+                            .await
+                            .map_err(Into::into)
+                    }
+                    cli::WalletCommands::Refresh => {
+                        cli::commands::tempo_wallet::refresh_wallet(network)
+                            .await
+                            .map_err(Into::into)
+                    }
+                }
+            } else {
+                cli::commands::tempo_wallet::show_wallet(*output_format, network)
+                    .await
+                    .map_err(Into::into)
+            }
+        }
+
+        Commands::Keys {
+            command,
+            output_format,
+        } => {
+            let network = cli.network.as_deref();
+            if let Some(subcommand) = command {
+                match subcommand {
+                    cli::KeysCommands::List => {
+                        cli::commands::keys::list_keys(*output_format, network)
+                            .await
+                            .map_err(Into::into)
+                    }
+                    cli::KeysCommands::Switch { index } => {
+                        cli::commands::keys::switch_key(*index, *output_format, network)
+                            .await
+                            .map_err(Into::into)
+                    }
+                    cli::KeysCommands::Delete { index } => {
+                        cli::commands::keys::delete_key(*index, *output_format, network)
+                            .await
+                            .map_err(Into::into)
+                    }
+                }
+            } else {
+                cli::commands::keys::list_keys(*output_format, network)
+                    .await
+                    .map_err(Into::into)
+            }
+        }
+
+        Commands::Services {
+            command,
+            output_format,
+            refresh,
+        } => {
+            if let Some(subcommand) = command {
+                match subcommand {
+                    cli::ServicesCommands::List { refresh } => {
+                        cli::commands::services::list_services(*output_format, *refresh)
+                            .await
+                            .map_err(Into::into)
+                    }
+                    cli::ServicesCommands::Info { name } => {
+                        cli::commands::services::show_service(name, *output_format)
+                            .await
+                            .map_err(Into::into)
+                    }
+                }
+            } else {
+                cli::commands::services::list_services(*output_format, *refresh)
+                    .await
+                    .map_err(Into::into)
+            }
+        }
+
+        Commands::Status { output_format } => {
+            let network = cli.network.as_deref();
+            cli::commands::status::show_status(*output_format, network)
+                .await
+                .map_err(Into::into)
+        }
     }
 }
 

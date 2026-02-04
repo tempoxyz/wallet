@@ -11,32 +11,37 @@ name = "pget"
 path = "src/main.rs"
 
 [dependencies]
+alloy = { version = "1.2", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
+anyhow = "1.0"
+async-trait = "0.1"
+axum = "0.8"
+base64 = "0.22"
+bs58 = "0.5"
+
+clap = { version = "4.5", features = ["derive", "env"] }
+clap_complete = "4.5"
+colored = "3.0"
+dialoguer = "0.12"
+dirs = "6.0"
+eth-keystore = "0.5"
+futures = "0.3"
+hex = "0.4"
+mpay = { git = "https://github.com/tempoxyz/mpay-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client"] }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rpassword = "7.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-toml = "0.9"
-thiserror = "2.0"
-anyhow = "1.0"
-mpay = { git = "https://github.com/tempoxyz/mpay-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client"] }
-tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
-async-trait = "0.1"
-futures = "0.3"
-bs58 = "0.5"
-hex = "0.4"
-base64 = "0.22"
-rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-tracing = "0.1"
-zeroize = { version = "1.8", features = ["derive"] }
-rpassword = "7.4"
-dirs = "6.0"
-eth-keystore = "0.5"
-alloy = { version = "1.2", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
 tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "07dfcd2d2b8c109d6b8502515c7db00198a8b3a3", features = ["serde"] }
-clap = { version = "4.5", features = ["derive", "env"] }
-clap_complete = "4.5"
-dialoguer = "0.12"
-colored = "3.0"
+thiserror = "2.0"
+tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
+toml = "0.9"
+tower-http = { version = "0.6", features = ["limit"] }
+tracing = "0.1"
+url = "2.5"
+webbrowser = "1"
+zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
 assert_cmd = "2.1"

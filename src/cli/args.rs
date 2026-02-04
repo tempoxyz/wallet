@@ -209,7 +209,7 @@ pub struct Cli {
         long = "keystore",
         value_name = "PATH",
         env = "PGET_KEYSTORE",
-        help_heading = "Wallet Options"
+        help_heading = "Advanced Wallet Options"
     )]
     pub keystore: Option<String>,
 
@@ -219,7 +219,7 @@ pub struct Cli {
         long = "account",
         value_name = "NAME",
         env = "PGET_ACCOUNT",
-        help_heading = "Wallet Options"
+        help_heading = "Advanced Wallet Options"
     )]
     pub account: Option<String>,
 
@@ -228,7 +228,7 @@ pub struct Cli {
         long = "from",
         value_name = "ADDRESS",
         env = "PGET_FROM",
-        help_heading = "Wallet Options"
+        help_heading = "Advanced Wallet Options"
     )]
     pub from: Option<String>,
 
@@ -237,7 +237,7 @@ pub struct Cli {
         long = "password",
         value_name = "PASSWORD",
         env = "PGET_PASSWORD",
-        help_heading = "Wallet Options"
+        help_heading = "Advanced Wallet Options"
     )]
     pub password: Option<String>,
 
@@ -246,7 +246,7 @@ pub struct Cli {
         long = "password-file",
         value_name = "PATH",
         env = "PGET_PASSWORD_FILE",
-        help_heading = "Wallet Options"
+        help_heading = "Advanced Wallet Options"
     )]
     pub password_file: Option<String>,
 
@@ -255,7 +255,7 @@ pub struct Cli {
         long = "no-cache",
         visible_alias = "no-cache-password",
         global = true,
-        help_heading = "Wallet Options"
+        help_heading = "Advanced Wallet Options"
     )]
     pub no_cache_password: bool,
 
@@ -264,7 +264,7 @@ pub struct Cli {
         long = "private-key",
         value_name = "KEY",
         env = "PGET_PRIVATE_KEY",
-        help_heading = "Wallet Options",
+        help_heading = "Advanced Wallet Options",
         hide_env_values = true
     )]
     pub private_key: Option<String>,
@@ -276,7 +276,7 @@ pub struct Cli {
         long = "wallet",
         value_name = "ADDRESS",
         env = "PGET_WALLET_ADDRESS",
-        help_heading = "Wallet Options"
+        help_heading = "Advanced Wallet Options"
     )]
     pub wallet_address: Option<String>,
 
@@ -304,6 +304,9 @@ pub enum Commands {
         /// Skip installing AI tool integrations
         #[arg(long)]
         skip_ai: bool,
+        /// Use local keystore instead of Tempo wallet
+        #[arg(long)]
+        keystore: bool,
     },
     /// Manage configuration
     #[command(alias = "c")]
@@ -355,6 +358,90 @@ pub enum Commands {
     Inspect {
         /// URL to inspect
         url: String,
+    },
+    /// Tempo wallet management (passkey authentication)
+    #[command(alias = "w")]
+    #[command(args_conflicts_with_subcommands = true)]
+    Wallet {
+        #[command(subcommand)]
+        command: Option<WalletCommands>,
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
+    },
+    /// Manage access keys for Tempo wallet
+    #[command(alias = "k")]
+    #[command(args_conflicts_with_subcommands = true)]
+    Keys {
+        #[command(subcommand)]
+        command: Option<KeysCommands>,
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
+    },
+    /// List available payment services
+    #[command(alias = "svc")]
+    #[command(args_conflicts_with_subcommands = true)]
+    Services {
+        #[command(subcommand)]
+        command: Option<ServicesCommands>,
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
+        /// Force refresh from server
+        #[arg(short = 'r', long)]
+        refresh: bool,
+    },
+    /// Show wallet status (for AI agents)
+    Status {
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WalletCommands {
+    /// Connect a wallet via browser authentication
+    Connect,
+    /// Disconnect the current wallet
+    Disconnect {
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    /// Refresh the access key
+    Refresh,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum KeysCommands {
+    /// List all access keys
+    List,
+    /// Switch to a different access key
+    Switch {
+        /// Key index to switch to
+        index: usize,
+    },
+    /// Delete an access key
+    Delete {
+        /// Key index to delete
+        index: usize,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ServicesCommands {
+    /// List all available services
+    List {
+        /// Force refresh from server
+        #[arg(short = 'r', long)]
+        refresh: bool,
+    },
+    /// Show detailed info for a service
+    Info {
+        /// Service name or alias
+        name: String,
     },
 }
 

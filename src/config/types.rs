@@ -131,8 +131,7 @@ impl WalletConfig for EvmConfig {
             Ok(())
         } else {
             Err(PgetError::ConfigMissing(
-                "No EVM wallet configured. Run 'pget init' to configure a wallet, \
-                 or add 'keystore' to your config."
+                "No wallet configured. Run 'pget wallet connect' to connect your Tempo wallet."
                     .to_string(),
             ))
         }
@@ -264,6 +263,11 @@ impl Config {
     /// Get the default config file path (~/.pget/config.toml)
     pub fn default_config_path() -> Result<PathBuf> {
         crate::util::constants::default_config_path().ok_or(PgetError::NoConfigDir)
+    }
+
+    /// Get the default config directory (~/.config/pget/)
+    pub fn default_config_dir() -> Result<PathBuf> {
+        crate::util::constants::pget_config_dir().ok_or(PgetError::NoConfigDir)
     }
 
     /// Save config to the default location with validation
@@ -590,7 +594,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("No EVM wallet configured"));
+            .contains("No wallet configured"));
     }
 
     #[test]

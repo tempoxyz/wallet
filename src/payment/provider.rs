@@ -8,6 +8,7 @@ use crate::error::{PgetError, Result};
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{SwapInfo, BPS_DENOMINATOR, SWAP_SLIPPAGE_BPS};
+use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::sol;
@@ -115,7 +116,6 @@ impl PgetPaymentProvider {
         use crate::payment::providers::tempo::{
             create_tempo_payment, create_tempo_payment_with_swap,
         };
-        use crate::wallet::signer::WalletSource;
 
         // Parse the charge request to get required token and amount.
         // Note: We use MppError::Http for parse errors since mpay doesn't expose a dedicated
@@ -132,22 +132,18 @@ impl PgetPaymentProvider {
             .amount_u256()
             .map_err(|e| mpay::MppError::Http(format!("Invalid amount: {}", e)))?;
 
-        let evm_config = self
-            .config
-            .require_evm()
-            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
-        let signer = evm_config
-            .load_signer(None)
+        // Load signer with priority: Tempo wallet → Keystore/PrivateKey
+        let signer_ctx = load_signer_with_priority(self.config.evm.as_ref())
             .map_err(|e| mpay::MppError::Http(e.to_string()))?;
 
-        let wallet_address = evm_config
+        let wallet_address = signer_ctx
             .wallet_address
             .as_ref()
             .map(|addr| Address::from_str(addr))
             .transpose()
             .map_err(|e| mpay::MppError::Http(format!("Invalid wallet address: {}", e)))?;
 
-        let from = wallet_address.unwrap_or_else(|| signer.address());
+        let from = wallet_address.unwrap_or_else(|| signer_ctx.signer.address());
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
             mpay::MppError::UnsupportedPaymentMethod(format!(

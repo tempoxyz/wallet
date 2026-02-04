@@ -111,18 +111,27 @@ All keystores use Ethereum keystore v3 format for encrypted storage.
 
 ### Initial Setup
 
-Run `pget init` for interactive setup:
+Run `pget init` to connect your wallet:
 
 ```bash
-pget init              # Create configuration and generate/import wallets
-pget init --force      # Force overwrite existing configuration
+pget init              # Opens browser to connect your Tempo wallet
+pget init --force      # Force reconnect even if wallet already connected
 ```
 
-The setup process will:
+This opens your browser to authenticate with your Tempo wallet using passkeys.
 
-1. Ask if you want to configure EVM payment methods
+### Advanced: Local Keystores
+
+For CI/automation or if you prefer local key management:
+
+```bash
+pget init --keystore   # Generate or import a local private key
+```
+
+The keystore flow will:
+
 1. Offer to generate a new private key or import an existing one
-1. Encrypt your key with a password and save as a keystore
+2. Encrypt your key with a password and save as a keystore
 
 ### Configuration File Format
 

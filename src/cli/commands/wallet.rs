@@ -38,7 +38,9 @@ pub fn list_command() -> Result<()> {
 
     if keystores.is_empty() {
         println!("No keystores found.");
-        println!("Create one with: pget method new");
+        println!(
+            "Use 'pget wallet connect' for Tempo wallet, or 'pget method new' for local keystores."
+        );
         return Ok(());
     }
 
