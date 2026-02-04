@@ -4,18 +4,10 @@ use crate::cli::util::{format_expiry, now_secs};
 use crate::cli::OutputFormat;
 use crate::error::{PgetError, Result};
 use crate::network::get_network;
+use crate::util::constants::{BALANCE_OF_SELECTOR, BUILTIN_TOKENS};
 use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::WalletManager;
 use serde::Serialize;
-
-const TOKENS: &[(&str, &str)] = &[
-    ("pathUSD", "0x20c0000000000000000000000000000000000000"),
-    ("AlphaUSD", "0x20c0000000000000000000000000000000000001"),
-    ("BetaUSD", "0x20c0000000000000000000000000000000000002"),
-    ("ThetaUSD", "0x20c0000000000000000000000000000000000003"),
-];
-
-const BALANCE_OF_SELECTOR: &str = "0x70a08231";
 
 #[derive(Debug, Serialize)]
 struct AccessKeyInfo {
@@ -194,11 +186,11 @@ async fn query_all_balances(network: &str, account_address: &str) -> Vec<TokenBa
     let client = reqwest::Client::new();
     let mut balances = Vec::new();
 
-    for (symbol, token_address) in TOKENS {
+    for token in BUILTIN_TOKENS {
         let balance = query_balance(
             &client,
             &network_info.rpc_url,
-            token_address,
+            token.address,
             account_address,
         )
         .await
@@ -208,7 +200,7 @@ async fn query_all_balances(network: &str, account_address: &str) -> Vec<TokenBa
         let frac = balance % 10u128.pow(6);
 
         balances.push(TokenBalance {
-            token: symbol.to_string(),
+            token: token.symbol.to_string(),
             balance: format!("{}.{:06}", whole, frac),
             balance_raw: balance,
         });

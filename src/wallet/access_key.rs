@@ -88,7 +88,6 @@ impl AccessKey {
     }
 
     /// Check if this access key has expired.
-    #[allow(dead_code)]
     pub fn is_expired(&self) -> bool {
         if self.expiry == 0 {
             return false;
@@ -103,7 +102,6 @@ impl AccessKey {
     }
 
     /// Get an alloy `PrivateKeySigner` for this access key.
-    #[allow(dead_code)]
     pub fn signer(&self) -> Result<PrivateKeySigner> {
         let bytes = self
             .parse_private_key_bytes()
