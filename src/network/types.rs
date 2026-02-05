@@ -82,7 +82,7 @@ pub struct GasConfig {
 impl GasConfig {
     /// Default gas configuration for Tempo networks.
     pub const DEFAULT: Self = Self {
-        gas_limit: 100_000,
+        gas_limit: 300_000,
         max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
         max_fee_per_gas: 20_000_000_000,         // 20 gwei
     };
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_gas_config() {
         let gas = Network::Tempo.gas_config();
-        assert_eq!(gas.gas_limit, 100_000);
+        assert_eq!(gas.gas_limit, 300_000);
         assert_eq!(gas.max_priority_fee_per_gas, 1_000_000_000);
         assert_eq!(gas.max_fee_per_gas, 20_000_000_000);
     }

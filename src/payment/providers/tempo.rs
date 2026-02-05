@@ -534,8 +534,8 @@ mod tests {
     fn test_swap_gas_limit_constant() {
         // Verify gas limit is 300,000 for swap transactions
         assert_eq!(SWAP_GAS_LIMIT, 300_000);
-        // Should be higher than default gas limit
-        assert!(SWAP_GAS_LIMIT > GasConfig::DEFAULT.gas_limit);
+        // Should be at least the default gas limit
+        assert!(SWAP_GAS_LIMIT >= GasConfig::DEFAULT.gas_limit);
     }
 
     #[test]
