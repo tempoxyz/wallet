@@ -21,6 +21,12 @@ async fn run_wallet_init(skip_ai: bool) -> Result<()> {
     let manager = WalletManager::new(None);
     manager.setup_wallet().await?;
 
+    let config_path = Config::default_config_path()?;
+    if !config_path.exists() {
+        let config = Config::default();
+        config.save().context("Failed to save configuration")?;
+    }
+
     println!("\nTempo wallet connected! You can now make HTTP payments.");
 
     if !skip_ai {
