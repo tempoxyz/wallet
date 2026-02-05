@@ -1,13 +1,45 @@
-use crate::config::{Config, EvmConfig};
-use crate::wallet::keystore::create_keystore;
+use crate::config::Config;
+use crate::wallet::WalletManager;
 use anyhow::{Context, Result};
-use dialoguer::{Confirm, Input, Password};
 use std::path::PathBuf;
 
 const PGET_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/pget/SKILL.md");
 
+/// Run init - default is Tempo wallet connect, --keystore for local keystores
+pub async fn run_init(force: bool, skip_ai: bool, use_keystore: bool) -> Result<()> {
+    if use_keystore {
+        run_keystore_init(force, skip_ai)
+    } else {
+        run_wallet_init(skip_ai).await
+    }
+}
+
+/// Tempo wallet flow - opens browser for passkey auth
+async fn run_wallet_init(skip_ai: bool) -> Result<()> {
+    println!("Connecting your Tempo wallet...");
+
+    let manager = WalletManager::new(None);
+    manager.setup_wallet().await?;
+
+    println!("\nTempo wallet connected! You can now make HTTP payments.");
+
+    if !skip_ai {
+        match install_ai_integrations() {
+            Ok(path) => println!("AI integrations installed to: {}", path.display()),
+            Err(e) => eprintln!("Warning: Failed to install AI integrations: {e}"),
+        }
+    }
+
+    Ok(())
+}
+
+/// Local keystore flow - generates or imports private key
 #[allow(deprecated)]
-pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
+fn run_keystore_init(force: bool, skip_ai: bool) -> Result<()> {
+    use crate::config::EvmConfig;
+    use crate::wallet::keystore::create_keystore;
+    use dialoguer::{Confirm, Input, Password};
+
     let config_path = Config::default_config_path()?;
 
     if config_path.exists() && !force {
@@ -25,63 +57,52 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
         }
     }
 
-    println!("Initializing pget configuration...");
-    println!("Wallets will be stored as encrypted keystore files");
+    println!("Initializing pget with local keystore...");
 
-    let configure_evm = Confirm::new()
-        .with_prompt("Configure EVM payment method?")
+    println!("=== EVM Wallet Setup ===");
+
+    let generate = Confirm::new()
+        .with_prompt("Generate a new EVM private key?")
         .default(true)
         .interact()?;
 
-    let evm = if configure_evm {
-        println!("=== EVM Wallet Setup ===");
-
-        let generate = Confirm::new()
-            .with_prompt("Generate a new EVM private key?")
-            .default(true)
-            .interact()?;
-
-        let private_key: String = if generate {
-            // Generate a new random private key
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-            let key_bytes: [u8; 32] = rng.gen();
-            let key_hex = hex::encode(key_bytes);
-            println!("Generated new EVM private key: 0x{key_hex}");
-            println!("Save this private key securely! You'll need it to recover your wallet.");
-            key_hex
-        } else {
-            Input::new()
-                .with_prompt("Enter EVM private key (hex, with or without 0x prefix)")
-                .interact_text()?
-        };
-
-        let password = Password::new()
-            .with_prompt("Enter password to encrypt the keystore")
-            .with_confirmation("Confirm password", "Passwords do not match")
-            .interact()?;
-
-        let wallet_name: String = Input::new()
-            .with_prompt("Wallet name")
-            .default(crate::util::constants::DEFAULT_EVM_KEYSTORE_NAME.to_string())
-            .interact_text()?;
-
-        let keystore_path = create_keystore(&private_key, &password, &wallet_name)
-            .context("Failed to create EVM keystore")?;
-
-        println!("EVM keystore created at: {}", keystore_path.display());
-
-        Some(EvmConfig {
-            keystore: Some(keystore_path),
-            private_key: None,
-            wallet_address: None,
-        })
+    let private_key: String = if generate {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let key_bytes: [u8; 32] = rng.gen();
+        let key_hex = hex::encode(key_bytes);
+        println!("Generated new EVM private key: 0x{key_hex}");
+        println!("Save this private key securely! You'll need it to recover your wallet.");
+        key_hex
     } else {
-        None
+        Input::new()
+            .with_prompt("Enter EVM private key (hex, with or without 0x prefix)")
+            .interact_text()?
+    };
+
+    let password = Password::new()
+        .with_prompt("Enter password to encrypt the keystore")
+        .with_confirmation("Confirm password", "Passwords do not match")
+        .interact()?;
+
+    let wallet_name: String = Input::new()
+        .with_prompt("Wallet name")
+        .default(crate::util::constants::DEFAULT_EVM_KEYSTORE_NAME.to_string())
+        .interact_text()?;
+
+    let keystore_path = create_keystore(&private_key, &password, &wallet_name)
+        .context("Failed to create EVM keystore")?;
+
+    println!("EVM keystore created at: {}", keystore_path.display());
+
+    let evm = EvmConfig {
+        keystore: Some(keystore_path),
+        private_key: None,
+        wallet_address: None,
     };
 
     let config = Config {
-        evm,
+        evm: Some(evm),
         tempo_rpc: None,
         moderato_rpc: None,
         rpc: Default::default(),
@@ -89,7 +110,6 @@ pub fn run_init(force: bool, skip_ai: bool) -> Result<()> {
     };
 
     config.save().context("Failed to save configuration")?;
-
     println!("Configuration saved to: {}", config_path.display());
 
     if !skip_ai {

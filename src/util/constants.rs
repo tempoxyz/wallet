@@ -66,6 +66,38 @@ pub fn default_keystores_dir() -> Option<PathBuf> {
     pget_data_dir().map(|p| p.join(KEYSTORES_DIR))
 }
 
+/// ERC-20 balanceOf function selector
+pub const BALANCE_OF_SELECTOR: &str = "0x70a08231";
+
+/// A built-in stablecoin token with name and address
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinToken {
+    /// Token symbol (e.g., "pathUSD")
+    pub symbol: &'static str,
+    /// Token contract address
+    pub address: &'static str,
+}
+
+/// Built-in stablecoin tokens on Tempo
+pub const BUILTIN_TOKENS: &[BuiltinToken] = &[
+    BuiltinToken {
+        symbol: "pathUSD",
+        address: "0x20c0000000000000000000000000000000000000",
+    },
+    BuiltinToken {
+        symbol: "AlphaUSD",
+        address: "0x20c0000000000000000000000000000000000001",
+    },
+    BuiltinToken {
+        symbol: "BetaUSD",
+        address: "0x20c0000000000000000000000000000000000002",
+    },
+    BuiltinToken {
+        symbol: "ThetaUSD",
+        address: "0x20c0000000000000000000000000000000000003",
+    },
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
