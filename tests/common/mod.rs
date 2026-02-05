@@ -9,7 +9,6 @@ use tempfile::TempDir;
 /// Builder for creating test configurations
 pub struct TestConfigBuilder {
     temp_dir: TempDir,
-    evm_keystore_name: Option<String>,
 }
 
 impl TestConfigBuilder {
@@ -17,24 +16,11 @@ impl TestConfigBuilder {
     pub fn new() -> Self {
         Self {
             temp_dir: TempDir::new().expect("Failed to create temp directory"),
-            evm_keystore_name: None,
         }
-    }
-
-    /// Add an EVM keystore (will be created as a dummy file)
-    pub fn with_evm_keystore(mut self, name: &str) -> Self {
-        self.evm_keystore_name = Some(name.to_string());
-        self
-    }
-
-    /// Add default EVM keystore
-    pub fn with_default_evm(self) -> Self {
-        self.with_evm_keystore("default")
     }
 
     /// Build the test configuration
     pub fn build(self) -> TempDir {
-        // Use platform-specific paths (macOS: Library/Application Support, Linux: .config)
         #[cfg(target_os = "macos")]
         let config_dir = self
             .temp_dir
@@ -43,120 +29,15 @@ impl TestConfigBuilder {
         #[cfg(not(target_os = "macos"))]
         let config_dir = self.temp_dir.path().join(".config/pget");
 
-        #[cfg(target_os = "macos")]
-        let data_dir = self
-            .temp_dir
-            .path()
-            .join("Library/Application Support/pget");
-        #[cfg(not(target_os = "macos"))]
-        let data_dir = self.temp_dir.path().join(".local/share/pget");
-
         fs::create_dir_all(&config_dir).expect("Failed to create config directory");
-        fs::create_dir_all(&data_dir).expect("Failed to create data directory");
-
-        let mut config = String::new();
-
-        // Add EVM config with keystore
-        if let Some(name) = &self.evm_keystore_name {
-            let keystore_path = data_dir.join("keystores").join(format!("{name}.json"));
-            fs::create_dir_all(keystore_path.parent().unwrap()).ok();
-            // Create a minimal valid keystore file (the CLI won't actually decrypt it in most tests)
-            // This is a real keystore format with a known test address
-            let dummy_keystore = r#"{"address":"d8da6bf26964af9d7eed9e03e53415d37aa96045","crypto":{"cipher":"aes-128-ctr","cipherparams":{"iv":"0000000000000000"},"ciphertext":"0000000000000000000000000000000000000000000000000000000000000000","kdf":"scrypt","kdfparams":{"dklen":32,"n":2,"p":1,"r":8,"salt":"0000000000000000"},"mac":"0000000000000000000000000000000000000000000000000000000000000000"},"id":"00000000-0000-0000-0000-000000000000","version":3}"#;
-            fs::write(&keystore_path, dummy_keystore).ok();
-
-            config.push_str("[evm]\n");
-            config.push_str(&format!("keystore = \"{}\"\n", keystore_path.display()));
-            config.push('\n');
-        }
-
-        fs::write(config_dir.join("config.toml"), config).expect("Failed to write config");
+        fs::write(config_dir.join("config.toml"), "").expect("Failed to write config");
         self.temp_dir
     }
 }
 
-/// Set up a test configuration with optional EVM key (backward compatibility)
-/// Now creates a keystore file instead of using private_key
-pub fn setup_test_config(evm_key: Option<&str>, _unused: Option<&str>) -> TempDir {
-    let mut builder = TestConfigBuilder::new();
-
-    if evm_key.is_some() {
-        // We ignore the actual key value and just create a dummy keystore
-        builder = builder.with_evm_keystore("default");
-    }
-
-    builder.build()
-}
-
-/// Common test EVM private key (DO NOT use in production)
-pub const TEST_EVM_KEY: &str = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-
-/// Get the keystores directory path for a test temp directory
-pub fn get_test_keystores_dir(temp_dir: &TempDir) -> std::path::PathBuf {
-    #[cfg(target_os = "macos")]
-    let path = temp_dir
-        .path()
-        .join("Library/Application Support/pget/keystores");
-    #[cfg(not(target_os = "macos"))]
-    let path = temp_dir.path().join(".local/share/pget/keystores");
-    path
-}
-
-/// Create a real encrypted keystore file for testing
-///
-/// This creates the keystore directly using eth_keystore rather than invoking
-/// the CLI, which avoids issues with interactive password prompts in tests.
-pub fn create_test_keystore(
-    temp_dir: &TempDir,
-    name: &str,
-    private_key: &str,
-    password: &str,
-) -> std::path::PathBuf {
-    use alloy::signers::local::PrivateKeySigner;
-
-    // Use platform-specific paths
-    #[cfg(target_os = "macos")]
-    let keystores_dir = temp_dir
-        .path()
-        .join("Library/Application Support/pget/keystores");
-    #[cfg(not(target_os = "macos"))]
-    let keystores_dir = temp_dir.path().join(".local/share/pget/keystores");
-
-    std::fs::create_dir_all(&keystores_dir).expect("Failed to create keystores directory");
-
-    // Strip 0x prefix if present
-    let key_hex = private_key.strip_prefix("0x").unwrap_or(private_key);
-    let key_bytes = hex::decode(key_hex).expect("Invalid private key hex");
-
-    // Derive the address from the private key
-    let signer = PrivateKeySigner::from_slice(&key_bytes).expect("Invalid private key");
-    let address_no_prefix = format!("{:x}", signer.address());
-
-    // Create the keystore file using eth_keystore with the expected filename format
-    let filename_with_ext = format!("{}.json", name);
-    let keystore_path = keystores_dir.join(&filename_with_ext);
-
-    let mut rng = rand::thread_rng();
-    eth_keystore::encrypt_key(
-        &keystores_dir,
-        &mut rng,
-        &key_bytes,
-        password,
-        Some(&filename_with_ext),
-    )
-    .expect("Failed to create keystore");
-
-    // Read the keystore and add the address field (pget expects this)
-    let keystore_content =
-        std::fs::read_to_string(&keystore_path).expect("Failed to read keystore");
-    let mut keystore_json: serde_json::Value =
-        serde_json::from_str(&keystore_content).expect("Failed to parse keystore");
-    keystore_json["address"] = serde_json::Value::String(address_no_prefix);
-    let updated_keystore =
-        serde_json::to_string_pretty(&keystore_json).expect("Failed to serialize keystore");
-    std::fs::write(&keystore_path, updated_keystore).expect("Failed to write keystore");
-
-    keystore_path
+/// Set up a test configuration
+pub fn setup_test_config() -> TempDir {
+    TestConfigBuilder::new().build()
 }
 
 /// Create a test command with proper environment variables set

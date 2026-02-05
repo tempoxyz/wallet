@@ -1,11 +1,11 @@
 //! Balance command for checking token wallet balances on configured networks
 
-use crate::config::{Config, WalletConfig};
+use crate::config::Config;
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::provider::{get_balances, NetworkBalance};
 use alloy::primitives::U256;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
@@ -42,35 +42,30 @@ pub async fn balance_command(
     address: Option<String>,
     network_filter: Option<String>,
 ) -> Result<()> {
-    let available_methods = config.available_payment_methods();
-
-    if available_methods.is_empty() {
-        anyhow::bail!("No payment methods configured. Run 'pget init' to configure.");
-    }
+    let check_address = match address.as_deref() {
+        Some(addr) => addr.to_string(),
+        None => {
+            let creds = crate::wallet::credentials::WalletCredentials::load()?;
+            creds
+                .active_wallet()
+                .map(|w| w.account_address.clone())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No wallet connected. Run 'pget init' to connect.")
+                })?
+        }
+    };
 
     let mock_mode = is_mock_mode();
     let mut balances = Vec::new();
+    let networks = Network::by_name_filter(network_filter.as_deref());
 
-    for _ in available_methods {
-        // All payment methods use Tempo networks
-        let networks = Network::by_name_filter(network_filter.as_deref());
-
-        for network in networks {
-            let check_address = match address.as_deref() {
-                Some(addr) => addr.to_string(),
-                None => config
-                    .require_evm()
-                    .and_then(|evm| evm.get_address())
-                    .context("Failed to get wallet address")?,
-            };
-
-            if mock_mode {
-                balances.extend(mock_balances(network, &check_address));
-            } else {
-                match get_balances(config, &check_address, network).await {
-                    Ok(network_balances) => balances.extend(network_balances),
-                    Err(e) => eprintln!("Warning: Failed to get balances for {network}: {e}"),
-                }
+    for network in networks {
+        if mock_mode {
+            balances.extend(mock_balances(network, &check_address));
+        } else {
+            match get_balances(config, &check_address, network).await {
+                Ok(network_balances) => balances.extend(network_balances),
+                Err(e) => eprintln!("Warning: Failed to get balances for {network}: {e}"),
             }
         }
     }

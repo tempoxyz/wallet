@@ -6,11 +6,10 @@
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
-use serial_test::serial;
 use std::process::Command;
 
 mod common;
-use common::{setup_test_config, test_command, TEST_EVM_KEY as VALID_EVM_KEY};
+use common::{setup_test_config, test_command};
 
 #[test]
 fn test_completions_bash() {
@@ -61,7 +60,7 @@ fn test_completions_alias() {
 #[test]
 fn test_init_alias() {
     // Note: init fails without --force when config exists, but the alias should work
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .arg("i")
@@ -73,13 +72,9 @@ fn test_init_alias() {
 
 #[test]
 fn test_config_alias() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
-    test_command(&temp)
-        .arg("c")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[evm]"));
+    test_command(&temp).arg("c").assert().success();
 }
 
 #[test]
@@ -92,15 +87,8 @@ fn test_version_alias() {
 }
 
 #[test]
-fn test_method_alias() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
-
-    test_command(&temp).args(["m", "list"]).assert().success();
-}
-
-#[test]
 fn test_quiet_flag() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "-q"])
@@ -110,7 +98,7 @@ fn test_quiet_flag() {
 
 #[test]
 fn test_quiet_alias_short() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "-s"])
@@ -120,7 +108,7 @@ fn test_quiet_alias_short() {
 
 #[test]
 fn test_quiet_alias_long() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "--silent"])
@@ -130,7 +118,7 @@ fn test_quiet_alias_long() {
 
 #[test]
 fn test_verbosity_single() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "-v"])
@@ -140,7 +128,7 @@ fn test_verbosity_single() {
 
 #[test]
 fn test_verbosity_multiple() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "-vv"])
@@ -150,7 +138,7 @@ fn test_verbosity_multiple() {
 
 #[test]
 fn test_verbosity_long_form() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "--verbosity"])
@@ -160,7 +148,7 @@ fn test_verbosity_long_form() {
 
 #[test]
 fn test_color_auto() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "--color", "auto"])
@@ -170,7 +158,7 @@ fn test_color_auto() {
 
 #[test]
 fn test_color_always() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "--color", "always"])
@@ -180,7 +168,7 @@ fn test_color_always() {
 
 #[test]
 fn test_color_never() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "--color", "never"])
@@ -234,15 +222,6 @@ fn test_insecure_flag_short() {
 }
 
 #[test]
-fn test_help_has_wallet_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Wallet Options:"));
-}
-
-#[test]
 fn test_help_shows_env_vars() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
         .arg("--help")
@@ -284,7 +263,7 @@ fn test_help_shows_possible_values() {
 
 #[test]
 fn test_alias_with_display_options() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["c", "-q", "--color", "never"])
@@ -299,46 +278,6 @@ fn test_completions_alias_with_verbosity() {
         .assert()
         .success()
         .stdout(predicate::str::contains("_pget"));
-}
-
-#[test]
-fn test_method_show_nonexistent() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
-
-    test_command(&temp)
-        .args(["method", "show", "nonexistent"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("not found"));
-}
-
-#[test]
-#[serial]
-fn test_method_show_existing_keystore() {
-    let temp = tempfile::TempDir::new().unwrap();
-
-    // Create a real keystore
-    let _keystore_path =
-        common::create_test_keystore(&temp, "test-wallet", VALID_EVM_KEY, "test-password");
-
-    test_command(&temp)
-        .args(["method", "show", "test-wallet"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Keystore Details:"))
-        .stdout(predicate::str::contains("Name: test-wallet"))
-        .stdout(predicate::str::contains("Address:"));
-}
-
-#[test]
-fn test_method_verify_nonexistent() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
-
-    test_command(&temp)
-        .args(["method", "verify", "nonexistent"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("not found"));
 }
 
 #[test]
@@ -494,7 +433,7 @@ fn test_inspect_missing_url() {
 
 #[test]
 fn test_inspect_with_output_format_json() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     // This will fail because we don't have a real 402 endpoint, but we can verify the args parse
     test_command(&temp)
@@ -505,7 +444,7 @@ fn test_inspect_with_output_format_json() {
 
 #[test]
 fn test_inspect_with_output_format_yaml() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["inspect", "https://example.com", "--output-format", "yaml"])
@@ -515,7 +454,7 @@ fn test_inspect_with_output_format_yaml() {
 
 #[test]
 fn test_inspect_with_verbose() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["inspect", "https://example.com", "-v"])
@@ -525,7 +464,7 @@ fn test_inspect_with_verbose() {
 
 #[test]
 fn test_inspect_with_quiet() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["inspect", "https://example.com", "-q"])
@@ -535,7 +474,7 @@ fn test_inspect_with_quiet() {
 
 #[test]
 fn test_inspect_alias() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["inspect", "https://example.com"])
@@ -545,7 +484,7 @@ fn test_inspect_alias() {
 
 #[test]
 fn test_inspect_with_network_filter() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["inspect", "https://example.com", "--network", "base"])
@@ -555,7 +494,7 @@ fn test_inspect_with_network_filter() {
 
 #[test]
 fn test_inspect_invalid_url() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["inspect", "not-a-url"])
@@ -565,7 +504,7 @@ fn test_inspect_invalid_url() {
 
 #[test]
 fn test_inspect_with_all_output_formats() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     // Test text format (default)
     test_command(&temp)
@@ -633,7 +572,7 @@ fn test_init_alias_help() {
 
 #[test]
 fn test_multiple_global_flags_together() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     test_command(&temp)
         .args(["config", "-v", "-q", "--color", "never"])
@@ -643,7 +582,7 @@ fn test_multiple_global_flags_together() {
 
 #[test]
 fn test_verbosity_levels() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     // Single -v
     test_command(&temp)
@@ -666,7 +605,7 @@ fn test_verbosity_levels() {
 
 #[test]
 fn test_all_color_modes() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     for color_mode in ["auto", "always", "never"] {
         test_command(&temp)
@@ -678,7 +617,7 @@ fn test_all_color_modes() {
 
 #[test]
 fn test_all_output_formats_with_config() {
-    let temp = setup_test_config(Some(VALID_EVM_KEY), None);
+    let temp = setup_test_config();
 
     for format in ["text", "json", "yaml"] {
         test_command(&temp)
@@ -739,7 +678,6 @@ fn test_main_help_lists_all_commands() {
         .success()
         .stdout(predicate::str::contains("init"))
         .stdout(predicate::str::contains("config"))
-        .stdout(predicate::str::contains("method"))
         .stdout(predicate::str::contains("completions"))
         .stdout(predicate::str::contains("balance"))
         .stdout(predicate::str::contains("networks"))

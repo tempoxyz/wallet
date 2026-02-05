@@ -82,72 +82,24 @@ pub struct CustomNetwork {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct EvmConfig {
-    /// Path to encrypted keystore file
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub keystore: Option<PathBuf>,
-
-    /// Raw private key (runtime only, never serialized)
-    #[serde(skip)]
-    pub private_key: Option<String>,
-
-    /// Wallet address for keychain (access key) signing mode.
-    /// When set, the private key is treated as an access key that signs
-    /// on behalf of this wallet address using keychain signatures (0x03).
-    #[serde(skip)]
-    pub wallet_address: Option<String>,
-}
-
-impl EvmConfig {
-    fn address_from_keystore(path: &Path) -> Result<String> {
-        use crate::wallet::keystore::Keystore;
-
-        let keystore = Keystore::load(path)?;
-        keystore
-            .formatted_address()
-            .ok_or_else(|| PgetError::ConfigMissing("Keystore missing address field".to_string()))
-    }
-}
+pub struct EvmConfig {}
 
 impl WalletConfig for EvmConfig {
     type Address = String;
 
     fn has_wallet(&self) -> bool {
-        self.private_key.is_some() || self.keystore.is_some()
+        false
     }
 
     fn validate(&self) -> Result<()> {
-        if self.private_key.is_some() {
-            return Ok(());
-        }
-        if let Some(keystore_path) = &self.keystore {
-            if !keystore_path.exists() {
-                return Err(PgetError::ConfigMissing(format!(
-                    "EVM keystore file not found: {}. \
-                     Run 'pget method list' to see available keystores or 'pget method new' to create one.",
-                    keystore_path.display()
-                )));
-            }
-            Ok(())
-        } else {
-            Err(PgetError::ConfigMissing(
-                "No wallet configured. Run 'pget wallet connect' to connect your Tempo wallet."
-                    .to_string(),
-            ))
-        }
+        Ok(())
     }
 
     fn get_address(&self) -> Result<String> {
-        if let Some(ref private_key) = self.private_key {
-            use crate::wallet::signer::load_private_key_signer;
-            let signer = load_private_key_signer(private_key)?;
-            return Ok(format!("{:?}", signer.address()));
-        }
-        if let Some(keystore_path) = &self.keystore {
-            Self::address_from_keystore(keystore_path)
-        } else {
-            Err(PgetError::ConfigMissing("No wallet configured".to_string()))
-        }
+        Err(PgetError::ConfigMissing(
+            "No wallet configured. Run 'pget wallet connect' to connect your Tempo wallet."
+                .to_string(),
+        ))
     }
 
     fn chain_name(&self) -> &'static str {
@@ -167,7 +119,6 @@ impl Config {
     /// use pget::Config;
     ///
     /// let config = Config::builder()
-    ///     .evm_keystore("/path/to/keystore.json")
     ///     .rpc_override("tempo", "https://my-rpc.com")
     ///     .build();
     /// ```
@@ -271,6 +222,7 @@ impl Config {
     }
 
     /// Save config to the default location with validation
+    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         self.validate()?;
 
@@ -295,10 +247,7 @@ impl Config {
         methods
     }
 
-    /// Validate the configuration by checking all configured wallet sources.
-    ///
-    /// This validates that:
-    /// - Configured wallets have valid keystore paths
+    /// Validate the configuration.
     pub fn validate(&self) -> Result<()> {
         if let Some(evm) = &self.evm {
             evm.validate()
@@ -419,7 +368,6 @@ impl fmt::Display for PaymentMethod {
 /// use pget::ConfigBuilder;
 ///
 /// let config = ConfigBuilder::new()
-///     .evm_keystore("/path/to/keystore.json")
 ///     .tempo_rpc("https://my-custom-rpc.com")
 ///     .rpc_override("my-network", "https://my-rpc.com")
 ///     .build();
@@ -427,7 +375,6 @@ impl fmt::Display for PaymentMethod {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct ConfigBuilder {
-    evm_keystore: Option<PathBuf>,
     tempo_rpc: Option<String>,
     moderato_rpc: Option<String>,
     rpc_overrides: HashMap<String, String>,
@@ -439,14 +386,6 @@ impl ConfigBuilder {
     #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Set the path to an EVM keystore file.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn evm_keystore(mut self, path: impl Into<PathBuf>) -> Self {
-        self.evm_keystore = Some(path.into());
-        self
     }
 
     /// Set the RPC URL for Tempo mainnet.
@@ -492,18 +431,8 @@ impl ConfigBuilder {
     /// resulting Config may not pass validation if no wallet is configured.
     #[allow(dead_code)]
     pub fn build(self) -> Config {
-        let evm = if self.evm_keystore.is_some() {
-            Some(EvmConfig {
-                keystore: self.evm_keystore,
-                private_key: None,
-                wallet_address: None,
-            })
-        } else {
-            None
-        };
-
         Config {
-            evm,
+            evm: None,
             tempo_rpc: self.tempo_rpc,
             moderato_rpc: self.moderato_rpc,
             rpc: self.rpc_overrides,
@@ -518,9 +447,7 @@ impl ConfigBuilder {
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - No keystore is set
-    /// - The keystore path doesn't exist
+    /// Returns an error if the configuration is invalid.
     #[allow(dead_code)]
     pub fn build_validated(self) -> Result<Config> {
         let config = self.build();
@@ -534,36 +461,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_config_with_keystores() {
+    fn test_parse_empty_evm_config() {
         let toml = r#"
             [evm]
-            keystore = "/path/to/evm.json"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse");
         assert!(config.evm.is_some());
-        let evm = config.evm.as_ref().expect("EVM config should be present");
-        assert_eq!(
-            evm.keystore
-                .as_ref()
-                .expect("Keystore should be present")
-                .to_str()
-                .expect("Path should be valid UTF-8"),
-            "/path/to/evm.json"
-        );
     }
 
     #[test]
     fn test_available_payment_methods() {
-        use tempfile::NamedTempFile;
-        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
-
         let config = Config {
-            evm: Some(EvmConfig {
-                keystore: Some(temp_file.path().to_path_buf()),
-                private_key: None,
-                wallet_address: None,
-            }),
+            evm: Some(EvmConfig {}),
             ..Default::default()
         };
         let methods = config.available_payment_methods();
@@ -579,41 +489,14 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_no_wallet_source_evm() {
+    fn test_validate_empty_evm_config() {
         let config = Config {
-            evm: Some(EvmConfig {
-                keystore: None,
-                private_key: None,
-                wallet_address: None,
-            }),
+            evm: Some(EvmConfig {}),
             ..Default::default()
         };
 
         let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No wallet configured"));
-    }
-
-    #[test]
-    fn test_validate_missing_keystore_file_evm() {
-        let config = Config {
-            evm: Some(EvmConfig {
-                keystore: Some(PathBuf::from("/nonexistent/keystore.json")),
-                private_key: None,
-                wallet_address: None,
-            }),
-            ..Default::default()
-        };
-
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("keystore file not found"));
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -682,23 +565,20 @@ mod tests {
     }
 
     #[test]
-    fn test_load_unchecked_with_invalid_config() {
+    fn test_load_unchecked_with_empty_evm_config() {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        // Write a config with no wallet sources (invalid but parseable)
         temp_file
             .write_all(b"[evm]\n")
             .expect("Failed to write to temp file");
         temp_file.flush().expect("Failed to flush temp file");
 
         let result = Config::load_unchecked(Some(temp_file.path()));
-        // Should succeed because we're not validating
         assert!(result.is_ok());
         let config = result.expect("Config should load without validation");
-        // But validation should fail
-        assert!(config.validate().is_err());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -718,28 +598,13 @@ mod tests {
 
     #[test]
     fn test_evm_config_has_wallet() {
-        let config = EvmConfig {
-            keystore: Some(PathBuf::from("/test/path")),
-            private_key: None,
-            wallet_address: None,
-        };
-        assert!(config.has_wallet());
-
-        let config = EvmConfig {
-            keystore: None,
-            private_key: None,
-            wallet_address: None,
-        };
+        let config = EvmConfig {};
         assert!(!config.has_wallet());
     }
 
     #[test]
     fn test_evm_config_get_address_no_wallet() {
-        let config = EvmConfig {
-            keystore: None,
-            private_key: None,
-            wallet_address: None,
-        };
+        let config = EvmConfig {};
 
         let result = config.get_address();
         assert!(result.is_err());
@@ -754,9 +619,6 @@ mod tests {
         let toml = r#"
         tempo_rpc = "https://custom-tempo-rpc.com"
         moderato_rpc = "https://custom-moderato-rpc.com"
-
-        [evm]
-        keystore = "/path/to/keystore.json"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse");
@@ -817,34 +679,22 @@ mod tests {
 
     #[test]
     fn test_tempo_alias_for_evm_config() {
-        // [tempo] should be parsed as [evm]
         let toml = r#"
             [tempo]
-            keystore = "/path/to/keystore.json"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse [tempo] as alias for [evm]");
         assert!(config.evm.is_some());
-        assert_eq!(
-            config.evm.as_ref().unwrap().keystore,
-            Some(PathBuf::from("/path/to/keystore.json"))
-        );
     }
 
     #[test]
     fn test_evm_config_still_works() {
-        // [evm] should still work as before
         let toml = r#"
             [evm]
-            keystore = "/path/to/keystore.json"
         "#;
 
         let config: Config = toml::from_str(toml).expect("should parse [evm]");
         assert!(config.evm.is_some());
-        assert_eq!(
-            config.evm.as_ref().unwrap().keystore,
-            Some(PathBuf::from("/path/to/keystore.json"))
-        );
     }
 
     #[test]

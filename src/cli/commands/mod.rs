@@ -7,4 +7,3 @@ pub mod network;
 pub mod services;
 pub mod status;
 pub mod tempo_wallet;
-pub mod wallet;
