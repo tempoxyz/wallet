@@ -15,15 +15,8 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
     // Check error message for common patterns
     let msg = err.to_string().to_lowercase();
 
-    if msg.contains("no such file") || msg.contains("not found") {
-        if msg.contains("config") {
-            return Some("Run 'pget init' to create a configuration file.".into());
-        }
-        if msg.contains("keystore") {
-            return Some(
-                "Run 'pget method new <name> --generate' to create a new keystore.".into(),
-            );
-        }
+    if (msg.contains("no such file") || msg.contains("not found")) && msg.contains("config") {
+        return Some("Run 'pget init' to create a configuration file.".into());
     }
 
     if msg.contains("permission denied") {
@@ -54,14 +47,8 @@ fn get_pget_error_suggestion(err: &PgetError) -> Option<String> {
             Some("Could not determine home directory. Set the HOME environment variable.".into())
         }
 
-        PgetError::InvalidConfig(msg) => {
-            if msg.contains("keystore") {
-                Some("Check that your keystore file exists and is valid JSON.".into())
-            } else if msg.contains("private_key") {
-                Some("Private key should be 64 hex characters (with optional 0x prefix).".into())
-            } else {
-                Some("Run 'pget config' to view your current configuration.".into())
-            }
+        PgetError::InvalidConfig(_) => {
+            Some("Run 'pget config' to view your current configuration.".into())
         }
 
         PgetError::InvalidKey(_) => {
@@ -93,12 +80,9 @@ fn get_pget_error_suggestion(err: &PgetError) -> Option<String> {
             }
         }
 
-        PgetError::Signing { .. } | PgetError::SigningSimple(_) => Some(
-            "Failed to sign the transaction. Check your wallet configuration:\n  \
-             • Verify your keystore password is correct\n  \
-             • Ensure your private key is valid"
-                .into(),
-        ),
+        PgetError::Signing { .. } | PgetError::SigningSimple(_) => {
+            Some("Failed to sign the transaction. Check your wallet configuration.".into())
+        }
 
         PgetError::BalanceQuery(_) => {
             Some("Could not query balance. Check your network connection and RPC endpoint.".into())

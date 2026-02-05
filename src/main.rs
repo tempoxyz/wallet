@@ -22,16 +22,11 @@ use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{
-    Cli, ColorMode, Commands, ConfigCommands, MethodCommands, NetworkCommands, OutputFormat, Shell,
-};
+use cli::{Cli, ColorMode, Commands, ConfigCommands, NetworkCommands, OutputFormat, Shell};
 use colored::control;
 use std::path::PathBuf;
 
-use cli::output::{
-    build_config_display, decrypt_keystores_upfront, handle_regular_response,
-    print_payment_method_text, write_output,
-};
+use cli::output::{handle_regular_response, write_output};
 use config::{load_config, load_config_with_overrides};
 use http::request::RequestContext;
 use payment::web_payment::handle_web_payment_request;
@@ -71,16 +66,11 @@ async fn run() -> Result<()> {
 /// Handle CLI subcommands
 async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
     match command {
-        Commands::Init {
-            force,
-            skip_ai,
-            keystore,
-        } => cli::commands::init::run_init(*force, *skip_ai, *keystore).await,
+        Commands::Init { force, skip_ai } => cli::commands::init::run_init(*force, *skip_ai).await,
 
         Commands::Config {
             command,
             output_format,
-            unsafe_show_private_keys,
         } => {
             if let Some(subcommand) = command {
                 match subcommand {
@@ -90,23 +80,11 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
                     ConfigCommands::Validate => cli::commands::config::validate_command(cli),
                 }
             } else {
-                show_config(cli, *output_format, *unsafe_show_private_keys)
+                show_config(cli, *output_format)
             }
         }
 
         Commands::Version => show_version(),
-
-        Commands::Method { command } => match command {
-            MethodCommands::List => cli::commands::wallet::list_command(),
-            MethodCommands::New { name, generate } => {
-                cli::commands::wallet::new_command(name, *generate)
-            }
-            MethodCommands::Import { name, private_key } => {
-                cli::commands::wallet::import_command(name, private_key.clone())
-            }
-            MethodCommands::Show { name } => cli::commands::wallet::show_command(name),
-            MethodCommands::Verify { name } => cli::commands::wallet::verify_command(name),
-        },
 
         Commands::Completions { shell } => generate_completions(*shell),
 
@@ -281,7 +259,7 @@ async fn make_request(cli: Cli) -> Result<()> {
 
 // ==================== Config Display ====================
 
-fn show_config(cli: &Cli, output_format: OutputFormat, show_private_keys: bool) -> Result<()> {
+fn show_config(cli: &Cli, output_format: OutputFormat) -> Result<()> {
     let config = load_config(cli.config.as_ref())?;
     let config_path = if let Some(ref path) = cli.config {
         PathBuf::from(path)
@@ -289,32 +267,21 @@ fn show_config(cli: &Cli, output_format: OutputFormat, show_private_keys: bool) 
         Config::default_config_path()?
     };
 
-    let use_password_cache = !cli.no_cache_password;
-
-    let decrypted_keys = if show_private_keys {
-        Some(decrypt_keystores_upfront(&config, use_password_cache)?)
-    } else {
-        None
-    };
+    let display_data = serde_json::json!({
+        "config_path": config_path.display().to_string(),
+        "evm": config.evm.as_ref().and_then(|evm| {
+            evm.get_address().ok().map(|address| {
+                serde_json::json!({ "address": address })
+            })
+        })
+    });
 
     match output_format {
         OutputFormat::Json => {
-            let display_data = build_config_display(
-                &config,
-                &config_path,
-                show_private_keys,
-                decrypted_keys.as_ref(),
-            );
             let output = serde_json::to_string_pretty(&display_data)?;
             write_output(cli, output)?;
         }
         OutputFormat::Yaml => {
-            let display_data = build_config_display(
-                &config,
-                &config_path,
-                show_private_keys,
-                decrypted_keys.as_ref(),
-            );
             let output = serde_yaml::to_string(&display_data)?;
             write_output(cli, output)?;
         }
@@ -323,16 +290,11 @@ fn show_config(cli: &Cli, output_format: OutputFormat, show_private_keys: bool) 
             println!();
 
             if let Some(evm) = &config.evm {
-                print_payment_method_text(
-                    "evm",
-                    evm.keystore.as_ref(),
-                    evm.get_address().ok().as_deref(),
-                    "address",
-                    decrypted_keys
-                        .as_ref()
-                        .and_then(|k| k.evm_private_key.as_deref()),
-                    show_private_keys,
-                );
+                if let Ok(address) = evm.get_address() {
+                    println!("[evm]");
+                    println!("address = \"{address}\"");
+                    println!();
+                }
             }
 
             if config.evm.is_none() {
@@ -387,46 +349,5 @@ fn init_color_support(cli: &Cli) {
                 control::set_override(false);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::Config;
-    use cli::output::DecryptedKeys;
-
-    #[test]
-    fn test_decrypt_keystores_upfront_with_no_keys() {
-        let config = Config {
-            evm: None,
-            ..Default::default()
-        };
-
-        let result = decrypt_keystores_upfront(&config, false);
-        assert!(result.is_ok());
-
-        let keys = result.unwrap();
-        assert!(keys.evm_private_key.is_none());
-    }
-
-    #[test]
-    fn test_build_config_display_with_decrypted_keys() {
-        let config = Config {
-            evm: None,
-            ..Default::default()
-        };
-
-        let decrypted_keys = DecryptedKeys {
-            evm_private_key: Some(
-                "1234567890123456789012345678901234567890123456789012345678901234".to_string(),
-            ),
-        };
-
-        let config_path = PathBuf::from("/test/config.toml");
-        let display = build_config_display(&config, &config_path, true, Some(&decrypted_keys));
-
-        // evm is None so it returns null
-        assert!(display.get("evm").unwrap().is_null());
     }
 }

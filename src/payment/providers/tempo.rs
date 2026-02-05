@@ -104,8 +104,8 @@ impl PaymentSetupContext {
             .decode()
             .map_err(|e| PgetError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
-        // Load signer with priority: Tempo wallet → Keystore/PrivateKey
-        let signer_ctx = load_signer_with_priority(config.evm.as_ref())?;
+        // Load signer from Tempo wallet credentials
+        let signer_ctx = load_signer_with_priority()?;
         let signer = signer_ctx.signer;
 
         // If wallet_address is set, use keychain signing mode

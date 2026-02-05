@@ -1,6 +1,7 @@
 //! Utility functions for pget library
 
 /// Format an Ethereum address with 0x prefix
+#[allow(dead_code)]
 pub fn format_eth_address(addr: &str) -> String {
     if addr.starts_with("0x") || addr.starts_with("0X") {
         addr.to_string()
@@ -10,6 +11,7 @@ pub fn format_eth_address(addr: &str) -> String {
 }
 
 /// Strip 0x prefix from hex string if present
+#[allow(dead_code)]
 pub fn strip_0x_prefix(s: &str) -> &str {
     s.trim()
         .strip_prefix("0x")

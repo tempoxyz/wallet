@@ -203,83 +203,6 @@ pub struct Cli {
     #[arg(long = "json", value_name = "JSON", help_heading = "HTTP Options")]
     pub json: Option<String>,
 
-    // Wallet Options
-    /// Path to encrypted keystore file
-    #[arg(
-        long = "keystore",
-        value_name = "PATH",
-        env = "PGET_KEYSTORE",
-        help_heading = "Advanced Wallet Options"
-    )]
-    pub keystore: Option<String>,
-
-    /// Use keystore by name (without .json extension)
-    #[arg(
-        short = 'a',
-        long = "account",
-        value_name = "NAME",
-        env = "PGET_ACCOUNT",
-        help_heading = "Advanced Wallet Options"
-    )]
-    pub account: Option<String>,
-
-    /// Specify sender address (uses configured keystore for this address)
-    #[arg(
-        long = "from",
-        value_name = "ADDRESS",
-        env = "PGET_FROM",
-        help_heading = "Advanced Wallet Options"
-    )]
-    pub from: Option<String>,
-
-    /// Password for keystore decryption
-    #[arg(
-        long = "password",
-        value_name = "PASSWORD",
-        env = "PGET_PASSWORD",
-        help_heading = "Advanced Wallet Options"
-    )]
-    pub password: Option<String>,
-
-    /// Path to file containing keystore password
-    #[arg(
-        long = "password-file",
-        value_name = "PATH",
-        env = "PGET_PASSWORD_FILE",
-        help_heading = "Advanced Wallet Options"
-    )]
-    pub password_file: Option<String>,
-
-    /// Disable password caching for keystores
-    #[arg(
-        long = "no-cache",
-        visible_alias = "no-cache-password",
-        global = true,
-        help_heading = "Advanced Wallet Options"
-    )]
-    pub no_cache_password: bool,
-
-    /// Raw private key (hex, with or without 0x prefix)
-    #[arg(
-        long = "private-key",
-        value_name = "KEY",
-        env = "PGET_PRIVATE_KEY",
-        help_heading = "Advanced Wallet Options",
-        hide_env_values = true
-    )]
-    pub private_key: Option<String>,
-
-    /// Wallet address for keychain (access key) signing mode.
-    /// When set, the private key is treated as an access key that signs
-    /// on behalf of this wallet address using keychain signatures (0x03).
-    #[arg(
-        long = "wallet",
-        value_name = "ADDRESS",
-        env = "PGET_WALLET_ADDRESS",
-        help_heading = "Advanced Wallet Options"
-    )]
-    pub wallet_address: Option<String>,
-
     // RPC Options
     /// Override RPC URL for the request
     #[arg(
@@ -304,9 +227,6 @@ pub enum Commands {
         /// Skip installing AI tool integrations
         #[arg(long)]
         skip_ai: bool,
-        /// Use local keystore instead of Tempo wallet
-        #[arg(long)]
-        keystore: bool,
     },
     /// Manage configuration
     #[command(alias = "c")]
@@ -318,19 +238,10 @@ pub enum Commands {
         /// Output format for config display (when no subcommand is given)
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
-        /// Show private keys (when no subcommand is given)
-        #[arg(long)]
-        unsafe_show_private_keys: bool,
     },
     /// Show version information
     #[command(alias = "v")]
     Version,
-    /// Manage payment methods (keystores)
-    #[command(alias = "m")]
-    Method {
-        #[command(subcommand)]
-        command: MethodCommands,
-    },
     /// Generate shell completions script
     #[command(alias = "com")]
     Completions {
@@ -452,40 +363,6 @@ pub enum Shell {
     Zsh,
     Fish,
     PowerShell,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum MethodCommands {
-    /// List available keystores
-    List,
-    /// Create a new keystore
-    New {
-        /// Name for the keystore
-        #[arg(long, default_value = crate::util::constants::DEFAULT_KEYSTORE_NAME)]
-        name: String,
-        /// Generate a new private key
-        #[arg(short = 'g', long)]
-        generate: bool,
-    },
-    /// Import a private key into a new keystore
-    Import {
-        /// Name for the keystore
-        #[arg(long, default_value = crate::util::constants::IMPORTED_KEYSTORE_NAME)]
-        name: String,
-        /// Private key to import (hex format)
-        #[arg(short = 'k', long)]
-        private_key: Option<String>,
-    },
-    /// Show keystore details without private key
-    Show {
-        /// Name of the keystore (without .json extension)
-        name: String,
-    },
-    /// Verify keystore integrity
-    Verify {
-        /// Name of the keystore (without .json extension)
-        name: String,
-    },
 }
 
 #[derive(Subcommand, Debug)]
