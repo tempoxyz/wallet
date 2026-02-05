@@ -2,12 +2,77 @@
 //!
 //! Provides functionality for loading signers from keystores, private keys,
 //! and other wallet sources.
+//!
+//! Wallet priority: CLI flags → Tempo wallet (if valid) → Keystore
 
 use crate::error::{PgetError, Result};
 use crate::util::helpers::strip_0x_prefix;
+use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::keystore;
 use alloy::signers::local::PrivateKeySigner;
 use std::path::Path;
+
+/// Result of loading a signer with wallet priority.
+#[derive(Debug)]
+pub struct SignerWithContext {
+    pub signer: PrivateKeySigner,
+    /// The smart wallet address if using keychain signing (tempo wallet).
+    pub wallet_address: Option<String>,
+    /// Source of the signer for debugging.
+    #[allow(dead_code)]
+    pub source: SignerSource,
+}
+
+/// Where the signer was loaded from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SignerSource {
+    TempoWallet,
+    Keystore,
+    PrivateKey,
+}
+
+/// Load a signer with wallet priority: Tempo wallet → Keystore/PrivateKey
+///
+/// Returns the signer along with the wallet address if using keychain signing.
+pub fn load_signer_with_priority(
+    evm_config: Option<&crate::config::EvmConfig>,
+) -> Result<SignerWithContext> {
+    // First, try Tempo wallet credentials
+    if let Ok(creds) = WalletCredentials::load() {
+        if let Some(wallet) = creds.active_wallet() {
+            if let Some(access_key) = wallet.active_access_key() {
+                if !access_key.is_expired() {
+                    if let Ok(signer) = access_key.signer() {
+                        return Ok(SignerWithContext {
+                            signer,
+                            wallet_address: Some(wallet.account_address.clone()),
+                            source: SignerSource::TempoWallet,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to EvmConfig (keystore or private key)
+    let evm = evm_config.ok_or_else(|| {
+        PgetError::ConfigMissing(
+            "No wallet configured. Run 'pget wallet connect' to get started.".to_string(),
+        )
+    })?;
+    let signer = evm.load_signer(None)?;
+    let source = if evm.private_key.is_some() {
+        SignerSource::PrivateKey
+    } else {
+        SignerSource::Keystore
+    };
+
+    Ok(SignerWithContext {
+        signer,
+        wallet_address: evm.wallet_address.clone(),
+        source,
+    })
+}
 
 /// Trait for types that can provide a wallet signer
 pub trait WalletSource {
