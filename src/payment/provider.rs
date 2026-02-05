@@ -132,9 +132,9 @@ impl PgetPaymentProvider {
             .amount_u256()
             .map_err(|e| mpay::MppError::Http(format!("Invalid amount: {}", e)))?;
 
-        // Load signer with priority: Tempo wallet → Keystore/PrivateKey
-        let signer_ctx = load_signer_with_priority(self.config.evm.as_ref())
-            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+        // Load signer from Tempo wallet credentials
+        let signer_ctx =
+            load_signer_with_priority().map_err(|e| mpay::MppError::Http(e.to_string()))?;
 
         let wallet_address = signer_ctx
             .wallet_address

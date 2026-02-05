@@ -23,13 +23,11 @@ clap_complete = "4.5"
 colored = "3.0"
 dialoguer = "0.12"
 dirs = "6.0"
-eth-keystore = "0.5"
 futures = "0.3"
 hex = "0.4"
 mpay = { git = "https://github.com/tempoxyz/mpay-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client"] }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-rpassword = "7.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
@@ -41,7 +39,6 @@ tower-http = { version = "0.6", features = ["limit"] }
 tracing = "0.1"
 url = "2.5"
 webbrowser = "1"
-zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
 assert_cmd = "2.1"
