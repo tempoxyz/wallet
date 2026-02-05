@@ -83,8 +83,8 @@ impl GasConfig {
     /// Default gas configuration for Tempo networks.
     pub const DEFAULT: Self = Self {
         gas_limit: 100_000,
-        max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
-        max_fee_per_gas: 10_000_000_000,         // 10 gwei
+        max_priority_fee_per_gas: 1_000_000_000,  // 1 gwei
+        max_fee_per_gas: 20_000_000_000,          // 20 gwei
     };
 
     /// Get max_fee_per_gas as u128 (for alloy compatibility).
@@ -373,7 +373,7 @@ mod tests {
         let gas = Network::Tempo.gas_config();
         assert_eq!(gas.gas_limit, 100_000);
         assert_eq!(gas.max_priority_fee_per_gas, 1_000_000_000);
-        assert_eq!(gas.max_fee_per_gas, 10_000_000_000);
+        assert_eq!(gas.max_fee_per_gas, 20_000_000_000);
     }
 
     #[test]
