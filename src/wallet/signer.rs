@@ -14,6 +14,8 @@ pub struct SignerWithContext {
     pub signer: PrivateKeySigner,
     /// The smart wallet address if using keychain signing (tempo wallet).
     pub wallet_address: Option<String>,
+    /// Hex-encoded pending key authorization from wallet credentials.
+    pub pending_key_authorization: Option<String>,
     /// Source of the signer for debugging.
     #[allow(dead_code)]
     pub source: SignerSource,
@@ -60,9 +62,12 @@ pub fn load_signer_with_priority() -> Result<SignerWithContext> {
         )
     })?;
 
+    let pending_key_authorization = wallet.pending_key_authorization.clone();
+
     Ok(SignerWithContext {
         signer,
         wallet_address: Some(wallet.account_address.clone()),
+        pending_key_authorization,
         source: SignerSource::TempoWallet,
     })
 }

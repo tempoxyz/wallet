@@ -18,7 +18,8 @@ use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use std::str::FromStr;
 
 use tempo_primitives::transaction::{
-    AASigned, Call, KeychainSignature, PrimitiveSignature, TempoSignature, TempoTransaction,
+    AASigned, Call, KeychainSignature, PrimitiveSignature, SignedKeyAuthorization, TempoSignature,
+    TempoTransaction,
 };
 
 /// Gas limit for swap transactions (approve + swap + transfer).
@@ -87,6 +88,8 @@ struct PaymentSetupContext {
     charge_req: mpay::ChargeRequest,
     signer: PrivateKeySigner,
     wallet_address: Option<Address>,
+    key_authorization: Option<SignedKeyAuthorization>,
+    has_pending_key_auth: bool,
     from: Address,
     chain_id: u64,
     nonce: u64,
@@ -98,6 +101,7 @@ impl PaymentSetupContext {
     async fn from_challenge(config: &Config, challenge: &mpay::PaymentChallenge) -> Result<Self> {
         use crate::payment::mpay_ext::method_to_network;
         use alloy::providers::Provider;
+        use alloy::rlp::Decodable;
 
         let charge_req: mpay::ChargeRequest = challenge
             .request
@@ -115,6 +119,28 @@ impl PaymentSetupContext {
             .map(|addr| {
                 Address::from_str(addr)
                     .map_err(|e| PgetError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+            })
+            .transpose()?;
+
+        // Decode pending key authorization from hex
+        let key_authorization = signer_ctx
+            .pending_key_authorization
+            .as_ref()
+            .map(|hex_str| {
+                let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+                let bytes = hex::decode(hex_str).map_err(|e| {
+                    PgetError::InvalidConfig(format!(
+                        "Invalid pending key authorization hex: {}",
+                        e
+                    ))
+                })?;
+                let mut slice = bytes.as_slice();
+                SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
+                    PgetError::InvalidConfig(format!(
+                        "Invalid pending key authorization RLP: {}",
+                        e
+                    ))
+                })
             })
             .transpose()?;
 
@@ -152,10 +178,14 @@ impl PaymentSetupContext {
                 operation: "get_nonce",
             })?;
 
+        let has_pending_key_auth = key_authorization.is_some();
+
         Ok(Self {
             charge_req,
             signer,
             wallet_address,
+            key_authorization,
+            has_pending_key_auth,
             from,
             chain_id,
             nonce,
@@ -167,6 +197,9 @@ impl PaymentSetupContext {
 /// Create a Tempo payment credential for a Web Payment Auth challenge.
 ///
 /// Supports keychain signing mode when `wallet_address` is configured.
+/// If a pending `key_authorization` exists, it is included in the transaction
+/// to atomically provision the access key and make the payment, then cleared
+/// from wallet.toml.
 pub async fn create_tempo_payment(
     config: &Config,
     challenge: &mpay::PaymentChallenge,
@@ -188,7 +221,12 @@ pub async fn create_tempo_payment(
         transfer_data,
         &ctx.gas_config,
         ctx.wallet_address,
+        ctx.key_authorization,
     )?;
+
+    if ctx.has_pending_key_auth {
+        clear_pending_key_authorization();
+    }
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
@@ -230,7 +268,12 @@ pub async fn create_tempo_payment_with_swap(
         &ctx.gas_config,
         SWAP_GAS_LIMIT, // Higher gas limit for swap transactions
         ctx.wallet_address,
+        ctx.key_authorization,
     )?;
+
+    if ctx.has_pending_key_auth {
+        clear_pending_key_authorization();
+    }
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
@@ -288,7 +331,19 @@ fn build_swap_calls(
     ])
 }
 
+/// Clear the pending key authorization from wallet.toml.
+fn clear_pending_key_authorization() {
+    use crate::wallet::credentials::WalletCredentials;
+    if let Ok(mut creds) = WalletCredentials::load() {
+        if let Some(wallet) = creds.active_wallet_mut() {
+            wallet.take_pending_key_authorization();
+            let _ = creds.save();
+        }
+    }
+}
+
 /// Create a Tempo transaction (type 0x76) with network-specific gas configuration.
+#[allow(clippy::too_many_arguments)]
 fn create_tempo_transaction(
     signer: &PrivateKeySigner,
     chain_id: u64,
@@ -297,6 +352,7 @@ fn create_tempo_transaction(
     transfer_data: alloy::primitives::Bytes,
     gas_config: &GasConfig,
     wallet_address: Option<Address>,
+    key_authorization: Option<SignedKeyAuthorization>,
 ) -> Result<String> {
     use alloy::primitives::TxKind;
 
@@ -315,10 +371,14 @@ fn create_tempo_transaction(
         gas_config,
         gas_config.gas_limit,
         wallet_address,
+        key_authorization,
     )
 }
 
 /// Create a Tempo transaction with multiple calls (for swap transactions).
+///
+/// When `key_authorization` is `Some`, it is included in the transaction to
+/// atomically provision the access key on-chain alongside the payment.
 #[allow(clippy::too_many_arguments)]
 fn create_tempo_transaction_with_calls(
     signer: &PrivateKeySigner,
@@ -329,6 +389,7 @@ fn create_tempo_transaction_with_calls(
     gas_config: &GasConfig,
     gas_limit: u64,
     wallet_address: Option<Address>,
+    key_authorization: Option<SignedKeyAuthorization>,
 ) -> Result<String> {
     let tx = TempoTransaction {
         chain_id,
@@ -343,7 +404,7 @@ fn create_tempo_transaction_with_calls(
         fee_payer_signature: None,
         valid_before: None,
         valid_after: None,
-        key_authorization: None,
+        key_authorization,
         tempo_authorization_list: vec![],
     };
 
@@ -406,6 +467,7 @@ mod tests {
             transfer_data,
             &GasConfig::DEFAULT,
             None,
+            None,
         );
 
         assert!(result.is_ok());
@@ -432,6 +494,7 @@ mod tests {
             transfer_data,
             &GasConfig::DEFAULT,
             Some(wallet_address),
+            None,
         );
 
         assert!(result.is_ok());
@@ -458,6 +521,7 @@ mod tests {
             transfer_data.clone(),
             &GasConfig::DEFAULT,
             None,
+            None,
         )
         .unwrap();
 
@@ -469,6 +533,7 @@ mod tests {
             transfer_data,
             &GasConfig::DEFAULT,
             Some(wallet_address),
+            None,
         )
         .unwrap();
 
@@ -593,5 +658,83 @@ mod tests {
     fn test_bps_denominator_constant() {
         // Verify BPS denominator is 10000
         assert_eq!(BPS_DENOMINATOR, 10000);
+    }
+
+    #[test]
+    fn test_create_tempo_transaction_with_key_authorization_produces_longer_tx() {
+        use tempo_primitives::transaction::{KeyAuthorization, SignatureType};
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let asset = Address::ZERO;
+        let transfer_data = alloy::primitives::Bytes::new();
+        let wallet_address = Address::repeat_byte(0xAB);
+
+        let key_auth = KeyAuthorization {
+            chain_id: 42431,
+            key_type: SignatureType::Secp256k1,
+            key_id: signer.address(),
+            expiry: Some(9999999999),
+            limits: None,
+        };
+
+        let inner_sig = signer.sign_hash_sync(&key_auth.signature_hash()).unwrap();
+        let signed_auth = key_auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
+
+        let tx_without = create_tempo_transaction(
+            &signer,
+            42431,
+            0,
+            asset,
+            transfer_data.clone(),
+            &GasConfig::DEFAULT,
+            Some(wallet_address),
+            None,
+        )
+        .unwrap();
+
+        let tx_with = create_tempo_transaction(
+            &signer,
+            42431,
+            0,
+            asset,
+            transfer_data,
+            &GasConfig::DEFAULT,
+            Some(wallet_address),
+            Some(signed_auth),
+        )
+        .unwrap();
+
+        assert!(tx_with.len() > tx_without.len());
+        assert!(tx_with.starts_with("76"));
+    }
+
+    #[test]
+    fn test_create_tempo_transaction_without_key_authorization_still_works() {
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let asset = Address::ZERO;
+        let transfer_data = alloy::primitives::Bytes::new();
+
+        let result = create_tempo_transaction(
+            &signer,
+            42431,
+            0,
+            asset,
+            transfer_data,
+            &GasConfig::DEFAULT,
+            None,
+            None,
+        );
+
+        assert!(result.is_ok());
+        let tx_hex = result.unwrap();
+        assert!(tx_hex.starts_with("76"));
     }
 }
