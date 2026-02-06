@@ -2,9 +2,12 @@
 
 use std::time::Duration;
 
+use alloy::primitives::Address;
+use alloy::rlp::Decodable;
 use alloy::signers::local::PrivateKeySigner;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use tempo_primitives::transaction::SignedKeyAuthorization;
 use url::Url;
 
 use crate::error::{PgetError, Result};
@@ -170,6 +173,11 @@ impl WalletManager {
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
     ) -> Result<()> {
+        let key_authorization = validate_key_authorization(
+            callback.key_authorization.as_deref(),
+            local_signer.address(),
+        )?;
+
         let mut creds = WalletCredentials::load()?;
         creds.network = self.network.clone();
 
@@ -182,7 +190,7 @@ impl WalletManager {
             account_address: callback.account_address,
             access_keys: vec![],
             active_key_index: 0,
-            pending_key_authorization: callback.key_authorization,
+            pending_key_authorization: key_authorization,
         };
 
         wallet.add_key(access_key, true);
@@ -198,6 +206,11 @@ impl WalletManager {
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
     ) -> Result<()> {
+        let key_authorization = validate_key_authorization(
+            callback.key_authorization.as_deref(),
+            local_signer.address(),
+        )?;
+
         let mut creds = WalletCredentials::load()?;
         creds.network = self.network.clone();
 
@@ -209,13 +222,13 @@ impl WalletManager {
 
         if let Some(wallet) = creds.active_wallet_mut() {
             wallet.add_key(access_key, true);
-            wallet.pending_key_authorization = callback.key_authorization;
+            wallet.pending_key_authorization = key_authorization;
         } else {
             let mut wallet = NetworkWallet {
                 account_address: callback.account_address,
                 access_keys: vec![],
                 active_key_index: 0,
-                pending_key_authorization: callback.key_authorization,
+                pending_key_authorization: key_authorization,
             };
             wallet.add_key(access_key, true);
             creds.set_wallet(wallet);
@@ -224,6 +237,33 @@ impl WalletManager {
         creds.save()?;
         Ok(())
     }
+}
+
+fn validate_key_authorization(
+    hex_str: Option<&str>,
+    expected_key_id: Address,
+) -> Result<Option<String>> {
+    let hex_str = match hex_str {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let raw = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    let bytes = hex::decode(raw)
+        .map_err(|e| PgetError::InvalidConfig(format!("Invalid key authorization hex: {}", e)))?;
+
+    let mut slice = bytes.as_slice();
+    let signed = SignedKeyAuthorization::decode(&mut slice)
+        .map_err(|e| PgetError::InvalidConfig(format!("Invalid key authorization RLP: {}", e)))?;
+
+    if signed.authorization.key_id != expected_key_id {
+        return Err(PgetError::InvalidConfig(format!(
+            "Key authorization targets {:#x}, expected {:#x}",
+            signed.authorization.key_id, expected_key_id
+        )));
+    }
+
+    Ok(Some(hex_str.to_string()))
 }
 
 fn chrono_label() -> String {
@@ -237,5 +277,74 @@ fn chrono_label() -> String {
 impl Default for WalletManager {
     fn default() -> Self {
         Self::new(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::rlp::Encodable;
+    use alloy::signers::SignerSync;
+    use tempo_primitives::transaction::{KeyAuthorization, PrimitiveSignature, SignatureType};
+
+    fn make_signed_auth_hex(key_id: Address) -> String {
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let auth = KeyAuthorization {
+            chain_id: 42431,
+            key_type: SignatureType::Secp256k1,
+            key_id,
+            expiry: Some(9999999999),
+            limits: None,
+        };
+
+        let sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
+        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
+
+        let mut buf = Vec::new();
+        signed.encode(&mut buf);
+        format!("0x{}", hex::encode(&buf))
+    }
+
+    #[test]
+    fn test_validate_key_authorization_matching_key_id() {
+        let signer = PrivateKeySigner::random();
+        let hex = make_signed_auth_hex(signer.address());
+        let result = validate_key_authorization(Some(&hex), signer.address());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(hex));
+    }
+
+    #[test]
+    fn test_validate_key_authorization_mismatched_key_id() {
+        let signer = PrivateKeySigner::random();
+        let wrong_address = Address::repeat_byte(0xFF);
+        let hex = make_signed_auth_hex(wrong_address);
+        let result = validate_key_authorization(Some(&hex), signer.address());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Key authorization targets"));
+    }
+
+    #[test]
+    fn test_validate_key_authorization_none() {
+        let result = validate_key_authorization(None, Address::ZERO);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_validate_key_authorization_invalid_hex() {
+        let result = validate_key_authorization(Some("not-hex"), Address::ZERO);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_key_authorization_invalid_rlp() {
+        let result = validate_key_authorization(Some("0xdeadbeef"), Address::ZERO);
+        assert!(result.is_err());
     }
 }

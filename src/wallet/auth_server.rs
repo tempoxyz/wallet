@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Form, Router,
@@ -93,6 +93,7 @@ async fn health_check() -> &'static str {
 
 async fn handle_callback(
     State(state): State<Arc<tokio::sync::Mutex<AppState>>>,
+    headers: HeaderMap,
     Form(form): Form<CallbackForm>,
 ) -> Response {
     let debug = std::env::var("PGET_DEBUG").is_ok();
@@ -111,6 +112,20 @@ async fn handle_callback(
                 &s[s.len().saturating_sub(6)..]
             ))
         );
+    }
+
+    if !is_origin_allowed(&headers) {
+        if debug {
+            eprintln!(
+                "[pget:debug] Origin rejected: {:?}",
+                headers.get("origin").and_then(|v| v.to_str().ok())
+            );
+        }
+        return (
+            StatusCode::FORBIDDEN,
+            Html(error_html("Request origin not allowed.")),
+        )
+            .into_response();
     }
 
     // Validate CSRF state token
@@ -144,6 +159,33 @@ async fn handle_callback(
 
     let success_url = format!("{}/cli-auth?success=true", state.auth_server_base_url);
     Redirect::to(&success_url).into_response()
+}
+
+const ALLOWED_ORIGIN_SUFFIX: &str = ".tempo.xyz";
+
+fn is_origin_allowed(headers: &HeaderMap) -> bool {
+    let origin = headers.get("origin").and_then(|v| v.to_str().ok());
+
+    let origin = match origin {
+        Some(o) if o != "null" => o,
+        _ => return false,
+    };
+
+    let origin_url = match url::Url::parse(origin) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+
+    let host = match origin_url.host_str() {
+        Some(h) => h,
+        None => return false,
+    };
+
+    if origin_url.scheme() != "https" {
+        return false;
+    }
+
+    host == "tempo.xyz" || host.ends_with(ALLOWED_ORIGIN_SUFFIX)
 }
 
 fn error_html(message: &str) -> String {
@@ -191,4 +233,65 @@ fn error_html(message: &str) -> String {
 </body>
 </html>"#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers_with_origin(origin: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("origin", origin.parse().unwrap());
+        h
+    }
+
+    #[test]
+    fn test_allows_tempo_xyz() {
+        assert!(is_origin_allowed(&headers_with_origin("https://tempo.xyz")));
+    }
+
+    #[test]
+    fn test_allows_subdomain() {
+        assert!(is_origin_allowed(&headers_with_origin(
+            "https://app.tempo.xyz"
+        )));
+        assert!(is_origin_allowed(&headers_with_origin(
+            "https://app.moderato.tempo.xyz"
+        )));
+    }
+
+    #[test]
+    fn test_rejects_non_tempo_domain() {
+        assert!(!is_origin_allowed(&headers_with_origin("https://evil.com")));
+        assert!(!is_origin_allowed(&headers_with_origin(
+            "https://nottempo.xyz"
+        )));
+        assert!(!is_origin_allowed(&headers_with_origin(
+            "https://tempo.xyz.evil.com"
+        )));
+    }
+
+    #[test]
+    fn test_rejects_http() {
+        assert!(!is_origin_allowed(&headers_with_origin(
+            "http://app.tempo.xyz"
+        )));
+    }
+
+    #[test]
+    fn test_rejects_null_origin() {
+        assert!(!is_origin_allowed(&headers_with_origin("null")));
+    }
+
+    #[test]
+    fn test_rejects_missing_origin() {
+        assert!(!is_origin_allowed(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn test_rejects_referer_without_origin() {
+        let mut h = HeaderMap::new();
+        h.insert("referer", "https://app.tempo.xyz/cli-auth".parse().unwrap());
+        assert!(!is_origin_allowed(&h));
+    }
 }
