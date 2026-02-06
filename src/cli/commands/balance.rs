@@ -50,7 +50,7 @@ pub async fn balance_command(
                 .active_wallet()
                 .map(|w| w.account_address.clone())
                 .ok_or_else(|| {
-                    anyhow::anyhow!("No wallet connected. Run 'pget init' to connect.")
+                    anyhow::anyhow!("No wallet connected. Run 'pget login' to connect.")
                 })?
         }
     };

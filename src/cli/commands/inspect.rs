@@ -7,7 +7,8 @@ use crate::{config::PaymentMethod, http::HttpClientBuilder, http::HttpMethod};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::cli::{Cli, OutputFormat};
+use crate::cli::Cli;
+use crate::cli::OutputFormat;
 use crate::config::load_config;
 
 /// Output format for the inspect command
@@ -46,20 +47,12 @@ struct ChargeInfo {
 }
 
 /// Inspect payment requirements for a URL
-pub async fn inspect_command(cli: &Cli, url: &str) -> Result<()> {
+pub async fn inspect_command(cli: &Cli, url: &str, output_format: OutputFormat) -> Result<()> {
     let config = load_config(cli.config.as_ref())?;
 
-    let mut builder = HttpClientBuilder::new()
+    let builder = HttpClientBuilder::new()
         .verbose(cli.is_verbose())
-        .follow_redirects(cli.follow_redirects);
-
-    if let Some(timeout) = cli.get_timeout() {
-        builder = builder.timeout(timeout);
-    }
-
-    if let Some(user_agent) = &cli.user_agent {
-        builder = builder.user_agent(user_agent);
-    }
+        .follow_redirects(true);
 
     let client = builder.build()?;
 
@@ -85,7 +78,13 @@ pub async fn inspect_command(cli: &Cli, url: &str) -> Result<()> {
 
     let available_methods = config.available_payment_methods();
 
-    match cli.effective_output_format() {
+    let effective_format = if cli.json_output {
+        OutputFormat::Json
+    } else {
+        output_format
+    };
+
+    match effective_format {
         OutputFormat::Json => {
             output_json(cli, &challenge, &available_methods)?;
         }
@@ -151,47 +150,29 @@ fn format_charge_amount(req: &ChargeRequest, challenge: &PaymentChallenge) -> Op
 }
 
 fn output_json(
-    cli: &Cli,
+    _cli: &Cli,
     challenge: &PaymentChallenge,
     available_methods: &[PaymentMethod],
 ) -> Result<()> {
     let output = build_inspect_output(challenge, available_methods);
     let pretty_json = serde_json::to_string_pretty(&output)?;
-
-    if let Some(output_file) = &cli.output {
-        std::fs::write(output_file, &pretty_json)?;
-        if cli.is_verbose() && cli.should_show_output() {
-            eprintln!("Saved to: {output_file}");
-        }
-    } else {
-        println!("{pretty_json}");
-    }
-
+    println!("{pretty_json}");
     Ok(())
 }
 
 fn output_yaml(
-    cli: &Cli,
+    _cli: &Cli,
     challenge: &PaymentChallenge,
     available_methods: &[PaymentMethod],
 ) -> Result<()> {
     let output = build_inspect_output(challenge, available_methods);
     let yaml_output = serde_yaml::to_string(&output)?;
-
-    if let Some(output_file) = &cli.output {
-        std::fs::write(output_file, &yaml_output)?;
-        if cli.is_verbose() && cli.should_show_output() {
-            eprintln!("Saved to: {output_file}");
-        }
-    } else {
-        println!("{yaml_output}");
-    }
-
+    println!("{yaml_output}");
     Ok(())
 }
 
 fn output_text(
-    cli: &Cli,
+    _cli: &Cli,
     challenge: &PaymentChallenge,
     available_methods: &[PaymentMethod],
 ) -> Result<()> {
@@ -242,14 +223,7 @@ fn output_text(
         }
     ));
 
-    if let Some(output_file) = &cli.output {
-        std::fs::write(output_file, &output)?;
-        if cli.is_verbose() && cli.should_show_output() {
-            eprintln!("Saved to: {output_file}");
-        }
-    } else {
-        print!("{output}");
-    }
+    print!("{output}");
 
     Ok(())
 }

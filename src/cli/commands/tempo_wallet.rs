@@ -1,7 +1,5 @@
 //! Tempo wallet commands (passkey-based authentication).
 
-use crate::cli::util::{format_expiry, now_secs};
-use crate::cli::OutputFormat;
 use crate::error::{PgetError, Result};
 use crate::network::get_network;
 use crate::util::constants::{BALANCE_OF_SELECTOR, BUILTIN_TOKENS};
@@ -10,153 +8,10 @@ use crate::wallet::WalletManager;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-struct AccessKeyInfo {
-    index: usize,
-    address: String,
-    label: String,
-    expiry: u64,
-    expired: bool,
-    active: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct TokenBalance {
-    token: String,
-    balance: String,
-    balance_raw: u128,
-}
-
-#[derive(Debug, Serialize)]
-struct WalletInfo {
-    address: String,
-    network: String,
-    access_keys: Vec<AccessKeyInfo>,
-    active_key_index: usize,
-    balances: Vec<TokenBalance>,
-}
-
-/// Show wallet status and balances.
-pub async fn show_wallet(output_format: OutputFormat, network: Option<&str>) -> Result<()> {
-    let mut creds = WalletCredentials::load()?;
-    if let Some(n) = network {
-        creds.network = n.to_string();
-    }
-
-    if let Some(wallet) = creds.active_wallet() {
-        let balances = query_all_balances(&creds.network, &wallet.account_address).await;
-
-        match output_format {
-            OutputFormat::Json => {
-                let now = now_secs();
-                let keys: Vec<AccessKeyInfo> = wallet
-                    .access_keys
-                    .iter()
-                    .enumerate()
-                    .map(|(i, key)| AccessKeyInfo {
-                        index: i,
-                        address: key.address(),
-                        label: key.label.clone(),
-                        expiry: key.expiry,
-                        expired: key.expiry > 0 && key.expiry < now,
-                        active: i == wallet.active_key_index,
-                    })
-                    .collect();
-
-                let info = WalletInfo {
-                    address: wallet.account_address.clone(),
-                    network: creds.network.clone(),
-                    access_keys: keys,
-                    active_key_index: wallet.active_key_index,
-                    balances,
-                };
-
-                println!("{}", serde_json::to_string_pretty(&info)?);
-            }
-            _ => {
-                println!("Wallet: {}", wallet.account_address);
-                println!("Network: {}", creds.network);
-
-                println!();
-                for tb in &balances {
-                    println!("{:>16} {}", tb.balance, tb.token);
-                }
-
-                if let Some(key) = wallet.active_access_key() {
-                    println!();
-                    println!("Access Key: {}", key.address());
-
-                    if key.expiry > 0 {
-                        if key.expiry < now_secs() {
-                            println!("Status: Expired");
-                        } else {
-                            println!("Expires: {}", format_expiry(key.expiry));
-                        }
-                    }
-                }
-
-                if wallet.access_keys.len() > 1 {
-                    println!("\nAll access keys ({}):", wallet.access_keys.len());
-                    for (i, key) in wallet.access_keys.iter().enumerate() {
-                        let marker = if i == wallet.active_key_index {
-                            "→"
-                        } else {
-                            " "
-                        };
-                        println!("  {} [{}] {} - {}", marker, i, key.label, key.address());
-                    }
-                }
-            }
-        }
-    } else {
-        match output_format {
-            OutputFormat::Json => {
-                println!("{}", serde_json::json!({"error": "No wallet connected"}));
-            }
-            _ => {
-                println!("No wallet connected.");
-                println!("\nRun 'pget wallet connect' to connect a wallet.");
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Connect a new wallet via browser authentication.
-pub async fn connect_wallet(network: Option<&str>) -> Result<()> {
-    let manager = WalletManager::new(network);
-    manager.setup_wallet().await
-}
-
-/// Disconnect the current wallet.
-pub async fn disconnect_wallet(yes: bool, network: Option<&str>) -> Result<()> {
-    let mut creds = WalletCredentials::load()?;
-    if let Some(n) = network {
-        creds.network = n.to_string();
-    }
-
-    if creds.active_wallet().is_none() {
-        println!("No wallet connected.");
-        return Ok(());
-    }
-
-    if !yes {
-        print!("Disconnect wallet? [y/N] ");
-        use std::io::{self, Write};
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
-            println!("Cancelled.");
-            return Ok(());
-        }
-    }
-
-    creds.clear_wallet();
-    creds.save()?;
-    println!("Wallet disconnected.");
-    Ok(())
+pub struct TokenBalance {
+    pub token: String,
+    pub balance: String,
+    pub balance_raw: u128,
 }
 
 /// Refresh the access key for the current wallet.
@@ -167,9 +22,7 @@ pub async fn refresh_wallet(network: Option<&str>) -> Result<()> {
     }
 
     let wallet = creds.active_wallet().ok_or_else(|| {
-        PgetError::ConfigMissing(
-            "No wallet connected. Run 'pget wallet connect' first.".to_string(),
-        )
+        PgetError::ConfigMissing("No wallet connected. Run 'pget login' first.".to_string())
     })?;
 
     let account_address = wallet.account_address.clone();
@@ -177,7 +30,7 @@ pub async fn refresh_wallet(network: Option<&str>) -> Result<()> {
     manager.refresh_access_key(&account_address).await
 }
 
-async fn query_all_balances(network: &str, account_address: &str) -> Vec<TokenBalance> {
+pub async fn query_all_balances(network: &str, account_address: &str) -> Vec<TokenBalance> {
     let network_info = match get_network(network) {
         Some(info) => info,
         None => return Vec::new(),

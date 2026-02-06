@@ -14,29 +14,30 @@ A wget-like CLI tool for making HTTP requests with automatic support for payment
 ## Overview
 
 ```bash
-# Initialize configuration (first time setup)
-pget init
+# Log in (connect your Tempo wallet)
+pget login
 
 # Make a payment-enabled HTTP request
-pget https://api.example.com/premium-data
+pget query https://api.example.com/premium-data
 
 # Preview payment without executing
-pget --dry-run https://api.example.com/data
+pget query --dry-run https://api.example.com/data
 
 # Require confirmation before payment
-pget --confirm https://api.example.com/data
+pget query --confirm https://api.example.com/data
 ```
 
 ## Common Commands
 
 | Command | Description |
 |---------|-------------|
-| `pget init` | Initialize or reconfigure your pget setup |
-| `pget <URL>` | Make an HTTP request (handles 402 payments automatically) |
+| `pget login` | Log in and connect your Tempo wallet |
+| `pget logout` | Log out and disconnect your wallet |
+| `pget whoami` | Show wallet status, balances, and access keys |
+| `pget query <URL>` (alias `pget q <URL>`) | Make an HTTP request (handles 402 payments automatically) |
 | `pget --help` | Show all available options |
 | `pget config` | View current configuration |
 | `pget balance` | Check wallet balance |
-| `pget method list` | List available payment methods/keystores |
 
 ## Key Options
 
@@ -53,14 +54,14 @@ pget --confirm https://api.example.com/data
 
 ```bash
 # Basic request with verbose output
-pget -v https://api.example.com/data
+pget query -v https://api.example.com/data
 
 # POST request with JSON data
-pget -X POST --json '{"key": "value"}' https://api.example.com/endpoint
+pget query -X POST --json '{"key": "value"}' https://api.example.com/endpoint
 
 # Filter to specific network
-pget --network base-sepolia https://api.example.com/data
+pget query --network base-sepolia https://api.example.com/data
 
 # Set maximum payment amount
-pget --max-amount 10000 https://api.example.com/data
+pget query --max-amount 10000 https://api.example.com/data
 ```

@@ -22,7 +22,10 @@ use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, ConfigCommands, NetworkCommands, OutputFormat, Shell};
+use cli::{
+    Cli, ColorMode, Commands, ConfigCommands, NetworkCommands, OutputFormat, QueryArgs, Shell,
+    WalletCommands,
+};
 use colored::control;
 use std::path::PathBuf;
 
@@ -49,24 +52,36 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
 
     // Initialize color support based on user preference and NO_COLOR env var
     init_color_support(&cli);
 
     // Handle subcommands
-    if let Some(ref command) = cli.command {
-        return handle_command(&cli, command).await;
+    let command = cli.command.take();
+    if let Some(command) = command {
+        return handle_command(cli, command).await;
     }
 
-    // No subcommand - make an HTTP request
-    make_request(cli).await
+    // No subcommand — show help
+    Cli::command().print_help()?;
+    Ok(())
 }
 
 /// Handle CLI subcommands
-async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
+async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
     match command {
-        Commands::Init { force, skip_ai } => cli::commands::init::run_init(*force, *skip_ai).await,
+        Commands::Query(query) => make_request(cli, *query).await,
+
+        Commands::Login => {
+            let network = cli.network.as_deref();
+            cli::commands::login::run_login(network).await
+        }
+
+        Commands::Logout { yes } => {
+            let network = cli.network.as_deref();
+            cli::commands::logout::run_logout(yes, network).await
+        }
 
         Commands::Config {
             command,
@@ -75,23 +90,22 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     ConfigCommands::Get { key, output_format } => {
-                        cli::commands::config::get_command(cli, key, *output_format)
+                        cli::commands::config::get_command(&cli, &key, output_format)
                     }
-                    ConfigCommands::Validate => cli::commands::config::validate_command(cli),
+                    ConfigCommands::Validate => cli::commands::config::validate_command(&cli),
                 }
             } else {
-                show_config(cli, *output_format)
+                show_config(&cli, output_format)
             }
         }
 
         Commands::Version => show_version(),
 
-        Commands::Completions { shell } => generate_completions(*shell),
+        Commands::Completions { shell } => generate_completions(shell),
 
         Commands::Balance { address } => {
             let config = load_config(cli.config.as_ref())?;
-            cli::commands::balance::balance_command(&config, address.clone(), cli.network.clone())
-                .await
+            cli::commands::balance::balance_command(&config, address, cli.network.clone()).await
         }
 
         Commands::Networks {
@@ -101,50 +115,31 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     NetworkCommands::List { output_format } => {
-                        cli::commands::network::list_networks(*output_format)
+                        cli::commands::network::list_networks(output_format)
                             .context("Failed to list networks")
                     }
                     NetworkCommands::Info {
                         network,
                         output_format,
-                    } => cli::commands::network::show_network_info(network, *output_format)
+                    } => cli::commands::network::show_network_info(&network, output_format)
                         .context("Failed to show network info"),
                 }
             } else {
-                cli::commands::network::list_networks(*output_format)
+                cli::commands::network::list_networks(output_format)
                     .context("Failed to list networks")
             }
         }
 
-        Commands::Inspect { url } => cli::commands::inspect::inspect_command(cli, url).await,
+        Commands::Inspect { url, output_format } => {
+            cli::commands::inspect::inspect_command(&cli, &url, output_format).await
+        }
 
-        Commands::Wallet {
-            command,
-            output_format,
-        } => {
+        Commands::Wallet { command } => {
             let network = cli.network.as_deref();
-            if let Some(subcommand) = command {
-                match subcommand {
-                    cli::WalletCommands::Connect => {
-                        cli::commands::tempo_wallet::connect_wallet(network)
-                            .await
-                            .map_err(Into::into)
-                    }
-                    cli::WalletCommands::Disconnect { yes } => {
-                        cli::commands::tempo_wallet::disconnect_wallet(*yes, network)
-                            .await
-                            .map_err(Into::into)
-                    }
-                    cli::WalletCommands::Refresh => {
-                        cli::commands::tempo_wallet::refresh_wallet(network)
-                            .await
-                            .map_err(Into::into)
-                    }
-                }
-            } else {
-                cli::commands::tempo_wallet::show_wallet(*output_format, network)
+            match command {
+                WalletCommands::Refresh => cli::commands::tempo_wallet::refresh_wallet(network)
                     .await
-                    .map_err(Into::into)
+                    .map_err(Into::into),
             }
         }
 
@@ -156,23 +151,23 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     cli::KeysCommands::List => {
-                        cli::commands::keys::list_keys(*output_format, network)
+                        cli::commands::keys::list_keys(output_format, network)
                             .await
                             .map_err(Into::into)
                     }
                     cli::KeysCommands::Switch { index } => {
-                        cli::commands::keys::switch_key(*index, *output_format, network)
+                        cli::commands::keys::switch_key(index, output_format, network)
                             .await
                             .map_err(Into::into)
                     }
                     cli::KeysCommands::Delete { index } => {
-                        cli::commands::keys::delete_key(*index, *output_format, network)
+                        cli::commands::keys::delete_key(index, output_format, network)
                             .await
                             .map_err(Into::into)
                     }
                 }
             } else {
-                cli::commands::keys::list_keys(*output_format, network)
+                cli::commands::keys::list_keys(output_format, network)
                     .await
                     .map_err(Into::into)
             }
@@ -186,26 +181,26 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     cli::ServicesCommands::List { refresh } => {
-                        cli::commands::services::list_services(*output_format, *refresh)
+                        cli::commands::services::list_services(output_format, refresh)
                             .await
                             .map_err(Into::into)
                     }
                     cli::ServicesCommands::Info { name } => {
-                        cli::commands::services::show_service(name, *output_format)
+                        cli::commands::services::show_service(&name, output_format)
                             .await
                             .map_err(Into::into)
                     }
                 }
             } else {
-                cli::commands::services::list_services(*output_format, *refresh)
+                cli::commands::services::list_services(output_format, refresh)
                     .await
                     .map_err(Into::into)
             }
         }
 
-        Commands::Status { output_format } => {
+        Commands::Whoami { output_format } => {
             let network = cli.network.as_deref();
-            cli::commands::status::show_status(*output_format, network)
+            cli::commands::whoami::show_whoami(output_format, network)
                 .await
                 .map_err(Into::into)
         }
@@ -213,25 +208,20 @@ async fn handle_command(cli: &Cli, command: &Commands) -> Result<()> {
 }
 
 /// Make an HTTP request (main flow)
-async fn make_request(cli: Cli) -> Result<()> {
+async fn make_request(cli: Cli, query: QueryArgs) -> Result<()> {
     let config = load_config_with_overrides(&cli)?;
 
-    let request_ctx = RequestContext::new(cli)?;
-
-    let url = request_ctx
-        .cli
-        .url
-        .as_ref()
-        .context("URL is required (or use 'pget init' to initialize configuration)")?;
+    let url = query.url.clone();
+    let request_ctx = RequestContext::new(cli, query)?;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Making {} request to: {url}", request_ctx.method);
     }
 
-    let response = request_ctx.execute(url, None).await?;
+    let response = request_ctx.execute(&url, None).await?;
 
     if !response.is_payment_required() {
-        handle_regular_response(&request_ctx.cli, response)?;
+        handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
         return Ok(());
     }
 
@@ -250,9 +240,9 @@ async fn make_request(cli: Cli) -> Result<()> {
         eprintln!("Payment protocol: {}", protocol);
     }
 
-    let response = handle_web_payment_request(&config, &request_ctx, url, &response).await?;
+    let response = handle_web_payment_request(&config, &request_ctx, &url, &response).await?;
 
-    handle_regular_response(&request_ctx.cli, response)?;
+    handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
 
     Ok(())
 }
@@ -299,7 +289,7 @@ fn show_config(cli: &Cli, output_format: OutputFormat) -> Result<()> {
 
             if config.evm.is_none() {
                 println!("No payment methods configured.");
-                println!("Run 'pget init' to configure payment methods.");
+                println!("Run 'pget login' to configure payment methods.");
             }
         }
     }

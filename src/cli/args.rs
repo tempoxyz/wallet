@@ -19,39 +19,13 @@ pub enum ColorMode {
 #[command(name = "pget")]
 #[command(about = "A wget-like tool for HTTP-based payment requests", long_about = None)]
 #[command(version)]
-#[command(args_conflicts_with_subcommands = true)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
-    /// URL to request
-    #[arg(value_name = "URL")]
-    pub url: Option<String>,
-
     /// Configuration file path
     #[arg(short = 'C', long = "config", value_name = "PATH", global = true)]
     pub config: Option<String>,
-
-    // Payment Options
-    /// Maximum amount willing to pay (in atomic units)
-    #[arg(
-        short = 'M',
-        long,
-        visible_alias = "max",
-        value_name = "AMOUNT",
-        env = "PGET_MAX_AMOUNT",
-        help_heading = "Payment Options"
-    )]
-    pub max_amount: Option<String>,
-
-    /// Require confirmation before paying
-    #[arg(
-        short = 'y',
-        long,
-        env = "PGET_CONFIRM",
-        help_heading = "Payment Options"
-    )]
-    pub confirm: bool,
 
     /// Filter to specific networks (comma-separated, e.g. "base,base-sepolia")
     #[arg(
@@ -64,23 +38,6 @@ pub struct Cli {
     )]
     pub network: Option<String>,
 
-    /// Dry run mode - show what would be paid without executing
-    #[arg(short = 'D', long, help_heading = "Payment Options")]
-    pub dry_run: bool,
-
-    /// Disable automatic token swaps when you don't have the requested currency
-    #[arg(
-        long = "no-swap",
-        env = "PGET_NO_SWAP",
-        help_heading = "Payment Options"
-    )]
-    pub no_swap: bool,
-
-    /// Allow insecure operations (skip TLS verification and origin checks)
-    #[arg(short = 'k', long = "insecure", help_heading = "Request Options")]
-    pub insecure: bool,
-
-    // Display Options
     /// Verbosity level (can be used multiple times: -v, -vv, -vvv)
     #[arg(short = 'v', long = "verbosity", action = clap::ArgAction::Count, global = true, help_heading = "Display Options")]
     pub verbosity: u8,
@@ -106,6 +63,59 @@ pub struct Cli {
     )]
     pub quiet: bool,
 
+    /// Format output as JSON (shorthand for --output-format json)
+    #[arg(
+        long = "json-output",
+        visible_alias = "jo",
+        global = true,
+        help_heading = "Display Options"
+    )]
+    pub json_output: bool,
+}
+
+/// Make an HTTP request with optional payment
+#[derive(Parser, Debug)]
+pub struct QueryArgs {
+    /// URL to request
+    #[arg(value_name = "URL")]
+    pub url: String,
+
+    /// Maximum amount willing to pay (in atomic units)
+    #[arg(
+        short = 'M',
+        long,
+        visible_alias = "max",
+        value_name = "AMOUNT",
+        env = "PGET_MAX_AMOUNT",
+        help_heading = "Payment Options"
+    )]
+    pub max_amount: Option<String>,
+
+    /// Require confirmation before paying
+    #[arg(
+        short = 'y',
+        long,
+        env = "PGET_CONFIRM",
+        help_heading = "Payment Options"
+    )]
+    pub confirm: bool,
+
+    /// Dry run mode - show what would be paid without executing
+    #[arg(short = 'D', long, help_heading = "Payment Options")]
+    pub dry_run: bool,
+
+    /// Disable automatic token swaps when you don't have the requested currency
+    #[arg(
+        long = "no-swap",
+        env = "PGET_NO_SWAP",
+        help_heading = "Payment Options"
+    )]
+    pub no_swap: bool,
+
+    /// Allow insecure operations (skip TLS verification and origin checks)
+    #[arg(short = 'k', long = "insecure", help_heading = "Request Options")]
+    pub insecure: bool,
+
     /// Include HTTP headers in output
     #[arg(short = 'i', long = "include", help_heading = "Display Options")]
     pub include_headers: bool,
@@ -123,15 +133,6 @@ pub struct Cli {
     )]
     pub output_format: OutputFormat,
 
-    /// Format output as JSON (shorthand for --output-format json)
-    #[arg(
-        long = "json-output",
-        visible_alias = "jo",
-        global = true,
-        help_heading = "Display Options"
-    )]
-    pub json_output: bool,
-
     /// Write output to file
     #[arg(
         short = 'o',
@@ -141,7 +142,6 @@ pub struct Cli {
     )]
     pub output: Option<String>,
 
-    // HTTP Options
     /// Custom request method
     #[arg(
         short = 'X',
@@ -203,7 +203,6 @@ pub struct Cli {
     #[arg(long = "json", value_name = "JSON", help_heading = "HTTP Options")]
     pub json: Option<String>,
 
-    // RPC Options
     /// Override RPC URL for the request
     #[arg(
         short = 'r',
@@ -218,15 +217,17 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Initialize pget configuration
-    #[command(alias = "i")]
-    Init {
-        /// Force overwrite existing config
-        #[arg(short = 'f', long)]
-        force: bool,
-        /// Skip installing AI tool integrations
+    /// Make an HTTP request with optional payment
+    #[command(alias = "q")]
+    Query(Box<QueryArgs>),
+    /// Log in to your Tempo wallet
+    #[command(alias = "l")]
+    Login,
+    /// Log out and disconnect your wallet
+    Logout {
+        /// Skip confirmation prompt
         #[arg(long)]
-        skip_ai: bool,
+        yes: bool,
     },
     /// Manage configuration
     #[command(alias = "c")]
@@ -269,16 +270,16 @@ pub enum Commands {
     Inspect {
         /// URL to inspect
         url: String,
-    },
-    /// Tempo wallet management (passkey authentication)
-    #[command(alias = "w")]
-    #[command(args_conflicts_with_subcommands = true)]
-    Wallet {
-        #[command(subcommand)]
-        command: Option<WalletCommands>,
         /// Output format
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
+    },
+    /// Tempo wallet management
+    #[command(alias = "w")]
+    #[command(subcommand_required = true, arg_required_else_help = true)]
+    Wallet {
+        #[command(subcommand)]
+        command: WalletCommands,
     },
     /// Manage access keys for Tempo wallet
     #[command(alias = "k")]
@@ -303,8 +304,8 @@ pub enum Commands {
         #[arg(short = 'r', long)]
         refresh: bool,
     },
-    /// Show wallet status (for AI agents)
-    Status {
+    /// Show who you are: wallet, balances, access keys
+    Whoami {
         /// Output format
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
@@ -313,14 +314,6 @@ pub enum Commands {
 
 #[derive(Subcommand, Debug)]
 pub enum WalletCommands {
-    /// Connect a wallet via browser authentication
-    Connect,
-    /// Disconnect the current wallet
-    Disconnect {
-        /// Skip confirmation prompt
-        #[arg(short = 'y', long)]
-        yes: bool,
-    },
     /// Refresh the access key
     Refresh,
 }
@@ -397,35 +390,32 @@ pub enum NetworkCommands {
     },
 }
 
-impl Cli {
-    /// Parse custom headers into (name, value) tuples
+impl QueryArgs {
     pub fn parse_headers(&self) -> Vec<(String, String)> {
         let header_map = crate::http::parse_headers(&self.headers);
         header_map.into_iter().collect()
     }
 
-    /// Get the effective timeout
     pub fn get_timeout(&self) -> Option<u64> {
         self.max_time.or(self.connect_timeout)
     }
 
-    /// Check if verbose output is enabled
-    pub fn is_verbose(&self) -> bool {
-        self.verbosity >= 1
-    }
-
-    /// Check if output should be shown (not quiet)
-    pub fn should_show_output(&self) -> bool {
-        !self.quiet
-    }
-
-    /// Get the effective output format (--json-output flag overrides --output-format)
-    pub fn effective_output_format(&self) -> OutputFormat {
-        if self.json_output {
+    pub fn effective_output_format(&self, json_output: bool) -> OutputFormat {
+        if json_output {
             OutputFormat::Json
         } else {
             self.output_format
         }
+    }
+}
+
+impl Cli {
+    pub fn is_verbose(&self) -> bool {
+        self.verbosity >= 1
+    }
+
+    pub fn should_show_output(&self) -> bool {
+        !self.quiet
     }
 }
 
@@ -434,19 +424,17 @@ pub mod test_utils {
     use super::*;
     use clap::Parser;
 
-    /// Create a Cli instance from command-line arguments for testing.
-    ///
-    /// The "pget" program name is automatically prepended.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let cli = make_cli(&["-d", r#"{"key":"value"}"#, "http://example.com"]);
-    /// assert!(cli.data.is_some());
-    /// ```
     pub fn make_cli(args: &[&str]) -> Cli {
         let mut full_args = vec!["pget"];
         full_args.extend(args);
         Cli::parse_from(full_args)
+    }
+
+    pub fn make_query_args(args: &[&str]) -> QueryArgs {
+        let cli = make_cli(args);
+        match cli.command {
+            Some(Commands::Query(args)) => *args,
+            _ => panic!("Expected Query command"),
+        }
     }
 }
