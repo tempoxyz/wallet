@@ -112,7 +112,7 @@ pub struct QueryArgs {
     )]
     pub no_swap: bool,
 
-    /// Allow insecure operations (skip TLS verification and origin checks)
+    /// Allow insecure operations (skip TLS verification)
     #[arg(short = 'k', long = "insecure", help_heading = "Request Options")]
     pub insecure: bool,
 
