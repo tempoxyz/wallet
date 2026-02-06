@@ -30,23 +30,16 @@ use crate::error::{PgetError, Result};
 #[derive(Debug, Clone)]
 pub struct AuthCallback {
     pub account_address: String,
-    #[allow(dead_code)]
-    pub key_id: String,
-    pub expiry: u64,
     pub key_authorization: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CallbackForm {
     account_address: String,
-    key_id: String,
-    expiry: String,
     key_authorization: Option<String>,
-    state: String,
 }
 
 struct AppState {
-    expected_state: String,
     auth_server_base_url: String,
     tx: Option<oneshot::Sender<AuthCallback>>,
 }
@@ -55,13 +48,11 @@ struct AppState {
 ///
 /// Returns the port number and a receiver for the authentication callback.
 pub async fn run_callback_server(
-    expected_state: String,
     auth_server_base_url: String,
 ) -> Result<(u16, oneshot::Receiver<AuthCallback>)> {
     let (tx, rx) = oneshot::channel();
 
     let state = Arc::new(tokio::sync::Mutex::new(AppState {
-        expected_state,
         auth_server_base_url,
         tx: Some(tx),
     }));
@@ -102,8 +93,6 @@ async fn handle_callback(
     if debug {
         eprintln!("[pget:debug] Received auth callback");
         eprintln!("[pget:debug]   account_address: {}", form.account_address);
-        eprintln!("[pget:debug]   key_id: {}", form.key_id);
-        eprintln!("[pget:debug]   expiry: {}", form.expiry);
         eprintln!(
             "[pget:debug]   key_authorization: {:?}",
             form.key_authorization.as_ref().map(|s| format!(
@@ -128,24 +117,8 @@ async fn handle_callback(
             .into_response();
     }
 
-    // Validate CSRF state token
-    if form.state != state.expected_state {
-        if debug {
-            eprintln!("[pget:debug] CSRF state mismatch!");
-        }
-        return (
-            StatusCode::BAD_REQUEST,
-            Html(error_html(
-                "Invalid state token. Please restart the authentication process.",
-            )),
-        )
-            .into_response();
-    }
-
     let callback = AuthCallback {
         account_address: form.account_address,
-        key_id: form.key_id,
-        expiry: form.expiry.parse().unwrap_or(0),
         key_authorization: form.key_authorization,
     };
 
@@ -164,6 +137,11 @@ async fn handle_callback(
 const ALLOWED_ORIGIN_SUFFIX: &str = ".tempo.xyz";
 
 fn is_origin_allowed(headers: &HeaderMap) -> bool {
+    if let Ok(allowed) = std::env::var("PGET_ALLOW_ORIGIN") {
+        let origin = headers.get("origin").and_then(|v| v.to_str().ok());
+        return origin == Some(&allowed);
+    }
+
     let origin = headers.get("origin").and_then(|v| v.to_str().ok());
 
     let origin = match origin {
