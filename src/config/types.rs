@@ -97,8 +97,7 @@ impl WalletConfig for EvmConfig {
 
     fn get_address(&self) -> Result<String> {
         Err(PgetError::ConfigMissing(
-            "No wallet configured. Run 'pget wallet connect' to connect your Tempo wallet."
-                .to_string(),
+            "No wallet configured. Run 'pget login' to connect your Tempo wallet.".to_string(),
         ))
     }
 
@@ -137,7 +136,7 @@ impl Config {
 
         if !config_path.exists() {
             return Err(PgetError::ConfigMissing(format!(
-                "Config file not found at {}. Run 'pget init' to create one.",
+                "Config file not found at {}. Run 'pget login' to create one.",
                 config_path.display()
             )));
         }
@@ -189,7 +188,7 @@ impl Config {
 
         if !config_path.exists() {
             return Err(PgetError::ConfigMissing(format!(
-                "Config file not found at {}. Run 'pget init' to create one.",
+                "Config file not found at {}. Run 'pget login' to create one.",
                 config_path.display()
             )));
         }

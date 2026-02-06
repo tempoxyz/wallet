@@ -5,7 +5,7 @@
 #   Linux:   ~/.config/pget/config.toml
 #   Windows: %APPDATA%\pget\config.toml
 #
-# Alternatively, run `pget init` to create this file interactively.
+# Alternatively, run `pget login` to create this file interactively.
 
 # =============================================================================
 # EVM Wallet Configuration

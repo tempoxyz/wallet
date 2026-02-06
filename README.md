@@ -31,33 +31,29 @@ A wget-like CLI tool for making HTTP requests with automatic support for payment
 
 ## Example Usage
 
-Use as `pget <URL> [OPTIONS]` or `pget <COMMAND> [OPTIONS]`
+Use as `pget query <URL> [OPTIONS]` (alias `pget q <URL>`) or `pget <COMMAND> [OPTIONS]`
 
 | Example | Command |
 |---------|---------|
-| Initialize configuration (first time setup) | `pget init` or `pget i` |
-| Make a payment request | `pget https://api.example.com/premium-data` |
-| Preview payment without executing | `pget -D https://api.example.com/data` |
-| Require confirmation before payment | `pget -y https://api.example.com/data` |
-| Set maximum payment amount (in atomic units) | `pget -M 10000 https://api.example.com/data` |
-| Filter to specific networks | `pget -n tempo-moderato https://api.example.com/data` |
-| Verbose output with headers | `pget -vi https://api.example.com/data` |
-| Multi-level verbosity | `pget -vvv https://api.example.com/data` |
-| Quiet mode (suppress output) | `pget -q https://api.example.com/data` or `pget -s https://api.example.com/data` |
-| Control color output | `pget --color never https://api.example.com/data` |
-| Save output to file | `pget -o output.json https://api.example.com/data` |
-| JSON output format | `pget --json-output https://api.example.com/data` |
-| Custom headers | `pget -H "Authorization: Bearer token" https://api.example.com/data` |
-| Use specific account by name | `pget -a my-wallet https://api.example.com/data` |
-| Use specific sender address | `pget --from 0x1234... https://api.example.com/data` |
-| Override RPC URL | `pget -r https://my-rpc.com https://api.example.com/data` |
-| Disable automatic token swaps | `pget --no-swap https://api.example.com/data` |
+| Log in (first time setup) | `pget login` or `pget l` |
+| Make a payment request | `pget query https://api.example.com/premium-data` |
+| Preview payment without executing | `pget query -D https://api.example.com/data` |
+| Require confirmation before payment | `pget query -y https://api.example.com/data` |
+| Set maximum payment amount (in atomic units) | `pget query -M 10000 https://api.example.com/data` |
+| Filter to specific networks | `pget query -n tempo-moderato https://api.example.com/data` |
+| Verbose output with headers | `pget query -vi https://api.example.com/data` |
+| Multi-level verbosity | `pget query -vvv https://api.example.com/data` |
+| Quiet mode (suppress output) | `pget query -q https://api.example.com/data` or `pget query -s https://api.example.com/data` |
+| Control color output | `pget query --color never https://api.example.com/data` |
+| Save output to file | `pget query -o output.json https://api.example.com/data` |
+| JSON output format | `pget query --json-output https://api.example.com/data` |
+| Custom headers | `pget query -H "Authorization: Bearer token" https://api.example.com/data` |
+| Override RPC URL | `pget query -r https://my-rpc.com https://api.example.com/data` |
+| Disable automatic token swaps | `pget query --no-swap https://api.example.com/data` |
+| Show wallet status | `pget whoami` |
 | View configuration | `pget config` or `pget c` |
 | View configuration with private keys | `pget config --unsafe-show-private-keys` |
 | Disable password caching | `pget --no-cache config --unsafe-show-private-keys` |
-| List all payment methods (keystores) | `pget method list` or `pget m list` |
-| Create a new payment method | `pget method new my-wallet --generate` |
-| Import an existing private key | `pget method import my-wallet` |
 | Check wallet balance | `pget balance` or `pget b` |
 | Check balance on specific network | `pget balance -n tempo` |
 | Inspect payment requirements | `pget inspect https://api.example.com/data` |
@@ -111,21 +107,21 @@ All keystores use Ethereum keystore v3 format for encrypted storage.
 
 ### Initial Setup
 
-Run `pget init` to connect your wallet:
+Run `pget login` to connect your wallet:
 
 ```bash
-pget init              # Opens browser to connect your Tempo wallet
-pget init --force      # Force reconnect even if wallet already connected
+pget login             # Opens browser to connect your Tempo wallet
 ```
 
 This opens your browser to authenticate with your Tempo wallet using passkeys.
 
 ### Advanced: Local Keystores
 
-For CI/automation or if you prefer local key management:
+For CI/automation or if you prefer local key management, use the `method` command:
 
 ```bash
-pget init --keystore   # Generate or import a local private key
+pget method new my-wallet --generate   # Generate a new local private key
+pget method import my-wallet           # Import an existing private key
 ```
 
 The keystore flow will:
@@ -323,7 +319,7 @@ After creating a keystore, update your configuration file to use it:
 keystore = "/Users/username/.pget/keystores/my-wallet.json"
 ```
 
-Or use `pget init --force` to reconfigure interactively.
+Or use `pget login` to reconfigure interactively.
 
 ### Password Caching
 
@@ -404,21 +400,25 @@ pget provides short aliases for common commands to speed up your workflow:
 
 | Full Command | Alias | Description |
 |--------------|-------|-------------|
-| `pget init` | `pget i` | Initialize configuration |
+| `pget query` | `pget q` | Make an HTTP request with optional payment |
+| `pget login` | `pget l` | Log in to Tempo wallet |
+| `pget logout` | | Log out and disconnect wallet |
 | `pget config` | `pget c` | Manage configuration |
 | `pget version` | `pget v` | Show version information |
-| `pget method` | `pget m` | Manage payment methods |
 | `pget completions` | `pget com` | Generate shell completions |
 | `pget balance` | `pget b` | Check wallet balance |
 | `pget networks` | `pget n` | Manage and inspect networks |
+| `pget wallet` | `pget w` | Tempo wallet management |
+| `pget keys` | `pget k` | Manage access keys |
+| `pget services` | `pget svc` | List available payment services |
 
 **Examples:**
 
 ```bash
-pget i --force           # Same as: pget init --force
+pget q https://example.com # Same as: pget query https://example.com
+pget l                     # Same as: pget login
 pget c --output-format json  # Same as: pget config --output-format json
-pget m list              # Same as: pget method list
-pget com bash            # Same as: pget completions bash
+pget com bash              # Same as: pget completions bash
 ```
 
 ## Display Options
@@ -430,10 +430,10 @@ pget offers flexible output control to suit different use cases and preferences.
 Control how much information pget outputs:
 
 ```bash
-pget <URL>           # Normal output
-pget -v <URL>        # Verbose: show detailed request/response info
-pget -vv <URL>       # Debug: show even more details (reserved for future use)
-pget -vvv <URL>      # Trace: show all possible details (reserved for future use)
+pget query <URL>           # Normal output
+pget query -v <URL>        # Verbose: show detailed request/response info
+pget query -vv <URL>       # Debug: show even more details (reserved for future use)
+pget query -vvv <URL>      # Trace: show all possible details (reserved for future use)
 ```
 
 ### Quiet Mode
@@ -441,9 +441,9 @@ pget -vvv <URL>      # Trace: show all possible details (reserved for future use
 Suppress all non-essential output:
 
 ```bash
-pget -q <URL>        # Quiet mode
-pget -s <URL>        # Short alias for quiet ()
-pget --silent <URL>  # Long alias for quiet
+pget query -q <URL>        # Quiet mode
+pget query -s <URL>        # Short alias for quiet
+pget query --silent <URL>  # Long alias for quiet
 ```
 
 ### Color Output
@@ -451,15 +451,15 @@ pget --silent <URL>  # Long alias for quiet
 Control color in terminal output:
 
 ```bash
-pget --color auto <URL>    # Auto-detect TTY (default)
-pget --color always <URL>  # Always use colors
-pget --color never <URL>   # Never use colors
+pget query --color auto <URL>    # Auto-detect TTY (default)
+pget query --color always <URL>  # Always use colors
+pget query --color never <URL>   # Never use colors
 ```
 
 pget respects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org/)):
 
 ```bash
-NO_COLOR=1 pget <URL>  # Disables colors regardless of --color setting
+NO_COLOR=1 pget query <URL>  # Disables colors regardless of --color setting
 ```
 
 ### Output Formatting
@@ -467,12 +467,12 @@ NO_COLOR=1 pget <URL>  # Disables colors regardless of --color setting
 Format response output in different ways:
 
 ```bash
-pget --output-format text <URL>  # Plain text (default)
-pget --output-format json <URL>  # Pretty-printed JSON
-pget --output-format yaml <URL>  # YAML format
+pget query --output-format text <URL>  # Plain text (default)
+pget query --output-format json <URL>  # Pretty-printed JSON
+pget query --output-format yaml <URL>  # YAML format
 
 # Combined with display options:
-pget -q --color never --output-format json <URL>
+pget query -q --color never --output-format json <URL>
 ```
 
 ## Protocols
@@ -512,7 +512,7 @@ If any step fails, the entire transaction reverts.
 To disable automatic swapping and require exact token balance:
 
 ```bash
-pget --no-swap https://api.example.com/data
+pget query --no-swap https://api.example.com/data
 ```
 
 Or set the environment variable:
@@ -531,7 +531,7 @@ export PGET_NETWORK=tempo-moderato
 export PGET_CONFIRM=true
 export PGET_NO_SWAP=true
 
-pget https://api.example.com/data
+pget query https://api.example.com/data
 ```
 
 ## Documentation
@@ -543,22 +543,23 @@ Run `pget --help` to see all available options:
 ```
 A wget-like tool for HTTP-based payment requests
 
-Usage: pget [OPTIONS] [URL]
-       pget <COMMAND>
+Usage: pget [OPTIONS] [COMMAND]
 
 Commands:
-  init         Initialize pget configuration
+  query        Make an HTTP request with optional payment
+  login        Log in to your Tempo wallet
+  logout       Log out and disconnect your wallet
   config       Manage configuration
   version      Show version information
-  method       Manage payment methods (keystores)
   completions  Generate shell completions script
   balance      Check wallet balance (uses global --network/-n filter)
   networks     Manage and inspect supported networks
   inspect      Inspect payment requirements without executing payment
+  wallet       Tempo wallet management
+  keys         Manage access keys for Tempo wallet
+  services     List available payment services
+  whoami       Show who you are: wallet, balances, access keys
   help         Print this message or the help of the given subcommand(s)
-
-Arguments:
-  [URL]  URL to request
 
 Options:
   -C, --config <PATH>  Configuration file path
@@ -566,21 +567,50 @@ Options:
   -V, --version        Print version
 
 Payment Options:
-  -M, --max-amount <AMOUNT>  Maximum amount willing to pay (in atomic units) [env: PGET_MAX_AMOUNT=]
-  -y, --confirm              Require confirmation before paying [env: PGET_CONFIRM=]
-  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PGET_NETWORK=]
-  -D, --dry-run              Dry run mode - show what would be paid without executing
-      --no-swap              Disable automatic token swaps [env: PGET_NO_SWAP=]
+  -n, --network <NETWORKS>  Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PGET_NETWORK=]
 
 Display Options:
-  -v, --verbosity...            Verbosity level (can be used multiple times: -v, -vv, -vvv)
-      --color <MODE>            Control color output [default: auto] [possible values: auto, always, never]
-  -q, --quiet                   Do not print log messages (aliases: -s, --silent)
+  -v, --verbosity...  Verbosity level (can be used multiple times: -v, -vv, -vvv)
+      --color <MODE>  Control color output [default: auto] [possible values: auto, always, never]
+  -q, --quiet         Do not print log messages (aliases: -s, --silent) [aliases: -s, --silent]
+      --json-output   Format output as JSON (shorthand for --output-format json) [aliases: --jo]
+```
+
+**pget query**
+
+Run `pget query --help` to see request-specific options:
+
+```
+Make an HTTP request with optional payment
+
+Usage: pget query [OPTIONS] <URL>
+
+Arguments:
+  <URL>  URL to request
+
+Options:
+  -C, --config <PATH>  Configuration file path
+  -h, --help           Print help
+
+Payment Options:
+  -M, --max-amount <AMOUNT>  Maximum amount willing to pay (in atomic units) [env: PGET_MAX_AMOUNT=] [aliases: --max]
+  -y, --confirm              Require confirmation before paying [env: PGET_CONFIRM=]
+  -D, --dry-run              Dry run mode - show what would be paid without executing
+      --no-swap              Disable automatic token swaps when you don't have the requested currency [env: PGET_NO_SWAP=]
+  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PGET_NETWORK=]
+
+Request Options:
+  -k, --insecure  Allow insecure operations (skip TLS verification and origin checks)
+
+Display Options:
   -i, --include                 Include HTTP headers in output
   -I, --head                    Show only HTTP headers
       --output-format <FORMAT>  Output format for response [default: text] [possible values: text, json, yaml]
-      --json-output             Format output as JSON (shorthand for --output-format json)
   -o, --output <FILE>           Write output to file
+  -v, --verbosity...            Verbosity level (can be used multiple times: -v, -vv, -vvv)
+      --color <MODE>            Control color output [default: auto] [possible values: auto, always, never]
+  -q, --quiet                   Do not print log messages (aliases: -s, --silent) [aliases: -s, --silent]
+      --json-output             Format output as JSON (shorthand for --output-format json) [aliases: --jo]
 
 HTTP Options:
   -X, --request <METHOD>           Custom request method
@@ -592,26 +622,16 @@ HTTP Options:
   -d, --data <DATA>                POST data
       --json <JSON>                Send JSON data with Content-Type header
 
-Wallet Options:
-      --keystore <PATH>       Path to encrypted keystore file [env: PGET_KEYSTORE=]
-  -a, --account <NAME>        Use keystore by name (without .json extension) [env: PGET_ACCOUNT=]
-      --from <ADDRESS>        Specify sender address (uses configured keystore for this address) [env: PGET_FROM=]
-      --password <PASSWORD>   Password for keystore decryption [env: PGET_PASSWORD=]
-      --password-file <PATH>  Path to file containing keystore password [env: PGET_PASSWORD_FILE=]
-      --no-cache              Disable password caching for keystores
-      --private-key <KEY>     Raw private key (hex, with or without 0x prefix) [env: PGET_PRIVATE_KEY]
-
 RPC Options:
-  -r, --rpc <URL>  Override RPC URL for the request [env: PGET_RPC_URL=]
+  -r, --rpc <URL>  Override RPC URL for the request [env: PGET_RPC_URL=] [aliases: --rpc-url]
 ```
 
-**pget init**
+**pget login**
 
-Initialize or reconfigure your pget setup:
+Log in to your Tempo wallet:
 
 ```bash
-pget init              # Interactive setup
-pget init --force      # Force overwrite existing config
+pget login             # Opens browser to connect your Tempo wallet
 ```
 
 **pget config**

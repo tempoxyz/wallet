@@ -40,7 +40,7 @@ pub async fn list_keys(output_format: OutputFormat, network: Option<&str>) -> Re
                 }
                 _ => {
                     return Err(PgetError::ConfigMissing(
-                        "No wallet connected. Run 'pget wallet connect' first.".to_string(),
+                        "No wallet connected. Run 'pget login' first.".to_string(),
                     ));
                 }
             }
@@ -117,9 +117,7 @@ pub async fn switch_key(
     }
 
     let wallet = creds.active_wallet_mut().ok_or_else(|| {
-        PgetError::ConfigMissing(
-            "No wallet connected. Run 'pget wallet connect' first.".to_string(),
-        )
+        PgetError::ConfigMissing("No wallet connected. Run 'pget login' first.".to_string())
     })?;
 
     if !wallet.switch_key(index) {
@@ -175,9 +173,7 @@ pub async fn delete_key(
     }
 
     let wallet = creds.active_wallet_mut().ok_or_else(|| {
-        PgetError::ConfigMissing(
-            "No wallet connected. Run 'pget wallet connect' first.".to_string(),
-        )
+        PgetError::ConfigMissing("No wallet connected. Run 'pget login' first.".to_string())
     })?;
 
     let key = match wallet.remove_key(index) {

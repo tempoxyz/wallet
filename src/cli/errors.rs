@@ -16,7 +16,7 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
     let msg = err.to_string().to_lowercase();
 
     if (msg.contains("no such file") || msg.contains("not found")) && msg.contains("config") {
-        return Some("Run 'pget init' to create a configuration file.".into());
+        return Some("Run 'pget login' to create a configuration file.".into());
     }
 
     if msg.contains("permission denied") {
@@ -40,7 +40,7 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
 fn get_pget_error_suggestion(err: &PgetError) -> Option<String> {
     match err {
         PgetError::ConfigMissing(_) => {
-            Some("Run 'pget init' to create a configuration file.".into())
+            Some("Run 'pget login' to create a configuration file.".into())
         }
 
         PgetError::NoConfigDir => {
@@ -113,7 +113,7 @@ mod tests {
         let err = PgetError::ConfigMissing("test".into());
         let suggestion = get_pget_error_suggestion(&err);
         assert!(suggestion.is_some());
-        assert!(suggestion.unwrap().contains("pget init"));
+        assert!(suggestion.unwrap().contains("pget login"));
     }
 
     #[test]

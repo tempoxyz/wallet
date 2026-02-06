@@ -17,7 +17,7 @@ use mpay::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChalleng
 use crate::cli::confirm::confirm_web_payment;
 use crate::cli::formatting::format_address_link;
 use crate::cli::hyperlink::hyperlink;
-use crate::cli::Cli;
+use crate::cli::{Cli, QueryArgs};
 use crate::config::{Config, WalletConfig};
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
@@ -83,7 +83,7 @@ pub async fn handle_web_payment_request(
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // SECURITY: Validate origin before proceeding
-    validate_origin(url, &challenge, request_ctx.cli.insecure)?;
+    validate_origin(url, &challenge, request_ctx.query.insecure)?;
 
     // Get network and explorer config early for clickable links
     let network = method_to_network(&challenge.method)
@@ -122,18 +122,23 @@ pub async fn handle_web_payment_request(
 
     validate_challenge(&challenge).context("Challenge validation failed")?;
 
-    validate_web_payment_constraints(&request_ctx.cli, &challenge, &charge_req)?;
+    validate_web_payment_constraints(
+        &request_ctx.query,
+        &request_ctx.cli,
+        &challenge,
+        &charge_req,
+    )?;
 
-    if request_ctx.cli.dry_run {
+    if request_ctx.query.dry_run {
         return handle_web_dry_run(config, &challenge, &charge_req, explorer.as_ref());
     }
 
-    if request_ctx.cli.confirm {
+    if request_ctx.query.confirm {
         confirm_web_payment(config, &challenge, &charge_req, explorer.as_ref())?;
     }
 
     // Use mpay::client::PaymentProvider to create the credential
-    let provider = PgetPaymentProvider::with_no_swap(config.clone(), request_ctx.cli.no_swap);
+    let provider = PgetPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
@@ -162,11 +167,12 @@ pub async fn handle_web_payment_request(
 }
 
 fn validate_web_payment_constraints(
+    query: &QueryArgs,
     cli: &Cli,
     challenge: &PaymentChallenge,
     charge_req: &ChargeRequest,
 ) -> Result<()> {
-    if let Some(ref max_amount) = cli.max_amount {
+    if let Some(ref max_amount) = query.max_amount {
         charge_req
             .validate_max_amount(max_amount)
             .context("Amount validation failed")?;
@@ -259,6 +265,7 @@ fn display_web_receipt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::test_utils::make_query_args;
     use clap::Parser;
     use mpay::{MethodName, PaymentChallenge};
 
@@ -295,6 +302,10 @@ mod tests {
 
     fn mock_challenge(method: MethodName, amount: &str) -> (PaymentChallenge, ChargeRequest) {
         mock_challenge_with_realm(method, amount, "api.example.com")
+    }
+
+    fn default_query() -> QueryArgs {
+        make_query_args(&["query", "http://example.com"])
     }
 
     #[test]
@@ -358,28 +369,31 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_no_constraints() {
+        let query = default_query();
         let cli = Cli::try_parse_from(["pget"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_max_amount_ok() {
-        let cli = Cli::try_parse_from(["pget", "--max-amount", "2000000"]).unwrap();
+        let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
+        let cli = Cli::try_parse_from(["pget"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_max_amount_exceeded() {
-        let cli = Cli::try_parse_from(["pget", "--max-amount", "500000"]).unwrap();
+        let query = make_query_args(&["query", "--max-amount", "500000", "http://example.com"]);
+        let cli = Cli::try_parse_from(["pget"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -391,28 +405,31 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_max_amount_equal() {
-        let cli = Cli::try_parse_from(["pget", "--max-amount", "1000000"]).unwrap();
+        let query = make_query_args(&["query", "--max-amount", "1000000", "http://example.com"]);
+        let cli = Cli::try_parse_from(["pget"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_network_filter_match() {
+        let query = default_query();
         let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
+        let query = default_query();
         let cli = Cli::try_parse_from(["pget", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -424,35 +441,31 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_multiple_networks() {
+        let query = default_query();
         let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_tempo_network() {
+        let query = default_query();
         let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_combined() {
-        let cli = Cli::try_parse_from([
-            "pget",
-            "--max-amount",
-            "2000000",
-            "--network",
-            "tempo-moderato",
-        ])
-        .unwrap();
+        let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
+        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&cli, &challenge, &charge_req);
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 }
