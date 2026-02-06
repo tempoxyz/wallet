@@ -22,6 +22,9 @@ pub struct NetworkWallet {
 
     #[serde(default)]
     pub active_key_index: usize,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_key_authorization: Option<String>,
 }
 
 impl NetworkWallet {
@@ -65,6 +68,17 @@ impl NetworkWallet {
         } else {
             false
         }
+    }
+
+    /// Returns and clears the pending key authorization.
+    pub fn take_pending_key_authorization(&mut self) -> Option<String> {
+        self.pending_key_authorization.take()
+    }
+
+    /// Check if there is a pending key authorization.
+    #[allow(dead_code)]
+    pub fn has_pending_key_authorization(&self) -> bool {
+        self.pending_key_authorization.is_some()
     }
 }
 
@@ -290,5 +304,59 @@ mod tests {
         creds.tempo_moderato = Some(wallet);
 
         assert!(creds.active_wallet().is_none());
+    }
+
+    #[test]
+    fn test_take_pending_key_authorization() {
+        let mut wallet = NetworkWallet {
+            account_address: "0xtest".to_string(),
+            pending_key_authorization: Some("deadbeef".to_string()),
+            ..Default::default()
+        };
+
+        assert!(wallet.has_pending_key_authorization());
+        let auth = wallet.take_pending_key_authorization();
+        assert_eq!(auth, Some("deadbeef".to_string()));
+        assert!(!wallet.has_pending_key_authorization());
+        assert_eq!(wallet.take_pending_key_authorization(), None);
+    }
+
+    #[test]
+    fn test_credentials_serialization_with_pending_key_authorization() {
+        let mut creds = WalletCredentials {
+            network: "tempo".to_string(),
+            ..Default::default()
+        };
+
+        let wallet = NetworkWallet {
+            account_address: "0xtest".to_string(),
+            pending_key_authorization: Some("abcdef1234".to_string()),
+            ..Default::default()
+        };
+        creds.tempo = Some(wallet);
+
+        let toml_str = toml::to_string_pretty(&creds).unwrap();
+        assert!(toml_str.contains("pending_key_authorization = \"abcdef1234\""));
+
+        let parsed: WalletCredentials = toml::from_str(&toml_str).unwrap();
+        assert_eq!(
+            parsed.tempo.unwrap().pending_key_authorization,
+            Some("abcdef1234".to_string())
+        );
+    }
+
+    #[test]
+    fn test_backward_compat_without_pending_key_authorization() {
+        let toml_str = r#"
+network = "tempo-moderato"
+
+[tempo-moderato]
+account_address = "0xtest"
+active_key_index = 0
+"#;
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        let wallet = creds.tempo_moderato.unwrap();
+        assert_eq!(wallet.account_address, "0xtest");
+        assert!(wallet.pending_key_authorization.is_none());
     }
 }

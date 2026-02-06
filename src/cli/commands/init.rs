@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::wallet::WalletManager;
 use anyhow::{Context, Result};
 use std::path::PathBuf;

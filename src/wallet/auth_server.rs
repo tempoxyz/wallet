@@ -1,13 +1,16 @@
 //! Local HTTP callback server for browser authentication.
 //!
 //! This module provides a temporary HTTP server that receives credentials
-//! from the browser after passkey authentication.
+//! from the browser after passkey authentication. The callback returns a
+//! `key_authorization` (hex-encoded `SignedKeyAuthorization` bytes) which
+//! pget stores locally and includes in the first on-chain transaction to
+//! atomically provision the access key and make a payment.
 
 use std::sync::Arc;
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Form, Router,
@@ -19,29 +22,24 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::error::{PgetError, Result};
 
 /// Credentials received from the browser callback.
+///
+/// The `key_authorization` field contains the hex-encoded RLP bytes of a
+/// `SignedKeyAuthorization`. This is stored as a pending authorization and
+/// included in the first on-chain transaction to atomically provision the
+/// access key.
 #[derive(Debug, Clone)]
 pub struct AuthCallback {
-    pub access_key: String,
     pub account_address: String,
-    #[allow(dead_code)]
-    pub key_id: String,
-    pub expiry: u64,
-    #[allow(dead_code)]
-    pub tx_hash: Option<String>,
+    pub key_authorization: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CallbackForm {
-    access_key: String,
     account_address: String,
-    key_id: String,
-    expiry: String,
-    tx_hash: Option<String>,
-    state: String,
+    key_authorization: Option<String>,
 }
 
 struct AppState {
-    expected_state: String,
     auth_server_base_url: String,
     tx: Option<oneshot::Sender<AuthCallback>>,
 }
@@ -50,13 +48,11 @@ struct AppState {
 ///
 /// Returns the port number and a receiver for the authentication callback.
 pub async fn run_callback_server(
-    expected_state: String,
     auth_server_base_url: String,
 ) -> Result<(u16, oneshot::Receiver<AuthCallback>)> {
     let (tx, rx) = oneshot::channel();
 
     let state = Arc::new(tokio::sync::Mutex::new(AppState {
-        expected_state,
         auth_server_base_url,
         tx: Some(tx),
     }));
@@ -88,6 +84,7 @@ async fn health_check() -> &'static str {
 
 async fn handle_callback(
     State(state): State<Arc<tokio::sync::Mutex<AppState>>>,
+    headers: HeaderMap,
     Form(form): Form<CallbackForm>,
 ) -> Response {
     let debug = std::env::var("PGET_DEBUG").is_ok();
@@ -96,36 +93,33 @@ async fn handle_callback(
     if debug {
         eprintln!("[pget:debug] Received auth callback");
         eprintln!("[pget:debug]   account_address: {}", form.account_address);
-        eprintln!("[pget:debug]   key_id: {}", form.key_id);
-        eprintln!("[pget:debug]   expiry: {}", form.expiry);
-        eprintln!("[pget:debug]   tx_hash: {:?}", form.tx_hash);
         eprintln!(
-            "[pget:debug]   access_key: {}...{}",
-            &form.access_key[..std::cmp::min(10, form.access_key.len())],
-            &form.access_key[form.access_key.len().saturating_sub(6)..]
+            "[pget:debug]   key_authorization: {:?}",
+            form.key_authorization.as_ref().map(|s| format!(
+                "{}...{}",
+                &s[..std::cmp::min(10, s.len())],
+                &s[s.len().saturating_sub(6)..]
+            ))
         );
     }
 
-    // Validate CSRF state token
-    if form.state != state.expected_state {
+    if !is_origin_allowed(&headers) {
         if debug {
-            eprintln!("[pget:debug] CSRF state mismatch!");
+            eprintln!(
+                "[pget:debug] Origin rejected: {:?}",
+                headers.get("origin").and_then(|v| v.to_str().ok())
+            );
         }
         return (
-            StatusCode::BAD_REQUEST,
-            Html(error_html(
-                "Invalid state token. Please restart the authentication process.",
-            )),
+            StatusCode::FORBIDDEN,
+            Html(error_html("Request origin not allowed.")),
         )
             .into_response();
     }
 
     let callback = AuthCallback {
-        access_key: form.access_key,
         account_address: form.account_address,
-        key_id: form.key_id,
-        expiry: form.expiry.parse().unwrap_or(0),
-        tx_hash: form.tx_hash,
+        key_authorization: form.key_authorization,
     };
 
     if debug {
@@ -138,6 +132,38 @@ async fn handle_callback(
 
     let success_url = format!("{}/cli-auth?success=true", state.auth_server_base_url);
     Redirect::to(&success_url).into_response()
+}
+
+const ALLOWED_ORIGIN_SUFFIX: &str = ".tempo.xyz";
+
+fn is_origin_allowed(headers: &HeaderMap) -> bool {
+    if let Ok(allowed) = std::env::var("PGET_ALLOW_ORIGIN") {
+        let origin = headers.get("origin").and_then(|v| v.to_str().ok());
+        return origin == Some(&allowed);
+    }
+
+    let origin = headers.get("origin").and_then(|v| v.to_str().ok());
+
+    let origin = match origin {
+        Some(o) if o != "null" => o,
+        _ => return false,
+    };
+
+    let origin_url = match url::Url::parse(origin) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+
+    let host = match origin_url.host_str() {
+        Some(h) => h,
+        None => return false,
+    };
+
+    if origin_url.scheme() != "https" {
+        return false;
+    }
+
+    host == "tempo.xyz" || host.ends_with(ALLOWED_ORIGIN_SUFFIX)
 }
 
 fn error_html(message: &str) -> String {
@@ -185,4 +211,65 @@ fn error_html(message: &str) -> String {
 </body>
 </html>"#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers_with_origin(origin: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("origin", origin.parse().unwrap());
+        h
+    }
+
+    #[test]
+    fn test_allows_tempo_xyz() {
+        assert!(is_origin_allowed(&headers_with_origin("https://tempo.xyz")));
+    }
+
+    #[test]
+    fn test_allows_subdomain() {
+        assert!(is_origin_allowed(&headers_with_origin(
+            "https://app.tempo.xyz"
+        )));
+        assert!(is_origin_allowed(&headers_with_origin(
+            "https://app.moderato.tempo.xyz"
+        )));
+    }
+
+    #[test]
+    fn test_rejects_non_tempo_domain() {
+        assert!(!is_origin_allowed(&headers_with_origin("https://evil.com")));
+        assert!(!is_origin_allowed(&headers_with_origin(
+            "https://nottempo.xyz"
+        )));
+        assert!(!is_origin_allowed(&headers_with_origin(
+            "https://tempo.xyz.evil.com"
+        )));
+    }
+
+    #[test]
+    fn test_rejects_http() {
+        assert!(!is_origin_allowed(&headers_with_origin(
+            "http://app.tempo.xyz"
+        )));
+    }
+
+    #[test]
+    fn test_rejects_null_origin() {
+        assert!(!is_origin_allowed(&headers_with_origin("null")));
+    }
+
+    #[test]
+    fn test_rejects_missing_origin() {
+        assert!(!is_origin_allowed(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn test_rejects_referer_without_origin() {
+        let mut h = HeaderMap::new();
+        h.insert("referer", "https://app.tempo.xyz/cli-auth".parse().unwrap());
+        assert!(!is_origin_allowed(&h));
+    }
 }
