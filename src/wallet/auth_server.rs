@@ -1,7 +1,10 @@
 //! Local HTTP callback server for browser authentication.
 //!
 //! This module provides a temporary HTTP server that receives credentials
-//! from the browser after passkey authentication.
+//! from the browser after passkey authentication. The callback returns a
+//! `key_authorization` (hex-encoded `SignedKeyAuthorization` bytes) which
+//! pget stores locally and includes in the first on-chain transaction to
+//! atomically provision the access key and make a payment.
 
 use std::sync::Arc;
 
@@ -19,24 +22,26 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::error::{PgetError, Result};
 
 /// Credentials received from the browser callback.
+///
+/// The `key_authorization` field contains the hex-encoded RLP bytes of a
+/// `SignedKeyAuthorization`. This is stored as a pending authorization and
+/// included in the first on-chain transaction to atomically provision the
+/// access key.
 #[derive(Debug, Clone)]
 pub struct AuthCallback {
-    pub access_key: String,
     pub account_address: String,
     #[allow(dead_code)]
     pub key_id: String,
     pub expiry: u64,
-    #[allow(dead_code)]
-    pub tx_hash: Option<String>,
+    pub key_authorization: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CallbackForm {
-    access_key: String,
     account_address: String,
     key_id: String,
     expiry: String,
-    tx_hash: Option<String>,
+    key_authorization: Option<String>,
     state: String,
 }
 
@@ -98,11 +103,13 @@ async fn handle_callback(
         eprintln!("[pget:debug]   account_address: {}", form.account_address);
         eprintln!("[pget:debug]   key_id: {}", form.key_id);
         eprintln!("[pget:debug]   expiry: {}", form.expiry);
-        eprintln!("[pget:debug]   tx_hash: {:?}", form.tx_hash);
         eprintln!(
-            "[pget:debug]   access_key: {}...{}",
-            &form.access_key[..std::cmp::min(10, form.access_key.len())],
-            &form.access_key[form.access_key.len().saturating_sub(6)..]
+            "[pget:debug]   key_authorization: {:?}",
+            form.key_authorization.as_ref().map(|s| format!(
+                "{}...{}",
+                &s[..std::cmp::min(10, s.len())],
+                &s[s.len().saturating_sub(6)..]
+            ))
         );
     }
 
@@ -121,11 +128,10 @@ async fn handle_callback(
     }
 
     let callback = AuthCallback {
-        access_key: form.access_key,
         account_address: form.account_address,
         key_id: form.key_id,
         expiry: form.expiry.parse().unwrap_or(0),
-        tx_hash: form.tx_hash,
+        key_authorization: form.key_authorization,
     };
 
     if debug {

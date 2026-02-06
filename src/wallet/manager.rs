@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use alloy::signers::local::PrivateKeySigner;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use url::Url;
@@ -60,54 +61,9 @@ impl WalletManager {
 
     /// Open browser for wallet authentication.
     pub async fn setup_wallet(&self) -> Result<()> {
-        let state: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(32)
-            .map(char::from)
-            .collect();
+        let local_signer = PrivateKeySigner::random();
+        let pub_key = format!("0x{}", hex::encode(local_signer.address()));
 
-        let auth_base_url = self.get_auth_base_url();
-
-        println!("Starting authentication server...");
-        let (port, rx) = run_callback_server(state.clone(), auth_base_url).await?;
-
-        let callback_url = format!("http://127.0.0.1:{}/callback", port);
-
-        let mut auth_url = Url::parse(&self.auth_server_url)
-            .map_err(|e| PgetError::Http(format!("Invalid auth server URL: {}", e)))?;
-
-        auth_url
-            .query_pairs_mut()
-            .append_pair("callback_url", &callback_url)
-            .append_pair("state", &state);
-
-        let url_str = auth_url.to_string();
-
-        println!("Opening browser for authentication...");
-        println!("If the browser doesn't open, visit: {}", url_str);
-
-        if let Err(e) = webbrowser::open(&url_str) {
-            eprintln!("Failed to open browser: {}", e);
-            println!("Please open this URL manually: {}", url_str);
-        }
-
-        println!("\nWaiting for authentication...");
-
-        let callback = tokio::time::timeout(Duration::from_secs(CALLBACK_TIMEOUT_SECS), rx)
-            .await
-            .map_err(|_| PgetError::Http("Authentication timed out".to_string()))?
-            .map_err(|_| {
-                PgetError::Http("Failed to receive authentication callback".to_string())
-            })?;
-
-        self.save_credentials(callback).await?;
-
-        println!("Wallet connected successfully!");
-        Ok(())
-    }
-
-    /// Refresh access key for an existing wallet.
-    pub async fn refresh_access_key(&self, account_address: &str) -> Result<()> {
         let state: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(32)
@@ -128,7 +84,60 @@ impl WalletManager {
             .query_pairs_mut()
             .append_pair("callback_url", &callback_url)
             .append_pair("state", &state)
-            .append_pair("account", account_address);
+            .append_pair("pub_key", &pub_key);
+
+        let url_str = auth_url.to_string();
+
+        println!("Opening browser for authentication...");
+        println!("If the browser doesn't open, visit: {}", url_str);
+
+        if let Err(e) = webbrowser::open(&url_str) {
+            eprintln!("Failed to open browser: {}", e);
+            println!("Please open this URL manually: {}", url_str);
+        }
+
+        println!("\nWaiting for authentication...");
+
+        let callback = tokio::time::timeout(Duration::from_secs(CALLBACK_TIMEOUT_SECS), rx)
+            .await
+            .map_err(|_| PgetError::Http("Authentication timed out".to_string()))?
+            .map_err(|_| {
+                PgetError::Http("Failed to receive authentication callback".to_string())
+            })?;
+
+        self.save_credentials(callback, local_signer).await?;
+
+        println!("Wallet connected successfully!");
+        Ok(())
+    }
+
+    /// Refresh access key for an existing wallet.
+    pub async fn refresh_access_key(&self, account_address: &str) -> Result<()> {
+        let local_signer = PrivateKeySigner::random();
+        let pub_key = format!("0x{}", hex::encode(local_signer.address()));
+
+        let state: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(32)
+            .map(char::from)
+            .collect();
+
+        let auth_base_url = self.get_auth_base_url();
+
+        println!("Starting authentication server...");
+        let (port, rx) = run_callback_server(state.clone(), auth_base_url).await?;
+
+        let callback_url = format!("http://127.0.0.1:{}/callback", port);
+
+        let mut auth_url = Url::parse(&self.auth_server_url)
+            .map_err(|e| PgetError::Http(format!("Invalid auth server URL: {}", e)))?;
+
+        auth_url
+            .query_pairs_mut()
+            .append_pair("callback_url", &callback_url)
+            .append_pair("state", &state)
+            .append_pair("account", account_address)
+            .append_pair("pub_key", &pub_key);
 
         let url_str = auth_url.to_string();
 
@@ -149,18 +158,23 @@ impl WalletManager {
                 PgetError::Http("Failed to receive authentication callback".to_string())
             })?;
 
-        self.save_access_key(callback).await?;
+        self.save_access_key(callback, local_signer).await?;
 
         println!("Access key refreshed successfully!");
         Ok(())
     }
 
     /// Save authentication credentials.
-    async fn save_credentials(&self, callback: AuthCallback) -> Result<()> {
+    async fn save_credentials(
+        &self,
+        callback: AuthCallback,
+        local_signer: PrivateKeySigner,
+    ) -> Result<()> {
         let mut creds = WalletCredentials::load()?;
         creds.network = self.network.clone();
 
-        let access_key = AccessKey::new(callback.access_key)
+        let private_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
+        let access_key = AccessKey::new(private_key_hex)
             .with_expiry(callback.expiry)
             .with_label("Default".to_string());
 
@@ -168,6 +182,7 @@ impl WalletManager {
             account_address: callback.account_address,
             access_keys: vec![],
             active_key_index: 0,
+            pending_key_authorization: callback.key_authorization,
         };
 
         wallet.add_key(access_key, true);
@@ -178,22 +193,29 @@ impl WalletManager {
     }
 
     /// Save a new access key to an existing wallet.
-    async fn save_access_key(&self, callback: AuthCallback) -> Result<()> {
+    async fn save_access_key(
+        &self,
+        callback: AuthCallback,
+        local_signer: PrivateKeySigner,
+    ) -> Result<()> {
         let mut creds = WalletCredentials::load()?;
         creds.network = self.network.clone();
 
+        let private_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
         let label = format!("Key {}", chrono_label());
-        let access_key = AccessKey::new(callback.access_key)
+        let access_key = AccessKey::new(private_key_hex)
             .with_expiry(callback.expiry)
             .with_label(label);
 
         if let Some(wallet) = creds.active_wallet_mut() {
             wallet.add_key(access_key, true);
+            wallet.pending_key_authorization = callback.key_authorization;
         } else {
             let mut wallet = NetworkWallet {
                 account_address: callback.account_address,
                 access_keys: vec![],
                 active_key_index: 0,
+                pending_key_authorization: callback.key_authorization,
             };
             wallet.add_key(access_key, true);
             creds.set_wallet(wallet);
