@@ -6,7 +6,7 @@
 use crate::http::{has_header, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
 use anyhow::{bail, Result};
 
-use crate::cli::Cli;
+use crate::cli::{Cli, QueryArgs};
 
 /// Maximum request body size (100 MB)
 const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
@@ -36,33 +36,37 @@ pub struct RequestContext {
     pub method: HttpMethod,
     pub body: Option<Vec<u8>>,
     pub cli: Cli,
+    pub query: QueryArgs,
 }
 
 impl RequestContext {
-    /// Create a new request context from CLI arguments
-    pub fn new(cli: Cli) -> Result<Self> {
-        // Validate header sizes
-        for header in &cli.headers {
+    /// Create a new request context from CLI and query arguments
+    pub fn new(cli: Cli, query: QueryArgs) -> Result<Self> {
+        for header in &query.headers {
             validate_header_size(header)?;
         }
 
-        // Validate body size
-        if let Some(ref data) = cli.data {
+        if let Some(ref data) = query.data {
             validate_body_size(data)?;
         }
-        if let Some(ref json) = cli.json {
+        if let Some(ref json) = query.json {
             validate_body_size(json)?;
         }
 
-        let (method, body) = get_request_method_and_body(&cli);
-        Ok(Self { method, body, cli })
+        let (method, body) = get_request_method_and_body(&query);
+        Ok(Self {
+            method,
+            body,
+            cli,
+            query,
+        })
     }
 
     /// Build an HTTP client with the configured options
     pub fn build_client(&self, extra_headers: Option<&[(String, String)]>) -> Result<HttpClient> {
-        let mut headers = self.cli.parse_headers();
+        let mut headers = self.query.parse_headers();
 
-        if should_auto_add_json_content_type(&self.cli) {
+        if should_auto_add_json_content_type(&self.query) {
             headers.push(("Content-Type".to_string(), "application/json".to_string()));
         }
 
@@ -72,15 +76,15 @@ impl RequestContext {
 
         let mut builder = HttpClientBuilder::new()
             .verbose(self.cli.is_verbose())
-            .follow_redirects(self.cli.follow_redirects)
-            .insecure(self.cli.insecure)
+            .follow_redirects(self.query.follow_redirects)
+            .insecure(self.query.insecure)
             .headers(&headers);
 
-        if let Some(timeout) = self.cli.get_timeout() {
+        if let Some(timeout) = self.query.get_timeout() {
             builder = builder.timeout(timeout);
         }
 
-        if let Some(user_agent) = &self.cli.user_agent {
+        if let Some(user_agent) = &self.query.user_agent {
             builder = builder.user_agent(user_agent);
         }
 
@@ -100,17 +104,15 @@ impl RequestContext {
     }
 }
 
-/// Determine the HTTP method and body based on CLI flags
-fn get_request_method_and_body(cli: &Cli) -> (HttpMethod, Option<Vec<u8>>) {
-    // Get the body from --data or --json
-    let body = cli
+/// Determine the HTTP method and body based on query arguments
+fn get_request_method_and_body(query: &QueryArgs) -> (HttpMethod, Option<Vec<u8>>) {
+    let body = query
         .json
         .as_ref()
-        .or(cli.data.as_ref())
+        .or(query.data.as_ref())
         .map(|s| s.as_bytes().to_vec());
 
-    // Determine method: explicit -X flag, or POST if body present, or GET
-    let method = cli
+    let method = query
         .method
         .as_ref()
         .map(HttpMethod::from)
@@ -135,16 +137,15 @@ fn is_json_data(data: &str) -> bool {
 /// Returns true if:
 /// - The user hasn't already provided a Content-Type header, AND
 /// - Either the `--json` flag is used, OR the `-d` data looks like JSON
-fn should_auto_add_json_content_type(cli: &Cli) -> bool {
-    // Don't add Content-Type if the user already provided one
-    if has_header(&cli.headers, "content-type") {
+fn should_auto_add_json_content_type(query: &QueryArgs) -> bool {
+    if has_header(&query.headers, "content-type") {
         return false;
     }
 
-    if cli.json.is_some() {
+    if query.json.is_some() {
         return true;
     }
-    if let Some(data) = &cli.data {
+    if let Some(data) = &query.data {
         return is_json_data(data);
     }
     false
@@ -153,7 +154,7 @@ fn should_auto_add_json_content_type(cli: &Cli) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::test_utils::make_cli;
+    use crate::cli::test_utils::make_query_args;
 
     #[test]
     fn test_is_json_data() {
@@ -166,80 +167,86 @@ mod tests {
 
     #[test]
     fn test_should_auto_add_json_content_type_with_json_flag() {
-        let cli = make_cli(&["--json", r#"{"key":"value"}"#, "http://example.com"]);
-        assert!(should_auto_add_json_content_type(&cli));
+        let query = make_query_args(&[
+            "query",
+            "--json",
+            r#"{"key":"value"}"#,
+            "http://example.com",
+        ]);
+        assert!(should_auto_add_json_content_type(&query));
     }
 
     #[test]
     fn test_should_auto_add_json_content_type_with_json_data() {
-        let cli = make_cli(&["-d", r#"{"key":"value"}"#, "http://example.com"]);
-        assert!(should_auto_add_json_content_type(&cli));
+        let query = make_query_args(&["query", "-d", r#"{"key":"value"}"#, "http://example.com"]);
+        assert!(should_auto_add_json_content_type(&query));
     }
 
     #[test]
     fn test_should_not_auto_add_when_user_provides_content_type() {
-        // User explicitly provides Content-Type header - should NOT auto-add
-        let cli = make_cli(&[
+        let query = make_query_args(&[
+            "query",
             "-H",
             "Content-Type: application/json",
             "-d",
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_auto_add_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&query));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_case_insensitive() {
-        // Test case-insensitive matching
-        let cli = make_cli(&[
+        let query = make_query_args(&[
+            "query",
             "-H",
             "content-type: application/json",
             "-d",
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_auto_add_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&query));
 
-        let cli = make_cli(&[
+        let query = make_query_args(&[
+            "query",
             "-H",
             "CONTENT-TYPE: application/json",
             "-d",
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_auto_add_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&query));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_with_different_type() {
-        // User provides a different Content-Type - should respect their choice
-        let cli = make_cli(&[
+        let query = make_query_args(&[
+            "query",
             "-H",
             "Content-Type: text/plain",
             "-d",
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(!should_auto_add_json_content_type(&cli));
+        assert!(!should_auto_add_json_content_type(&query));
     }
 
     #[test]
     fn test_should_auto_add_content_type_with_other_headers() {
-        // Other headers don't affect the decision
-        let cli = make_cli(&[
+        let query = make_query_args(&[
+            "query",
             "-H",
             "Authorization: Bearer token",
             "-d",
             r#"{"key":"value"}"#,
             "http://example.com",
         ]);
-        assert!(should_auto_add_json_content_type(&cli));
+        assert!(should_auto_add_json_content_type(&query));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_for_plain_data() {
-        let cli = make_cli(&["-d", "plain text", "http://example.com"]);
-        assert!(!should_auto_add_json_content_type(&cli));
+        let query = make_query_args(&["query", "-d", "plain text", "http://example.com"]);
+        assert!(!should_auto_add_json_content_type(&query));
     }
 }

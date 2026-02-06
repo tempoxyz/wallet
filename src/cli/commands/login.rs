@@ -5,12 +5,10 @@ use std::path::PathBuf;
 
 const PGET_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/pget/SKILL.md");
 
-/// Run init - Tempo wallet connect via passkey auth
-pub async fn run_init(force: bool, skip_ai: bool) -> Result<()> {
-    let _ = force;
+pub async fn run_login(network: Option<&str>) -> Result<()> {
     println!("Connecting your Tempo wallet...");
 
-    let manager = WalletManager::new(None);
+    let manager = WalletManager::new(network);
     manager.setup_wallet().await?;
 
     let config_path = Config::default_config_path()?;
@@ -21,11 +19,9 @@ pub async fn run_init(force: bool, skip_ai: bool) -> Result<()> {
 
     println!("\nTempo wallet connected! You can now make HTTP payments.");
 
-    if !skip_ai {
-        match install_ai_integrations() {
-            Ok(path) => println!("AI integrations installed to: {}", path.display()),
-            Err(e) => eprintln!("Warning: Failed to install AI integrations: {e}"),
-        }
+    match install_ai_integrations() {
+        Ok(path) => println!("AI integrations installed to: {}", path.display()),
+        Err(e) => eprintln!("Warning: Failed to install AI integrations: {e}"),
     }
 
     Ok(())

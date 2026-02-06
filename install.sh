@@ -138,7 +138,7 @@ main() {
     echo "Installation complete!"
     echo ""
     echo "Get started:"
-    echo "  pget init          # Configure your wallets"
+    echo "  pget login         # Connect your Tempo wallet"
     echo "  pget --help        # Show all options"
     echo ""
     echo "Documentation:"

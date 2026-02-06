@@ -42,7 +42,7 @@ When the user explicitly says "ask the oracle" to check a value, run `pget` agai
 
 Example:
 ```bash
-pget -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+pget -v query -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements

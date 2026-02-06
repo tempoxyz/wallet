@@ -58,16 +58,12 @@ fn test_completions_alias() {
 }
 
 #[test]
-fn test_init_alias() {
-    // Note: init fails without --force when config exists, but the alias should work
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .arg("i")
-        .arg("--help")
+fn test_login_alias() {
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
+        .args(["l", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialize pget configuration"));
+        .stdout(predicate::str::contains("Log in"));
 }
 
 #[test]
@@ -197,7 +193,7 @@ fn test_help_has_display_options_section() {
 #[test]
 fn test_help_has_http_options_section() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .arg("--help")
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("HTTP Options:"));
@@ -206,7 +202,7 @@ fn test_help_has_http_options_section() {
 #[test]
 fn test_help_has_request_options_section() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .arg("--help")
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Request Options:"));
@@ -215,7 +211,7 @@ fn test_help_has_request_options_section() {
 #[test]
 fn test_insecure_flag_short() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .arg("--help")
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("-k, --insecure"));
@@ -224,11 +220,16 @@ fn test_insecure_flag_short() {
 #[test]
 fn test_help_shows_env_vars() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .arg("--help")
+        .args(["query", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("[env: PGET_MAX_AMOUNT=]"))
-        .stdout(predicate::str::contains("[env: PGET_CONFIRM=]"))
+        .stdout(predicate::str::contains("[env: PGET_CONFIRM=]"));
+
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
+        .arg("--help")
+        .assert()
+        .success()
         .stdout(predicate::str::contains("[env: PGET_NETWORK=]"));
 }
 
@@ -238,7 +239,12 @@ fn test_help_shows_default_values() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("[default: auto]"))
+        .stdout(predicate::str::contains("[default: auto]"));
+
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
+        .args(["query", "--help"])
+        .assert()
+        .success()
         .stdout(predicate::str::contains("[default: text]"));
 }
 
@@ -552,22 +558,31 @@ fn test_version_alias_v() {
 }
 
 #[test]
-fn test_init_help() {
+fn test_login_help() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .args(["init", "--help"])
+        .args(["login", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialize pget configuration"))
-        .stdout(predicate::str::contains("--force"));
+        .stdout(predicate::str::contains("Log in"));
 }
 
 #[test]
-fn test_init_alias_help() {
+fn test_login_alias_help() {
     Command::new(assert_cmd::cargo::cargo_bin!("pget"))
-        .args(["i", "--help"])
+        .args(["l", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialize pget configuration"));
+        .stdout(predicate::str::contains("Log in"));
+}
+
+#[test]
+fn test_logout_help() {
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
+        .args(["logout", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Log out"))
+        .stdout(predicate::str::contains("--yes"));
 }
 
 #[test]
@@ -676,13 +691,47 @@ fn test_main_help_lists_all_commands() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("init"))
+        .stdout(predicate::str::contains("query"))
+        .stdout(predicate::str::contains("login"))
+        .stdout(predicate::str::contains("logout"))
         .stdout(predicate::str::contains("config"))
         .stdout(predicate::str::contains("completions"))
         .stdout(predicate::str::contains("balance"))
         .stdout(predicate::str::contains("networks"))
         .stdout(predicate::str::contains("inspect"))
+        .stdout(predicate::str::contains("whoami"))
         .stdout(predicate::str::contains("version"));
+}
+
+#[test]
+fn test_query_alias() {
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
+        .args(["q", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("HTTP request"));
+}
+
+#[test]
+fn test_query_help() {
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
+        .args(["query", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("HTTP request"))
+        .stdout(predicate::str::contains("URL"))
+        .stdout(predicate::str::contains("Payment Options:"))
+        .stdout(predicate::str::contains("HTTP Options:"));
+}
+
+#[test]
+fn test_whoami_help() {
+    Command::new(assert_cmd::cargo::cargo_bin!("pget"))
+        .args(["whoami", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("wallet"))
+        .stdout(predicate::str::contains("--output-format"));
 }
 
 #[test]
