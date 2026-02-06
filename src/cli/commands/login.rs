@@ -38,17 +38,14 @@ fn install_ai_integrations() -> Result<Option<PathBuf>> {
 
     let pget_skill_dir = skills_dir.join("pget");
     let skill_path = pget_skill_dir.join("SKILL.md");
-
-    if skill_path.exists() {
-        if let Ok(existing) = std::fs::read_to_string(&skill_path) {
-            if existing == PGET_SKILL_CONTENT {
-                return Ok(None);
-            }
-        }
-    }
+    let is_new = !skill_path.exists();
 
     std::fs::create_dir_all(&pget_skill_dir).context("Failed to create Claude skills directory")?;
     std::fs::write(&skill_path, PGET_SKILL_CONTENT).context("Failed to write SKILL.md")?;
 
-    Ok(Some(skill_path))
+    if is_new {
+        Ok(Some(skill_path))
+    } else {
+        Ok(None)
+    }
 }
