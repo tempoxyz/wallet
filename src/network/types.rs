@@ -71,7 +71,7 @@ pub struct TokenConfig {
 /// Gas configuration for EVM networks.
 #[derive(Debug, Clone, Copy)]
 pub struct GasConfig {
-    /// Default gas limit for token transfers (100,000 gas).
+    /// Default gas limit for token transfers (500,000 gas).
     pub gas_limit: u64,
     /// Maximum priority fee per gas in wei (1 gwei).
     pub max_priority_fee_per_gas: u64,
@@ -82,7 +82,7 @@ pub struct GasConfig {
 impl GasConfig {
     /// Default gas configuration for Tempo networks.
     pub const DEFAULT: Self = Self {
-        gas_limit: 300_000,
+        gas_limit: 500_000,
         max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
         max_fee_per_gas: 20_000_000_000,         // 20 gwei
     };
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_gas_config() {
         let gas = Network::Tempo.gas_config();
-        assert_eq!(gas.gas_limit, 300_000);
+        assert_eq!(gas.gas_limit, 500_000);
         assert_eq!(gas.max_priority_fee_per_gas, 1_000_000_000);
         assert_eq!(gas.max_fee_per_gas, 20_000_000_000);
     }

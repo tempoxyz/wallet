@@ -23,7 +23,7 @@ use tempo_primitives::transaction::{
 };
 
 /// Gas limit for swap transactions (approve + swap + transfer).
-pub const SWAP_GAS_LIMIT: u64 = 300_000;
+pub const SWAP_GAS_LIMIT: u64 = 500_000;
 
 /// Parse a hex-encoded memo string to a 32-byte array.
 fn parse_memo(memo_str: Option<String>) -> Option<[u8; 32]> {
@@ -597,8 +597,8 @@ mod tests {
 
     #[test]
     fn test_swap_gas_limit_constant() {
-        // Verify gas limit is 300,000 for swap transactions
-        assert_eq!(SWAP_GAS_LIMIT, 300_000);
+        // Verify gas limit is 500,000 for swap transactions
+        assert_eq!(SWAP_GAS_LIMIT, 500_000);
         // Should be at least the default gas limit
         assert!(SWAP_GAS_LIMIT >= GasConfig::DEFAULT.gas_limit);
     }
