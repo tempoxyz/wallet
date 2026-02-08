@@ -367,10 +367,12 @@ pub struct SwapSource {
 
 /// Find a token with sufficient balance (and spending limit) to swap from.
 ///
-/// This queries balances of all supported stablecoins (except the required one)
-/// in parallel and returns the first one with sufficient balance (including slippage).
-/// When `keychain_info` is provided, also checks that the key's spending limit
-/// on the candidate token is sufficient.
+/// When `keychain_info` is provided, queries spending limits first (in parallel),
+/// filters and sorts candidates by limit descending, then checks balances only
+/// for candidates with sufficient limit. This minimizes on-chain balance queries.
+///
+/// When no keychain is used, queries all balances in parallel and returns the
+/// first token with sufficient balance (including slippage).
 ///
 /// # Arguments
 /// * `config` - Configuration for RPC access
@@ -381,8 +383,8 @@ pub struct SwapSource {
 /// * `keychain_info` - Optional (wallet_address, key_address) for spending limit checks
 ///
 /// # Returns
-/// * `Ok(Some(SwapSource))` - Found a token with sufficient balance
-/// * `Ok(None)` - No token has sufficient balance
+/// * `Ok(Some(SwapSource))` - Found a token with sufficient balance and limit
+/// * `Ok(None)` - No token qualifies
 pub async fn find_swap_source(
     config: &Config,
     network: Network,
@@ -409,52 +411,75 @@ pub async fn find_swap_source(
         })
         .collect();
 
-    let balance_futures: Vec<_> = tokens_to_check
-        .iter()
-        .map(|(token_address, _symbol)| {
-            query_token_balance(config, network, *token_address, account)
-        })
-        .collect();
-
-    let results = join_all(balance_futures).await;
-
-    let provider = if keychain_info.is_some() {
+    if let Some((wallet_addr, key_addr)) = keychain_info {
         let network_info = config.resolve_network(network.as_str())?;
-        Some(
+        let provider =
             ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
                 PgetError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
-            })?),
-        )
-    } else {
-        None
-    };
+            })?);
 
-    for ((token_address, symbol), result) in tokens_to_check.into_iter().zip(results) {
-        match result {
-            Ok(balance) => {
-                if balance < amount_with_slippage {
-                    continue;
+        let limit_futures: Vec<_> = tokens_to_check
+            .iter()
+            .map(|(token_address, _)| {
+                query_key_spending_limit(&provider, wallet_addr, key_addr, *token_address)
+            })
+            .collect();
+
+        let limits = join_all(limit_futures).await;
+
+        let mut candidates: Vec<_> = tokens_to_check
+            .into_iter()
+            .zip(limits)
+            .filter_map(|((token_address, symbol), limit)| {
+                let effective = match limit {
+                    None => U256::MAX,
+                    Some(l) if l >= amount_with_slippage => l,
+                    Some(_) => return None,
+                };
+                Some((token_address, symbol, effective))
+            })
+            .collect();
+
+        candidates.sort_by(|a, b| b.2.cmp(&a.2));
+
+        for (token_address, symbol, _) in candidates {
+            match query_token_balance(config, network, token_address, account).await {
+                Ok(balance) if balance >= amount_with_slippage => {
+                    return Ok(Some(SwapSource {
+                        token_address,
+                        balance,
+                        symbol,
+                    }));
                 }
-
-                if let (Some((wallet_addr, key_addr)), Some(ref prov)) = (keychain_info, &provider)
-                {
-                    let limit =
-                        query_key_spending_limit(prov, wallet_addr, key_addr, token_address).await;
-                    let capacity = effective_capacity(balance, limit);
-                    if capacity < amount_with_slippage {
-                        eprintln!("Skipping {} swap source: spending limit too low", symbol);
-                        continue;
-                    }
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Warning: Failed to query {} balance: {}", symbol, e);
                 }
-
-                return Ok(Some(SwapSource {
-                    token_address,
-                    balance,
-                    symbol,
-                }));
             }
-            Err(e) => {
-                eprintln!("Warning: Failed to query {} balance: {}", symbol, e);
+        }
+    } else {
+        let balance_futures: Vec<_> = tokens_to_check
+            .iter()
+            .map(|(token_address, _symbol)| {
+                query_token_balance(config, network, *token_address, account)
+            })
+            .collect();
+
+        let results = join_all(balance_futures).await;
+
+        for ((token_address, symbol), result) in tokens_to_check.into_iter().zip(results) {
+            match result {
+                Ok(balance) if balance >= amount_with_slippage => {
+                    return Ok(Some(SwapSource {
+                        token_address,
+                        balance,
+                        symbol,
+                    }));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Warning: Failed to query {} balance: {}", symbol, e);
+                }
             }
         }
     }
