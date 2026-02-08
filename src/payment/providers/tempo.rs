@@ -9,7 +9,8 @@ use crate::config::Config;
 use crate::error::{PgetError, Result, ResultExt, SigningContext};
 use crate::network::{GasConfig, Network};
 use crate::payment::abi::{
-    encode_approve, encode_swap_exact_amount_out, encode_transfer, DEX_ADDRESS,
+    encode_approve, encode_swap_exact_amount_out, encode_transfer, IAccountKeychain, DEX_ADDRESS,
+    KEYCHAIN_ADDRESS,
 };
 use crate::payment::mpay_ext::TempoChargeExt;
 use crate::wallet::signer::load_signer_with_priority;
@@ -89,7 +90,6 @@ struct PaymentSetupContext {
     signer: PrivateKeySigner,
     wallet_address: Option<Address>,
     key_authorization: Option<SignedKeyAuthorization>,
-    has_pending_key_auth: bool,
     from: Address,
     chain_id: u64,
     nonce: u64,
@@ -170,7 +170,6 @@ impl PaymentSetupContext {
 
         let nonce = provider
             .get_transaction_count(from)
-            .pending()
             .await
             .with_signing_context(SigningContext {
                 network: Some(network_name.to_string()),
@@ -178,14 +177,49 @@ impl PaymentSetupContext {
                 operation: "get_nonce",
             })?;
 
-        let has_pending_key_auth = key_authorization.is_some();
+        let pending_nonce = provider
+            .get_transaction_count(from)
+            .pending()
+            .await
+            .with_signing_context(SigningContext {
+                network: Some(network_name.to_string()),
+                address: Some(format!("{:#x}", from)),
+                operation: "get_pending_nonce",
+            })?;
+
+        let gas_config = if pending_nonce > nonce {
+            eprintln!(
+                "Pending transaction detected at nonce {} — bumping gas fees",
+                nonce
+            );
+            gas_config.bumped()
+        } else {
+            gas_config
+        };
+
+        // If there's a pending key authorization, check if the key is already
+        // authorized on-chain. If so, clear it locally and skip inclusion.
+        let key_authorization = if key_authorization.is_some() {
+            if let Some(wallet_addr) = wallet_address {
+                let key_address = signer.address();
+                if is_key_authorized_on_chain(&provider, wallet_addr, key_address).await {
+                    clear_pending_key_authorization();
+                    None
+                } else {
+                    key_authorization
+                }
+            } else {
+                key_authorization
+            }
+        } else {
+            None
+        };
 
         Ok(Self {
             charge_req,
             signer,
             wallet_address,
             key_authorization,
-            has_pending_key_auth,
             from,
             chain_id,
             nonce,
@@ -223,10 +257,6 @@ pub async fn create_tempo_payment(
         ctx.wallet_address,
         ctx.key_authorization,
     )?;
-
-    if ctx.has_pending_key_auth {
-        clear_pending_key_authorization();
-    }
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
@@ -270,10 +300,6 @@ pub async fn create_tempo_payment_with_swap(
         ctx.wallet_address,
         ctx.key_authorization,
     )?;
-
-    if ctx.has_pending_key_auth {
-        clear_pending_key_authorization();
-    }
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
@@ -331,7 +357,67 @@ fn build_swap_calls(
     ])
 }
 
+/// Check if an access key is already authorized on-chain via the keychain precompile.
+///
+/// Queries `IAccountKeychain.getKey(account, keyId)` and returns `true` if the key
+/// exists, is not revoked, and has not expired.
+async fn is_key_authorized_on_chain<P: alloy::providers::Provider>(
+    provider: &P,
+    wallet_address: Address,
+    key_address: Address,
+) -> bool {
+    let keychain = IAccountKeychain::new(KEYCHAIN_ADDRESS, provider);
+    let Ok(result) = keychain.getKey(wallet_address, key_address).call().await else {
+        return false;
+    };
+
+    if result.expiry == 0 || result.isRevoked {
+        return false;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    result.expiry > now
+}
+
+/// Query the key's remaining spending limit for a token.
+///
+/// Returns `None` if the key doesn't enforce limits (unlimited spending),
+/// or `Some(remaining)` if limits are enforced. Returns `None` on query failure
+/// (e.g. key not yet provisioned with a pending authorization).
+pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
+    provider: &P,
+    wallet_address: Address,
+    key_address: Address,
+    token: Address,
+) -> Option<U256> {
+    let keychain = IAccountKeychain::new(KEYCHAIN_ADDRESS, provider);
+
+    let key_info = keychain
+        .getKey(wallet_address, key_address)
+        .call()
+        .await
+        .ok()?;
+
+    if !key_info.enforceLimits {
+        return None;
+    }
+
+    let result = keychain
+        .getRemainingLimit(wallet_address, key_address, token)
+        .call()
+        .await
+        .ok()?;
+
+    Some(result)
+}
+
 /// Clear the pending key authorization from wallet.toml.
+///
+/// Called after confirming the access key is already provisioned on-chain.
 fn clear_pending_key_authorization() {
     use crate::wallet::credentials::WalletCredentials;
     if let Ok(mut creds) = WalletCredentials::load() {

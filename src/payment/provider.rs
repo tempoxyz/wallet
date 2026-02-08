@@ -7,7 +7,9 @@ use crate::config::Config;
 use crate::error::{PgetError, Result};
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
-use crate::payment::providers::tempo::{SwapInfo, BPS_DENOMINATOR, SWAP_SLIPPAGE_BPS};
+use crate::payment::providers::tempo::{
+    query_key_spending_limit, SwapInfo, BPS_DENOMINATOR, SWAP_SLIPPAGE_BPS,
+};
 use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
@@ -117,9 +119,6 @@ impl PgetPaymentProvider {
             create_tempo_payment, create_tempo_payment_with_swap,
         };
 
-        // Parse the charge request to get required token and amount.
-        // Note: We use MppError::Http for parse errors since mpay doesn't expose a dedicated
-        // parse error variant. This is a workaround until mpay adds proper error types.
         let charge_req: mpay::ChargeRequest = challenge
             .request
             .decode()
@@ -132,10 +131,10 @@ impl PgetPaymentProvider {
             .amount_u256()
             .map_err(|e| mpay::MppError::Http(format!("Invalid amount: {}", e)))?;
 
-        // Load signer from Tempo wallet credentials
         let signer_ctx =
             load_signer_with_priority().map_err(|e| mpay::MppError::Http(e.to_string()))?;
 
+        let key_address = signer_ctx.signer.address();
         let wallet_address = signer_ctx
             .wallet_address
             .as_ref()
@@ -143,7 +142,7 @@ impl PgetPaymentProvider {
             .transpose()
             .map_err(|e| mpay::MppError::Http(format!("Invalid wallet address: {}", e)))?;
 
-        let from = wallet_address.unwrap_or_else(|| signer_ctx.signer.address());
+        let from = wallet_address.unwrap_or(key_address);
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
             mpay::MppError::UnsupportedPaymentMethod(format!(
@@ -154,11 +153,49 @@ impl PgetPaymentProvider {
         let network = Network::from_str(network_name)
             .map_err(|e| mpay::MppError::Http(format!("Unknown network: {}", e)))?;
 
+        let token_config = network.token_config_by_address(&format!("{:#x}", required_token));
+        let token_symbol = token_config
+            .map(|t| t.currency.symbol.to_string())
+            .unwrap_or_else(|| format!("{:#x}", required_token));
+        let token_decimals = token_config.map(|t| t.currency.decimals).unwrap_or(6);
+
         let balance = query_token_balance(&self.config, network, required_token, from)
             .await
             .map_err(|e| mpay::MppError::Http(e.to_string()))?;
 
-        if balance >= required_amount {
+        let spending_limit = if let Some(wallet_addr) = wallet_address {
+            let network_info = self
+                .config
+                .resolve_network(network_name)
+                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+            let provider = ProviderBuilder::new().connect_http(
+                network_info
+                    .rpc_url
+                    .parse()
+                    .map_err(|e| mpay::MppError::Http(format!("Invalid RPC URL: {}", e)))?,
+            );
+
+            let limit =
+                query_key_spending_limit(&provider, wallet_addr, key_address, required_token).await;
+
+            if let Some(remaining) = limit {
+                if remaining < balance {
+                    eprintln!(
+                        "Key spending limit ({} {}) is lower than wallet balance",
+                        format_u256_with_decimals(remaining, token_decimals),
+                        token_symbol,
+                    );
+                }
+            }
+
+            limit
+        } else {
+            None
+        };
+
+        let effective_capacity = effective_capacity(balance, spending_limit);
+
+        if effective_capacity >= required_amount {
             return create_tempo_payment(&self.config, challenge)
                 .await
                 .map_err(|e| mpay::MppError::Http(e.to_string()));
@@ -166,11 +203,9 @@ impl PgetPaymentProvider {
 
         if self.no_swap {
             return Err(mpay::MppError::Http(format!(
-                "Insufficient {} balance: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
-                network.token_config_by_address(&format!("{:#x}", required_token))
-                    .map(|t| t.currency.symbol.to_string())
-                    .unwrap_or_else(|| format!("{:#x}", required_token)),
-                balance,
+                "Insufficient {} capacity: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
+                token_symbol,
+                effective_capacity,
                 required_amount
             )));
         }
@@ -182,13 +217,9 @@ impl PgetPaymentProvider {
 
         match swap_source {
             Some(source) => {
-                let target_symbol = network
-                    .token_config_by_address(&format!("{:#x}", required_token))
-                    .map(|t| t.currency.symbol.to_string())
-                    .unwrap_or_else(|| format!("{:#x}", required_token));
                 eprintln!(
                     "Auto-swapping from {} to {} to complete payment",
-                    source.symbol, target_symbol
+                    source.symbol, token_symbol
                 );
 
                 let swap_info =
@@ -199,13 +230,21 @@ impl PgetPaymentProvider {
             }
             None => Err(mpay::MppError::Http(format!(
                 "Insufficient balance and no swap source available. Need {} of {}",
-                required_amount,
-                network
-                    .token_config_by_address(&format!("{:#x}", required_token))
-                    .map(|t| t.currency.symbol.to_string())
-                    .unwrap_or_else(|| format!("{:#x}", required_token))
+                required_amount, token_symbol
             ))),
         }
+    }
+}
+
+/// Compute effective spending capacity from wallet balance and optional key spending limit.
+///
+/// When the key enforces spending limits, the effective capacity is the minimum
+/// of the wallet balance and the remaining spending limit. Otherwise, capacity
+/// equals the wallet balance.
+pub fn effective_capacity(balance: U256, spending_limit: Option<U256>) -> U256 {
+    match spending_limit {
+        Some(limit) => balance.min(limit),
+        None => balance,
     }
 }
 
@@ -397,5 +436,49 @@ mod tests {
         assert!(!provider.supports("ethereum", "charge"));
         assert!(!provider.supports("bitcoin", "charge"));
         assert!(!provider.supports("unknown", "charge"));
+    }
+
+    #[test]
+    fn test_effective_capacity_no_spending_limit() {
+        let balance = U256::from(1_000_000u64);
+        assert_eq!(effective_capacity(balance, None), balance);
+    }
+
+    #[test]
+    fn test_effective_capacity_limit_below_balance() {
+        let balance = U256::from(1_000_000u64);
+        let limit = U256::from(500_000u64);
+        assert_eq!(effective_capacity(balance, Some(limit)), limit);
+    }
+
+    #[test]
+    fn test_effective_capacity_limit_above_balance() {
+        let balance = U256::from(500_000u64);
+        let limit = U256::from(1_000_000u64);
+        assert_eq!(effective_capacity(balance, Some(limit)), balance);
+    }
+
+    #[test]
+    fn test_effective_capacity_limit_equals_balance() {
+        let balance = U256::from(1_000_000u64);
+        let limit = U256::from(1_000_000u64);
+        assert_eq!(effective_capacity(balance, Some(limit)), balance);
+    }
+
+    #[test]
+    fn test_effective_capacity_zero_limit() {
+        let balance = U256::from(1_000_000u64);
+        assert_eq!(effective_capacity(balance, Some(U256::ZERO)), U256::ZERO);
+    }
+
+    #[test]
+    fn test_effective_capacity_zero_balance() {
+        let limit = U256::from(1_000_000u64);
+        assert_eq!(effective_capacity(U256::ZERO, Some(limit)), U256::ZERO);
+    }
+
+    #[test]
+    fn test_effective_capacity_both_zero() {
+        assert_eq!(effective_capacity(U256::ZERO, Some(U256::ZERO)), U256::ZERO);
     }
 }
