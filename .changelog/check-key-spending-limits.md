@@ -2,4 +2,4 @@
 pget-cli: patch
 ---
 
-Check key authorization spending limits before payment. When using keychain signing with enforced limits, the effective spending capacity is now min(wallet balance, remaining key limit). Also checks on-chain key provisioning status before building transactions and bumps gas fees when pending transactions are detected.
+Fix payment swap logic to distinguish spending limit vs balance bottlenecks. When a key's spending limit is too low, error immediately instead of attempting a swap that would fail on-chain with `SpendingLimitExceeded`. When balance is the bottleneck, also check the key's spending limit on swap source tokens before selecting them.

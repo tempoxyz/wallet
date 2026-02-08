@@ -201,19 +201,41 @@ impl PgetPaymentProvider {
                 .map_err(|e| mpay::MppError::Http(e.to_string()));
         }
 
-        if self.no_swap {
+        let limit_is_bottleneck = spending_limit
+            .map(|limit| limit < required_amount)
+            .unwrap_or(false);
+
+        if limit_is_bottleneck {
+            let limit_human =
+                format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
+            let needed_human = format_u256_with_decimals(required_amount, token_decimals);
             return Err(mpay::MppError::Http(format!(
-                "Insufficient {} capacity: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
-                token_symbol,
-                effective_capacity,
-                required_amount
+                "Key spending limit too low: limit is {} {} but payment requires {} {}. \
+                 Increase the key's spending limit or use a key without enforced limits.",
+                limit_human, token_symbol, needed_human, token_symbol
             )));
         }
 
-        let swap_source =
-            find_swap_source(&self.config, network, from, required_token, required_amount)
-                .await
-                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+        if self.no_swap {
+            return Err(mpay::MppError::Http(format!(
+                "Insufficient {} balance: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
+                token_symbol,
+                format_u256_with_decimals(balance, token_decimals),
+                format_u256_with_decimals(required_amount, token_decimals),
+            )));
+        }
+
+        let keychain_info = wallet_address.map(|wa| (wa, key_address));
+        let swap_source = find_swap_source(
+            &self.config,
+            network,
+            from,
+            required_token,
+            required_amount,
+            keychain_info,
+        )
+        .await
+        .map_err(|e| mpay::MppError::Http(e.to_string()))?;
 
         match swap_source {
             Some(source) => {
@@ -230,7 +252,8 @@ impl PgetPaymentProvider {
             }
             None => Err(mpay::MppError::Http(format!(
                 "Insufficient balance and no swap source available. Need {} of {}",
-                required_amount, token_symbol
+                format_u256_with_decimals(required_amount, token_decimals),
+                token_symbol
             ))),
         }
     }
@@ -342,10 +365,12 @@ pub struct SwapSource {
     pub symbol: String,
 }
 
-/// Find a token with sufficient balance to swap from.
+/// Find a token with sufficient balance (and spending limit) to swap from.
 ///
 /// This queries balances of all supported stablecoins (except the required one)
 /// in parallel and returns the first one with sufficient balance (including slippage).
+/// When `keychain_info` is provided, also checks that the key's spending limit
+/// on the candidate token is sufficient.
 ///
 /// # Arguments
 /// * `config` - Configuration for RPC access
@@ -353,6 +378,7 @@ pub struct SwapSource {
 /// * `account` - Account to check balances for
 /// * `required_token` - The token the merchant wants (we need to find a different one)
 /// * `required_amount` - The amount needed (will include slippage in the check)
+/// * `keychain_info` - Optional (wallet_address, key_address) for spending limit checks
 ///
 /// # Returns
 /// * `Ok(Some(SwapSource))` - Found a token with sufficient balance
@@ -363,6 +389,7 @@ pub async fn find_swap_source(
     account: Address,
     required_token: Address,
     required_amount: U256,
+    keychain_info: Option<(Address, Address)>,
 ) -> Result<Option<SwapSource>> {
     use futures::future::join_all;
 
@@ -391,16 +418,40 @@ pub async fn find_swap_source(
 
     let results = join_all(balance_futures).await;
 
+    let provider = if keychain_info.is_some() {
+        let network_info = config.resolve_network(network.as_str())?;
+        Some(
+            ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
+                PgetError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+            })?),
+        )
+    } else {
+        None
+    };
+
     for ((token_address, symbol), result) in tokens_to_check.into_iter().zip(results) {
         match result {
             Ok(balance) => {
-                if balance >= amount_with_slippage {
-                    return Ok(Some(SwapSource {
-                        token_address,
-                        balance,
-                        symbol,
-                    }));
+                if balance < amount_with_slippage {
+                    continue;
                 }
+
+                if let (Some((wallet_addr, key_addr)), Some(ref prov)) = (keychain_info, &provider)
+                {
+                    let limit =
+                        query_key_spending_limit(prov, wallet_addr, key_addr, token_address).await;
+                    let capacity = effective_capacity(balance, limit);
+                    if capacity < amount_with_slippage {
+                        eprintln!("Skipping {} swap source: spending limit too low", symbol);
+                        continue;
+                    }
+                }
+
+                return Ok(Some(SwapSource {
+                    token_address,
+                    balance,
+                    symbol,
+                }));
             }
             Err(e) => {
                 eprintln!("Warning: Failed to query {} balance: {}", symbol, e);
