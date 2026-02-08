@@ -87,6 +87,15 @@ impl GasConfig {
         max_fee_per_gas: 20_000_000_000,         // 20 gwei
     };
 
+    /// Return a copy with fees bumped by 30% to replace a pending transaction.
+    pub fn bumped(&self) -> Self {
+        Self {
+            gas_limit: self.gas_limit,
+            max_priority_fee_per_gas: self.max_priority_fee_per_gas * 130 / 100,
+            max_fee_per_gas: self.max_fee_per_gas * 130 / 100,
+        }
+    }
+
     /// Get max_fee_per_gas as u128 (for alloy compatibility).
     pub const fn max_fee_per_gas_u128(&self) -> u128 {
         self.max_fee_per_gas as u128

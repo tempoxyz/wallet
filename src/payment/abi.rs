@@ -9,7 +9,27 @@ sol! {
     function transferWithMemo(address to, uint256 amount, bytes32 memo) external returns (bool);
     function approve(address spender, uint256 amount) external returns (bool);
     function swapExactAmountOut(address tokenIn, address tokenOut, uint128 amountOut, uint128 maxAmountIn) external returns (uint128 amountIn);
+
+    #[sol(rpc)]
+    interface IAccountKeychain {
+        struct KeyInfo {
+            uint8 signatureType;
+            address keyId;
+            uint64 expiry;
+            bool enforceLimits;
+            bool isRevoked;
+        }
+
+        function getKey(address account, address keyId) external view returns (KeyInfo memory);
+        function getRemainingLimit(address account, address keyId, address token) external view returns (uint256);
+    }
 }
+
+/// IAccountKeychain precompile address on Tempo networks.
+pub const KEYCHAIN_ADDRESS: Address = Address::new([
+    0xAA, 0xAA, 0xAA, 0xAA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+]);
 
 /// StablecoinDEX contract address on Tempo networks.
 pub const DEX_ADDRESS: Address = Address::new([
