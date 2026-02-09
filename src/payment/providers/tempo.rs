@@ -446,7 +446,12 @@ async fn estimate_tempo_gas(
         ))
     })?;
 
-    debug!(estimated_gas = gas_limit, "eth_estimateGas result");
+    let gas_limit = gas_limit + gas_limit / 5;
+
+    debug!(
+        estimated_gas = gas_limit,
+        "eth_estimateGas result (with 20% buffer)"
+    );
     Ok(gas_limit)
 }
 
