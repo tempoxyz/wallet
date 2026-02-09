@@ -24,9 +24,6 @@ use tempo_primitives::transaction::{
     TempoTransaction,
 };
 
-/// Gas limit for swap transactions (approve + swap + transfer).
-pub const SWAP_GAS_LIMIT: u64 = 500_000;
-
 /// Parse a hex-encoded memo string to a 32-byte array.
 fn parse_memo(memo_str: Option<String>) -> Option<[u8; 32]> {
     memo_str.and_then(|s| {
@@ -299,6 +296,11 @@ pub async fn create_tempo_payment_with_swap(
     // Build the 3-call transaction: approve → swap → transfer
     let calls = build_swap_calls(swap_info, recipient, amount, memo)?;
 
+    let mut gas_limit = ctx.gas_config.gas_limit + ctx.gas_config.swap_gas_cost;
+    if ctx.nonce == 0 {
+        gas_limit += ctx.gas_config.new_account_gas_cost;
+    }
+
     let signed_tx = create_tempo_transaction_with_calls(
         &ctx.signer,
         ctx.chain_id,
@@ -306,7 +308,7 @@ pub async fn create_tempo_payment_with_swap(
         swap_info.token_in, // Fee token is the token we're swapping from
         calls,
         &ctx.gas_config,
-        SWAP_GAS_LIMIT, // Higher gas limit for swap transactions
+        gas_limit,
         ctx.wallet_address,
         ctx.key_authorization,
     )?;
@@ -510,6 +512,11 @@ fn create_tempo_transaction(
         input: transfer_data,
     }];
 
+    let mut gas_limit = gas_config.gas_limit;
+    if nonce == 0 {
+        gas_limit += gas_config.new_account_gas_cost;
+    }
+
     create_tempo_transaction_with_calls(
         signer,
         chain_id,
@@ -517,7 +524,7 @@ fn create_tempo_transaction(
         asset,
         calls,
         gas_config,
-        gas_config.gas_limit,
+        gas_limit,
         wallet_address,
         key_authorization,
     )
@@ -759,11 +766,8 @@ mod tests {
     }
 
     #[test]
-    fn test_swap_gas_limit_constant() {
-        // Verify gas limit is 500,000 for swap transactions
-        assert_eq!(SWAP_GAS_LIMIT, 500_000);
-        // Should be at least the default gas limit
-        assert!(SWAP_GAS_LIMIT >= GasConfig::DEFAULT.gas_limit);
+    fn test_new_account_gas() {
+        assert_eq!(GasConfig::DEFAULT.new_account_gas_cost, 250_000);
     }
 
     #[test]
@@ -1005,5 +1009,51 @@ mod tests {
 
         let token = Address::repeat_byte(0x01);
         assert_eq!(pending_key_spending_limit(&signed, token), Some(U256::ZERO));
+    }
+
+    fn decode_gas_limit(tx_hex: &str) -> u64 {
+        use alloy::eips::eip2718::Decodable2718;
+        let bytes = hex::decode(tx_hex).unwrap();
+        let signed = AASigned::decode_2718(&mut bytes.as_slice()).unwrap();
+        signed.tx().gas_limit
+    }
+
+    #[test]
+    fn test_nonce_zero_adds_account_creation_gas() {
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let asset = Address::ZERO;
+        let transfer_data = alloy::primitives::Bytes::new();
+        let gas = GasConfig::DEFAULT;
+
+        let tx_nonce_0 = create_tempo_transaction(
+            &signer,
+            42431,
+            0,
+            asset,
+            transfer_data.clone(),
+            &gas,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let tx_nonce_1 =
+            create_tempo_transaction(&signer, 42431, 1, asset, transfer_data, &gas, None, None)
+                .unwrap();
+
+        assert_eq!(
+            decode_gas_limit(&tx_nonce_0),
+            gas.gas_limit + gas.new_account_gas_cost,
+            "nonce 0 should include account creation gas"
+        );
+        assert_eq!(
+            decode_gas_limit(&tx_nonce_1),
+            gas.gas_limit,
+            "nonce > 0 should use base gas limit"
+        );
     }
 }

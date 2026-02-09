@@ -73,6 +73,10 @@ pub struct TokenConfig {
 pub struct GasConfig {
     /// Default gas limit for token transfers (500,000 gas).
     pub gas_limit: u64,
+    /// Additional gas charged by the protocol for account creation (nonce == 0).
+    pub new_account_gas_cost: u64,
+    /// Additional gas for swap transactions (approve + swap + transfer).
+    pub swap_gas_cost: u64,
     /// Maximum priority fee per gas in wei (1 gwei).
     pub max_priority_fee_per_gas: u64,
     /// Maximum total fee per gas in wei (20 gwei).
@@ -83,6 +87,8 @@ impl GasConfig {
     /// Default gas configuration for Tempo networks.
     pub const DEFAULT: Self = Self {
         gas_limit: 500_000,
+        new_account_gas_cost: 250_000,
+        swap_gas_cost: 0,
         max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
         max_fee_per_gas: 20_000_000_000,         // 20 gwei
     };
