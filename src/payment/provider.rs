@@ -261,17 +261,20 @@ impl PgetPaymentProvider {
             .map(|limit| limit < required_amount)
             .unwrap_or(false);
 
+        if limit_is_bottleneck {
+            let limit_human =
+                format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
+            let needed_human = format_u256_with_decimals(required_amount, token_decimals);
+            return Err(mpay::MppError::Http(format!(
+                "Key spending limit too low: limit is {} {} but payment requires {} {}. \
+                 A swap cannot help because the key must also be authorized to transfer the \
+                 destination token. Increase the key's spending limit for {} or use a key \
+                 without enforced limits.",
+                limit_human, token_symbol, needed_human, token_symbol, token_symbol
+            )));
+        }
+
         if self.no_swap {
-            if limit_is_bottleneck {
-                let limit_human =
-                    format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
-                let needed_human = format_u256_with_decimals(required_amount, token_decimals);
-                return Err(mpay::MppError::Http(format!(
-                    "Key spending limit too low: limit is {} {} but payment requires {} {}. \
-                     Increase the key's spending limit or use a key without enforced limits.",
-                    limit_human, token_symbol, needed_human, token_symbol
-                )));
-            }
             return Err(mpay::MppError::Http(format!(
                 "Insufficient {} balance: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
                 token_symbol,

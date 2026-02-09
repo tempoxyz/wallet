@@ -179,6 +179,34 @@ impl PaymentSetupContext {
                 operation: "get_nonce",
             })?;
 
+        let gas_config = if let Ok(latest_block) = provider.get_block_number().await {
+            if let Ok(Some(block)) = provider.get_block_by_number(latest_block.into()).await {
+                if let Some(base_fee) = block.header.base_fee_per_gas {
+                    let min_max_fee = base_fee * 2 + gas_config.max_priority_fee_per_gas;
+                    if min_max_fee > gas_config.max_fee_per_gas {
+                        debug!(
+                            base_fee,
+                            bumped_max_fee = min_max_fee,
+                            default_max_fee = gas_config.max_fee_per_gas,
+                            "bumping max_fee_per_gas to cover current base fee"
+                        );
+                        GasConfig {
+                            max_fee_per_gas: min_max_fee,
+                            ..gas_config
+                        }
+                    } else {
+                        gas_config
+                    }
+                } else {
+                    gas_config
+                }
+            } else {
+                gas_config
+            }
+        } else {
+            gas_config
+        };
+
         // If there's a pending key authorization, check if the key is already
         // authorized on-chain. If so, clear it locally and skip inclusion.
         let key_authorization = if key_authorization.is_some() {
