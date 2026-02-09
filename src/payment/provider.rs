@@ -8,14 +8,18 @@ use crate::error::{PgetError, Result};
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{
-    query_key_spending_limit, SwapInfo, BPS_DENOMINATOR, SWAP_SLIPPAGE_BPS,
+    pending_key_spending_limit, query_key_spending_limit, SwapInfo, BPS_DENOMINATOR,
+    SWAP_SLIPPAGE_BPS,
 };
 use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
+use alloy::rlp::Decodable;
 use alloy::sol;
 use std::str::FromStr;
 use std::sync::Arc;
+use tempo_primitives::transaction::SignedKeyAuthorization;
+use tracing::debug;
 
 /// Balance information for a single token on a network
 #[derive(Debug, Clone)]
@@ -142,6 +146,21 @@ impl PgetPaymentProvider {
             .transpose()
             .map_err(|e| mpay::MppError::Http(format!("Invalid wallet address: {}", e)))?;
 
+        let pending_auth = signer_ctx
+            .pending_key_authorization
+            .as_ref()
+            .map(|hex_str| {
+                let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+                let bytes = hex::decode(hex_str).map_err(|e| {
+                    mpay::MppError::Http(format!("Invalid pending key authorization hex: {}", e))
+                })?;
+                let mut slice = bytes.as_slice();
+                SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
+                    mpay::MppError::Http(format!("Invalid pending key authorization RLP: {}", e))
+                })
+            })
+            .transpose()?;
+
         let from = wallet_address.unwrap_or(key_address);
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
@@ -159,9 +178,25 @@ impl PgetPaymentProvider {
             .unwrap_or_else(|| format!("{:#x}", required_token));
         let token_decimals = token_config.map(|t| t.currency.decimals).unwrap_or(6);
 
+        debug!(
+            %from,
+            network = %network,
+            required_token = %token_symbol,
+            required_token_address = %format!("{:#x}", required_token),
+            required_amount = %format_u256_with_decimals(required_amount, token_decimals),
+            signing_mode = if wallet_address.is_some() { "keychain" } else { "direct" },
+            "resolving payment"
+        );
+
         let balance = query_token_balance(&self.config, network, required_token, from)
             .await
             .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+        debug!(
+            balance = %format_u256_with_decimals(balance, token_decimals),
+            token = %token_symbol,
+            "queried wallet balance"
+        );
 
         let spending_limit = if let Some(wallet_addr) = wallet_address {
             let network_info = self
@@ -180,6 +215,9 @@ impl PgetPaymentProvider {
                     .await
                 {
                     Ok(limit) => limit,
+                    Err(_) if pending_auth.is_some() => {
+                        pending_key_spending_limit(pending_auth.as_ref().unwrap(), required_token)
+                    }
                     Err(e) => {
                         return Err(mpay::MppError::Http(format!(
                             "Cannot verify key spending limit for {}: {}. \
@@ -207,6 +245,13 @@ impl PgetPaymentProvider {
         let effective_capacity = effective_capacity(balance, spending_limit);
 
         if effective_capacity >= required_amount {
+            debug!(
+                tx_type = "direct",
+                token = %token_symbol,
+                amount = %format_u256_with_decimals(required_amount, token_decimals),
+                gas_token = %token_symbol,
+                "building direct transfer"
+            );
             return create_tempo_payment(&self.config, challenge)
                 .await
                 .map_err(|e| mpay::MppError::Http(e.to_string()));
@@ -216,18 +261,17 @@ impl PgetPaymentProvider {
             .map(|limit| limit < required_amount)
             .unwrap_or(false);
 
-        if limit_is_bottleneck {
-            let limit_human =
-                format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
-            let needed_human = format_u256_with_decimals(required_amount, token_decimals);
-            return Err(mpay::MppError::Http(format!(
-                "Key spending limit too low: limit is {} {} but payment requires {} {}. \
-                 Increase the key's spending limit or use a key without enforced limits.",
-                limit_human, token_symbol, needed_human, token_symbol
-            )));
-        }
-
         if self.no_swap {
+            if limit_is_bottleneck {
+                let limit_human =
+                    format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
+                let needed_human = format_u256_with_decimals(required_amount, token_decimals);
+                return Err(mpay::MppError::Http(format!(
+                    "Key spending limit too low: limit is {} {} but payment requires {} {}. \
+                     Increase the key's spending limit or use a key without enforced limits.",
+                    limit_human, token_symbol, needed_human, token_symbol
+                )));
+            }
             return Err(mpay::MppError::Http(format!(
                 "Insufficient {} balance: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
                 token_symbol,
@@ -244,6 +288,7 @@ impl PgetPaymentProvider {
             required_token,
             required_amount,
             keychain_info,
+            pending_auth.as_ref(),
         )
         .await
         .map_err(|e| mpay::MppError::Http(e.to_string()))?;
@@ -257,6 +302,20 @@ impl PgetPaymentProvider {
 
                 let swap_info =
                     SwapInfo::new(source.token_address, required_token, required_amount);
+
+                debug!(
+                    tx_type = "swap",
+                    token_in = %source.symbol,
+                    token_in_address = %format!("{:#x}", source.token_address),
+                    token_out = %token_symbol,
+                    token_out_address = %format!("{:#x}", required_token),
+                    amount_out = %format_u256_with_decimals(required_amount, token_decimals),
+                    max_amount_in = %format_u256_with_decimals(swap_info.max_amount_in, token_decimals),
+                    slippage_bps = SWAP_SLIPPAGE_BPS,
+                    gas_token = %source.symbol,
+                    "building swap transaction (approve → swap → transfer)"
+                );
+
                 create_tempo_payment_with_swap(&self.config, challenge, &swap_info)
                     .await
                     .map_err(|e| mpay::MppError::Http(e.to_string()))
@@ -382,6 +441,9 @@ pub struct SwapSource {
 /// filters and sorts candidates by limit descending, then checks balances only
 /// for candidates with sufficient limit. This minimizes on-chain balance queries.
 ///
+/// If the key is not yet provisioned on-chain and `pending_auth` is provided,
+/// falls back to the pending authorization's limits to determine token eligibility.
+///
 /// When no keychain is used, queries all balances in parallel and returns the
 /// first token with sufficient balance (including slippage).
 ///
@@ -392,6 +454,7 @@ pub struct SwapSource {
 /// * `required_token` - The token the merchant wants (we need to find a different one)
 /// * `required_amount` - The amount needed (will include slippage in the check)
 /// * `keychain_info` - Optional (wallet_address, key_address) for spending limit checks
+/// * `pending_auth` - Optional pending key authorization for local limit validation
 ///
 /// # Returns
 /// * `Ok(Some(SwapSource))` - Found a token with sufficient balance and limit
@@ -403,6 +466,7 @@ pub async fn find_swap_source(
     required_token: Address,
     required_amount: U256,
     keychain_info: Option<(Address, Address)>,
+    pending_auth: Option<&SignedKeyAuthorization>,
 ) -> Result<Option<SwapSource>> {
     use futures::future::join_all;
 
@@ -446,6 +510,13 @@ pub async fn find_swap_source(
                     Ok(None) => U256::MAX,
                     Ok(Some(l)) if l >= amount_with_slippage => l,
                     Ok(Some(_)) => return None,
+                    Err(_) if pending_auth.is_some() => {
+                        match pending_key_spending_limit(pending_auth.unwrap(), token_address) {
+                            None => U256::MAX,
+                            Some(l) if l >= amount_with_slippage => l,
+                            Some(_) => return None,
+                        }
+                    }
                     Err(e) => {
                         eprintln!(
                             "Warning: Failed to query spending limit for {}: {}",

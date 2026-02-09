@@ -54,6 +54,8 @@ async fn main() {
 async fn run() -> Result<()> {
     let mut cli = Cli::parse();
 
+    init_tracing(cli.verbosity);
+
     // Initialize color support based on user preference and NO_COLOR env var
     init_color_support(&cli);
 
@@ -324,6 +326,29 @@ fn generate_completions(shell: Shell) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn init_tracing(verbosity: u8) {
+    use tracing_subscriber::EnvFilter;
+
+    let filter = match verbosity {
+        0 => EnvFilter::new("warn"),
+        1 => EnvFilter::new("info"),
+        _ => EnvFilter::new("debug"),
+    };
+
+    let filter = if let Ok(env) = std::env::var("RUST_LOG") {
+        EnvFilter::new(env)
+    } else {
+        filter
+    };
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .without_time()
+        .init();
 }
 
 /// Initialize color support based on user preference and NO_COLOR env var
