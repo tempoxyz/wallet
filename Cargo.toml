@@ -1,5 +1,5 @@
 [package]
-name = "pget-cli"
+name = "tempoctl-cli"
 version = "0.1.0"
 edition = "2021"
 description = "A wget-like CLI tool for making HTTP requests with automatic payment support"
@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tempoxyz/pget"
 
 [[bin]]
-name = "pget"
+name = "tempoctl"
 path = "src/main.rs"
 
 [dependencies]

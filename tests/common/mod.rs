@@ -1,4 +1,4 @@
-//! Common test utilities for pget CLI tests
+//! Common test utilities for tempoctl CLI tests
 
 #![allow(dead_code)]
 
@@ -25,9 +25,9 @@ impl TestConfigBuilder {
         let config_dir = self
             .temp_dir
             .path()
-            .join("Library/Application Support/pget");
+            .join("Library/Application Support/tempoctl");
         #[cfg(not(target_os = "macos"))]
-        let config_dir = self.temp_dir.path().join(".config/pget");
+        let config_dir = self.temp_dir.path().join(".config/tempoctl");
 
         fs::create_dir_all(&config_dir).expect("Failed to create config directory");
         fs::write(config_dir.join("config.toml"), "").expect("Failed to write config");
@@ -46,7 +46,7 @@ pub fn setup_test_config() -> TempDir {
 /// tests to work consistently across platforms, especially Linux where the
 /// dirs crate v6+ respects XDG environment variables.
 pub fn test_command(temp_dir: &TempDir) -> Command {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("pget"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"));
 
     // Set HOME for both macOS and Linux
     cmd.env("HOME", temp_dir.path());
@@ -62,10 +62,10 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 /// Create a test command with mock network mode enabled
 ///
 /// Use this for tests that would normally make network/RPC calls.
-/// When PGET_MOCK_NETWORK=1 is set, the CLI returns fake data instead
+/// When TEMPOCTL_MOCK_NETWORK=1 is set, the CLI returns fake data instead
 /// of making actual network requests.
 pub fn mock_test_command(temp_dir: &TempDir) -> Command {
     let mut cmd = test_command(temp_dir);
-    cmd.env("PGET_MOCK_NETWORK", "1");
+    cmd.env("TEMPOCTL_MOCK_NETWORK", "1");
     cmd
 }

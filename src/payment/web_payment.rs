@@ -18,7 +18,7 @@ use crate::http::HttpResponse;
 use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
 use crate::payment::mpay_ext::{method_to_network, validate_challenge};
-use crate::payment::provider::PgetPaymentProvider;
+use crate::payment::provider::TempoCtlPaymentProvider;
 
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
 pub async fn handle_web_payment_request(
@@ -87,7 +87,7 @@ pub async fn handle_web_payment_request(
     }
 
     // Use mpay::client::PaymentProvider to create the credential
-    let provider = PgetPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
+    let provider = TempoCtlPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_no_constraints() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["pget"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_ok() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["pget"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_exceeded() {
         let query = make_query_args(&["query", "--max-amount", "500000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["pget"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_equal() {
         let query = make_query_args(&["query", "--max-amount", "1000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["pget"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_match() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["pget", "--network", "ethereum"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -324,7 +324,8 @@ mod tests {
     #[test]
     fn test_validate_constraints_multiple_networks() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato, ethereum"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -334,7 +335,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_tempo_network() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -344,7 +345,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_combined() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["pget", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);

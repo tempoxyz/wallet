@@ -1,11 +1,11 @@
-# Example pget configuration file
+# Example tempoctl configuration file
 #
 # Locations:
-#   macOS:   ~/Library/Application Support/pget/config.toml
-#   Linux:   ~/.config/pget/config.toml
-#   Windows: %APPDATA%\pget\config.toml
+#   macOS:   ~/Library/Application Support/tempoctl/config.toml
+#   Linux:   ~/.config/tempoctl/config.toml
+#   Windows: %APPDATA%\tempoctl\config.toml
 #
-# Alternatively, run `pget login` to create this file interactively.
+# Alternatively, run `tempoctl login` to create this file interactively.
 
 # =============================================================================
 # EVM Wallet Configuration

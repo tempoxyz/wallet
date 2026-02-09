@@ -3,7 +3,7 @@ use crate::wallet::WalletManager;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-const PGET_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/pget/SKILL.md");
+const TEMPOCTL_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/tempoctl/SKILL.md");
 
 pub async fn run_login(network: Option<&str>) -> Result<()> {
     println!("Connecting your Tempo wallet...");
@@ -36,12 +36,13 @@ fn install_ai_integrations() -> Result<Option<PathBuf>> {
     let skills_dir =
         claude_skills_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
 
-    let pget_skill_dir = skills_dir.join("pget");
-    let skill_path = pget_skill_dir.join("SKILL.md");
+    let tempoctl_skill_dir = skills_dir.join("tempoctl");
+    let skill_path = tempoctl_skill_dir.join("SKILL.md");
     let is_new = !skill_path.exists();
 
-    std::fs::create_dir_all(&pget_skill_dir).context("Failed to create Claude skills directory")?;
-    std::fs::write(&skill_path, PGET_SKILL_CONTENT).context("Failed to write SKILL.md")?;
+    std::fs::create_dir_all(&tempoctl_skill_dir)
+        .context("Failed to create Claude skills directory")?;
+    std::fs::write(&skill_path, TEMPOCTL_SKILL_CONTENT).context("Failed to write SKILL.md")?;
 
     if is_new {
         Ok(Some(skill_path))

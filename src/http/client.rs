@@ -303,7 +303,7 @@ impl HttpClient {
             HttpMethod::Head => reqwest::Method::HEAD,
             HttpMethod::Options => reqwest::Method::OPTIONS,
             HttpMethod::Custom(s) => reqwest::Method::from_bytes(s.as_bytes())
-                .map_err(|e| crate::error::PgetError::UnsupportedHttpMethod(e.to_string()))?,
+                .map_err(|e| crate::error::TempoCtlError::UnsupportedHttpMethod(e.to_string()))?,
         };
 
         let mut request = self.client.request(reqwest_method, url);
@@ -354,7 +354,7 @@ impl Default for HttpClient {
 ///
 /// # Example
 /// ```
-/// use pget::http::has_header;
+/// use tempoctl::http::has_header;
 /// let headers = vec![
 ///     "Content-Type: application/json".to_string(),
 ///     "Content-Length: 123".to_string(),
@@ -377,7 +377,7 @@ pub fn has_header(headers: &[String], name: &str) -> bool {
 ///
 /// # Example
 /// ```
-/// use pget::http::find_header;
+/// use tempoctl::http::find_header;
 /// let headers = vec![
 ///     "Content-Type: application/json".to_string(),
 ///     "Content-Length: 123".to_string(),
@@ -405,7 +405,7 @@ pub fn find_header(headers: &[String], name: &str) -> Option<String> {
 ///
 /// # Example
 /// ```
-/// use pget::http::parse_headers;
+/// use tempoctl::http::parse_headers;
 /// let headers = vec![
 ///     "Content-Type: application/json".to_string(),
 ///     "Content-Length: 123".to_string(),

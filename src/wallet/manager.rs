@@ -8,7 +8,7 @@ use alloy::signers::local::PrivateKeySigner;
 use tempo_primitives::transaction::SignedKeyAuthorization;
 use url::Url;
 
-use crate::error::{PgetError, Result};
+use crate::error::{Result, TempoCtlError};
 use crate::wallet::auth_server::{run_callback_server, AuthCallback};
 use crate::wallet::credentials::{NetworkWallet, WalletCredentials};
 use crate::wallet::AccessKey;
@@ -27,7 +27,7 @@ impl WalletManager {
         let creds = WalletCredentials::load().unwrap_or_default();
         let network = network.unwrap_or(&creds.network).to_string();
 
-        let auth_server_url = std::env::var("PGET_AUTH_URL")
+        let auth_server_url = std::env::var("TEMPOCTL_AUTH_URL")
             .ok()
             .unwrap_or_else(|| Self::auth_url_for_network(&network));
 
@@ -71,7 +71,7 @@ impl WalletManager {
         let (port, rx) = run_callback_server(auth_base_url).await?;
 
         let mut auth_url = Url::parse(&self.auth_server_url)
-            .map_err(|e| PgetError::Http(format!("Invalid auth server URL: {}", e)))?;
+            .map_err(|e| TempoCtlError::Http(format!("Invalid auth server URL: {}", e)))?;
 
         auth_url
             .query_pairs_mut()
@@ -93,9 +93,9 @@ impl WalletManager {
 
         let callback = tokio::time::timeout(Duration::from_secs(CALLBACK_TIMEOUT_SECS), rx)
             .await
-            .map_err(|_| PgetError::Http("Authentication timed out".to_string()))?
+            .map_err(|_| TempoCtlError::Http("Authentication timed out".to_string()))?
             .map_err(|_| {
-                PgetError::Http("Failed to receive authentication callback".to_string())
+                TempoCtlError::Http("Failed to receive authentication callback".to_string())
             })?;
 
         self.save_credentials(callback, local_signer).await?;
@@ -115,7 +115,7 @@ impl WalletManager {
         let (port, rx) = run_callback_server(auth_base_url).await?;
 
         let mut auth_url = Url::parse(&self.auth_server_url)
-            .map_err(|e| PgetError::Http(format!("Invalid auth server URL: {}", e)))?;
+            .map_err(|e| TempoCtlError::Http(format!("Invalid auth server URL: {}", e)))?;
 
         auth_url
             .query_pairs_mut()
@@ -138,9 +138,9 @@ impl WalletManager {
 
         let callback = tokio::time::timeout(Duration::from_secs(CALLBACK_TIMEOUT_SECS), rx)
             .await
-            .map_err(|_| PgetError::Http("Authentication timed out".to_string()))?
+            .map_err(|_| TempoCtlError::Http("Authentication timed out".to_string()))?
             .map_err(|_| {
-                PgetError::Http("Failed to receive authentication callback".to_string())
+                TempoCtlError::Http("Failed to receive authentication callback".to_string())
             })?;
 
         self.save_access_key(callback, local_signer).await?;
@@ -245,15 +245,17 @@ fn validate_key_authorization(
     };
 
     let raw = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = hex::decode(raw)
-        .map_err(|e| PgetError::InvalidConfig(format!("Invalid key authorization hex: {}", e)))?;
+    let bytes = hex::decode(raw).map_err(|e| {
+        TempoCtlError::InvalidConfig(format!("Invalid key authorization hex: {}", e))
+    })?;
 
     let mut slice = bytes.as_slice();
-    let signed = SignedKeyAuthorization::decode(&mut slice)
-        .map_err(|e| PgetError::InvalidConfig(format!("Invalid key authorization RLP: {}", e)))?;
+    let signed = SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
+        TempoCtlError::InvalidConfig(format!("Invalid key authorization RLP: {}", e))
+    })?;
 
     if signed.authorization.key_id != expected_key_id {
-        return Err(PgetError::InvalidConfig(format!(
+        return Err(TempoCtlError::InvalidConfig(format!(
             "Key authorization targets {:#x}, expected {:#x}",
             signed.authorization.key_id, expected_key_id
         )));

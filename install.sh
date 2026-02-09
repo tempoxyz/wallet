@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# pget installer script
+# tempoctl installer script
 
-PGET_BANNER='
-$$$$$$$\   $$$$$$\  $$$$$$$$\ $$$$$$$$\
-$$  __$$\ $$  __$$\ $$  _____|\__$$  __|
-$$ |  $$ |$$ /  \__|$$ |         $$ |
-$$$$$$$  |$$ |$$$$\ $$$$$\       $$ |
-$$  ____/ $$ |\_$$ |$$  __|      $$ |
-$$ |      $$ |  $$ |$$ |         $$ |
-$$ |      \$$$$$$  |$$$$$$$$\    $$ |
-\__|       \______/ \________|   \__|
+TEMPOCTL_BANNER='
+$$$$$$$$\ $$$$$$$$\ $$\      $$\ $$$$$$$\   $$$$$$\   $$$$$$\ $$$$$$$$\ $$\
+\__$$  __|$$  _____|$$$\    $$$ |$$  __$$\ $$  __$$\ $$  __$$\\__$$  __|$$ |
+   $$ |   $$ |      $$$$\  $$$$ |$$ |  $$ |$$ /  $$ |$$ /  \__|  $$ |   $$ |
+   $$ |   $$$$$\    $$\$$\$$ $$ |$$$$$$$  |$$ |  $$ |$$ |        $$ |   $$ |
+   $$ |   $$  __|   $$ \$$$  $$ |$$  ____/ $$ |  $$ |$$ |        $$ |   $$ |
+   $$ |   $$ |      $$ |\$  /$$ |$$ |      $$ |  $$ |$$ |  $$\   $$ |   $$ |
+   $$ |   $$$$$$$$\ $$ | \_/ $$ |$$ |       $$$$$$  |\$$$$$$  |  $$ |   $$$$$$$$\
+   \__|   \________|\__|     \__|\__|       \______/  \______/   \__|   \________|
 '
 
-echo "$PGET_BANNER"
+echo "$TEMPOCTL_BANNER"
 echo ""
 
 REPO="tempoxyz/pget"
 INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="pget"
-R2_BASE_URL="https://pget-binaries.tempo.xyz"
+BINARY_NAME="tempoctl"
+R2_BASE_URL="https://tempoctl-binaries.tempo.xyz"
 
 # Temp directory for downloads (cleaned up on exit)
 TMP_DIR=""
@@ -67,8 +67,8 @@ detect_arch() {
     esac
 }
 
-install_pget() {
-    local binary_name="pget-${PLATFORM}-${ARCH}"
+install_tempoctl() {
+    local binary_name="tempoctl-${PLATFORM}-${ARCH}"
     local download_url="${R2_BASE_URL}/${binary_name}"
     
     # Create secure temp directory
@@ -78,7 +78,7 @@ install_pget() {
     local tmp_file="${TMP_DIR}/${BINARY_NAME}"
 
     echo ""
-    echo "Downloading pget..."
+    echo "Downloading tempoctl..."
     echo "URL: ${download_url}"
 
     if ! curl -fsSL "${download_url}" -o "${tmp_file}"; then
@@ -117,12 +117,12 @@ install_pget() {
 
 verify_installation() {
     echo ""
-    if command -v pget >/dev/null 2>&1; then
-        echo "pget is installed and available in PATH"
+    if command -v tempoctl >/dev/null 2>&1; then
+        echo "tempoctl is installed and available in PATH"
         echo ""
-        pget --version
+        tempoctl --version
     else
-        echo "pget was installed but is not in PATH"
+        echo "tempoctl was installed but is not in PATH"
         echo "Make sure ${INSTALL_DIR} is in your PATH"
     fi
 }
@@ -131,15 +131,15 @@ main() {
     check_dependencies
     detect_platform
     detect_arch
-    install_pget
+    install_tempoctl
     verify_installation
 
     echo ""
     echo "Installation complete!"
     echo ""
     echo "Get started:"
-    echo "  pget login         # Connect your Tempo wallet"
-    echo "  pget --help        # Show all options"
+    echo "  tempoctl login         # Connect your Tempo wallet"
+    echo "  tempoctl --help        # Show all options"
     echo ""
     echo "Documentation:"
     echo "  https://github.com/${REPO}"
