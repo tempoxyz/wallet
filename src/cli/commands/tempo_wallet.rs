@@ -1,5 +1,6 @@
 //! Tempo wallet commands (passkey-based authentication).
 
+use crate::analytics::Analytics;
 use crate::error::{Result, TempoCtlError};
 use crate::network::get_network;
 use crate::util::constants::{BALANCE_OF_SELECTOR, BUILTIN_TOKENS};
@@ -15,7 +16,7 @@ pub struct TokenBalance {
 }
 
 /// Refresh the access key for the current wallet.
-pub async fn refresh_wallet(network: Option<&str>) -> Result<()> {
+pub async fn refresh_wallet(network: Option<&str>, analytics: Option<Analytics>) -> Result<()> {
     let mut creds = WalletCredentials::load()?;
     if let Some(n) = network {
         creds.network = n.to_string();
@@ -26,7 +27,7 @@ pub async fn refresh_wallet(network: Option<&str>) -> Result<()> {
     })?;
 
     let account_address = wallet.account_address.clone();
-    let manager = WalletManager::new(Some(&creds.network));
+    let manager = WalletManager::new(Some(&creds.network), analytics);
     manager.refresh_access_key(&account_address).await
 }
 
