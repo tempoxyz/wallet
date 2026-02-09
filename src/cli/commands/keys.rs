@@ -2,7 +2,7 @@
 
 use crate::cli::util::{format_expiry, now_secs};
 use crate::cli::OutputFormat;
-use crate::error::{PgetError, Result};
+use crate::error::{Result, TempoCtlError};
 use crate::wallet::credentials::WalletCredentials;
 use serde::Serialize;
 
@@ -39,8 +39,8 @@ pub async fn list_keys(output_format: OutputFormat, network: Option<&str>) -> Re
                     println!("{}", serde_json::json!({"error": "No wallet connected"}));
                 }
                 _ => {
-                    return Err(PgetError::ConfigMissing(
-                        "No wallet connected. Run 'pget login' first.".to_string(),
+                    return Err(TempoCtlError::ConfigMissing(
+                        "No wallet connected. Run 'tempoctl login' first.".to_string(),
                     ));
                 }
             }
@@ -117,7 +117,7 @@ pub async fn switch_key(
     }
 
     let wallet = creds.active_wallet_mut().ok_or_else(|| {
-        PgetError::ConfigMissing("No wallet connected. Run 'pget login' first.".to_string())
+        TempoCtlError::ConfigMissing("No wallet connected. Run 'tempoctl login' first.".to_string())
     })?;
 
     if !wallet.switch_key(index) {
@@ -132,7 +132,7 @@ pub async fn switch_key(
                 println!("{}", serde_json::json!({"error": err_msg}));
                 return Ok(());
             }
-            _ => return Err(PgetError::InvalidConfig(err_msg)),
+            _ => return Err(TempoCtlError::InvalidConfig(err_msg)),
         }
     }
 
@@ -173,7 +173,7 @@ pub async fn delete_key(
     }
 
     let wallet = creds.active_wallet_mut().ok_or_else(|| {
-        PgetError::ConfigMissing("No wallet connected. Run 'pget login' first.".to_string())
+        TempoCtlError::ConfigMissing("No wallet connected. Run 'tempoctl login' first.".to_string())
     })?;
 
     let key = match wallet.remove_key(index) {
@@ -190,7 +190,7 @@ pub async fn delete_key(
                     println!("{}", serde_json::json!({"error": err_msg}));
                     return Ok(());
                 }
-                _ => return Err(PgetError::InvalidConfig(err_msg)),
+                _ => return Err(TempoCtlError::InvalidConfig(err_msg)),
             }
         }
     };

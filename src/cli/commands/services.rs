@@ -1,7 +1,7 @@
 //! Service directory commands.
 
 use crate::cli::OutputFormat;
-use crate::error::{PgetError, Result};
+use crate::error::{Result, TempoCtlError};
 use crate::services::{print_service_info, print_service_list, Directory};
 
 /// List all available services.
@@ -22,8 +22,8 @@ pub async fn show_service(name: &str, output_format: OutputFormat) -> Result<()>
             print_service_info(service, json);
             Ok(())
         }
-        None => Err(PgetError::ConfigMissing(format!(
-            "Service '{}' not found. Run 'pget services' to see available services.",
+        None => Err(TempoCtlError::ConfigMissing(format!(
+            "Service '{}' not found. Run 'tempoctl services' to see available services.",
             name
         ))),
     }

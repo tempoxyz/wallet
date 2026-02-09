@@ -6,7 +6,7 @@
 //! - Memo support via transferWithMemo
 
 use crate::config::Config;
-use crate::error::{PgetError, Result, ResultExt, SigningContext};
+use crate::error::{Result, ResultExt, SigningContext, TempoCtlError};
 use crate::network::{GasConfig, Network};
 use crate::payment::abi::{
     encode_approve, encode_swap_exact_amount_out, encode_transfer, IAccountKeychain, DEX_ADDRESS,
@@ -104,10 +104,9 @@ impl PaymentSetupContext {
         use alloy::providers::Provider;
         use alloy::rlp::Decodable;
 
-        let charge_req: mpay::ChargeRequest = challenge
-            .request
-            .decode()
-            .map_err(|e| PgetError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
+        let charge_req: mpay::ChargeRequest = challenge.request.decode().map_err(|e| {
+            TempoCtlError::InvalidChallenge(format!("Invalid charge request: {}", e))
+        })?;
 
         // Load signer from Tempo wallet credentials
         let signer_ctx = load_signer_with_priority()?;
@@ -118,8 +117,9 @@ impl PaymentSetupContext {
             .wallet_address
             .as_ref()
             .map(|addr| {
-                Address::from_str(addr)
-                    .map_err(|e| PgetError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+                Address::from_str(addr).map_err(|e| {
+                    TempoCtlError::InvalidConfig(format!("Invalid wallet address: {}", e))
+                })
             })
             .transpose()?;
 
@@ -130,14 +130,14 @@ impl PaymentSetupContext {
             .map(|hex_str| {
                 let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
                 let bytes = hex::decode(hex_str).map_err(|e| {
-                    PgetError::InvalidConfig(format!(
+                    TempoCtlError::InvalidConfig(format!(
                         "Invalid pending key authorization hex: {}",
                         e
                     ))
                 })?;
                 let mut slice = bytes.as_slice();
                 SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
-                    PgetError::InvalidConfig(format!(
+                    TempoCtlError::InvalidConfig(format!(
                         "Invalid pending key authorization RLP: {}",
                         e
                     ))
@@ -148,7 +148,7 @@ impl PaymentSetupContext {
         let from = wallet_address.unwrap_or_else(|| signer.address());
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            PgetError::UnsupportedPaymentMethod(format!(
+            TempoCtlError::UnsupportedPaymentMethod(format!(
                 "Unsupported payment method: {}",
                 challenge.method
             ))
@@ -156,7 +156,7 @@ impl PaymentSetupContext {
 
         let network_info = config.resolve_network(network_name)?;
         let chain_id = network_info.chain_id.ok_or_else(|| {
-            PgetError::InvalidConfig(format!("{} network missing chain ID", network_name))
+            TempoCtlError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
         let gas_config = Network::from_str(network_name)
@@ -165,7 +165,7 @@ impl PaymentSetupContext {
 
         let provider = alloy::providers::ProviderBuilder::new().connect_http(
             network_info.rpc_url.parse().map_err(|e| {
-                PgetError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+                TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
             })?,
         );
 
@@ -333,11 +333,11 @@ fn build_swap_calls(
     let amount_out_u128: u128 = swap_info
         .amount_out
         .try_into()
-        .map_err(|_| PgetError::InvalidAmount("Amount too large for u128".to_string()))?;
+        .map_err(|_| TempoCtlError::InvalidAmount("Amount too large for u128".to_string()))?;
     let max_amount_in_u128: u128 = swap_info
         .max_amount_in
         .try_into()
-        .map_err(|_| PgetError::InvalidAmount("Max amount too large for u128".to_string()))?;
+        .map_err(|_| TempoCtlError::InvalidAmount("Max amount too large for u128".to_string()))?;
 
     let approve_data = encode_approve(DEX_ADDRESS, swap_info.max_amount_in);
     let swap_data = encode_swap_exact_amount_out(
@@ -413,16 +413,18 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
         .getKey(wallet_address, key_address)
         .call()
         .await
-        .map_err(|e| PgetError::SpendingLimitQuery(format!("Failed to query key info: {}", e)))?;
+        .map_err(|e| {
+            TempoCtlError::SpendingLimitQuery(format!("Failed to query key info: {}", e))
+        })?;
 
     if key_info.isRevoked {
-        return Err(PgetError::SpendingLimitQuery(
+        return Err(TempoCtlError::SpendingLimitQuery(
             "Access key is revoked".to_string(),
         ));
     }
 
     if key_info.expiry == 0 {
-        return Err(PgetError::SpendingLimitQuery(
+        return Err(TempoCtlError::SpendingLimitQuery(
             "Access key is not provisioned on-chain".to_string(),
         ));
     }
@@ -433,7 +435,7 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
         .as_secs();
 
     if key_info.expiry <= now {
-        return Err(PgetError::SpendingLimitQuery(
+        return Err(TempoCtlError::SpendingLimitQuery(
             "Access key has expired".to_string(),
         ));
     }
@@ -447,7 +449,7 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
         .call()
         .await
         .map_err(|e| {
-            PgetError::SpendingLimitQuery(format!("Failed to query remaining limit: {}", e))
+            TempoCtlError::SpendingLimitQuery(format!("Failed to query remaining limit: {}", e))
         })?;
 
     Ok(Some(result))

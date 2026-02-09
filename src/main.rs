@@ -1,4 +1,4 @@
-//! pget CLI - A wget-like tool for payment-enabled HTTP requests
+//! tempoctl CLI - A wget-like tool for payment-enabled HTTP requests
 
 // Library modules (from lib.rs)
 mod config;
@@ -291,7 +291,7 @@ fn show_config(cli: &Cli, output_format: OutputFormat) -> Result<()> {
 
             if config.evm.is_none() {
                 println!("No payment methods configured.");
-                println!("Run 'pget login' to configure payment methods.");
+                println!("Run 'tempoctl login' to configure payment methods.");
             }
         }
     }
@@ -303,7 +303,7 @@ fn show_config(cli: &Cli, output_format: OutputFormat) -> Result<()> {
 
 /// Show version information
 fn show_version() -> Result<()> {
-    println!("pget: v{VERSION}");
+    println!("tempoctl: v{VERSION}");
 
     Ok(())
 }

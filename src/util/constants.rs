@@ -1,27 +1,27 @@
-//! Constants used throughout the pget library
+//! Constants used throughout the tempoctl library
 
 use std::path::PathBuf;
 
 /// Application name for XDG directories
-pub const APP_NAME: &str = "pget";
+pub const APP_NAME: &str = "tempoctl";
 
 /// Config file name
 pub const CONFIG_FILE: &str = "config.toml";
 
-/// Get the pget config directory (`~/.config/pget/`)
-pub fn pget_config_dir() -> Option<PathBuf> {
+/// Get the tempoctl config directory (`~/.config/tempoctl/`)
+pub fn tempoctl_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|c| c.join(APP_NAME))
 }
 
-/// Get the pget data directory (`~/.local/share/pget/`)
+/// Get the tempoctl data directory (`~/.local/share/tempoctl/`)
 #[allow(dead_code)]
-pub fn pget_data_dir() -> Option<PathBuf> {
+pub fn tempoctl_data_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join(APP_NAME))
 }
 
-/// Get the default config file path (`~/.config/pget/config.toml`)
+/// Get the default config file path (`~/.config/tempoctl/config.toml`)
 pub fn default_config_path() -> Option<PathBuf> {
-    pget_config_dir().map(|p| p.join(CONFIG_FILE))
+    tempoctl_config_dir().map(|p| p.join(CONFIG_FILE))
 }
 
 /// ERC-20 balanceOf function selector
@@ -61,8 +61,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pget_config_dir_exists() {
-        let dir = pget_config_dir();
+    fn test_tempoctl_config_dir_exists() {
+        let dir = tempoctl_config_dir();
         assert!(dir.is_some());
         let path = dir.expect("Config dir should exist");
         assert!(path
@@ -72,8 +72,8 @@ mod tests {
     }
 
     #[test]
-    fn test_pget_data_dir_exists() {
-        let dir = pget_data_dir();
+    fn test_tempoctl_data_dir_exists() {
+        let dir = tempoctl_data_dir();
         assert!(dir.is_some());
         let path = dir.expect("Data dir should exist");
         assert!(path

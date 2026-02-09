@@ -1,9 +1,9 @@
-//! Exit codes for the pget CLI.
+//! Exit codes for the tempoctl CLI.
 //!
 //! Following standard Unix conventions and providing specific codes
 //! for different error categories to aid scripting and automation.
 
-/// Exit codes for the pget CLI.
+/// Exit codes for the tempoctl CLI.
 ///
 /// These codes follow Unix conventions where possible:
 /// - 0: Success
@@ -71,9 +71,9 @@ impl From<ExitCode> for i32 {
 
 impl From<&anyhow::Error> for ExitCode {
     fn from(err: &anyhow::Error) -> Self {
-        // Try to downcast to PgetError for specific handling
-        if let Some(pget_err) = err.downcast_ref::<crate::error::PgetError>() {
-            return ExitCode::from(pget_err);
+        // Try to downcast to TempoCtlError for specific handling
+        if let Some(tempoctl_err) = err.downcast_ref::<crate::error::TempoCtlError>() {
+            return ExitCode::from(tempoctl_err);
         }
 
         // Check error message for common patterns
@@ -93,33 +93,33 @@ impl From<&anyhow::Error> for ExitCode {
     }
 }
 
-impl From<&crate::error::PgetError> for ExitCode {
-    fn from(err: &crate::error::PgetError) -> Self {
-        use crate::error::PgetError;
+impl From<&crate::error::TempoCtlError> for ExitCode {
+    fn from(err: &crate::error::TempoCtlError) -> Self {
+        use crate::error::TempoCtlError;
 
         match err {
             // Configuration errors
-            PgetError::ConfigMissing(_)
-            | PgetError::InvalidConfig(_)
-            | PgetError::NoConfigDir
-            | PgetError::TomlParse(_)
-            | PgetError::TomlSerialize(_) => ExitCode::ConfigError,
+            TempoCtlError::ConfigMissing(_)
+            | TempoCtlError::InvalidConfig(_)
+            | TempoCtlError::NoConfigDir
+            | TempoCtlError::TomlParse(_)
+            | TempoCtlError::TomlSerialize(_) => ExitCode::ConfigError,
 
             // Payment/funds errors
-            PgetError::AmountExceedsMax { .. } | PgetError::InvalidAmount(_) => {
+            TempoCtlError::AmountExceedsMax { .. } | TempoCtlError::InvalidAmount(_) => {
                 ExitCode::InsufficientFunds
             }
 
             // Network/provider errors
-            PgetError::UnknownNetwork(_) | PgetError::Http(_) | PgetError::Reqwest(_) => {
-                ExitCode::NetworkError
-            }
+            TempoCtlError::UnknownNetwork(_)
+            | TempoCtlError::Http(_)
+            | TempoCtlError::Reqwest(_) => ExitCode::NetworkError,
 
             // Auth/signing errors
-            PgetError::InvalidKey(_)
-            | PgetError::Signing { .. }
-            | PgetError::SigningSimple(_)
-            | PgetError::InvalidAddress(_) => ExitCode::AuthError,
+            TempoCtlError::InvalidKey(_)
+            | TempoCtlError::Signing { .. }
+            | TempoCtlError::SigningSimple(_)
+            | TempoCtlError::InvalidAddress(_) => ExitCode::AuthError,
 
             // General errors
             _ => ExitCode::GeneralError,
@@ -139,15 +139,15 @@ mod tests {
     }
 
     #[test]
-    fn test_exit_code_from_pget_error() {
-        use crate::error::PgetError;
+    fn test_exit_code_from_tempoctl_error() {
+        use crate::error::TempoCtlError;
 
         assert_eq!(
-            ExitCode::from(&PgetError::ConfigMissing("test".into())),
+            ExitCode::from(&TempoCtlError::ConfigMissing("test".into())),
             ExitCode::ConfigError
         );
         assert_eq!(
-            ExitCode::from(&PgetError::UnknownNetwork("test".into())),
+            ExitCode::from(&TempoCtlError::UnknownNetwork("test".into())),
             ExitCode::NetworkError
         );
     }

@@ -1,4 +1,4 @@
-//! Configuration module for pget.
+//! Configuration module for tempoctl.
 
 mod load;
 mod path_validation;

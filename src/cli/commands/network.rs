@@ -110,7 +110,7 @@ pub fn list_networks(output_format: OutputFormat) -> Result<()> {
 pub fn show_network_info(network_name: &str, output_format: OutputFormat) -> Result<()> {
     let network: Network = network_name.parse().map_err(|_| {
         anyhow::anyhow!(
-            "Unknown network: '{network_name}'. Use 'pget networks list' to see available networks."
+            "Unknown network: '{network_name}'. Use 'tempoctl networks list' to see available networks."
         )
     })?;
 

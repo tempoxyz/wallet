@@ -1,4 +1,4 @@
-//! Utility functions for pget library
+//! Utility functions for tempoctl library
 
 /// Format an Ethereum address with 0x prefix
 #[allow(dead_code)]
@@ -27,7 +27,7 @@ pub fn strip_0x_prefix(s: &str) -> &str {
 /// # Examples
 ///
 /// ```
-/// use pget::util::helpers::truncate_address;
+/// use tempoctl::util::helpers::truncate_address;
 ///
 /// // Short addresses are unchanged
 /// assert_eq!(truncate_address("0x1234", 20), "0x1234");
