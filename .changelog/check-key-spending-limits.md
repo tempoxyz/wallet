@@ -2,4 +2,4 @@
 pget-cli: patch
 ---
 
-Fix payment swap logic to distinguish spending limit vs balance bottlenecks. When a key's spending limit is too low, error immediately instead of attempting a swap that would fail on-chain with `SpendingLimitExceeded`. When balance is the bottleneck, also check the key's spending limit on swap source tokens before selecting them.
+Fix spending limit queries to fail-closed instead of fail-open. Previously, RPC failures in `query_key_spending_limit` returned `None` (treated as unlimited), allowing payments with unauthorized tokens. Now returns `Result<Option<U256>>` — RPC errors block payment, `Ok(None)` means genuinely unlimited, `Ok(Some(n))` means enforced limit. Swap source selection also rejects tokens with failed limit queries.

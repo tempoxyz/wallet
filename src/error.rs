@@ -79,6 +79,10 @@ pub enum PgetError {
     #[error("Balance query failed: {0}")]
     BalanceQuery(String),
 
+    /// Spending limit query failed
+    #[error("Spending limit query failed: {0}")]
+    SpendingLimitQuery(String),
+
     // ==================== HTTP Errors ====================
     /// HTTP request/response error
     #[error("HTTP error: {0}")]

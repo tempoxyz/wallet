@@ -176,7 +176,18 @@ impl PgetPaymentProvider {
             );
 
             let limit =
-                query_key_spending_limit(&provider, wallet_addr, key_address, required_token).await;
+                match query_key_spending_limit(&provider, wallet_addr, key_address, required_token)
+                    .await
+                {
+                    Ok(limit) => limit,
+                    Err(e) => {
+                        return Err(mpay::MppError::Http(format!(
+                            "Cannot verify key spending limit for {}: {}. \
+                         Refusing to proceed — the key may not be authorized for this token.",
+                            token_symbol, e
+                        )));
+                    }
+                };
 
             if let Some(remaining) = limit {
                 if remaining < balance {
@@ -430,11 +441,18 @@ pub async fn find_swap_source(
         let mut candidates: Vec<_> = tokens_to_check
             .into_iter()
             .zip(limits)
-            .filter_map(|((token_address, symbol), limit)| {
-                let effective = match limit {
-                    None => U256::MAX,
-                    Some(l) if l >= amount_with_slippage => l,
-                    Some(_) => return None,
+            .filter_map(|((token_address, symbol), limit_result)| {
+                let effective = match limit_result {
+                    Ok(None) => U256::MAX,
+                    Ok(Some(l)) if l >= amount_with_slippage => l,
+                    Ok(Some(_)) => return None,
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Failed to query spending limit for {}: {}",
+                            symbol, e
+                        );
+                        return None;
+                    }
                 };
                 Some((token_address, symbol, effective))
             })

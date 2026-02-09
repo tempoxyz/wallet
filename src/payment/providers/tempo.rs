@@ -170,32 +170,13 @@ impl PaymentSetupContext {
 
         let nonce = provider
             .get_transaction_count(from)
+            .pending()
             .await
             .with_signing_context(SigningContext {
                 network: Some(network_name.to_string()),
                 address: Some(format!("{:#x}", from)),
                 operation: "get_nonce",
             })?;
-
-        let pending_nonce = provider
-            .get_transaction_count(from)
-            .pending()
-            .await
-            .with_signing_context(SigningContext {
-                network: Some(network_name.to_string()),
-                address: Some(format!("{:#x}", from)),
-                operation: "get_pending_nonce",
-            })?;
-
-        let gas_config = if pending_nonce > nonce {
-            eprintln!(
-                "Pending transaction detected at nonce {} — bumping gas fees",
-                nonce
-            );
-            gas_config.bumped()
-        } else {
-            gas_config
-        };
 
         // If there's a pending key authorization, check if the key is already
         // authorized on-chain. If so, clear it locally and skip inclusion.
@@ -385,34 +366,38 @@ async fn is_key_authorized_on_chain<P: alloy::providers::Provider>(
 
 /// Query the key's remaining spending limit for a token.
 ///
-/// Returns `None` if the key doesn't enforce limits (unlimited spending),
-/// or `Some(remaining)` if limits are enforced. Returns `None` on query failure
-/// (e.g. key not yet provisioned with a pending authorization).
+/// Returns `Ok(None)` if the key doesn't enforce limits (unlimited spending),
+/// or `Ok(Some(remaining))` if limits are enforced.
+///
+/// Returns `Err` on RPC failure — callers must handle this to avoid
+/// fail-open behavior (treating query failure as unlimited).
 pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
     provider: &P,
     wallet_address: Address,
     key_address: Address,
     token: Address,
-) -> Option<U256> {
+) -> Result<Option<U256>> {
     let keychain = IAccountKeychain::new(KEYCHAIN_ADDRESS, provider);
 
     let key_info = keychain
         .getKey(wallet_address, key_address)
         .call()
         .await
-        .ok()?;
+        .map_err(|e| PgetError::SpendingLimitQuery(format!("Failed to query key info: {}", e)))?;
 
     if !key_info.enforceLimits {
-        return None;
+        return Ok(None);
     }
 
     let result = keychain
         .getRemainingLimit(wallet_address, key_address, token)
         .call()
         .await
-        .ok()?;
+        .map_err(|e| {
+            PgetError::SpendingLimitQuery(format!("Failed to query remaining limit: {}", e))
+        })?;
 
-    Some(result)
+    Ok(Some(result))
 }
 
 /// Clear the pending key authorization from wallet.toml.
