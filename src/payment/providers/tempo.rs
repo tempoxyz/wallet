@@ -443,7 +443,7 @@ fn parse_gas_estimate_with_buffer(gas_hex: &str) -> Result<u64> {
         ))
     })?;
 
-    Ok(gas_limit + gas_limit / 5)
+    Ok(gas_limit + 5_000)
 }
 
 /// Estimate gas for a Tempo AA transaction via eth_estimateGas RPC.
@@ -479,7 +479,7 @@ async fn estimate_tempo_gas(
 
     debug!(
         estimated_gas = gas_limit,
-        "eth_estimateGas result (with 20% buffer)"
+        "eth_estimateGas result (with +5000 buffer)"
     );
     Ok(gas_limit)
 }
@@ -1238,30 +1238,27 @@ mod tests {
 
     #[test]
     fn test_parse_gas_estimate_with_buffer_hex_prefix() {
-        // 100_000 = 0x186a0 → with 20% buffer = 120_000
+        // 100_000 = 0x186a0 → with +5000 buffer = 105_000
         let result = parse_gas_estimate_with_buffer("0x186a0").unwrap();
-        assert_eq!(result, 120_000);
+        assert_eq!(result, 105_000);
     }
 
     #[test]
     fn test_parse_gas_estimate_with_buffer_no_prefix() {
         let result = parse_gas_estimate_with_buffer("186a0").unwrap();
-        assert_eq!(result, 120_000);
+        assert_eq!(result, 105_000);
     }
 
     #[test]
-    fn test_parse_gas_estimate_with_buffer_rounds_down() {
-        // 1 gas → buffer = 1 + 1/5 = 1 + 0 = 1 (integer division)
-        assert_eq!(parse_gas_estimate_with_buffer("0x1").unwrap(), 1);
+    fn test_parse_gas_estimate_with_buffer_fixed() {
+        // 1 gas → 1 + 5000 = 5001
+        assert_eq!(parse_gas_estimate_with_buffer("0x1").unwrap(), 5_001);
 
-        // 5 gas → 5 + 5/5 = 6
-        assert_eq!(parse_gas_estimate_with_buffer("0x5").unwrap(), 6);
+        // 5 gas → 5 + 5000 = 5005
+        assert_eq!(parse_gas_estimate_with_buffer("0x5").unwrap(), 5_005);
 
-        // 6 gas → 6 + 6/5 = 6 + 1 = 7
-        assert_eq!(parse_gas_estimate_with_buffer("0x6").unwrap(), 7);
-
-        // 250_000 gas → 250000 + 50000 = 300_000
-        assert_eq!(parse_gas_estimate_with_buffer("0x3d090").unwrap(), 300_000);
+        // 250_000 gas → 250000 + 5000 = 255_000
+        assert_eq!(parse_gas_estimate_with_buffer("0x3d090").unwrap(), 255_000);
     }
 
     #[test]
