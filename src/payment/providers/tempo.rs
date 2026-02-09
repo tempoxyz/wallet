@@ -17,6 +17,7 @@ use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use std::str::FromStr;
+use tracing::debug;
 
 use tempo_primitives::transaction::{
     AASigned, Call, KeychainSignature, PrimitiveSignature, SignedKeyAuthorization, TempoSignature,
@@ -170,6 +171,7 @@ impl PaymentSetupContext {
 
         let nonce = provider
             .get_transaction_count(from)
+            .pending()
             .await
             .with_signing_context(SigningContext {
                 network: Some(network_name.to_string()),
@@ -177,22 +179,30 @@ impl PaymentSetupContext {
                 operation: "get_nonce",
             })?;
 
-        let pending_nonce = provider
-            .get_transaction_count(from)
-            .pending()
-            .await
-            .with_signing_context(SigningContext {
-                network: Some(network_name.to_string()),
-                address: Some(format!("{:#x}", from)),
-                operation: "get_pending_nonce",
-            })?;
-
-        let gas_config = if pending_nonce > nonce {
-            eprintln!(
-                "Pending transaction detected at nonce {} — bumping gas fees",
-                nonce
-            );
-            gas_config.bumped()
+        let gas_config = if let Ok(latest_block) = provider.get_block_number().await {
+            if let Ok(Some(block)) = provider.get_block_by_number(latest_block.into()).await {
+                if let Some(base_fee) = block.header.base_fee_per_gas {
+                    let min_max_fee = base_fee * 2 + gas_config.max_priority_fee_per_gas;
+                    if min_max_fee > gas_config.max_fee_per_gas {
+                        debug!(
+                            base_fee,
+                            bumped_max_fee = min_max_fee,
+                            default_max_fee = gas_config.max_fee_per_gas,
+                            "bumping max_fee_per_gas to cover current base fee"
+                        );
+                        GasConfig {
+                            max_fee_per_gas: min_max_fee,
+                            ..gas_config
+                        }
+                    } else {
+                        gas_config
+                    }
+                } else {
+                    gas_config
+                }
+            } else {
+                gas_config
+            }
         } else {
             gas_config
         };
@@ -385,34 +395,84 @@ async fn is_key_authorized_on_chain<P: alloy::providers::Provider>(
 
 /// Query the key's remaining spending limit for a token.
 ///
-/// Returns `None` if the key doesn't enforce limits (unlimited spending),
-/// or `Some(remaining)` if limits are enforced. Returns `None` on query failure
-/// (e.g. key not yet provisioned with a pending authorization).
+/// Returns `Ok(None)` if the key doesn't enforce limits (unlimited spending),
+/// or `Ok(Some(remaining))` if limits are enforced.
+///
+/// Returns `Err` if the key is not authorized on-chain (missing, expired, or
+/// revoked) or on RPC failure. Callers must handle this to avoid fail-open
+/// behavior (treating an unauthorized key as unlimited).
 pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
     provider: &P,
     wallet_address: Address,
     key_address: Address,
     token: Address,
-) -> Option<U256> {
+) -> Result<Option<U256>> {
     let keychain = IAccountKeychain::new(KEYCHAIN_ADDRESS, provider);
 
     let key_info = keychain
         .getKey(wallet_address, key_address)
         .call()
         .await
-        .ok()?;
+        .map_err(|e| PgetError::SpendingLimitQuery(format!("Failed to query key info: {}", e)))?;
+
+    if key_info.isRevoked {
+        return Err(PgetError::SpendingLimitQuery(
+            "Access key is revoked".to_string(),
+        ));
+    }
+
+    if key_info.expiry == 0 {
+        return Err(PgetError::SpendingLimitQuery(
+            "Access key is not provisioned on-chain".to_string(),
+        ));
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    if key_info.expiry <= now {
+        return Err(PgetError::SpendingLimitQuery(
+            "Access key has expired".to_string(),
+        ));
+    }
 
     if !key_info.enforceLimits {
-        return None;
+        return Ok(None);
     }
 
     let result = keychain
         .getRemainingLimit(wallet_address, key_address, token)
         .call()
         .await
-        .ok()?;
+        .map_err(|e| {
+            PgetError::SpendingLimitQuery(format!("Failed to query remaining limit: {}", e))
+        })?;
 
-    Some(result)
+    Ok(Some(result))
+}
+
+/// Resolve the spending limit for a token from a pending key authorization.
+///
+/// When the key is not yet provisioned on-chain (pending authorization will be
+/// included in the transaction), this checks the authorization's limits locally
+/// instead of querying on-chain.
+///
+/// Returns `Ok(None)` if the pending authorization has unlimited spending,
+/// `Ok(Some(limit))` if the token has a specific limit, or
+/// `Ok(Some(U256::ZERO))` if limits are enforced but the token is not listed.
+pub fn pending_key_spending_limit(
+    pending_auth: &SignedKeyAuthorization,
+    token: Address,
+) -> Option<U256> {
+    match &pending_auth.authorization.limits {
+        None => None,
+        Some(limits) => {
+            let token_limit = limits.iter().find(|tl| tl.token == token);
+            Some(token_limit.map(|tl| tl.limit).unwrap_or(U256::ZERO))
+        }
+    }
 }
 
 /// Clear the pending key authorization from wallet.toml.
@@ -477,6 +537,19 @@ fn create_tempo_transaction_with_calls(
     wallet_address: Option<Address>,
     key_authorization: Option<SignedKeyAuthorization>,
 ) -> Result<String> {
+    debug!(
+        chain_id,
+        nonce,
+        fee_token = %format!("{:#x}", fee_token),
+        gas_limit,
+        max_fee_per_gas = gas_config.max_fee_per_gas,
+        max_priority_fee_per_gas = gas_config.max_priority_fee_per_gas,
+        num_calls = calls.len(),
+        signing_mode = if wallet_address.is_some() { "keychain" } else { "direct" },
+        has_key_authorization = key_authorization.is_some(),
+        "constructing tempo tx (type 0x76)"
+    );
+
     let tx = TempoTransaction {
         chain_id,
         fee_token: Some(fee_token),
@@ -515,6 +588,8 @@ fn create_tempo_transaction_with_calls(
     let signed_tx: AASigned = tx.into_signed(tempo_signature);
     let mut buf = Vec::new();
     signed_tx.eip2718_encode(&mut buf);
+
+    debug!(tx_size_bytes = buf.len(), "signed tempo tx");
 
     Ok(hex::encode(&buf))
 }
@@ -822,5 +897,111 @@ mod tests {
         assert!(result.is_ok());
         let tx_hex = result.unwrap();
         assert!(tx_hex.starts_with("76"));
+    }
+
+    #[test]
+    fn test_pending_key_spending_limit_unlimited() {
+        use tempo_primitives::transaction::{KeyAuthorization, SignatureType};
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let auth = KeyAuthorization {
+            chain_id: 42431,
+            key_type: SignatureType::Secp256k1,
+            key_id: signer.address(),
+            expiry: Some(9999999999),
+            limits: None,
+        };
+
+        let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
+        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
+
+        let token = Address::repeat_byte(0x01);
+        assert_eq!(pending_key_spending_limit(&signed, token), None);
+    }
+
+    #[test]
+    fn test_pending_key_spending_limit_with_matching_token() {
+        use tempo_primitives::transaction::{KeyAuthorization, SignatureType, TokenLimit};
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let token = Address::repeat_byte(0x01);
+        let limit = U256::from(1_000_000u64);
+
+        let auth = KeyAuthorization {
+            chain_id: 42431,
+            key_type: SignatureType::Secp256k1,
+            key_id: signer.address(),
+            expiry: Some(9999999999),
+            limits: Some(vec![TokenLimit { token, limit }]),
+        };
+
+        let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
+        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
+
+        assert_eq!(pending_key_spending_limit(&signed, token), Some(limit));
+    }
+
+    #[test]
+    fn test_pending_key_spending_limit_token_not_in_limits() {
+        use tempo_primitives::transaction::{KeyAuthorization, SignatureType, TokenLimit};
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let allowed_token = Address::repeat_byte(0x01);
+        let disallowed_token = Address::repeat_byte(0x02);
+
+        let auth = KeyAuthorization {
+            chain_id: 42431,
+            key_type: SignatureType::Secp256k1,
+            key_id: signer.address(),
+            expiry: Some(9999999999),
+            limits: Some(vec![TokenLimit {
+                token: allowed_token,
+                limit: U256::from(1_000_000u64),
+            }]),
+        };
+
+        let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
+        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
+
+        assert_eq!(
+            pending_key_spending_limit(&signed, disallowed_token),
+            Some(U256::ZERO)
+        );
+    }
+
+    #[test]
+    fn test_pending_key_spending_limit_empty_limits() {
+        use tempo_primitives::transaction::{KeyAuthorization, SignatureType};
+
+        let signer: PrivateKeySigner =
+            "0x1234567890123456789012345678901234567890123456789012345678901234"
+                .parse()
+                .unwrap();
+
+        let auth = KeyAuthorization {
+            chain_id: 42431,
+            key_type: SignatureType::Secp256k1,
+            key_id: signer.address(),
+            expiry: Some(9999999999),
+            limits: Some(vec![]),
+        };
+
+        let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
+        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
+
+        let token = Address::repeat_byte(0x01);
+        assert_eq!(pending_key_spending_limit(&signed, token), Some(U256::ZERO));
     }
 }

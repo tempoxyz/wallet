@@ -2,4 +2,4 @@
 pget-cli: patch
 ---
 
-Check key authorization spending limits before payment. When using keychain signing with enforced limits, the effective spending capacity is now min(wallet balance, remaining key limit). Also checks on-chain key provisioning status before building transactions and bumps gas fees when pending transactions are detected.
+Fix spending limit queries to fail-closed instead of fail-open. Previously, RPC failures in `query_key_spending_limit` returned `None` (treated as unlimited), allowing payments with unauthorized tokens. Now returns `Result<Option<U256>>` — RPC errors block payment, `Ok(None)` means genuinely unlimited, `Ok(Some(n))` means enforced limit. Swap source selection also rejects tokens with failed limit queries.
