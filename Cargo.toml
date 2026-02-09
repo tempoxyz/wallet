@@ -37,6 +37,7 @@ tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
 toml = "0.9"
 tower-http = { version = "0.6", features = ["limit"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 webbrowser = "1"
 
