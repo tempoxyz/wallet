@@ -82,6 +82,8 @@ pub fn is_tempo_network(name: &str) -> bool {
     matches!(name.to_lowercase().as_str(), "tempo" | "tempo-moderato")
 }
 
+type HttpProvider = alloy::providers::RootProvider;
+
 /// Common context for payment setup, shared between direct and swap payments.
 struct PaymentSetupContext {
     charge_req: mpay::ChargeRequest,
@@ -92,6 +94,7 @@ struct PaymentSetupContext {
     chain_id: u64,
     nonce: u64,
     gas_config: GasConfig,
+    provider: HttpProvider,
 }
 
 impl PaymentSetupContext {
@@ -160,11 +163,10 @@ impl PaymentSetupContext {
             .map(|n| n.gas_config())
             .unwrap_or(GasConfig::DEFAULT);
 
-        let provider = alloy::providers::ProviderBuilder::new().connect_http(
-            network_info.rpc_url.parse().map_err(|e| {
-                TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
-            })?,
-        );
+        let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
+            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+        })?;
+        let provider = HttpProvider::new_http(rpc_url);
 
         let nonce = provider
             .get_transaction_count(from)
@@ -231,6 +233,7 @@ impl PaymentSetupContext {
             chain_id,
             nonce,
             gas_config,
+            provider,
         })
     }
 }
@@ -254,13 +257,32 @@ pub async fn create_tempo_payment(
 
     let transfer_data = encode_transfer(recipient, amount, memo);
 
-    let signed_tx = create_tempo_transaction(
+    let calls = vec![Call {
+        to: alloy::primitives::TxKind::Call(currency),
+        value: U256::ZERO,
+        input: transfer_data,
+    }];
+
+    let gas_limit = estimate_tempo_gas(
+        &ctx.provider,
+        ctx.from,
+        ctx.chain_id,
+        ctx.nonce,
+        currency,
+        &calls,
+        &ctx.gas_config,
+        ctx.key_authorization.as_ref(),
+    )
+    .await?;
+
+    let signed_tx = create_tempo_transaction_with_calls(
         &ctx.signer,
         ctx.chain_id,
         ctx.nonce,
         currency,
-        transfer_data,
+        calls,
         &ctx.gas_config,
+        gas_limit,
         ctx.wallet_address,
         ctx.key_authorization,
     )?;
@@ -293,13 +315,19 @@ pub async fn create_tempo_payment_with_swap(
     let amount = ctx.charge_req.amount_u256()?;
     let memo = parse_memo(ctx.charge_req.memo());
 
-    // Build the 3-call transaction: approve → swap → transfer
     let calls = build_swap_calls(swap_info, recipient, amount, memo)?;
 
-    let mut gas_limit = ctx.gas_config.gas_limit + ctx.gas_config.swap_gas_cost;
-    if ctx.nonce == 0 {
-        gas_limit += ctx.gas_config.new_account_gas_cost;
-    }
+    let gas_limit = estimate_tempo_gas(
+        &ctx.provider,
+        ctx.from,
+        ctx.chain_id,
+        ctx.nonce,
+        swap_info.token_in,
+        &calls,
+        &ctx.gas_config,
+        ctx.key_authorization.as_ref(),
+    )
+    .await?;
 
     let signed_tx = create_tempo_transaction_with_calls(
         &ctx.signer,
@@ -367,6 +395,59 @@ fn build_swap_calls(
             input: transfer_data,
         },
     ])
+}
+
+/// Estimate gas for a Tempo AA transaction via eth_estimateGas RPC.
+#[allow(clippy::too_many_arguments)]
+async fn estimate_tempo_gas(
+    provider: &HttpProvider,
+    from: Address,
+    chain_id: u64,
+    nonce: u64,
+    fee_token: Address,
+    calls: &[Call],
+    gas_config: &GasConfig,
+    key_authorization: Option<&SignedKeyAuthorization>,
+) -> Result<u64> {
+    use alloy::providers::Provider;
+
+    let mut req = serde_json::json!({
+        "from": format!("{:#x}", from),
+        "chainId": format!("{:#x}", chain_id),
+        "nonce": format!("{:#x}", nonce),
+        "maxFeePerGas": format!("{:#x}", gas_config.max_fee_per_gas),
+        "maxPriorityFeePerGas": format!("{:#x}", gas_config.max_priority_fee_per_gas),
+        "feeToken": format!("{:#x}", fee_token),
+        "nonceKey": "0x0",
+        "calls": calls.iter().map(|c| {
+            serde_json::json!({
+                "to": c.to.to().map(|a| format!("{:#x}", a)),
+                "value": format!("{:#x}", c.value),
+                "input": format!("0x{}", hex::encode(&c.input)),
+            })
+        }).collect::<Vec<_>>(),
+    });
+
+    if let Some(auth) = key_authorization {
+        req["keyAuthorization"] = serde_json::to_value(auth).map_err(|e| {
+            TempoCtlError::InvalidChallenge(format!("Failed to serialize key authorization: {}", e))
+        })?;
+    }
+
+    let gas_hex: String = provider
+        .raw_request("eth_estimateGas".into(), [req])
+        .await
+        .map_err(|e| TempoCtlError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
+
+    let gas_limit = u64::from_str_radix(gas_hex.trim_start_matches("0x"), 16).map_err(|e| {
+        TempoCtlError::InvalidChallenge(format!(
+            "Failed to parse gas estimate '{}': {}",
+            gas_hex, e
+        ))
+    })?;
+
+    debug!(estimated_gas = gas_limit, "eth_estimateGas result");
+    Ok(gas_limit)
 }
 
 /// Check if an access key is already authorized on-chain via the keychain precompile.
@@ -492,44 +573,6 @@ fn clear_pending_key_authorization() {
     }
 }
 
-/// Create a Tempo transaction (type 0x76) with network-specific gas configuration.
-#[allow(clippy::too_many_arguments)]
-fn create_tempo_transaction(
-    signer: &PrivateKeySigner,
-    chain_id: u64,
-    nonce: u64,
-    asset: Address,
-    transfer_data: alloy::primitives::Bytes,
-    gas_config: &GasConfig,
-    wallet_address: Option<Address>,
-    key_authorization: Option<SignedKeyAuthorization>,
-) -> Result<String> {
-    use alloy::primitives::TxKind;
-
-    let calls = vec![Call {
-        to: TxKind::Call(asset),
-        value: U256::ZERO,
-        input: transfer_data,
-    }];
-
-    let mut gas_limit = gas_config.gas_limit;
-    if nonce == 0 {
-        gas_limit += gas_config.new_account_gas_cost;
-    }
-
-    create_tempo_transaction_with_calls(
-        signer,
-        chain_id,
-        nonce,
-        asset,
-        calls,
-        gas_config,
-        gas_limit,
-        wallet_address,
-        key_authorization,
-    )
-}
-
 /// Create a Tempo transaction with multiple calls (for swap transactions).
 ///
 /// When `key_authorization` is `Some`, it is included in the transaction to
@@ -606,6 +649,37 @@ fn create_tempo_transaction_with_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn create_tempo_transaction(
+        signer: &PrivateKeySigner,
+        chain_id: u64,
+        nonce: u64,
+        asset: Address,
+        transfer_data: alloy::primitives::Bytes,
+        gas_config: &GasConfig,
+        wallet_address: Option<Address>,
+        key_authorization: Option<SignedKeyAuthorization>,
+    ) -> Result<String> {
+        use alloy::primitives::TxKind;
+
+        let calls = vec![Call {
+            to: TxKind::Call(asset),
+            value: U256::ZERO,
+            input: transfer_data,
+        }];
+
+        create_tempo_transaction_with_calls(
+            signer,
+            chain_id,
+            nonce,
+            asset,
+            calls,
+            gas_config,
+            gas_config.gas_limit,
+            wallet_address,
+            key_authorization,
+        )
+    }
 
     #[test]
     fn test_is_tempo_network() {
@@ -763,11 +837,6 @@ mod tests {
     fn test_swap_slippage_bps_constant() {
         // Verify slippage is 50 bps (0.5%)
         assert_eq!(SWAP_SLIPPAGE_BPS, 50);
-    }
-
-    #[test]
-    fn test_new_account_gas() {
-        assert_eq!(GasConfig::DEFAULT.new_account_gas_cost, 250_000);
     }
 
     #[test]
@@ -1019,7 +1088,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nonce_zero_adds_account_creation_gas() {
+    fn test_nonce_zero_uses_default_gas_limit() {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
@@ -1047,13 +1116,13 @@ mod tests {
 
         assert_eq!(
             decode_gas_limit(&tx_nonce_0),
-            gas.gas_limit + gas.new_account_gas_cost,
-            "nonce 0 should include account creation gas"
+            gas.gas_limit,
+            "nonce 0 should use default gas limit (estimation is done via RPC)"
         );
         assert_eq!(
             decode_gas_limit(&tx_nonce_1),
             gas.gas_limit,
-            "nonce > 0 should use base gas limit"
+            "nonce > 0 should use default gas limit"
         );
     }
 }
