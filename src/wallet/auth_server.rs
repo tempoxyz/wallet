@@ -3,7 +3,7 @@
 //! This module provides a temporary HTTP server that receives credentials
 //! from the browser after passkey authentication. The callback returns a
 //! `key_authorization` (hex-encoded `SignedKeyAuthorization` bytes) which
-//! pget stores locally and includes in the first on-chain transaction to
+//! tempoctl stores locally and includes in the first on-chain transaction to
 //! atomically provision the access key and make a payment.
 
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use serde::Deserialize;
 use tokio::sync::oneshot;
 use tower_http::limit::RequestBodyLimitLayer;
 
-use crate::error::{PgetError, Result};
+use crate::error::{Result, TempoCtlError};
 
 /// Credentials received from the browser callback.
 ///
@@ -59,10 +59,10 @@ pub async fn run_callback_server(
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
-        .map_err(|e| PgetError::Http(format!("Failed to bind callback server: {}", e)))?;
+        .map_err(|e| TempoCtlError::Http(format!("Failed to bind callback server: {}", e)))?;
     let port = listener
         .local_addr()
-        .map_err(|e| PgetError::Http(format!("Failed to get local address: {}", e)))?
+        .map_err(|e| TempoCtlError::Http(format!("Failed to get local address: {}", e)))?
         .port();
 
     let app = Router::new()
@@ -87,14 +87,17 @@ async fn handle_callback(
     headers: HeaderMap,
     Form(form): Form<CallbackForm>,
 ) -> Response {
-    let debug = std::env::var("PGET_DEBUG").is_ok();
+    let debug = std::env::var("TEMPOCTL_DEBUG").is_ok();
     let mut state = state.lock().await;
 
     if debug {
-        eprintln!("[pget:debug] Received auth callback");
-        eprintln!("[pget:debug]   account_address: {}", form.account_address);
+        eprintln!("[tempoctl:debug] Received auth callback");
         eprintln!(
-            "[pget:debug]   key_authorization: {:?}",
+            "[tempoctl:debug]   account_address: {}",
+            form.account_address
+        );
+        eprintln!(
+            "[tempoctl:debug]   key_authorization: {:?}",
             form.key_authorization.as_ref().map(|s| format!(
                 "{}...{}",
                 &s[..std::cmp::min(10, s.len())],
@@ -106,7 +109,7 @@ async fn handle_callback(
     if !is_origin_allowed(&headers) {
         if debug {
             eprintln!(
-                "[pget:debug] Origin rejected: {:?}",
+                "[tempoctl:debug] Origin rejected: {:?}",
                 headers.get("origin").and_then(|v| v.to_str().ok())
             );
         }
@@ -123,7 +126,7 @@ async fn handle_callback(
     };
 
     if debug {
-        eprintln!("[pget:debug] Auth callback validated, saving credentials");
+        eprintln!("[tempoctl:debug] Auth callback validated, saving credentials");
     }
 
     if let Some(tx) = state.tx.take() {
@@ -137,7 +140,7 @@ async fn handle_callback(
 const ALLOWED_ORIGIN_SUFFIX: &str = ".tempo.xyz";
 
 fn is_origin_allowed(headers: &HeaderMap) -> bool {
-    if let Ok(allowed) = std::env::var("PGET_ALLOW_ORIGIN") {
+    if let Ok(allowed) = std::env::var("TEMPOCTL_ALLOW_ORIGIN") {
         let origin = headers.get("origin").and_then(|v| v.to_str().ok());
         return origin == Some(&allowed);
     }
@@ -171,7 +174,7 @@ fn error_html(message: &str) -> String {
         r#"<!DOCTYPE html>
 <html>
 <head>
-    <title>pget - Error</title>
+    <title>tempoctl - Error</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

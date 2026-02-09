@@ -1,10 +1,10 @@
-//! Payment provider abstraction for pget.
+//! Payment provider abstraction for tempoctl.
 //!
 //! This module provides payment providers that implement the mpay::client::PaymentProvider trait,
-//! enabling automatic Web Payment Auth handling with pget-specific features like keychain signing.
+//! enabling automatic Web Payment Auth handling with tempoctl-specific features like keychain signing.
 
 use crate::config::Config;
-use crate::error::{PgetError, Result};
+use crate::error::{Result, TempoCtlError};
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{
@@ -56,7 +56,7 @@ impl std::fmt::Display for NetworkBalance {
     }
 }
 
-/// Pget payment provider that wraps config and implements mpay::client::PaymentProvider.
+/// TempoCtl payment provider that wraps config and implements mpay::client::PaymentProvider.
 ///
 /// This provider handles both Tempo and EVM networks, automatically selecting
 /// the appropriate transaction format based on the payment method.
@@ -64,13 +64,13 @@ impl std::fmt::Display for NetworkBalance {
 /// When `no_swap` is false (default), the provider will automatically swap from
 /// a different stablecoin if the user doesn't have the required token.
 #[derive(Clone)]
-pub struct PgetPaymentProvider {
+pub struct TempoCtlPaymentProvider {
     config: Arc<Config>,
     /// If true, disable automatic token swaps.
     no_swap: bool,
 }
 
-impl PgetPaymentProvider {
+impl TempoCtlPaymentProvider {
     /// Create a new provider with the given configuration.
     #[allow(dead_code)]
     pub fn new(config: Config) -> Self {
@@ -89,7 +89,7 @@ impl PgetPaymentProvider {
     }
 }
 
-impl mpay::client::PaymentProvider for PgetPaymentProvider {
+impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
     fn supports(&self, method: &str, intent: &str) -> bool {
         let method_lower = method.to_lowercase();
         let is_supported_method = method_lower == "tempo";
@@ -113,7 +113,7 @@ impl mpay::client::PaymentProvider for PgetPaymentProvider {
     }
 }
 
-impl PgetPaymentProvider {
+impl TempoCtlPaymentProvider {
     async fn create_tempo_payment(
         &self,
         challenge: &mpay::PaymentChallenge,
@@ -362,17 +362,17 @@ pub async fn get_balances(
     let network_info = config.resolve_network(network.as_str())?;
     let provider =
         ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            PgetError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
     let user_addr = Address::from_str(address)
-        .map_err(|e| PgetError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
+        .map_err(|e| TempoCtlError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
 
     let mut balances = Vec::new();
 
     for token_config in network.supported_tokens() {
         let token_addr = Address::from_str(token_config.address).map_err(|e| {
-            PgetError::invalid_address(format!(
+            TempoCtlError::invalid_address(format!(
                 "Invalid {} contract address for {}: {}",
                 token_config.currency.symbol, network, e
             ))
@@ -413,7 +413,7 @@ pub async fn query_token_balance(
     let network_info = config.resolve_network(network.as_str())?;
     let provider =
         ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            PgetError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
     let contract = IERC20::new(token_address, &provider);
@@ -421,7 +421,7 @@ pub async fn query_token_balance(
         .balanceOf(account)
         .call()
         .await
-        .map_err(|e| PgetError::BalanceQuery(format!("Failed to query balance: {}", e)))?;
+        .map_err(|e| TempoCtlError::BalanceQuery(format!("Failed to query balance: {}", e)))?;
 
     Ok(balance)
 }
@@ -493,7 +493,7 @@ pub async fn find_swap_source(
         let network_info = config.resolve_network(network.as_str())?;
         let provider =
             ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-                PgetError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+                TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
             })?);
 
         let limit_futures: Vec<_> = tokens_to_check
@@ -587,7 +587,7 @@ mod tests {
     #[test]
     fn test_provider_supports_tempo() {
         let config = Config::default();
-        let provider = PgetPaymentProvider::new(config);
+        let provider = TempoCtlPaymentProvider::new(config);
 
         assert!(provider.supports("tempo", "charge"));
         assert!(provider.supports("TEMPO", "charge"));
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn test_provider_rejects_unknown_methods() {
         let config = Config::default();
-        let provider = PgetPaymentProvider::new(config);
+        let provider = TempoCtlPaymentProvider::new(config);
 
         assert!(!provider.supports("base", "charge"));
         assert!(!provider.supports("ethereum", "charge"));

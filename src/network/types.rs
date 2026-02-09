@@ -229,7 +229,7 @@ impl Network {
     /// Get token configuration by address, or error if not found.
     pub fn require_token_config(&self, address: &str) -> crate::error::Result<TokenConfig> {
         self.token_config_by_address(address).ok_or_else(|| {
-            crate::error::PgetError::UnsupportedToken(format!(
+            crate::error::TempoCtlError::UnsupportedToken(format!(
                 "Currency {} is not supported on {}. Supported tokens: pathUSD, AlphaUSD, BetaUSD, ThetaUSD",
                 address, self
             ))

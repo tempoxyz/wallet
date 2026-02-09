@@ -34,13 +34,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            asset: pget-linux-amd64
+            asset: tempoctl-linux-amd64
           - os: macos-latest
             target: x86_64-apple-darwin
-            asset: pget-darwin-amd64
+            asset: tempoctl-darwin-amd64
           - os: macos-latest
             target: aarch64-apple-darwin
-            asset: pget-darwin-arm64
+            asset: tempoctl-darwin-arm64
     steps:
       - uses: actions/checkout@v4
       - name: Configure git for private repos
@@ -52,8 +52,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - run: strip target/${{ matrix.target }}/release/pget
-      - run: mv target/${{ matrix.target }}/release/pget ${{ matrix.asset }}
+      - run: strip target/${{ matrix.target }}/release/tempoctl
+      - run: mv target/${{ matrix.target }}/release/tempoctl ${{ matrix.asset }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
@@ -78,11 +78,11 @@ jobs:
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
           for f in artifacts/*; do
-            aws s3 cp "$f" "s3://pget-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://tempoctl-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
           # Upload install script
-          aws s3 cp install.sh "s3://pget-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp install.sh "s3://tempoctl-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           echo "Uploaded latest binaries to R2"
 
@@ -126,7 +126,7 @@ jobs:
           # Upload with version prefix
           for f in artifacts/*; do
             BASENAME=$(basename "$f")
-            aws s3 cp "$f" "s3://pget-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://tempoctl-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
           echo "Uploaded ${VERSION} binaries to R2"
