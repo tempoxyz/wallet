@@ -179,4 +179,128 @@ mod tests {
         let mode = metadata.permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
+
+    #[test]
+    fn test_atomic_write_empty_content() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("empty.txt");
+
+        atomic_write(&path, "", 0o644).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn test_atomic_write_temp_cleaned_up_on_rename_failure() {
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("subdir");
+        fs::create_dir(&nested).unwrap();
+
+        let target = nested.join("target.txt");
+        atomic_write(&target, "original", 0o644).unwrap();
+
+        fs::remove_dir_all(&nested).unwrap();
+
+        let result = atomic_write(&target, "new content", 0o644);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_atomic_write_no_temp_left_on_failure() {
+        let dir = tempdir().unwrap();
+        let blocker = dir.path().join("subdir");
+        fs::write(&blocker, "i am a file").unwrap();
+
+        let path = blocker.join("test.txt");
+        let result = atomic_write(&path, "content", 0o644);
+        assert!(result.is_err());
+
+        let tmp_files: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(tmp_files.is_empty());
+    }
+
+    #[test]
+    fn test_atomic_write_parent_is_file_not_dir() {
+        let dir = tempdir().unwrap();
+        let blocker = dir.path().join("not_a_dir");
+        fs::write(&blocker, "i am a file").unwrap();
+
+        let path = blocker.join("test.txt");
+        let result = atomic_write(&path, "content", 0o644);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_atomic_write_retries_on_temp_collision() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        let pid = process::id();
+        let base_nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let colliding_name = format!(".test.txt.{}.{}.tmp", pid, base_nonce);
+        fs::write(dir.path().join(&colliding_name), "blocker").unwrap();
+
+        atomic_write(&path, "should succeed via retry", 0o644).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "should succeed via retry"
+        );
+    }
+
+    #[test]
+    fn test_atomic_write_preserves_old_content_on_dir_failure() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        atomic_write(&path, "original", 0o644).unwrap();
+
+        let bad_path = Path::new("/dev/null/impossible/test.txt");
+        let result = atomic_write(bad_path, "new content", 0o644);
+        assert!(result.is_err());
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_does_not_follow_symlink_for_temp() {
+        let dir = tempdir().unwrap();
+        let target_dir = tempdir().unwrap();
+        let decoy = target_dir.path().join("decoy.txt");
+        fs::write(&decoy, "original decoy").unwrap();
+
+        let link_path = dir.path().join("config.txt");
+        std::os::unix::fs::symlink(&decoy, &link_path).unwrap();
+
+        atomic_write(&link_path, "overwritten", 0o644).unwrap();
+
+        let link_content = fs::read_to_string(&link_path).unwrap();
+        assert_eq!(link_content, "overwritten");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_permissions_on_overwrite() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        fs::write(&path, "world readable").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        atomic_write(&path, "now restricted", 0o600).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "now restricted");
+    }
 }

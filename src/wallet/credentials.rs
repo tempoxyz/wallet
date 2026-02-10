@@ -333,6 +333,54 @@ mod tests {
     }
 
     #[test]
+    fn test_wallet_save_round_trip_via_atomic_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wallet.toml");
+
+        let mut creds = WalletCredentials {
+            network: "tempo".to_string(),
+            ..Default::default()
+        };
+
+        let mut wallet = NetworkWallet {
+            account_address: "0xdeadbeef".to_string(),
+            ..Default::default()
+        };
+        wallet.add_key(AccessKey::new("0xkey1".to_string()), true);
+        wallet.add_key(AccessKey::new("0xkey2".to_string()), false);
+        wallet.pending_key_authorization = Some("pending123".to_string());
+        creds.tempo = Some(wallet);
+
+        let contents = toml::to_string_pretty(&creds).unwrap();
+        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).unwrap();
+
+        let loaded: WalletCredentials =
+            toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded.network, "tempo");
+        let w = loaded.tempo.unwrap();
+        assert_eq!(w.account_address, "0xdeadbeef");
+        assert_eq!(w.access_keys.len(), 2);
+        assert_eq!(w.active_key_index, 0);
+        assert_eq!(w.pending_key_authorization, Some("pending123".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_wallet_save_permissions_via_atomic_write() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wallet.toml");
+
+        let creds = WalletCredentials::default();
+        let contents = toml::to_string_pretty(&creds).unwrap();
+        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
     fn test_backward_compat_without_pending_key_authorization() {
         let toml_str = r#"
 network = "tempo-moderato"
