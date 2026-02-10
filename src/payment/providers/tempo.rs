@@ -163,8 +163,8 @@ impl PaymentSetupContext {
             .map(|n| n.gas_config())
             .unwrap_or(GasConfig::DEFAULT);
 
-        let provider = network::http_provider(&network_info.rpc_url)
-            .map_err(|e| TempoCtlError::InvalidConfig(e))?;
+        let provider =
+            network::http_provider(&network_info.rpc_url).map_err(TempoCtlError::InvalidConfig)?;
 
         let nonce = provider
             .get_transaction_count(from)
@@ -748,8 +748,8 @@ pub async fn create_tempo_stream_open(
         .map(|n| n.gas_config())
         .unwrap_or(GasConfig::DEFAULT);
 
-    let provider = network::http_provider(&network_info.rpc_url)
-        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
+    let provider =
+        network::http_provider(&network_info.rpc_url).map_err(TempoCtlError::InvalidConfig)?;
 
     let nonce = provider
         .get_transaction_count(from)
@@ -881,8 +881,8 @@ pub async fn create_tempo_stream_top_up(
         .map(|n| n.gas_config())
         .unwrap_or(GasConfig::DEFAULT);
 
-    let provider = network::http_provider(&network_info.rpc_url)
-        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
+    let provider =
+        network::http_provider(&network_info.rpc_url).map_err(TempoCtlError::InvalidConfig)?;
 
     let nonce = provider
         .get_transaction_count(from)
@@ -1014,8 +1014,8 @@ pub async fn create_tempo_stream_close(
         .map(|n| n.gas_config())
         .unwrap_or(GasConfig::DEFAULT);
 
-    let provider = network::http_provider(&network_info.rpc_url)
-        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
+    let provider =
+        network::http_provider(&network_info.rpc_url).map_err(TempoCtlError::InvalidConfig)?;
 
     let nonce = provider
         .get_transaction_count(from)

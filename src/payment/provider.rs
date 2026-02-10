@@ -219,8 +219,8 @@ impl TempoCtlPaymentProvider {
                 .config
                 .resolve_network(network_name)
                 .map_err(|e| mpay::MppError::Http(e.to_string()))?;
-            let provider = network::http_provider(&network_info.rpc_url)
-                .map_err(|e| mpay::MppError::Http(e))?;
+            let provider =
+                network::http_provider(&network_info.rpc_url).map_err(mpay::MppError::Http)?;
 
             let limit =
                 match query_key_spending_limit(&provider, wallet_addr, key_address, required_token)
@@ -596,8 +596,8 @@ impl TempoCtlPaymentProvider {
                     mpay::MppError::Http(format!("Invalid channelId in method_details: {}", e))
                 })?;
 
-                let provider = network::http_provider(&network_info.rpc_url)
-                    .map_err(|e| mpay::MppError::Http(e))?;
+                let provider =
+                    network::http_provider(&network_info.rpc_url).map_err(mpay::MppError::Http)?;
 
                 if let Ok(Some(on_chain)) =
                     query_on_chain_channel(&provider, escrow_contract, channel_id_bytes).await
@@ -768,8 +768,8 @@ pub async fn get_balances(
     network: Network,
 ) -> Result<Vec<NetworkBalance>> {
     let network_info = config.resolve_network(network.as_str())?;
-    let provider = network::http_provider(&network_info.rpc_url)
-        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
+    let provider =
+        network::http_provider(&network_info.rpc_url).map_err(TempoCtlError::InvalidConfig)?;
 
     let user_addr = Address::from_str(address)
         .map_err(|e| TempoCtlError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
@@ -817,8 +817,8 @@ pub async fn query_token_balance(
     account: Address,
 ) -> Result<U256> {
     let network_info = config.resolve_network(network.as_str())?;
-    let provider = network::http_provider(&network_info.rpc_url)
-        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
+    let provider =
+        network::http_provider(&network_info.rpc_url).map_err(TempoCtlError::InvalidConfig)?;
 
     let contract = IERC20::new(token_address, &provider);
     let balance = contract
@@ -895,8 +895,8 @@ pub async fn find_swap_source(
 
     if let Some((wallet_addr, key_addr)) = keychain_info {
         let network_info = config.resolve_network(network.as_str())?;
-        let provider = network::http_provider(&network_info.rpc_url)
-            .map_err(|e| TempoCtlError::InvalidConfig(e))?;
+        let provider =
+            network::http_provider(&network_info.rpc_url).map_err(TempoCtlError::InvalidConfig)?;
 
         let limit_futures: Vec<_> = tokens_to_check
             .iter()

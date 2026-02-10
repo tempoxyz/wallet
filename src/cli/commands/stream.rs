@@ -132,8 +132,8 @@ pub async fn close_channel(
         let chain_id = entry.chain_id;
         let gas_config = network.gas_config();
 
-        let provider = network::http_provider(&network_info.rpc_url)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        let provider =
+            network::http_provider(&network_info.rpc_url).map_err(|e| anyhow::anyhow!(e))?;
 
         let on_chain = query_on_chain_channel(&provider, escrow_contract, channel_id).await?;
         if let Some(ref ch) = on_chain {
@@ -275,8 +275,8 @@ pub async fn withdraw_channel(
         let chain_id = entry.chain_id;
         let gas_config = network.gas_config();
 
-        let provider = network::http_provider(&network_info.rpc_url)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        let provider =
+            network::http_provider(&network_info.rpc_url).map_err(|e| anyhow::anyhow!(e))?;
 
         let on_chain = query_on_chain_channel(&provider, escrow_contract, channel_id).await?;
         match on_chain {
