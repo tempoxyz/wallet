@@ -119,7 +119,9 @@ impl WalletCredentials {
             .ok_or(TempoCtlError::NoConfigDir)?
             .join("tempoctl");
 
-        fs::create_dir_all(&data_dir)?;
+        if !data_dir.exists() {
+            fs::create_dir_all(&data_dir)?;
+        }
 
         Ok(data_dir)
     }
@@ -145,8 +147,21 @@ impl WalletCredentials {
     /// Save wallet credentials atomically.
     pub fn save(&self) -> Result<()> {
         let path = Self::wallet_path()?;
+        let dir = path.parent().ok_or(TempoCtlError::NoConfigDir)?;
+
         let contents = toml::to_string_pretty(self)?;
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600)?;
+
+        let temp_path = dir.join(format!(".wallet.{}.tmp", std::process::id()));
+        fs::write(&temp_path, &contents)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::Permissions::from_mode(0o600);
+            fs::set_permissions(&temp_path, perms)?;
+        }
+
+        fs::rename(&temp_path, &path)?;
         Ok(())
     }
 
@@ -330,54 +345,6 @@ mod tests {
             parsed.tempo.unwrap().pending_key_authorization,
             Some("abcdef1234".to_string())
         );
-    }
-
-    #[test]
-    fn test_wallet_save_round_trip_via_atomic_write() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("wallet.toml");
-
-        let mut creds = WalletCredentials {
-            network: "tempo".to_string(),
-            ..Default::default()
-        };
-
-        let mut wallet = NetworkWallet {
-            account_address: "0xdeadbeef".to_string(),
-            ..Default::default()
-        };
-        wallet.add_key(AccessKey::new("0xkey1".to_string()), true);
-        wallet.add_key(AccessKey::new("0xkey2".to_string()), false);
-        wallet.pending_key_authorization = Some("pending123".to_string());
-        creds.tempo = Some(wallet);
-
-        let contents = toml::to_string_pretty(&creds).expect("serialize");
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).expect("write");
-
-        let loaded: WalletCredentials =
-            toml::from_str(&fs::read_to_string(&path).expect("read")).expect("deserialize");
-        assert_eq!(loaded.network, "tempo");
-        let w = loaded.tempo.expect("tempo wallet");
-        assert_eq!(w.account_address, "0xdeadbeef");
-        assert_eq!(w.access_keys.len(), 2);
-        assert_eq!(w.active_key_index, 0);
-        assert_eq!(w.pending_key_authorization, Some("pending123".to_string()));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_wallet_save_permissions_via_atomic_write() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("wallet.toml");
-
-        let creds = WalletCredentials::default();
-        let contents = toml::to_string_pretty(&creds).expect("serialize");
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).expect("write");
-
-        let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
     }
 
     #[test]

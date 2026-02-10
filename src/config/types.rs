@@ -226,8 +226,13 @@ impl Config {
         self.validate()?;
 
         let config_path = Self::default_config_path()?;
+
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
         let content = toml::to_string_pretty(self)?;
-        crate::util::atomic_write::atomic_write(&config_path, &content, 0o600)?;
+        std::fs::write(&config_path, content)?;
 
         Ok(())
     }
@@ -782,41 +787,6 @@ mod tests {
         assert_eq!(network_info.chain_id, Some(99999));
         assert_eq!(network_info.display_name, "My Custom Tempo");
         assert_eq!(network_info.rpc_url, "https://my-tempo-fork.com");
-    }
-
-    #[test]
-    fn test_config_save_round_trip_via_atomic_write() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.toml");
-
-        let config = Config {
-            evm: None,
-            tempo_rpc: Some("https://rpc.example.com".to_string()),
-            moderato_rpc: Some("https://moderato.example.com".to_string()),
-            rpc: HashMap::from([(
-                "custom".to_string(),
-                "https://custom.example.com".to_string(),
-            )]),
-            networks: vec![CustomNetwork {
-                id: "test-net".to_string(),
-                chain_id: Some(12345),
-                mainnet: false,
-                display_name: "Test Network".to_string(),
-                rpc_url: "https://test.example.com".to_string(),
-                explorer_url: None,
-            }],
-        };
-
-        let content = toml::to_string_pretty(&config).expect("serialize");
-        crate::util::atomic_write::atomic_write(&path, &content, 0o600).expect("write");
-
-        let loaded = Config::load_from(Some(&path)).expect("load");
-        assert_eq!(loaded.tempo_rpc, config.tempo_rpc);
-        assert_eq!(loaded.moderato_rpc, config.moderato_rpc);
-        assert_eq!(loaded.rpc.get("custom"), config.rpc.get("custom"));
-        assert_eq!(loaded.networks.len(), 1);
-        assert_eq!(loaded.networks[0].id, "test-net");
-        assert_eq!(loaded.networks[0].chain_id, Some(12345));
     }
 
     #[test]
