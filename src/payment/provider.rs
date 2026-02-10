@@ -19,7 +19,7 @@ use alloy::sol;
 use std::str::FromStr;
 use std::sync::Arc;
 use tempo_primitives::transaction::SignedKeyAuthorization;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Balance information for a single token on a network
 #[derive(Debug, Clone)]
@@ -443,9 +443,11 @@ pub async fn get_balances(
                 ));
             }
             Err(e) => {
-                eprintln!(
-                    "Warning: Failed to get {} balance on {}: {}",
-                    token_config.currency.symbol, network, e
+                warn!(
+                    token = %token_config.currency.symbol,
+                    network = %network,
+                    error = %e,
+                    "failed to get token balance"
                 );
             }
         }
@@ -572,10 +574,7 @@ pub async fn find_swap_source(
                         }
                     }
                     Err(e) => {
-                        eprintln!(
-                            "Warning: Failed to query spending limit for {}: {}",
-                            symbol, e
-                        );
+                        warn!(token = %symbol, error = %e, "failed to query spending limit");
                         return None;
                     }
                 };
@@ -596,7 +595,7 @@ pub async fn find_swap_source(
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("Warning: Failed to query {} balance: {}", symbol, e);
+                    warn!(token = %symbol, error = %e, "failed to query token balance");
                 }
             }
         }
@@ -621,7 +620,7 @@ pub async fn find_swap_source(
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("Warning: Failed to query {} balance: {}", symbol, e);
+                    warn!(token = %symbol, error = %e, "failed to query token balance");
                 }
             }
         }

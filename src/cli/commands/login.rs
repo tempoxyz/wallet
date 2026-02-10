@@ -3,6 +3,7 @@ use crate::config::Config;
 use crate::wallet::WalletManager;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use tracing::warn;
 
 const TEMPOCTL_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/tempoctl/SKILL.md");
 
@@ -23,7 +24,7 @@ pub async fn run_login(network: Option<&str>, analytics: Option<Analytics>) -> R
     match install_ai_integrations() {
         Ok(Some(path)) => println!("AI integrations installed to: {}", path.display()),
         Ok(None) => {}
-        Err(e) => eprintln!("Warning: Failed to install AI integrations: {e}"),
+        Err(e) => warn!(error = %e, "failed to install AI integrations"),
     }
 
     Ok(())
