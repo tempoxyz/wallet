@@ -257,7 +257,7 @@ impl Config {
     pub fn require_evm(&self) -> Result<&EvmConfig> {
         self.evm.as_ref().ok_or_else(|| {
             TempoCtlError::ConfigMissing(
-                "EVM configuration not found. Run 'tempoctl init' to configure.".to_string(),
+                "EVM configuration not found. Run 'tempoctl login' to configure.".to_string(),
             )
         })
     }

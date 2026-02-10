@@ -25,13 +25,6 @@ use std::str::FromStr;
 ///     Address::from_str(tempo_tokens::PATH_USD).unwrap(),
 /// );
 ///
-/// let alpha_usd = TokenId::new(
-///     Network::Tempo,
-///     Address::from_str(tempo_tokens::ALPHA_USD).unwrap(),
-/// );
-///
-/// // Different tokens on same network
-/// assert_ne!(path_usd, alpha_usd);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TokenId {
@@ -136,7 +129,7 @@ impl Money {
     /// * `token` - The token identity (network + asset address)
     /// * `atomic` - The amount in atomic units (e.g., wei, base units)
     /// * `decimals` - Number of decimal places for human formatting
-    /// * `symbol` - Token symbol for display (e.g., "pathUSD", "AlphaUSD")
+    /// * `symbol` - Token symbol for display (e.g., "pathUSD")
     pub fn new(token: TokenId, atomic: U256, decimals: u8, symbol: impl Into<String>) -> Self {
         Self {
             token,
@@ -519,7 +512,7 @@ mod tests {
     fn test_money_from_atomic_str() {
         let token = test_token();
         let money =
-            Money::from_atomic_str(token, "1500000", 6, "AlphaUSD").expect("valid atomic string");
+            Money::from_atomic_str(token, "1500000", 6, "pathUSD").expect("valid atomic string");
 
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
     }
@@ -529,16 +522,15 @@ mod tests {
         let token = test_token();
 
         // Whole number
-        let money = Money::from_human("100", token, 6, "AlphaUSD").expect("valid whole number");
+        let money = Money::from_human("100", token, 6, "pathUSD").expect("valid whole number");
         assert_eq!(money.atomic(), U256::from(100_000_000u64));
 
         // With decimals
-        let money = Money::from_human("1.5", token, 6, "AlphaUSD").expect("valid decimal");
+        let money = Money::from_human("1.5", token, 6, "pathUSD").expect("valid decimal");
         assert_eq!(money.atomic(), U256::from(1_500_000u64));
 
         // Small amount
-        let money =
-            Money::from_human("0.000001", token, 6, "AlphaUSD").expect("valid small amount");
+        let money = Money::from_human("0.000001", token, 6, "pathUSD").expect("valid small amount");
         assert_eq!(money.atomic(), U256::from(1u64));
     }
 
@@ -547,26 +539,26 @@ mod tests {
         let token = test_token();
 
         // Too many decimals
-        assert!(Money::from_human("1.1234567", token, 6, "AlphaUSD").is_err());
+        assert!(Money::from_human("1.1234567", token, 6, "pathUSD").is_err());
 
         // Invalid format
-        assert!(Money::from_human("1.2.3", token, 6, "AlphaUSD").is_err());
+        assert!(Money::from_human("1.2.3", token, 6, "pathUSD").is_err());
 
         // Invalid number
-        assert!(Money::from_human("abc", token, 6, "AlphaUSD").is_err());
+        assert!(Money::from_human("abc", token, 6, "pathUSD").is_err());
     }
 
     #[test]
     fn test_format_human() {
         let token = test_token();
 
-        let money = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
+        let money = Money::new(token, U256::from(1_500_000u64), 6, "pathUSD");
         assert_eq!(money.format_human(), "1.500000");
 
-        let money = Money::new(token, U256::from(1u64), 6, "AlphaUSD");
+        let money = Money::new(token, U256::from(1u64), 6, "pathUSD");
         assert_eq!(money.format_human(), "0.000001");
 
-        let money = Money::new(token, U256::ZERO, 6, "AlphaUSD");
+        let money = Money::new(token, U256::ZERO, 6, "pathUSD");
         assert_eq!(money.format_human(), "0.000000");
     }
 
@@ -574,14 +566,14 @@ mod tests {
     fn test_format_trimmed() {
         let token = test_token();
 
-        let money = Money::new(token, U256::from(1_000_000u64), 6, "AlphaUSD");
-        assert_eq!(money.format_trimmed(), "1 AlphaUSD");
+        let money = Money::new(token, U256::from(1_000_000u64), 6, "pathUSD");
+        assert_eq!(money.format_trimmed(), "1 pathUSD");
 
-        let money = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
-        assert_eq!(money.format_trimmed(), "1.5 AlphaUSD");
+        let money = Money::new(token, U256::from(1_500_000u64), 6, "pathUSD");
+        assert_eq!(money.format_trimmed(), "1.5 pathUSD");
 
-        let money = Money::new(token, U256::from(1_234_567u64), 6, "AlphaUSD");
-        assert_eq!(money.format_trimmed(), "1.234567 AlphaUSD");
+        let money = Money::new(token, U256::from(1_234_567u64), 6, "pathUSD");
+        assert_eq!(money.format_trimmed(), "1.234567 pathUSD");
     }
 
     #[test]
@@ -598,8 +590,8 @@ mod tests {
     #[test]
     fn test_checked_add() {
         let token = test_token();
-        let money1 = Money::new(token, U256::from(1_000_000u64), 6, "AlphaUSD");
-        let money2 = Money::new(token, U256::from(500_000u64), 6, "AlphaUSD");
+        let money1 = Money::new(token, U256::from(1_000_000u64), 6, "pathUSD");
+        let money2 = Money::new(token, U256::from(500_000u64), 6, "pathUSD");
 
         let result = money1.checked_add(&money2).expect("same token addition");
         assert_eq!(result.atomic(), U256::from(1_500_000u64));
@@ -624,8 +616,8 @@ mod tests {
     #[test]
     fn test_checked_sub() {
         let token = test_token();
-        let money1 = Money::new(token, U256::from(1_500_000u64), 6, "AlphaUSD");
-        let money2 = Money::new(token, U256::from(500_000u64), 6, "AlphaUSD");
+        let money1 = Money::new(token, U256::from(1_500_000u64), 6, "pathUSD");
+        let money2 = Money::new(token, U256::from(500_000u64), 6, "pathUSD");
 
         let result = money1.checked_sub(&money2).expect("valid subtraction");
         assert_eq!(result.atomic(), U256::from(1_000_000u64));

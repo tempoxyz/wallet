@@ -30,7 +30,7 @@ pub struct NetworkBalance {
     pub balance: U256,
     /// Human-readable balance string (for display)
     pub balance_human: String,
-    /// Asset symbol (e.g., "pathUSD", "AlphaUSD")
+    /// Asset symbol (e.g., "pathUSD")
     pub asset: String,
 }
 
@@ -408,7 +408,7 @@ sol! {
 
 /// Query balances for all supported tokens on a network.
 ///
-/// Returns balances for pathUSD, AlphaUSD, BetaUSD, and ThetaUSD.
+/// Returns balances for pathUSD.
 pub async fn get_balances(
     config: &Config,
     address: &str,

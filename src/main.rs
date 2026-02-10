@@ -161,7 +161,11 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Balance { address } => {
+        Commands::Balance {
+            address,
+            output_format,
+        } => {
+            let effective_format = cli.effective_output_format(output_format);
             let config = load_config(cli.config.as_ref())?;
             if let Some(ref a) = analytics {
                 a.track(
@@ -171,7 +175,13 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     },
                 );
             }
-            cli::commands::balance::balance_command(&config, address, cli.network.clone()).await
+            cli::commands::balance::balance_command(
+                &config,
+                address,
+                cli.network.clone(),
+                effective_format,
+            )
+            .await
         }
 
         Commands::Networks {
@@ -181,23 +191,28 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     NetworkCommands::List { output_format } => {
-                        cli::commands::network::list_networks(output_format)
+                        let fmt = cli.effective_output_format(output_format);
+                        cli::commands::network::list_networks(fmt)
                             .context("Failed to list networks")
                     }
                     NetworkCommands::Info {
                         network,
                         output_format,
-                    } => cli::commands::network::show_network_info(&network, output_format)
-                        .context("Failed to show network info"),
+                    } => {
+                        let fmt = cli.effective_output_format(output_format);
+                        cli::commands::network::show_network_info(&network, fmt)
+                            .context("Failed to show network info")
+                    }
                 }
             } else {
-                cli::commands::network::list_networks(output_format)
-                    .context("Failed to list networks")
+                let fmt = cli.effective_output_format(output_format);
+                cli::commands::network::list_networks(fmt).context("Failed to list networks")
             }
         }
 
         Commands::Inspect { url, output_format } => {
-            cli::commands::inspect::inspect_command(&cli, &url, output_format).await
+            let fmt = cli.effective_output_format(output_format);
+            cli::commands::inspect::inspect_command(&cli, &url, fmt).await
         }
 
         Commands::Wallet { command } => {
@@ -222,21 +237,30 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             output_format,
             refresh,
         } => {
+            let effective_format = cli.effective_output_format(output_format);
             if let Some(subcommand) = command {
                 match subcommand {
-                    cli::ServicesCommands::List { refresh } => {
-                        cli::commands::services::list_services(output_format, refresh)
+                    cli::ServicesCommands::List {
+                        refresh,
+                        output_format,
+                    } => {
+                        let fmt = cli.effective_output_format(output_format);
+                        cli::commands::services::list_services(fmt, refresh)
                             .await
                             .map_err(Into::into)
                     }
-                    cli::ServicesCommands::Info { name } => {
-                        cli::commands::services::show_service(&name, output_format)
+                    cli::ServicesCommands::Info {
+                        name,
+                        output_format,
+                    } => {
+                        let fmt = cli.effective_output_format(output_format);
+                        cli::commands::services::show_service(&name, fmt)
                             .await
                             .map_err(Into::into)
                     }
                 }
             } else {
-                cli::commands::services::list_services(output_format, refresh)
+                cli::commands::services::list_services(effective_format, refresh)
                     .await
                     .map_err(Into::into)
             }
@@ -246,6 +270,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             command,
             output_format,
         } => {
+            let output_format = cli.effective_output_format(output_format);
             let network = cli.network.as_deref();
             if let Some(subcommand) = command {
                 match subcommand {
@@ -295,11 +320,12 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Whoami { output_format } => {
+            let fmt = cli.effective_output_format(output_format);
             let network = cli.network.as_deref();
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
             }
-            cli::commands::whoami::show_whoami(output_format, network)
+            cli::commands::whoami::show_whoami(fmt, network)
                 .await
                 .map_err(Into::into)
         }

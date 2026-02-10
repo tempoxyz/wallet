@@ -235,6 +235,9 @@ pub enum Commands {
     Balance {
         /// Check balance for specific address (defaults to configured addresses)
         address: Option<String>,
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
     },
     /// Show who you are: wallet, balances, access keys
     #[command(display_order = 5)]
@@ -330,11 +333,17 @@ pub enum ServicesCommands {
         /// Force refresh from server
         #[arg(short = 'r', long)]
         refresh: bool,
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
     },
     /// Show detailed info for a service
     Info {
         /// Service name or alias
         name: String,
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
     },
 }
 
@@ -391,6 +400,14 @@ impl Cli {
 
     pub fn should_show_output(&self) -> bool {
         !self.quiet
+    }
+
+    pub fn effective_output_format(&self, subcommand_format: OutputFormat) -> OutputFormat {
+        if self.json_output {
+            OutputFormat::Json
+        } else {
+            subcommand_format
+        }
     }
 }
 

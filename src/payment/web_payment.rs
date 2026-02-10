@@ -221,7 +221,11 @@ fn handle_web_dry_run(
         println!("Expires: {}", expires);
     }
 
-    anyhow::bail!("Dry run completed");
+    Ok(HttpResponse {
+        status_code: 200,
+        headers: std::collections::HashMap::new(),
+        body: Vec::new(),
+    })
 }
 
 /// Display receipt information from response with optional clickable explorer links.

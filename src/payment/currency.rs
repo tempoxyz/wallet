@@ -4,7 +4,7 @@
 /// Represents a cryptocurrency or token with its metadata
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Currency {
-    /// Symbol/ticker (e.g., "pathUSD", "AlphaUSD")
+    /// Symbol/ticker (e.g., "pathUSD")
     pub symbol: &'static str,
     /// Full name (e.g., "pathUSD")
     pub name: &'static str,
@@ -117,15 +117,6 @@ pub mod currencies {
 
     /// pathUSD - primary Tempo stablecoin at 0x20c0000000000000000000000000000000000000
     pub const PATH_USD: Currency = Currency::new("pathUSD", "pathUSD", 6);
-
-    /// AlphaUSD - Tempo stablecoin at 0x20c0000000000000000000000000000000000001
-    pub const ALPHA_USD: Currency = Currency::new("AlphaUSD", "AlphaUSD", 6);
-
-    /// BetaUSD - Tempo stablecoin at 0x20c0000000000000000000000000000000000002
-    pub const BETA_USD: Currency = Currency::new("BetaUSD", "BetaUSD", 6);
-
-    /// ThetaUSD - Tempo stablecoin at 0x20c0000000000000000000000000000000000003
-    pub const THETA_USD: Currency = Currency::new("ThetaUSD", "ThetaUSD", 6);
 }
 
 #[cfg(test)]
@@ -144,9 +135,6 @@ mod tests {
     #[test]
     fn test_all_tempo_currencies_have_6_decimals() {
         assert_eq!(currencies::PATH_USD.decimals, 6);
-        assert_eq!(currencies::ALPHA_USD.decimals, 6);
-        assert_eq!(currencies::BETA_USD.decimals, 6);
-        assert_eq!(currencies::THETA_USD.decimals, 6);
     }
 
     #[test]
@@ -174,9 +162,6 @@ mod tests {
         assert_eq!(path.format_trimmed(1_234_567), "1.234567 pathUSD");
         assert_eq!(path.format_trimmed(100_000), "0.1 pathUSD");
         assert_eq!(path.format_trimmed(0), "0 pathUSD");
-
-        let alpha = currencies::ALPHA_USD;
-        assert_eq!(alpha.format_trimmed(1_000_000), "1 AlphaUSD");
     }
 
     #[test]
@@ -216,8 +201,5 @@ mod tests {
     #[test]
     fn test_divisor_calculation() {
         assert_eq!(currencies::PATH_USD.divisor, 1_000_000);
-        assert_eq!(currencies::ALPHA_USD.divisor, 1_000_000);
-        assert_eq!(currencies::BETA_USD.divisor, 1_000_000);
-        assert_eq!(currencies::THETA_USD.divisor, 1_000_000);
     }
 }
