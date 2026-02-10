@@ -7,14 +7,15 @@
 //! chain_id, fee_payer), use `mpay::protocol::methods::tempo::TempoChargeExt`.
 
 use alloy::primitives::{Address, U256};
-use mpay::{ChargeRequest, MethodName, PaymentChallenge};
+use mpay::{ChargeRequest, MethodName, PaymentChallenge, StreamRequest};
 
 use crate::error::{Result, TempoCtlError};
 use crate::network::{networks, Network};
 use crate::payment::money::{Money, TokenId};
 
-// Re-export TempoChargeExt for convenience
+// Re-export Tempo extension traits for convenience
 pub use mpay::protocol::methods::tempo::TempoChargeExt;
+pub use mpay::protocol::methods::tempo::TempoStreamExt;
 
 /// Map an mpay `MethodName` to a tempoctl network name.
 ///
@@ -33,7 +34,7 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
 /// # Validation Checks
 ///
 /// - The payment method is supported (has a network mapping)
-/// - The intent is "charge" (only supported intent currently)
+/// - The intent is "charge" or "stream"
 pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
     if method_to_network(&challenge.method).is_none() {
         return Err(TempoCtlError::UnsupportedPaymentMethod(format!(
@@ -42,9 +43,9 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
         )));
     }
 
-    if !challenge.intent.is_charge() {
+    if !challenge.intent.is_charge() && !challenge.intent.is_stream() {
         return Err(TempoCtlError::UnsupportedPaymentIntent(format!(
-            "Only 'charge' intent is supported, got: {}",
+            "Only 'charge' and 'stream' intents are supported, got: {}",
             challenge.intent
         )));
     }
@@ -65,6 +66,39 @@ pub trait ChargeRequestExt {
 impl ChargeRequestExt for ChargeRequest {
     fn money(&self, network: Network) -> Result<Money> {
         use mpay::protocol::methods::tempo::TempoChargeExt;
+
+        let currency_addr: Address = self
+            .currency_address()
+            .map_err(|e| TempoCtlError::InvalidAddress(e.to_string()))?;
+
+        let token_config = network.require_token_config(&self.currency)?;
+
+        let amount: U256 = self
+            .amount_u256()
+            .map_err(|e| TempoCtlError::InvalidAmount(e.to_string()))?;
+        let token = TokenId::new(network, currency_addr);
+
+        Ok(Money::new(
+            token,
+            amount,
+            token_config.currency.decimals,
+            token_config.currency.symbol,
+        ))
+    }
+}
+
+/// TempoCtl-specific extensions to StreamRequest.
+///
+/// For core EVM accessors, use `TempoStreamExt` from mpay.
+#[allow(dead_code)]
+pub trait StreamRequestExt {
+    /// Create a type-safe `Money` value from this stream request (per-unit amount).
+    fn money(&self, network: Network) -> Result<Money>;
+}
+
+impl StreamRequestExt for StreamRequest {
+    fn money(&self, network: Network) -> Result<Money> {
+        use mpay::protocol::methods::tempo::TempoStreamExt;
 
         let currency_addr: Address = self
             .currency_address()
@@ -163,5 +197,52 @@ mod tests {
             ..Default::default()
         };
         assert!(req.money(Network::TempoModerato).is_err());
+    }
+
+    #[test]
+    fn test_validate_challenge_stream_intent() {
+        use mpay::Base64UrlJson;
+        let challenge = PaymentChallenge {
+            id: "test".to_string(),
+            realm: "test.example.com".to_string(),
+            method: MethodName::new("tempo"),
+            intent: "stream".into(),
+            request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
+            digest: None,
+            description: None,
+            expires: None,
+        };
+        assert!(validate_challenge(&challenge).is_ok());
+    }
+
+    #[test]
+    fn test_validate_challenge_unsupported_intent() {
+        use mpay::Base64UrlJson;
+        let challenge = PaymentChallenge {
+            id: "test".to_string(),
+            realm: "test.example.com".to_string(),
+            method: MethodName::new("tempo"),
+            intent: "subscription".into(),
+            request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
+            digest: None,
+            description: None,
+            expires: None,
+        };
+        assert!(validate_challenge(&challenge).is_err());
+    }
+
+    #[test]
+    fn test_stream_request_money() {
+        let req = StreamRequest {
+            amount: "1000".to_string(),
+            unit_type: "llm_token".to_string(),
+            currency: "0x20c0000000000000000000000000000000000001".to_string(),
+            recipient: Some("0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2".to_string()),
+            suggested_deposit: None,
+            method_details: None,
+        };
+        let money = req.money(Network::TempoModerato).expect("valid money");
+        assert_eq!(money.atomic(), U256::from(1_000u64));
+        assert_eq!(money.network(), Network::TempoModerato);
     }
 }

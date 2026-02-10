@@ -25,7 +25,7 @@ use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
 use cli::{
     Cli, ColorMode, Commands, ConfigCommands, NetworkCommands, OutputFormat, QueryArgs, Shell,
-    WalletCommands,
+    StreamCommands, WalletCommands,
 };
 use colored::control;
 use std::path::PathBuf;
@@ -324,6 +324,24 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             cli::commands::whoami::show_whoami(output_format, network)
                 .await
                 .map_err(Into::into)
+        }
+
+        Commands::Stream { command } => {
+            if let Some(subcommand) = command {
+                match subcommand {
+                    StreamCommands::List => cli::commands::stream::list_channels(),
+                    StreamCommands::Close { channel, all } => {
+                        cli::commands::stream::close_channel(channel, all, cli.config.as_deref())
+                            .await
+                    }
+                    StreamCommands::Withdraw { channel, all } => {
+                        cli::commands::stream::withdraw_channel(channel, all, cli.config.as_deref())
+                            .await
+                    }
+                }
+            } else {
+                cli::commands::stream::list_channels()
+            }
         }
     };
 

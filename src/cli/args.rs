@@ -112,6 +112,10 @@ pub struct QueryArgs {
     )]
     pub no_swap: bool,
 
+    /// Close the stream channel after this request
+    #[arg(long = "close-stream", help_heading = "Payment Options")]
+    pub close_stream: bool,
+
     /// Allow insecure operations (skip TLS verification)
     #[arg(short = 'k', long = "insecure", help_heading = "Request Options")]
     pub insecure: bool,
@@ -309,6 +313,35 @@ pub enum Commands {
         /// Output format
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
+    },
+    /// Manage streaming payment channels
+    #[command(alias = "s")]
+    #[command(args_conflicts_with_subcommands = true)]
+    Stream {
+        #[command(subcommand)]
+        command: Option<StreamCommands>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum StreamCommands {
+    /// List open stream channels
+    List,
+    /// Request channel closure on-chain (starts 15-min grace period)
+    Close {
+        /// Channel index (from list output)
+        channel: Option<String>,
+        /// Close all open channels
+        #[arg(long)]
+        all: bool,
+    },
+    /// Withdraw remaining deposit after grace period
+    Withdraw {
+        /// Channel index (from list output)
+        channel: Option<String>,
+        /// Withdraw from all eligible channels
+        #[arg(long)]
+        all: bool,
     },
 }
 

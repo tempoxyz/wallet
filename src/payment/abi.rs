@@ -9,6 +9,11 @@ sol! {
     function transferWithMemo(address to, uint256 amount, bytes32 memo) external returns (bool);
     function approve(address spender, uint256 amount) external returns (bool);
     function swapExactAmountOut(address tokenIn, address tokenOut, uint128 amountOut, uint128 maxAmountIn) external returns (uint128 amountIn);
+    function open(address payee, address token, uint128 deposit, bytes32 salt, address authorizedSigner) external returns (bytes32 channelId);
+    function topUp(bytes32 channelId, uint128 additionalDeposit) external;
+    function close(bytes32 channelId, uint128 cumulativeAmount, bytes signature) external;
+    function requestClose(bytes32 channelId) external;
+    function withdraw(bytes32 channelId) external;
 
     #[sol(rpc)]
     interface IAccountKeychain {
@@ -23,12 +28,27 @@ sol! {
         function getKey(address account, address keyId) external view returns (KeyInfo memory);
         function getRemainingLimit(address account, address keyId, address token) external view returns (uint256);
     }
+
+    #[sol(rpc)]
+    interface IEscrow {
+        function getChannel(bytes32 channelId) external view returns (
+            address payer, address payee, address token, address authorizedSigner,
+            uint128 deposit, uint128 settled, uint64 closeRequestedAt, bool finalized
+        );
+    }
 }
 
 /// IAccountKeychain precompile address on Tempo networks.
 pub const KEYCHAIN_ADDRESS: Address = Address::new([
     0xAA, 0xAA, 0xAA, 0xAA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
+]);
+
+/// TempoStreamChannel escrow contract address.
+#[allow(dead_code)]
+pub const ESCROW_ADDRESS: Address = Address::new([
+    0x9d, 0x13, 0x6e, 0xea, 0x06, 0x3e, 0xde, 0x54, 0x18, 0xa6, 0xbc, 0x7b, 0xea, 0xff, 0x00, 0x9b,
+    0xbb, 0x6c, 0xfa, 0x70,
 ]);
 
 /// StablecoinDEX contract address on Tempo networks.
@@ -75,6 +95,63 @@ pub fn encode_swap_exact_amount_out(
         tokenOut: token_out,
         amountOut: amount_out,
         maxAmountIn: max_amount_in,
+    };
+    Bytes::from(call.abi_encode())
+}
+
+/// Encode an escrow topUp call to add deposit to an existing channel.
+pub fn encode_escrow_top_up(channel_id: [u8; 32], additional_deposit: u128) -> Bytes {
+    let call = topUpCall {
+        channelId: channel_id.into(),
+        additionalDeposit: additional_deposit,
+    };
+    Bytes::from(call.abi_encode())
+}
+
+/// Encode an escrow close call to initiate channel closure.
+pub fn encode_escrow_close(
+    channel_id: [u8; 32],
+    cumulative_amount: u128,
+    signature: Vec<u8>,
+) -> Bytes {
+    let call = closeCall {
+        channelId: channel_id.into(),
+        cumulativeAmount: cumulative_amount,
+        signature: signature.into(),
+    };
+    Bytes::from(call.abi_encode())
+}
+
+/// Encode an escrow requestClose call (payer-initiated close with grace period).
+pub fn encode_escrow_request_close(channel_id: [u8; 32]) -> Bytes {
+    let call = requestCloseCall {
+        channelId: channel_id.into(),
+    };
+    Bytes::from(call.abi_encode())
+}
+
+/// Encode an escrow withdraw call (payer withdraws after grace period).
+pub fn encode_escrow_withdraw(channel_id: [u8; 32]) -> Bytes {
+    let call = withdrawCall {
+        channelId: channel_id.into(),
+    };
+    Bytes::from(call.abi_encode())
+}
+
+/// Encode an escrow open call to create a new stream payment channel.
+pub fn encode_escrow_open(
+    payee: Address,
+    token: Address,
+    deposit: u128,
+    salt: [u8; 32],
+    authorized_signer: Address,
+) -> Bytes {
+    let call = openCall {
+        payee,
+        token,
+        deposit,
+        salt: salt.into(),
+        authorizedSigner: authorized_signer,
     };
     Bytes::from(call.abi_encode())
 }
@@ -150,5 +227,44 @@ mod tests {
             format!("{:#x}", DEX_ADDRESS),
             "0xdec0000000000000000000000000000000000000"
         );
+    }
+
+    #[test]
+    fn test_escrow_top_up_encoding() {
+        let channel_id = [0xab_u8; 32];
+        let additional_deposit: u128 = 5_000_000;
+        let data = encode_escrow_top_up(channel_id, additional_deposit);
+        // topUp(bytes32,uint128) — 4 (selector) + 32 (channelId) + 32 (additionalDeposit) = 68 bytes
+        assert_eq!(data.len(), 68);
+    }
+
+    #[test]
+    fn test_escrow_close_encoding() {
+        let channel_id = [0xcd_u8; 32];
+        let cumulative_amount: u128 = 3_000_000;
+        let signature = vec![0u8; 65];
+        let data = encode_escrow_close(channel_id, cumulative_amount, signature);
+        // close(bytes32,uint128,bytes) — 4 (selector) + 32 (channelId) + 32 (cumulativeAmount)
+        // + 32 (offset) + 32 (length) + 96 (padded 65 bytes) = 228 bytes
+        assert_eq!(data.len(), 228);
+    }
+
+    #[test]
+    fn test_escrow_open_encoding() {
+        let payee: Address = "0x742d35Cc6634C0532925a3b844Bc9e7595f1B0F2"
+            .parse()
+            .unwrap();
+        let token: Address = "0x20c0000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
+        let deposit: u128 = 10_000_000;
+        let salt = [0u8; 32];
+        let auth_signer: Address = "0x496bc2392ba3b6179a15435ed09dad18d85a1705"
+            .parse()
+            .unwrap();
+        let data = encode_escrow_open(payee, token, deposit, salt, auth_signer);
+        // open(address,address,uint128,bytes32,address) — just check it encodes without panic and has right length
+        // 4 (selector) + 32*5 = 164 bytes
+        assert_eq!(data.len(), 164);
     }
 }

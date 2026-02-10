@@ -139,6 +139,15 @@ impl Network {
         }
     }
 
+    /// Look up a network by chain ID.
+    #[allow(dead_code)]
+    pub fn from_chain_id(chain_id: u64) -> Option<Self> {
+        Self::all()
+            .iter()
+            .find(|n| n.chain_id() == chain_id)
+            .copied()
+    }
+
     /// Check if this is a mainnet.
     pub const fn is_mainnet(&self) -> bool {
         match self {

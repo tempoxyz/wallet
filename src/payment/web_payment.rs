@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use std::str::FromStr;
 
-use mpay::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
+use mpay::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge, StreamRequest};
 
 use crate::cli::confirm::confirm_web_payment;
 use crate::cli::formatting::format_address_link;
@@ -50,18 +50,41 @@ pub async fn handle_web_payment_request(
         }
     }
 
-    let charge_req: ChargeRequest = challenge
-        .request
-        .decode()
-        .context("Failed to parse charge request from challenge")?;
+    validate_challenge(&challenge).context("Challenge validation failed")?;
+
+    let (amount, currency, recipient) = if challenge.intent.is_stream() {
+        let stream_req: StreamRequest = challenge
+            .request
+            .decode()
+            .context("Failed to parse stream request from challenge")?;
+        (
+            stream_req.amount.clone(),
+            stream_req.currency.clone(),
+            stream_req.recipient.clone(),
+        )
+    } else {
+        let charge_req: ChargeRequest = challenge
+            .request
+            .decode()
+            .context("Failed to parse charge request from challenge")?;
+        (
+            charge_req.amount.clone(),
+            charge_req.currency.clone(),
+            charge_req.recipient.clone(),
+        )
+    };
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
-        eprintln!("Amount: {} (atomic units)", charge_req.amount);
+        if challenge.intent.is_stream() {
+            eprintln!("Amount per unit: {} (atomic units)", amount);
+        } else {
+            eprintln!("Amount: {} (atomic units)", amount);
+        }
         eprintln!(
             "Currency: {}",
-            format_address_link(&charge_req.currency, explorer.as_ref())
+            format_address_link(&currency, explorer.as_ref())
         );
-        if let Some(ref recipient) = charge_req.recipient {
+        if let Some(ref recipient) = recipient {
             eprintln!(
                 "Recipient: {}",
                 format_address_link(recipient, explorer.as_ref())
@@ -69,25 +92,34 @@ pub async fn handle_web_payment_request(
         }
     }
 
-    validate_challenge(&challenge).context("Challenge validation failed")?;
+    if challenge.intent.is_charge() {
+        let charge_req: ChargeRequest = challenge
+            .request
+            .decode()
+            .context("Failed to parse charge request from challenge")?;
 
-    validate_web_payment_constraints(
-        &request_ctx.query,
-        &request_ctx.cli,
-        &challenge,
-        &charge_req,
-    )?;
+        validate_web_payment_constraints(
+            &request_ctx.query,
+            &request_ctx.cli,
+            &challenge,
+            &charge_req,
+        )?;
 
-    if request_ctx.query.dry_run {
-        return handle_web_dry_run(config, &challenge, &charge_req, explorer.as_ref());
-    }
+        if request_ctx.query.dry_run {
+            return handle_web_dry_run(config, &challenge, &charge_req, explorer.as_ref());
+        }
 
-    if request_ctx.query.confirm {
-        confirm_web_payment(config, &challenge, &charge_req, explorer.as_ref())?;
+        if request_ctx.query.confirm {
+            confirm_web_payment(config, &challenge, &charge_req, explorer.as_ref())?;
+        }
     }
 
     // Use mpay::client::PaymentProvider to create the credential
-    let provider = TempoCtlPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
+    let provider = TempoCtlPaymentProvider::with_options(
+        config.clone(),
+        request_ctx.query.no_swap,
+        request_ctx.query.close_stream,
+    );
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");

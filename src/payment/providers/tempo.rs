@@ -293,6 +293,7 @@ pub async fn create_tempo_payment(
         challenge: challenge.to_echo(),
         source: Some(did),
         payload: mpay::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+        raw_payload: None,
     })
 }
 
@@ -347,6 +348,7 @@ pub async fn create_tempo_payment_with_swap(
         challenge: challenge.to_echo(),
         source: Some(did),
         payload: mpay::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+        raw_payload: None,
     })
 }
 
@@ -612,7 +614,7 @@ fn clear_pending_key_authorization() {
 /// When `key_authorization` is `Some`, it is included in the transaction to
 /// atomically provision the access key on-chain alongside the payment.
 #[allow(clippy::too_many_arguments)]
-fn create_tempo_transaction_with_calls(
+pub fn create_tempo_transaction_with_calls(
     signer: &PrivateKeySigner,
     chain_id: u64,
     nonce: u64,
@@ -678,6 +680,405 @@ fn create_tempo_transaction_with_calls(
     debug!(tx_size_bytes = buf.len(), "signed tempo tx");
 
     Ok(hex::encode(&buf))
+}
+
+/// Create the signed "approve + open" transaction for a new stream channel.
+///
+/// Returns the hex-encoded signed transaction (without 0x prefix).
+#[allow(clippy::too_many_arguments)]
+pub async fn create_tempo_stream_open(
+    config: &Config,
+    challenge: &mpay::PaymentChallenge,
+    token: Address,
+    escrow_contract: Address,
+    payee: Address,
+    deposit: u128,
+    salt: [u8; 32],
+    authorized_signer: Address,
+) -> Result<String> {
+    use crate::payment::abi::{encode_approve, encode_escrow_open};
+    use crate::payment::mpay_ext::method_to_network;
+    use alloy::primitives::TxKind;
+    use alloy::providers::Provider;
+    use alloy::rlp::Decodable;
+
+    let signer_ctx = load_signer_with_priority()?;
+    let signer = signer_ctx.signer;
+    let wallet_address = signer_ctx
+        .wallet_address
+        .as_ref()
+        .map(|addr| {
+            Address::from_str(addr)
+                .map_err(|e| TempoCtlError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+        })
+        .transpose()?;
+
+    let key_authorization = signer_ctx
+        .pending_key_authorization
+        .as_ref()
+        .map(|hex_str| {
+            let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+            let bytes = hex::decode(hex_str).map_err(|e| {
+                TempoCtlError::InvalidConfig(format!(
+                    "Invalid pending key authorization hex: {}",
+                    e
+                ))
+            })?;
+            let mut slice = bytes.as_slice();
+            SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
+                TempoCtlError::InvalidConfig(format!(
+                    "Invalid pending key authorization RLP: {}",
+                    e
+                ))
+            })
+        })
+        .transpose()?;
+
+    let from = wallet_address.unwrap_or_else(|| signer.address());
+
+    let network_name = method_to_network(&challenge.method).ok_or_else(|| {
+        TempoCtlError::UnsupportedPaymentMethod(format!(
+            "Unsupported payment method: {}",
+            challenge.method
+        ))
+    })?;
+    let network_info = config.resolve_network(network_name)?;
+    let chain_id = network_info.chain_id.ok_or_else(|| {
+        TempoCtlError::InvalidConfig(format!("{} network missing chain ID", network_name))
+    })?;
+    let gas_config = Network::from_str(network_name)
+        .map(|n| n.gas_config())
+        .unwrap_or(GasConfig::DEFAULT);
+
+    let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
+        TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+    })?;
+    let provider = HttpProvider::new_http(rpc_url);
+
+    let nonce = provider
+        .get_transaction_count(from)
+        .pending()
+        .await
+        .map_err(|e| TempoCtlError::InvalidChallenge(format!("Failed to get nonce: {}", e)))?;
+
+    let approve_data = encode_approve(escrow_contract, U256::from(deposit));
+    let open_data = encode_escrow_open(payee, token, deposit, salt, authorized_signer);
+
+    let calls = vec![
+        Call {
+            to: TxKind::Call(token),
+            value: U256::ZERO,
+            input: approve_data,
+        },
+        Call {
+            to: TxKind::Call(escrow_contract),
+            value: U256::ZERO,
+            input: open_data,
+        },
+    ];
+
+    let gas_limit = estimate_tempo_gas(
+        &provider,
+        from,
+        chain_id,
+        nonce,
+        token,
+        &calls,
+        &gas_config,
+        key_authorization.as_ref(),
+    )
+    .await
+    .unwrap_or(gas_config.gas_limit);
+
+    let key_authorization = if key_authorization.is_some() {
+        if let Some(wallet_addr) = wallet_address {
+            let key_address = signer.address();
+            if is_key_authorized_on_chain(&provider, wallet_addr, key_address).await {
+                clear_pending_key_authorization();
+                None
+            } else {
+                key_authorization
+            }
+        } else {
+            key_authorization
+        }
+    } else {
+        None
+    };
+
+    create_tempo_transaction_with_calls(
+        &signer,
+        chain_id,
+        nonce,
+        token,
+        calls,
+        &gas_config,
+        gas_limit,
+        wallet_address,
+        key_authorization,
+    )
+}
+
+/// Create the signed "approve + topUp" transaction for an existing stream channel.
+///
+/// Returns the hex-encoded signed transaction (without 0x prefix).
+#[allow(clippy::too_many_arguments)]
+pub async fn create_tempo_stream_top_up(
+    config: &Config,
+    challenge: &mpay::PaymentChallenge,
+    token: Address,
+    escrow_contract: Address,
+    channel_id: alloy::primitives::B256,
+    additional_deposit: u128,
+) -> Result<String> {
+    use crate::payment::abi::{encode_approve, encode_escrow_top_up};
+    use crate::payment::mpay_ext::method_to_network;
+    use alloy::primitives::TxKind;
+    use alloy::providers::Provider;
+    use alloy::rlp::Decodable;
+
+    let signer_ctx = load_signer_with_priority()?;
+    let signer = signer_ctx.signer;
+    let wallet_address = signer_ctx
+        .wallet_address
+        .as_ref()
+        .map(|addr| {
+            Address::from_str(addr)
+                .map_err(|e| TempoCtlError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+        })
+        .transpose()?;
+
+    let key_authorization = signer_ctx
+        .pending_key_authorization
+        .as_ref()
+        .map(|hex_str| {
+            let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+            let bytes = hex::decode(hex_str).map_err(|e| {
+                TempoCtlError::InvalidConfig(format!(
+                    "Invalid pending key authorization hex: {}",
+                    e
+                ))
+            })?;
+            let mut slice = bytes.as_slice();
+            SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
+                TempoCtlError::InvalidConfig(format!(
+                    "Invalid pending key authorization RLP: {}",
+                    e
+                ))
+            })
+        })
+        .transpose()?;
+
+    let from = wallet_address.unwrap_or_else(|| signer.address());
+
+    let network_name = method_to_network(&challenge.method).ok_or_else(|| {
+        TempoCtlError::UnsupportedPaymentMethod(format!(
+            "Unsupported payment method: {}",
+            challenge.method
+        ))
+    })?;
+    let network_info = config.resolve_network(network_name)?;
+    let chain_id = network_info.chain_id.ok_or_else(|| {
+        TempoCtlError::InvalidConfig(format!("{} network missing chain ID", network_name))
+    })?;
+    let gas_config = Network::from_str(network_name)
+        .map(|n| n.gas_config())
+        .unwrap_or(GasConfig::DEFAULT);
+
+    let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
+        TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+    })?;
+    let provider = HttpProvider::new_http(rpc_url);
+
+    let nonce = provider
+        .get_transaction_count(from)
+        .pending()
+        .await
+        .map_err(|e| TempoCtlError::InvalidChallenge(format!("Failed to get nonce: {}", e)))?;
+
+    let approve_data = encode_approve(escrow_contract, U256::from(additional_deposit));
+    let top_up_data = encode_escrow_top_up(channel_id.0, additional_deposit);
+
+    let calls = vec![
+        Call {
+            to: TxKind::Call(token),
+            value: U256::ZERO,
+            input: approve_data,
+        },
+        Call {
+            to: TxKind::Call(escrow_contract),
+            value: U256::ZERO,
+            input: top_up_data,
+        },
+    ];
+
+    let gas_limit = estimate_tempo_gas(
+        &provider,
+        from,
+        chain_id,
+        nonce,
+        token,
+        &calls,
+        &gas_config,
+        key_authorization.as_ref(),
+    )
+    .await
+    .unwrap_or(gas_config.gas_limit);
+
+    let key_authorization = if key_authorization.is_some() {
+        if let Some(wallet_addr) = wallet_address {
+            let key_address = signer.address();
+            if is_key_authorized_on_chain(&provider, wallet_addr, key_address).await {
+                clear_pending_key_authorization();
+                None
+            } else {
+                key_authorization
+            }
+        } else {
+            key_authorization
+        }
+    } else {
+        None
+    };
+
+    create_tempo_transaction_with_calls(
+        &signer,
+        chain_id,
+        nonce,
+        token,
+        calls,
+        &gas_config,
+        gas_limit,
+        wallet_address,
+        key_authorization,
+    )
+}
+
+/// Create the signed "close" transaction for an existing stream channel.
+///
+/// Returns the hex-encoded signed transaction (without 0x prefix).
+pub async fn create_tempo_stream_close(
+    config: &Config,
+    challenge: &mpay::PaymentChallenge,
+    token: Address,
+    escrow_contract: Address,
+    channel_id: alloy::primitives::B256,
+    cumulative_amount: u128,
+    signature: Vec<u8>,
+) -> Result<String> {
+    use crate::payment::abi::encode_escrow_close;
+    use crate::payment::mpay_ext::method_to_network;
+    use alloy::primitives::TxKind;
+    use alloy::providers::Provider;
+    use alloy::rlp::Decodable;
+
+    let signer_ctx = load_signer_with_priority()?;
+    let signer = signer_ctx.signer;
+    let wallet_address = signer_ctx
+        .wallet_address
+        .as_ref()
+        .map(|addr| {
+            Address::from_str(addr)
+                .map_err(|e| TempoCtlError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+        })
+        .transpose()?;
+
+    let key_authorization = signer_ctx
+        .pending_key_authorization
+        .as_ref()
+        .map(|hex_str| {
+            let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+            let bytes = hex::decode(hex_str).map_err(|e| {
+                TempoCtlError::InvalidConfig(format!(
+                    "Invalid pending key authorization hex: {}",
+                    e
+                ))
+            })?;
+            let mut slice = bytes.as_slice();
+            SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
+                TempoCtlError::InvalidConfig(format!(
+                    "Invalid pending key authorization RLP: {}",
+                    e
+                ))
+            })
+        })
+        .transpose()?;
+
+    let from = wallet_address.unwrap_or_else(|| signer.address());
+
+    let network_name = method_to_network(&challenge.method).ok_or_else(|| {
+        TempoCtlError::UnsupportedPaymentMethod(format!(
+            "Unsupported payment method: {}",
+            challenge.method
+        ))
+    })?;
+    let network_info = config.resolve_network(network_name)?;
+    let chain_id = network_info.chain_id.ok_or_else(|| {
+        TempoCtlError::InvalidConfig(format!("{} network missing chain ID", network_name))
+    })?;
+    let gas_config = Network::from_str(network_name)
+        .map(|n| n.gas_config())
+        .unwrap_or(GasConfig::DEFAULT);
+
+    let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
+        TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+    })?;
+    let provider = HttpProvider::new_http(rpc_url);
+
+    let nonce = provider
+        .get_transaction_count(from)
+        .pending()
+        .await
+        .map_err(|e| TempoCtlError::InvalidChallenge(format!("Failed to get nonce: {}", e)))?;
+
+    let close_data = encode_escrow_close(channel_id.0, cumulative_amount, signature);
+
+    let calls = vec![Call {
+        to: TxKind::Call(escrow_contract),
+        value: U256::ZERO,
+        input: close_data,
+    }];
+
+    let gas_limit = estimate_tempo_gas(
+        &provider,
+        from,
+        chain_id,
+        nonce,
+        token,
+        &calls,
+        &gas_config,
+        key_authorization.as_ref(),
+    )
+    .await
+    .unwrap_or(gas_config.gas_limit);
+
+    let key_authorization = if key_authorization.is_some() {
+        if let Some(wallet_addr) = wallet_address {
+            let key_address = signer.address();
+            if is_key_authorized_on_chain(&provider, wallet_addr, key_address).await {
+                clear_pending_key_authorization();
+                None
+            } else {
+                key_authorization
+            }
+        } else {
+            key_authorization
+        }
+    } else {
+        None
+    };
+
+    create_tempo_transaction_with_calls(
+        &signer,
+        chain_id,
+        nonce,
+        token,
+        calls,
+        &gas_config,
+        gas_limit,
+        wallet_address,
+        key_authorization,
+    )
 }
 
 #[cfg(test)]

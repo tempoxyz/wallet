@@ -6,5 +6,6 @@ pub mod login;
 pub mod logout;
 pub mod network;
 pub mod services;
+pub mod stream;
 pub mod tempo_wallet;
 pub mod whoami;

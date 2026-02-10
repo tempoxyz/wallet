@@ -19,7 +19,7 @@ use alloy::sol;
 use std::str::FromStr;
 use std::sync::Arc;
 use tempo_primitives::transaction::SignedKeyAuthorization;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Balance information for a single token on a network
 #[derive(Debug, Clone)]
@@ -68,6 +68,8 @@ pub struct TempoCtlPaymentProvider {
     config: Arc<Config>,
     /// If true, disable automatic token swaps.
     no_swap: bool,
+    /// If true, force close the stream channel on next request.
+    close_stream: bool,
 }
 
 impl TempoCtlPaymentProvider {
@@ -77,14 +79,26 @@ impl TempoCtlPaymentProvider {
         Self {
             config: Arc::new(config),
             no_swap: false,
+            close_stream: false,
         }
     }
 
     /// Create a new provider with swap behavior configured.
+    #[allow(dead_code)]
     pub fn with_no_swap(config: Config, no_swap: bool) -> Self {
         Self {
             config: Arc::new(config),
             no_swap,
+            close_stream: false,
+        }
+    }
+
+    /// Create a new provider with all options configured.
+    pub fn with_options(config: Config, no_swap: bool, close_stream: bool) -> Self {
+        Self {
+            config: Arc::new(config),
+            no_swap,
+            close_stream,
         }
     }
 }
@@ -93,8 +107,8 @@ impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
     fn supports(&self, method: &str, intent: &str) -> bool {
         let method_lower = method.to_lowercase();
         let is_supported_method = method_lower == "tempo";
-        let is_charge = intent == "charge";
-        is_supported_method && is_charge
+        let is_supported_intent = intent == "charge" || intent == "stream";
+        is_supported_method && is_supported_intent
     }
 
     async fn pay(
@@ -104,6 +118,9 @@ impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
         let method = challenge.method.as_str().to_lowercase();
 
         match method.as_str() {
+            "tempo" if challenge.intent.is_stream() => {
+                self.create_tempo_stream_payment(challenge).await
+            }
             "tempo" => self.create_tempo_payment(challenge).await,
             _ => Err(mpay::MppError::UnsupportedPaymentMethod(format!(
                 "Payment method '{}' is not supported",
@@ -328,6 +345,405 @@ impl TempoCtlPaymentProvider {
                 format_u256_with_decimals(required_amount, token_decimals),
                 token_symbol
             ))),
+        }
+    }
+
+    async fn create_tempo_stream_payment(
+        &self,
+        challenge: &mpay::PaymentChallenge,
+    ) -> std::result::Result<mpay::PaymentCredential, mpay::MppError> {
+        use crate::payment::mpay_ext::{method_to_network, TempoStreamExt};
+        use crate::payment::providers::stream::{
+            compute_channel_id, query_on_chain_channel, resolve_chain_id, resolve_deposit,
+            resolve_escrow_contract, sign_voucher, ChannelEntry, StreamState,
+        };
+        use crate::payment::providers::tempo::{
+            create_tempo_stream_close, create_tempo_stream_open, create_tempo_stream_top_up,
+        };
+        use alloy::primitives::B256;
+
+        let stream_req: mpay::StreamRequest = challenge
+            .request
+            .decode()
+            .map_err(|e| mpay::MppError::Http(format!("Invalid stream request: {}", e)))?;
+
+        let required_token = stream_req
+            .currency_address()
+            .map_err(|e| mpay::MppError::Http(format!("Invalid currency address: {}", e)))?;
+        let per_unit_amount: u128 = stream_req
+            .amount
+            .parse()
+            .map_err(|e| mpay::MppError::Http(format!("Invalid amount: {}", e)))?;
+
+        let signer_ctx =
+            load_signer_with_priority().map_err(|e| mpay::MppError::Http(e.to_string()))?;
+        let signer = signer_ctx.signer;
+        let wallet_address = signer_ctx
+            .wallet_address
+            .as_ref()
+            .map(|addr| Address::from_str(addr))
+            .transpose()
+            .map_err(|e| mpay::MppError::Http(format!("Invalid wallet address: {}", e)))?;
+        let from = wallet_address.unwrap_or_else(|| signer.address());
+
+        let network_name = method_to_network(&challenge.method).ok_or_else(|| {
+            mpay::MppError::UnsupportedPaymentMethod(format!(
+                "Unsupported payment method: {}",
+                challenge.method
+            ))
+        })?;
+        let _network = Network::from_str(network_name)
+            .map_err(|e| mpay::MppError::Http(format!("Unknown network: {}", e)))?;
+        let network_info = self
+            .config
+            .resolve_network(network_name)
+            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+        let fallback_chain_id = network_info.chain_id.unwrap_or(42431);
+
+        let escrow_contract = resolve_escrow_contract(stream_req.method_details.as_ref());
+        let chain_id = resolve_chain_id(stream_req.method_details.as_ref(), fallback_chain_id);
+        let payee = stream_req
+            .recipient
+            .as_ref()
+            .and_then(|r| r.parse::<Address>().ok())
+            .ok_or_else(|| mpay::MppError::Http("Stream request missing recipient".to_string()))?;
+
+        let mut state = StreamState::load()
+            .map_err(|e| mpay::MppError::Http(format!("Failed to load stream state: {}", e)))?;
+        let key =
+            StreamState::channel_key(&from, &payee, &required_token, &escrow_contract, chain_id);
+
+        let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
+
+        let explicit_action = stream_req
+            .method_details
+            .as_ref()
+            .and_then(|md| md.get("action"))
+            .and_then(|v| v.as_str());
+
+        if explicit_action == Some("close") || self.close_stream {
+            if let Some(entry) = state.channels.remove(&key) {
+                let channel_id_bytes: B256 = entry.channel_id.parse().map_err(|e| {
+                    mpay::MppError::Http(format!("Invalid stored channel ID: {}", e))
+                })?;
+                let cumulative: u128 = entry.cumulative_amount.parse().unwrap_or(0);
+                let token: Address = entry
+                    .token
+                    .parse()
+                    .map_err(|e| mpay::MppError::Http(format!("Invalid stored token: {}", e)))?;
+
+                let voucher_sig = sign_voucher(
+                    &signer,
+                    channel_id_bytes,
+                    cumulative,
+                    escrow_contract,
+                    chain_id,
+                )
+                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+                let sig_hex = voucher_sig.strip_prefix("0x").unwrap_or(&voucher_sig);
+                let sig_bytes = hex::decode(sig_hex)
+                    .map_err(|e| mpay::MppError::Http(format!("Invalid voucher sig hex: {}", e)))?;
+
+                let signed_tx = create_tempo_stream_close(
+                    &self.config,
+                    challenge,
+                    token,
+                    escrow_contract,
+                    channel_id_bytes,
+                    cumulative,
+                    sig_bytes,
+                )
+                .await
+                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+                state.save().map_err(|e| {
+                    mpay::MppError::Http(format!("Failed to save stream state: {}", e))
+                })?;
+
+                info!(
+                    channel_id = %entry.channel_id,
+                    cumulative_amount = cumulative,
+                    "closing stream channel"
+                );
+
+                let payload = serde_json::json!({
+                    "action": "close",
+                    "type": "transaction",
+                    "channelId": entry.channel_id,
+                    "transaction": format!("0x{}", signed_tx),
+                    "cumulativeAmount": cumulative.to_string(),
+                    "signature": voucher_sig,
+                });
+
+                return Ok(mpay::PaymentCredential::with_raw_payload(
+                    challenge.to_echo(),
+                    &did,
+                    payload,
+                ));
+            } else {
+                return Err(mpay::MppError::Http(
+                    "No existing channel found for close action".to_string(),
+                ));
+            }
+        }
+
+        if let Some(entry) = state.channels.get(&key) {
+            let prev: u128 = entry.cumulative_amount.parse().unwrap_or(0);
+            let new_cumulative = prev + per_unit_amount;
+            let current_deposit: u128 = entry.deposit.parse().unwrap_or(0);
+            let channel_id_str = entry.channel_id.clone();
+
+            let channel_id_bytes: B256 = channel_id_str
+                .parse()
+                .map_err(|e| mpay::MppError::Http(format!("Invalid stored channel ID: {}", e)))?;
+
+            if new_cumulative > current_deposit {
+                let additional = new_cumulative - current_deposit
+                    + resolve_deposit(stream_req.suggested_deposit.as_deref());
+
+                let signed_tx = create_tempo_stream_top_up(
+                    &self.config,
+                    challenge,
+                    required_token,
+                    escrow_contract,
+                    channel_id_bytes,
+                    additional,
+                )
+                .await
+                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+                let voucher_sig = sign_voucher(
+                    &signer,
+                    channel_id_bytes,
+                    new_cumulative,
+                    escrow_contract,
+                    chain_id,
+                )
+                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+                let entry = state.channels.get_mut(&key).unwrap();
+                entry.deposit = (current_deposit + additional).to_string();
+                entry.cumulative_amount = new_cumulative.to_string();
+
+                state.save().map_err(|e| {
+                    mpay::MppError::Http(format!("Failed to save stream state: {}", e))
+                })?;
+
+                info!(
+                    channel_id = %channel_id_str,
+                    additional_deposit = additional,
+                    cumulative_amount = new_cumulative,
+                    "topping up stream channel"
+                );
+
+                let payload = serde_json::json!({
+                    "action": "topUp",
+                    "type": "transaction",
+                    "channelId": channel_id_str,
+                    "transaction": format!("0x{}", signed_tx),
+                    "additionalDeposit": additional.to_string(),
+                    "cumulativeAmount": new_cumulative.to_string(),
+                    "signature": voucher_sig,
+                });
+
+                return Ok(mpay::PaymentCredential::with_raw_payload(
+                    challenge.to_echo(),
+                    &did,
+                    payload,
+                ));
+            }
+
+            let entry = state.channels.get_mut(&key).unwrap();
+            entry.cumulative_amount = new_cumulative.to_string();
+            let _ = entry;
+
+            let voucher_sig = sign_voucher(
+                &signer,
+                channel_id_bytes,
+                new_cumulative,
+                escrow_contract,
+                chain_id,
+            )
+            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+            state
+                .save()
+                .map_err(|e| mpay::MppError::Http(format!("Failed to save stream state: {}", e)))?;
+
+            info!(
+                channel_id = %channel_id_str,
+                cumulative_amount = new_cumulative,
+                "issuing stream voucher"
+            );
+
+            let payload = serde_json::json!({
+                "action": "voucher",
+                "channelId": channel_id_str,
+                "cumulativeAmount": new_cumulative.to_string(),
+                "signature": voucher_sig,
+            });
+
+            Ok(mpay::PaymentCredential::with_raw_payload(
+                challenge.to_echo(),
+                &did,
+                payload,
+            ))
+        } else {
+            let hint_channel_id = stream_req
+                .method_details
+                .as_ref()
+                .and_then(|md| md.get("channelId"))
+                .and_then(|v| v.as_str());
+
+            if let Some(channel_id_hex) = hint_channel_id {
+                let channel_id_bytes: B256 = channel_id_hex.parse().map_err(|e| {
+                    mpay::MppError::Http(format!("Invalid channelId in method_details: {}", e))
+                })?;
+
+                let rpc_url: reqwest::Url = network_info
+                    .rpc_url
+                    .parse()
+                    .map_err(|e| mpay::MppError::Http(format!("Invalid RPC URL: {}", e)))?;
+                let provider = ProviderBuilder::new().connect_http(rpc_url);
+
+                if let Ok(Some(on_chain)) =
+                    query_on_chain_channel(&provider, escrow_contract, channel_id_bytes).await
+                {
+                    if on_chain.authorized_signer == signer.address() && !on_chain.finalized {
+                        let new_cumulative = on_chain.settled + per_unit_amount;
+
+                        let entry = ChannelEntry {
+                            channel_id: format!("{:#x}", channel_id_bytes),
+                            salt:
+                                "0x0000000000000000000000000000000000000000000000000000000000000000"
+                                    .to_string(),
+                            deposit: on_chain.deposit.to_string(),
+                            cumulative_amount: new_cumulative.to_string(),
+                            payer: format!("{:#x}", on_chain.payer),
+                            payee: format!("{:#x}", on_chain.payee),
+                            token: format!("{:#x}", on_chain.token),
+                            escrow_contract: format!("{:#x}", escrow_contract),
+                            chain_id,
+                            authorized_signer: format!("{:#x}", on_chain.authorized_signer),
+                            close_requested_at: 0,
+                        };
+                        state.channels.insert(key, entry);
+
+                        let voucher_sig = sign_voucher(
+                            &signer,
+                            channel_id_bytes,
+                            new_cumulative,
+                            escrow_contract,
+                            chain_id,
+                        )
+                        .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+                        state.save().map_err(|e| {
+                            mpay::MppError::Http(format!("Failed to save stream state: {}", e))
+                        })?;
+
+                        info!(
+                            channel_id = %channel_id_hex,
+                            cumulative_amount = new_cumulative,
+                            "recovered channel from on-chain state, issuing voucher"
+                        );
+
+                        let payload = serde_json::json!({
+                            "action": "voucher",
+                            "channelId": channel_id_hex,
+                            "cumulativeAmount": new_cumulative.to_string(),
+                            "signature": voucher_sig,
+                        });
+
+                        return Ok(mpay::PaymentCredential::with_raw_payload(
+                            challenge.to_echo(),
+                            &did,
+                            payload,
+                        ));
+                    }
+                }
+            }
+
+            let deposit = resolve_deposit(stream_req.suggested_deposit.as_deref());
+            let salt = B256::random();
+            let authorized_signer = signer.address();
+
+            let channel_id = compute_channel_id(
+                from,
+                payee,
+                required_token,
+                deposit,
+                salt,
+                authorized_signer,
+                escrow_contract,
+                chain_id,
+            );
+
+            let signed_tx = create_tempo_stream_open(
+                &self.config,
+                challenge,
+                required_token,
+                escrow_contract,
+                payee,
+                deposit,
+                salt.0,
+                authorized_signer,
+            )
+            .await
+            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+            let initial_amount = per_unit_amount;
+            let voucher_sig = sign_voucher(
+                &signer,
+                channel_id,
+                initial_amount,
+                escrow_contract,
+                chain_id,
+            )
+            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+
+            let entry = ChannelEntry {
+                channel_id: format!("{:#x}", channel_id),
+                salt: format!("{:#x}", salt),
+                deposit: deposit.to_string(),
+                cumulative_amount: initial_amount.to_string(),
+                payer: format!("{:#x}", from),
+                payee: format!("{:#x}", payee),
+                token: format!("{:#x}", required_token),
+                escrow_contract: format!("{:#x}", escrow_contract),
+                chain_id,
+                authorized_signer: format!("{:#x}", authorized_signer),
+                close_requested_at: 0,
+            };
+            state.channels.insert(key, entry);
+            state
+                .save()
+                .map_err(|e| mpay::MppError::Http(format!("Failed to save stream state: {}", e)))?;
+
+            info!(
+                channel_id = %format!("{:#x}", channel_id),
+                transaction = %format!("0x{}", &signed_tx[..40.min(signed_tx.len())]),
+                deposit,
+                initial_amount,
+                "opening new stream channel"
+            );
+
+            let payload = serde_json::json!({
+                "action": "open",
+                "type": "transaction",
+                "channelId": format!("{:#x}", channel_id),
+                "transaction": format!("0x{}", signed_tx),
+                "authorizedSigner": format!("{:#x}", authorized_signer),
+                "cumulativeAmount": initial_amount.to_string(),
+                "signature": voucher_sig,
+            });
+
+            Ok(mpay::PaymentCredential::with_raw_payload(
+                challenge.to_echo(),
+                &did,
+                payload,
+            ))
         }
     }
 }
@@ -590,7 +1006,9 @@ mod tests {
         let provider = TempoCtlPaymentProvider::new(config);
 
         assert!(provider.supports("tempo", "charge"));
+        assert!(provider.supports("tempo", "stream"));
         assert!(provider.supports("TEMPO", "charge"));
+        assert!(provider.supports("TEMPO", "stream"));
         assert!(!provider.supports("tempo", "authorize"));
         assert!(!provider.supports("bitcoin", "charge"));
     }

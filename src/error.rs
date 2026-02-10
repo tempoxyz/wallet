@@ -104,6 +104,10 @@ pub enum TempoCtlError {
     #[error("Signing error: {0}")]
     SigningSimple(String),
 
+    /// Stream voucher signing failed
+    #[error("Signing failed: {0}")]
+    SigningFailed(String),
+
     /// Address parsing error
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
