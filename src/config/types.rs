@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn test_config_save_round_trip_via_atomic_write() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("config.toml");
 
         let config = Config {
@@ -807,10 +807,10 @@ mod tests {
             }],
         };
 
-        let content = toml::to_string_pretty(&config).unwrap();
-        crate::util::atomic_write::atomic_write(&path, &content, 0o600).unwrap();
+        let content = toml::to_string_pretty(&config).expect("serialize");
+        crate::util::atomic_write::atomic_write(&path, &content, 0o600).expect("write");
 
-        let loaded = Config::load_from(Some(&path)).unwrap();
+        let loaded = Config::load_from(Some(&path)).expect("load");
         assert_eq!(loaded.tempo_rpc, config.tempo_rpc);
         assert_eq!(loaded.moderato_rpc, config.moderato_rpc);
         assert_eq!(loaded.rpc.get("custom"), config.rpc.get("custom"));

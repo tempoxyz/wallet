@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_wallet_save_round_trip_via_atomic_write() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("wallet.toml");
 
         let mut creds = WalletCredentials {
@@ -351,13 +351,13 @@ mod tests {
         wallet.pending_key_authorization = Some("pending123".to_string());
         creds.tempo = Some(wallet);
 
-        let contents = toml::to_string_pretty(&creds).unwrap();
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).unwrap();
+        let contents = toml::to_string_pretty(&creds).expect("serialize");
+        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).expect("write");
 
         let loaded: WalletCredentials =
-            toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            toml::from_str(&fs::read_to_string(&path).expect("read")).expect("deserialize");
         assert_eq!(loaded.network, "tempo");
-        let w = loaded.tempo.unwrap();
+        let w = loaded.tempo.expect("tempo wallet");
         assert_eq!(w.account_address, "0xdeadbeef");
         assert_eq!(w.access_keys.len(), 2);
         assert_eq!(w.active_key_index, 0);
@@ -369,14 +369,14 @@ mod tests {
     fn test_wallet_save_permissions_via_atomic_write() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("wallet.toml");
 
         let creds = WalletCredentials::default();
-        let contents = toml::to_string_pretty(&creds).unwrap();
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).unwrap();
+        let contents = toml::to_string_pretty(&creds).expect("serialize");
+        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).expect("write");
 
-        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 

@@ -120,44 +120,44 @@ mod tests {
 
     #[test]
     fn test_atomic_write_creates_file() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("test.txt");
 
-        atomic_write(&path, "hello world", 0o644).unwrap();
+        atomic_write(&path, "hello world", 0o644).expect("write");
 
-        assert_eq!(fs::read_to_string(&path).unwrap(), "hello world");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "hello world");
     }
 
     #[test]
     fn test_atomic_write_creates_parent_dirs() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("a").join("b").join("c").join("test.txt");
 
-        atomic_write(&path, "nested content", 0o644).unwrap();
+        atomic_write(&path, "nested content", 0o644).expect("write");
 
-        assert_eq!(fs::read_to_string(&path).unwrap(), "nested content");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "nested content");
     }
 
     #[test]
     fn test_atomic_write_overwrites_existing() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("test.txt");
 
-        atomic_write(&path, "first", 0o644).unwrap();
-        atomic_write(&path, "second", 0o644).unwrap();
+        atomic_write(&path, "first", 0o644).expect("first write");
+        atomic_write(&path, "second", 0o644).expect("second write");
 
-        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "second");
     }
 
     #[test]
     fn test_atomic_write_no_temp_left_on_success() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("test.txt");
 
-        atomic_write(&path, "content", 0o644).unwrap();
+        atomic_write(&path, "content", 0o644).expect("write");
 
         let tmp_files: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
+            .expect("read_dir")
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
@@ -170,37 +170,37 @@ mod tests {
     fn test_atomic_write_sets_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("test.txt");
 
-        atomic_write(&path, "secret", 0o600).unwrap();
+        atomic_write(&path, "secret", 0o600).expect("write");
 
-        let metadata = fs::metadata(&path).unwrap();
+        let metadata = fs::metadata(&path).expect("metadata");
         let mode = metadata.permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 
     #[test]
     fn test_atomic_write_empty_content() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("empty.txt");
 
-        atomic_write(&path, "", 0o644).unwrap();
+        atomic_write(&path, "", 0o644).expect("write");
 
-        let content = fs::read_to_string(&path).unwrap();
+        let content = fs::read_to_string(&path).expect("read");
         assert!(content.is_empty());
     }
 
     #[test]
     fn test_atomic_write_temp_cleaned_up_on_rename_failure() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let nested = dir.path().join("subdir");
-        fs::create_dir(&nested).unwrap();
+        fs::create_dir(&nested).expect("mkdir");
 
         let target = nested.join("target.txt");
-        atomic_write(&target, "original", 0o644).unwrap();
+        atomic_write(&target, "original", 0o644).expect("write");
 
-        fs::remove_dir_all(&nested).unwrap();
+        fs::remove_dir_all(&nested).expect("remove");
 
         let result = atomic_write(&target, "new content", 0o644);
         assert!(result.is_ok());
@@ -208,16 +208,16 @@ mod tests {
 
     #[test]
     fn test_atomic_write_no_temp_left_on_failure() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let blocker = dir.path().join("subdir");
-        fs::write(&blocker, "i am a file").unwrap();
+        fs::write(&blocker, "i am a file").expect("write blocker");
 
         let path = blocker.join("test.txt");
         let result = atomic_write(&path, "content", 0o644);
         assert!(result.is_err());
 
         let tmp_files: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
+            .expect("read_dir")
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
@@ -226,9 +226,9 @@ mod tests {
 
     #[test]
     fn test_atomic_write_parent_is_file_not_dir() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let blocker = dir.path().join("not_a_dir");
-        fs::write(&blocker, "i am a file").unwrap();
+        fs::write(&blocker, "i am a file").expect("write blocker");
 
         let path = blocker.join("test.txt");
         let result = atomic_write(&path, "content", 0o644);
@@ -237,52 +237,52 @@ mod tests {
 
     #[test]
     fn test_atomic_write_retries_on_temp_collision() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("test.txt");
 
         let pid = process::id();
         let base_nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("system time")
             .as_nanos();
         let colliding_name = format!(".test.txt.{}.{}.tmp", pid, base_nonce);
-        fs::write(dir.path().join(&colliding_name), "blocker").unwrap();
+        fs::write(dir.path().join(&colliding_name), "blocker").expect("write blocker");
 
-        atomic_write(&path, "should succeed via retry", 0o644).unwrap();
+        atomic_write(&path, "should succeed via retry", 0o644).expect("write");
         assert_eq!(
-            fs::read_to_string(&path).unwrap(),
+            fs::read_to_string(&path).expect("read"),
             "should succeed via retry"
         );
     }
 
     #[test]
     fn test_atomic_write_preserves_old_content_on_dir_failure() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("test.txt");
 
-        atomic_write(&path, "original", 0o644).unwrap();
+        atomic_write(&path, "original", 0o644).expect("write");
 
         let bad_path = Path::new("/dev/null/impossible/test.txt");
         let result = atomic_write(bad_path, "new content", 0o644);
         assert!(result.is_err());
 
-        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "original");
     }
 
     #[cfg(unix)]
     #[test]
     fn test_atomic_write_does_not_follow_symlink_for_temp() {
-        let dir = tempdir().unwrap();
-        let target_dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
+        let target_dir = tempdir().expect("target tempdir");
         let decoy = target_dir.path().join("decoy.txt");
-        fs::write(&decoy, "original decoy").unwrap();
+        fs::write(&decoy, "original decoy").expect("write decoy");
 
         let link_path = dir.path().join("config.txt");
-        std::os::unix::fs::symlink(&decoy, &link_path).unwrap();
+        std::os::unix::fs::symlink(&decoy, &link_path).expect("symlink");
 
-        atomic_write(&link_path, "overwritten", 0o644).unwrap();
+        atomic_write(&link_path, "overwritten", 0o644).expect("write");
 
-        let link_content = fs::read_to_string(&link_path).unwrap();
+        let link_content = fs::read_to_string(&link_path).expect("read");
         assert_eq!(link_content, "overwritten");
     }
 
@@ -291,16 +291,16 @@ mod tests {
     fn test_atomic_write_permissions_on_overwrite() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("test.txt");
 
-        fs::write(&path, "world readable").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(&path, "world readable").expect("write");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("set_permissions");
 
-        atomic_write(&path, "now restricted", 0o600).unwrap();
+        atomic_write(&path, "now restricted", 0o600).expect("write");
 
-        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
-        assert_eq!(fs::read_to_string(&path).unwrap(), "now restricted");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "now restricted");
     }
 }
