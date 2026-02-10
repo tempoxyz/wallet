@@ -1,5 +1,7 @@
 ## Error Messages
 
+All error output goes to stderr.
+
 Output concise, informative error messages that include fixes when available.
 
 ```
