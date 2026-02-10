@@ -98,6 +98,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Keys { .. } => "keys",
             Commands::Services { .. } => "services",
             Commands::Whoami { .. } => "whoami",
+            Commands::Stream { .. } => "stream",
         };
         a.track(
             analytics::Event::SessionStarted,
