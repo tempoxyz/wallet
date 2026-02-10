@@ -43,9 +43,7 @@ fn get_tempoctl_error_suggestion(err: &TempoCtlError) -> Option<String> {
 
         TempoCtlError::NoConfigDir => Some("Set the HOME environment variable.".into()),
 
-        TempoCtlError::InvalidConfig(_) => {
-            Some("Run 'tempoctl config' to view your current configuration.".into())
-        }
+        TempoCtlError::InvalidConfig(_) => Some("Check your configuration file.".into()),
 
         TempoCtlError::InvalidKey(_) => {
             Some("EVM private keys should be 64 hex characters (with optional 0x prefix).".into())
@@ -74,7 +72,7 @@ fn get_tempoctl_error_suggestion(err: &TempoCtlError) -> Option<String> {
         }
 
         TempoCtlError::Signing { .. } | TempoCtlError::SigningSimple(_) => {
-            Some("Check your wallet configuration with 'tempoctl config'.".into())
+            Some("Check your wallet configuration.".into())
         }
 
         TempoCtlError::BalanceQuery(_) | TempoCtlError::SpendingLimitQuery(_) => {
@@ -231,7 +229,7 @@ mod tests {
         assert_error_format(
             TempoCtlError::InvalidConfig("invalid rpc url".into()),
             "Invalid configuration: invalid rpc url",
-            "Run 'tempoctl config' to view your current configuration.",
+            "Check your configuration file.",
         );
     }
 
@@ -249,7 +247,7 @@ mod tests {
         assert_error_format(
             TempoCtlError::SigningSimple("Failed to sign transaction".into()),
             "Signing error: Failed to sign transaction",
-            "Check your wallet configuration with 'tempoctl config'.",
+            "Check your wallet configuration.",
         );
     }
 

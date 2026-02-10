@@ -21,7 +21,7 @@ pub enum Event {
     KeyCreated,
     KeySwitched,
     KeyDeleted,
-    KeysListed,
+    WhoamiViewed,
 
     CallbackWindowOpened,
     CallbackReceived,
@@ -48,7 +48,7 @@ impl Event {
             Self::KeyCreated => "key_created",
             Self::KeySwitched => "key_switched",
             Self::KeyDeleted => "key_deleted",
-            Self::KeysListed => "keys_listed",
+            Self::WhoamiViewed => "whoami_viewed",
             Self::CallbackWindowOpened => "callback_window_opened",
             Self::CallbackReceived => "callback_received",
             Self::SessionStarted => "session_started",

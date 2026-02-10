@@ -14,24 +14,17 @@ mod wallet;
 // CLI modules
 mod cli;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-use config::{Config, WalletConfig};
 use mpay::PaymentProtocol;
 
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{
-    Cli, ColorMode, Commands, ConfigCommands, NetworkCommands, OutputFormat, QueryArgs, Shell,
-    WalletCommands,
-};
+use cli::{Cli, ColorMode, Commands, NetworkCommands, QueryArgs, Shell, WalletCommands};
 use colored::control;
-use std::path::PathBuf;
 
 use analytics::Analytics;
-use cli::output::{handle_regular_response, write_output};
+use cli::output::handle_regular_response;
 use config::{load_config, load_config_with_overrides};
 use http::request::RequestContext;
 use payment::web_payment::handle_web_payment_request;
@@ -88,15 +81,14 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Query(_) => "query",
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
-            Commands::Config { .. } => "config",
-            Commands::Version => "version",
             Commands::Completions { .. } => "completions",
             Commands::Balance { .. } => "balance",
             Commands::Networks { .. } => "networks",
             Commands::Inspect { .. } => "inspect",
             Commands::Wallet { .. } => "wallet",
-            Commands::Keys { .. } => "keys",
+
             Commands::Services { .. } => "services",
+            Commands::Keys { .. } => "keys",
             Commands::Whoami { .. } => "whoami",
         };
         a.track(
@@ -160,25 +152,14 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             cli::commands::logout::run_logout(yes, network).await
         }
 
-        Commands::Config {
-            command,
-            output_format,
-        } => {
-            if let Some(subcommand) = command {
-                match subcommand {
-                    ConfigCommands::Get { key, output_format } => {
-                        cli::commands::config::get_command(&cli, &key, output_format)
-                    }
-                    ConfigCommands::Validate => cli::commands::config::validate_command(&cli),
-                }
+        Commands::Completions { shell } => {
+            if let Some(shell) = shell {
+                generate_completions(shell)
             } else {
-                show_config(&cli, output_format)
+                println!("Supported shells: bash, zsh, fish, power-shell");
+                Ok(())
             }
         }
-
-        Commands::Version => show_version(),
-
-        Commands::Completions { shell } => generate_completions(shell),
 
         Commands::Balance { address } => {
             let config = load_config(cli.config.as_ref())?;
@@ -236,6 +217,31 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
+        Commands::Services {
+            command,
+            output_format,
+            refresh,
+        } => {
+            if let Some(subcommand) = command {
+                match subcommand {
+                    cli::ServicesCommands::List { refresh } => {
+                        cli::commands::services::list_services(output_format, refresh)
+                            .await
+                            .map_err(Into::into)
+                    }
+                    cli::ServicesCommands::Info { name } => {
+                        cli::commands::services::show_service(&name, output_format)
+                            .await
+                            .map_err(Into::into)
+                    }
+                }
+            } else {
+                cli::commands::services::list_services(output_format, refresh)
+                    .await
+                    .map_err(Into::into)
+            }
+        }
+
         Commands::Keys {
             command,
             output_format,
@@ -244,9 +250,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     cli::KeysCommands::List => {
-                        if let Some(ref a) = analytics {
-                            a.track(analytics::Event::KeysListed, analytics::EmptyPayload);
-                        }
                         cli::commands::keys::list_keys(output_format, network)
                             .await
                             .map_err(Into::into)
@@ -285,35 +288,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     }
                 }
             } else {
-                if let Some(ref a) = analytics {
-                    a.track(analytics::Event::KeysListed, analytics::EmptyPayload);
-                }
                 cli::commands::keys::list_keys(output_format, network)
-                    .await
-                    .map_err(Into::into)
-            }
-        }
-
-        Commands::Services {
-            command,
-            output_format,
-            refresh,
-        } => {
-            if let Some(subcommand) = command {
-                match subcommand {
-                    cli::ServicesCommands::List { refresh } => {
-                        cli::commands::services::list_services(output_format, refresh)
-                            .await
-                            .map_err(Into::into)
-                    }
-                    cli::ServicesCommands::Info { name } => {
-                        cli::commands::services::show_service(&name, output_format)
-                            .await
-                            .map_err(Into::into)
-                    }
-                }
-            } else {
-                cli::commands::services::list_services(output_format, refresh)
                     .await
                     .map_err(Into::into)
             }
@@ -321,6 +296,9 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 
         Commands::Whoami { output_format } => {
             let network = cli.network.as_deref();
+            if let Some(ref a) = analytics {
+                a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
+            }
             cli::commands::whoami::show_whoami(output_format, network)
                 .await
                 .map_err(Into::into)
@@ -392,6 +370,18 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
         eprintln!("402 status: payment required");
     }
 
+    let has_wallet = config.evm.is_some()
+        || wallet::credentials::WalletCredentials::load()
+            .ok()
+            .and_then(|c| c.active_wallet().cloned())
+            .is_some();
+
+    if !has_wallet && std::env::var("TEMPOCTL_MOCK_PAYMENT").is_err() {
+        anyhow::bail!(crate::error::TempoCtlError::ConfigMissing(
+            "This request requires payment, but no wallet is configured".to_string()
+        ));
+    }
+
     let protocol =
         PaymentProtocol::detect(response.get_header("www-authenticate").map(|s| s.as_str()));
 
@@ -458,64 +448,7 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
     }
 }
 
-// ==================== Config Display ====================
-
-fn show_config(cli: &Cli, output_format: OutputFormat) -> Result<()> {
-    let config = load_config(cli.config.as_ref())?;
-    let config_path = if let Some(ref path) = cli.config {
-        PathBuf::from(path)
-    } else {
-        Config::default_config_path()?
-    };
-
-    let display_data = serde_json::json!({
-        "config_path": config_path.display().to_string(),
-        "evm": config.evm.as_ref().and_then(|evm| {
-            evm.get_address().ok().map(|address| {
-                serde_json::json!({ "address": address })
-            })
-        })
-    });
-
-    match output_format {
-        OutputFormat::Json => {
-            let output = serde_json::to_string_pretty(&display_data)?;
-            write_output(cli, output)?;
-        }
-        OutputFormat::Yaml => {
-            let output = serde_yaml::to_string(&display_data)?;
-            write_output(cli, output)?;
-        }
-        OutputFormat::Text => {
-            println!("Config file: {}", config_path.display());
-            println!();
-
-            if let Some(evm) = &config.evm {
-                if let Ok(address) = evm.get_address() {
-                    println!("[evm]");
-                    println!("address = \"{address}\"");
-                    println!();
-                }
-            }
-
-            if config.evm.is_none() {
-                println!("No payment methods configured.");
-                println!("Run 'tempoctl login' to configure payment methods.");
-            }
-        }
-    }
-
-    Ok(())
-}
-
 // ==================== Simple Commands ====================
-
-/// Show version information
-fn show_version() -> Result<()> {
-    println!("tempoctl: v{VERSION}");
-
-    Ok(())
-}
 
 /// Generate shell completions
 fn generate_completions(shell: Shell) -> Result<()> {
