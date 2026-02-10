@@ -45,10 +45,19 @@ pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpRespo
 /// Write response body to file or stdout
 pub fn output_response_body(output_file: Option<&str>, cli: &Cli, body: &[u8]) -> Result<()> {
     if let Some(output_file) = output_file {
-        validate_path(output_file, true).context("Invalid output path")?;
-        std::fs::write(output_file, body).context("Failed to write output file")?;
-        if cli.is_verbose() && cli.should_show_output() {
-            eprintln!("Saved to: {output_file}");
+        if output_file == "-" {
+            use std::io::Write;
+            let mut stdout = std::io::stdout();
+            stdout
+                .write_all(body)
+                .context("Failed to write response to stdout")?;
+            stdout.write_all(b"\n").context("Failed to write newline")?;
+        } else {
+            validate_path(output_file, true).context("Invalid output path")?;
+            std::fs::write(output_file, body).context("Failed to write output file")?;
+            if cli.is_verbose() && cli.should_show_output() {
+                eprintln!("Saved to: {output_file}");
+            }
         }
     } else {
         use std::io::Write;
@@ -69,10 +78,14 @@ pub fn write_output_to(
 ) -> Result<()> {
     let content = content.as_ref();
     if let Some(output_file) = output_file {
-        validate_path(output_file, true).context("Invalid output path")?;
-        std::fs::write(output_file, content).context("Failed to write output file")?;
-        if cli.is_verbose() && cli.should_show_output() {
-            eprintln!("Saved to: {output_file}");
+        if output_file == "-" {
+            println!("{content}");
+        } else {
+            validate_path(output_file, true).context("Invalid output path")?;
+            std::fs::write(output_file, content).context("Failed to write output file")?;
+            if cli.is_verbose() && cli.should_show_output() {
+                eprintln!("Saved to: {output_file}");
+            }
         }
     } else {
         println!("{content}");

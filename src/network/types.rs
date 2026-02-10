@@ -30,12 +30,6 @@ pub mod evm_chain_ids {
 pub mod tempo_tokens {
     /// pathUSD token address
     pub const PATH_USD: &str = "0x20c0000000000000000000000000000000000000";
-    /// AlphaUSD token address
-    pub const ALPHA_USD: &str = "0x20c0000000000000000000000000000000000001";
-    /// BetaUSD token address
-    pub const BETA_USD: &str = "0x20c0000000000000000000000000000000000002";
-    /// ThetaUSD token address
-    pub const THETA_USD: &str = "0x20c0000000000000000000000000000000000003";
 }
 
 /// Runtime network information
@@ -200,24 +194,10 @@ impl Network {
     pub fn supported_tokens(&self) -> Vec<TokenConfig> {
         use crate::payment::currency::currencies;
 
-        vec![
-            TokenConfig {
-                currency: currencies::PATH_USD,
-                address: tempo_tokens::PATH_USD,
-            },
-            TokenConfig {
-                currency: currencies::ALPHA_USD,
-                address: tempo_tokens::ALPHA_USD,
-            },
-            TokenConfig {
-                currency: currencies::BETA_USD,
-                address: tempo_tokens::BETA_USD,
-            },
-            TokenConfig {
-                currency: currencies::THETA_USD,
-                address: tempo_tokens::THETA_USD,
-            },
-        ]
+        vec![TokenConfig {
+            currency: currencies::PATH_USD,
+            address: tempo_tokens::PATH_USD,
+        }]
     }
 
     /// Get token configuration by address (case-insensitive).
@@ -232,7 +212,7 @@ impl Network {
     pub fn require_token_config(&self, address: &str) -> crate::error::Result<TokenConfig> {
         self.token_config_by_address(address).ok_or_else(|| {
             crate::error::TempoCtlError::UnsupportedToken(format!(
-                "Currency {} is not supported on {}. Supported tokens: pathUSD, AlphaUSD, BetaUSD, ThetaUSD",
+                "Currency {} is not supported on {}. Supported tokens: pathUSD",
                 address, self
             ))
         })
@@ -381,21 +361,18 @@ mod tests {
     #[test]
     fn test_supported_tokens() {
         let tokens = Network::Tempo.supported_tokens();
-        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens.len(), 1);
 
         let symbols: Vec<_> = tokens.iter().map(|t| t.currency.symbol).collect();
         assert!(symbols.contains(&"pathUSD"));
-        assert!(symbols.contains(&"AlphaUSD"));
-        assert!(symbols.contains(&"BetaUSD"));
-        assert!(symbols.contains(&"ThetaUSD"));
     }
 
     #[test]
     fn test_token_config_by_address() {
         let config = Network::Tempo
-            .token_config_by_address(tempo_tokens::ALPHA_USD)
+            .token_config_by_address(tempo_tokens::PATH_USD)
             .unwrap();
-        assert_eq!(config.currency.symbol, "AlphaUSD");
+        assert_eq!(config.currency.symbol, "pathUSD");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Balance command for checking token wallet balances on configured networks
 
+use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
@@ -42,6 +43,7 @@ pub async fn balance_command(
     config: &Config,
     address: Option<String>,
     network_filter: Option<String>,
+    output_format: OutputFormat,
 ) -> Result<()> {
     let check_address = match address.as_deref() {
         Some(addr) => addr.to_string(),
@@ -72,17 +74,38 @@ pub async fn balance_command(
     }
 
     if balances.is_empty() {
-        println!("No balances found.");
+        match output_format {
+            OutputFormat::Json => println!("[]"),
+            _ => println!("No balances found."),
+        }
         return Ok(());
     }
 
-    println!("Tempo Stablecoin Balances:");
-    println!();
-    for balance in balances {
-        println!(
-            "{}: {} {} ({} atomic units)",
-            balance.network, balance.balance_human, balance.asset, balance.balance
-        );
+    match output_format {
+        OutputFormat::Json => {
+            let json_balances: Vec<serde_json::Value> = balances
+                .iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "network": b.network.to_string(),
+                        "token": b.asset,
+                        "balance": b.balance_human,
+                        "balance_atomic": b.balance.to_string()
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_balances)?);
+        }
+        _ => {
+            println!("Tempo Stablecoin Balances:");
+            println!();
+            for balance in balances {
+                println!(
+                    "{}: {} {} ({} atomic units)",
+                    balance.network, balance.balance_human, balance.asset, balance.balance
+                );
+            }
+        }
     }
 
     Ok(())
@@ -122,21 +145,18 @@ mod tests {
     #[test]
     fn test_supported_tokens() {
         let tokens = Network::Tempo.supported_tokens();
-        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens.len(), 1);
 
         let symbols: Vec<_> = tokens.iter().map(|t| t.currency.symbol).collect();
         assert!(symbols.contains(&"pathUSD"));
-        assert!(symbols.contains(&"AlphaUSD"));
-        assert!(symbols.contains(&"BetaUSD"));
-        assert!(symbols.contains(&"ThetaUSD"));
     }
 
     #[test]
     fn test_token_config_by_address() {
         let config = Network::Tempo
-            .token_config_by_address(tempo_tokens::ALPHA_USD)
+            .token_config_by_address(tempo_tokens::PATH_USD)
             .unwrap();
-        assert_eq!(config.currency.symbol, "AlphaUSD");
+        assert_eq!(config.currency.symbol, "pathUSD");
         assert_eq!(config.currency.decimals, 6);
 
         let tempo_info = Network::Tempo.info();
@@ -146,7 +166,7 @@ mod tests {
     #[test]
     fn test_mock_balances_returns_all_tokens() {
         let balances = mock_balances(Network::Tempo, "0x123");
-        assert_eq!(balances.len(), 4);
+        assert_eq!(balances.len(), 1);
 
         for balance in &balances {
             assert_eq!(balance.network, Network::Tempo);

@@ -37,24 +37,10 @@ pub struct BuiltinToken {
 }
 
 /// Built-in stablecoin tokens on Tempo
-pub const BUILTIN_TOKENS: &[BuiltinToken] = &[
-    BuiltinToken {
-        symbol: "pathUSD",
-        address: "0x20c0000000000000000000000000000000000000",
-    },
-    BuiltinToken {
-        symbol: "AlphaUSD",
-        address: "0x20c0000000000000000000000000000000000001",
-    },
-    BuiltinToken {
-        symbol: "BetaUSD",
-        address: "0x20c0000000000000000000000000000000000002",
-    },
-    BuiltinToken {
-        symbol: "ThetaUSD",
-        address: "0x20c0000000000000000000000000000000000003",
-    },
-];
+pub const BUILTIN_TOKENS: &[BuiltinToken] = &[BuiltinToken {
+    symbol: "pathUSD",
+    address: "0x20c0000000000000000000000000000000000000",
+}];
 
 #[cfg(test)]
 mod tests {

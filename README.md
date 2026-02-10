@@ -156,9 +156,6 @@ tempoctl includes built-in support for Tempo networks with default RPC endpoints
 | Token | Address |
 |-------|---------|
 | pathUSD | `0x20c0000000000000000000000000000000000000` |
-| AlphaUSD | `0x20c0000000000000000000000000000000000001` |
-| BetaUSD | `0x20c0000000000000000000000000000000000002` |
-| ThetaUSD | `0x20c0000000000000000000000000000000000003` |
 
 **Override RPC URLs for built-in networks:**
 
@@ -491,7 +488,7 @@ When a merchant requests payment in a specific stablecoin that you don't have, t
 
 1. When a payment is requested, tempoctl checks your balance of the required token
 2. If you have sufficient balance, the payment proceeds directly
-3. If you don't have enough of the required token, tempoctl queries your balances of other supported stablecoins (pathUSD, AlphaUSD, BetaUSD, ThetaUSD)
+3. If you don't have enough of the required token, tempoctl queries your balances of other supported stablecoins (pathUSD)
 4. If another token has sufficient balance (including 0.5% slippage), tempoctl automatically swaps via the Tempo StablecoinDEX and completes the payment in a single atomic transaction
 
 **Token selection:**
