@@ -56,15 +56,15 @@ tempoctl -v query -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"ro
 When creating pull requests:
 
 1. **Always include the PR link** in your response after creating a PR
-2. Format as a clickable link: `[#123](https://github.com/tempoxyz/pget/pull/123)`
+2. Format as a clickable link: `[#123](https://github.com/tempoxyz/tempoctl/pull/123)`
 3. When creating multiple PRs, provide a summary table with all links
 
 Example summary format:
 ```
 | PR | Title | Link |
 |----|-------|------|
-| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/pget/pull/123) |
-| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/pget/pull/124) |
+| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/tempoctl/pull/123) |
+| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/tempoctl/pull/124) |
 ```
 
 ## Code Style Guidelines

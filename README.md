@@ -65,13 +65,13 @@ Use as `tempoctl query <URL> [OPTIONS]` (alias `tempoctl q <URL>`) or `tempoctl 
 **Method 1: Quick install script**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tempoxyz/pget/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tempoxyz/tempoctl/main/install.sh | bash
 ```
 
 **Method 2: Install from source**
 
 ```bash
-git clone https://github.com/tempoxyz/pget.git
+git clone https://github.com/tempoxyz/tempoctl.git
 cd tempoctl
 cargo install --path .
 ```
@@ -650,7 +650,7 @@ tempoctl config --unsafe-show-private-keys --no-cache-password  # Show keys with
 
 ```bash
 # Clone repository
-git clone https://github.com/tempoxyz/pget.git
+git clone https://github.com/tempoxyz/tempoctl.git
 cd tempoctl
 
 # Install dependencies (for linting)

@@ -17,7 +17,7 @@ $$$$$$$$\ $$$$$$$$\ $$\      $$\ $$$$$$$\   $$$$$$\   $$$$$$\ $$$$$$$$\ $$\
 echo "$TEMPOCTL_BANNER"
 echo ""
 
-REPO="tempoxyz/pget"
+REPO="tempoxyz/tempoctl"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="tempoctl"
 R2_BASE_URL="https://tempoctl-binaries.tempo.xyz"
