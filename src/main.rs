@@ -88,6 +88,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Wallet { .. } => "wallet",
 
             Commands::Services { .. } => "services",
+            Commands::Keys { .. } => "keys",
             Commands::Whoami { .. } => "whoami",
         };
         a.track(
@@ -241,14 +242,19 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Whoami {
+        Commands::Keys {
             command,
             output_format,
         } => {
             let network = cli.network.as_deref();
             if let Some(subcommand) = command {
                 match subcommand {
-                    cli::WhoamiCommands::Switch { index } => {
+                    cli::KeysCommands::List => {
+                        cli::commands::keys::list_keys(output_format, network)
+                            .await
+                            .map_err(Into::into)
+                    }
+                    cli::KeysCommands::Switch { index } => {
                         let result =
                             cli::commands::keys::switch_key(index, output_format, network).await;
                         if let Some(ref a) = analytics {
@@ -264,7 +270,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         }
                         result.map(|_| ()).map_err(Into::into)
                     }
-                    cli::WhoamiCommands::Delete { index } => {
+                    cli::KeysCommands::Delete { index } => {
                         let result =
                             cli::commands::keys::delete_key(index, output_format, network).await;
                         if let Some(ref a) = analytics {
@@ -282,13 +288,20 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     }
                 }
             } else {
-                if let Some(ref a) = analytics {
-                    a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
-                }
-                cli::commands::whoami::show_whoami(output_format, network)
+                cli::commands::keys::list_keys(output_format, network)
                     .await
                     .map_err(Into::into)
             }
+        }
+
+        Commands::Whoami { output_format } => {
+            let network = cli.network.as_deref();
+            if let Some(ref a) = analytics {
+                a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
+            }
+            cli::commands::whoami::show_whoami(output_format, network)
+                .await
+                .map_err(Into::into)
         }
     };
 

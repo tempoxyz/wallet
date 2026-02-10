@@ -237,16 +237,24 @@ pub enum Commands {
         address: Option<String>,
     },
     /// Show who you are: wallet, balances, access keys
-    #[command(args_conflicts_with_subcommands = true, display_order = 5)]
+    #[command(display_order = 5)]
     Whoami {
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
+    },
+    /// Manage access keys for Tempo wallet
+    #[command(alias = "k", display_order = 6)]
+    #[command(args_conflicts_with_subcommands = true)]
+    Keys {
         #[command(subcommand)]
-        command: Option<WhoamiCommands>,
+        command: Option<KeysCommands>,
         /// Output format
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
     },
     /// Manage and inspect supported networks
-    #[command(alias = "n", display_order = 6)]
+    #[command(alias = "n", display_order = 7)]
     #[command(args_conflicts_with_subcommands = true)]
     Networks {
         #[command(subcommand)]
@@ -256,14 +264,14 @@ pub enum Commands {
         output_format: OutputFormat,
     },
     /// Tempo wallet management
-    #[command(alias = "w", display_order = 7)]
+    #[command(alias = "w", display_order = 8)]
     #[command(subcommand_required = true, arg_required_else_help = true)]
     Wallet {
         #[command(subcommand)]
         command: WalletCommands,
     },
     /// List available payment services
-    #[command(alias = "svc", display_order = 8)]
+    #[command(alias = "svc", display_order = 9)]
     #[command(args_conflicts_with_subcommands = true)]
     Services {
         #[command(subcommand)]
@@ -276,7 +284,7 @@ pub enum Commands {
         refresh: bool,
     },
     /// Inspect payment requirements without executing payment
-    #[command(display_order = 9)]
+    #[command(display_order = 10)]
     Inspect {
         /// URL to inspect
         url: String,
@@ -285,7 +293,7 @@ pub enum Commands {
         output_format: OutputFormat,
     },
     /// Generate shell completions script
-    #[command(alias = "com", display_order = 10)]
+    #[command(alias = "com", display_order = 11)]
     Completions {
         /// The shell to generate completions for
         #[arg(value_enum)]
@@ -300,7 +308,9 @@ pub enum WalletCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum WhoamiCommands {
+pub enum KeysCommands {
+    /// List all access keys
+    List,
     /// Switch to a different access key
     Switch {
         /// Key index to switch to
