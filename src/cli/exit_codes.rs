@@ -106,9 +106,12 @@ impl From<&crate::error::TempoCtlError> for ExitCode {
             | TempoCtlError::TomlSerialize(_) => ExitCode::ConfigError,
 
             // Payment/funds errors
-            TempoCtlError::AmountExceedsMax { .. } | TempoCtlError::InvalidAmount(_) => {
-                ExitCode::InsufficientFunds
-            }
+            TempoCtlError::AmountExceedsMax { .. }
+            | TempoCtlError::InvalidAmount(_)
+            | TempoCtlError::SpendingLimitExceeded { .. }
+            | TempoCtlError::InsufficientBalance { .. } => ExitCode::InsufficientFunds,
+
+            TempoCtlError::PaymentRejected { .. } => ExitCode::PaymentFailed,
 
             // Network/provider errors
             TempoCtlError::UnknownNetwork(_)

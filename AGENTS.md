@@ -243,6 +243,10 @@ struct Config {
 
 **Built-in Tokens:** pathUSD, AlphaUSD, BetaUSD, ThetaUSD at fixed addresses
 
+## Spec
+
+See [SPEC.md](SPEC.md) for expected CLI behaviors (error formats, exit codes, user-facing messages).
+
 ## Documentation
 
 - [Rust Book](https://doc.rust-lang.org/book/)

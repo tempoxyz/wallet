@@ -83,6 +83,26 @@ pub enum TempoCtlError {
     #[error("Spending limit query failed: {0}")]
     SpendingLimitQuery(String),
 
+    /// Access key spending limit exceeded on-chain
+    #[error("Spending limit exceeded: limit is {limit} {token}, need {required} {token}")]
+    SpendingLimitExceeded {
+        token: String,
+        limit: String,
+        required: String,
+    },
+
+    /// Insufficient token balance for payment
+    #[error("Insufficient {token} balance: have {available}, need {required}")]
+    InsufficientBalance {
+        token: String,
+        available: String,
+        required: String,
+    },
+
+    /// Server rejected the payment after submission
+    #[error("Payment rejected by server: {reason}")]
+    PaymentRejected { reason: String, status_code: u32 },
+
     // ==================== HTTP Errors ====================
     /// HTTP request/response error
     #[error("HTTP error: {0}")]

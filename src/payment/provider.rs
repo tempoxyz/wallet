@@ -227,16 +227,6 @@ impl TempoCtlPaymentProvider {
                     }
                 };
 
-            if let Some(remaining) = limit {
-                if remaining < balance {
-                    eprintln!(
-                        "Key spending limit ({} {}) is lower than wallet balance",
-                        format_u256_with_decimals(remaining, token_decimals),
-                        token_symbol,
-                    );
-                }
-            }
-
             limit
         } else {
             None
@@ -254,7 +244,15 @@ impl TempoCtlPaymentProvider {
             );
             return create_tempo_payment(&self.config, challenge)
                 .await
-                .map_err(|e| mpay::MppError::Http(e.to_string()));
+                .map_err(|e| {
+                    classify_payment_error(
+                        e,
+                        &token_symbol,
+                        token_decimals,
+                        balance,
+                        required_amount,
+                    )
+                });
         }
 
         let limit_is_bottleneck = spending_limit
@@ -265,13 +263,14 @@ impl TempoCtlPaymentProvider {
             let limit_human =
                 format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
             let needed_human = format_u256_with_decimals(required_amount, token_decimals);
-            return Err(mpay::MppError::Http(format!(
-                "Key spending limit too low: limit is {} {} but payment requires {} {}. \
-                 A swap cannot help because the key must also be authorized to transfer the \
-                 destination token. Increase the key's spending limit for {} or use a key \
-                 without enforced limits.",
-                limit_human, token_symbol, needed_human, token_symbol, token_symbol
-            )));
+            return Err(mpay::MppError::Http(
+                TempoCtlError::SpendingLimitExceeded {
+                    token: token_symbol.clone(),
+                    limit: limit_human,
+                    required: needed_human,
+                }
+                .to_string(),
+            ));
         }
 
         if self.no_swap {
@@ -321,15 +320,67 @@ impl TempoCtlPaymentProvider {
 
                 create_tempo_payment_with_swap(&self.config, challenge, &swap_info)
                     .await
-                    .map_err(|e| mpay::MppError::Http(e.to_string()))
+                    .map_err(|e| {
+                        classify_payment_error(
+                            e,
+                            &token_symbol,
+                            token_decimals,
+                            balance,
+                            required_amount,
+                        )
+                    })
             }
-            None => Err(mpay::MppError::Http(format!(
-                "Insufficient balance and no swap source available. Need {} of {}",
-                format_u256_with_decimals(required_amount, token_decimals),
-                token_symbol
-            ))),
+            None => Err(mpay::MppError::Http(
+                TempoCtlError::InsufficientBalance {
+                    token: token_symbol.clone(),
+                    available: format_u256_with_decimals(balance, token_decimals),
+                    required: format_u256_with_decimals(required_amount, token_decimals),
+                }
+                .to_string(),
+            )),
         }
     }
+}
+
+/// Classify a payment transaction error into a specific MppError.
+///
+/// Parses the error message from gas estimation or transaction broadcast to detect
+/// spending limit exceeded or insufficient balance reverts, and returns a descriptive
+/// error with token context.
+fn classify_payment_error(
+    err: TempoCtlError,
+    token_symbol: &str,
+    token_decimals: u8,
+    balance: U256,
+    required_amount: U256,
+) -> mpay::MppError {
+    let msg = err.to_string();
+    let msg_lower = msg.to_lowercase();
+
+    if msg_lower.contains("spendinglimitexceeded") || msg_lower.contains("spending limit") {
+        return mpay::MppError::Http(
+            TempoCtlError::SpendingLimitExceeded {
+                token: token_symbol.to_string(),
+                limit: format_u256_with_decimals(balance, token_decimals),
+                required: format_u256_with_decimals(required_amount, token_decimals),
+            }
+            .to_string(),
+        );
+    }
+
+    if msg_lower.contains("insufficientbalance")
+        || msg_lower.contains("transfer amount exceeds balance")
+        || msg_lower.contains("insufficient balance")
+    {
+        let err = TempoCtlError::InsufficientBalance {
+            token: token_symbol.to_string(),
+            available: format_u256_with_decimals(balance, token_decimals),
+            required: format_u256_with_decimals(required_amount, token_decimals),
+        };
+        return mpay::MppError::Http(err.to_string());
+    }
+
+    mpay::MppError::Http(err.to_string())
 }
 
 /// Compute effective spending capacity from wallet balance and optional key spending limit.
