@@ -6,6 +6,7 @@ use crate::payment::money::format_u256_with_decimals;
 use crate::payment::provider::{get_balances, NetworkBalance};
 use alloy::primitives::U256;
 use anyhow::Result;
+use tracing::warn;
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
@@ -65,7 +66,7 @@ pub async fn balance_command(
         } else {
             match get_balances(config, &check_address, network).await {
                 Ok(network_balances) => balances.extend(network_balances),
-                Err(e) => eprintln!("Warning: Failed to get balances for {network}: {e}"),
+                Err(e) => warn!(network = %network, error = %e, "failed to get balances"),
             }
         }
     }
