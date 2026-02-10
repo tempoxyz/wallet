@@ -2,13 +2,13 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::primitives::{Address, B256, U256};
-use alloy::providers::{Provider, ProviderBuilder};
+use alloy::providers::Provider;
 use anyhow::{bail, Context, Result};
 use tempo_primitives::transaction::Call;
 use tracing::info;
 
 use crate::config::load_config;
-use crate::network::Network;
+use crate::network::{self, Network};
 use crate::payment::abi::{encode_escrow_request_close, encode_escrow_withdraw};
 use crate::payment::providers::stream::{query_on_chain_channel, StreamState};
 use crate::payment::providers::tempo::create_tempo_transaction_with_calls;
@@ -132,8 +132,8 @@ pub async fn close_channel(
         let chain_id = entry.chain_id;
         let gas_config = network.gas_config();
 
-        let rpc_url: reqwest::Url = network_info.rpc_url.parse().context("Invalid RPC URL")?;
-        let provider = ProviderBuilder::new().connect_http(rpc_url);
+        let provider = network::http_provider(&network_info.rpc_url)
+            .map_err(|e| anyhow::anyhow!(e))?;
 
         let on_chain = query_on_chain_channel(&provider, escrow_contract, channel_id).await?;
         if let Some(ref ch) = on_chain {
@@ -275,8 +275,8 @@ pub async fn withdraw_channel(
         let chain_id = entry.chain_id;
         let gas_config = network.gas_config();
 
-        let rpc_url: reqwest::Url = network_info.rpc_url.parse().context("Invalid RPC URL")?;
-        let provider = ProviderBuilder::new().connect_http(rpc_url);
+        let provider = network::http_provider(&network_info.rpc_url)
+            .map_err(|e| anyhow::anyhow!(e))?;
 
         let on_chain = query_on_chain_channel(&provider, escrow_contract, channel_id).await?;
         match on_chain {

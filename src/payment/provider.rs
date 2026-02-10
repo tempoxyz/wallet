@@ -5,7 +5,7 @@
 
 use crate::config::Config;
 use crate::error::{Result, TempoCtlError};
-use crate::network::Network;
+use crate::network::{self, Network};
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{
     pending_key_spending_limit, query_key_spending_limit, SwapInfo, BPS_DENOMINATOR,
@@ -13,7 +13,6 @@ use crate::payment::providers::tempo::{
 };
 use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
-use alloy::providers::ProviderBuilder;
 use alloy::rlp::Decodable;
 use alloy::sol;
 use std::str::FromStr;
@@ -220,12 +219,8 @@ impl TempoCtlPaymentProvider {
                 .config
                 .resolve_network(network_name)
                 .map_err(|e| mpay::MppError::Http(e.to_string()))?;
-            let provider = ProviderBuilder::new().connect_http(
-                network_info
-                    .rpc_url
-                    .parse()
-                    .map_err(|e| mpay::MppError::Http(format!("Invalid RPC URL: {}", e)))?,
-            );
+            let provider = network::http_provider(&network_info.rpc_url)
+                .map_err(|e| mpay::MppError::Http(e))?;
 
             let limit =
                 match query_key_spending_limit(&provider, wallet_addr, key_address, required_token)
@@ -601,11 +596,8 @@ impl TempoCtlPaymentProvider {
                     mpay::MppError::Http(format!("Invalid channelId in method_details: {}", e))
                 })?;
 
-                let rpc_url: reqwest::Url = network_info
-                    .rpc_url
-                    .parse()
-                    .map_err(|e| mpay::MppError::Http(format!("Invalid RPC URL: {}", e)))?;
-                let provider = ProviderBuilder::new().connect_http(rpc_url);
+                let provider = network::http_provider(&network_info.rpc_url)
+                    .map_err(|e| mpay::MppError::Http(e))?;
 
                 if let Ok(Some(on_chain)) =
                     query_on_chain_channel(&provider, escrow_contract, channel_id_bytes).await
@@ -776,10 +768,8 @@ pub async fn get_balances(
     network: Network,
 ) -> Result<Vec<NetworkBalance>> {
     let network_info = config.resolve_network(network.as_str())?;
-    let provider =
-        ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
-        })?);
+    let provider = network::http_provider(&network_info.rpc_url)
+        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
 
     let user_addr = Address::from_str(address)
         .map_err(|e| TempoCtlError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
@@ -827,10 +817,8 @@ pub async fn query_token_balance(
     account: Address,
 ) -> Result<U256> {
     let network_info = config.resolve_network(network.as_str())?;
-    let provider =
-        ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
-        })?);
+    let provider = network::http_provider(&network_info.rpc_url)
+        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
 
     let contract = IERC20::new(token_address, &provider);
     let balance = contract
@@ -907,10 +895,8 @@ pub async fn find_swap_source(
 
     if let Some((wallet_addr, key_addr)) = keychain_info {
         let network_info = config.resolve_network(network.as_str())?;
-        let provider =
-            ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-                TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
-            })?);
+        let provider = network::http_provider(&network_info.rpc_url)
+            .map_err(|e| TempoCtlError::InvalidConfig(e))?;
 
         let limit_futures: Vec<_> = tokens_to_check
             .iter()

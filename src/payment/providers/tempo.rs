@@ -7,7 +7,7 @@
 
 use crate::config::Config;
 use crate::error::{Result, ResultExt, SigningContext, TempoCtlError};
-use crate::network::{GasConfig, Network};
+use crate::network::{self, GasConfig, Network};
 use crate::payment::abi::{
     encode_approve, encode_swap_exact_amount_out, encode_transfer, IAccountKeychain, DEX_ADDRESS,
     KEYCHAIN_ADDRESS,
@@ -163,10 +163,8 @@ impl PaymentSetupContext {
             .map(|n| n.gas_config())
             .unwrap_or(GasConfig::DEFAULT);
 
-        let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
-        })?;
-        let provider = HttpProvider::new_http(rpc_url);
+        let provider = network::http_provider(&network_info.rpc_url)
+            .map_err(|e| TempoCtlError::InvalidConfig(e))?;
 
         let nonce = provider
             .get_transaction_count(from)
@@ -750,10 +748,8 @@ pub async fn create_tempo_stream_open(
         .map(|n| n.gas_config())
         .unwrap_or(GasConfig::DEFAULT);
 
-    let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
-        TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
-    })?;
-    let provider = HttpProvider::new_http(rpc_url);
+    let provider = network::http_provider(&network_info.rpc_url)
+        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
 
     let nonce = provider
         .get_transaction_count(from)
@@ -885,10 +881,8 @@ pub async fn create_tempo_stream_top_up(
         .map(|n| n.gas_config())
         .unwrap_or(GasConfig::DEFAULT);
 
-    let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
-        TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
-    })?;
-    let provider = HttpProvider::new_http(rpc_url);
+    let provider = network::http_provider(&network_info.rpc_url)
+        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
 
     let nonce = provider
         .get_transaction_count(from)
@@ -1020,10 +1014,8 @@ pub async fn create_tempo_stream_close(
         .map(|n| n.gas_config())
         .unwrap_or(GasConfig::DEFAULT);
 
-    let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
-        TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
-    })?;
-    let provider = HttpProvider::new_http(rpc_url);
+    let provider = network::http_provider(&network_info.rpc_url)
+        .map_err(|e| TempoCtlError::InvalidConfig(e))?;
 
     let nonce = provider
         .get_transaction_count(from)
