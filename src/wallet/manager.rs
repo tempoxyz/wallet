@@ -1,6 +1,6 @@
 //! Wallet manager for orchestrating browser-based authentication.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use alloy::primitives::Address;
 use alloy::rlp::Decodable;
@@ -8,6 +8,7 @@ use alloy::signers::local::PrivateKeySigner;
 use tempo_primitives::transaction::SignedKeyAuthorization;
 use url::Url;
 
+use crate::analytics::Analytics;
 use crate::error::{Result, TempoCtlError};
 use crate::wallet::auth_server::{run_callback_server, AuthCallback};
 use crate::wallet::credentials::{NetworkWallet, WalletCredentials};
@@ -19,11 +20,12 @@ const CALLBACK_TIMEOUT_SECS: u64 = 300; // 5 minutes
 pub struct WalletManager {
     auth_server_url: String,
     network: String,
+    analytics: Option<Analytics>,
 }
 
 impl WalletManager {
     /// Create a new wallet manager for a specific network.
-    pub fn new(network: Option<&str>) -> Self {
+    pub fn new(network: Option<&str>, analytics: Option<Analytics>) -> Self {
         let creds = WalletCredentials::load().unwrap_or_default();
         let network = network.unwrap_or(&creds.network).to_string();
 
@@ -34,6 +36,7 @@ impl WalletManager {
         Self {
             auth_server_url,
             network,
+            analytics,
         }
     }
 
@@ -89,7 +92,18 @@ impl WalletManager {
             println!("Please open this URL manually: {}", url_str);
         }
 
+        if let Some(ref a) = self.analytics {
+            a.track(
+                crate::analytics::Event::CallbackWindowOpened,
+                crate::analytics::CallbackWindowOpenedPayload {
+                    is_refresh: false,
+                    network: self.network.clone(),
+                },
+            );
+        }
+
         println!("\nWaiting for authentication...");
+        let wait_start = Instant::now();
 
         let callback = tokio::time::timeout(Duration::from_secs(CALLBACK_TIMEOUT_SECS), rx)
             .await
@@ -97,6 +111,16 @@ impl WalletManager {
             .map_err(|_| {
                 TempoCtlError::Http("Failed to receive authentication callback".to_string())
             })?;
+
+        if let Some(ref a) = self.analytics {
+            a.track(
+                crate::analytics::Event::CallbackReceived,
+                crate::analytics::CallbackReceivedPayload {
+                    network: self.network.clone(),
+                    duration_secs: wait_start.elapsed().as_secs(),
+                },
+            );
+        }
 
         self.save_credentials(callback, local_signer).await?;
 
@@ -134,7 +158,18 @@ impl WalletManager {
             println!("Please open this URL manually: {}", url_str);
         }
 
+        if let Some(ref a) = self.analytics {
+            a.track(
+                crate::analytics::Event::CallbackWindowOpened,
+                crate::analytics::CallbackWindowOpenedPayload {
+                    is_refresh: true,
+                    network: self.network.clone(),
+                },
+            );
+        }
+
         println!("\nWaiting for authentication...");
+        let wait_start = Instant::now();
 
         let callback = tokio::time::timeout(Duration::from_secs(CALLBACK_TIMEOUT_SECS), rx)
             .await
@@ -142,6 +177,16 @@ impl WalletManager {
             .map_err(|_| {
                 TempoCtlError::Http("Failed to receive authentication callback".to_string())
             })?;
+
+        if let Some(ref a) = self.analytics {
+            a.track(
+                crate::analytics::Event::CallbackReceived,
+                crate::analytics::CallbackReceivedPayload {
+                    network: self.network.clone(),
+                    duration_secs: wait_start.elapsed().as_secs(),
+                },
+            );
+        }
 
         self.save_access_key(callback, local_signer).await?;
 
@@ -183,6 +228,17 @@ impl WalletManager {
         creds.set_wallet(wallet);
         creds.save()?;
 
+        if let Some(ref a) = self.analytics {
+            a.track(
+                crate::analytics::Event::KeyCreated,
+                crate::analytics::KeyCreatedPayload {
+                    network: self.network.clone(),
+                    label: "Default".to_string(),
+                },
+            );
+            a.identify();
+        }
+
         Ok(())
     }
 
@@ -201,8 +257,8 @@ impl WalletManager {
         creds.network = self.network.clone();
 
         let private_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
-        let label = format!("Key {}", chrono_label());
-        let mut access_key = AccessKey::new(private_key_hex).with_label(label);
+        let key_label = format!("Key {}", chrono_label());
+        let mut access_key = AccessKey::new(private_key_hex).with_label(key_label.clone());
         let mut pending_hex = None;
 
         if let Some(v) = &validated {
@@ -225,6 +281,18 @@ impl WalletManager {
         }
 
         creds.save()?;
+
+        if let Some(ref a) = self.analytics {
+            a.track(
+                crate::analytics::Event::KeyCreated,
+                crate::analytics::KeyCreatedPayload {
+                    network: self.network.clone(),
+                    label: key_label,
+                },
+            );
+            a.identify();
+        }
+
         Ok(())
     }
 }
@@ -279,7 +347,7 @@ fn chrono_label() -> String {
 
 impl Default for WalletManager {
     fn default() -> Self {
-        Self::new(None)
+        Self::new(None, None)
     }
 }
 

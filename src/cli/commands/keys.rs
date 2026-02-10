@@ -110,7 +110,7 @@ pub async fn switch_key(
     index: usize,
     output_format: OutputFormat,
     network: Option<&str>,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let mut creds = WalletCredentials::load()?;
     if let Some(n) = network {
         creds.network = n.to_string();
@@ -130,7 +130,7 @@ pub async fn switch_key(
         match output_format {
             OutputFormat::Json => {
                 println!("{}", serde_json::json!({"error": err_msg}));
-                return Ok(());
+                return Ok(None);
             }
             _ => return Err(TempoCtlError::InvalidConfig(err_msg)),
         }
@@ -158,7 +158,7 @@ pub async fn switch_key(
         }
     }
 
-    Ok(())
+    Ok(Some(label))
 }
 
 /// Delete an access key.
@@ -166,7 +166,7 @@ pub async fn delete_key(
     index: usize,
     output_format: OutputFormat,
     network: Option<&str>,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let mut creds = WalletCredentials::load()?;
     if let Some(n) = network {
         creds.network = n.to_string();
@@ -188,13 +188,14 @@ pub async fn delete_key(
             match output_format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::json!({"error": err_msg}));
-                    return Ok(());
+                    return Ok(None);
                 }
                 _ => return Err(TempoCtlError::InvalidConfig(err_msg)),
             }
         }
     };
 
+    let label = key.label.clone();
     creds.save()?;
 
     match output_format {
@@ -216,5 +217,5 @@ pub async fn delete_key(
         }
     }
 
-    Ok(())
+    Ok(Some(label))
 }

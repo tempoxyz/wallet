@@ -1,3 +1,4 @@
+use crate::analytics::Analytics;
 use crate::config::Config;
 use crate::wallet::WalletManager;
 use anyhow::{Context, Result};
@@ -5,10 +6,10 @@ use std::path::PathBuf;
 
 const TEMPOCTL_SKILL_CONTENT: &str = include_str!("../../../.ai/skills/tempoctl/SKILL.md");
 
-pub async fn run_login(network: Option<&str>) -> Result<()> {
+pub async fn run_login(network: Option<&str>, analytics: Option<Analytics>) -> Result<()> {
     println!("Connecting your Tempo wallet...");
 
-    let manager = WalletManager::new(network);
+    let manager = WalletManager::new(network, analytics);
     manager.setup_wallet().await?;
 
     let config_path = Config::default_config_path()?;
