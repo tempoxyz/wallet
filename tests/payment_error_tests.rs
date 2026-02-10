@@ -135,6 +135,29 @@ impl Drop for TestServer {
 }
 
 #[test]
+fn test_no_wallet_non_interactive_errors() {
+    let server = TestServer::start_402_server();
+    let temp = setup_test_config();
+
+    let output = test_command(&temp)
+        .args(["query", &server.url("test")])
+        .output()
+        .expect("failed to run tempoctl");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no wallet is configured"),
+        "Expected 'no wallet is configured' error, got: {}",
+        stderr
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "Expected exit code 3 (ConfigError)"
+    );
+}
+
+#[test]
 fn test_spending_limit_exceeded_error() {
     let server = TestServer::start_402_server();
     let temp = setup_test_config();

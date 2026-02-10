@@ -340,7 +340,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 
 /// Make an HTTP request (main flow)
 async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) -> Result<()> {
-    let config = load_config_with_overrides(&cli)?;
+    let mut config = load_config_with_overrides(&cli)?;
 
     let url = query.url.clone();
     let request_ctx = RequestContext::new(cli, query)?;
@@ -403,9 +403,18 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
             .is_some();
 
     if !has_wallet && std::env::var("TEMPOCTL_MOCK_PAYMENT").is_err() {
-        anyhow::bail!(crate::error::TempoCtlError::ConfigMissing(
-            "This request requires payment, but no wallet is configured".to_string()
-        ));
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() {
+            eprintln!("This request requires payment. Let's connect your wallet first.\n");
+            let network = request_ctx.cli.network.as_deref();
+            cli::commands::login::run_login(network, analytics.clone()).await?;
+            eprintln!("\nRetrying request...");
+            config = load_config_with_overrides(&request_ctx.cli)?;
+        } else {
+            anyhow::bail!(crate::error::TempoCtlError::ConfigMissing(
+                "This request requires payment, but no wallet is configured".to_string()
+            ));
+        }
     }
 
     let protocol =
