@@ -19,13 +19,8 @@ echo ""
 
 REPO="tempoxyz/pget"
 BINARY_NAME="tempoctl"
+INSTALL_DIR="/usr/local/bin"
 R2_BASE_URL="https://tempoctl-binaries.tempo.xyz"
-
-TEMPO_DIR="${TEMPO_DIR:-"$HOME/.tempo"}"
-TEMPO_BIN_DIR="$TEMPO_DIR/bin"
-
-MARKER_BEGIN="# >>> tempoctl installer >>>"
-MARKER_END="# <<< tempoctl installer <<<"
 
 TMP_DIR=""
 
@@ -71,67 +66,6 @@ detect_arch() {
     esac
 }
 
-detect_shell() {
-    case $SHELL in
-    */zsh)
-        if [[ "$PLATFORM" == "darwin" ]]; then
-            PROFILE="${ZDOTDIR-"$HOME"}/.zprofile"
-        else
-            PROFILE="${ZDOTDIR-"$HOME"}/.zshrc"
-        fi
-        PREF_SHELL=zsh
-        ;;
-    */bash)
-        if [[ "$PLATFORM" == "darwin" ]]; then
-            PROFILE="$HOME/.bash_profile"
-        else
-            PROFILE="$HOME/.bashrc"
-        fi
-        PREF_SHELL=bash
-        ;;
-    */fish)
-        PROFILE="$HOME/.config/fish/config.fish"
-        PREF_SHELL=fish
-        ;;
-    */ash)
-        PROFILE="$HOME/.profile"
-        PREF_SHELL=ash
-        ;;
-    *)
-        echo "warn: could not detect shell, manually add ${TEMPO_BIN_DIR} to your PATH"
-        PROFILE=""
-        PREF_SHELL=""
-        ;;
-    esac
-}
-
-ensure_path() {
-    if [[ -z "$PROFILE" ]]; then
-        return
-    fi
-
-    if grep -qsF "$MARKER_BEGIN" "$PROFILE" 2>/dev/null; then
-        return
-    fi
-
-    if [[ "$PREF_SHELL" == "fish" ]]; then
-        mkdir -p "$(dirname "$PROFILE")"
-        {
-            echo ""
-            echo "$MARKER_BEGIN"
-            echo "fish_add_path -gp \"$TEMPO_BIN_DIR\""
-            echo "$MARKER_END"
-        } >> "$PROFILE"
-    else
-        {
-            echo ""
-            echo "$MARKER_BEGIN"
-            echo "export PATH=\"$TEMPO_BIN_DIR:\$PATH\""
-            echo "$MARKER_END"
-        } >> "$PROFILE"
-    fi
-}
-
 install_tempoctl() {
     local binary_name="tempoctl-${PLATFORM}-${ARCH}"
     local download_url="${R2_BASE_URL}/${binary_name}"
@@ -162,22 +96,31 @@ install_tempoctl() {
         exit 1
     fi
 
-    mkdir -p "${TEMPO_BIN_DIR}"
-    mv "${tmp_file}" "${TEMPO_BIN_DIR}/${BINARY_NAME}"
+    echo "info: installing to ${INSTALL_DIR}/..."
 
-    ln -sf "${TEMPO_BIN_DIR}/${BINARY_NAME}" "${TEMPO_BIN_DIR}/tempo"
+    if mv "${tmp_file}" "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null; then
+        true
+    elif sudo mv "${tmp_file}" "${INSTALL_DIR}/${BINARY_NAME}"; then
+        true
+    else
+        echo "error: failed to install to ${INSTALL_DIR}"
+        echo "       try running with sudo"
+        exit 1
+    fi
 
-    echo "info: installed tempoctl to ${TEMPO_BIN_DIR}/"
+    if ln -sf "${INSTALL_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/tempo" 2>/dev/null; then
+        true
+    elif sudo ln -sf "${INSTALL_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/tempo"; then
+        true
+    fi
 }
 
 verify_installation() {
-    export PATH="${TEMPO_BIN_DIR}:$PATH"
-
+    echo ""
     if command -v tempoctl >/dev/null 2>&1; then
         echo "info: $(tempoctl --version)"
-    fi
-    if command -v tempo >/dev/null 2>&1; then
-        echo "info: 'tempo' alias available"
+    else
+        echo "info: installed — run with: ${INSTALL_DIR}/tempoctl --version"
     fi
 }
 
@@ -185,20 +128,9 @@ main() {
     check_dependencies
     detect_platform
     detect_arch
-    detect_shell
     install_tempoctl
-    ensure_path
     verify_installation
 
-    echo ""
-    if [[ -n "$PROFILE" ]]; then
-        echo "info: detected ${PREF_SHELL} — added ${TEMPO_BIN_DIR} to PATH in ${PROFILE}"
-    fi
-
-    echo ""
-    echo "To start using tempoctl now, run:"
-    echo ""
-    echo "  export PATH=\"${TEMPO_BIN_DIR}:\$PATH\""
     echo ""
     echo "Get started:"
     echo "  tempoctl login         # Connect your Tempo wallet"
