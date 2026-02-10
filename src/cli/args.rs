@@ -27,7 +27,7 @@ pub struct Cli {
     #[arg(short = 'C', long = "config", value_name = "PATH", global = true)]
     pub config: Option<String>,
 
-    /// Filter to specific networks (comma-separated, e.g. "base,base-sepolia")
+    /// Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato")
     #[arg(
         short = 'n',
         long,
@@ -218,46 +218,35 @@ pub struct QueryArgs {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Make an HTTP request with optional payment
-    #[command(alias = "q")]
+    #[command(alias = "q", display_order = 1)]
     Query(Box<QueryArgs>),
     /// Log in to your Tempo wallet
-    #[command(alias = "l")]
+    #[command(alias = "l", display_order = 2)]
     Login,
     /// Log out and disconnect your wallet
+    #[command(display_order = 3)]
     Logout {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
     },
-    /// Manage configuration
-    #[command(alias = "c")]
-    #[command(args_conflicts_with_subcommands = true)]
-    Config {
-        #[command(subcommand)]
-        command: Option<ConfigCommands>,
-
-        /// Output format for config display (when no subcommand is given)
-        #[arg(long, value_name = "FORMAT", default_value = "text")]
-        output_format: OutputFormat,
-    },
-    /// Show version information
-    #[command(alias = "v")]
-    Version,
-    /// Generate shell completions script
-    #[command(alias = "com")]
-    Completions {
-        /// The shell to generate completions for
-        #[arg(value_enum)]
-        shell: Shell,
-    },
     /// Check wallet balance (uses global --network/-n filter)
-    #[command(alias = "b")]
+    #[command(alias = "b", display_order = 4)]
     Balance {
         /// Check balance for specific address (defaults to configured addresses)
         address: Option<String>,
     },
+    /// Show who you are: wallet, balances, access keys
+    #[command(args_conflicts_with_subcommands = true, display_order = 5)]
+    Whoami {
+        #[command(subcommand)]
+        command: Option<WhoamiCommands>,
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
+    },
     /// Manage and inspect supported networks
-    #[command(alias = "n")]
+    #[command(alias = "n", display_order = 6)]
     #[command(args_conflicts_with_subcommands = true)]
     Networks {
         #[command(subcommand)]
@@ -266,33 +255,15 @@ pub enum Commands {
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
     },
-    /// Inspect payment requirements without executing payment
-    Inspect {
-        /// URL to inspect
-        url: String,
-        /// Output format
-        #[arg(long, value_name = "FORMAT", default_value = "text")]
-        output_format: OutputFormat,
-    },
     /// Tempo wallet management
-    #[command(alias = "w")]
+    #[command(alias = "w", display_order = 7)]
     #[command(subcommand_required = true, arg_required_else_help = true)]
     Wallet {
         #[command(subcommand)]
         command: WalletCommands,
     },
-    /// Manage access keys for Tempo wallet
-    #[command(alias = "k")]
-    #[command(args_conflicts_with_subcommands = true)]
-    Keys {
-        #[command(subcommand)]
-        command: Option<KeysCommands>,
-        /// Output format
-        #[arg(long, value_name = "FORMAT", default_value = "text")]
-        output_format: OutputFormat,
-    },
     /// List available payment services
-    #[command(alias = "svc")]
+    #[command(alias = "svc", display_order = 8)]
     #[command(args_conflicts_with_subcommands = true)]
     Services {
         #[command(subcommand)]
@@ -304,11 +275,21 @@ pub enum Commands {
         #[arg(short = 'r', long)]
         refresh: bool,
     },
-    /// Show who you are: wallet, balances, access keys
-    Whoami {
+    /// Inspect payment requirements without executing payment
+    #[command(display_order = 9)]
+    Inspect {
+        /// URL to inspect
+        url: String,
         /// Output format
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
+    },
+    /// Generate shell completions script
+    #[command(alias = "com", display_order = 10)]
+    Completions {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Option<Shell>,
     },
 }
 
@@ -319,9 +300,7 @@ pub enum WalletCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum KeysCommands {
-    /// List all access keys
-    List,
+pub enum WhoamiCommands {
     /// Switch to a different access key
     Switch {
         /// Key index to switch to
@@ -356,20 +335,6 @@ pub enum Shell {
     Zsh,
     Fish,
     PowerShell,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum ConfigCommands {
-    /// Get a specific configuration value
-    Get {
-        /// Configuration key (supports dot notation, e.g., "evm.address")
-        key: String,
-        /// Output format
-        #[arg(long, value_name = "FORMAT", default_value = "text")]
-        output_format: OutputFormat,
-    },
-    /// Validate configuration file
-    Validate,
 }
 
 #[derive(Subcommand, Debug)]

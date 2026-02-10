@@ -1,5 +1,4 @@
 pub mod balance;
-pub mod config;
 pub mod inspect;
 pub mod keys;
 pub mod login;
