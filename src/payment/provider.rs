@@ -250,6 +250,7 @@ impl TempoCtlPaymentProvider {
                         &token_symbol,
                         token_decimals,
                         balance,
+                        spending_limit,
                         required_amount,
                     )
                 });
@@ -326,6 +327,7 @@ impl TempoCtlPaymentProvider {
                             &token_symbol,
                             token_decimals,
                             balance,
+                            spending_limit,
                             required_amount,
                         )
                     })
@@ -352,16 +354,18 @@ fn classify_payment_error(
     token_symbol: &str,
     token_decimals: u8,
     balance: U256,
+    spending_limit: Option<U256>,
     required_amount: U256,
 ) -> mpay::MppError {
     let msg = err.to_string();
     let msg_lower = msg.to_lowercase();
 
     if msg_lower.contains("spendinglimitexceeded") || msg_lower.contains("spending limit") {
+        let limit_value = spending_limit.unwrap_or(balance);
         return mpay::MppError::Http(
             TempoCtlError::SpendingLimitExceeded {
                 token: token_symbol.to_string(),
-                limit: format_u256_with_decimals(balance, token_decimals),
+                limit: format_u256_with_decimals(limit_value, token_decimals),
                 required: format_u256_with_decimals(required_amount, token_decimals),
             }
             .to_string(),

@@ -67,107 +67,73 @@ fn test_login_alias() {
 }
 
 #[test]
-fn test_config_alias() {
-    let temp = setup_test_config();
-
-    test_command(&temp).arg("c").assert().success();
-}
-
-#[test]
-fn test_version_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
-        .arg("v")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("tempoctl:"));
-}
-
-#[test]
 fn test_quiet_flag() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "-q"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-q"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_quiet_alias_short() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "-s"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-s"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_quiet_alias_long() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "--silent"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "--silent"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_verbosity_single() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "-v"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-v"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_verbosity_multiple() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "-vv"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-vv"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_verbosity_long_form() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "--verbosity"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "--verbosity"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_color_auto() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "--color", "auto"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "--color", "auto"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_color_always() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "--color", "always"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "--color", "always"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_color_never() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "--color", "never"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "--color", "never"])
         .assert()
         .success();
 }
@@ -269,10 +235,8 @@ fn test_help_shows_possible_values() {
 
 #[test]
 fn test_alias_with_display_options() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["c", "-q", "--color", "never"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["n", "list", "-q", "--color", "never"])
         .assert()
         .success();
 }
@@ -532,29 +496,11 @@ fn test_inspect_with_all_output_formats() {
 }
 
 #[test]
-fn test_version_command() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
-        .arg("version")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("tempoctl:"));
-}
-
-#[test]
 fn test_version_flag() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
         .arg("--version")
         .assert()
         .success();
-}
-
-#[test]
-fn test_version_alias_v() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
-        .arg("v")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("tempoctl:"));
 }
 
 #[test]
@@ -587,59 +533,62 @@ fn test_logout_help() {
 
 #[test]
 fn test_multiple_global_flags_together() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["config", "-v", "-q", "--color", "never"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-v", "-q", "--color", "never"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_verbosity_levels() {
-    let temp = setup_test_config();
-
     // Single -v
-    test_command(&temp)
-        .args(["config", "-v"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-v"])
         .assert()
         .success();
 
     // Double -vv
-    test_command(&temp)
-        .args(["config", "-vv"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-vv"])
         .assert()
         .success();
 
     // Triple -vvv
-    test_command(&temp)
-        .args(["config", "-vvv"])
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .args(["networks", "list", "-vvv"])
         .assert()
         .success();
 }
 
 #[test]
 fn test_all_color_modes() {
-    let temp = setup_test_config();
-
     for color_mode in ["auto", "always", "never"] {
-        test_command(&temp)
-            .args(["config", "--color", color_mode])
+        Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+            .args(["networks", "list", "--color", color_mode])
             .assert()
             .success();
     }
 }
 
 #[test]
-fn test_all_output_formats_with_config() {
-    let temp = setup_test_config();
-
+fn test_all_output_formats_with_networks() {
     for format in ["text", "json", "yaml"] {
-        test_command(&temp)
-            .args(["config", "--output-format", format])
+        Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+            .args(["networks", "list", "--output-format", format])
             .assert()
             .success();
     }
+}
+
+#[test]
+fn test_completions_no_arg_shows_shells() {
+    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        .arg("completions")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bash"))
+        .stdout(predicate::str::contains("zsh"))
+        .stdout(predicate::str::contains("fish"));
 }
 
 #[test]
@@ -694,13 +643,11 @@ fn test_main_help_lists_all_commands() {
         .stdout(predicate::str::contains("query"))
         .stdout(predicate::str::contains("login"))
         .stdout(predicate::str::contains("logout"))
-        .stdout(predicate::str::contains("config"))
         .stdout(predicate::str::contains("completions"))
         .stdout(predicate::str::contains("balance"))
         .stdout(predicate::str::contains("networks"))
         .stdout(predicate::str::contains("inspect"))
-        .stdout(predicate::str::contains("whoami"))
-        .stdout(predicate::str::contains("version"));
+        .stdout(predicate::str::contains("whoami"));
 }
 
 #[test]
@@ -745,7 +692,7 @@ fn test_help_flag() {
 #[test]
 fn test_invalid_command() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
-        .args(["config", "invalid-subcommand"])
+        .args(["networks", "invalid-subcommand"])
         .assert()
         .failure();
 }

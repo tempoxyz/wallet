@@ -61,11 +61,6 @@ pub fn output_response_body(output_file: Option<&str>, cli: &Cli, body: &[u8]) -
     Ok(())
 }
 
-/// Write string output to file or stdout based on CLI options
-pub fn write_output(cli: &Cli, content: impl AsRef<str>) -> Result<()> {
-    write_output_to(None, cli, content)
-}
-
 /// Write string output to a specific file or stdout
 pub fn write_output_to(
     output_file: Option<&str>,

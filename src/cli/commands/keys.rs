@@ -24,7 +24,6 @@ struct KeysList {
     keys: Vec<KeyInfo>,
 }
 
-/// List all access keys.
 pub async fn list_keys(output_format: OutputFormat, network: Option<&str>) -> Result<()> {
     let mut creds = WalletCredentials::load()?;
     if let Some(n) = network {
