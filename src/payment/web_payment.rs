@@ -258,41 +258,66 @@ fn display_web_receipt(
 
 /// Classify an mpay provider error into a TempoCtlError with actionable context.
 fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::TempoCtlError {
-    let msg = err.to_string();
+    let raw = err.to_string();
+    let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
     let msg_lower = msg.to_lowercase();
 
     if msg_lower.contains("spending limit exceeded") || msg_lower.contains("spending limit too low")
     {
-        return crate::error::TempoCtlError::SpendingLimitExceeded {
-            token: extract_field(&msg, "need")
-                .and_then(|s| s.split_whitespace().nth(1).map(|t| t.to_string()))
-                .unwrap_or_else(|| "token".to_string()),
-            limit: extract_field(&msg, "limit is")
-                .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()))
-                .unwrap_or_else(|| "unknown".to_string()),
-            required: extract_field(&msg, "need")
-                .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()))
-                .unwrap_or_else(|| "unknown".to_string()),
-        };
+        let token = extract_field(&msg, "need")
+            .and_then(|s| s.split_whitespace().nth(1).map(|t| t.to_string()));
+        let limit = extract_field(&msg, "limit is")
+            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
+        let required = extract_field(&msg, "need")
+            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
+
+        if let (Some(token), Some(limit), Some(required)) = (token, limit, required) {
+            return crate::error::TempoCtlError::SpendingLimitExceeded {
+                token,
+                limit,
+                required,
+            };
+        }
     }
 
     if msg_lower.contains("insufficient") && msg_lower.contains("balance") {
-        return crate::error::TempoCtlError::InsufficientBalance {
-            token: extract_field(&msg, "token").unwrap_or_else(|| "token".to_string()),
-            available: extract_field(&msg, "have").unwrap_or_else(|| "unknown".to_string()),
-            required: extract_field(&msg, "need").unwrap_or_else(|| "unknown".to_string()),
-        };
+        let token = extract_between(&msg, "Insufficient ", " balance");
+        let available = extract_field(&msg, "have")
+            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
+        let required = extract_field(&msg, "need")
+            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
+
+        if let (Some(token), Some(available), Some(required)) = (token, available, required) {
+            return crate::error::TempoCtlError::InsufficientBalance {
+                token,
+                available,
+                required,
+            };
+        }
     }
 
-    crate::error::TempoCtlError::Http(format!("Failed to create payment credential: {}", msg))
+    crate::error::TempoCtlError::Http(msg)
 }
 
-/// Extract a field value from error messages like "have X, need Y" or "Insufficient TOKEN balance: have X, need Y".
+/// Extract text between two markers, e.g. extract_between("Insufficient pathUSD balance", "Insufficient ", " balance") => "pathUSD".
+fn extract_between(msg: &str, start: &str, end: &str) -> Option<String> {
+    let start_idx = msg.find(start)?;
+    let after = &msg[start_idx + start.len()..];
+    let end_idx = after.find(end)?;
+    let value = after[..end_idx].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+/// Extract a field value from error messages like "have X, need Y" or "limit is X".
 fn extract_field(msg: &str, prefix: &str) -> Option<String> {
     let search = format!("{} ", prefix);
     let idx = msg.find(&search)?;
     let after = &msg[idx + search.len()..];
-    let end = after.find([',', '.', '\n']).unwrap_or(after.len());
+    let end = after.find([',', '\n']).unwrap_or(after.len());
     let value = after[..end].trim();
     if value.is_empty() {
         None
@@ -466,5 +491,110 @@ mod tests {
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_extract_field_with_decimals() {
+        let msg = "limit is 0.000000 pathUSD, need 0.010000 pathUSD";
+        assert_eq!(
+            extract_field(msg, "limit is"),
+            Some("0.000000 pathUSD".into())
+        );
+        assert_eq!(extract_field(msg, "need"), Some("0.010000 pathUSD".into()));
+    }
+
+    #[test]
+    fn test_extract_field_no_match() {
+        assert_eq!(extract_field("no match here", "limit is"), None);
+    }
+
+    #[test]
+    fn test_extract_between_token() {
+        let msg = "Insufficient pathUSD balance: have 0.50, need 1.00";
+        assert_eq!(
+            extract_between(msg, "Insufficient ", " balance"),
+            Some("pathUSD".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_between_address_token() {
+        let msg = "Insufficient 0x20c0000000000000000000000000000000000000 balance: have 0, need 1";
+        assert_eq!(
+            extract_between(msg, "Insufficient ", " balance"),
+            Some("0x20c0000000000000000000000000000000000000".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_between_no_match() {
+        assert_eq!(
+            extract_between("no match", "Insufficient ", " balance"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_classify_spending_limit_from_mpp_error() {
+        let inner = "Spending limit exceeded: limit is 0.000000 pathUSD, need 0.010000 pathUSD";
+        let err = mpay::MppError::Http(inner.to_string());
+        let result = classify_payment_provider_error(err);
+        match result {
+            crate::error::TempoCtlError::SpendingLimitExceeded {
+                token,
+                limit,
+                required,
+            } => {
+                assert_eq!(token, "pathUSD");
+                assert_eq!(limit, "0.000000");
+                assert_eq!(required, "0.010000");
+            }
+            other => panic!("Expected SpendingLimitExceeded, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_spending_limit_with_address_token() {
+        let addr = "0x20c0000000000000000000000000000000000000";
+        let inner = format!("Spending limit exceeded: limit is 0.50 {addr}, need 1.00 {addr}");
+        let err = mpay::MppError::Http(inner);
+        let result = classify_payment_provider_error(err);
+        match result {
+            crate::error::TempoCtlError::SpendingLimitExceeded { token, .. } => {
+                assert_eq!(token, addr);
+            }
+            other => panic!("Expected SpendingLimitExceeded, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_insufficient_balance_from_mpp_error() {
+        let inner = "Insufficient pathUSD balance: have 0.50, need 1.00";
+        let err = mpay::MppError::Http(inner.to_string());
+        let result = classify_payment_provider_error(err);
+        match result {
+            crate::error::TempoCtlError::InsufficientBalance {
+                token,
+                available,
+                required,
+            } => {
+                assert_eq!(token, "pathUSD");
+                assert_eq!(available, "0.50");
+                assert_eq!(required, "1.00");
+            }
+            other => panic!("Expected InsufficientBalance, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_unrecognized_falls_through() {
+        let err = mpay::MppError::Http("something unexpected".to_string());
+        let result = classify_payment_provider_error(err);
+        match result {
+            crate::error::TempoCtlError::Http(msg) => {
+                assert_eq!(msg, "something unexpected");
+            }
+            other => panic!("Expected Http passthrough, got: {other}"),
+        }
     }
 }

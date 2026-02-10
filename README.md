@@ -646,6 +646,10 @@ tempoctl config --unsafe-show-private-keys               # Show private keys (pa
 tempoctl config --unsafe-show-private-keys --no-cache-password  # Show keys without caching password
 ```
 
+### Specification
+
+[SPEC.md](SPEC.md) defines the expected CLI behaviors — error message formats, exit codes, and user-facing messages. When contributing, ensure changes conform to the spec.
+
 ## Development Setup
 
 ```bash
