@@ -119,9 +119,7 @@ impl WalletCredentials {
             .ok_or(TempoCtlError::NoConfigDir)?
             .join("tempoctl");
 
-        if !data_dir.exists() {
-            fs::create_dir_all(&data_dir)?;
-        }
+        fs::create_dir_all(&data_dir)?;
 
         Ok(data_dir)
     }
@@ -147,21 +145,8 @@ impl WalletCredentials {
     /// Save wallet credentials atomically.
     pub fn save(&self) -> Result<()> {
         let path = Self::wallet_path()?;
-        let dir = path.parent().ok_or(TempoCtlError::NoConfigDir)?;
-
         let contents = toml::to_string_pretty(self)?;
-
-        let temp_path = dir.join(format!(".wallet.{}.tmp", std::process::id()));
-        fs::write(&temp_path, &contents)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = fs::Permissions::from_mode(0o600);
-            fs::set_permissions(&temp_path, perms)?;
-        }
-
-        fs::rename(&temp_path, &path)?;
+        crate::util::atomic_write::atomic_write(&path, &contents, 0o600)?;
         Ok(())
     }
 

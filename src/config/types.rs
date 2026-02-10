@@ -226,13 +226,8 @@ impl Config {
         self.validate()?;
 
         let config_path = Self::default_config_path()?;
-
-        if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
         let content = toml::to_string_pretty(self)?;
-        std::fs::write(&config_path, content)?;
+        crate::util::atomic_write::atomic_write(&config_path, &content, 0o600)?;
 
         Ok(())
     }
