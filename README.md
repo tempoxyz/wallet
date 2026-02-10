@@ -71,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/tempoxyz/tempoctl/main/install.sh |
 **Method 2: Install from source**
 
 ```bash
-git clone https://github.com/tempoxyz/tempoctl.git
+git clone git@github.com:tempoxyz/tempoctl.git
 cd tempoctl
 cargo install --path .
 ```
@@ -650,7 +650,7 @@ tempoctl config --unsafe-show-private-keys --no-cache-password  # Show keys with
 
 ```bash
 # Clone repository
-git clone https://github.com/tempoxyz/tempoctl.git
+git clone git@github.com:tempoxyz/tempoctl.git
 cd tempoctl
 
 # Install dependencies (for linting)
