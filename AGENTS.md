@@ -241,7 +241,7 @@ struct Config {
 
 **Built-in Networks:** `tempo` (chain 4217, mainnet), `tempo-moderato` (chain 42431, testnet)
 
-**Built-in Tokens:** pathUSD, AlphaUSD, BetaUSD, ThetaUSD at fixed addresses
+**Built-in Tokens:** pathUSD at fixed address
 
 ## Spec
 

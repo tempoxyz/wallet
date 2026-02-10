@@ -147,7 +147,7 @@ mod tests {
     fn test_charge_request_money() {
         let req = ChargeRequest {
             amount: "1000000".to_string(),
-            currency: "0x20c0000000000000000000000000000000000001".to_string(),
+            currency: "0x20c0000000000000000000000000000000000000".to_string(),
             ..Default::default()
         };
         let money = req.money(Network::TempoModerato).expect("valid money");
