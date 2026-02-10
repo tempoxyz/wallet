@@ -27,6 +27,10 @@ pub async fn handle_web_payment_request(
     url: &str,
     initial_response: &HttpResponse,
 ) -> Result<HttpResponse> {
+    if let Ok(mode) = std::env::var("TEMPOCTL_MOCK_PAYMENT") {
+        return handle_mock_payment(request_ctx, url, &mode).await;
+    }
+
     let www_auth = initial_response
         .get_header("www-authenticate")
         .ok_or_else(|| anyhow::anyhow!("Missing WWW-Authenticate header in 402 response"))?;
@@ -97,7 +101,7 @@ pub async fn handle_web_payment_request(
     let credential = provider
         .pay(&challenge)
         .await
-        .context("Failed to create payment credential")?;
+        .map_err(classify_payment_provider_error)?;
 
     let auth_header =
         mpay::format_authorization(&credential).context("Failed to format Authorization header")?;
@@ -110,9 +114,50 @@ pub async fn handle_web_payment_request(
     let payment_headers = vec![("Authorization".to_string(), auth_header)];
     let response = request_ctx.execute(url, Some(&payment_headers)).await?;
 
+    if response.status_code >= 400 {
+        return Err(parse_payment_rejection(&response).into());
+    }
+
     display_web_receipt(&request_ctx.cli, &response, explorer.as_ref())?;
 
     Ok(response)
+}
+
+/// Handle mock payment mode for integration testing.
+///
+/// This enables testing of error display, suggestions, and exit codes
+/// without requiring real wallet signing or RPC calls.
+async fn handle_mock_payment(
+    request_ctx: &RequestContext,
+    url: &str,
+    mode: &str,
+) -> Result<HttpResponse> {
+    match mode {
+        "spending_limit_exceeded" => Err(crate::error::TempoCtlError::SpendingLimitExceeded {
+            token: "pathUSD".into(),
+            limit: "0.50".into(),
+            required: "1.00".into(),
+        }
+        .into()),
+        "insufficient_balance" => Err(crate::error::TempoCtlError::InsufficientBalance {
+            token: "pathUSD".into(),
+            available: "0.50".into(),
+            required: "1.00".into(),
+        }
+        .into()),
+        "payment_rejected" => {
+            let payment_headers = vec![(
+                "Authorization".to_string(),
+                "Payment mock-credential".to_string(),
+            )];
+            let response = request_ctx.execute(url, Some(&payment_headers)).await?;
+            if response.status_code >= 400 {
+                return Err(parse_payment_rejection(&response).into());
+            }
+            Ok(response)
+        }
+        _ => anyhow::bail!("Unknown mock payment mode: {}", mode),
+    }
 }
 
 fn validate_web_payment_constraints(
@@ -209,6 +254,77 @@ fn display_web_receipt(
         }
     }
     Ok(())
+}
+
+/// Classify an mpay provider error into a TempoCtlError with actionable context.
+fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::TempoCtlError {
+    let msg = err.to_string();
+    let msg_lower = msg.to_lowercase();
+
+    if msg_lower.contains("spending limit exceeded") || msg_lower.contains("spending limit too low")
+    {
+        return crate::error::TempoCtlError::SpendingLimitExceeded {
+            token: extract_field(&msg, "need")
+                .and_then(|s| s.split_whitespace().nth(1).map(|t| t.to_string()))
+                .unwrap_or_else(|| "token".to_string()),
+            limit: extract_field(&msg, "limit is")
+                .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()))
+                .unwrap_or_else(|| "unknown".to_string()),
+            required: extract_field(&msg, "need")
+                .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()))
+                .unwrap_or_else(|| "unknown".to_string()),
+        };
+    }
+
+    if msg_lower.contains("insufficient") && msg_lower.contains("balance") {
+        return crate::error::TempoCtlError::InsufficientBalance {
+            token: extract_field(&msg, "token").unwrap_or_else(|| "token".to_string()),
+            available: extract_field(&msg, "have").unwrap_or_else(|| "unknown".to_string()),
+            required: extract_field(&msg, "need").unwrap_or_else(|| "unknown".to_string()),
+        };
+    }
+
+    crate::error::TempoCtlError::Http(format!("Failed to create payment credential: {}", msg))
+}
+
+/// Extract a field value from error messages like "have X, need Y" or "Insufficient TOKEN balance: have X, need Y".
+fn extract_field(msg: &str, prefix: &str) -> Option<String> {
+    let search = format!("{} ", prefix);
+    let idx = msg.find(&search)?;
+    let after = &msg[idx + search.len()..];
+    let end = after.find([',', '.', '\n']).unwrap_or(after.len());
+    let value = after[..end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+/// Parse a non-200 response after payment submission into a descriptive error.
+fn parse_payment_rejection(response: &HttpResponse) -> crate::error::TempoCtlError {
+    let reason = if let Ok(body) = response.body_string() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                error.to_string()
+            } else if let Some(message) = json.get("message").and_then(|m| m.as_str()) {
+                message.to_string()
+            } else {
+                format!("HTTP {}", response.status_code)
+            }
+        } else if !body.trim().is_empty() {
+            body.chars().take(200).collect()
+        } else {
+            format!("HTTP {}", response.status_code)
+        }
+    } else {
+        format!("HTTP {}", response.status_code)
+    };
+
+    crate::error::TempoCtlError::PaymentRejected {
+        reason,
+        status_code: response.status_code,
+    }
 }
 
 #[cfg(test)]

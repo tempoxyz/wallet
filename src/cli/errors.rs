@@ -16,7 +16,7 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
     let msg = err.to_string().to_lowercase();
 
     if (msg.contains("no such file") || msg.contains("not found")) && msg.contains("config") {
-        return Some("Run 'tempoctl login' to create a configuration file.".into());
+        return Some("Run 'tempoctl login' to set up your wallet.".into());
     }
 
     if msg.contains("permission denied") {
@@ -28,9 +28,7 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
     }
 
     if msg.contains("timeout") {
-        return Some(
-            "The request timed out. Try again or increase the timeout with --max-time.".into(),
-        );
+        return Some("The request timed out. Try again or use --max-time.".into());
     }
 
     None
@@ -40,12 +38,10 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
 fn get_tempoctl_error_suggestion(err: &TempoCtlError) -> Option<String> {
     match err {
         TempoCtlError::ConfigMissing(_) => {
-            Some("Run 'tempoctl login' to create a configuration file.".into())
+            Some("Run 'tempoctl login' to set up your wallet.".into())
         }
 
-        TempoCtlError::NoConfigDir => {
-            Some("Could not determine home directory. Set the HOME environment variable.".into())
-        }
+        TempoCtlError::NoConfigDir => Some("Set the HOME environment variable.".into()),
 
         TempoCtlError::InvalidConfig(_) => {
             Some("Run 'tempoctl config' to view your current configuration.".into())
@@ -55,24 +51,21 @@ fn get_tempoctl_error_suggestion(err: &TempoCtlError) -> Option<String> {
             Some("EVM private keys should be 64 hex characters (with optional 0x prefix).".into())
         }
 
-        TempoCtlError::AmountExceedsMax { required, max } => Some(format!(
-            "The server requires {required} but your max is {max}.\n\
-             Increase with --max-amount or remove the limit."
-        )),
+        TempoCtlError::AmountExceedsMax { .. } => {
+            Some("Increase with --max-amount or remove the limit.".into())
+        }
 
-        TempoCtlError::UnknownNetwork(network) => Some(format!(
-            "Network '{network}' is not recognized.\n\
-             Run 'tempoctl networks list' to see available networks.\n\
-             Or add a custom network in ~/.tempoctl/config.toml"
-        )),
+        TempoCtlError::UnknownNetwork(_) => {
+            Some("Run 'tempoctl networks list' to see available networks.".into())
+        }
 
         TempoCtlError::Http(msg) => {
             if msg.contains("402") {
-                Some("The server requires payment. Ensure you have configured a wallet.".into())
+                Some("Ensure you have a wallet configured with 'tempoctl login'.".into())
             } else if msg.contains("401") || msg.contains("403") {
-                Some("Authentication failed. Check your credentials.".into())
+                Some("Check your credentials.".into())
             } else if msg.contains("404") {
-                Some("The requested resource was not found. Check the URL.".into())
+                Some("Check the URL.".into())
             } else if msg.contains("5") {
                 Some("Server error. Try again later.".into())
             } else {
@@ -81,11 +74,25 @@ fn get_tempoctl_error_suggestion(err: &TempoCtlError) -> Option<String> {
         }
 
         TempoCtlError::Signing { .. } | TempoCtlError::SigningSimple(_) => {
-            Some("Failed to sign the transaction. Check your wallet configuration.".into())
+            Some("Check your wallet configuration with 'tempoctl config'.".into())
         }
 
-        TempoCtlError::BalanceQuery(_) => {
-            Some("Could not query balance. Check your network connection and RPC endpoint.".into())
+        TempoCtlError::BalanceQuery(_) | TempoCtlError::SpendingLimitQuery(_) => {
+            Some("Check your network connection and RPC endpoint.".into())
+        }
+
+        TempoCtlError::SpendingLimitExceeded { .. } => {
+            Some("Run 'tempoctl login' to generate a fresh authorization key.".into())
+        }
+
+        TempoCtlError::InsufficientBalance { .. } => Some("Deposit funds into your wallet.".into()),
+
+        TempoCtlError::PaymentRejected { reason, .. } => {
+            if reason.contains("insufficient") {
+                Some("The price may have changed. Try the request again.".into())
+            } else {
+                Some("Try the request again.".into())
+            }
         }
 
         _ => None,
@@ -97,7 +104,7 @@ pub fn format_error_with_suggestion(err: &anyhow::Error) -> String {
     let mut output = format!("Error: {err:#}");
 
     if let Some(suggestion) = get_suggestion(err) {
-        output.push_str("\n\nSuggestion:\n");
+        output.push_str("\n\nFix: ");
         output.push_str(&suggestion);
     }
 
