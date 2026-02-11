@@ -27,13 +27,13 @@ futures = "0.3"
 hex = "0.4"
 hostname = "0.4"
 posthog-rs = "0.3.5"
-mpay = { git = "https://github.com/tempoxyz/mpay-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client"] }
+mpay = { path = ".mpay-local", features = ["tempo", "evm", "utils", "client"] }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "07dfcd2d2b8c109d6b8502515c7db00198a8b3a3", features = ["serde"] }
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "9e2388303f760c8cc07c4a968d07de603c7cdfa3", features = ["serde"] }
 thiserror = "2.0"
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
 toml = "0.9"

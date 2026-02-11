@@ -253,7 +253,14 @@ pub async fn create_tempo_payment(
     let currency = ctx.charge_req.currency_address()?;
     let recipient = ctx.charge_req.recipient_address()?;
     let amount = ctx.charge_req.amount_u256()?;
-    let memo = parse_memo(ctx.charge_req.memo());
+    let memo_str = ctx
+        .charge_req
+        .method_details
+        .as_ref()
+        .and_then(|d| d.get("memo"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let memo = parse_memo(memo_str);
 
     let transfer_data = encode_transfer(recipient, amount, memo);
 
@@ -313,7 +320,14 @@ pub async fn create_tempo_payment_with_swap(
 
     let recipient = ctx.charge_req.recipient_address()?;
     let amount = ctx.charge_req.amount_u256()?;
-    let memo = parse_memo(ctx.charge_req.memo());
+    let memo_str = ctx
+        .charge_req
+        .method_details
+        .as_ref()
+        .and_then(|d| d.get("memo"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let memo = parse_memo(memo_str);
 
     let calls = build_swap_calls(swap_info, recipient, amount, memo)?;
 

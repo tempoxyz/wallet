@@ -1,0 +1,22 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Testing
+*.log
+examples/*/target/
+
+# Fuzz testing artifacts
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
