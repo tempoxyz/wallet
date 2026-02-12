@@ -3,6 +3,8 @@
 //! This module provides the RequestContext type and related functionality
 //! for building and executing HTTP requests.
 
+use std::io::Read;
+
 use crate::http::{has_header, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
 use anyhow::{bail, Result};
 
@@ -14,14 +16,42 @@ const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 /// Maximum header size (8 KB)
 const MAX_HEADER_SIZE: usize = 8 * 1024;
 
-fn validate_body_size(data: &str) -> Result<()> {
-    if data.len() > MAX_BODY_SIZE {
+fn validate_body_size(len: usize) -> Result<()> {
+    if len > MAX_BODY_SIZE {
         bail!(
             "Request body exceeds maximum size of {} bytes",
             MAX_BODY_SIZE
         );
     }
     Ok(())
+}
+
+/// Resolve a `-d` value to raw bytes.
+///
+/// Supports curl-compatible syntax:
+/// - `@filename` — read the file as binary
+/// - `@-` — read stdin as binary
+/// - anything else — treat as a literal UTF-8 string
+fn resolve_data(data: &str) -> Result<Vec<u8>> {
+    if let Some(path) = data.strip_prefix('@') {
+        if path == "-" {
+            let mut buf = Vec::new();
+            std::io::stdin()
+                .read_to_end(&mut buf)
+                .map_err(|e| anyhow::anyhow!("failed to read stdin: {e}"))?;
+            validate_body_size(buf.len())?;
+            Ok(buf)
+        } else {
+            let buf = std::fs::read(path)
+                .map_err(|e| anyhow::anyhow!("failed to read file '{}': {}", path, e))?;
+            validate_body_size(buf.len())?;
+            Ok(buf)
+        }
+    } else {
+        let bytes = data.as_bytes().to_vec();
+        validate_body_size(bytes.len())?;
+        Ok(bytes)
+    }
 }
 
 fn validate_header_size(header: &str) -> Result<()> {
@@ -46,14 +76,7 @@ impl RequestContext {
             validate_header_size(header)?;
         }
 
-        if let Some(ref data) = query.data {
-            validate_body_size(data)?;
-        }
-        if let Some(ref json) = query.json {
-            validate_body_size(json)?;
-        }
-
-        let (method, body) = get_request_method_and_body(&query);
+        let (method, body) = get_request_method_and_body(&query)?;
         Ok(Self {
             method,
             body,
@@ -105,12 +128,16 @@ impl RequestContext {
 }
 
 /// Determine the HTTP method and body based on query arguments
-fn get_request_method_and_body(query: &QueryArgs) -> (HttpMethod, Option<Vec<u8>>) {
-    let body = query
-        .json
-        .as_ref()
-        .or(query.data.as_ref())
-        .map(|s| s.as_bytes().to_vec());
+fn get_request_method_and_body(query: &QueryArgs) -> Result<(HttpMethod, Option<Vec<u8>>)> {
+    let body = if let Some(ref json) = query.json {
+        let bytes = json.as_bytes().to_vec();
+        validate_body_size(bytes.len())?;
+        Some(bytes)
+    } else if let Some(ref data) = query.data {
+        Some(resolve_data(data)?)
+    } else {
+        None
+    };
 
     let method = query
         .method
@@ -124,7 +151,7 @@ fn get_request_method_and_body(query: &QueryArgs) -> (HttpMethod, Option<Vec<u8>
             }
         });
 
-    (method, body)
+    Ok((method, body))
 }
 
 fn is_json_data(data: &str) -> bool {
@@ -146,6 +173,9 @@ fn should_auto_add_json_content_type(query: &QueryArgs) -> bool {
         return true;
     }
     if let Some(data) = &query.data {
+        if data.starts_with('@') {
+            return false;
+        }
         return is_json_data(data);
     }
     false
