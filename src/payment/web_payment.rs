@@ -250,7 +250,6 @@ fn display_web_receipt(
                 eprintln!("  TX Hash: {}", tx_display);
 
                 eprintln!("  Timestamp: {}", receipt.timestamp);
-
             }
         }
     }
@@ -467,8 +466,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_multiple_networks() {
         let query = default_query();
-        let cli =
-            Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
+        let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
