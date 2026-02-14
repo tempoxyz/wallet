@@ -251,9 +251,6 @@ fn display_web_receipt(
 
                 eprintln!("  Timestamp: {}", receipt.timestamp);
 
-                if let Some(ref error) = receipt.error {
-                    eprintln!("  Error: {}", error);
-                }
             }
         }
     }
@@ -369,6 +366,7 @@ mod tests {
         let charge_req = ChargeRequest {
             amount: amount.to_string(),
             currency: "0x20c0000000000000000000000000000000000001".to_string(),
+            decimals: None,
             recipient: Some("0x1234567890123456789012345678901234567890".to_string()),
             expires: Some("2099-12-31T23:59:59Z".to_string()),
             description: None,
@@ -469,7 +467,8 @@ mod tests {
     #[test]
     fn test_validate_constraints_multiple_networks() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);

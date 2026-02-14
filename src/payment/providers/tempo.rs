@@ -290,11 +290,11 @@ pub async fn create_tempo_payment(
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
-    Ok(mpp::PaymentCredential {
-        challenge: challenge.to_echo(),
-        source: Some(did),
-        payload: mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
-    })
+    Ok(mpp::PaymentCredential::with_source(
+        challenge.to_echo(),
+        did,
+        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+    ))
 }
 
 /// Create a Tempo payment credential with an automatic token swap.
@@ -344,11 +344,11 @@ pub async fn create_tempo_payment_with_swap(
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
-    Ok(mpp::PaymentCredential {
-        challenge: challenge.to_echo(),
-        source: Some(did),
-        payload: mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
-    })
+    Ok(mpp::PaymentCredential::with_source(
+        challenge.to_echo(),
+        did,
+        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+    ))
 }
 
 /// Build the 3 calls for a swap transaction: approve → swap → transfer.
