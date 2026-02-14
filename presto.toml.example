@@ -1,11 +1,11 @@
-# Example tempoctl configuration file
+# Example presto configuration file
 #
 # Locations:
-#   macOS:   ~/Library/Application Support/tempoctl/config.toml
-#   Linux:   ~/.config/tempoctl/config.toml
-#   Windows: %APPDATA%\tempoctl\config.toml
+#   macOS:   ~/Library/Application Support/presto/config.toml
+#   Linux:   ~/.config/presto/config.toml
+#   Windows: %APPDATA%\presto\config.toml
 #
-# Alternatively, run `tempoctl login` to create this file interactively.
+# Alternatively, run `presto login` to create this file interactively.
 
 # =============================================================================
 # EVM Wallet Configuration

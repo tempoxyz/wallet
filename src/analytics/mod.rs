@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 fn is_telemetry_disabled() -> bool {
-    std::env::var("TEMPOCTL_NO_TELEMETRY").is_ok()
+    std::env::var("PRESTO_NO_TELEMETRY").is_ok()
 }
 
 fn get_wallet_address() -> Option<String> {

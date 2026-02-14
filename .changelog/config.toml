@@ -15,7 +15,7 @@ ignore = []
 
 # Explicit package configuration (required for single-crate projects)
 [[packages]]
-name = "tempoctl-cli"
+name = "presto-cli"
 path = "."
 
 # AI-assisted changelog generation

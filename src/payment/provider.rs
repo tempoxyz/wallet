@@ -1,10 +1,10 @@
-//! Payment provider abstraction for tempoctl.
+//! Payment provider abstraction for presto.
 //!
 //! This module provides payment providers that implement the mpay::client::PaymentProvider trait,
-//! enabling automatic Web Payment Auth handling with tempoctl-specific features like keychain signing.
+//! enabling automatic Web Payment Auth handling with presto-specific features like keychain signing.
 
 use crate::config::Config;
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{
@@ -56,7 +56,7 @@ impl std::fmt::Display for NetworkBalance {
     }
 }
 
-/// TempoCtl payment provider that wraps config and implements mpay::client::PaymentProvider.
+/// Presto payment provider that wraps config and implements mpay::client::PaymentProvider.
 ///
 /// This provider handles both Tempo and EVM networks, automatically selecting
 /// the appropriate transaction format based on the payment method.
@@ -64,13 +64,13 @@ impl std::fmt::Display for NetworkBalance {
 /// When `no_swap` is false (default), the provider will automatically swap from
 /// a different stablecoin if the user doesn't have the required token.
 #[derive(Clone)]
-pub struct TempoCtlPaymentProvider {
+pub struct PrestoPaymentProvider {
     config: Arc<Config>,
     /// If true, disable automatic token swaps.
     no_swap: bool,
 }
 
-impl TempoCtlPaymentProvider {
+impl PrestoPaymentProvider {
     /// Create a new provider with the given configuration.
     #[allow(dead_code)]
     pub fn new(config: Config) -> Self {
@@ -89,7 +89,7 @@ impl TempoCtlPaymentProvider {
     }
 }
 
-impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
+impl mpay::client::PaymentProvider for PrestoPaymentProvider {
     fn supports(&self, method: &str, intent: &str) -> bool {
         let method_lower = method.to_lowercase();
         let is_supported_method = method_lower == "tempo";
@@ -113,7 +113,7 @@ impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
     }
 }
 
-impl TempoCtlPaymentProvider {
+impl PrestoPaymentProvider {
     async fn create_tempo_payment(
         &self,
         challenge: &mpay::PaymentChallenge,
@@ -265,7 +265,7 @@ impl TempoCtlPaymentProvider {
                 format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
             let needed_human = format_u256_with_decimals(required_amount, token_decimals);
             return Err(mpay::MppError::Http(
-                TempoCtlError::SpendingLimitExceeded {
+                PrestoError::SpendingLimitExceeded {
                     token: token_symbol.clone(),
                     limit: limit_human,
                     required: needed_human,
@@ -333,7 +333,7 @@ impl TempoCtlPaymentProvider {
                     })
             }
             None => Err(mpay::MppError::Http(
-                TempoCtlError::InsufficientBalance {
+                PrestoError::InsufficientBalance {
                     token: token_symbol.clone(),
                     available: format_u256_with_decimals(balance, token_decimals),
                     required: format_u256_with_decimals(required_amount, token_decimals),
@@ -350,7 +350,7 @@ impl TempoCtlPaymentProvider {
 /// spending limit exceeded or insufficient balance reverts, and returns a descriptive
 /// error with token context.
 fn classify_payment_error(
-    err: TempoCtlError,
+    err: PrestoError,
     token_symbol: &str,
     token_decimals: u8,
     balance: U256,
@@ -363,7 +363,7 @@ fn classify_payment_error(
     if msg_lower.contains("spendinglimitexceeded") || msg_lower.contains("spending limit") {
         let limit_value = spending_limit.unwrap_or(balance);
         return mpay::MppError::Http(
-            TempoCtlError::SpendingLimitExceeded {
+            PrestoError::SpendingLimitExceeded {
                 token: token_symbol.to_string(),
                 limit: format_u256_with_decimals(limit_value, token_decimals),
                 required: format_u256_with_decimals(required_amount, token_decimals),
@@ -376,7 +376,7 @@ fn classify_payment_error(
         || msg_lower.contains("transfer amount exceeds balance")
         || msg_lower.contains("insufficient balance")
     {
-        let err = TempoCtlError::InsufficientBalance {
+        let err = PrestoError::InsufficientBalance {
             token: token_symbol.to_string(),
             available: format_u256_with_decimals(balance, token_decimals),
             required: format_u256_with_decimals(required_amount, token_decimals),
@@ -417,17 +417,17 @@ pub async fn get_balances(
     let network_info = config.resolve_network(network.as_str())?;
     let provider =
         ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+            PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
     let user_addr = Address::from_str(address)
-        .map_err(|e| TempoCtlError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
+        .map_err(|e| PrestoError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
 
     let mut balances = Vec::new();
 
     for token_config in network.supported_tokens() {
         let token_addr = Address::from_str(token_config.address).map_err(|e| {
-            TempoCtlError::invalid_address(format!(
+            PrestoError::invalid_address(format!(
                 "Invalid {} contract address for {}: {}",
                 token_config.currency.symbol, network, e
             ))
@@ -470,7 +470,7 @@ pub async fn query_token_balance(
     let network_info = config.resolve_network(network.as_str())?;
     let provider =
         ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+            PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
     let contract = IERC20::new(token_address, &provider);
@@ -478,7 +478,7 @@ pub async fn query_token_balance(
         .balanceOf(account)
         .call()
         .await
-        .map_err(|e| TempoCtlError::BalanceQuery(format!("Failed to query balance: {}", e)))?;
+        .map_err(|e| PrestoError::BalanceQuery(format!("Failed to query balance: {}", e)))?;
 
     Ok(balance)
 }
@@ -550,7 +550,7 @@ pub async fn find_swap_source(
         let network_info = config.resolve_network(network.as_str())?;
         let provider =
             ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-                TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+                PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
             })?);
 
         let limit_futures: Vec<_> = tokens_to_check
@@ -641,7 +641,7 @@ mod tests {
     #[test]
     fn test_provider_supports_tempo() {
         let config = Config::default();
-        let provider = TempoCtlPaymentProvider::new(config);
+        let provider = PrestoPaymentProvider::new(config);
 
         assert!(provider.supports("tempo", "charge"));
         assert!(provider.supports("TEMPO", "charge"));
@@ -652,7 +652,7 @@ mod tests {
     #[test]
     fn test_provider_rejects_unknown_methods() {
         let config = Config::default();
-        let provider = TempoCtlPaymentProvider::new(config);
+        let provider = PrestoPaymentProvider::new(config);
 
         assert!(!provider.supports("base", "charge"));
         assert!(!provider.supports("ethereum", "charge"));

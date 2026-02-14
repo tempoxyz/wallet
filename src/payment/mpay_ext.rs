@@ -1,7 +1,7 @@
-//! TempoCtl-specific extensions to mpay types.
+//! Presto-specific extensions to mpay types.
 //!
 //! This module provides helper functions that bridge mpay's protocol types
-//! to tempoctl's network abstractions.
+//! to presto's network abstractions.
 //!
 //! For core EVM accessors (recipient_address, currency_address, amount_u256,
 //! chain_id, fee_payer), use `mpay::protocol::methods::tempo::TempoChargeExt`.
@@ -9,14 +9,14 @@
 use alloy::primitives::{Address, U256};
 use mpay::{ChargeRequest, MethodName, PaymentChallenge};
 
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::network::{networks, Network};
 use crate::payment::money::{Money, TokenId};
 
 // Re-export TempoChargeExt for convenience
 pub use mpay::protocol::methods::tempo::TempoChargeExt;
 
-/// Map an mpay `MethodName` to a tempoctl network name.
+/// Map an mpay `MethodName` to a presto network name.
 ///
 /// # Supported Mappings
 ///
@@ -28,7 +28,7 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
     }
 }
 
-/// Validate that a payment challenge can be processed by tempoctl.
+/// Validate that a payment challenge can be processed by presto.
 ///
 /// # Validation Checks
 ///
@@ -36,14 +36,14 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
 /// - The intent is "charge" (only supported intent currently)
 pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
     if method_to_network(&challenge.method).is_none() {
-        return Err(TempoCtlError::UnsupportedPaymentMethod(format!(
+        return Err(PrestoError::UnsupportedPaymentMethod(format!(
             "Payment method '{}' is not supported. Supported methods: tempo",
             challenge.method
         )));
     }
 
     if !challenge.intent.is_charge() {
-        return Err(TempoCtlError::UnsupportedPaymentIntent(format!(
+        return Err(PrestoError::UnsupportedPaymentIntent(format!(
             "Only 'charge' intent is supported, got: {}",
             challenge.intent
         )));
@@ -52,7 +52,7 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
     Ok(())
 }
 
-/// TempoCtl-specific extensions to ChargeRequest.
+/// Presto-specific extensions to ChargeRequest.
 ///
 /// For core EVM accessors (including `memo()`), use `TempoChargeExt` from mpay.
 pub trait ChargeRequestExt {
@@ -68,13 +68,13 @@ impl ChargeRequestExt for ChargeRequest {
 
         let currency_addr: Address = self
             .currency_address()
-            .map_err(|e| TempoCtlError::InvalidAddress(e.to_string()))?;
+            .map_err(|e| PrestoError::InvalidAddress(e.to_string()))?;
 
         let token_config = network.require_token_config(&self.currency)?;
 
         let amount: U256 = self
             .amount_u256()
-            .map_err(|e| TempoCtlError::InvalidAmount(e.to_string()))?;
+            .map_err(|e| PrestoError::InvalidAmount(e.to_string()))?;
         let token = TokenId::new(network, currency_addr);
 
         Ok(Money::new(

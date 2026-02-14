@@ -18,7 +18,7 @@ use crate::http::HttpResponse;
 use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
 use crate::payment::mpay_ext::{method_to_network, validate_challenge};
-use crate::payment::provider::TempoCtlPaymentProvider;
+use crate::payment::provider::PrestoPaymentProvider;
 
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
 pub async fn handle_web_payment_request(
@@ -27,7 +27,7 @@ pub async fn handle_web_payment_request(
     url: &str,
     initial_response: &HttpResponse,
 ) -> Result<HttpResponse> {
-    if let Ok(mode) = std::env::var("TEMPOCTL_MOCK_PAYMENT") {
+    if let Ok(mode) = std::env::var("PRESTO_MOCK_PAYMENT") {
         return handle_mock_payment(request_ctx, url, &mode).await;
     }
 
@@ -91,7 +91,7 @@ pub async fn handle_web_payment_request(
     }
 
     // Use mpay::client::PaymentProvider to create the credential
-    let provider = TempoCtlPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
+    let provider = PrestoPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
@@ -133,13 +133,13 @@ async fn handle_mock_payment(
     mode: &str,
 ) -> Result<HttpResponse> {
     match mode {
-        "spending_limit_exceeded" => Err(crate::error::TempoCtlError::SpendingLimitExceeded {
+        "spending_limit_exceeded" => Err(crate::error::PrestoError::SpendingLimitExceeded {
             token: "pathUSD".into(),
             limit: "0.50".into(),
             required: "1.00".into(),
         }
         .into()),
-        "insufficient_balance" => Err(crate::error::TempoCtlError::InsufficientBalance {
+        "insufficient_balance" => Err(crate::error::PrestoError::InsufficientBalance {
             token: "pathUSD".into(),
             available: "0.50".into(),
             required: "1.00".into(),
@@ -260,8 +260,8 @@ fn display_web_receipt(
     Ok(())
 }
 
-/// Classify an mpay provider error into a TempoCtlError with actionable context.
-fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::TempoCtlError {
+/// Classify an mpay provider error into a PrestoError with actionable context.
+fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::PrestoError {
     let raw = err.to_string();
     let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
     let msg_lower = msg.to_lowercase();
@@ -276,7 +276,7 @@ fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::TempoCt
             .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
 
         if let (Some(token), Some(limit), Some(required)) = (token, limit, required) {
-            return crate::error::TempoCtlError::SpendingLimitExceeded {
+            return crate::error::PrestoError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
@@ -292,7 +292,7 @@ fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::TempoCt
             .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
 
         if let (Some(token), Some(available), Some(required)) = (token, available, required) {
-            return crate::error::TempoCtlError::InsufficientBalance {
+            return crate::error::PrestoError::InsufficientBalance {
                 token,
                 available,
                 required,
@@ -300,7 +300,7 @@ fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::TempoCt
         }
     }
 
-    crate::error::TempoCtlError::Http(msg)
+    crate::error::PrestoError::Http(msg)
 }
 
 /// Extract text between two markers, e.g. extract_between("Insufficient pathUSD balance", "Insufficient ", " balance") => "pathUSD".
@@ -331,7 +331,7 @@ fn extract_field(msg: &str, prefix: &str) -> Option<String> {
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
-fn parse_payment_rejection(response: &HttpResponse) -> crate::error::TempoCtlError {
+fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError {
     let reason = if let Ok(body) = response.body_string() {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
             if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
@@ -350,7 +350,7 @@ fn parse_payment_rejection(response: &HttpResponse) -> crate::error::TempoCtlErr
         format!("HTTP {}", response.status_code)
     };
 
-    crate::error::TempoCtlError::PaymentRejected {
+    crate::error::PrestoError::PaymentRejected {
         reason,
         status_code: response.status_code,
     }
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_no_constraints() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
+        let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_ok() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
+        let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_exceeded() {
         let query = make_query_args(&["query", "--max-amount", "500000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
+        let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_equal() {
         let query = make_query_args(&["query", "--max-amount", "1000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["tempoctl"]).unwrap();
+        let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_match() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["tempoctl", "--network", "ethereum"]).unwrap();
+        let cli = Cli::try_parse_from(["presto", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -469,8 +469,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_multiple_networks() {
         let query = default_query();
-        let cli =
-            Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato, ethereum"]).unwrap();
+        let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -480,7 +479,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_tempo_network() {
         let query = default_query();
-        let cli = Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -490,7 +489,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_combined() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["tempoctl", "--network", "tempo-moderato"]).unwrap();
+        let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
@@ -544,7 +543,7 @@ mod tests {
         let err = mpay::MppError::Http(inner.to_string());
         let result = classify_payment_provider_error(err);
         match result {
-            crate::error::TempoCtlError::SpendingLimitExceeded {
+            crate::error::PrestoError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
@@ -564,7 +563,7 @@ mod tests {
         let err = mpay::MppError::Http(inner);
         let result = classify_payment_provider_error(err);
         match result {
-            crate::error::TempoCtlError::SpendingLimitExceeded { token, .. } => {
+            crate::error::PrestoError::SpendingLimitExceeded { token, .. } => {
                 assert_eq!(token, addr);
             }
             other => panic!("Expected SpendingLimitExceeded, got: {other}"),
@@ -577,7 +576,7 @@ mod tests {
         let err = mpay::MppError::Http(inner.to_string());
         let result = classify_payment_provider_error(err);
         match result {
-            crate::error::TempoCtlError::InsufficientBalance {
+            crate::error::PrestoError::InsufficientBalance {
                 token,
                 available,
                 required,
@@ -595,7 +594,7 @@ mod tests {
         let err = mpay::MppError::Http("something unexpected".to_string());
         let result = classify_payment_provider_error(err);
         match result {
-            crate::error::TempoCtlError::Http(msg) => {
+            crate::error::PrestoError::Http(msg) => {
                 assert_eq!(msg, "something unexpected");
             }
             other => panic!("Expected Http passthrough, got: {other}"),

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```
-/// use tempoctl::network::explorer::ExplorerConfig;
+/// use presto::network::explorer::ExplorerConfig;
 ///
 /// let explorer = ExplorerConfig::tempo("https://explorer.tempo.xyz");
 /// assert_eq!(

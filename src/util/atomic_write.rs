@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 
 struct TempFileGuard {
     path: Option<PathBuf>,
@@ -37,7 +37,7 @@ pub fn atomic_write(
     #[allow(unused_variables)] unix_mode: u32,
 ) -> Result<()> {
     let parent = path.parent().ok_or_else(|| {
-        TempoCtlError::Io(std::io::Error::new(
+        PrestoError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             format!("path has no parent directory: {}", path.display()),
         ))
@@ -46,7 +46,7 @@ pub fn atomic_write(
     fs::create_dir_all(parent)?;
 
     if !parent.is_dir() {
-        return Err(TempoCtlError::Io(std::io::Error::new(
+        return Err(PrestoError::Io(std::io::Error::new(
             std::io::ErrorKind::NotADirectory,
             format!("parent is not a directory: {}", parent.display()),
         )));
@@ -55,7 +55,7 @@ pub fn atomic_write(
     let filename = path
         .file_name()
         .ok_or_else(|| {
-            TempoCtlError::Io(std::io::Error::new(
+            PrestoError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("path has no filename: {}", path.display()),
             ))
@@ -92,8 +92,8 @@ pub fn atomic_write(
         }
     }
 
-    Err(last_err.map(TempoCtlError::Io).unwrap_or_else(|| {
-        TempoCtlError::Io(std::io::Error::new(
+    Err(last_err.map(PrestoError::Io).unwrap_or_else(|| {
+        PrestoError::Io(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
             "failed to create temp file after 10 attempts",
         ))

@@ -2,7 +2,7 @@
 //!
 //! Separate from config.toml to keep passkey wallet credentials isolated.
 
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::wallet::access_key::AccessKey;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -116,8 +116,8 @@ impl WalletCredentials {
     /// Get the data directory path.
     pub fn data_dir() -> Result<PathBuf> {
         let data_dir = dirs::data_dir()
-            .ok_or(TempoCtlError::NoConfigDir)?
-            .join("tempoctl");
+            .ok_or(PrestoError::NoConfigDir)?
+            .join("presto");
 
         fs::create_dir_all(&data_dir)?;
 

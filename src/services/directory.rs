@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 
 const DIRECTORY_URL: &str = "https://payments.tempo.xyz/directory";
 const CACHE_TTL: Duration = Duration::from_secs(60 * 60);
@@ -121,10 +121,10 @@ impl Directory {
             .get(DIRECTORY_URL)
             .send()
             .await
-            .map_err(|e| TempoCtlError::Http(format!("Failed to fetch directory: {}", e)))?;
+            .map_err(|e| PrestoError::Http(format!("Failed to fetch directory: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(TempoCtlError::Http(format!(
+            return Err(PrestoError::Http(format!(
                 "Directory fetch failed: {}",
                 response.status()
             )));
@@ -133,7 +133,7 @@ impl Directory {
         let directory: Directory = response
             .json()
             .await
-            .map_err(|e| TempoCtlError::Http(format!("Failed to parse directory: {}", e)))?;
+            .map_err(|e| PrestoError::Http(format!("Failed to parse directory: {}", e)))?;
 
         Ok(directory)
     }

@@ -1,4 +1,4 @@
-//! Configuration module for tempoctl.
+//! Configuration module for presto.
 
 mod load;
 mod path_validation;

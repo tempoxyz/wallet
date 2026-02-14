@@ -1,5 +1,5 @@
 [package]
-name = "tempoctl-cli"
+name = "presto-cli"
 version = "0.1.0"
 edition = "2021"
 description = "A wget-like CLI tool for making HTTP requests with automatic payment support"
@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tempoxyz/pget"
 
 [[bin]]
-name = "tempoctl"
+name = "presto"
 path = "src/main.rs"
 
 [dependencies]
