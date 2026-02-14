@@ -1,5 +1,5 @@
 [package]
-name = "presto-cli"
+name = "presto"
 version = "0.1.0"
 edition = "2021"
 description = "A wget-like CLI tool for making HTTP requests with automatic payment support"
