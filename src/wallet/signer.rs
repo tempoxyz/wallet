@@ -4,7 +4,7 @@
 //!
 //! Wallet source: Tempo wallet credentials (access key)
 
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::wallet::credentials::WalletCredentials;
 use alloy::signers::local::PrivateKeySigner;
 
@@ -32,32 +32,32 @@ pub enum SignerSource {
 /// Returns the signer along with the wallet address for keychain signing.
 pub fn load_signer_with_priority() -> Result<SignerWithContext> {
     let creds = WalletCredentials::load().map_err(|_| {
-        TempoCtlError::ConfigMissing(
-            "No wallet configured. Run 'tempoctl login' to get started.".to_string(),
+        PrestoError::ConfigMissing(
+            "No wallet configured. Run ' tempo-walletlogin' to get started.".to_string(),
         )
     })?;
 
     let wallet = creds.active_wallet().ok_or_else(|| {
-        TempoCtlError::ConfigMissing(
-            "No wallet configured. Run 'tempoctl login' to get started.".to_string(),
+        PrestoError::ConfigMissing(
+            "No wallet configured. Run ' tempo-walletlogin' to get started.".to_string(),
         )
     })?;
 
     let access_key = wallet.active_access_key().ok_or_else(|| {
-        TempoCtlError::ConfigMissing(
-            "No access key found. Run 'tempoctl login' to get started.".to_string(),
+        PrestoError::ConfigMissing(
+            "No access key found. Run ' tempo-walletlogin' to get started.".to_string(),
         )
     })?;
 
     if access_key.is_expired() {
-        return Err(TempoCtlError::ConfigMissing(
-            "Access key expired. Run 'tempoctl login' to reconnect.".to_string(),
+        return Err(PrestoError::ConfigMissing(
+            "Access key expired. Run ' tempo-walletlogin' to reconnect.".to_string(),
         ));
     }
 
     let signer = access_key.signer().map_err(|_| {
-        TempoCtlError::ConfigMissing(
-            "Failed to load signer from access key. Run 'tempoctl login' to reconnect.".to_string(),
+        PrestoError::ConfigMissing(
+            "Failed to load signer from access key. Run ' tempo-walletlogin' to reconnect.".to_string(),
         )
     })?;
 

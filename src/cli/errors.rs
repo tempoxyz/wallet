@@ -3,20 +3,20 @@
 //! Provides user-friendly error messages that include suggestions
 //! for how to fix common problems.
 
-use crate::error::TempoCtlError;
+use crate::error::PrestoError;
 
 /// Get a suggestion for how to fix an error, if available.
 pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
-    // Try to downcast to TempoCtlError
-    if let Some(tempoctl_err) = err.downcast_ref::<TempoCtlError>() {
-        return get_tempoctl_error_suggestion(tempoctl_err);
+    // Try to downcast to PrestoError
+    if let Some(presto_err) = err.downcast_ref::<PrestoError>() {
+        return get_presto_error_suggestion(presto_err);
     }
 
     // Check error message for common patterns
     let msg = err.to_string().to_lowercase();
 
     if (msg.contains("no such file") || msg.contains("not found")) && msg.contains("config") {
-        return Some("Run 'tempoctl login' to set up your wallet.".into());
+        return Some("Run ' tempo-walletlogin' to set up your wallet.".into());
     }
 
     if msg.contains("permission denied") {
@@ -34,32 +34,30 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
     None
 }
 
-/// Get suggestion for a specific TempoCtlError variant.
-fn get_tempoctl_error_suggestion(err: &TempoCtlError) -> Option<String> {
+/// Get suggestion for a specific PrestoError variant.
+fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
     match err {
-        TempoCtlError::ConfigMissing(_) => {
-            Some("Run 'tempoctl login' to set up your wallet.".into())
-        }
+        PrestoError::ConfigMissing(_) => Some("Run ' tempo-walletlogin' to set up your wallet.".into()),
 
-        TempoCtlError::NoConfigDir => Some("Set the HOME environment variable.".into()),
+        PrestoError::NoConfigDir => Some("Set the HOME environment variable.".into()),
 
-        TempoCtlError::InvalidConfig(_) => Some("Check your configuration file.".into()),
+        PrestoError::InvalidConfig(_) => Some("Check your configuration file.".into()),
 
-        TempoCtlError::InvalidKey(_) => {
+        PrestoError::InvalidKey(_) => {
             Some("EVM private keys should be 64 hex characters (with optional 0x prefix).".into())
         }
 
-        TempoCtlError::AmountExceedsMax { .. } => {
+        PrestoError::AmountExceedsMax { .. } => {
             Some("Increase with --max-amount or remove the limit.".into())
         }
 
-        TempoCtlError::UnknownNetwork(_) => {
-            Some("Run 'tempoctl networks list' to see available networks.".into())
+        PrestoError::UnknownNetwork(_) => {
+            Some("Run ' tempo-walletnetworks list' to see available networks.".into())
         }
 
-        TempoCtlError::Http(msg) => {
+        PrestoError::Http(msg) => {
             if msg.starts_with("402") {
-                Some("Ensure you have a wallet configured with 'tempoctl login'.".into())
+                Some("Ensure you have a wallet configured with ' tempo-walletlogin'.".into())
             } else if msg.starts_with("401") || msg.starts_with("403") {
                 Some("Check your credentials.".into())
             } else if msg.starts_with("404") {
@@ -71,21 +69,21 @@ fn get_tempoctl_error_suggestion(err: &TempoCtlError) -> Option<String> {
             }
         }
 
-        TempoCtlError::Signing { .. } | TempoCtlError::SigningSimple(_) => {
+        PrestoError::Signing { .. } | PrestoError::SigningSimple(_) => {
             Some("Check your wallet configuration.".into())
         }
 
-        TempoCtlError::BalanceQuery(_) | TempoCtlError::SpendingLimitQuery(_) => {
+        PrestoError::BalanceQuery(_) | PrestoError::SpendingLimitQuery(_) => {
             Some("Check your network connection and RPC endpoint.".into())
         }
 
-        TempoCtlError::SpendingLimitExceeded { .. } => {
-            Some("Run 'tempoctl login' to generate a fresh authorization key.".into())
+        PrestoError::SpendingLimitExceeded { .. } => {
+            Some("Run ' tempo-walletlogin' to generate a fresh authorization key.".into())
         }
 
-        TempoCtlError::InsufficientBalance { .. } => Some("Deposit funds into your wallet.".into()),
+        PrestoError::InsufficientBalance { .. } => Some("Deposit funds into your wallet.".into()),
 
-        TempoCtlError::PaymentRejected { reason, .. } => {
+        PrestoError::PaymentRejected { reason, .. } => {
             if reason.contains("insufficient") {
                 Some("The price may have changed. Try the request again.".into())
             } else {
@@ -113,7 +111,7 @@ pub fn format_error_with_suggestion(err: &anyhow::Error) -> String {
 mod tests {
     use super::*;
 
-    fn assert_error_format(err: TempoCtlError, expected_prefix: &str, expected_fix: &str) {
+    fn assert_error_format(err: PrestoError, expected_prefix: &str, expected_fix: &str) {
         let anyhow_err: anyhow::Error = err.into();
         let output = format_error_with_suggestion(&anyhow_err);
 
@@ -134,33 +132,33 @@ mod tests {
     #[test]
     fn test_spending_limit_exceeded_format() {
         assert_error_format(
-            TempoCtlError::SpendingLimitExceeded {
+            PrestoError::SpendingLimitExceeded {
                 token: "pathUSD".into(),
                 limit: "0.50".into(),
                 required: "1.00".into(),
             },
             "Spending limit exceeded: limit is 0.50 pathUSD, need 1.00 pathUSD",
-            "Run 'tempoctl login' to generate a fresh authorization key.",
+            "Run ' tempo-walletlogin' to generate a fresh authorization key.",
         );
     }
 
     #[test]
     fn test_spending_limit_exceeded_with_address_token() {
         assert_error_format(
-            TempoCtlError::SpendingLimitExceeded {
+            PrestoError::SpendingLimitExceeded {
                 token: "0x20c0000000000000000000000000000000000000".into(),
                 limit: "0.50".into(),
                 required: "1.00".into(),
             },
             "0x20c0000000000000000000000000000000000000",
-            "Run 'tempoctl login' to generate a fresh authorization key.",
+            "Run ' tempo-walletlogin' to generate a fresh authorization key.",
         );
     }
 
     #[test]
     fn test_insufficient_balance_format() {
         assert_error_format(
-            TempoCtlError::InsufficientBalance {
+            PrestoError::InsufficientBalance {
                 token: "pathUSD".into(),
                 available: "0.50".into(),
                 required: "1.00".into(),
@@ -173,7 +171,7 @@ mod tests {
     #[test]
     fn test_payment_rejected_insufficient_format() {
         assert_error_format(
-            TempoCtlError::PaymentRejected {
+            PrestoError::PaymentRejected {
                 reason: "insufficient_payment".into(),
                 status_code: 403,
             },
@@ -185,7 +183,7 @@ mod tests {
     #[test]
     fn test_payment_rejected_other_format() {
         assert_error_format(
-            TempoCtlError::PaymentRejected {
+            PrestoError::PaymentRejected {
                 reason: "rate limited".into(),
                 status_code: 429,
             },
@@ -197,7 +195,7 @@ mod tests {
     #[test]
     fn test_amount_exceeds_max_format() {
         assert_error_format(
-            TempoCtlError::AmountExceedsMax {
+            PrestoError::AmountExceedsMax {
                 required: 1000000,
                 max: 500000,
             },
@@ -209,16 +207,16 @@ mod tests {
     #[test]
     fn test_config_missing_format() {
         assert_error_format(
-            TempoCtlError::ConfigMissing("wallet not configured".into()),
+            PrestoError::ConfigMissing("wallet not configured".into()),
             "Configuration missing: wallet not configured",
-            "Run 'tempoctl login' to set up your wallet.",
+            "Run ' tempo-walletlogin' to set up your wallet.",
         );
     }
 
     #[test]
     fn test_no_config_dir_format() {
         assert_error_format(
-            TempoCtlError::NoConfigDir,
+            PrestoError::NoConfigDir,
             "Failed to determine config directory",
             "Set the HOME environment variable.",
         );
@@ -227,7 +225,7 @@ mod tests {
     #[test]
     fn test_invalid_config_format() {
         assert_error_format(
-            TempoCtlError::InvalidConfig("invalid rpc url".into()),
+            PrestoError::InvalidConfig("invalid rpc url".into()),
             "Invalid configuration: invalid rpc url",
             "Check your configuration file.",
         );
@@ -236,7 +234,7 @@ mod tests {
     #[test]
     fn test_invalid_key_format() {
         assert_error_format(
-            TempoCtlError::InvalidKey("wrong format".into()),
+            PrestoError::InvalidKey("wrong format".into()),
             "Invalid private key: wrong format",
             "EVM private keys should be 64 hex characters (with optional 0x prefix).",
         );
@@ -245,7 +243,7 @@ mod tests {
     #[test]
     fn test_signing_simple_format() {
         assert_error_format(
-            TempoCtlError::SigningSimple("Failed to sign transaction".into()),
+            PrestoError::SigningSimple("Failed to sign transaction".into()),
             "Signing error: Failed to sign transaction",
             "Check your wallet configuration.",
         );
@@ -254,16 +252,16 @@ mod tests {
     #[test]
     fn test_unknown_network_format() {
         assert_error_format(
-            TempoCtlError::UnknownNetwork("testnet".into()),
+            PrestoError::UnknownNetwork("testnet".into()),
             "Unknown network: testnet",
-            "Run 'tempoctl networks list' to see available networks.",
+            "Run ' tempo-walletnetworks list' to see available networks.",
         );
     }
 
     #[test]
     fn test_balance_query_format() {
         assert_error_format(
-            TempoCtlError::BalanceQuery("RPC timeout".into()),
+            PrestoError::BalanceQuery("RPC timeout".into()),
             "Balance query failed: RPC timeout",
             "Check your network connection and RPC endpoint.",
         );
@@ -272,7 +270,7 @@ mod tests {
     #[test]
     fn test_spending_limit_query_format() {
         assert_error_format(
-            TempoCtlError::SpendingLimitQuery("RPC timeout".into()),
+            PrestoError::SpendingLimitQuery("RPC timeout".into()),
             "Spending limit query failed: RPC timeout",
             "Check your network connection and RPC endpoint.",
         );
@@ -281,16 +279,16 @@ mod tests {
     #[test]
     fn test_http_402_format() {
         assert_error_format(
-            TempoCtlError::Http("402 Payment Required".into()),
+            PrestoError::Http("402 Payment Required".into()),
             "HTTP error: 402 Payment Required",
-            "Ensure you have a wallet configured with 'tempoctl login'.",
+            "Ensure you have a wallet configured with ' tempo-walletlogin'.",
         );
     }
 
     #[test]
     fn test_http_401_format() {
         assert_error_format(
-            TempoCtlError::Http("401 Unauthorized".into()),
+            PrestoError::Http("401 Unauthorized".into()),
             "HTTP error: 401 Unauthorized",
             "Check your credentials.",
         );
@@ -299,7 +297,7 @@ mod tests {
     #[test]
     fn test_http_404_format() {
         assert_error_format(
-            TempoCtlError::Http("404 Not Found".into()),
+            PrestoError::Http("404 Not Found".into()),
             "HTTP error: 404 Not Found",
             "Check the URL.",
         );
@@ -308,7 +306,7 @@ mod tests {
     #[test]
     fn test_http_500_format() {
         assert_error_format(
-            TempoCtlError::Http("500 Internal Server Error".into()),
+            PrestoError::Http("500 Internal Server Error".into()),
             "HTTP error: 500 Internal Server Error",
             "Server error. Try again later.",
         );
@@ -316,8 +314,8 @@ mod tests {
 
     #[test]
     fn test_http_no_false_positive_on_digit_5() {
-        let err = TempoCtlError::Http("Spending limit exceeded".into());
-        let suggestion = get_tempoctl_error_suggestion(&err);
+        let err = PrestoError::Http("Spending limit exceeded".into());
+        let suggestion = get_presto_error_suggestion(&err);
         assert!(
             suggestion.is_none(),
             "Http with non-status message should not match: {:?}",
@@ -330,7 +328,7 @@ mod tests {
         let err = anyhow::anyhow!("no such file or directory: config.toml");
         let suggestion = get_suggestion(&err);
         assert!(suggestion.is_some());
-        assert!(suggestion.unwrap().contains("tempoctl login"));
+        assert!(suggestion.unwrap().contains(" tempo-walletlogin"));
     }
 
     #[test]

@@ -11,7 +11,7 @@ use tracing::warn;
 
 /// Check if mock mode is enabled for testing
 fn is_mock_mode() -> bool {
-    std::env::var("TEMPOCTL_MOCK_NETWORK").is_ok()
+    std::env::var("PRESTO_MOCK_NETWORK").is_ok()
 }
 
 /// Generate mock balance data for testing (returns one balance per supported token)
@@ -53,7 +53,7 @@ pub async fn balance_command(
                 .active_wallet()
                 .map(|w| w.account_address.clone())
                 .ok_or_else(|| {
-                    anyhow::anyhow!("No wallet connected. Run 'tempoctl login' to connect.")
+                    anyhow::anyhow!("No wallet connected. Run ' tempo-walletlogin' to connect.")
                 })?
         }
     };

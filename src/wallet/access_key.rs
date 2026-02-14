@@ -7,7 +7,7 @@
 use alloy::signers::local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 
 /// A local signing key authorized by a passkey wallet.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,8 +105,8 @@ impl AccessKey {
     pub fn signer(&self) -> Result<PrivateKeySigner> {
         let bytes = self
             .parse_private_key_bytes()
-            .ok_or_else(|| TempoCtlError::InvalidKey("Invalid private key format".to_string()))?;
-        PrivateKeySigner::from_slice(&bytes).map_err(|e| TempoCtlError::InvalidKey(e.to_string()))
+            .ok_or_else(|| PrestoError::InvalidKey("Invalid private key format".to_string()))?;
+        PrivateKeySigner::from_slice(&bytes).map_err(|e| PrestoError::InvalidKey(e.to_string()))
     }
 }
 

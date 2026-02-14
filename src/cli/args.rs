@@ -16,7 +16,7 @@ pub enum ColorMode {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "tempoctl")]
+#[command(name = "presto")]
 #[command(about = "A wget-like tool for HTTP-based payment requests", long_about = None)]
 #[command(version)]
 pub struct Cli {
@@ -32,7 +32,7 @@ pub struct Cli {
         short = 'n',
         long,
         value_name = "NETWORKS",
-        env = "TEMPOCTL_NETWORK",
+        env = "PRESTO_NETWORK",
         global = true,
         help_heading = "Payment Options"
     )]
@@ -86,7 +86,7 @@ pub struct QueryArgs {
         long,
         visible_alias = "max",
         value_name = "AMOUNT",
-        env = "TEMPOCTL_MAX_AMOUNT",
+        env = "PRESTO_MAX_AMOUNT",
         help_heading = "Payment Options"
     )]
     pub max_amount: Option<String>,
@@ -95,7 +95,7 @@ pub struct QueryArgs {
     #[arg(
         short = 'y',
         long,
-        env = "TEMPOCTL_CONFIRM",
+        env = "PRESTO_CONFIRM",
         help_heading = "Payment Options"
     )]
     pub confirm: bool,
@@ -107,7 +107,7 @@ pub struct QueryArgs {
     /// Disable automatic token swaps when you don't have the requested currency
     #[arg(
         long = "no-swap",
-        env = "TEMPOCTL_NO_SWAP",
+        env = "PRESTO_NO_SWAP",
         help_heading = "Payment Options"
     )]
     pub no_swap: bool,
@@ -209,7 +209,7 @@ pub struct QueryArgs {
         long = "rpc",
         visible_alias = "rpc-url",
         value_name = "URL",
-        env = "TEMPOCTL_RPC_URL",
+        env = "PRESTO_RPC_URL",
         help_heading = "RPC Options"
     )]
     pub rpc_url: Option<String>,
@@ -417,7 +417,7 @@ pub mod test_utils {
     use clap::Parser;
 
     pub fn make_cli(args: &[&str]) -> Cli {
-        let mut full_args = vec!["tempoctl"];
+        let mut full_args = vec!["presto"];
         full_args.extend(args);
         Cli::parse_from(full_args)
     }

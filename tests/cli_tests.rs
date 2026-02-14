@@ -13,35 +13,35 @@ use common::{setup_test_config, test_command};
 
 #[test]
 fn test_completions_bash() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "bash"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("_tempoctl"))
+        .stdout(predicate::str::contains("_presto"))
         .stdout(predicate::str::contains("complete"));
 }
 
 #[test]
 fn test_completions_zsh() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "zsh"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("#compdef tempoctl"));
+        .stdout(predicate::str::contains("#compdef presto"));
 }
 
 #[test]
 fn test_completions_fish() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "fish"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("complete -c tempoctl"));
+        .stdout(predicate::str::contains("complete -c presto"));
 }
 
 #[test]
 fn test_completions_powershell() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "power-shell"])
         .assert()
         .success()
@@ -50,16 +50,16 @@ fn test_completions_powershell() {
 
 #[test]
 fn test_completions_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["com", "bash"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("_tempoctl"));
+        .stdout(predicate::str::contains("_presto"));
 }
 
 #[test]
 fn test_login_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["l", "--help"])
         .assert()
         .success()
@@ -68,7 +68,7 @@ fn test_login_alias() {
 
 #[test]
 fn test_quiet_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-q"])
         .assert()
         .success();
@@ -76,7 +76,7 @@ fn test_quiet_flag() {
 
 #[test]
 fn test_quiet_alias_short() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-s"])
         .assert()
         .success();
@@ -84,7 +84,7 @@ fn test_quiet_alias_short() {
 
 #[test]
 fn test_quiet_alias_long() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "--silent"])
         .assert()
         .success();
@@ -92,7 +92,7 @@ fn test_quiet_alias_long() {
 
 #[test]
 fn test_verbosity_single() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-v"])
         .assert()
         .success();
@@ -100,7 +100,7 @@ fn test_verbosity_single() {
 
 #[test]
 fn test_verbosity_multiple() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-vv"])
         .assert()
         .success();
@@ -108,7 +108,7 @@ fn test_verbosity_multiple() {
 
 #[test]
 fn test_verbosity_long_form() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "--verbosity"])
         .assert()
         .success();
@@ -116,7 +116,7 @@ fn test_verbosity_long_form() {
 
 #[test]
 fn test_color_auto() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "--color", "auto"])
         .assert()
         .success();
@@ -124,7 +124,7 @@ fn test_color_auto() {
 
 #[test]
 fn test_color_always() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "--color", "always"])
         .assert()
         .success();
@@ -132,7 +132,7 @@ fn test_color_always() {
 
 #[test]
 fn test_color_never() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "--color", "never"])
         .assert()
         .success();
@@ -140,7 +140,7 @@ fn test_color_never() {
 
 #[test]
 fn test_help_has_payment_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
@@ -149,7 +149,7 @@ fn test_help_has_payment_options_section() {
 
 #[test]
 fn test_help_has_display_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
@@ -158,7 +158,7 @@ fn test_help_has_display_options_section() {
 
 #[test]
 fn test_help_has_http_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
@@ -167,7 +167,7 @@ fn test_help_has_http_options_section() {
 
 #[test]
 fn test_help_has_request_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
@@ -176,7 +176,7 @@ fn test_help_has_request_options_section() {
 
 #[test]
 fn test_insecure_flag_short() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
@@ -185,29 +185,29 @@ fn test_insecure_flag_short() {
 
 #[test]
 fn test_help_shows_env_vars() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("[env: TEMPOCTL_MAX_AMOUNT=]"))
-        .stdout(predicate::str::contains("[env: TEMPOCTL_CONFIRM=]"));
+        .stdout(predicate::str::contains("[env: PRESTO_MAX_AMOUNT=]"))
+        .stdout(predicate::str::contains("[env: PRESTO_CONFIRM=]"));
 
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("[env: TEMPOCTL_NETWORK=]"));
+        .stdout(predicate::str::contains("[env: PRESTO_NETWORK=]"));
 }
 
 #[test]
 fn test_help_shows_default_values() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
         .stdout(predicate::str::contains("[default: auto]"));
 
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
@@ -216,7 +216,7 @@ fn test_help_shows_default_values() {
 
 #[test]
 fn test_help_shows_aliases() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
@@ -225,7 +225,7 @@ fn test_help_shows_aliases() {
 
 #[test]
 fn test_help_shows_possible_values() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
@@ -235,7 +235,7 @@ fn test_help_shows_possible_values() {
 
 #[test]
 fn test_alias_with_display_options() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["n", "list", "-q", "--color", "never"])
         .assert()
         .success();
@@ -243,16 +243,16 @@ fn test_alias_with_display_options() {
 
 #[test]
 fn test_completions_alias_with_verbosity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["com", "bash", "-v"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("_tempoctl"));
+        .stdout(predicate::str::contains("_presto"));
 }
 
 #[test]
 fn test_networks_list() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list"])
         .assert()
         .success()
@@ -266,7 +266,7 @@ fn test_networks_list() {
 
 #[test]
 fn test_networks_list_json() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "--output-format", "json"])
         .assert()
         .success()
@@ -277,7 +277,7 @@ fn test_networks_list_json() {
 
 #[test]
 fn test_networks_list_yaml() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "--output-format", "yaml"])
         .assert()
         .success()
@@ -288,7 +288,7 @@ fn test_networks_list_yaml() {
 
 #[test]
 fn test_networks_no_subcommand_defaults_to_list() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks"])
         .assert()
         .success()
@@ -299,7 +299,7 @@ fn test_networks_no_subcommand_defaults_to_list() {
 
 #[test]
 fn test_networks_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["n", "list"])
         .assert()
         .success()
@@ -308,7 +308,7 @@ fn test_networks_alias() {
 
 #[test]
 fn test_networks_info_tempo() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "info", "tempo"])
         .assert()
         .success()
@@ -325,7 +325,7 @@ fn test_networks_info_tempo() {
 
 #[test]
 fn test_networks_info_testnet() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "info", "tempo-moderato"])
         .assert()
         .success()
@@ -337,7 +337,7 @@ fn test_networks_info_testnet() {
 
 #[test]
 fn test_networks_info_json() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "info", "tempo", "--output-format", "json"])
         .assert()
         .success()
@@ -347,7 +347,7 @@ fn test_networks_info_json() {
 
 #[test]
 fn test_networks_info_yaml() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args([
             "networks",
             "info",
@@ -363,7 +363,7 @@ fn test_networks_info_yaml() {
 
 #[test]
 fn test_networks_info_unknown_network() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "info", "unknown-network"])
         .assert()
         .failure()
@@ -373,7 +373,7 @@ fn test_networks_info_unknown_network() {
 
 #[test]
 fn test_networks_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "--help"])
         .assert()
         .success()
@@ -386,7 +386,7 @@ fn test_networks_help() {
 
 #[test]
 fn test_inspect_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["inspect", "--help"])
         .assert()
         .success()
@@ -395,7 +395,7 @@ fn test_inspect_help() {
 
 #[test]
 fn test_inspect_missing_url() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("inspect")
         .assert()
         .failure();
@@ -497,7 +497,7 @@ fn test_inspect_with_all_output_formats() {
 
 #[test]
 fn test_version_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--version")
         .assert()
         .success();
@@ -505,7 +505,7 @@ fn test_version_flag() {
 
 #[test]
 fn test_login_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["login", "--help"])
         .assert()
         .success()
@@ -514,7 +514,7 @@ fn test_login_help() {
 
 #[test]
 fn test_login_alias_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["l", "--help"])
         .assert()
         .success()
@@ -523,7 +523,7 @@ fn test_login_alias_help() {
 
 #[test]
 fn test_logout_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["logout", "--help"])
         .assert()
         .success()
@@ -533,7 +533,7 @@ fn test_logout_help() {
 
 #[test]
 fn test_multiple_global_flags_together() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-v", "-q", "--color", "never"])
         .assert()
         .success();
@@ -542,19 +542,19 @@ fn test_multiple_global_flags_together() {
 #[test]
 fn test_verbosity_levels() {
     // Single -v
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-v"])
         .assert()
         .success();
 
     // Double -vv
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-vv"])
         .assert()
         .success();
 
     // Triple -vvv
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "list", "-vvv"])
         .assert()
         .success();
@@ -563,7 +563,7 @@ fn test_verbosity_levels() {
 #[test]
 fn test_all_color_modes() {
     for color_mode in ["auto", "always", "never"] {
-        Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        Command::new(assert_cmd::cargo::cargo_bin!("presto"))
             .args(["networks", "list", "--color", color_mode])
             .assert()
             .success();
@@ -573,7 +573,7 @@ fn test_all_color_modes() {
 #[test]
 fn test_all_output_formats_with_networks() {
     for format in ["text", "json", "yaml"] {
-        Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        Command::new(assert_cmd::cargo::cargo_bin!("presto"))
             .args(["networks", "list", "--output-format", format])
             .assert()
             .success();
@@ -582,7 +582,7 @@ fn test_all_output_formats_with_networks() {
 
 #[test]
 fn test_completions_no_arg_shows_shells() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("completions")
         .assert()
         .success()
@@ -593,7 +593,7 @@ fn test_completions_no_arg_shows_shells() {
 
 #[test]
 fn test_completions_invalid_shell() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "invalid-shell"])
         .assert()
         .failure();
@@ -601,7 +601,7 @@ fn test_completions_invalid_shell() {
 
 #[test]
 fn test_completions_case_sensitivity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "BASH"])
         .assert()
         .failure();
@@ -609,7 +609,7 @@ fn test_completions_case_sensitivity() {
 
 #[test]
 fn test_networks_info_case_sensitivity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "info", "BASE"])
         .assert()
         .failure()
@@ -618,7 +618,7 @@ fn test_networks_info_case_sensitivity() {
 
 #[test]
 fn test_networks_info_with_quiet() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "info", "tempo", "-q"])
         .assert()
         .success();
@@ -627,7 +627,7 @@ fn test_networks_info_with_quiet() {
 #[test]
 fn test_networks_list_with_all_formats() {
     for format in ["text", "json", "yaml"] {
-        Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+        Command::new(assert_cmd::cargo::cargo_bin!("presto"))
             .args(["networks", "list", "--output-format", format])
             .assert()
             .success();
@@ -636,7 +636,7 @@ fn test_networks_list_with_all_formats() {
 
 #[test]
 fn test_main_help_lists_all_commands() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
@@ -652,7 +652,7 @@ fn test_main_help_lists_all_commands() {
 
 #[test]
 fn test_query_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["q", "--help"])
         .assert()
         .success()
@@ -661,7 +661,7 @@ fn test_query_alias() {
 
 #[test]
 fn test_query_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
@@ -673,7 +673,7 @@ fn test_query_help() {
 
 #[test]
 fn test_whoami_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["whoami", "--help"])
         .assert()
         .success()
@@ -683,7 +683,7 @@ fn test_whoami_help() {
 
 #[test]
 fn test_help_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("-h")
         .assert()
         .success();
@@ -691,7 +691,7 @@ fn test_help_flag() {
 
 #[test]
 fn test_invalid_command() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["networks", "invalid-subcommand"])
         .assert()
         .failure();
@@ -699,7 +699,7 @@ fn test_invalid_command() {
 
 #[test]
 fn test_invalid_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempoctl"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--invalid-flag")
         .assert()
         .failure();

@@ -1,27 +1,27 @@
-//! Constants used throughout the tempoctl library
+//! Constants used throughout the  tempo-walletlibrary
 
 use std::path::PathBuf;
 
 /// Application name for XDG directories
-pub const APP_NAME: &str = "tempoctl";
+pub const APP_NAME: &str = "presto";
 
 /// Config file name
 pub const CONFIG_FILE: &str = "config.toml";
 
-/// Get the tempoctl config directory (`~/.config/tempoctl/`)
-pub fn tempoctl_config_dir() -> Option<PathBuf> {
+/// Get the  tempo-walletconfig directory (`~/.config/presto/`)
+pub fn presto_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|c| c.join(APP_NAME))
 }
 
-/// Get the tempoctl data directory (`~/.local/share/tempoctl/`)
+/// Get the  tempo-walletdata directory (`~/.local/share/presto/`)
 #[allow(dead_code)]
-pub fn tempoctl_data_dir() -> Option<PathBuf> {
+pub fn presto_data_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join(APP_NAME))
 }
 
-/// Get the default config file path (`~/.config/tempoctl/config.toml`)
+/// Get the default config file path (`~/.config/presto/config.toml`)
 pub fn default_config_path() -> Option<PathBuf> {
-    tempoctl_config_dir().map(|p| p.join(CONFIG_FILE))
+    presto_config_dir().map(|p| p.join(CONFIG_FILE))
 }
 
 /// ERC-20 balanceOf function selector
@@ -47,8 +47,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tempoctl_config_dir_exists() {
-        let dir = tempoctl_config_dir();
+    fn test_presto_config_dir_exists() {
+        let dir = presto_config_dir();
         assert!(dir.is_some());
         let path = dir.expect("Config dir should exist");
         assert!(path
@@ -58,8 +58,8 @@ mod tests {
     }
 
     #[test]
-    fn test_tempoctl_data_dir_exists() {
-        let dir = tempoctl_data_dir();
+    fn test_presto_data_dir_exists() {
+        let dir = presto_data_dir();
         assert!(dir.is_some());
         let path = dir.expect("Data dir should exist");
         assert!(path

@@ -3,7 +3,7 @@
 //! Tests that payment errors produce user-friendly messages with actionable
 //! suggestions and correct exit codes.
 //!
-//! Uses TEMPOCTL_MOCK_PAYMENT env var to simulate payment failures without
+//! Uses PRESTO_MOCK_PAYMENT env var to simulate payment failures without
 //! requiring real wallet signing or RPC calls.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -140,10 +140,10 @@ fn test_spending_limit_exceeded_error() {
     let temp = setup_test_config();
 
     let output = test_command(&temp)
-        .env("TEMPOCTL_MOCK_PAYMENT", "spending_limit_exceeded")
+        .env("PRESTO_MOCK_PAYMENT", "spending_limit_exceeded")
         .args(["query", &server.url("test")])
         .output()
-        .expect("failed to run tempoctl");
+        .expect("failed to run presto");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -169,10 +169,10 @@ fn test_insufficient_balance_error() {
     let temp = setup_test_config();
 
     let output = test_command(&temp)
-        .env("TEMPOCTL_MOCK_PAYMENT", "insufficient_balance")
+        .env("PRESTO_MOCK_PAYMENT", "insufficient_balance")
         .args(["query", &server.url("test")])
         .output()
-        .expect("failed to run tempoctl");
+        .expect("failed to run presto");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -198,10 +198,10 @@ fn test_payment_rejected_error() {
     let temp = setup_test_config();
 
     let output = test_command(&temp)
-        .env("TEMPOCTL_MOCK_PAYMENT", "payment_rejected")
+        .env("PRESTO_MOCK_PAYMENT", "payment_rejected")
         .args(["query", &server.url("test")])
         .output()
-        .expect("failed to run tempoctl");
+        .expect("failed to run presto");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

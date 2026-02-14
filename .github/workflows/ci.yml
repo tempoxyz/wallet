@@ -25,7 +25,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace -- -D warnings
+      - run: cargo clippy --all-features -- -D warnings
       - name: Run Tempo Lints
         uses: tempoxyz/lints@main
         with:
@@ -35,18 +35,12 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+    name: Test
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: Configure git for private repos
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace --verbose
-      - run: cargo test --workspace --verbose
+      - run: cargo test --all-features

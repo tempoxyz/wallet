@@ -1,8 +1,8 @@
 //! Inspect command for viewing payment requirements without executing payment
 
-use mpay::{parse_www_authenticate, ChargeRequest, PaymentChallenge};
+use mpp::{parse_www_authenticate, ChargeRequest, PaymentChallenge};
 
-use crate::payment::mpay_ext::ChargeRequestExt;
+use crate::payment::mpp_ext::ChargeRequestExt;
 use crate::{config::PaymentMethod, http::HttpClientBuilder, http::HttpMethod};
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -139,7 +139,7 @@ fn build_inspect_output(
 
 fn format_charge_amount(req: &ChargeRequest, challenge: &PaymentChallenge) -> Option<String> {
     use crate::network::Network;
-    use crate::payment::mpay_ext::method_to_network;
+    use crate::payment::mpp_ext::method_to_network;
     use std::str::FromStr;
 
     let network_name = method_to_network(&challenge.method)?;
@@ -230,7 +230,7 @@ fn output_text(
 
 /// Check if a challenge is compatible with configured payment methods
 fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[PaymentMethod]) -> bool {
-    use crate::payment::mpay_ext::method_to_network;
+    use crate::payment::mpp_ext::method_to_network;
 
     // If the method maps to a known network, it requires EVM
     if method_to_network(&challenge.method).is_some() {
@@ -243,12 +243,13 @@ fn is_compatible_method(challenge: &PaymentChallenge, available_methods: &[Payme
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mpay::{Base64UrlJson, IntentName, MethodName};
+    use mpp::{Base64UrlJson, IntentName, MethodName};
 
     fn mock_challenge() -> PaymentChallenge {
         let charge_req = ChargeRequest {
             amount: "1000000".to_string(),
             currency: "0x20c0000000000000000000000000000000000001".to_string(),
+            decimals: None,
             recipient: Some("0x1234567890123456789012345678901234567890".to_string()),
             expires: Some("2099-12-31T23:59:59Z".to_string()),
             description: None,

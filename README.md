@@ -2,11 +2,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
-    <img src="assets/logo-light.png" alt="tempoctl">
+    <img src="assets/logo-light.png" alt="presto">
   </picture>
 </p>
 
-# tempoctl
+# presto
 
 A wget-like CLI tool for making HTTP requests with automatic support for payments.
 
@@ -31,34 +31,34 @@ A wget-like CLI tool for making HTTP requests with automatic support for payment
 
 ## Example Usage
 
-Use as `tempoctl query <URL> [OPTIONS]` (alias `tempoctl q <URL>`) or `tempoctl <COMMAND> [OPTIONS]`
+Use as ` tempo-walletquery <URL> [OPTIONS]` (alias ` tempo-walletq <URL>`) or ` tempo-wallet<COMMAND> [OPTIONS]`
 
 | Example | Command |
 |---------|---------|
-| Log in (first time setup) | `tempoctl login` or `tempoctl l` |
-| Make a payment request | `tempoctl query https://api.example.com/premium-data` |
-| Preview payment without executing | `tempoctl query -D https://api.example.com/data` |
-| Require confirmation before payment | `tempoctl query -y https://api.example.com/data` |
-| Set maximum payment amount (in atomic units) | `tempoctl query -M 10000 https://api.example.com/data` |
-| Filter to specific networks | `tempoctl query -n tempo-moderato https://api.example.com/data` |
-| Verbose output with headers | `tempoctl query -vi https://api.example.com/data` |
-| Multi-level verbosity | `tempoctl query -vvv https://api.example.com/data` |
-| Quiet mode (suppress output) | `tempoctl query -q https://api.example.com/data` or `tempoctl query -s https://api.example.com/data` |
-| Control color output | `tempoctl query --color never https://api.example.com/data` |
-| Save output to file | `tempoctl query -o output.json https://api.example.com/data` |
-| JSON output format | `tempoctl query --json-output https://api.example.com/data` |
-| Custom headers | `tempoctl query -H "Authorization: Bearer token" https://api.example.com/data` |
-| Override RPC URL | `tempoctl query -r https://my-rpc.com https://api.example.com/data` |
-| Disable automatic token swaps | `tempoctl query --no-swap https://api.example.com/data` |
-| Show wallet status | `tempoctl whoami` |
-| View configuration | `tempoctl config` or `tempoctl c` |
-| View configuration with private keys | `tempoctl config --unsafe-show-private-keys` |
-| Disable password caching | `tempoctl --no-cache config --unsafe-show-private-keys` |
-| Check wallet balance | `tempoctl balance` or `tempoctl b` |
-| Check balance on specific network | `tempoctl balance -n tempo` |
-| Inspect payment requirements | `tempoctl inspect https://api.example.com/data` |
-| List supported networks | `tempoctl networks` or `tempoctl n` |
-| Generate shell completions | `tempoctl completions bash` or `tempoctl com bash` |
+| Log in (first time setup) | ` tempo-walletlogin` or ` tempo-walletl` |
+| Make a payment request | ` tempo-walletquery https://api.example.com/premium-data` |
+| Preview payment without executing | ` tempo-walletquery -D https://api.example.com/data` |
+| Require confirmation before payment | ` tempo-walletquery -y https://api.example.com/data` |
+| Set maximum payment amount (in atomic units) | ` tempo-walletquery -M 10000 https://api.example.com/data` |
+| Filter to specific networks | ` tempo-walletquery -n tempo-moderato https://api.example.com/data` |
+| Verbose output with headers | ` tempo-walletquery -vi https://api.example.com/data` |
+| Multi-level verbosity | ` tempo-walletquery -vvv https://api.example.com/data` |
+| Quiet mode (suppress output) | ` tempo-walletquery -q https://api.example.com/data` or ` tempo-walletquery -s https://api.example.com/data` |
+| Control color output | ` tempo-walletquery --color never https://api.example.com/data` |
+| Save output to file | ` tempo-walletquery -o output.json https://api.example.com/data` |
+| JSON output format | ` tempo-walletquery --json-output https://api.example.com/data` |
+| Custom headers | ` tempo-walletquery -H "Authorization: Bearer token" https://api.example.com/data` |
+| Override RPC URL | ` tempo-walletquery -r https://my-rpc.com https://api.example.com/data` |
+| Disable automatic token swaps | ` tempo-walletquery --no-swap https://api.example.com/data` |
+| Show wallet status | ` tempo-walletwhoami` |
+| View configuration | ` tempo-walletconfig` or ` tempo-walletc` |
+| View configuration with private keys | ` tempo-walletconfig --unsafe-show-private-keys` |
+| Disable password caching | ` tempo-wallet--no-cache config --unsafe-show-private-keys` |
+| Check wallet balance | ` tempo-walletbalance` or ` tempo-walletb` |
+| Check balance on specific network | ` tempo-walletbalance -n tempo` |
+| Inspect payment requirements | ` tempo-walletinspect https://api.example.com/data` |
+| List supported networks | ` tempo-walletnetworks` or ` tempo-walletn` |
+| Generate shell completions | ` tempo-walletcompletions bash` or ` tempo-walletcom bash` |
 
 ## Installation
 
@@ -72,7 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/tempoxyz/pget/main/install.sh | bas
 
 ```bash
 git clone https://github.com/tempoxyz/pget.git
-cd tempoctl
+cd presto
 cargo install --path .
 ```
 
@@ -82,35 +82,35 @@ Make sure that `~/.cargo/bin` is on your PATH. One way to do this is by adding t
 
 ## Configuration
 
-tempoctl uses a configuration file and encrypted keystores for secure wallet management.
+ tempo-walletuses a configuration file and encrypted keystores for secure wallet management.
 
 ### Data Locations
 
-tempoctl uses platform-native directories:
+ tempo-walletuses platform-native directories:
 
 **macOS:**
 
-- **Configuration**: `~/Library/Application Support/tempoctl/config.toml`
-- **Keystores**: `~/Library/Application Support/tempoctl/keystores/`
+- **Configuration**: `~/Library/Application Support/presto/config.toml`
+- **Keystores**: `~/Library/Application Support/presto/keystores/`
 
 **Linux:**
 
-- **Configuration**: `~/.config/tempoctl/config.toml`
-- **Keystores**: `~/.local/share/tempoctl/keystores/`
+- **Configuration**: `~/.config/presto/config.toml`
+- **Keystores**: `~/.local/share/presto/keystores/`
 
 **Windows:**
 
-- **Configuration**: `%APPDATA%\tempoctl\config.toml`
-- **Keystores**: `%APPDATA%\tempoctl\keystores\`
+- **Configuration**: `%APPDATA%\presto\config.toml`
+- **Keystores**: `%APPDATA%\presto\keystores\`
 
 All keystores use Ethereum keystore v3 format for encrypted storage.
 
 ### Initial Setup
 
-Run `tempoctl login` to connect your wallet:
+Run ` tempo-walletlogin` to connect your wallet:
 
 ```bash
-tempoctl login             # Opens browser to connect your Tempo wallet
+ tempo-walletlogin             # Opens browser to connect your Tempo wallet
 ```
 
 This opens your browser to authenticate with your Tempo wallet using passkeys.
@@ -120,8 +120,8 @@ This opens your browser to authenticate with your Tempo wallet using passkeys.
 For CI/automation or if you prefer local key management, use the `method` command:
 
 ```bash
-tempoctl method new my-wallet --generate   # Generate a new local private key
-tempoctl method import my-wallet           # Import an existing private key
+ tempo-walletmethod new my-wallet --generate   # Generate a new local private key
+ tempo-walletmethod import my-wallet           # Import an existing private key
 ```
 
 The keystore flow will:
@@ -135,14 +135,14 @@ The configuration file (see paths above) references encrypted keystores:
 
 ```toml
 [evm]
-keystore = "/Users/username/.tempoctl/keystores/my-wallet.json"
+keystore = "/Users/username/.presto/keystores/my-wallet.json"
 ```
 
 **Note**: EVM keys are stored in encrypted keystores for security.
 
 ### Custom Networks and RPC Overrides
 
-tempoctl includes built-in support for Tempo networks with default RPC endpoints. You can customize these or add new networks in your configuration file.
+ tempo-walletincludes built-in support for Tempo networks with default RPC endpoints. You can customize these or add new networks in your configuration file.
 
 **Built-in networks:**
 
@@ -161,7 +161,7 @@ tempoctl includes built-in support for Tempo networks with default RPC endpoints
 
 ```toml
 [evm]
-keystore = "/Users/username/.tempoctl/keystores/my-wallet.json"
+keystore = "/Users/username/.presto/keystores/my-wallet.json"
 
 # Typed RPC overrides for built-in networks (highest priority)
 tempo_rpc = "https://my-custom-tempo-rpc.com"
@@ -203,44 +203,44 @@ View your current configuration using the `config` command:
 
 ```bash
 # View configuration in text format (default)
-tempoctl config
+ tempo-walletconfig
 
 # View configuration as JSON
-tempoctl config --output-format json
+ tempo-walletconfig --output-format json
 
 # View configuration as YAML
-tempoctl config --output-format yaml
+ tempo-walletconfig --output-format yaml
 
 # View configuration with private keys (⚠️ use with caution)
-tempoctl config --unsafe-show-private-keys
+ tempo-walletconfig --unsafe-show-private-keys
 
 # Get a specific configuration value
-tempoctl config get evm.keystore
+ tempo-walletconfig get evm.keystore
 
 # Validate configuration file
-tempoctl config validate
+ tempo-walletconfig validate
 ```
 
 Example output:
 
 ```
-Config file: /Users/username/.config/tempoctl/tempoctl.toml
+Config file: /Users/username/.config/presto/presto.toml
 
 [evm]
-keystore = "/Users/username/.tempoctl/keystores/my-wallet.json"
+keystore = "/Users/username/.presto/keystores/my-wallet.json"
 address = "0xe676e0f661bfe316793a8ad576fe7be02b93bd96"
 ```
 
 ## Payment Method Management
 
-tempoctl provides commands to manage multiple encrypted wallets (payment methods) without editing configuration files directly.
+ tempo-walletprovides commands to manage multiple encrypted wallets (payment methods) without editing configuration files directly.
 
 ### List Payment Methods
 
 View all available keystores:
 
 ```bash
-tempoctl method list
+ tempo-walletmethod list
 ```
 
 Example output:
@@ -257,7 +257,7 @@ Available keystores:
 Generate a new wallet and save it as an encrypted keystore:
 
 ```bash
-tempoctl method new my-wallet --generate
+ tempo-walletmethod new my-wallet --generate
 ```
 
 This will:
@@ -271,7 +271,7 @@ This will:
 You can also create a keystore without generating a new key:
 
 ```bash
-tempoctl method new my-wallet
+ tempo-walletmethod new my-wallet
 # You'll be prompted to enter an existing private key
 ```
 
@@ -280,14 +280,14 @@ tempoctl method new my-wallet
 Import an existing private key into a new encrypted keystore:
 
 ```bash
-tempoctl method import my-wallet
+ tempo-walletmethod import my-wallet
 # You'll be prompted to enter your private key and a password
 ```
 
 Or provide the private key directly (not recommended for security reasons):
 
 ```bash
-tempoctl method import my-wallet --private-key 0x1234...
+ tempo-walletmethod import my-wallet --private-key 0x1234...
 ```
 
 ### Show Keystore Details
@@ -295,7 +295,7 @@ tempoctl method import my-wallet --private-key 0x1234...
 View details of a specific keystore without revealing the private key:
 
 ```bash
-tempoctl method show my-wallet
+ tempo-walletmethod show my-wallet
 ```
 
 ### Verify Keystore Integrity
@@ -303,7 +303,7 @@ tempoctl method show my-wallet
 Verify that a keystore can be decrypted with your password:
 
 ```bash
-tempoctl method verify my-wallet
+ tempo-walletmethod verify my-wallet
 ```
 
 ### Using a Payment Method
@@ -311,16 +311,16 @@ tempoctl method verify my-wallet
 After creating a keystore, update your configuration file to use it:
 
 ```bash
-# Edit ~/.config/tempoctl/tempoctl.toml
+# Edit ~/.config/presto/presto.toml
 [evm]
-keystore = "/Users/username/.tempoctl/keystores/my-wallet.json"
+keystore = "/Users/username/.presto/keystores/my-wallet.json"
 ```
 
-Or use `tempoctl login` to reconfigure interactively.
+Or use ` tempo-walletlogin` to reconfigure interactively.
 
 ### Password Caching
 
-To improve user experience, tempoctl automatically caches keystore passwords in memory for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
+To improve user experience,  tempo-walletautomatically caches keystore passwords in memory for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
 
 **How it works:**
 
@@ -334,7 +334,7 @@ To improve user experience, tempoctl automatically caches keystore passwords in 
 
 ```bash
 # Disable password caching for a specific command
-tempoctl --no-cache config --unsafe-show-private-keys
+ tempo-wallet--no-cache config --unsafe-show-private-keys
 ```
 
 **Security considerations:**
@@ -349,12 +349,12 @@ tempoctl --no-cache config --unsafe-show-private-keys
 1. **Use strong passwords** - Your keystore is only as secure as your password
 1. **Back up your keystores** - Keep encrypted copies of your keystores directory in a secure location
 1. **Save your private keys** - When generating new keys, save them securely (you'll need them to recover your wallet)
-1. **Never commit keys to git** - The `.gitignore` should exclude `~/.tempoctl/` and `~/.config/tempoctl/`
+1. **Never commit keys to git** - The `.gitignore` should exclude `~/.presto/` and `~/.config/presto/`
 1. **Consider password caching security** - On shared systems, disable caching with `--no-cache`
 
 ## Shell Completions
 
-tempoctl supports shell completions for Bash, Zsh, Fish, and PowerShell to make command-line usage faster and more convenient.
+ tempo-walletsupports shell completions for Bash, Zsh, Fish, and PowerShell to make command-line usage faster and more convenient.
 
 ### Installing Shell Completions
 
@@ -363,15 +363,15 @@ Generate completions for your shell and save them to the appropriate location:
 **Bash:**
 
 ```bash
-tempoctl completions bash > /usr/local/etc/bash_completion.d/tempoctl
+ tempo-walletcompletions bash > /usr/local/etc/bash_completion.d/presto
 # Or use the alias:
-tempoctl com bash > /usr/local/etc/bash_completion.d/tempoctl
+ tempo-walletcom bash > /usr/local/etc/bash_completion.d/presto
 ```
 
 **Zsh:**
 
 ```bash
-tempoctl completions zsh > ~/.zfunc/_tempoctl
+ tempo-walletcompletions zsh > ~/.zfunc/_presto
 # Then add to ~/.zshrc if not already present:
 fpath=(~/.zfunc $fpath)
 autoload -Uz compinit && compinit
@@ -380,57 +380,57 @@ autoload -Uz compinit && compinit
 **Fish:**
 
 ```bash
-tempoctl completions fish > ~/.config/fish/completions/tempoctl.fish
+ tempo-walletcompletions fish > ~/.config/fish/completions/presto.fish
 ```
 
 **PowerShell:**
 
 ```powershell
-tempoctl completions power-shell | Out-File -FilePath $PROFILE -Append
+ tempo-walletcompletions power-shell | Out-File -FilePath $PROFILE -Append
 ```
 
-After installing, restart your shell or source the configuration file. You'll then be able to use Tab to autocomplete tempoctl commands, flags, and values.
+After installing, restart your shell or source the configuration file. You'll then be able to use Tab to autocomplete  tempo-walletcommands, flags, and values.
 
 ## Command Aliases
 
-tempoctl provides short aliases for common commands to speed up your workflow:
+ tempo-walletprovides short aliases for common commands to speed up your workflow:
 
 | Full Command | Alias | Description |
 |--------------|-------|-------------|
-| `tempoctl query` | `tempoctl q` | Make an HTTP request with optional payment |
-| `tempoctl login` | `tempoctl l` | Log in to Tempo wallet |
-| `tempoctl logout` | | Log out and disconnect wallet |
-| `tempoctl config` | `tempoctl c` | Manage configuration |
-| `tempoctl version` | `tempoctl v` | Show version information |
-| `tempoctl completions` | `tempoctl com` | Generate shell completions |
-| `tempoctl balance` | `tempoctl b` | Check wallet balance |
-| `tempoctl networks` | `tempoctl n` | Manage and inspect networks |
-| `tempoctl wallet` | `tempoctl w` | Tempo wallet management |
-| `tempoctl keys` | `tempoctl k` | Manage access keys |
-| `tempoctl services` | `tempoctl svc` | List available payment services |
+| ` tempo-walletquery` | ` tempo-walletq` | Make an HTTP request with optional payment |
+| ` tempo-walletlogin` | ` tempo-walletl` | Log in to Tempo wallet |
+| ` tempo-walletlogout` | | Log out and disconnect wallet |
+| ` tempo-walletconfig` | ` tempo-walletc` | Manage configuration |
+| ` tempo-walletversion` | ` tempo-walletv` | Show version information |
+| ` tempo-walletcompletions` | ` tempo-walletcom` | Generate shell completions |
+| ` tempo-walletbalance` | ` tempo-walletb` | Check wallet balance |
+| ` tempo-walletnetworks` | ` tempo-walletn` | Manage and inspect networks |
+| ` tempo-walletwallet` | ` tempo-walletw` | Tempo wallet management |
+| ` tempo-walletkeys` | ` tempo-walletk` | Manage access keys |
+| ` tempo-walletservices` | ` tempo-walletsvc` | List available payment services |
 
 **Examples:**
 
 ```bash
-tempoctl q https://example.com # Same as: tempoctl query https://example.com
-tempoctl l                     # Same as: tempoctl login
-tempoctl c --output-format json  # Same as: tempoctl config --output-format json
-tempoctl com bash              # Same as: tempoctl completions bash
+ tempo-walletq https://example.com # Same as:  tempo-walletquery https://example.com
+ tempo-walletl                     # Same as:  tempo-walletlogin
+ tempo-walletc --output-format json  # Same as:  tempo-walletconfig --output-format json
+ tempo-walletcom bash              # Same as:  tempo-walletcompletions bash
 ```
 
 ## Display Options
 
-tempoctl offers flexible output control to suit different use cases and preferences.
+ tempo-walletoffers flexible output control to suit different use cases and preferences.
 
 ### Verbosity Levels
 
-Control how much information tempoctl outputs:
+Control how much information  tempo-walletoutputs:
 
 ```bash
-tempoctl query <URL>           # Normal output
-tempoctl query -v <URL>        # Verbose: show detailed request/response info
-tempoctl query -vv <URL>       # Debug: show even more details (reserved for future use)
-tempoctl query -vvv <URL>      # Trace: show all possible details (reserved for future use)
+ tempo-walletquery <URL>           # Normal output
+ tempo-walletquery -v <URL>        # Verbose: show detailed request/response info
+ tempo-walletquery -vv <URL>       # Debug: show even more details (reserved for future use)
+ tempo-walletquery -vvv <URL>      # Trace: show all possible details (reserved for future use)
 ```
 
 ### Quiet Mode
@@ -438,9 +438,9 @@ tempoctl query -vvv <URL>      # Trace: show all possible details (reserved for 
 Suppress all non-essential output:
 
 ```bash
-tempoctl query -q <URL>        # Quiet mode
-tempoctl query -s <URL>        # Short alias for quiet
-tempoctl query --silent <URL>  # Long alias for quiet
+ tempo-walletquery -q <URL>        # Quiet mode
+ tempo-walletquery -s <URL>        # Short alias for quiet
+ tempo-walletquery --silent <URL>  # Long alias for quiet
 ```
 
 ### Color Output
@@ -448,15 +448,15 @@ tempoctl query --silent <URL>  # Long alias for quiet
 Control color in terminal output:
 
 ```bash
-tempoctl query --color auto <URL>    # Auto-detect TTY (default)
-tempoctl query --color always <URL>  # Always use colors
-tempoctl query --color never <URL>   # Never use colors
+ tempo-walletquery --color auto <URL>    # Auto-detect TTY (default)
+ tempo-walletquery --color always <URL>  # Always use colors
+ tempo-walletquery --color never <URL>   # Never use colors
 ```
 
-tempoctl respects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org/)):
+ tempo-walletrespects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org/)):
 
 ```bash
-NO_COLOR=1 tempoctl query <URL>  # Disables colors regardless of --color setting
+NO_COLOR=1  tempo-walletquery <URL>  # Disables colors regardless of --color setting
 ```
 
 ### Output Formatting
@@ -464,17 +464,17 @@ NO_COLOR=1 tempoctl query <URL>  # Disables colors regardless of --color setting
 Format response output in different ways:
 
 ```bash
-tempoctl query --output-format text <URL>  # Plain text (default)
-tempoctl query --output-format json <URL>  # Pretty-printed JSON
-tempoctl query --output-format yaml <URL>  # YAML format
+ tempo-walletquery --output-format text <URL>  # Plain text (default)
+ tempo-walletquery --output-format json <URL>  # Pretty-printed JSON
+ tempo-walletquery --output-format yaml <URL>  # YAML format
 
 # Combined with display options:
-tempoctl query -q --color never --output-format json <URL>
+ tempo-walletquery -q --color never --output-format json <URL>
 ```
 
 ## Protocols
 
-tempoctl supports the Web Payment Auth protocol for HTTP-based payments.
+ tempo-walletsupports the Web Payment Auth protocol for HTTP-based payments.
 
 | Protocol | Description | Supported Networks |
 |----------|-------------|-------------------|
@@ -482,18 +482,18 @@ tempoctl supports the Web Payment Auth protocol for HTTP-based payments.
 
 ## Automatic Token Swapping
 
-When a merchant requests payment in a specific stablecoin that you don't have, tempoctl can automatically swap from a stablecoin you do have. This feature is enabled by default.
+When a merchant requests payment in a specific stablecoin that you don't have,  tempo-walletcan automatically swap from a stablecoin you do have. This feature is enabled by default.
 
 **How it works:**
 
-1. When a payment is requested, tempoctl checks your balance of the required token
+1. When a payment is requested,  tempo-walletchecks your balance of the required token
 2. If you have sufficient balance, the payment proceeds directly
-3. If you don't have enough of the required token, tempoctl queries your balances of other supported stablecoins (pathUSD)
-4. If another token has sufficient balance (including 0.5% slippage), tempoctl automatically swaps via the Tempo StablecoinDEX and completes the payment in a single atomic transaction
+3. If you don't have enough of the required token,  tempo-walletqueries your balances of other supported stablecoins (pathUSD)
+4. If another token has sufficient balance (including 0.5% slippage),  tempo-walletautomatically swaps via the Tempo StablecoinDEX and completes the payment in a single atomic transaction
 
 **Token selection:**
 
-tempoctl checks tokens in order and uses the first one with sufficient balance. The balance check includes a 0.5% slippage buffer to ensure the swap succeeds.
+ tempo-walletchecks tokens in order and uses the first one with sufficient balance. The balance check includes a 0.5% slippage buffer to ensure the swap succeeds.
 
 **Atomic execution:**
 
@@ -509,38 +509,38 @@ If any step fails, the entire transaction reverts.
 To disable automatic swapping and require exact token balance:
 
 ```bash
-tempoctl query --no-swap https://api.example.com/data
+ tempo-walletquery --no-swap https://api.example.com/data
 ```
 
 Or set the environment variable:
 
 ```bash
-export TEMPOCTL_NO_SWAP=true
+export PRESTO_NO_SWAP=true
 ```
 
-When swaps are disabled and you don't have enough of the required token, tempoctl will display an error with your current balance and the required amount.
+When swaps are disabled and you don't have enough of the required token,  tempo-walletwill display an error with your current balance and the required amount.
 
 ## Environment Variables
 
 ```bash
-export TEMPOCTL_MAX_AMOUNT=10000
-export TEMPOCTL_NETWORK=tempo-moderato
-export TEMPOCTL_CONFIRM=true
-export TEMPOCTL_NO_SWAP=true
+export PRESTO_MAX_AMOUNT=10000
+export PRESTO_NETWORK=tempo-moderato
+export PRESTO_CONFIRM=true
+export PRESTO_NO_SWAP=true
 
-tempoctl query https://api.example.com/data
+ tempo-walletquery https://api.example.com/data
 ```
 
 ## Documentation
 
-**tempoctl help**
+** tempo-wallethelp**
 
-Run `tempoctl --help` to see all available options:
+Run ` tempo-wallet--help` to see all available options:
 
 ```
 A wget-like tool for HTTP-based payment requests
 
-Usage: tempoctl [OPTIONS] [COMMAND]
+Usage:  tempo-wallet[OPTIONS] [COMMAND]
 
 Commands:
   query        Make an HTTP request with optional payment
@@ -564,7 +564,7 @@ Options:
   -V, --version        Print version
 
 Payment Options:
-  -n, --network <NETWORKS>  Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: TEMPOCTL_NETWORK=]
+  -n, --network <NETWORKS>  Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PRESTO_NETWORK=]
 
 Display Options:
   -v, --verbosity...  Verbosity level (can be used multiple times: -v, -vv, -vvv)
@@ -573,14 +573,14 @@ Display Options:
       --json-output   Format output as JSON (shorthand for --output-format json) [aliases: --jo]
 ```
 
-**tempoctl query**
+** tempo-walletquery**
 
-Run `tempoctl query --help` to see request-specific options:
+Run ` tempo-walletquery --help` to see request-specific options:
 
 ```
 Make an HTTP request with optional payment
 
-Usage: tempoctl query [OPTIONS] <URL>
+Usage:  tempo-walletquery [OPTIONS] <URL>
 
 Arguments:
   <URL>  URL to request
@@ -590,11 +590,11 @@ Options:
   -h, --help           Print help
 
 Payment Options:
-  -M, --max-amount <AMOUNT>  Maximum amount willing to pay (in atomic units) [env: TEMPOCTL_MAX_AMOUNT=] [aliases: --max]
-  -y, --confirm              Require confirmation before paying [env: TEMPOCTL_CONFIRM=]
+  -M, --max-amount <AMOUNT>  Maximum amount willing to pay (in atomic units) [env: PRESTO_MAX_AMOUNT=] [aliases: --max]
+  -y, --confirm              Require confirmation before paying [env: PRESTO_CONFIRM=]
   -D, --dry-run              Dry run mode - show what would be paid without executing
-      --no-swap              Disable automatic token swaps when you don't have the requested currency [env: TEMPOCTL_NO_SWAP=]
-  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: TEMPOCTL_NETWORK=]
+      --no-swap              Disable automatic token swaps when you don't have the requested currency [env: PRESTO_NO_SWAP=]
+  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PRESTO_NETWORK=]
 
 Request Options:
   -k, --insecure  Allow insecure operations (skip TLS verification and origin checks)
@@ -620,27 +620,27 @@ HTTP Options:
       --json <JSON>                Send JSON data with Content-Type header
 
 RPC Options:
-  -r, --rpc <URL>  Override RPC URL for the request [env: TEMPOCTL_RPC_URL=] [aliases: --rpc-url]
+  -r, --rpc <URL>  Override RPC URL for the request [env: PRESTO_RPC_URL=] [aliases: --rpc-url]
 ```
 
-**tempoctl login**
+** tempo-walletlogin**
 
 Log in to your Tempo wallet:
 
 ```bash
-tempoctl login             # Opens browser to connect your Tempo wallet
+ tempo-walletlogin             # Opens browser to connect your Tempo wallet
 ```
 
-**tempoctl config**
+** tempo-walletconfig**
 
 View your current configuration:
 
 ```bash
-tempoctl config                                          # Text format (default)
-tempoctl config --output-format json                     # JSON format
-tempoctl config --output-format yaml                     # YAML format
-tempoctl config --unsafe-show-private-keys               # Show private keys (password prompt appears first)
-tempoctl config --unsafe-show-private-keys --no-cache-password  # Show keys without caching password
+ tempo-walletconfig                                          # Text format (default)
+ tempo-walletconfig --output-format json                     # JSON format
+ tempo-walletconfig --output-format yaml                     # YAML format
+ tempo-walletconfig --unsafe-show-private-keys               # Show private keys (password prompt appears first)
+ tempo-walletconfig --unsafe-show-private-keys --no-cache-password  # Show keys without caching password
 ```
 
 ### Specification
@@ -652,7 +652,7 @@ tempoctl config --unsafe-show-private-keys --no-cache-password  # Show keys with
 ```bash
 # Clone repository
 git clone https://github.com/tempoxyz/pget.git
-cd tempoctl
+cd presto
 
 # Install dependencies (for linting)
 npm install

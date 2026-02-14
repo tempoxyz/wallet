@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# tempoctl installer script
+#  tempo-walletinstaller script
 
-TEMPOCTL_BANNER='
-$$$$$$$$\ $$$$$$$$\ $$\      $$\ $$$$$$$\   $$$$$$\   $$$$$$\ $$$$$$$$\ $$\
-\__$$  __|$$  _____|$$$\    $$$ |$$  __$$\ $$  __$$\ $$  __$$\\__$$  __|$$ |
-   $$ |   $$ |      $$$$\  $$$$ |$$ |  $$ |$$ /  $$ |$$ /  \__|  $$ |   $$ |
-   $$ |   $$$$$\    $$\$$\$$ $$ |$$$$$$$  |$$ |  $$ |$$ |        $$ |   $$ |
-   $$ |   $$  __|   $$ \$$$  $$ |$$  ____/ $$ |  $$ |$$ |        $$ |   $$ |
-   $$ |   $$ |      $$ |\$  /$$ |$$ |      $$ |  $$ |$$ |  $$\   $$ |   $$ |
-   $$ |   $$$$$$$$\ $$ | \_/ $$ |$$ |       $$$$$$  |\$$$$$$  |  $$ |   $$$$$$$$\
-   \__|   \________|\__|     \__|\__|       \______/  \______/   \__|   \________|
+PRESTO_BANNER='
+$$$$$$$\  $$$$$$$\  $$$$$$$$\  $$$$$$\ $$$$$$$$\  $$$$$$\
+$$  __$$\ $$  __$$\ $$  _____|$$  __$$\\__$$  __|$$  __$$\
+$$ |  $$ |$$ |  $$ |$$ |      $$ /  \__|  $$ |   $$ /  $$ |
+$$$$$$$  |$$$$$$$  |$$$$$\    \$$$$$$\    $$ |   $$ |  $$ |
+$$  ____/ $$  __$$< $$  __|    \____$$\   $$ |   $$ |  $$ |
+$$ |      $$ |  $$ |$$ |      $$\   $$ |  $$ |   $$ |  $$ |
+$$ |      $$ |  $$ |$$$$$$$$\ \$$$$$$  |  $$ |    $$$$$$  |
+\__|      \__|  \__|\________| \______/   \__|    \______/
 '
 
-echo "$TEMPOCTL_BANNER"
+echo "$PRESTO_BANNER"
 echo ""
 
 REPO="tempoxyz/pget"
 INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="tempoctl"
-R2_BASE_URL="https://tempoctl-binaries.tempo.xyz"
+BINARY_NAME="presto"
+R2_BASE_URL="https://presto-binaries.tempo.xyz"
 
 # Temp directory for downloads (cleaned up on exit)
 TMP_DIR=""
@@ -67,8 +67,8 @@ detect_arch() {
     esac
 }
 
-install_tempoctl() {
-    local binary_name="tempoctl-${PLATFORM}-${ARCH}"
+install_presto() {
+    local binary_name="presto-${PLATFORM}-${ARCH}"
     local download_url="${R2_BASE_URL}/${binary_name}"
     
     # Create secure temp directory
@@ -78,7 +78,7 @@ install_tempoctl() {
     local tmp_file="${TMP_DIR}/${BINARY_NAME}"
 
     echo ""
-    echo "Downloading tempoctl..."
+    echo "Downloading presto..."
     echo "URL: ${download_url}"
 
     if ! curl -fsSL "${download_url}" -o "${tmp_file}"; then
@@ -117,12 +117,12 @@ install_tempoctl() {
 
 verify_installation() {
     echo ""
-    if command -v tempoctl >/dev/null 2>&1; then
-        echo "tempoctl is installed and available in PATH"
+    if command -v  tempo-wallet>/dev/null 2>&1; then
+        echo " tempo-walletis installed and available in PATH"
         echo ""
-        tempoctl --version
+         tempo-wallet--version
     else
-        echo "tempoctl was installed but is not in PATH"
+        echo " tempo-walletwas installed but is not in PATH"
         echo "Make sure ${INSTALL_DIR} is in your PATH"
     fi
 }
@@ -131,15 +131,15 @@ main() {
     check_dependencies
     detect_platform
     detect_arch
-    install_tempoctl
+    install_presto
     verify_installation
 
     echo ""
     echo "Installation complete!"
     echo ""
     echo "Get started:"
-    echo "  tempoctl login         # Connect your Tempo wallet"
-    echo "  tempoctl --help        # Show all options"
+    echo "   tempo-walletlogin         # Connect your Tempo wallet"
+    echo "   tempo-wallet--help        # Show all options"
     echo ""
     echo "Documentation:"
     echo "  https://github.com/${REPO}"

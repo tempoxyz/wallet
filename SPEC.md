@@ -10,7 +10,7 @@ Error: <message with relevant context>
 Fix: <one-line actionable instruction>
 ```
 
-Some errors are fully controlled by tempoctl and use a fixed message. Others pass through a raw error from an external source (RPC node, HTTP server, payment protocol, OS). In those cases, include the raw error in the message so users and support can diagnose the issue.
+Some errors are fully controlled by  tempo-walletand use a fixed message. Others pass through a raw error from an external source (RPC node, HTTP server, payment protocol, OS). In those cases, include the raw error in the message so users and support can diagnose the issue.
 
 In the examples below, `{reason}` denotes a passthrough value from the external source.
 
@@ -23,7 +23,7 @@ Token is displayed as its ticker (e.g., `pathUSD`) when known, or as the contrac
 ```
 Error: Spending limit exceeded: limit is 0.50 pathUSD, need 1.00 pathUSD
 
-Fix: Run 'tempoctl login' to generate a fresh authorization key.
+Fix: Run ' tempo-walletlogin' to generate a fresh authorization key.
 ```
 
 ### InsufficientBalance (exit 6)
@@ -41,7 +41,7 @@ Fix: Deposit funds into your wallet.
 ```
 Error: Insufficient pathUSD balance: have 0.00, need 1.00
 
-Fix: Run 'tempoctl balance' to check your balance.
+Fix: Run ' tempo-walletbalance' to check your balance.
 ```
 
 ### PaymentRejected (exit 5)
@@ -75,7 +75,7 @@ Fix: Increase with --max-amount or remove the limit.
 ```
 Error: Configuration missing: {reason}
 
-Fix: Run 'tempoctl login' to set up your wallet.
+Fix: Run ' tempo-walletlogin' to set up your wallet.
 ```
 
 ### NoConfigDir (exit 3)
@@ -93,7 +93,7 @@ The detail is passed through (e.g., TOML parse error, invalid value).
 ```
 Error: Invalid configuration: {reason}
 
-Fix: Run 'tempoctl config' to view your current configuration.
+Fix: Run ' tempo-walletconfig' to view your current configuration.
 ```
 
 ### InvalidKey (exit 8)
@@ -111,7 +111,7 @@ The signing error is passed through from the signing backend.
 ```
 Error: Signing error: {reason}
 
-Fix: Check your wallet configuration with 'tempoctl config'.
+Fix: Check your wallet configuration with ' tempo-walletconfig'.
 ```
 
 ### UnknownNetwork (exit 4)
@@ -119,7 +119,7 @@ Fix: Check your wallet configuration with 'tempoctl config'.
 ```
 Error: Unknown network: {name}
 
-Fix: Run 'tempoctl networks list' to see available networks.
+Fix: Run ' tempo-walletnetworks list' to see available networks.
 ```
 
 ### BalanceQuery / SpendingLimitQuery (exit 1)
@@ -140,7 +140,7 @@ The status code and reason phrase are passed through from the server response.
 ```
 Error: HTTP error: 402 Payment Required
 
-Fix: Ensure you have a wallet configured with 'tempoctl login'.
+Fix: Ensure you have a wallet configured with ' tempo-walletlogin'.
 ```
 
 **401/403:**
@@ -168,7 +168,7 @@ Fix: Server error. Try again later.
 
 | Pattern | Fix |
 |---------|-----|
-| config not found | `Run 'tempoctl login' to set up your wallet.` |
+| config not found | `Run ' tempo-walletlogin' to set up your wallet.` |
 | permission denied | `Check file permissions or run with appropriate privileges.` |
 | connection refused | `Check your internet connection and try again.` |
 | timeout | `The request timed out. Try again or use --max-time.` |

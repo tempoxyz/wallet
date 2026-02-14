@@ -19,6 +19,8 @@ on:
         required: false
         type: string
 
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
 permissions:
   contents: write
 
@@ -26,6 +28,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') && !inputs.version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Changelogs
+        uses: wevm/changelogs-rs@changelogs@0.6.0
+        with:
+          conventional-commit: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -34,15 +51,15 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            asset: tempoctl-linux-amd64
+            asset: presto-linux-amd64
           - os: macos-latest
             target: x86_64-apple-darwin
-            asset: tempoctl-darwin-amd64
+            asset: presto-darwin-amd64
           - os: macos-latest
             target: aarch64-apple-darwin
-            asset: tempoctl-darwin-arm64
+            asset: presto-darwin-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Configure git for private repos
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - uses: dtolnay/rust-toolchain@stable
@@ -52,8 +69,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - run: strip target/${{ matrix.target }}/release/tempoctl
-      - run: mv target/${{ matrix.target }}/release/tempoctl ${{ matrix.asset }}
+      - run: strip target/${{ matrix.target }}/release/presto
+      - run: mv target/${{ matrix.target }}/release/ tempo-wallet${{ matrix.asset }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
@@ -66,7 +83,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && !inputs.version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -78,11 +95,11 @@ jobs:
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
           for f in artifacts/*; do
-            aws s3 cp "$f" "s3://tempoctl-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://presto-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
           # Upload install script
-          aws s3 cp install.sh "s3://tempoctl-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp install.sh "s3://presto-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           echo "Uploaded latest binaries to R2"
 
@@ -93,7 +110,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || inputs.version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -126,7 +143,7 @@ jobs:
           # Upload with version prefix
           for f in artifacts/*; do
             BASENAME=$(basename "$f")
-            aws s3 cp "$f" "s3://tempoctl-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://presto-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
           echo "Uploaded ${VERSION} binaries to R2"
@@ -139,7 +156,7 @@ jobs:
   #   if: startsWith(github.ref, 'refs/tags/v') || inputs.version
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v6
   #     - name: Configure git for private repos
   #       run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
   #     - uses: dtolnay/rust-toolchain@stable
