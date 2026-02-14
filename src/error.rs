@@ -198,9 +198,9 @@ pub enum PrestoError {
     #[error("System time error: {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
 
-    /// mpay protocol error
+    /// mpp protocol error
     #[error("{0}")]
-    Mpay(#[from] mpay::MppError),
+    Mpp(#[from] mpp::MppError),
 }
 
 impl PrestoError {

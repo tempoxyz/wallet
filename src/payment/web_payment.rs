@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use std::str::FromStr;
 
-use mpay::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
+use mpp::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
 
 use crate::cli::confirm::confirm_web_payment;
 use crate::cli::formatting::format_address_link;
@@ -17,7 +17,7 @@ use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
-use crate::payment::mpay_ext::{method_to_network, validate_challenge};
+use crate::payment::mpp_ext::{method_to_network, validate_challenge};
 use crate::payment::provider::PrestoPaymentProvider;
 
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
@@ -90,21 +90,21 @@ pub async fn handle_web_payment_request(
         confirm_web_payment(config, &challenge, &charge_req, explorer.as_ref())?;
     }
 
-    // Use mpay::client::PaymentProvider to create the credential
+    // Use mpp::client::PaymentProvider to create the credential
     let provider = PrestoPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
     }
 
-    use mpay::client::PaymentProvider;
+    use mpp::client::PaymentProvider;
     let credential = provider
         .pay(&challenge)
         .await
         .map_err(classify_payment_provider_error)?;
 
     let auth_header =
-        mpay::format_authorization(&credential).context("Failed to format Authorization header")?;
+        mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Authorization header length: {} bytes", auth_header.len());
@@ -260,8 +260,8 @@ fn display_web_receipt(
     Ok(())
 }
 
-/// Classify an mpay provider error into a PrestoError with actionable context.
-fn classify_payment_provider_error(err: mpay::MppError) -> crate::error::PrestoError {
+/// Classify an mpp provider error into a PrestoError with actionable context.
+fn classify_payment_provider_error(err: mpp::MppError) -> crate::error::PrestoError {
     let raw = err.to_string();
     let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
     let msg_lower = msg.to_lowercase();
@@ -361,10 +361,10 @@ mod tests {
     use super::*;
     use crate::cli::test_utils::make_query_args;
     use clap::Parser;
-    use mpay::{MethodName, PaymentChallenge};
+    use mpp::{MethodName, PaymentChallenge};
 
     fn mock_challenge(method: MethodName, amount: &str) -> (PaymentChallenge, ChargeRequest) {
-        use mpay::Base64UrlJson;
+        use mpp::Base64UrlJson;
 
         let charge_req = ChargeRequest {
             amount: amount.to_string(),
@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn test_classify_spending_limit_from_mpp_error() {
         let inner = "Spending limit exceeded: limit is 0.000000 pathUSD, need 0.010000 pathUSD";
-        let err = mpay::MppError::Http(inner.to_string());
+        let err = mpp::MppError::Http(inner.to_string());
         let result = classify_payment_provider_error(err);
         match result {
             crate::error::PrestoError::SpendingLimitExceeded {
@@ -560,7 +560,7 @@ mod tests {
     fn test_classify_spending_limit_with_address_token() {
         let addr = "0x20c0000000000000000000000000000000000000";
         let inner = format!("Spending limit exceeded: limit is 0.50 {addr}, need 1.00 {addr}");
-        let err = mpay::MppError::Http(inner);
+        let err = mpp::MppError::Http(inner);
         let result = classify_payment_provider_error(err);
         match result {
             crate::error::PrestoError::SpendingLimitExceeded { token, .. } => {
@@ -573,7 +573,7 @@ mod tests {
     #[test]
     fn test_classify_insufficient_balance_from_mpp_error() {
         let inner = "Insufficient pathUSD balance: have 0.50, need 1.00";
-        let err = mpay::MppError::Http(inner.to_string());
+        let err = mpp::MppError::Http(inner.to_string());
         let result = classify_payment_provider_error(err);
         match result {
             crate::error::PrestoError::InsufficientBalance {
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn test_classify_unrecognized_falls_through() {
-        let err = mpay::MppError::Http("something unexpected".to_string());
+        let err = mpp::MppError::Http("something unexpected".to_string());
         let result = classify_payment_provider_error(err);
         match result {
             crate::error::PrestoError::Http(msg) => {

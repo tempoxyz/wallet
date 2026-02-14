@@ -14,7 +14,7 @@ mod wallet;
 // CLI modules
 mod cli;
 
-use mpay::PaymentProtocol;
+use mpp::PaymentProtocol;
 
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};

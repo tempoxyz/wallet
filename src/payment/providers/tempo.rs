@@ -12,7 +12,7 @@ use crate::payment::abi::{
     encode_approve, encode_swap_exact_amount_out, encode_transfer, IAccountKeychain, DEX_ADDRESS,
     KEYCHAIN_ADDRESS,
 };
-use crate::payment::mpay_ext::TempoChargeExt;
+use crate::payment::mpp_ext::TempoChargeExt;
 use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
@@ -86,7 +86,7 @@ type HttpProvider = alloy::providers::RootProvider;
 
 /// Common context for payment setup, shared between direct and swap payments.
 struct PaymentSetupContext {
-    charge_req: mpay::ChargeRequest,
+    charge_req: mpp::ChargeRequest,
     signer: PrivateKeySigner,
     wallet_address: Option<Address>,
     key_authorization: Option<SignedKeyAuthorization>,
@@ -99,12 +99,12 @@ struct PaymentSetupContext {
 
 impl PaymentSetupContext {
     /// Parse challenge and set up all common payment context.
-    async fn from_challenge(config: &Config, challenge: &mpay::PaymentChallenge) -> Result<Self> {
-        use crate::payment::mpay_ext::method_to_network;
+    async fn from_challenge(config: &Config, challenge: &mpp::PaymentChallenge) -> Result<Self> {
+        use crate::payment::mpp_ext::method_to_network;
         use alloy::providers::Provider;
         use alloy::rlp::Decodable;
 
-        let charge_req: mpay::ChargeRequest = challenge
+        let charge_req: mpp::ChargeRequest = challenge
             .request
             .decode()
             .map_err(|e| PrestoError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
@@ -247,8 +247,8 @@ impl PaymentSetupContext {
 /// from wallet.toml.
 pub async fn create_tempo_payment(
     config: &Config,
-    challenge: &mpay::PaymentChallenge,
-) -> Result<mpay::PaymentCredential> {
+    challenge: &mpp::PaymentChallenge,
+) -> Result<mpp::PaymentCredential> {
     let ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
 
     let currency = ctx.charge_req.currency_address()?;
@@ -290,10 +290,10 @@ pub async fn create_tempo_payment(
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
-    Ok(mpay::PaymentCredential {
+    Ok(mpp::PaymentCredential {
         challenge: challenge.to_echo(),
         source: Some(did),
-        payload: mpay::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+        payload: mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
     })
 }
 
@@ -307,9 +307,9 @@ pub async fn create_tempo_payment(
 /// The fee token is set to token_in (the token being swapped from).
 pub async fn create_tempo_payment_with_swap(
     config: &Config,
-    challenge: &mpay::PaymentChallenge,
+    challenge: &mpp::PaymentChallenge,
     swap_info: &SwapInfo,
-) -> Result<mpay::PaymentCredential> {
+) -> Result<mpp::PaymentCredential> {
     let ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
 
     let recipient = ctx.charge_req.recipient_address()?;
@@ -344,10 +344,10 @@ pub async fn create_tempo_payment_with_swap(
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
-    Ok(mpay::PaymentCredential {
+    Ok(mpp::PaymentCredential {
         challenge: challenge.to_echo(),
         source: Some(did),
-        payload: mpay::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+        payload: mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
     })
 }
 

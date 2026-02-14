@@ -1,6 +1,6 @@
 //! Payment provider abstraction for presto.
 //!
-//! This module provides payment providers that implement the mpay::client::PaymentProvider trait,
+//! This module provides payment providers that implement the mpp::client::PaymentProvider trait,
 //! enabling automatic Web Payment Auth handling with presto-specific features like keychain signing.
 
 use crate::config::Config;
@@ -56,7 +56,7 @@ impl std::fmt::Display for NetworkBalance {
     }
 }
 
-/// Presto payment provider that wraps config and implements mpay::client::PaymentProvider.
+/// Presto payment provider that wraps config and implements mpp::client::PaymentProvider.
 ///
 /// This provider handles both Tempo and EVM networks, automatically selecting
 /// the appropriate transaction format based on the payment method.
@@ -89,7 +89,7 @@ impl PrestoPaymentProvider {
     }
 }
 
-impl mpay::client::PaymentProvider for PrestoPaymentProvider {
+impl mpp::client::PaymentProvider for PrestoPaymentProvider {
     fn supports(&self, method: &str, intent: &str) -> bool {
         let method_lower = method.to_lowercase();
         let is_supported_method = method_lower == "tempo";
@@ -99,13 +99,13 @@ impl mpay::client::PaymentProvider for PrestoPaymentProvider {
 
     async fn pay(
         &self,
-        challenge: &mpay::PaymentChallenge,
-    ) -> std::result::Result<mpay::PaymentCredential, mpay::MppError> {
+        challenge: &mpp::PaymentChallenge,
+    ) -> std::result::Result<mpp::PaymentCredential, mpp::MppError> {
         let method = challenge.method.as_str().to_lowercase();
 
         match method.as_str() {
             "tempo" => self.create_tempo_payment(challenge).await,
-            _ => Err(mpay::MppError::UnsupportedPaymentMethod(format!(
+            _ => Err(mpp::MppError::UnsupportedPaymentMethod(format!(
                 "Payment method '{}' is not supported",
                 challenge.method
             ))),
@@ -116,27 +116,27 @@ impl mpay::client::PaymentProvider for PrestoPaymentProvider {
 impl PrestoPaymentProvider {
     async fn create_tempo_payment(
         &self,
-        challenge: &mpay::PaymentChallenge,
-    ) -> std::result::Result<mpay::PaymentCredential, mpay::MppError> {
-        use crate::payment::mpay_ext::{method_to_network, TempoChargeExt};
+        challenge: &mpp::PaymentChallenge,
+    ) -> std::result::Result<mpp::PaymentCredential, mpp::MppError> {
+        use crate::payment::mpp_ext::{method_to_network, TempoChargeExt};
         use crate::payment::providers::tempo::{
             create_tempo_payment, create_tempo_payment_with_swap,
         };
 
-        let charge_req: mpay::ChargeRequest = challenge
+        let charge_req: mpp::ChargeRequest = challenge
             .request
             .decode()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid charge request: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid charge request: {}", e)))?;
 
         let required_token = charge_req
             .currency_address()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid currency address: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid currency address: {}", e)))?;
         let required_amount = charge_req
             .amount_u256()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid amount: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid amount: {}", e)))?;
 
         let signer_ctx =
-            load_signer_with_priority().map_err(|e| mpay::MppError::Http(e.to_string()))?;
+            load_signer_with_priority().map_err(|e| mpp::MppError::Http(e.to_string()))?;
 
         let key_address = signer_ctx.signer.address();
         let wallet_address = signer_ctx
@@ -144,7 +144,7 @@ impl PrestoPaymentProvider {
             .as_ref()
             .map(|addr| Address::from_str(addr))
             .transpose()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid wallet address: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid wallet address: {}", e)))?;
 
         let pending_auth = signer_ctx
             .pending_key_authorization
@@ -152,11 +152,11 @@ impl PrestoPaymentProvider {
             .map(|hex_str| {
                 let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
                 let bytes = hex::decode(hex_str).map_err(|e| {
-                    mpay::MppError::Http(format!("Invalid pending key authorization hex: {}", e))
+                    mpp::MppError::Http(format!("Invalid pending key authorization hex: {}", e))
                 })?;
                 let mut slice = bytes.as_slice();
                 SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
-                    mpay::MppError::Http(format!("Invalid pending key authorization RLP: {}", e))
+                    mpp::MppError::Http(format!("Invalid pending key authorization RLP: {}", e))
                 })
             })
             .transpose()?;
@@ -164,13 +164,13 @@ impl PrestoPaymentProvider {
         let from = wallet_address.unwrap_or(key_address);
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            mpay::MppError::UnsupportedPaymentMethod(format!(
+            mpp::MppError::UnsupportedPaymentMethod(format!(
                 "Unsupported payment method: {}",
                 challenge.method
             ))
         })?;
         let network = Network::from_str(network_name)
-            .map_err(|e| mpay::MppError::Http(format!("Unknown network: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Unknown network: {}", e)))?;
 
         let token_config = network.token_config_by_address(&format!("{:#x}", required_token));
         let token_symbol = token_config
@@ -190,7 +190,7 @@ impl PrestoPaymentProvider {
 
         let balance = query_token_balance(&self.config, network, required_token, from)
             .await
-            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+            .map_err(|e| mpp::MppError::Http(e.to_string()))?;
 
         debug!(
             balance = %format_u256_with_decimals(balance, token_decimals),
@@ -202,12 +202,12 @@ impl PrestoPaymentProvider {
             let network_info = self
                 .config
                 .resolve_network(network_name)
-                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+                .map_err(|e| mpp::MppError::Http(e.to_string()))?;
             let provider = ProviderBuilder::new().connect_http(
                 network_info
                     .rpc_url
                     .parse()
-                    .map_err(|e| mpay::MppError::Http(format!("Invalid RPC URL: {}", e)))?,
+                    .map_err(|e| mpp::MppError::Http(format!("Invalid RPC URL: {}", e)))?,
             );
 
             let limit =
@@ -219,7 +219,7 @@ impl PrestoPaymentProvider {
                         pending_key_spending_limit(pending_auth.as_ref().unwrap(), required_token)
                     }
                     Err(e) => {
-                        return Err(mpay::MppError::Http(format!(
+                        return Err(mpp::MppError::Http(format!(
                             "Cannot verify key spending limit for {}: {}. \
                          Refusing to proceed — the key may not be authorized for this token.",
                             token_symbol, e
@@ -264,7 +264,7 @@ impl PrestoPaymentProvider {
             let limit_human =
                 format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
             let needed_human = format_u256_with_decimals(required_amount, token_decimals);
-            return Err(mpay::MppError::Http(
+            return Err(mpp::MppError::Http(
                 PrestoError::SpendingLimitExceeded {
                     token: token_symbol.clone(),
                     limit: limit_human,
@@ -275,7 +275,7 @@ impl PrestoPaymentProvider {
         }
 
         if self.no_swap {
-            return Err(mpay::MppError::Http(format!(
+            return Err(mpp::MppError::Http(format!(
                 "Insufficient {} balance: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
                 token_symbol,
                 format_u256_with_decimals(balance, token_decimals),
@@ -294,7 +294,7 @@ impl PrestoPaymentProvider {
             pending_auth.as_ref(),
         )
         .await
-        .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+        .map_err(|e| mpp::MppError::Http(e.to_string()))?;
 
         match swap_source {
             Some(source) => {
@@ -332,7 +332,7 @@ impl PrestoPaymentProvider {
                         )
                     })
             }
-            None => Err(mpay::MppError::Http(
+            None => Err(mpp::MppError::Http(
                 PrestoError::InsufficientBalance {
                     token: token_symbol.clone(),
                     available: format_u256_with_decimals(balance, token_decimals),
@@ -356,13 +356,13 @@ fn classify_payment_error(
     balance: U256,
     spending_limit: Option<U256>,
     required_amount: U256,
-) -> mpay::MppError {
+) -> mpp::MppError {
     let msg = err.to_string();
     let msg_lower = msg.to_lowercase();
 
     if msg_lower.contains("spendinglimitexceeded") || msg_lower.contains("spending limit") {
         let limit_value = spending_limit.unwrap_or(balance);
-        return mpay::MppError::Http(
+        return mpp::MppError::Http(
             PrestoError::SpendingLimitExceeded {
                 token: token_symbol.to_string(),
                 limit: format_u256_with_decimals(limit_value, token_decimals),
@@ -381,10 +381,10 @@ fn classify_payment_error(
             available: format_u256_with_decimals(balance, token_decimals),
             required: format_u256_with_decimals(required_amount, token_decimals),
         };
-        return mpay::MppError::Http(err.to_string());
+        return mpp::MppError::Http(err.to_string());
     }
 
-    mpay::MppError::Http(err.to_string())
+    mpp::MppError::Http(err.to_string())
 }
 
 /// Compute effective spending capacity from wallet balance and optional key spending limit.
@@ -636,7 +636,7 @@ pub async fn find_swap_source(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mpay::client::PaymentProvider;
+    use mpp::client::PaymentProvider;
 
     #[test]
     fn test_provider_supports_tempo() {

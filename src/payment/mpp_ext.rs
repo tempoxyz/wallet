@@ -1,22 +1,22 @@
-//! Presto-specific extensions to mpay types.
+//! Presto-specific extensions to mpp types.
 //!
-//! This module provides helper functions that bridge mpay's protocol types
+//! This module provides helper functions that bridge mpp's protocol types
 //! to presto's network abstractions.
 //!
 //! For core EVM accessors (recipient_address, currency_address, amount_u256,
-//! chain_id, fee_payer), use `mpay::protocol::methods::tempo::TempoChargeExt`.
+//! chain_id, fee_payer), use `mpp::protocol::methods::tempo::TempoChargeExt`.
 
 use alloy::primitives::{Address, U256};
-use mpay::{ChargeRequest, MethodName, PaymentChallenge};
+use mpp::{ChargeRequest, MethodName, PaymentChallenge};
 
 use crate::error::{PrestoError, Result};
 use crate::network::{networks, Network};
 use crate::payment::money::{Money, TokenId};
 
 // Re-export TempoChargeExt for convenience
-pub use mpay::protocol::methods::tempo::TempoChargeExt;
+pub use mpp::protocol::methods::tempo::TempoChargeExt;
 
-/// Map an mpay `MethodName` to a presto network name.
+/// Map an mpp `MethodName` to a presto network name.
 ///
 /// # Supported Mappings
 ///
@@ -54,7 +54,7 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
 
 /// Presto-specific extensions to ChargeRequest.
 ///
-/// For core EVM accessors (including `memo()`), use `TempoChargeExt` from mpay.
+/// For core EVM accessors (including `memo()`), use `TempoChargeExt` from mpp.
 pub trait ChargeRequestExt {
     /// Create a type-safe `Money` value from this charge request.
     ///
@@ -64,7 +64,7 @@ pub trait ChargeRequestExt {
 
 impl ChargeRequestExt for ChargeRequest {
     fn money(&self, network: Network) -> Result<Money> {
-        use mpay::protocol::methods::tempo::TempoChargeExt;
+        use mpp::protocol::methods::tempo::TempoChargeExt;
 
         let currency_addr: Address = self
             .currency_address()
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_validate_challenge_valid() {
-        use mpay::Base64UrlJson;
+        use mpp::Base64UrlJson;
         let challenge = PaymentChallenge {
             id: "test".to_string(),
             realm: "test.example.com".to_string(),
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_validate_challenge_unsupported_method() {
-        use mpay::Base64UrlJson;
+        use mpp::Base64UrlJson;
         let challenge = PaymentChallenge {
             id: "test".to_string(),
             realm: "test.example.com".to_string(),
