@@ -1,10 +1,10 @@
-//! Payment provider abstraction for tempoctl.
+//! Payment provider abstraction for presto.
 //!
-//! This module provides payment providers that implement the mpay::client::PaymentProvider trait,
-//! enabling automatic Web Payment Auth handling with tempoctl-specific features like keychain signing.
+//! This module provides payment providers that implement the mpp::client::PaymentProvider trait,
+//! enabling automatic Web Payment Auth handling with presto-specific features like keychain signing.
 
 use crate::config::Config;
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{
@@ -56,7 +56,7 @@ impl std::fmt::Display for NetworkBalance {
     }
 }
 
-/// TempoCtl payment provider that wraps config and implements mpay::client::PaymentProvider.
+/// Presto payment provider that wraps config and implements mpp::client::PaymentProvider.
 ///
 /// This provider handles both Tempo and EVM networks, automatically selecting
 /// the appropriate transaction format based on the payment method.
@@ -64,13 +64,13 @@ impl std::fmt::Display for NetworkBalance {
 /// When `no_swap` is false (default), the provider will automatically swap from
 /// a different stablecoin if the user doesn't have the required token.
 #[derive(Clone)]
-pub struct TempoCtlPaymentProvider {
+pub struct PrestoPaymentProvider {
     config: Arc<Config>,
     /// If true, disable automatic token swaps.
     no_swap: bool,
 }
 
-impl TempoCtlPaymentProvider {
+impl PrestoPaymentProvider {
     /// Create a new provider with the given configuration.
     #[allow(dead_code)]
     pub fn new(config: Config) -> Self {
@@ -89,7 +89,7 @@ impl TempoCtlPaymentProvider {
     }
 }
 
-impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
+impl mpp::client::PaymentProvider for PrestoPaymentProvider {
     fn supports(&self, method: &str, intent: &str) -> bool {
         let method_lower = method.to_lowercase();
         let is_supported_method = method_lower == "tempo";
@@ -99,13 +99,13 @@ impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
 
     async fn pay(
         &self,
-        challenge: &mpay::PaymentChallenge,
-    ) -> std::result::Result<mpay::PaymentCredential, mpay::MppError> {
+        challenge: &mpp::PaymentChallenge,
+    ) -> std::result::Result<mpp::PaymentCredential, mpp::MppError> {
         let method = challenge.method.as_str().to_lowercase();
 
         match method.as_str() {
             "tempo" => self.create_tempo_payment(challenge).await,
-            _ => Err(mpay::MppError::UnsupportedPaymentMethod(format!(
+            _ => Err(mpp::MppError::UnsupportedPaymentMethod(format!(
                 "Payment method '{}' is not supported",
                 challenge.method
             ))),
@@ -113,30 +113,30 @@ impl mpay::client::PaymentProvider for TempoCtlPaymentProvider {
     }
 }
 
-impl TempoCtlPaymentProvider {
+impl PrestoPaymentProvider {
     async fn create_tempo_payment(
         &self,
-        challenge: &mpay::PaymentChallenge,
-    ) -> std::result::Result<mpay::PaymentCredential, mpay::MppError> {
-        use crate::payment::mpay_ext::{method_to_network, TempoChargeExt};
+        challenge: &mpp::PaymentChallenge,
+    ) -> std::result::Result<mpp::PaymentCredential, mpp::MppError> {
+        use crate::payment::mpp_ext::{method_to_network, TempoChargeExt};
         use crate::payment::providers::tempo::{
             create_tempo_payment, create_tempo_payment_with_swap,
         };
 
-        let charge_req: mpay::ChargeRequest = challenge
+        let charge_req: mpp::ChargeRequest = challenge
             .request
             .decode()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid charge request: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid charge request: {}", e)))?;
 
         let required_token = charge_req
             .currency_address()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid currency address: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid currency address: {}", e)))?;
         let required_amount = charge_req
             .amount_u256()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid amount: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid amount: {}", e)))?;
 
         let signer_ctx =
-            load_signer_with_priority().map_err(|e| mpay::MppError::Http(e.to_string()))?;
+            load_signer_with_priority().map_err(|e| mpp::MppError::Http(e.to_string()))?;
 
         let key_address = signer_ctx.signer.address();
         let wallet_address = signer_ctx
@@ -144,7 +144,7 @@ impl TempoCtlPaymentProvider {
             .as_ref()
             .map(|addr| Address::from_str(addr))
             .transpose()
-            .map_err(|e| mpay::MppError::Http(format!("Invalid wallet address: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Invalid wallet address: {}", e)))?;
 
         let pending_auth = signer_ctx
             .pending_key_authorization
@@ -152,11 +152,11 @@ impl TempoCtlPaymentProvider {
             .map(|hex_str| {
                 let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
                 let bytes = hex::decode(hex_str).map_err(|e| {
-                    mpay::MppError::Http(format!("Invalid pending key authorization hex: {}", e))
+                    mpp::MppError::Http(format!("Invalid pending key authorization hex: {}", e))
                 })?;
                 let mut slice = bytes.as_slice();
                 SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
-                    mpay::MppError::Http(format!("Invalid pending key authorization RLP: {}", e))
+                    mpp::MppError::Http(format!("Invalid pending key authorization RLP: {}", e))
                 })
             })
             .transpose()?;
@@ -164,13 +164,13 @@ impl TempoCtlPaymentProvider {
         let from = wallet_address.unwrap_or(key_address);
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            mpay::MppError::UnsupportedPaymentMethod(format!(
+            mpp::MppError::UnsupportedPaymentMethod(format!(
                 "Unsupported payment method: {}",
                 challenge.method
             ))
         })?;
         let network = Network::from_str(network_name)
-            .map_err(|e| mpay::MppError::Http(format!("Unknown network: {}", e)))?;
+            .map_err(|e| mpp::MppError::Http(format!("Unknown network: {}", e)))?;
 
         let token_config = network.token_config_by_address(&format!("{:#x}", required_token));
         let token_symbol = token_config
@@ -190,7 +190,7 @@ impl TempoCtlPaymentProvider {
 
         let balance = query_token_balance(&self.config, network, required_token, from)
             .await
-            .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+            .map_err(|e| mpp::MppError::Http(e.to_string()))?;
 
         debug!(
             balance = %format_u256_with_decimals(balance, token_decimals),
@@ -202,12 +202,12 @@ impl TempoCtlPaymentProvider {
             let network_info = self
                 .config
                 .resolve_network(network_name)
-                .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+                .map_err(|e| mpp::MppError::Http(e.to_string()))?;
             let provider = ProviderBuilder::new().connect_http(
                 network_info
                     .rpc_url
                     .parse()
-                    .map_err(|e| mpay::MppError::Http(format!("Invalid RPC URL: {}", e)))?,
+                    .map_err(|e| mpp::MppError::Http(format!("Invalid RPC URL: {}", e)))?,
             );
 
             let limit =
@@ -219,7 +219,7 @@ impl TempoCtlPaymentProvider {
                         pending_key_spending_limit(pending_auth.as_ref().unwrap(), required_token)
                     }
                     Err(e) => {
-                        return Err(mpay::MppError::Http(format!(
+                        return Err(mpp::MppError::Http(format!(
                             "Cannot verify key spending limit for {}: {}. \
                          Refusing to proceed — the key may not be authorized for this token.",
                             token_symbol, e
@@ -264,8 +264,8 @@ impl TempoCtlPaymentProvider {
             let limit_human =
                 format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
             let needed_human = format_u256_with_decimals(required_amount, token_decimals);
-            return Err(mpay::MppError::Http(
-                TempoCtlError::SpendingLimitExceeded {
+            return Err(mpp::MppError::Http(
+                PrestoError::SpendingLimitExceeded {
                     token: token_symbol.clone(),
                     limit: limit_human,
                     required: needed_human,
@@ -275,7 +275,7 @@ impl TempoCtlPaymentProvider {
         }
 
         if self.no_swap {
-            return Err(mpay::MppError::Http(format!(
+            return Err(mpp::MppError::Http(format!(
                 "Insufficient {} balance: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
                 token_symbol,
                 format_u256_with_decimals(balance, token_decimals),
@@ -294,7 +294,7 @@ impl TempoCtlPaymentProvider {
             pending_auth.as_ref(),
         )
         .await
-        .map_err(|e| mpay::MppError::Http(e.to_string()))?;
+        .map_err(|e| mpp::MppError::Http(e.to_string()))?;
 
         match swap_source {
             Some(source) => {
@@ -332,8 +332,8 @@ impl TempoCtlPaymentProvider {
                         )
                     })
             }
-            None => Err(mpay::MppError::Http(
-                TempoCtlError::InsufficientBalance {
+            None => Err(mpp::MppError::Http(
+                PrestoError::InsufficientBalance {
                     token: token_symbol.clone(),
                     available: format_u256_with_decimals(balance, token_decimals),
                     required: format_u256_with_decimals(required_amount, token_decimals),
@@ -350,20 +350,20 @@ impl TempoCtlPaymentProvider {
 /// spending limit exceeded or insufficient balance reverts, and returns a descriptive
 /// error with token context.
 fn classify_payment_error(
-    err: TempoCtlError,
+    err: PrestoError,
     token_symbol: &str,
     token_decimals: u8,
     balance: U256,
     spending_limit: Option<U256>,
     required_amount: U256,
-) -> mpay::MppError {
+) -> mpp::MppError {
     let msg = err.to_string();
     let msg_lower = msg.to_lowercase();
 
     if msg_lower.contains("spendinglimitexceeded") || msg_lower.contains("spending limit") {
         let limit_value = spending_limit.unwrap_or(balance);
-        return mpay::MppError::Http(
-            TempoCtlError::SpendingLimitExceeded {
+        return mpp::MppError::Http(
+            PrestoError::SpendingLimitExceeded {
                 token: token_symbol.to_string(),
                 limit: format_u256_with_decimals(limit_value, token_decimals),
                 required: format_u256_with_decimals(required_amount, token_decimals),
@@ -376,15 +376,15 @@ fn classify_payment_error(
         || msg_lower.contains("transfer amount exceeds balance")
         || msg_lower.contains("insufficient balance")
     {
-        let err = TempoCtlError::InsufficientBalance {
+        let err = PrestoError::InsufficientBalance {
             token: token_symbol.to_string(),
             available: format_u256_with_decimals(balance, token_decimals),
             required: format_u256_with_decimals(required_amount, token_decimals),
         };
-        return mpay::MppError::Http(err.to_string());
+        return mpp::MppError::Http(err.to_string());
     }
 
-    mpay::MppError::Http(err.to_string())
+    mpp::MppError::Http(err.to_string())
 }
 
 /// Compute effective spending capacity from wallet balance and optional key spending limit.
@@ -417,17 +417,17 @@ pub async fn get_balances(
     let network_info = config.resolve_network(network.as_str())?;
     let provider =
         ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+            PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
     let user_addr = Address::from_str(address)
-        .map_err(|e| TempoCtlError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
+        .map_err(|e| PrestoError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
 
     let mut balances = Vec::new();
 
     for token_config in network.supported_tokens() {
         let token_addr = Address::from_str(token_config.address).map_err(|e| {
-            TempoCtlError::invalid_address(format!(
+            PrestoError::invalid_address(format!(
                 "Invalid {} contract address for {}: {}",
                 token_config.currency.symbol, network, e
             ))
@@ -470,7 +470,7 @@ pub async fn query_token_balance(
     let network_info = config.resolve_network(network.as_str())?;
     let provider =
         ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+            PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
     let contract = IERC20::new(token_address, &provider);
@@ -478,7 +478,7 @@ pub async fn query_token_balance(
         .balanceOf(account)
         .call()
         .await
-        .map_err(|e| TempoCtlError::BalanceQuery(format!("Failed to query balance: {}", e)))?;
+        .map_err(|e| PrestoError::BalanceQuery(format!("Failed to query balance: {}", e)))?;
 
     Ok(balance)
 }
@@ -550,7 +550,7 @@ pub async fn find_swap_source(
         let network_info = config.resolve_network(network.as_str())?;
         let provider =
             ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-                TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+                PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
             })?);
 
         let limit_futures: Vec<_> = tokens_to_check
@@ -636,12 +636,12 @@ pub async fn find_swap_source(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mpay::client::PaymentProvider;
+    use mpp::client::PaymentProvider;
 
     #[test]
     fn test_provider_supports_tempo() {
         let config = Config::default();
-        let provider = TempoCtlPaymentProvider::new(config);
+        let provider = PrestoPaymentProvider::new(config);
 
         assert!(provider.supports("tempo", "charge"));
         assert!(provider.supports("TEMPO", "charge"));
@@ -652,7 +652,7 @@ mod tests {
     #[test]
     fn test_provider_rejects_unknown_methods() {
         let config = Config::default();
-        let provider = TempoCtlPaymentProvider::new(config);
+        let provider = PrestoPaymentProvider::new(config);
 
         assert!(!provider.supports("base", "charge"));
         assert!(!provider.supports("ethereum", "charge"));

@@ -1,7 +1,7 @@
 //! Type-safe token amount handling with [`TokenId`] and [`Money`].
 #![allow(dead_code)]
 
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::network::Network;
 use alloy::primitives::{Address, U256};
 use std::fmt;
@@ -15,8 +15,8 @@ use std::str::FromStr;
 /// # Examples
 ///
 /// ```
-/// use tempoctl::payment::money::TokenId;
-/// use tempoctl::network::{Network, tempo_tokens};
+/// use presto::payment::money::TokenId;
+/// use presto::network::{Network, tempo_tokens};
 /// use alloy::primitives::Address;
 /// use std::str::FromStr;
 ///
@@ -57,7 +57,7 @@ impl TokenId {
     /// Returns an error if the address string is not a valid EVM address.
     pub fn from_network_and_address(network: Network, address: &str) -> Result<Self> {
         let asset = Address::from_str(address).map_err(|e| {
-            TempoCtlError::invalid_address(format!("Invalid token address '{}': {}", address, e))
+            PrestoError::invalid_address(format!("Invalid token address '{}': {}", address, e))
         })?;
         Ok(Self { network, asset })
     }
@@ -80,7 +80,7 @@ impl fmt::Display for TokenId {
 
 /// A token amount with full type information.
 ///
-/// Money is the single source of truth for representing token amounts in tempoctl.
+/// Money is the single source of truth for representing token amounts in presto.
 /// It combines the token identity, atomic amount, decimals, and symbol to
 /// provide type-safe operations and formatting.
 ///
@@ -94,8 +94,8 @@ impl fmt::Display for TokenId {
 /// # Examples
 ///
 /// ```
-/// use tempoctl::payment::money::{Money, TokenId};
-/// use tempoctl::network::{Network, tempo_tokens};
+/// use presto::payment::money::{Money, TokenId};
+/// use presto::network::{Network, tempo_tokens};
 /// use alloy::primitives::{Address, U256};
 /// use std::str::FromStr;
 ///
@@ -168,7 +168,7 @@ impl Money {
         symbol: impl Into<String>,
     ) -> Result<Self> {
         let atomic = U256::from_str(atomic_str).map_err(|e| {
-            TempoCtlError::InvalidAmount(format!("Invalid atomic amount '{}': {}", atomic_str, e))
+            PrestoError::InvalidAmount(format!("Invalid atomic amount '{}': {}", atomic_str, e))
         })?;
         Ok(Self::new(token, atomic, decimals, symbol))
     }
@@ -197,7 +197,7 @@ impl Money {
             1 => {
                 // No decimal point, treat as whole number
                 let whole: U256 = parts[0].parse().map_err(|_| {
-                    TempoCtlError::InvalidAmount(format!("Invalid number: {}", parts[0]))
+                    PrestoError::InvalidAmount(format!("Invalid number: {}", parts[0]))
                 })?;
                 let multiplier = U256::from(10u64).pow(U256::from(decimals));
                 whole * multiplier
@@ -207,13 +207,13 @@ impl Money {
                     U256::ZERO
                 } else {
                     parts[0].parse().map_err(|_| {
-                        TempoCtlError::InvalidAmount(format!("Invalid whole number: {}", parts[0]))
+                        PrestoError::InvalidAmount(format!("Invalid whole number: {}", parts[0]))
                     })?
                 };
 
                 let frac_str = parts[1];
                 if frac_str.len() > decimals as usize {
-                    return Err(TempoCtlError::InvalidAmount(format!(
+                    return Err(PrestoError::InvalidAmount(format!(
                         "Too many decimal places: {} (max {})",
                         frac_str.len(),
                         decimals
@@ -223,14 +223,14 @@ impl Money {
                 // Pad the fractional part to the right number of decimals
                 let padded = format!("{:0<width$}", frac_str, width = decimals as usize);
                 let frac: U256 = padded.parse().map_err(|_| {
-                    TempoCtlError::InvalidAmount(format!("Invalid fractional part: {}", frac_str))
+                    PrestoError::InvalidAmount(format!("Invalid fractional part: {}", frac_str))
                 })?;
 
                 let multiplier = U256::from(10u64).pow(U256::from(decimals));
                 whole * multiplier + frac
             }
             _ => {
-                return Err(TempoCtlError::InvalidAmount(format!(
+                return Err(PrestoError::InvalidAmount(format!(
                     "Invalid amount format: {}",
                     human
                 )));
@@ -318,7 +318,7 @@ impl Money {
     /// Returns an error if the tokens don't match or if overflow occurs.
     pub fn checked_add(&self, other: &Money) -> Result<Money> {
         if self.token != other.token {
-            return Err(TempoCtlError::InvalidAmount(format!(
+            return Err(PrestoError::InvalidAmount(format!(
                 "Cannot add {} and {}: different tokens",
                 self.token, other.token
             )));
@@ -327,7 +327,7 @@ impl Money {
         let result = self
             .atomic
             .checked_add(other.atomic)
-            .ok_or_else(|| TempoCtlError::InvalidAmount("Overflow in addition".to_string()))?;
+            .ok_or_else(|| PrestoError::InvalidAmount("Overflow in addition".to_string()))?;
 
         Ok(Money {
             token: self.token,
@@ -344,7 +344,7 @@ impl Money {
     /// Returns an error if the tokens don't match or if underflow occurs.
     pub fn checked_sub(&self, other: &Money) -> Result<Money> {
         if self.token != other.token {
-            return Err(TempoCtlError::InvalidAmount(format!(
+            return Err(PrestoError::InvalidAmount(format!(
                 "Cannot subtract {} and {}: different tokens",
                 self.token, other.token
             )));
@@ -353,7 +353,7 @@ impl Money {
         let result = self
             .atomic
             .checked_sub(other.atomic)
-            .ok_or_else(|| TempoCtlError::InvalidAmount("Underflow in subtraction".to_string()))?;
+            .ok_or_else(|| PrestoError::InvalidAmount("Underflow in subtraction".to_string()))?;
 
         Ok(Money {
             token: self.token,
@@ -370,7 +370,7 @@ impl Money {
     /// Returns an error if the tokens don't match.
     pub fn checked_cmp(&self, other: &Money) -> Result<std::cmp::Ordering> {
         if self.token != other.token {
-            return Err(TempoCtlError::InvalidAmount(format!(
+            return Err(PrestoError::InvalidAmount(format!(
                 "Cannot compare {} and {}: different tokens",
                 self.token, other.token
             )));

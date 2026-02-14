@@ -10,8 +10,8 @@ use std::str::FromStr;
 use crate::config::{Config, WalletConfig};
 use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
-use crate::payment::mpay_ext::method_to_network;
-use mpay::{ChargeRequest, PaymentChallenge};
+use crate::payment::mpp_ext::method_to_network;
+use mpp::{ChargeRequest, PaymentChallenge};
 
 use super::exit_codes::ExitCode;
 use super::formatting::{format_truncated_address_link, pad_with_hyperlink};

@@ -1,6 +1,6 @@
-//! Configuration management for tempoctl.
+//! Configuration management for presto.
 
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::network::explorer::ExplorerConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -96,8 +96,8 @@ impl WalletConfig for EvmConfig {
     }
 
     fn get_address(&self) -> Result<String> {
-        Err(TempoCtlError::ConfigMissing(
-            "No wallet configured. Run 'tempoctl login' to connect your Tempo wallet.".to_string(),
+        Err(PrestoError::ConfigMissing(
+            "No wallet configured. Run 'presto login' to connect your Tempo wallet.".to_string(),
         ))
     }
 
@@ -115,7 +115,7 @@ impl Config {
     /// # Example
     ///
     /// ```
-    /// use tempoctl::Config;
+    /// use presto::Config;
     ///
     /// let config = Config::builder()
     ///     .rpc_override("tempo", "https://my-rpc.com")
@@ -126,7 +126,7 @@ impl Config {
         ConfigBuilder::new()
     }
 
-    /// Load config from the specified path or default location (~/.tempoctl/config.toml)
+    /// Load config from the specified path or default location (~/.presto/config.toml)
     pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
         let config_path = if let Some(path) = config_path {
             PathBuf::from(path.as_ref())
@@ -135,14 +135,14 @@ impl Config {
         };
 
         if !config_path.exists() {
-            return Err(TempoCtlError::ConfigMissing(format!(
-                "Config file not found at {}. Run 'tempoctl login' to create one.",
+            return Err(PrestoError::ConfigMissing(format!(
+                "Config file not found at {}. Run 'presto login' to create one.",
                 config_path.display()
             )));
         }
 
         let content = std::fs::read_to_string(&config_path).map_err(|e| {
-            TempoCtlError::ConfigMissing(format!(
+            PrestoError::ConfigMissing(format!(
                 "Failed to read config file at {}: {}",
                 config_path.display(),
                 e
@@ -150,7 +150,7 @@ impl Config {
         })?;
 
         let config: Config = toml::from_str(&content).map_err(|e| {
-            TempoCtlError::ConfigMissing(format!(
+            PrestoError::ConfigMissing(format!(
                 "Failed to parse config file at {}: {}",
                 config_path.display(),
                 e
@@ -158,7 +158,7 @@ impl Config {
         })?;
 
         config.validate().map_err(|e| {
-            TempoCtlError::ConfigMissing(format!(
+            PrestoError::ConfigMissing(format!(
                 "Invalid configuration in {}: {}",
                 config_path.display(),
                 e
@@ -168,7 +168,7 @@ impl Config {
         Ok(config)
     }
 
-    /// Load config from the default location (~/.tempoctl/config.toml)
+    /// Load config from the default location (~/.presto/config.toml)
     #[allow(dead_code)]
     pub fn load() -> Result<Self> {
         Self::load_from(None::<&str>)
@@ -187,14 +187,14 @@ impl Config {
         };
 
         if !config_path.exists() {
-            return Err(TempoCtlError::ConfigMissing(format!(
-                "Config file not found at {}. Run 'tempoctl login' to create one.",
+            return Err(PrestoError::ConfigMissing(format!(
+                "Config file not found at {}. Run 'presto login' to create one.",
                 config_path.display()
             )));
         }
 
         let content = std::fs::read_to_string(&config_path).map_err(|e| {
-            TempoCtlError::ConfigMissing(format!(
+            PrestoError::ConfigMissing(format!(
                 "Failed to read config file at {}: {}",
                 config_path.display(),
                 e
@@ -202,7 +202,7 @@ impl Config {
         })?;
 
         toml::from_str(&content).map_err(|e| {
-            TempoCtlError::ConfigMissing(format!(
+            PrestoError::ConfigMissing(format!(
                 "Failed to parse config file at {}: {}",
                 config_path.display(),
                 e
@@ -210,14 +210,14 @@ impl Config {
         })
     }
 
-    /// Get the default config file path (~/.tempoctl/config.toml)
+    /// Get the default config file path (~/.presto/config.toml)
     pub fn default_config_path() -> Result<PathBuf> {
-        crate::util::constants::default_config_path().ok_or(TempoCtlError::NoConfigDir)
+        crate::util::constants::default_config_path().ok_or(PrestoError::NoConfigDir)
     }
 
-    /// Get the default config directory (~/.config/tempoctl/)
+    /// Get the default config directory (~/.config/presto/)
     pub fn default_config_dir() -> Result<PathBuf> {
-        crate::util::constants::tempoctl_config_dir().ok_or(TempoCtlError::NoConfigDir)
+        crate::util::constants::presto_config_dir().ok_or(PrestoError::NoConfigDir)
     }
 
     /// Save config to the default location with validation
@@ -245,7 +245,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if let Some(evm) = &self.evm {
             evm.validate().map_err(|e| {
-                TempoCtlError::ConfigMissing(format!("EVM configuration invalid: {e}"))
+                PrestoError::ConfigMissing(format!("EVM configuration invalid: {e}"))
             })?;
         }
         Ok(())
@@ -256,8 +256,8 @@ impl Config {
     /// This is a convenience method to avoid repeated error handling boilerplate.
     pub fn require_evm(&self) -> Result<&EvmConfig> {
         self.evm.as_ref().ok_or_else(|| {
-            TempoCtlError::ConfigMissing(
-                "EVM configuration not found. Run 'tempoctl login' to configure.".to_string(),
+            PrestoError::ConfigMissing(
+                "EVM configuration not found. Run 'presto login' to configure.".to_string(),
             )
         })
     }
@@ -275,7 +275,7 @@ impl Config {
     /// # Examples
     ///
     /// ```
-    /// use tempoctl::Config;
+    /// use presto::Config;
     ///
     /// let config = Config::builder()
     ///     .moderato_rpc("https://my-custom-rpc.com")
@@ -301,7 +301,7 @@ impl Config {
 
         // Fall back to built-in networks
         let mut network_info = get_network(network_id).ok_or_else(|| {
-            TempoCtlError::UnknownNetwork(format!(
+            PrestoError::UnknownNetwork(format!(
                 "Network '{}' not found. Supported: tempo, tempo-moderato, or define in [[networks]]",
                 network_id
             ))
@@ -360,7 +360,7 @@ impl fmt::Display for PaymentMethod {
 /// # Example
 ///
 /// ```
-/// use tempoctl::ConfigBuilder;
+/// use presto::ConfigBuilder;
 ///
 /// let config = ConfigBuilder::new()
 ///     .tempo_rpc("https://my-custom-rpc.com")

@@ -1,10 +1,10 @@
-//! Error types for the tempoctl library.
+//! Error types for the presto library.
 
 use std::error::Error as StdError;
 use thiserror::Error;
 
-/// Result type alias for tempoctl operations.
-pub type Result<T> = std::result::Result<T, TempoCtlError>;
+/// Result type alias for presto operations.
+pub type Result<T> = std::result::Result<T, PrestoError>;
 
 /// Context for signing errors
 #[derive(Debug, Clone)]
@@ -38,7 +38,7 @@ impl std::fmt::Display for SigningContext {
 }
 
 #[derive(Error, Debug)]
-pub enum TempoCtlError {
+pub enum PrestoError {
     /// Required amount exceeds user's maximum allowed
     #[error("Required amount ({required}) exceeds maximum allowed ({max})")]
     AmountExceedsMax { required: u128, max: u128 },
@@ -198,12 +198,12 @@ pub enum TempoCtlError {
     #[error("System time error: {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
 
-    /// mpay protocol error
+    /// mpp protocol error
     #[error("{0}")]
-    Mpay(#[from] mpay::MppError),
+    Mpp(#[from] mpp::MppError),
 }
 
-impl TempoCtlError {
+impl PrestoError {
     /// Create a signing error with context and source chain
     pub fn signing_with_context(
         source: impl StdError + Send + Sync + 'static,
@@ -262,12 +262,12 @@ pub trait ResultExt<T> {
 
 impl<T, E: StdError + Send + Sync + 'static> ResultExt<T> for std::result::Result<T, E> {
     fn with_signing_context(self, context: SigningContext) -> Result<T> {
-        self.map_err(|e| TempoCtlError::signing_with_context(e, context))
+        self.map_err(|e| PrestoError::signing_with_context(e, context))
     }
 
     fn with_network(self, network: &str) -> Result<T> {
         self.map_err(|e| {
-            TempoCtlError::signing_with_context(
+            PrestoError::signing_with_context(
                 e,
                 SigningContext {
                     network: Some(network.to_string()),
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_amount_exceeds_max_display() {
-        let err = TempoCtlError::AmountExceedsMax {
+        let err = PrestoError::AmountExceedsMax {
             required: 1000,
             max: 500,
         };
@@ -294,19 +294,19 @@ mod tests {
 
     #[test]
     fn test_invalid_amount_display() {
-        let err = TempoCtlError::InvalidAmount("not a number".to_string());
+        let err = PrestoError::InvalidAmount("not a number".to_string());
         assert_eq!(err.to_string(), "Invalid amount: not a number");
     }
 
     #[test]
     fn test_missing_requirement_display() {
-        let err = TempoCtlError::MissingRequirement("network".to_string());
+        let err = PrestoError::MissingRequirement("network".to_string());
         assert_eq!(err.to_string(), "Missing payment requirement: network");
     }
 
     #[test]
     fn test_config_missing_display() {
-        let err = TempoCtlError::ConfigMissing("wallet not configured".to_string());
+        let err = PrestoError::ConfigMissing("wallet not configured".to_string());
         assert_eq!(
             err.to_string(),
             "Configuration missing: wallet not configured"
@@ -315,110 +315,110 @@ mod tests {
 
     #[test]
     fn test_invalid_config_display() {
-        let err = TempoCtlError::InvalidConfig("invalid rpc url".to_string());
+        let err = PrestoError::InvalidConfig("invalid rpc url".to_string());
         assert_eq!(err.to_string(), "Invalid configuration: invalid rpc url");
     }
 
     #[test]
     fn test_invalid_key_display() {
-        let err = TempoCtlError::InvalidKey("wrong format".to_string());
+        let err = PrestoError::InvalidKey("wrong format".to_string());
         assert_eq!(err.to_string(), "Invalid private key: wrong format");
     }
 
     #[test]
     fn test_no_config_dir_display() {
-        let err = TempoCtlError::NoConfigDir;
+        let err = PrestoError::NoConfigDir;
         assert_eq!(err.to_string(), "Failed to determine config directory");
     }
 
     #[test]
     fn test_unknown_network_display() {
-        let err = TempoCtlError::UnknownNetwork("custom-chain".to_string());
+        let err = PrestoError::UnknownNetwork("custom-chain".to_string());
         assert_eq!(err.to_string(), "Unknown network: custom-chain");
     }
 
     #[test]
     fn test_unsupported_token_display() {
-        let err = TempoCtlError::UnsupportedToken("UNKNOWN".to_string());
+        let err = PrestoError::UnsupportedToken("UNKNOWN".to_string());
         assert_eq!(err.to_string(), "Unsupported token: UNKNOWN");
     }
 
     #[test]
     fn test_balance_query_display() {
-        let err = TempoCtlError::BalanceQuery("RPC timeout".to_string());
+        let err = PrestoError::BalanceQuery("RPC timeout".to_string());
         assert_eq!(err.to_string(), "Balance query failed: RPC timeout");
     }
 
     #[test]
     fn test_http_display() {
-        let err = TempoCtlError::Http("404 Not Found".to_string());
+        let err = PrestoError::Http("404 Not Found".to_string());
         assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
     }
 
     #[test]
     fn test_unsupported_http_method_display() {
-        let err = TempoCtlError::UnsupportedHttpMethod("TRACE".to_string());
+        let err = PrestoError::UnsupportedHttpMethod("TRACE".to_string());
         assert_eq!(err.to_string(), "Unsupported HTTP method: TRACE");
     }
 
     #[test]
     fn test_signing_simple_display() {
-        let err = TempoCtlError::SigningSimple("Failed to sign transaction".to_string());
+        let err = PrestoError::SigningSimple("Failed to sign transaction".to_string());
         assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
     }
 
     #[test]
     fn test_invalid_address_display() {
-        let err = TempoCtlError::InvalidAddress("Not a valid address".to_string());
+        let err = PrestoError::InvalidAddress("Not a valid address".to_string());
         assert_eq!(err.to_string(), "Invalid address: Not a valid address");
     }
 
     #[test]
     fn test_unsupported_payment_method_display() {
-        let err = TempoCtlError::UnsupportedPaymentMethod("bitcoin".to_string());
+        let err = PrestoError::UnsupportedPaymentMethod("bitcoin".to_string());
         assert_eq!(err.to_string(), "Unsupported payment method: bitcoin");
     }
 
     #[test]
     fn test_unsupported_payment_intent_display() {
-        let err = TempoCtlError::UnsupportedPaymentIntent("subscription".to_string());
+        let err = PrestoError::UnsupportedPaymentIntent("subscription".to_string());
         assert_eq!(err.to_string(), "Unsupported payment intent: subscription");
     }
 
     #[test]
     fn test_invalid_challenge_display() {
-        let err = TempoCtlError::InvalidChallenge("Malformed challenge".to_string());
+        let err = PrestoError::InvalidChallenge("Malformed challenge".to_string());
         assert_eq!(err.to_string(), "Invalid challenge: Malformed challenge");
     }
 
     #[test]
     fn test_missing_header_display() {
-        let err = TempoCtlError::MissingHeader("WWW-Authenticate".to_string());
+        let err = PrestoError::MissingHeader("WWW-Authenticate".to_string());
         assert_eq!(err.to_string(), "Missing required header: WWW-Authenticate");
     }
 
     #[test]
     fn test_invalid_base64_url_display() {
-        let err = TempoCtlError::InvalidBase64Url("Invalid padding".to_string());
+        let err = PrestoError::InvalidBase64Url("Invalid padding".to_string());
         assert_eq!(err.to_string(), "Invalid base64url: Invalid padding");
     }
 
     #[test]
     fn test_challenge_expired_display() {
-        let err = TempoCtlError::ChallengeExpired("Expired 5 minutes ago".to_string());
+        let err = PrestoError::ChallengeExpired("Expired 5 minutes ago".to_string());
         assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
     }
 
     #[test]
     fn test_invalid_did_display() {
-        let err = TempoCtlError::InvalidDid("Not a valid DID".to_string());
+        let err = PrestoError::InvalidDid("Not a valid DID".to_string());
         assert_eq!(err.to_string(), "Invalid DID: Not a valid DID");
     }
 
     #[test]
     fn test_signing_constructor() {
-        let err = TempoCtlError::signing("test error");
-        assert!(matches!(err, TempoCtlError::SigningSimple(_)));
+        let err = PrestoError::signing("test error");
+        assert!(matches!(err, PrestoError::SigningSimple(_)));
         assert_eq!(err.to_string(), "Signing error: test error");
     }
 
@@ -431,7 +431,7 @@ mod tests {
             address: Some("0x123".to_string()),
             operation: "sign_transaction",
         };
-        let err = TempoCtlError::signing_with_context(source, ctx);
+        let err = PrestoError::signing_with_context(source, ctx);
         let display = err.to_string();
         assert!(display.contains("signing failed"));
         assert!(display.contains("sign_transaction"));
@@ -469,9 +469,9 @@ mod tests {
             address: None,
             operation: "test_op",
         };
-        let tempoctl_result = result.with_signing_context(ctx);
-        assert!(tempoctl_result.is_err());
-        let err = tempoctl_result.unwrap_err();
+        let presto_result = result.with_signing_context(ctx);
+        assert!(presto_result.is_err());
+        let err = presto_result.unwrap_err();
         assert!(err.to_string().contains("signing failed"));
     }
 
@@ -479,9 +479,9 @@ mod tests {
     fn test_result_ext_with_network() {
         use std::io::{Error as IoError, ErrorKind};
         let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
-        let tempoctl_result = result.with_network("base-sepolia");
-        assert!(tempoctl_result.is_err());
-        let err = tempoctl_result.unwrap_err();
+        let presto_result = result.with_network("base-sepolia");
+        assert!(presto_result.is_err());
+        let err = presto_result.unwrap_err();
         assert!(err.to_string().contains("base-sepolia"));
     }
 
@@ -489,29 +489,29 @@ mod tests {
     fn test_with_network_on_signing_error() {
         use std::io::{Error as IoError, ErrorKind};
         let source = IoError::new(ErrorKind::Other, "test");
-        let err = TempoCtlError::signing_with_context(source, SigningContext::default());
+        let err = PrestoError::signing_with_context(source, SigningContext::default());
         let err_with_network = err.with_network("optimism");
         assert!(err_with_network.to_string().contains("optimism"));
     }
 
     #[test]
     fn test_invalid_address_constructor() {
-        let err = TempoCtlError::invalid_address("test address");
-        assert!(matches!(err, TempoCtlError::InvalidAddress(_)));
+        let err = PrestoError::invalid_address("test address");
+        assert!(matches!(err, PrestoError::InvalidAddress(_)));
         assert_eq!(err.to_string(), "Invalid address: test address");
     }
 
     #[test]
     fn test_config_missing_constructor() {
-        let err = TempoCtlError::config_missing("test config");
-        assert!(matches!(err, TempoCtlError::ConfigMissing(_)));
+        let err = PrestoError::config_missing("test config");
+        assert!(matches!(err, PrestoError::ConfigMissing(_)));
         assert_eq!(err.to_string(), "Configuration missing: test config");
     }
 
     #[test]
     fn test_unsupported_method_constructor() {
-        let err = TempoCtlError::unsupported_method(&"bitcoin");
-        assert!(matches!(err, TempoCtlError::UnsupportedPaymentMethod(_)));
+        let err = PrestoError::unsupported_method(&"bitcoin");
+        assert!(matches!(err, PrestoError::UnsupportedPaymentMethod(_)));
         assert!(err.to_string().contains("bitcoin"));
         assert!(err.to_string().contains("not supported"));
     }

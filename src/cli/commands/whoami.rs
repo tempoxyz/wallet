@@ -108,7 +108,7 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
         response.ready = false;
         response
             .issues
-            .push("No wallet connected. Run 'tempoctl login'.".to_string());
+            .push("No wallet connected. Run 'presto login'.".to_string());
     }
 
     match output_format {

@@ -33,4 +33,5 @@ Thumbs.db
 node_modules/
 package-lock.json
 .ai/
+!.ai/skills/
 

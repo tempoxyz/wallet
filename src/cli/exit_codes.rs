@@ -1,9 +1,9 @@
-//! Exit codes for the tempoctl CLI.
+//! Exit codes for the presto CLI.
 //!
 //! Following standard Unix conventions and providing specific codes
 //! for different error categories to aid scripting and automation.
 
-/// Exit codes for the tempoctl CLI.
+/// Exit codes for the presto CLI.
 ///
 /// These codes follow Unix conventions where possible:
 /// - 0: Success
@@ -71,9 +71,9 @@ impl From<ExitCode> for i32 {
 
 impl From<&anyhow::Error> for ExitCode {
     fn from(err: &anyhow::Error) -> Self {
-        // Try to downcast to TempoCtlError for specific handling
-        if let Some(tempoctl_err) = err.downcast_ref::<crate::error::TempoCtlError>() {
-            return ExitCode::from(tempoctl_err);
+        // Try to downcast to PrestoError for specific handling
+        if let Some(presto_err) = err.downcast_ref::<crate::error::PrestoError>() {
+            return ExitCode::from(presto_err);
         }
 
         // Check error message for common patterns
@@ -93,36 +93,36 @@ impl From<&anyhow::Error> for ExitCode {
     }
 }
 
-impl From<&crate::error::TempoCtlError> for ExitCode {
-    fn from(err: &crate::error::TempoCtlError) -> Self {
-        use crate::error::TempoCtlError;
+impl From<&crate::error::PrestoError> for ExitCode {
+    fn from(err: &crate::error::PrestoError) -> Self {
+        use crate::error::PrestoError;
 
         match err {
             // Configuration errors
-            TempoCtlError::ConfigMissing(_)
-            | TempoCtlError::InvalidConfig(_)
-            | TempoCtlError::NoConfigDir
-            | TempoCtlError::TomlParse(_)
-            | TempoCtlError::TomlSerialize(_) => ExitCode::ConfigError,
+            PrestoError::ConfigMissing(_)
+            | PrestoError::InvalidConfig(_)
+            | PrestoError::NoConfigDir
+            | PrestoError::TomlParse(_)
+            | PrestoError::TomlSerialize(_) => ExitCode::ConfigError,
 
             // Payment/funds errors
-            TempoCtlError::AmountExceedsMax { .. }
-            | TempoCtlError::InvalidAmount(_)
-            | TempoCtlError::SpendingLimitExceeded { .. }
-            | TempoCtlError::InsufficientBalance { .. } => ExitCode::InsufficientFunds,
+            PrestoError::AmountExceedsMax { .. }
+            | PrestoError::InvalidAmount(_)
+            | PrestoError::SpendingLimitExceeded { .. }
+            | PrestoError::InsufficientBalance { .. } => ExitCode::InsufficientFunds,
 
-            TempoCtlError::PaymentRejected { .. } => ExitCode::PaymentFailed,
+            PrestoError::PaymentRejected { .. } => ExitCode::PaymentFailed,
 
             // Network/provider errors
-            TempoCtlError::UnknownNetwork(_)
-            | TempoCtlError::Http(_)
-            | TempoCtlError::Reqwest(_) => ExitCode::NetworkError,
+            PrestoError::UnknownNetwork(_) | PrestoError::Http(_) | PrestoError::Reqwest(_) => {
+                ExitCode::NetworkError
+            }
 
             // Auth/signing errors
-            TempoCtlError::InvalidKey(_)
-            | TempoCtlError::Signing { .. }
-            | TempoCtlError::SigningSimple(_)
-            | TempoCtlError::InvalidAddress(_) => ExitCode::AuthError,
+            PrestoError::InvalidKey(_)
+            | PrestoError::Signing { .. }
+            | PrestoError::SigningSimple(_)
+            | PrestoError::InvalidAddress(_) => ExitCode::AuthError,
 
             // General errors
             _ => ExitCode::GeneralError,
@@ -142,15 +142,15 @@ mod tests {
     }
 
     #[test]
-    fn test_exit_code_from_tempoctl_error() {
-        use crate::error::TempoCtlError;
+    fn test_exit_code_from_presto_error() {
+        use crate::error::PrestoError;
 
         assert_eq!(
-            ExitCode::from(&TempoCtlError::ConfigMissing("test".into())),
+            ExitCode::from(&PrestoError::ConfigMissing("test".into())),
             ExitCode::ConfigError
         );
         assert_eq!(
-            ExitCode::from(&TempoCtlError::UnknownNetwork("test".into())),
+            ExitCode::from(&PrestoError::UnknownNetwork("test".into())),
             ExitCode::NetworkError
         );
     }

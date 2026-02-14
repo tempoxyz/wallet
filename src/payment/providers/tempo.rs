@@ -6,13 +6,13 @@
 //! - Memo support via transferWithMemo
 
 use crate::config::Config;
-use crate::error::{Result, ResultExt, SigningContext, TempoCtlError};
+use crate::error::{PrestoError, Result, ResultExt, SigningContext};
 use crate::network::{GasConfig, Network};
 use crate::payment::abi::{
     encode_approve, encode_swap_exact_amount_out, encode_transfer, IAccountKeychain, DEX_ADDRESS,
     KEYCHAIN_ADDRESS,
 };
-use crate::payment::mpay_ext::TempoChargeExt;
+use crate::payment::mpp_ext::TempoChargeExt;
 use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
@@ -86,7 +86,7 @@ type HttpProvider = alloy::providers::RootProvider;
 
 /// Common context for payment setup, shared between direct and swap payments.
 struct PaymentSetupContext {
-    charge_req: mpay::ChargeRequest,
+    charge_req: mpp::ChargeRequest,
     signer: PrivateKeySigner,
     wallet_address: Option<Address>,
     key_authorization: Option<SignedKeyAuthorization>,
@@ -99,14 +99,15 @@ struct PaymentSetupContext {
 
 impl PaymentSetupContext {
     /// Parse challenge and set up all common payment context.
-    async fn from_challenge(config: &Config, challenge: &mpay::PaymentChallenge) -> Result<Self> {
-        use crate::payment::mpay_ext::method_to_network;
+    async fn from_challenge(config: &Config, challenge: &mpp::PaymentChallenge) -> Result<Self> {
+        use crate::payment::mpp_ext::method_to_network;
         use alloy::providers::Provider;
         use alloy::rlp::Decodable;
 
-        let charge_req: mpay::ChargeRequest = challenge.request.decode().map_err(|e| {
-            TempoCtlError::InvalidChallenge(format!("Invalid charge request: {}", e))
-        })?;
+        let charge_req: mpp::ChargeRequest = challenge
+            .request
+            .decode()
+            .map_err(|e| PrestoError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
         // Load signer from Tempo wallet credentials
         let signer_ctx = load_signer_with_priority()?;
@@ -118,7 +119,7 @@ impl PaymentSetupContext {
             .as_ref()
             .map(|addr| {
                 Address::from_str(addr).map_err(|e| {
-                    TempoCtlError::InvalidConfig(format!("Invalid wallet address: {}", e))
+                    PrestoError::InvalidConfig(format!("Invalid wallet address: {}", e))
                 })
             })
             .transpose()?;
@@ -130,14 +131,14 @@ impl PaymentSetupContext {
             .map(|hex_str| {
                 let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
                 let bytes = hex::decode(hex_str).map_err(|e| {
-                    TempoCtlError::InvalidConfig(format!(
+                    PrestoError::InvalidConfig(format!(
                         "Invalid pending key authorization hex: {}",
                         e
                     ))
                 })?;
                 let mut slice = bytes.as_slice();
                 SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
-                    TempoCtlError::InvalidConfig(format!(
+                    PrestoError::InvalidConfig(format!(
                         "Invalid pending key authorization RLP: {}",
                         e
                     ))
@@ -148,7 +149,7 @@ impl PaymentSetupContext {
         let from = wallet_address.unwrap_or_else(|| signer.address());
 
         let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            TempoCtlError::UnsupportedPaymentMethod(format!(
+            PrestoError::UnsupportedPaymentMethod(format!(
                 "Unsupported payment method: {}",
                 challenge.method
             ))
@@ -156,7 +157,7 @@ impl PaymentSetupContext {
 
         let network_info = config.resolve_network(network_name)?;
         let chain_id = network_info.chain_id.ok_or_else(|| {
-            TempoCtlError::InvalidConfig(format!("{} network missing chain ID", network_name))
+            PrestoError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
         let gas_config = Network::from_str(network_name)
@@ -164,7 +165,7 @@ impl PaymentSetupContext {
             .unwrap_or(GasConfig::DEFAULT);
 
         let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
-            TempoCtlError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+            PrestoError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
         })?;
         let provider = HttpProvider::new_http(rpc_url);
 
@@ -246,8 +247,8 @@ impl PaymentSetupContext {
 /// from wallet.toml.
 pub async fn create_tempo_payment(
     config: &Config,
-    challenge: &mpay::PaymentChallenge,
-) -> Result<mpay::PaymentCredential> {
+    challenge: &mpp::PaymentChallenge,
+) -> Result<mpp::PaymentCredential> {
     let ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
 
     let currency = ctx.charge_req.currency_address()?;
@@ -289,11 +290,11 @@ pub async fn create_tempo_payment(
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
-    Ok(mpay::PaymentCredential {
-        challenge: challenge.to_echo(),
-        source: Some(did),
-        payload: mpay::PaymentPayload::transaction(format!("0x{}", signed_tx)),
-    })
+    Ok(mpp::PaymentCredential::with_source(
+        challenge.to_echo(),
+        did,
+        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+    ))
 }
 
 /// Create a Tempo payment credential with an automatic token swap.
@@ -306,9 +307,9 @@ pub async fn create_tempo_payment(
 /// The fee token is set to token_in (the token being swapped from).
 pub async fn create_tempo_payment_with_swap(
     config: &Config,
-    challenge: &mpay::PaymentChallenge,
+    challenge: &mpp::PaymentChallenge,
     swap_info: &SwapInfo,
-) -> Result<mpay::PaymentCredential> {
+) -> Result<mpp::PaymentCredential> {
     let ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
 
     let recipient = ctx.charge_req.recipient_address()?;
@@ -343,11 +344,11 @@ pub async fn create_tempo_payment_with_swap(
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
-    Ok(mpay::PaymentCredential {
-        challenge: challenge.to_echo(),
-        source: Some(did),
-        payload: mpay::PaymentPayload::transaction(format!("0x{}", signed_tx)),
-    })
+    Ok(mpp::PaymentCredential::with_source(
+        challenge.to_echo(),
+        did,
+        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+    ))
 }
 
 /// Build the 3 calls for a swap transaction: approve → swap → transfer.
@@ -363,11 +364,11 @@ fn build_swap_calls(
     let amount_out_u128: u128 = swap_info
         .amount_out
         .try_into()
-        .map_err(|_| TempoCtlError::InvalidAmount("Amount too large for u128".to_string()))?;
+        .map_err(|_| PrestoError::InvalidAmount("Amount too large for u128".to_string()))?;
     let max_amount_in_u128: u128 = swap_info
         .max_amount_in
         .try_into()
-        .map_err(|_| TempoCtlError::InvalidAmount("Max amount too large for u128".to_string()))?;
+        .map_err(|_| PrestoError::InvalidAmount("Max amount too large for u128".to_string()))?;
 
     let approve_data = encode_approve(DEX_ADDRESS, swap_info.max_amount_in);
     let swap_data = encode_swap_exact_amount_out(
@@ -427,7 +428,7 @@ fn build_estimate_gas_request(
 
     if let Some(auth) = key_authorization {
         req["keyAuthorization"] = serde_json::to_value(auth).map_err(|e| {
-            TempoCtlError::InvalidChallenge(format!("Failed to serialize key authorization: {}", e))
+            PrestoError::InvalidChallenge(format!("Failed to serialize key authorization: {}", e))
         })?;
     }
 
@@ -437,10 +438,7 @@ fn build_estimate_gas_request(
 /// Parse a hex gas estimate and apply a 20% buffer.
 fn parse_gas_estimate_with_buffer(gas_hex: &str) -> Result<u64> {
     let gas_limit = u64::from_str_radix(gas_hex.trim_start_matches("0x"), 16).map_err(|e| {
-        TempoCtlError::InvalidChallenge(format!(
-            "Failed to parse gas estimate '{}': {}",
-            gas_hex, e
-        ))
+        PrestoError::InvalidChallenge(format!("Failed to parse gas estimate '{}': {}", gas_hex, e))
     })?;
 
     Ok(gas_limit + 5_000)
@@ -473,7 +471,7 @@ async fn estimate_tempo_gas(
     let gas_hex: String = provider
         .raw_request("eth_estimateGas".into(), [req])
         .await
-        .map_err(|e| TempoCtlError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
+        .map_err(|e| PrestoError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
 
     let gas_limit = parse_gas_estimate_with_buffer(&gas_hex)?;
 
@@ -530,18 +528,16 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
         .getKey(wallet_address, key_address)
         .call()
         .await
-        .map_err(|e| {
-            TempoCtlError::SpendingLimitQuery(format!("Failed to query key info: {}", e))
-        })?;
+        .map_err(|e| PrestoError::SpendingLimitQuery(format!("Failed to query key info: {}", e)))?;
 
     if key_info.isRevoked {
-        return Err(TempoCtlError::SpendingLimitQuery(
+        return Err(PrestoError::SpendingLimitQuery(
             "Access key is revoked".to_string(),
         ));
     }
 
     if key_info.expiry == 0 {
-        return Err(TempoCtlError::SpendingLimitQuery(
+        return Err(PrestoError::SpendingLimitQuery(
             "Access key is not provisioned on-chain".to_string(),
         ));
     }
@@ -552,7 +548,7 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
         .as_secs();
 
     if key_info.expiry <= now {
-        return Err(TempoCtlError::SpendingLimitQuery(
+        return Err(PrestoError::SpendingLimitQuery(
             "Access key has expired".to_string(),
         ));
     }
@@ -566,7 +562,7 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
         .call()
         .await
         .map_err(|e| {
-            TempoCtlError::SpendingLimitQuery(format!("Failed to query remaining limit: {}", e))
+            PrestoError::SpendingLimitQuery(format!("Failed to query remaining limit: {}", e))
         })?;
 
     Ok(Some(result))

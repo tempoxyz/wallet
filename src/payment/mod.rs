@@ -5,7 +5,7 @@
 pub mod abi;
 pub mod currency;
 pub mod money;
-pub mod mpay_ext;
+pub mod mpp_ext;
 pub mod provider;
 pub mod providers;
 pub mod web_payment;

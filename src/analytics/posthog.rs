@@ -8,8 +8,8 @@ pub async fn build_client() -> Option<Client> {
 }
 
 fn add_common_props(event: &mut Event) {
-    let _ = event.insert_prop("tempo_app_id", "tempoctl");
-    let _ = event.insert_prop("$lib", "tempoctl");
+    let _ = event.insert_prop("tempo_app_id", "presto");
+    let _ = event.insert_prop("$lib", "presto");
     let _ = event.insert_prop("$lib_version", env!("CARGO_PKG_VERSION"));
     let _ = event.insert_prop("os", std::env::consts::OS);
     let _ = event.insert_prop("arch", std::env::consts::ARCH);
@@ -31,14 +31,14 @@ pub async fn capture(client: &Client, distinct_id: &str, event_name: &str, prope
 pub async fn alias(client: &Client, previous_id: &str, new_id: &str) {
     let mut event = Event::new("$create_alias", new_id);
     let _ = event.insert_prop("alias", previous_id);
-    let _ = event.insert_prop("tempo_app_id", "tempoctl");
+    let _ = event.insert_prop("tempo_app_id", "presto");
 
     let _ = client.capture(event).await;
 }
 
 pub async fn identify(client: &Client, distinct_id: &str, properties: Value) {
     let mut event = Event::new("$identify", distinct_id);
-    let _ = event.insert_prop("tempo_app_id", "tempoctl");
+    let _ = event.insert_prop("tempo_app_id", "presto");
     let _ = event.insert_prop("$set", properties);
 
     let _ = client.capture(event).await;

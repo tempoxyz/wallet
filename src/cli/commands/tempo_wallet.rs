@@ -1,7 +1,7 @@
 //! Tempo wallet commands (passkey-based authentication).
 
 use crate::analytics::Analytics;
-use crate::error::{Result, TempoCtlError};
+use crate::error::{PrestoError, Result};
 use crate::network::get_network;
 use crate::util::constants::{BALANCE_OF_SELECTOR, BUILTIN_TOKENS};
 use crate::wallet::credentials::WalletCredentials;
@@ -23,7 +23,7 @@ pub async fn refresh_wallet(network: Option<&str>, analytics: Option<Analytics>)
     }
 
     let wallet = creds.active_wallet().ok_or_else(|| {
-        TempoCtlError::ConfigMissing("No wallet connected. Run 'tempoctl login' first.".to_string())
+        PrestoError::ConfigMissing("No wallet connected. Run 'presto login' first.".to_string())
     })?;
 
     let account_address = wallet.account_address.clone();
@@ -95,7 +95,7 @@ async fn query_balance(
     let json: serde_json::Value = response.json().await?;
 
     if let Some(error) = json.get("error") {
-        return Err(TempoCtlError::BalanceQuery(error.to_string()));
+        return Err(PrestoError::BalanceQuery(error.to_string()));
     }
 
     let result = json.get("result").and_then(|r| r.as_str()).unwrap_or("0x0");

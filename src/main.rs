@@ -1,4 +1,4 @@
-//! tempoctl CLI - A wget-like tool for payment-enabled HTTP requests
+//! presto CLI - A wget-like tool for payment-enabled HTTP requests
 
 // Library modules (from lib.rs)
 mod analytics;
@@ -14,7 +14,7 @@ mod wallet;
 // CLI modules
 mod cli;
 
-use mpay::PaymentProtocol;
+use mpp::PaymentProtocol;
 
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
@@ -402,8 +402,8 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
             .and_then(|c| c.active_wallet().cloned())
             .is_some();
 
-    if !has_wallet && std::env::var("TEMPOCTL_MOCK_PAYMENT").is_err() {
-        anyhow::bail!(crate::error::TempoCtlError::ConfigMissing(
+    if !has_wallet && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
+        anyhow::bail!(crate::error::PrestoError::ConfigMissing(
             "This request requires payment, but no wallet is configured".to_string()
         ));
     }
