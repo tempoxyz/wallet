@@ -17,7 +17,7 @@ $$ |      $$ |  $$ |$$$$$$$$\ \$$$$$$  |  $$ |    $$$$$$  |
 echo "$PRESTO_BANNER"
 echo ""
 
-REPO="tempoxyz/pget"
+REPO="tempoxyz/presto"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="presto"
 R2_BASE_URL="https://presto-binaries.tempo.xyz"

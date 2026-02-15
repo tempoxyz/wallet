@@ -1,7 +1,7 @@
 //!  tempo-walletCLI - A wget-like tool for payment-enabled HTTP requests
 
-// Library modules (from lib.rs)
 mod analytics;
+mod cli;
 mod config;
 mod error;
 mod http;
@@ -10,9 +10,6 @@ mod payment;
 mod services;
 mod util;
 mod wallet;
-
-// CLI modules
-mod cli;
 
 use mpp::PaymentProtocol;
 

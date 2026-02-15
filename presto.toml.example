@@ -11,10 +11,9 @@
 # EVM Wallet Configuration
 # =============================================================================
 # Also accepts [tempo] as an alias for [evm]
+# Run ` tempo-walletlogin` to connect your Tempo wallet.
 
 [evm]
-# Path to encrypted keystore file (recommended for security)
-keystore = "/path/to/keystores/my-wallet.json"
 
 # =============================================================================
 # RPC Overrides for Built-in Networks

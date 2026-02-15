@@ -13,12 +13,6 @@ pub fn presto_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|c| c.join(APP_NAME))
 }
 
-/// Get the  tempo-walletdata directory (`~/.local/share/presto/`)
-#[allow(dead_code)]
-pub fn presto_data_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join(APP_NAME))
-}
-
 /// Get the default config file path (`~/.config/presto/config.toml`)
 pub fn default_config_path() -> Option<PathBuf> {
     presto_config_dir().map(|p| p.join(CONFIG_FILE))
@@ -51,17 +45,6 @@ mod tests {
         let dir = presto_config_dir();
         assert!(dir.is_some());
         let path = dir.expect("Config dir should exist");
-        assert!(path
-            .to_str()
-            .expect("Path should be valid UTF-8")
-            .contains(APP_NAME));
-    }
-
-    #[test]
-    fn test_presto_data_dir_exists() {
-        let dir = presto_data_dir();
-        assert!(dir.is_some());
-        let path = dir.expect("Data dir should exist");
         assert!(path
             .to_str()
             .expect("Path should be valid UTF-8")

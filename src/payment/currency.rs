@@ -1,5 +1,4 @@
 //! Currency definitions and utilities for token amounts
-#![allow(dead_code)]
 
 /// Represents a cryptocurrency or token with its metadata
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +26,7 @@ impl Currency {
     }
 
     /// Format atomic units to human-readable string with appropriate decimal places
+    #[cfg(test)]
     pub fn format_atomic(&self, atomic: u128) -> String {
         let divisor = self.divisor as u128;
         let whole = atomic / divisor;
@@ -41,11 +41,13 @@ impl Currency {
     }
 
     /// Parse atomic units from a string
+    #[cfg(test)]
     pub fn parse_atomic(&self, atomic_str: &str) -> Result<u128, std::num::ParseIntError> {
         atomic_str.parse()
     }
 
     /// Format atomic units with symbol
+    #[cfg(test)]
     pub fn format_with_symbol(&self, atomic: u128) -> String {
         format!("{} {}", self.format_atomic(atomic), self.symbol)
     }
@@ -54,6 +56,7 @@ impl Currency {
     ///
     /// Unlike `format_atomic`, this trims trailing zeros for cleaner display.
     /// e.g., "1.500000 pathUSD" becomes "1.5 pathUSD"
+    #[cfg(test)]
     pub fn format_trimmed(&self, atomic: u128) -> String {
         let divisor = self.divisor as u128;
         let whole = atomic / divisor;
@@ -75,39 +78,13 @@ impl Currency {
     /// # Errors
     ///
     /// Returns an error if the string cannot be parsed as a valid u128.
+    #[cfg(test)]
     pub fn format_trimmed_from_str(
         &self,
         atomic_str: &str,
     ) -> Result<String, std::num::ParseIntError> {
         let atomic: u128 = atomic_str.parse()?;
         Ok(self.format_trimmed(atomic))
-    }
-}
-
-/// Format atomic units to human-readable string with trimmed trailing zeros.
-///
-/// This is a standalone function for formatting when you don't have a Currency instance.
-/// Uses the same logic as Currency::format_trimmed but accepts dynamic values.
-///
-/// # Errors
-///
-/// Returns an error if the atomic string cannot be parsed as a valid u128.
-pub fn format_atomic_trimmed(
-    atomic_str: &str,
-    decimals: u8,
-    symbol: &str,
-) -> Result<String, std::num::ParseIntError> {
-    let atomic: u128 = atomic_str.parse()?;
-    let divisor = 10_u128.pow(decimals as u32);
-    let whole = atomic / divisor;
-    let remainder = atomic % divisor;
-
-    if remainder == 0 {
-        Ok(format!("{whole} {symbol}"))
-    } else {
-        let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
-        let trimmed = frac_str.trim_end_matches('0');
-        Ok(format!("{whole}.{trimmed} {symbol}"))
     }
 }
 

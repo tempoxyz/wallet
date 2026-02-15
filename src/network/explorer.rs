@@ -57,31 +57,9 @@ impl ExplorerConfig {
         }
     }
 
-    /// Create a custom explorer config with specified paths.
-    #[allow(dead_code)]
-    pub fn custom(
-        base_url: impl Into<String>,
-        tx_path: impl Into<String>,
-        block_path: impl Into<String>,
-        address_path: impl Into<String>,
-    ) -> Self {
-        Self {
-            base_url: base_url.into(),
-            tx_path: tx_path.into(),
-            block_path: block_path.into(),
-            address_path: address_path.into(),
-        }
-    }
-
     /// Build a transaction URL.
     pub fn tx_url(&self, hash: &str) -> String {
         format!("{}{}", self.base_url, self.tx_path.replace("{hash}", hash))
-    }
-
-    /// Build a block URL.
-    #[allow(dead_code)]
-    pub fn block_url(&self, num: &str) -> String {
-        format!("{}{}", self.base_url, self.block_path.replace("{num}", num))
     }
 
     /// Build an address URL.
@@ -107,35 +85,8 @@ mod tests {
             "https://explorer.tempo.xyz/receipt/0xabc123"
         );
         assert_eq!(
-            explorer.block_url("12345678"),
-            "https://explorer.tempo.xyz/block/12345678"
-        );
-        assert_eq!(
             explorer.address_url("0x742d35Cc"),
             "https://explorer.tempo.xyz/address/0x742d35Cc"
-        );
-    }
-
-    #[test]
-    fn test_custom_explorer() {
-        let explorer = ExplorerConfig::custom(
-            "https://scan.example.com",
-            "/transaction/{hash}",
-            "/blocks/{num}",
-            "/accounts/{addr}",
-        );
-
-        assert_eq!(
-            explorer.tx_url("0xabc"),
-            "https://scan.example.com/transaction/0xabc"
-        );
-        assert_eq!(
-            explorer.block_url("100"),
-            "https://scan.example.com/blocks/100"
-        );
-        assert_eq!(
-            explorer.address_url("0x123"),
-            "https://scan.example.com/accounts/0x123"
         );
     }
 

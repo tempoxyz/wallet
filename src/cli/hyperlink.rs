@@ -27,27 +27,6 @@ pub fn hyperlink(text: &str, url: &str) -> String {
     }
 }
 
-/// Format text as a hyperlink, with fallback URL display for unsupported terminals.
-///
-/// In terminals that support OSC 8 hyperlinks, the text will be clickable.
-/// In terminals that don't support hyperlinks, the URL is shown in brackets.
-///
-/// # Examples
-///
-/// ```ignore
-/// let link = hyperlink_with_fallback("0x123...abc", "https://etherscan.io/tx/0x123");
-/// // In supported terminals: "0x123...abc" (clickable)
-/// // In unsupported terminals: "0x123...abc [https://etherscan.io/tx/0x123]"
-/// ```
-#[allow(dead_code)]
-pub fn hyperlink_with_fallback(text: &str, url: &str) -> String {
-    if supports_hyperlinks() {
-        format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text)
-    } else {
-        format!("{} [{}]", text, url)
-    }
-}
-
 /// Check if the current terminal supports OSC 8 hyperlinks.
 ///
 /// This function caches its result for performance, only checking once per process.
@@ -132,15 +111,5 @@ mod tests {
         let text = "View transaction";
         let expected = "\x1b]8;;https://etherscan.io/tx/0x123\x07View transaction\x1b]8;;\x07";
         assert_eq!(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text), expected);
-    }
-
-    #[test]
-    fn test_hyperlink_with_fallback_format() {
-        let url = "https://etherscan.io/tx/0x123";
-        let text = "0x123...abc";
-
-        // Test fallback format
-        let fallback = format!("{} [{}]", text, url);
-        assert_eq!(fallback, "0x123...abc [https://etherscan.io/tx/0x123]");
     }
 }

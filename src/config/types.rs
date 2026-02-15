@@ -11,22 +11,15 @@ use std::path::{Path, PathBuf};
 ///
 /// This provides a common interface for validating and accessing wallet
 /// information regardless of the underlying blockchain.
-#[allow(dead_code)]
 pub trait WalletConfig {
     /// The type of address/public key this wallet produces
     type Address: fmt::Display;
-
-    /// Check if this config has a wallet source configured
-    fn has_wallet(&self) -> bool;
 
     /// Validate the wallet configuration
     fn validate(&self) -> Result<()>;
 
     /// Get the wallet address/public key
     fn get_address(&self) -> Result<Self::Address>;
-
-    /// Get the chain name for error messages
-    fn chain_name(&self) -> &'static str;
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -87,10 +80,6 @@ pub struct EvmConfig {}
 impl WalletConfig for EvmConfig {
     type Address = String;
 
-    fn has_wallet(&self) -> bool {
-        false
-    }
-
     fn validate(&self) -> Result<()> {
         Ok(())
     }
@@ -100,33 +89,10 @@ impl WalletConfig for EvmConfig {
             "No wallet configured. Run ' tempo-walletlogin' to connect your Tempo wallet.".to_string(),
         ))
     }
-
-    fn chain_name(&self) -> &'static str {
-        "EVM"
-    }
 }
 
 impl Config {
-    /// Create a new ConfigBuilder for programmatic configuration.
-    ///
-    /// This is useful when you want to create a configuration in code
-    /// rather than loading it from a file.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use presto::Config;
-    ///
-    /// let config = Config::builder()
-    ///     .rpc_override("tempo", "https://my-rpc.com")
-    ///     .build();
-    /// ```
-    #[allow(dead_code)]
-    pub fn builder() -> ConfigBuilder {
-        ConfigBuilder::new()
-    }
-
-    /// Load config from the specified path or default location (~/.presto/config.toml)
+    /// Load config from the specified path or default location
     pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
         let config_path = if let Some(path) = config_path {
             PathBuf::from(path.as_ref())
@@ -168,49 +134,7 @@ impl Config {
         Ok(config)
     }
 
-    /// Load config from the default location (~/.presto/config.toml)
-    #[allow(dead_code)]
-    pub fn load() -> Result<Self> {
-        Self::load_from(None::<&str>)
-    }
-
-    /// Load config without validation.
-    ///
-    /// This is useful during initialization or when you want to inspect
-    /// a potentially invalid config file. Use `load_from` for normal usage.
-    #[allow(dead_code)]
-    pub fn load_unchecked(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
-        let config_path = if let Some(path) = config_path {
-            PathBuf::from(path.as_ref())
-        } else {
-            Self::default_config_path()?
-        };
-
-        if !config_path.exists() {
-            return Err(PrestoError::ConfigMissing(format!(
-                "Config file not found at {}. Run ' tempo-walletlogin' to create one.",
-                config_path.display()
-            )));
-        }
-
-        let content = std::fs::read_to_string(&config_path).map_err(|e| {
-            PrestoError::ConfigMissing(format!(
-                "Failed to read config file at {}: {}",
-                config_path.display(),
-                e
-            ))
-        })?;
-
-        toml::from_str(&content).map_err(|e| {
-            PrestoError::ConfigMissing(format!(
-                "Failed to parse config file at {}: {}",
-                config_path.display(),
-                e
-            ))
-        })
-    }
-
-    /// Get the default config file path (~/.presto/config.toml)
+    /// Get the default config file path (~/.config/presto/config.toml)
     pub fn default_config_path() -> Result<PathBuf> {
         crate::util::constants::default_config_path().ok_or(PrestoError::NoConfigDir)
     }
@@ -221,7 +145,6 @@ impl Config {
     }
 
     /// Save config to the default location with validation
-    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         self.validate()?;
 
@@ -272,18 +195,6 @@ impl Config {
     /// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
     /// 2. General `[rpc]` table overrides (for any network by id)
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use presto::Config;
-    ///
-    /// let config = Config::builder()
-    ///     .moderato_rpc("https://my-custom-rpc.com")
-    ///     .build();
-    ///
-    /// let network_info = config.resolve_network("tempo-moderato").unwrap();
-    /// assert_eq!(network_info.rpc_url, "https://my-custom-rpc.com");
-    /// ```
     pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
         use crate::network::{get_network, networks};
 
@@ -352,108 +263,94 @@ impl fmt::Display for PaymentMethod {
     }
 }
 
-/// Builder for creating [`Config`] programmatically.
-///
-/// This builder provides a fluent API for creating configuration in code,
-/// which is useful for SDK users who don't want to use config files.
-///
-/// # Example
-///
-/// ```
-/// use presto::ConfigBuilder;
-///
-/// let config = ConfigBuilder::new()
-///     .tempo_rpc("https://my-custom-rpc.com")
-///     .rpc_override("my-network", "https://my-rpc.com")
-///     .build();
-/// ```
-#[allow(dead_code)]
-#[derive(Debug, Clone, Default)]
-pub struct ConfigBuilder {
-    tempo_rpc: Option<String>,
-    moderato_rpc: Option<String>,
-    rpc_overrides: HashMap<String, String>,
-    custom_networks: Vec<CustomNetwork>,
-}
-
-impl ConfigBuilder {
-    /// Create a new empty ConfigBuilder.
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the RPC URL for Tempo mainnet.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn tempo_rpc(mut self, url: impl Into<String>) -> Self {
-        self.tempo_rpc = Some(url.into());
-        self
-    }
-
-    /// Set the RPC URL for Tempo Moderato testnet.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn moderato_rpc(mut self, url: impl Into<String>) -> Self {
-        self.moderato_rpc = Some(url.into());
-        self
-    }
-
-    /// Add an RPC URL override for any network by id.
-    ///
-    /// This is useful for overriding built-in networks or custom networks.
-    /// For built-in Tempo networks, prefer `tempo_rpc()` and `moderato_rpc()`.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn rpc_override(mut self, network: impl Into<String>, url: impl Into<String>) -> Self {
-        self.rpc_overrides.insert(network.into(), url.into());
-        self
-    }
-
-    /// Add a custom network definition.
-    ///
-    /// Custom networks are checked before built-in networks when resolving.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn custom_network(mut self, network: CustomNetwork) -> Self {
-        self.custom_networks.push(network);
-        self
-    }
-
-    /// Build the [`Config`].
-    ///
-    /// This creates a Config from the builder's settings. Note that the
-    /// resulting Config may not pass validation if no wallet is configured.
-    #[allow(dead_code)]
-    pub fn build(self) -> Config {
-        Config {
-            evm: None,
-            tempo_rpc: self.tempo_rpc,
-            moderato_rpc: self.moderato_rpc,
-            rpc: self.rpc_overrides,
-            networks: self.custom_networks,
-        }
-    }
-
-    /// Build and validate the [`Config`].
-    ///
-    /// This creates a Config from the builder's settings and validates it.
-    /// Returns an error if the configuration is invalid (e.g., no wallet configured).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the configuration is invalid.
-    #[allow(dead_code)]
-    pub fn build_validated(self) -> Result<Config> {
-        let config = self.build();
-        config.validate()?;
-        Ok(config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, Clone, Default)]
+    struct ConfigBuilder {
+        tempo_rpc: Option<String>,
+        moderato_rpc: Option<String>,
+        rpc_overrides: HashMap<String, String>,
+        custom_networks: Vec<CustomNetwork>,
+    }
+
+    impl ConfigBuilder {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        #[must_use]
+        fn tempo_rpc(mut self, url: impl Into<String>) -> Self {
+            self.tempo_rpc = Some(url.into());
+            self
+        }
+
+        #[must_use]
+        fn moderato_rpc(mut self, url: impl Into<String>) -> Self {
+            self.moderato_rpc = Some(url.into());
+            self
+        }
+
+        #[must_use]
+        fn rpc_override(mut self, network: impl Into<String>, url: impl Into<String>) -> Self {
+            self.rpc_overrides.insert(network.into(), url.into());
+            self
+        }
+
+        #[must_use]
+        fn custom_network(mut self, network: CustomNetwork) -> Self {
+            self.custom_networks.push(network);
+            self
+        }
+
+        fn build(self) -> Config {
+            Config {
+                evm: None,
+                tempo_rpc: self.tempo_rpc,
+                moderato_rpc: self.moderato_rpc,
+                rpc: self.rpc_overrides,
+                networks: self.custom_networks,
+            }
+        }
+    }
+
+    impl Config {
+        fn builder() -> ConfigBuilder {
+            ConfigBuilder::new()
+        }
+
+        fn load_unchecked(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
+            let config_path = if let Some(path) = config_path {
+                PathBuf::from(path.as_ref())
+            } else {
+                Self::default_config_path()?
+            };
+
+            if !config_path.exists() {
+                return Err(PrestoError::ConfigMissing(format!(
+                    "Config file not found at {}. Run ' tempo-walletlogin' to create one.",
+                    config_path.display()
+                )));
+            }
+
+            let content = std::fs::read_to_string(&config_path).map_err(|e| {
+                PrestoError::ConfigMissing(format!(
+                    "Failed to read config file at {}: {}",
+                    config_path.display(),
+                    e
+                ))
+            })?;
+
+            toml::from_str(&content).map_err(|e| {
+                PrestoError::ConfigMissing(format!(
+                    "Failed to parse config file at {}: {}",
+                    config_path.display(),
+                    e
+                ))
+            })
+        }
+    }
 
     #[test]
     fn test_parse_empty_evm_config() {
@@ -589,12 +486,6 @@ mod tests {
     #[test]
     fn test_payment_method_display_name() {
         assert_eq!(PaymentMethod::Evm.display_name(), "EVM");
-    }
-
-    #[test]
-    fn test_evm_config_has_wallet() {
-        let config = EvmConfig {};
-        assert!(!config.has_wallet());
     }
 
     #[test]

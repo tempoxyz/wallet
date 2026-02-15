@@ -1,24 +1,5 @@
 //! Utility functions for  tempo-walletlibrary
 
-/// Format an Ethereum address with 0x prefix
-#[allow(dead_code)]
-pub fn format_eth_address(addr: &str) -> String {
-    if addr.starts_with("0x") || addr.starts_with("0X") {
-        addr.to_string()
-    } else {
-        format!("0x{addr}")
-    }
-}
-
-/// Strip 0x prefix from hex string if present
-#[allow(dead_code)]
-pub fn strip_0x_prefix(s: &str) -> &str {
-    s.trim()
-        .strip_prefix("0x")
-        .or_else(|| s.strip_prefix("0X"))
-        .unwrap_or(s)
-}
-
 /// Truncate an address for display.
 ///
 /// If the address is longer than `max_len`, it will be truncated to show
@@ -49,22 +30,6 @@ pub fn truncate_address(addr: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_format_eth_address() {
-        assert_eq!(format_eth_address("abc123"), "0xabc123");
-        assert_eq!(format_eth_address("0xabc123"), "0xabc123");
-        assert_eq!(format_eth_address("0Xabc123"), "0Xabc123");
-    }
-
-    #[test]
-    fn test_strip_0x_prefix() {
-        assert_eq!(strip_0x_prefix("0xabc123"), "abc123");
-        assert_eq!(strip_0x_prefix("0Xabc123"), "abc123");
-        assert_eq!(strip_0x_prefix("abc123"), "abc123");
-        // ast-grep-ignore: no-leading-whitespace-strings
-        assert_eq!(strip_0x_prefix(" 0xabc123 "), "abc123"); // Intentional: testing whitespace trimming
-    }
 
     #[test]
     fn test_truncate_short_address() {
