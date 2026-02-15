@@ -190,7 +190,7 @@ pub struct QueryArgs {
     )]
     pub max_time: Option<u64>,
 
-    /// POST data
+    /// POST data (use @filename to read from file, @- to read from stdin)
     #[arg(
         short = 'd',
         long = "data",
