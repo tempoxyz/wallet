@@ -705,7 +705,7 @@ mod tests {
             asset,
             calls,
             gas_config,
-            gas_config.gas_limit,
+            500_000,
             wallet_address,
             key_authorization,
         )
@@ -1305,12 +1305,12 @@ mod tests {
 
         assert_eq!(
             decode_gas_limit(&tx_nonce_0),
-            gas.gas_limit,
+            500_000,
             "nonce 0 should use default gas limit (estimation is done via RPC)"
         );
         assert_eq!(
             decode_gas_limit(&tx_nonce_1),
-            gas.gas_limit,
+            500_000,
             "nonce > 0 should use default gas limit"
         );
     }

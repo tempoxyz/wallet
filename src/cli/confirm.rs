@@ -65,7 +65,7 @@ pub fn confirm_web_payment(
 
     eprintln!();
     eprintln!("┌─────────────────────────────────────────────────────────────┐");
-    eprintln!("│                  Payment Details                        │");
+    eprintln!("│                      Payment Details                        │");
     eprintln!("├─────────────────────────────────────────────────────────────┤");
     eprintln!("│  Amount:    {:<47} │", amount_display);
     eprintln!("│  Asset:     {} │", pad_with_hyperlink(&asset_display, 47));

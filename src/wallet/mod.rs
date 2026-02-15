@@ -8,7 +8,3 @@ pub mod signer;
 
 pub use access_key::AccessKey;
 pub use manager::WalletManager;
-
-// Re-export commonly used types for convenience
-#[allow(unused_imports)]
-pub use credentials::{NetworkWallet, WalletCredentials};

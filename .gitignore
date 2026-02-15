@@ -2,7 +2,6 @@
 /target
 **/*.rs.bk
 *.pdb
-Cargo.lock
 
 # IDE
 .vscode/
@@ -13,14 +12,14 @@ Cargo.lock
 .DS_Store
 
 # Configuration (contains private keys!)
-pget.toml
+presto.toml
 *.toml
-!pget.toml.example
+!presto.toml.example
 !Cargo.toml
 !.changelog/config.toml
 
 # Build artifacts
-/pget
+/presto
 *.tar.gz
 
 # Logs

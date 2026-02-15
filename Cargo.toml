@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A wget-like CLI tool for making HTTP requests with automatic payment support"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/tempoxyz/pget"
+repository = "https://github.com/tempoxyz/presto"
 
 [[bin]]
 name = "presto"
@@ -13,7 +13,6 @@ path = "src/main.rs"
 [dependencies]
 alloy = { version = "1.2", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
 anyhow = "1.0"
-async-trait = "0.1"
 axum = "0.8"
 base64 = "0.22"
 bs58 = "0.5"
@@ -48,6 +47,8 @@ assert_cmd = "2.1"
 predicates = "3.1"
 tempfile = "3.24"
 serial_test = "3.2"
+
+[workspace]
 
 [patch.crates-io]
 tempo-alloy = { git = "https://github.com/tempoxyz/tempo" }

@@ -1,10 +1,11 @@
 //! Type-safe token amount handling with [`TokenId`] and [`Money`].
-#![allow(dead_code)]
 
+#[cfg(test)]
 use crate::error::{PrestoError, Result};
 use crate::network::Network;
 use alloy::primitives::{Address, U256};
 use std::fmt;
+#[cfg(test)]
 use std::str::FromStr;
 
 /// Canonical identity for a token on a specific network.
@@ -41,13 +42,9 @@ impl TokenId {
     }
 
     /// Get the network for this token.
+    #[cfg(test)]
     pub const fn network(&self) -> Network {
         self.network
-    }
-
-    /// Get the asset address for this token.
-    pub const fn asset(&self) -> Address {
-        self.asset
     }
 
     /// Create a TokenId from network and address string.
@@ -55,6 +52,7 @@ impl TokenId {
     /// # Errors
     ///
     /// Returns an error if the address string is not a valid EVM address.
+    #[cfg(test)]
     pub fn from_network_and_address(network: Network, address: &str) -> Result<Self> {
         let asset = Address::from_str(address).map_err(|e| {
             PrestoError::invalid_address(format!("Invalid token address '{}': {}", address, e))
@@ -65,6 +63,7 @@ impl TokenId {
     /// Get the default token for this network (pathUSD).
     ///
     /// Returns None if the network doesn't have a configured token.
+    #[cfg(test)]
     pub fn default_for_network(network: Network) -> Option<Self> {
         let config = network.default_token_config();
         let asset = Address::from_str(config.address).ok()?;
@@ -143,6 +142,7 @@ impl Money {
     ///
     /// This is the recommended way to create Money for balance queries
     /// and payment operations when no specific token is specified.
+    #[cfg(test)]
     pub fn from_network_config(network: Network, atomic: U256) -> Result<Self> {
         let config = network.default_token_config();
 
@@ -161,6 +161,7 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the string cannot be parsed as U256.
+    #[cfg(test)]
     pub fn from_atomic_str(
         token: TokenId,
         atomic_str: &str,
@@ -185,6 +186,7 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the string cannot be parsed.
+    #[cfg(test)]
     pub fn from_human(
         human: &str,
         token: TokenId,
@@ -242,42 +244,29 @@ impl Money {
 
     // ==================== Accessors ====================
 
-    /// Get the token identity.
-    pub const fn token(&self) -> &TokenId {
-        &self.token
-    }
+    // ==================== Test-only Accessors ====================
 
-    /// Get the network this money is on.
+    #[cfg(test)]
     pub const fn network(&self) -> Network {
         self.token.network
     }
 
-    /// Get the asset address.
-    pub const fn asset(&self) -> Address {
-        self.token.asset
-    }
-
-    /// Get the atomic amount as U256.
+    #[cfg(test)]
     pub const fn atomic(&self) -> U256 {
         self.atomic
     }
 
-    /// Get the atomic amount as a string.
-    pub fn atomic_string(&self) -> String {
-        self.atomic.to_string()
-    }
-
-    /// Get the number of decimals.
+    #[cfg(test)]
     pub const fn decimals(&self) -> u8 {
         self.decimals
     }
 
-    /// Get the token symbol.
+    #[cfg(test)]
     pub fn symbol(&self) -> &str {
         &self.symbol
     }
 
-    /// Check if the amount is zero.
+    #[cfg(test)]
     pub fn is_zero(&self) -> bool {
         self.atomic == U256::ZERO
     }
@@ -287,13 +276,9 @@ impl Money {
     /// Format the amount as a human-readable string with full decimal places.
     ///
     /// This always includes all decimal places (e.g., "1.500000" for 6 decimals).
+    #[cfg(test)]
     pub fn format_human(&self) -> String {
         format_u256_with_decimals(self.atomic, self.decimals)
-    }
-
-    /// Format the amount with symbol and full decimal places.
-    pub fn format_with_symbol(&self) -> String {
-        format!("{} {}", self.format_human(), self.symbol)
     }
 
     /// Format the amount with trimmed trailing zeros.
@@ -303,12 +288,6 @@ impl Money {
         format_u256_trimmed(self.atomic, self.decimals, &self.symbol)
     }
 
-    /// Format just the amount with trimmed zeros (no symbol).
-    pub fn format_trimmed_amount(&self) -> String {
-        let formatted = format_u256_with_decimals(self.atomic, self.decimals);
-        trim_trailing_zeros(&formatted)
-    }
-
     // ==================== Checked Arithmetic ====================
 
     /// Add two Money values, verifying they are the same token.
@@ -316,6 +295,7 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the tokens don't match or if overflow occurs.
+    #[cfg(test)]
     pub fn checked_add(&self, other: &Money) -> Result<Money> {
         if self.token != other.token {
             return Err(PrestoError::InvalidAmount(format!(
@@ -342,6 +322,7 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the tokens don't match or if underflow occurs.
+    #[cfg(test)]
     pub fn checked_sub(&self, other: &Money) -> Result<Money> {
         if self.token != other.token {
             return Err(PrestoError::InvalidAmount(format!(
@@ -368,6 +349,7 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the tokens don't match.
+    #[cfg(test)]
     pub fn checked_cmp(&self, other: &Money) -> Result<std::cmp::Ordering> {
         if self.token != other.token {
             return Err(PrestoError::InvalidAmount(format!(
@@ -425,21 +407,6 @@ pub fn format_u256_trimmed(value: U256, decimals: u8, symbol: &str) -> String {
         let padded = format!("{:0>width$}", remainder_str, width = decimals as usize);
         let trimmed = padded.trim_end_matches('0');
         format!("{}.{} {}", whole, trimmed, symbol)
-    }
-}
-
-/// Trim trailing zeros from a decimal string.
-fn trim_trailing_zeros(s: &str) -> String {
-    if let Some(dot_pos) = s.find('.') {
-        let (whole, frac) = s.split_at(dot_pos);
-        let trimmed_frac = frac[1..].trim_end_matches('0');
-        if trimmed_frac.is_empty() {
-            whole.to_string()
-        } else {
-            format!("{}.{}", whole, trimmed_frac)
-        }
-    } else {
-        s.to_string()
     }
 }
 

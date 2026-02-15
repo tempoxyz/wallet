@@ -1,11 +1,3 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
-    <img src="assets/logo-light.png" alt="presto">
-  </picture>
-</p>
-
 # presto
 
 A wget-like CLI tool for making HTTP requests with automatic support for payments.
@@ -20,7 +12,6 @@ A wget-like CLI tool for making HTTP requests with automatic support for payment
 - [Installation](#installation)
 - [Configuration](#configuration)
   - [Custom Networks and RPC Overrides](#custom-networks-and-rpc-overrides)
-- [Payment Method Management](#payment-method-management)
 - [Shell Completions](#shell-completions)
 - [Command Aliases](#command-aliases)
 - [Display Options](#display-options)
@@ -51,9 +42,6 @@ Use as `presto query <URL> [OPTIONS]` (alias `presto q <URL>`) or `presto <COMMA
 | Override RPC URL | `presto query -r https://my-rpc.com https://api.example.com/data` |
 | Disable automatic token swaps | `presto query --no-swap https://api.example.com/data` |
 | Show wallet status | `presto whoami` |
-| View configuration | `presto config` or `presto c` |
-| View configuration with private keys | `presto config --unsafe-show-private-keys` |
-| Disable password caching | `presto --no-cache config --unsafe-show-private-keys` |
 | Check wallet balance | `presto balance` or `presto b` |
 | Check balance on specific network | `presto balance -n tempo` |
 | Inspect payment requirements | `presto inspect https://api.example.com/data` |
@@ -65,13 +53,13 @@ Use as `presto query <URL> [OPTIONS]` (alias `presto q <URL>`) or `presto <COMMA
 **Method 1: Quick install script**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tempoxyz/pget/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tempoxyz/presto/main/install.sh | bash
 ```
 
 **Method 2: Install from source**
 
 ```bash
-git clone https://github.com/tempoxyz/pget.git
+git clone https://github.com/tempoxyz/presto.git
 cd presto
 cargo install --path .
 ```
@@ -82,7 +70,7 @@ Make sure that `~/.cargo/bin` is on your PATH. One way to do this is by adding t
 
 ## Configuration
 
-presto uses a configuration file and encrypted keystores for secure wallet management.
+presto uses a configuration file for wallet management.
 
 ### Data Locations
 
@@ -91,19 +79,17 @@ presto uses platform-native directories:
 **macOS:**
 
 - **Configuration**: `~/Library/Application Support/presto/config.toml`
-- **Keystores**: `~/Library/Application Support/presto/keystores/`
+- **Wallet credentials**: `~/Library/Application Support/presto/wallet.toml`
 
 **Linux:**
 
 - **Configuration**: `~/.config/presto/config.toml`
-- **Keystores**: `~/.local/share/presto/keystores/`
+- **Wallet credentials**: `~/.config/presto/wallet.toml`
 
 **Windows:**
 
 - **Configuration**: `%APPDATA%\presto\config.toml`
-- **Keystores**: `%APPDATA%\presto\keystores\`
-
-All keystores use Ethereum keystore v3 format for encrypted storage.
+- **Wallet credentials**: `%APPDATA%\presto\wallet.toml`
 
 ### Initial Setup
 
@@ -114,31 +100,6 @@ presto login             # Opens browser to connect your Tempo wallet
 ```
 
 This opens your browser to authenticate with your Tempo wallet using passkeys.
-
-### Advanced: Local Keystores
-
-For CI/automation or if you prefer local key management, use the `method` command:
-
-```bash
-presto method new my-wallet --generate   # Generate a new local private key
-presto method import my-wallet           # Import an existing private key
-```
-
-The keystore flow will:
-
-1. Offer to generate a new private key or import an existing one
-2. Encrypt your key with a password and save as a keystore
-
-### Configuration File Format
-
-The configuration file (see paths above) references encrypted keystores:
-
-```toml
-[evm]
-keystore = "/Users/username/.presto/keystores/my-wallet.json"
-```
-
-**Note**: EVM keys are stored in encrypted keystores for security.
 
 ### Custom Networks and RPC Overrides
 
@@ -160,9 +121,6 @@ presto includes built-in support for Tempo networks with default RPC endpoints. 
 **Override RPC URLs for built-in networks:**
 
 ```toml
-[evm]
-keystore = "/Users/username/.presto/keystores/my-wallet.json"
-
 # Typed RPC overrides for built-in networks (highest priority)
 tempo_rpc = "https://my-custom-tempo-rpc.com"
 moderato_rpc = "https://my-custom-moderato-rpc.com"
@@ -196,161 +154,6 @@ rpc_url = "https://rpc.mytempofork.com"
 ```
 
 Custom networks are checked before built-in networks when resolving, so you can override built-in networks by defining a custom network with the same ID.
-
-### Viewing Configuration
-
-View your current configuration using the `config` command:
-
-```bash
-# View configuration in text format (default)
-presto config
-
-# View configuration as JSON
-presto config --output-format json
-
-# View configuration as YAML
-presto config --output-format yaml
-
-# View configuration with private keys (⚠️ use with caution)
-presto config --unsafe-show-private-keys
-
-# Get a specific configuration value
-presto config get evm.keystore
-
-# Validate configuration file
-presto config validate
-```
-
-Example output:
-
-```
-Config file: /Users/username/.config/presto/presto.toml
-
-[evm]
-keystore = "/Users/username/.presto/keystores/my-wallet.json"
-address = "0xe676e0f661bfe316793a8ad576fe7be02b93bd96"
-```
-
-## Payment Method Management
-
-presto provides commands to manage multiple encrypted wallets (payment methods) without editing configuration files directly.
-
-### List Payment Methods
-
-View all available keystores:
-
-```bash
-presto method list
-```
-
-Example output:
-
-```
-Available keystores:
-  my-wallet.json (0xe676e0f661bfe316793a8ad576fe7be02b93bd96)
-  trading-wallet.json (0x1234567890123456789012345678901234567890)
-  backup-wallet.json (0xabcdefabcdefabcdefabcdefabcdefabcdefabcd)
-```
-
-### Create New Payment Method
-
-Generate a new wallet and save it as an encrypted keystore:
-
-```bash
-presto method new my-wallet --generate
-```
-
-This will:
-
-1. Generate a new random private key
-1. Display the private key for manual backup
-1. Prompt for a password to encrypt the keystore
-1. Save the encrypted keystore to the platform keystores directory (see [Data Locations](#data-locations))
-1. Show instructions for updating your config file
-
-You can also create a keystore without generating a new key:
-
-```bash
-presto method new my-wallet
-# You'll be prompted to enter an existing private key
-```
-
-### Import Existing Private Key
-
-Import an existing private key into a new encrypted keystore:
-
-```bash
-presto method import my-wallet
-# You'll be prompted to enter your private key and a password
-```
-
-Or provide the private key directly (not recommended for security reasons):
-
-```bash
-presto method import my-wallet --private-key 0x1234...
-```
-
-### Show Keystore Details
-
-View details of a specific keystore without revealing the private key:
-
-```bash
-presto method show my-wallet
-```
-
-### Verify Keystore Integrity
-
-Verify that a keystore can be decrypted with your password:
-
-```bash
-presto method verify my-wallet
-```
-
-### Using a Payment Method
-
-After creating a keystore, update your configuration file to use it:
-
-```bash
-# Edit ~/.config/presto/presto.toml
-[evm]
-keystore = "/Users/username/.presto/keystores/my-wallet.json"
-```
-
-Or use `presto login` to reconfigure interactively.
-
-### Password Caching
-
-To improve user experience, presto automatically caches keystore passwords in memory for 5 minutes after successful decryption. This means you won't need to re-enter your password for repeated operations within this timeframe.
-
-**How it works:**
-
-- Passwords are cached in-memory only (never written to disk)
-- Cache entries automatically expire after 5 minutes
-- Failed decryption attempts automatically clear the cached password
-- Each keystore has its own cached password (identified by canonical file path)
-- Cache is cleared when the process exits
-
-**Managing password cache:**
-
-```bash
-# Disable password caching for a specific command
-presto --no-cache config --unsafe-show-private-keys
-```
-
-**Security considerations:**
-
-- Cache files are stored in your home directory with standard file permissions
-- Passwords are stored in process memory only, never persisted to disk
-- For maximum security, use `--no-cache` flag to disable caching entirely
-
-### Security Best Practices
-
-1. **Always use keystores for EVM wallets** - Encrypted keystores are more secure than plain private keys
-1. **Use strong passwords** - Your keystore is only as secure as your password
-1. **Back up your keystores** - Keep encrypted copies of your keystores directory in a secure location
-1. **Save your private keys** - When generating new keys, save them securely (you'll need them to recover your wallet)
-1. **Never commit keys to git** - The `.gitignore` should exclude `~/.presto/` and `~/.config/presto/`
-1. **Consider password caching security** - On shared systems, disable caching with `--no-cache`
 
 ## Shell Completions
 
@@ -400,8 +203,6 @@ presto provides short aliases for common commands to speed up your workflow:
 | `presto query` | `presto q` | Make an HTTP request with optional payment |
 | `presto login` | `presto l` | Log in to Tempo wallet |
 | `presto logout` | | Log out and disconnect wallet |
-| `presto config` | `presto c` | Manage configuration |
-| `presto version` | `presto v` | Show version information |
 | `presto completions` | `presto com` | Generate shell completions |
 | `presto balance` | `presto b` | Check wallet balance |
 | `presto networks` | `presto n` | Manage and inspect networks |
@@ -414,7 +215,6 @@ presto provides short aliases for common commands to speed up your workflow:
 ```bash
 presto q https://example.com # Same as: presto query https://example.com
 presto l                     # Same as: presto login
-presto c --output-format json  # Same as: presto config --output-format json
 presto com bash              # Same as: presto completions bash
 ```
 
@@ -546,16 +346,14 @@ Commands:
   query        Make an HTTP request with optional payment
   login        Log in to your Tempo wallet
   logout       Log out and disconnect your wallet
-  config       Manage configuration
-  version      Show version information
-  completions  Generate shell completions script
   balance      Check wallet balance (uses global --network/-n filter)
-  networks     Manage and inspect supported networks
-  inspect      Inspect payment requirements without executing payment
-  wallet       Tempo wallet management
-  keys         Manage access keys for Tempo wallet
-  services     List available payment services
   whoami       Show who you are: wallet, balances, access keys
+  keys         Manage access keys for Tempo wallet
+  networks     Manage and inspect supported networks
+  wallet       Tempo wallet management
+  services     List available payment services
+  inspect      Inspect payment requirements without executing payment
+  completions  Generate shell completions script
   help         Print this message or the help of the given subcommand(s)
 
 Options:
@@ -564,7 +362,7 @@ Options:
   -V, --version        Print version
 
 Payment Options:
-  -n, --network <NETWORKS>  Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PRESTO_NETWORK=]
+  -n, --network <NETWORKS>  Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato") [env: PRESTO_NETWORK=]
 
 Display Options:
   -v, --verbosity...  Verbosity level (can be used multiple times: -v, -vv, -vvv)
@@ -594,7 +392,7 @@ Payment Options:
   -y, --confirm              Require confirmation before paying [env: PRESTO_CONFIRM=]
   -D, --dry-run              Dry run mode - show what would be paid without executing
       --no-swap              Disable automatic token swaps when you don't have the requested currency [env: PRESTO_NO_SWAP=]
-  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "base,base-sepolia") [env: PRESTO_NETWORK=]
+  -n, --network <NETWORKS>   Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato") [env: PRESTO_NETWORK=]
 
 Request Options:
   -k, --insecure  Allow insecure operations (skip TLS verification and origin checks)
@@ -631,18 +429,6 @@ Log in to your Tempo wallet:
 presto login             # Opens browser to connect your Tempo wallet
 ```
 
-**presto config**
-
-View your current configuration:
-
-```bash
-presto config                                          # Text format (default)
-presto config --output-format json                     # JSON format
-presto config --output-format yaml                     # YAML format
-presto config --unsafe-show-private-keys               # Show private keys (password prompt appears first)
-presto config --unsafe-show-private-keys --no-cache-password  # Show keys without caching password
-```
-
 ### Specification
 
 [SPEC.md](SPEC.md) defines the expected CLI behaviors — error message formats, exit codes, and user-facing messages. When contributing, ensure changes conform to the spec.
@@ -651,7 +437,7 @@ presto config --unsafe-show-private-keys --no-cache-password  # Show keys withou
 
 ```bash
 # Clone repository
-git clone https://github.com/tempoxyz/pget.git
+git clone https://github.com/tempoxyz/presto.git
 cd presto
 
 # Install dependencies (for linting)

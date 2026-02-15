@@ -65,10 +65,6 @@ pub struct TokenConfig {
 /// Gas configuration for EVM networks.
 #[derive(Debug, Clone, Copy)]
 pub struct GasConfig {
-    /// Default gas limit for token transfers (500,000 gas).
-    /// Used as a fallback when RPC gas estimation is not available.
-    #[allow(dead_code)]
-    pub gas_limit: u64,
     /// Maximum priority fee per gas in wei (1 gwei).
     pub max_priority_fee_per_gas: u64,
     /// Maximum total fee per gas in wei (20 gwei).
@@ -78,7 +74,6 @@ pub struct GasConfig {
 impl GasConfig {
     /// Default gas configuration for Tempo networks.
     pub const DEFAULT: Self = Self {
-        gas_limit: 500_000,
         max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
         max_fee_per_gas: 20_000_000_000,         // 20 gwei
     };
@@ -139,12 +134,6 @@ impl Network {
             Network::Tempo => true,
             Network::TempoModerato | Network::TempoLocalnet => false,
         }
-    }
-
-    /// Check if this is a testnet.
-    #[allow(dead_code)]
-    pub const fn is_testnet(&self) -> bool {
-        !self.is_mainnet()
     }
 
     /// Get the display name for this network.
@@ -219,6 +208,7 @@ impl Network {
     }
 
     /// Get the default token configuration (pathUSD) for this network.
+    #[allow(dead_code)]
     pub fn default_token_config(&self) -> TokenConfig {
         use crate::payment::currency::currencies;
         TokenConfig {
@@ -268,13 +258,6 @@ pub fn get_network(name: &str) -> Option<NetworkInfo> {
     Network::from_str(name).ok().map(|n| n.info())
 }
 
-/// Get the EVM chain ID for a network by name.
-#[must_use]
-#[allow(dead_code)]
-pub fn get_evm_chain_id(name: &str) -> Option<u64> {
-    Network::from_str(name).ok().map(|n| n.chain_id())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,14 +267,6 @@ mod tests {
         let tempo = get_network("tempo").expect("tempo network should exist");
         assert_eq!(tempo.chain_id, Some(4217));
         assert!(tempo.mainnet);
-    }
-
-    #[test]
-    fn test_get_evm_chain_id() {
-        assert_eq!(get_evm_chain_id("tempo"), Some(4217));
-        assert_eq!(get_evm_chain_id("tempo-moderato"), Some(42431));
-        assert_eq!(get_evm_chain_id("tempo-localnet"), Some(1337));
-        assert_eq!(get_evm_chain_id("unknown"), None);
     }
 
     #[test]
@@ -327,17 +302,14 @@ mod tests {
     fn test_network_enum_info() {
         let tempo = Network::Tempo;
         assert!(tempo.is_mainnet());
-        assert!(!tempo.is_testnet());
         assert_eq!(tempo.chain_id(), 4217);
 
         let moderato = Network::TempoModerato;
         assert!(!moderato.is_mainnet());
-        assert!(moderato.is_testnet());
         assert_eq!(moderato.chain_id(), 42431);
 
         let localnet = Network::TempoLocalnet;
         assert!(!localnet.is_mainnet());
-        assert!(localnet.is_testnet());
         assert_eq!(localnet.chain_id(), 1337);
     }
 
@@ -353,7 +325,6 @@ mod tests {
     #[test]
     fn test_gas_config() {
         let gas = Network::Tempo.gas_config();
-        assert_eq!(gas.gas_limit, 500_000);
         assert_eq!(gas.max_priority_fee_per_gas, 1_000_000_000);
         assert_eq!(gas.max_fee_per_gas, 20_000_000_000);
     }
