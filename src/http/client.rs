@@ -1,7 +1,6 @@
 //! HTTP client implementation using reqwest.
 //!
 //! This module provides an async HTTP client for use with tokio.
-#![allow(dead_code)]
 
 use crate::error::Result;
 use std::collections::HashMap;
@@ -38,14 +37,6 @@ impl HttpMethod {
             HttpMethod::Options => "OPTIONS",
             HttpMethod::Custom(s) => s,
         }
-    }
-
-    /// Returns true if this method typically has a request body.
-    pub fn has_body(&self) -> bool {
-        matches!(
-            self,
-            HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch | HttpMethod::Custom(_)
-        )
     }
 }
 
@@ -171,12 +162,6 @@ impl HttpClientBuilder {
         self
     }
 
-    /// Add a custom HTTP header.
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.config.headers.push((name.into(), value.into()));
-        self
-    }
-
     /// Add multiple headers at once.
     pub fn headers(mut self, headers: &[(String, String)]) -> Self {
         self.config.headers.extend_from_slice(headers);
@@ -262,24 +247,6 @@ impl HttpClient {
 
         let client = builder.build()?;
         Ok(HttpClient { client })
-    }
-
-    /// Perform a GET request
-    pub async fn get(&self, url: &str) -> Result<HttpResponse> {
-        let response = self.client.get(url).send().await?;
-        Self::convert_response(response).await
-    }
-
-    /// Perform a POST request with optional body
-    pub async fn post(&self, url: &str, body: Option<&[u8]>) -> Result<HttpResponse> {
-        let mut request = self.client.post(url);
-
-        if let Some(data) = body {
-            request = request.body(data.to_vec());
-        }
-
-        let response = request.send().await?;
-        Self::convert_response(response).await
     }
 
     /// Perform a request with the specified HTTP method and optional body.
@@ -368,34 +335,6 @@ pub fn has_header(headers: &[String], name: &str) -> bool {
     headers.iter().any(|h| {
         h.split_once(':')
             .is_some_and(|(k, _)| k.trim().to_lowercase() == name_lower)
-    })
-}
-
-/// Find a header value by name (case-insensitive).
-///
-/// Returns the header value if found, None otherwise.
-///
-/// # Example
-/// ```
-/// use presto::http::find_header;
-/// let headers = vec![
-///     "Content-Type: application/json".to_string(),
-///     "Content-Length: 123".to_string(),
-/// ];
-/// assert_eq!(find_header(&headers, "content-type"), Some("application/json".to_string()));
-/// assert_eq!(find_header(&headers, "Content-Type"), Some("application/json".to_string()));
-/// assert_eq!(find_header(&headers, "Authorization"), None);
-/// ```
-pub fn find_header(headers: &[String], name: &str) -> Option<String> {
-    let name_lower = name.to_lowercase();
-    headers.iter().find_map(|h| {
-        let (key, value) = h.split_once(':')?;
-
-        if key.trim().to_lowercase() == name_lower {
-            Some(value.trim().to_string())
-        } else {
-            None
-        }
     })
 }
 
@@ -498,17 +437,6 @@ mod tests {
     }
 
     #[test]
-    fn test_http_method_has_body() {
-        assert!(!HttpMethod::Get.has_body());
-        assert!(HttpMethod::Post.has_body());
-        assert!(HttpMethod::Put.has_body());
-        assert!(HttpMethod::Patch.has_body());
-        assert!(!HttpMethod::Delete.has_body());
-        assert!(!HttpMethod::Head.has_body());
-        assert!(HttpMethod::Custom("FOOBAR".to_string()).has_body());
-    }
-
-    #[test]
     fn test_http_method_hash() {
         use std::collections::HashMap;
         let mut map = HashMap::new();
@@ -556,32 +484,6 @@ mod tests {
     fn test_has_header_with_whitespace() {
         let headers = vec!["  Content-Type  :  application/json  ".to_string()];
         assert!(has_header(&headers, "content-type"));
-    }
-
-    #[test]
-    fn test_find_header() {
-        let headers = vec![
-            "Content-Type: application/json".to_string(),
-            "Content-Length: 123".to_string(),
-        ];
-        assert_eq!(
-            find_header(&headers, "content-type"),
-            Some("application/json".to_string())
-        );
-        assert_eq!(
-            find_header(&headers, "Content-Length"),
-            Some("123".to_string())
-        );
-        assert_eq!(find_header(&headers, "Authorization"), None);
-    }
-
-    #[test]
-    fn test_find_header_with_whitespace() {
-        let headers = vec!["  Content-Type  :  application/json  ".to_string()];
-        assert_eq!(
-            find_header(&headers, "content-type"),
-            Some("application/json".to_string())
-        );
     }
 
     #[test]

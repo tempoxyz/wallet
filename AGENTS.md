@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-This is `tempoctl-cli` - a pure binary crate providing a wget-like CLI tool for making HTTP requests with automatic payment support.
+This is `presto` - a pure binary crate providing a wget-like CLI tool for making HTTP requests with automatic payment support.
 
 **Supported Payment Protocols:**
 - [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
@@ -16,12 +16,12 @@ Single binary crate with source organized by module directories:
 - `src/http/` - HTTP client and request handling
 - `src/network/` - Network definitions and RPC
 - `src/payment/` - Payment protocol implementations
-- `src/wallet/` - Keystore management and signing
+- `src/wallet/` - Wallet management and signing
 - `src/util/` - Shared utilities
 - `src/error.rs` - Error types
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
-**Package:** `tempoctl-cli` | **Binary:** `tempoctl`
+**Package:** `presto` | **Binary:** `presto`
 
 ## Commands
 
@@ -29,7 +29,6 @@ Single binary crate with source organized by module directories:
 make build              # Build debug binary
 make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
-make test-fast          # Run unit tests only (fastest)
 make check              # Run fmt check, clippy, tests, and build (linting handled in CI)
 make fix                # Auto-fix formatting and clippy warnings
 make install            # Install CLI to ~/.cargo/bin
@@ -38,11 +37,11 @@ make run ARGS="<url>"   # Run CLI with arguments
 
 ## Agent Suggestions
 
-When the user explicitly says "ask the oracle" to check a value, run `tempoctl` against OpenRouter and explicitly tell the user which model was used in the response.
+When the user explicitly says "ask the oracle" to check a value, run `presto` against OpenRouter and explicitly tell the user which model was used in the response.
 
 Example:
 ```bash
-tempoctl -v query -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+presto -v query -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements
@@ -56,15 +55,15 @@ tempoctl -v query -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"ro
 When creating pull requests:
 
 1. **Always include the PR link** in your response after creating a PR
-2. Format as a clickable link: `[#123](https://github.com/tempoxyz/pget/pull/123)`
+2. Format as a clickable link: `[#123](https://github.com/tempoxyz/presto/pull/123)`
 3. When creating multiple PRs, provide a summary table with all links
 
 Example summary format:
 ```
 | PR | Title | Link |
 |----|-------|------|
-| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/pget/pull/123) |
-| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/pget/pull/124) |
+| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/presto/pull/123) |
+| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/presto/pull/124) |
 ```
 
 ## Code Style Guidelines
@@ -88,7 +87,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::config::Config;
-use crate::error::TempoCtlError;
+use crate::error::PrestoError;
 ```
 
 ### Error Handling Pattern
@@ -118,7 +117,7 @@ pub enum MyError {
 - Use `test_command(&temp)` helper to create properly configured CLI commands
 
 **Mock Mode for Network Tests:**
-- Set `TEMPOCTL_MOCK_NETWORK=1` environment variable to enable mock mode
+- Set `PRESTO_MOCK_NETWORK=1` environment variable to enable mock mode
 - When enabled, the balance command returns fake data instead of making RPC calls
 - Use `mock_test_command(&temp)` helper in integration tests for mock mode
 
@@ -142,7 +141,7 @@ fn test_something() {
 - Use derive macros for argument parsing
 - Group related args with `help_heading`
 - Support short aliases (`-v`) and long aliases (`--verbose`)
-- Use environment variable fallbacks with `env = "TEMPOCTL_*"`
+- Use environment variable fallbacks with `env = "PRESTO_*"`
 
 ```rust
 #[derive(Parser, Debug)]
@@ -150,7 +149,7 @@ pub struct Cli {
     #[arg(short = 'v', long = "verbosity", action = clap::ArgAction::Count)]
     pub verbosity: u8,
     
-    #[arg(long, env = "TEMPOCTL_MAX_AMOUNT", help_heading = "Payment Options")]
+    #[arg(long, env = "PRESTO_MAX_AMOUNT", help_heading = "Payment Options")]
     pub max_amount: Option<String>,
 }
 ```
@@ -178,8 +177,7 @@ pub struct Cli {
 | `reqwest` | HTTP client |
 | `serde` / `serde_json` / `toml` | Serialization |
 | `tokio` | Async runtime (minimal features) |
-| `eth-keystore` | Encrypted keystore format |
-| `mpay` | Payment protocol types |
+| `mpp` | Payment protocol types |
 
 ### Adding Dependencies
 
@@ -196,29 +194,23 @@ For testing and development, these environment variables are used:
 
 | Variable | Description |
 | -------- | ----------- |
-| `HOME` | User home directory (for config/keystore paths) |
+| `HOME` | User home directory (for config paths) |
 | `XDG_CONFIG_HOME` | Linux config directory |
-| `XDG_DATA_HOME` | Linux data directory |
-| `TEMPOCTL_MAX_AMOUNT` | Default max payment amount |
-| `TEMPOCTL_NETWORK` | Default network filter |
-| `TEMPOCTL_CONFIRM` | Require payment confirmation |
-| `TEMPOCTL_KEYSTORE` | Path to keystore file |
-| `TEMPOCTL_ACCOUNT` | Keystore name (without .json extension) |
-| `TEMPOCTL_FROM` | Sender address |
-| `TEMPOCTL_PASSWORD` | Keystore password (for CI/testing) |
-| `TEMPOCTL_PASSWORD_FILE` | Path to file containing keystore password |
-| `TEMPOCTL_PRIVATE_KEY` | Raw private key (hex) |
-| `TEMPOCTL_RPC_URL` | Override RPC URL |
+| `PRESTO_MAX_AMOUNT` | Default max payment amount |
+| `PRESTO_NETWORK` | Default network filter |
+| `PRESTO_CONFIRM` | Require payment confirmation |
+| `PRESTO_NO_SWAP` | Disable automatic token swaps |
+| `PRESTO_RPC_URL` | Override RPC URL |
 
 ## Data Locations
 
 **macOS:**
-- Config: `~/Library/Application Support/tempoctl/config.toml`
-- Keystores: `~/Library/Application Support/tempoctl/keystores/`
+- Config: `~/Library/Application Support/presto/config.toml`
+- Wallet: `~/Library/Application Support/presto/wallet.toml`
 
 **Linux:**
-- Config: `~/.config/tempoctl/config.toml`
-- Keystores: `~/.local/share/tempoctl/keystores/`
+- Config: `~/.config/presto/config.toml`
+- Wallet: `~/.config/presto/wallet.toml`
 
 ## Configuration Structure
 

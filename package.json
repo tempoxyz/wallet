@@ -2,12 +2,11 @@
   "name": "presto",
   "version": "0.1.0",
   "private": true,
-  "description": "Payment via URL - Rust library and CLI",
+  "description": "A wget-like CLI tool for making HTTP requests with automatic payment support",
   "scripts": {
-    "lint": "npx @tempoxyz/lints rust lib/src"
+    "lint": "npx @tempoxyz/lints rust src"
   },
   "devDependencies": {
-    "@tempoxyz/lints": "github:tempoxyz/lints",
-    "tsx": "^4.19.2"
+    "@tempoxyz/lints": "github:tempoxyz/lints"
   }
 }
