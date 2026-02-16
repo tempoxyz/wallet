@@ -3315,11 +3315,12 @@ dependencies = [
 [[package]]
 name = "mpp"
 version = "0.2.1"
-source = "git+https://github.com/tempoxyz/mpay-rs.git?branch=main#1545f8ad3447e35ccfbaa4a9d0259075ee98ff06"
+source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#1545f8ad3447e35ccfbaa4a9d0259075ee98ff06"
 dependencies = [
  "alloy",
  "alloy-signer-local",
  "base64 0.22.1",
+ "futures-core",
  "hex",
  "hmac",
  "rand 0.9.2",
@@ -3331,6 +3332,7 @@ dependencies = [
  "tempo-primitives 1.2.0",
  "thiserror 2.0.18",
  "time",
+ "tokio",
  "uuid",
 ]
 
@@ -4325,6 +4327,7 @@ dependencies = [
  "bytes",
  "encoding_rs",
  "futures-core",
+ "futures-util",
  "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",
@@ -4349,12 +4352,14 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-rustls 0.26.4",
+ "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots 1.0.6",
 ]
@@ -7019,6 +7024,19 @@ dependencies = [
  "indexmap 2.13.0",
  "wasm-encoder",
  "wasmparser",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

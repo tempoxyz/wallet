@@ -17,7 +17,9 @@ use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, NetworkCommands, QueryArgs, Shell, WalletCommands};
+use cli::{
+    Cli, ColorMode, Commands, NetworkCommands, QueryArgs, SessionCommands, Shell, WalletCommands,
+};
 use colored::control;
 
 use analytics::Analytics;
@@ -25,6 +27,7 @@ use cli::output::handle_regular_response;
 use config::{load_config, load_config_with_overrides};
 use http::request::RequestContext;
 use payment::web_payment::handle_web_payment_request;
+use payment::web_session::{handle_web_session_request, SessionResult};
 
 #[tokio::main]
 async fn main() {
@@ -85,6 +88,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Wallet { .. } => "wallet",
 
             Commands::Services { .. } => "services",
+            Commands::Session { .. } => "session",
             Commands::Keys { .. } => "keys",
             Commands::Whoami { .. } => "whoami",
         };
@@ -316,6 +320,19 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
+        Commands::Session { command } => {
+            if let Some(subcommand) = command {
+                match subcommand {
+                    SessionCommands::List => cli::commands::session::list_sessions(),
+                    SessionCommands::Close { url, all } => {
+                        cli::commands::session::close_sessions(url, all).await
+                    }
+                }
+            } else {
+                cli::commands::session::list_sessions()
+            }
+        }
+
         Commands::Whoami { output_format } => {
             let fmt = cli.effective_output_format(output_format);
             let network = cli.network.as_deref();
@@ -427,46 +444,105 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
         );
     }
 
-    match handle_web_payment_request(&config, &request_ctx, &url, &response).await {
-        Ok(response) => {
-            if let Some(ref a) = analytics {
-                a.track(
-                    analytics::Event::PaymentSuccess,
-                    analytics::PaymentSuccessPayload {
-                        network: String::new(),
-                        amount: String::new(),
-                        currency: String::new(),
-                        tx_hash: response
-                            .get_header("payment-receipt")
-                            .cloned()
-                            .unwrap_or_default(),
-                    },
-                );
-                a.track(
-                    analytics::Event::QuerySuccess,
-                    analytics::QuerySuccessPayload {
-                        url: url.clone(),
-                        method: method_str,
-                        status_code: response.status_code,
-                    },
-                );
-            }
-            handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
-            Ok(())
+    // Detect intent from challenge to branch between charge and session flows.
+    // --charge flag forces charge mode regardless of server's intent.
+    let is_session = !request_ctx.query.charge
+        && response
+            .get_header("www-authenticate")
+            .and_then(|h| mpp::parse_www_authenticate(h).ok())
+            .is_some_and(|challenge| challenge.intent.is_session());
+
+    if is_session {
+        if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+            eprintln!("Payment intent: session");
         }
-        Err(e) => {
-            if let Some(ref a) = analytics {
-                a.track(
-                    analytics::Event::PaymentFailure,
-                    analytics::PaymentFailurePayload {
-                        network: String::new(),
-                        amount: String::new(),
-                        currency: String::new(),
-                        error: e.to_string(),
-                    },
-                );
+
+        match handle_web_session_request(&config, &request_ctx, &url, &response).await {
+            Ok(result) => {
+                if let Some(ref a) = analytics {
+                    a.track(
+                        analytics::Event::PaymentSuccess,
+                        analytics::PaymentSuccessPayload {
+                            network: String::new(),
+                            amount: String::new(),
+                            currency: String::new(),
+                            tx_hash: String::new(),
+                        },
+                    );
+                    a.track(
+                        analytics::Event::QuerySuccess,
+                        analytics::QuerySuccessPayload {
+                            url: url.clone(),
+                            method: method_str,
+                            status_code: 200,
+                        },
+                    );
+                }
+                match result {
+                    SessionResult::Streamed => Ok(()),
+                    SessionResult::Response(resp) => {
+                        handle_regular_response(&request_ctx.cli, &request_ctx.query, resp)?;
+                        Ok(())
+                    }
+                }
             }
-            Err(e)
+            Err(e) => {
+                if let Some(ref a) = analytics {
+                    a.track(
+                        analytics::Event::PaymentFailure,
+                        analytics::PaymentFailurePayload {
+                            network: String::new(),
+                            amount: String::new(),
+                            currency: String::new(),
+                            error: e.to_string(),
+                        },
+                    );
+                }
+                Err(e)
+            }
+        }
+    } else {
+        match handle_web_payment_request(&config, &request_ctx, &url, &response).await {
+            Ok(response) => {
+                if let Some(ref a) = analytics {
+                    a.track(
+                        analytics::Event::PaymentSuccess,
+                        analytics::PaymentSuccessPayload {
+                            network: String::new(),
+                            amount: String::new(),
+                            currency: String::new(),
+                            tx_hash: response
+                                .get_header("payment-receipt")
+                                .cloned()
+                                .unwrap_or_default(),
+                        },
+                    );
+                    a.track(
+                        analytics::Event::QuerySuccess,
+                        analytics::QuerySuccessPayload {
+                            url: url.clone(),
+                            method: method_str,
+                            status_code: response.status_code,
+                        },
+                    );
+                }
+                handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
+                Ok(())
+            }
+            Err(e) => {
+                if let Some(ref a) = analytics {
+                    a.track(
+                        analytics::Event::PaymentFailure,
+                        analytics::PaymentFailurePayload {
+                            network: String::new(),
+                            amount: String::new(),
+                            currency: String::new(),
+                            error: e.to_string(),
+                        },
+                    );
+                }
+                Err(e)
+            }
         }
     }
 }

@@ -28,13 +28,13 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
     }
 }
 
-/// Validate that a payment challenge can be processed by presto.
+/// Validate that a payment challenge can be processed by presto's charge flow.
 ///
 /// # Validation Checks
 ///
 /// - The payment method is supported (has a network mapping)
-/// - The intent is "charge" (only supported intent currently)
-pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
+/// - The intent is "charge" (unless `force` is true, e.g. via `--charge` flag)
+pub fn validate_challenge(challenge: &PaymentChallenge, force: bool) -> Result<()> {
     if method_to_network(&challenge.method).is_none() {
         return Err(PrestoError::UnsupportedPaymentMethod(format!(
             "Payment method '{}' is not supported. Supported methods: tempo",
@@ -42,9 +42,28 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
         )));
     }
 
-    if !challenge.intent.is_charge() {
+    if !force && !challenge.intent.is_charge() {
         return Err(PrestoError::UnsupportedPaymentIntent(format!(
             "Only 'charge' intent is supported, got: {}",
+            challenge.intent
+        )));
+    }
+
+    Ok(())
+}
+
+/// Validate that a payment challenge is a valid session challenge.
+pub fn validate_session_challenge(challenge: &PaymentChallenge) -> Result<()> {
+    if method_to_network(&challenge.method).is_none() {
+        return Err(PrestoError::UnsupportedPaymentMethod(format!(
+            "Payment method '{}' is not supported. Supported methods: tempo",
+            challenge.method
+        )));
+    }
+
+    if !challenge.intent.is_session() {
+        return Err(PrestoError::UnsupportedPaymentIntent(format!(
+            "Expected 'session' intent, got: {}",
             challenge.intent
         )));
     }
@@ -124,7 +143,7 @@ mod tests {
             description: None,
             expires: None,
         };
-        assert!(validate_challenge(&challenge).is_ok());
+        assert!(validate_challenge(&challenge, false).is_ok());
     }
 
     #[test]
@@ -140,7 +159,39 @@ mod tests {
             description: None,
             expires: None,
         };
-        assert!(validate_challenge(&challenge).is_err());
+        assert!(validate_challenge(&challenge, false).is_err());
+    }
+
+    #[test]
+    fn test_validate_session_challenge_valid() {
+        use mpp::Base64UrlJson;
+        let challenge = PaymentChallenge {
+            id: "test".to_string(),
+            realm: "test.example.com".to_string(),
+            method: MethodName::new("tempo"),
+            intent: "session".into(),
+            request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
+            digest: None,
+            description: None,
+            expires: None,
+        };
+        assert!(validate_session_challenge(&challenge).is_ok());
+    }
+
+    #[test]
+    fn test_validate_session_challenge_wrong_intent() {
+        use mpp::Base64UrlJson;
+        let challenge = PaymentChallenge {
+            id: "test".to_string(),
+            realm: "test.example.com".to_string(),
+            method: MethodName::new("tempo"),
+            intent: "charge".into(),
+            request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
+            digest: None,
+            description: None,
+            expires: None,
+        };
+        assert!(validate_session_challenge(&challenge).is_err());
     }
 
     #[test]
@@ -164,4 +215,22 @@ mod tests {
         };
         assert!(req.money(Network::TempoModerato).is_err());
     }
+}
+
+/// Extract the `txHash` field from a base64url-encoded receipt, if present.
+///
+/// The mpp `Receipt` struct only captures `reference` (which for session
+/// receipts is the channel ID). The server also includes a `txHash` field
+/// with the actual on-chain transaction hash. This function decodes the
+/// raw receipt to extract it.
+pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+
+    let decoded = URL_SAFE_NO_PAD.decode(receipt_b64.trim()).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    json.get("txHash")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }

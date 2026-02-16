@@ -84,9 +84,8 @@ pub fn is_tempo_network(name: &str) -> bool {
 
 type HttpProvider = alloy::providers::RootProvider;
 
-/// Common context for payment setup, shared between direct and swap payments.
-struct PaymentSetupContext {
-    charge_req: mpp::ChargeRequest,
+/// Common signing context shared between charge and session payment flows.
+struct SigningSetupContext {
     signer: PrivateKeySigner,
     wallet_address: Option<Address>,
     key_authorization: Option<SignedKeyAuthorization>,
@@ -97,17 +96,12 @@ struct PaymentSetupContext {
     provider: HttpProvider,
 }
 
-impl PaymentSetupContext {
-    /// Parse challenge and set up all common payment context.
+impl SigningSetupContext {
+    /// Load signer, resolve network, fetch nonce, and set up all common signing context.
     async fn from_challenge(config: &Config, challenge: &mpp::PaymentChallenge) -> Result<Self> {
         use crate::payment::mpp_ext::method_to_network;
         use alloy::providers::Provider;
         use alloy::rlp::Decodable;
-
-        let charge_req: mpp::ChargeRequest = challenge
-            .request
-            .decode()
-            .map_err(|e| PrestoError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
 
         // Load signer from Tempo wallet credentials
         let signer_ctx = load_signer_with_priority()?;
@@ -226,7 +220,6 @@ impl PaymentSetupContext {
         };
 
         Ok(Self {
-            charge_req,
             signer,
             wallet_address,
             key_authorization,
@@ -235,6 +228,29 @@ impl PaymentSetupContext {
             nonce,
             gas_config,
             provider,
+        })
+    }
+}
+
+/// Common context for payment setup, shared between direct and swap payments.
+struct PaymentSetupContext {
+    charge_req: mpp::ChargeRequest,
+    signing: SigningSetupContext,
+}
+
+impl PaymentSetupContext {
+    /// Parse challenge and set up all common payment context.
+    async fn from_challenge(config: &Config, challenge: &mpp::PaymentChallenge) -> Result<Self> {
+        let charge_req: mpp::ChargeRequest = challenge
+            .request
+            .decode()
+            .map_err(|e| PrestoError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
+
+        let signing = SigningSetupContext::from_challenge(config, challenge).await?;
+
+        Ok(Self {
+            charge_req,
+            signing,
         })
     }
 }
@@ -265,30 +281,33 @@ pub async fn create_tempo_payment(
     }];
 
     let gas_limit = estimate_tempo_gas(
-        &ctx.provider,
-        ctx.from,
-        ctx.chain_id,
-        ctx.nonce,
+        &ctx.signing.provider,
+        ctx.signing.from,
+        ctx.signing.chain_id,
+        ctx.signing.nonce,
         currency,
         &calls,
-        &ctx.gas_config,
-        ctx.key_authorization.as_ref(),
+        &ctx.signing.gas_config,
+        ctx.signing.key_authorization.as_ref(),
     )
     .await?;
 
     let signed_tx = create_tempo_transaction_with_calls(
-        &ctx.signer,
-        ctx.chain_id,
-        ctx.nonce,
+        &ctx.signing.signer,
+        ctx.signing.chain_id,
+        ctx.signing.nonce,
         currency,
         calls,
-        &ctx.gas_config,
+        &ctx.signing.gas_config,
         gas_limit,
-        ctx.wallet_address,
-        ctx.key_authorization,
+        ctx.signing.wallet_address,
+        ctx.signing.key_authorization,
     )?;
 
-    let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
+    let did = format!(
+        "did:pkh:eip155:{}:{:#x}",
+        ctx.signing.chain_id, ctx.signing.from
+    );
 
     Ok(mpp::PaymentCredential::with_source(
         challenge.to_echo(),
@@ -319,11 +338,59 @@ pub async fn create_tempo_payment_with_swap(
     let calls = build_swap_calls(swap_info, recipient, amount, memo)?;
 
     let gas_limit = estimate_tempo_gas(
+        &ctx.signing.provider,
+        ctx.signing.from,
+        ctx.signing.chain_id,
+        ctx.signing.nonce,
+        swap_info.token_in,
+        &calls,
+        &ctx.signing.gas_config,
+        ctx.signing.key_authorization.as_ref(),
+    )
+    .await?;
+
+    let signed_tx = create_tempo_transaction_with_calls(
+        &ctx.signing.signer,
+        ctx.signing.chain_id,
+        ctx.signing.nonce,
+        swap_info.token_in, // Fee token is the token we're swapping from
+        calls,
+        &ctx.signing.gas_config,
+        gas_limit,
+        ctx.signing.wallet_address,
+        ctx.signing.key_authorization,
+    )?;
+
+    let did = format!(
+        "did:pkh:eip155:{}:{:#x}",
+        ctx.signing.chain_id, ctx.signing.from
+    );
+
+    Ok(mpp::PaymentCredential::with_source(
+        challenge.to_echo(),
+        did,
+        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
+    ))
+}
+
+/// Create a Tempo payment credential from pre-built calls.
+///
+/// This is used by session payments where the calls (e.g., approve + escrow.open)
+/// are built externally. Uses presto's keychain-aware signing via SigningSetupContext.
+pub async fn create_tempo_payment_from_calls(
+    config: &Config,
+    challenge: &mpp::PaymentChallenge,
+    calls: Vec<Call>,
+    fee_token: Address,
+) -> Result<mpp::PaymentCredential> {
+    let ctx = SigningSetupContext::from_challenge(config, challenge).await?;
+
+    let gas_limit = estimate_tempo_gas(
         &ctx.provider,
         ctx.from,
         ctx.chain_id,
         ctx.nonce,
-        swap_info.token_in,
+        fee_token,
         &calls,
         &ctx.gas_config,
         ctx.key_authorization.as_ref(),
@@ -334,7 +401,7 @@ pub async fn create_tempo_payment_with_swap(
         &ctx.signer,
         ctx.chain_id,
         ctx.nonce,
-        swap_info.token_in, // Fee token is the token we're swapping from
+        fee_token,
         calls,
         &ctx.gas_config,
         gas_limit,

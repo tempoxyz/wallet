@@ -17,7 +17,7 @@ use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::explorer::ExplorerConfig;
 use crate::network::Network;
-use crate::payment::mpp_ext::{method_to_network, validate_challenge};
+use crate::payment::mpp_ext::{extract_tx_hash, method_to_network, validate_challenge};
 use crate::payment::provider::PrestoPaymentProvider;
 
 /// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
@@ -73,7 +73,8 @@ pub async fn handle_web_payment_request(
         }
     }
 
-    validate_challenge(&challenge).context("Challenge validation failed")?;
+    validate_challenge(&challenge, request_ctx.query.charge)
+        .context("Challenge validation failed")?;
 
     validate_web_payment_constraints(
         &request_ctx.query,
@@ -237,15 +238,16 @@ fn display_web_receipt(
     if let Some(receipt_header) = response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_header) {
             if cli.is_verbose() && cli.should_show_output() {
+                let tx_ref = extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
                 eprintln!("Payment receipt:");
                 eprintln!("  Status: {}", receipt.status);
                 eprintln!("  Method: {}", receipt.method);
 
                 let tx_display = if let Some(exp) = explorer {
-                    let url = exp.tx_url(&receipt.reference);
-                    hyperlink(&receipt.reference, &url)
+                    let url = exp.tx_url(&tx_ref);
+                    hyperlink(&tx_ref, &url)
                 } else {
-                    receipt.reference.clone()
+                    tx_ref
                 };
                 eprintln!("  TX Hash: {}", tx_display);
 
