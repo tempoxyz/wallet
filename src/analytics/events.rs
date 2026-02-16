@@ -5,6 +5,7 @@ pub enum Event {
     LoginStarted,
     LoginSuccess,
     LoginFailure,
+    LoginTimeout,
     Logout,
 
     QueryStarted,
@@ -16,11 +17,17 @@ pub enum Event {
     PaymentFailure,
 
     BalanceChecked,
+
+    WalletRefreshStarted,
     WalletRefreshed,
+    WalletRefreshFailure,
 
     KeyCreated,
+    KeyListViewed,
     KeySwitched,
+    KeySwitchFailure,
     KeyDeleted,
+    KeyDeleteFailure,
     WhoamiViewed,
 
     CallbackWindowOpened,
@@ -36,6 +43,7 @@ impl Event {
             Self::LoginStarted => "login_started",
             Self::LoginSuccess => "login_success",
             Self::LoginFailure => "login_failure",
+            Self::LoginTimeout => "login_timeout",
             Self::Logout => "logout",
             Self::QueryStarted => "query_started",
             Self::QuerySuccess => "query_success",
@@ -44,10 +52,15 @@ impl Event {
             Self::PaymentSuccess => "payment_success",
             Self::PaymentFailure => "payment_failure",
             Self::BalanceChecked => "balance_checked",
+            Self::WalletRefreshStarted => "wallet_refresh_started",
             Self::WalletRefreshed => "wallet_refreshed",
+            Self::WalletRefreshFailure => "wallet_refresh_failure",
             Self::KeyCreated => "key_created",
+            Self::KeyListViewed => "key_list_viewed",
             Self::KeySwitched => "key_switched",
+            Self::KeySwitchFailure => "key_switch_failure",
             Self::KeyDeleted => "key_deleted",
+            Self::KeyDeleteFailure => "key_delete_failure",
             Self::WhoamiViewed => "whoami_viewed",
             Self::CallbackWindowOpened => "callback_window_opened",
             Self::CallbackReceived => "callback_received",
@@ -178,3 +191,23 @@ pub struct CallbackReceivedPayload {
     pub duration_secs: u64,
 }
 impl EventPayload for CallbackReceivedPayload {}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LoginTimeoutPayload {
+    pub network: String,
+}
+impl EventPayload for LoginTimeoutPayload {}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WalletRefreshFailurePayload {
+    pub network: String,
+    pub error: String,
+}
+impl EventPayload for WalletRefreshFailurePayload {}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KeyFailurePayload {
+    pub index: usize,
+    pub error: String,
+}
+impl EventPayload for KeyFailurePayload {}

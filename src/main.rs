@@ -116,29 +116,36 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 a.track(
                     analytics::Event::LoginStarted,
                     analytics::LoginPayload {
-                        network: network.unwrap_or("tempo-moderato").to_string(),
+                        network: network.unwrap_or_default().to_string(),
                     },
                 );
             }
             let result = cli::commands::login::run_login(network, analytics.clone()).await;
             if let Some(ref a) = analytics {
+                let net = network.unwrap_or_default().to_string();
                 match &result {
                     Ok(()) => {
                         a.track(
                             analytics::Event::LoginSuccess,
-                            analytics::LoginPayload {
-                                network: network.unwrap_or("tempo-moderato").to_string(),
-                            },
+                            analytics::LoginPayload { network: net },
                         );
                     }
                     Err(e) => {
-                        a.track(
-                            analytics::Event::LoginFailure,
-                            analytics::LoginFailurePayload {
-                                network: network.unwrap_or("tempo-moderato").to_string(),
-                                error: e.to_string(),
-                            },
-                        );
+                        let err_str = e.to_string();
+                        if err_str.contains("timed out") {
+                            a.track(
+                                analytics::Event::LoginTimeout,
+                                analytics::LoginTimeoutPayload { network: net },
+                            );
+                        } else {
+                            a.track(
+                                analytics::Event::LoginFailure,
+                                analytics::LoginFailurePayload {
+                                    network: net,
+                                    error: err_str,
+                                },
+                            );
+                        }
                     }
                 }
             }
@@ -147,10 +154,13 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 
         Commands::Logout { yes } => {
             let network = cli.network.as_deref();
+            let result = cli::commands::logout::run_logout(yes, network).await;
             if let Some(ref a) = analytics {
-                a.track(analytics::Event::Logout, analytics::EmptyPayload);
+                if result.is_ok() {
+                    a.track(analytics::Event::Logout, analytics::EmptyPayload);
+                }
             }
-            cli::commands::logout::run_logout(yes, network).await
+            result
         }
 
         Commands::Completions { shell } => {
@@ -220,12 +230,31 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             let network = cli.network.as_deref();
             match command {
                 WalletCommands::Refresh => {
+                    if let Some(ref a) = analytics {
+                        a.track(
+                            analytics::Event::WalletRefreshStarted,
+                            analytics::LoginPayload {
+                                network: network.unwrap_or_default().to_string(),
+                            },
+                        );
+                    }
                     let result =
                         cli::commands::tempo_wallet::refresh_wallet(network, analytics.clone())
                             .await;
                     if let Some(ref a) = analytics {
-                        if result.is_ok() {
-                            a.track(analytics::Event::WalletRefreshed, analytics::EmptyPayload);
+                        match &result {
+                            Ok(()) => {
+                                a.track(analytics::Event::WalletRefreshed, analytics::EmptyPayload);
+                            }
+                            Err(e) => {
+                                a.track(
+                                    analytics::Event::WalletRefreshFailure,
+                                    analytics::WalletRefreshFailurePayload {
+                                        network: network.unwrap_or_default().to_string(),
+                                        error: e.to_string(),
+                                    },
+                                );
+                            }
                         }
                     }
                     result.map_err(Into::into)
@@ -276,6 +305,9 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     cli::KeysCommands::List => {
+                        if let Some(ref a) = analytics {
+                            a.track(analytics::Event::KeyListViewed, analytics::EmptyPayload);
+                        }
                         cli::commands::keys::list_keys(output_format, network)
                             .await
                             .map_err(Into::into)
@@ -284,14 +316,26 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         let result =
                             cli::commands::keys::switch_key(index, output_format, network).await;
                         if let Some(ref a) = analytics {
-                            if let Ok(Some(label)) = &result {
-                                a.track(
-                                    analytics::Event::KeySwitched,
-                                    analytics::KeySwitchedPayload {
-                                        index,
-                                        label: label.clone(),
-                                    },
-                                );
+                            match &result {
+                                Ok(Some(label)) => {
+                                    a.track(
+                                        analytics::Event::KeySwitched,
+                                        analytics::KeySwitchedPayload {
+                                            index,
+                                            label: label.clone(),
+                                        },
+                                    );
+                                }
+                                Err(e) => {
+                                    a.track(
+                                        analytics::Event::KeySwitchFailure,
+                                        analytics::KeyFailurePayload {
+                                            index,
+                                            error: e.to_string(),
+                                        },
+                                    );
+                                }
+                                _ => {}
                             }
                         }
                         result.map(|_| ()).map_err(Into::into)
@@ -300,20 +344,35 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         let result =
                             cli::commands::keys::delete_key(index, output_format, network).await;
                         if let Some(ref a) = analytics {
-                            if let Ok(Some(label)) = &result {
-                                a.track(
-                                    analytics::Event::KeyDeleted,
-                                    analytics::KeyDeletedPayload {
-                                        index,
-                                        label: label.clone(),
-                                    },
-                                );
+                            match &result {
+                                Ok(Some(label)) => {
+                                    a.track(
+                                        analytics::Event::KeyDeleted,
+                                        analytics::KeyDeletedPayload {
+                                            index,
+                                            label: label.clone(),
+                                        },
+                                    );
+                                }
+                                Err(e) => {
+                                    a.track(
+                                        analytics::Event::KeyDeleteFailure,
+                                        analytics::KeyFailurePayload {
+                                            index,
+                                            error: e.to_string(),
+                                        },
+                                    );
+                                }
+                                _ => {}
                             }
                         }
                         result.map(|_| ()).map_err(Into::into)
                     }
                 }
             } else {
+                if let Some(ref a) = analytics {
+                    a.track(analytics::Event::KeyListViewed, analytics::EmptyPayload);
+                }
                 cli::commands::keys::list_keys(output_format, network)
                     .await
                     .map_err(Into::into)
@@ -433,13 +492,34 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
         eprintln!("Payment protocol: {}", protocol);
     }
 
+    // Extract payment details from 402 response for analytics
+    let (pay_network, pay_amount, pay_currency) = response
+        .get_header("www-authenticate")
+        .and_then(|h| mpp::parse_www_authenticate(h).ok())
+        .map(|challenge| {
+            let network = payment::mpp_ext::method_to_network(&challenge.method)
+                .unwrap_or("")
+                .to_string();
+            let charge: Option<mpp::ChargeRequest> = challenge.request.decode().ok();
+            let amount = charge
+                .as_ref()
+                .map(|c| c.amount.clone())
+                .unwrap_or_default();
+            let currency = charge
+                .as_ref()
+                .map(|c| c.currency.clone())
+                .unwrap_or_default();
+            (network, amount, currency)
+        })
+        .unwrap_or_default();
+
     if let Some(ref a) = analytics {
         a.track(
             analytics::Event::PaymentStarted,
             analytics::PaymentStartedPayload {
-                network: String::new(),
-                amount: String::new(),
-                currency: String::new(),
+                network: pay_network.clone(),
+                amount: pay_amount.clone(),
+                currency: pay_currency.clone(),
             },
         );
     }
@@ -463,9 +543,9 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                     a.track(
                         analytics::Event::PaymentSuccess,
                         analytics::PaymentSuccessPayload {
-                            network: String::new(),
-                            amount: String::new(),
-                            currency: String::new(),
+                            network: pay_network,
+                            amount: pay_amount,
+                            currency: pay_currency,
                             tx_hash: String::new(),
                         },
                     );
@@ -491,9 +571,9 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                     a.track(
                         analytics::Event::PaymentFailure,
                         analytics::PaymentFailurePayload {
-                            network: String::new(),
-                            amount: String::new(),
-                            currency: String::new(),
+                            network: pay_network,
+                            amount: pay_amount,
+                            currency: pay_currency,
                             error: e.to_string(),
                         },
                     );
@@ -508,9 +588,9 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                     a.track(
                         analytics::Event::PaymentSuccess,
                         analytics::PaymentSuccessPayload {
-                            network: String::new(),
-                            amount: String::new(),
-                            currency: String::new(),
+                            network: pay_network,
+                            amount: pay_amount,
+                            currency: pay_currency,
                             tx_hash: response
                                 .get_header("payment-receipt")
                                 .cloned()
@@ -534,9 +614,9 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                     a.track(
                         analytics::Event::PaymentFailure,
                         analytics::PaymentFailurePayload {
-                            network: String::new(),
-                            amount: String::new(),
-                            currency: String::new(),
+                            network: pay_network,
+                            amount: pay_amount,
+                            currency: pay_currency,
                             error: e.to_string(),
                         },
                     );
