@@ -8,4 +8,6 @@ pub mod money;
 pub mod mpp_ext;
 pub mod provider;
 pub mod providers;
+pub mod session_store;
 pub mod web_payment;
+pub mod web_session;

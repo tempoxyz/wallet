@@ -52,6 +52,25 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
     Ok(())
 }
 
+/// Validate that a payment challenge is a valid session challenge.
+pub fn validate_session_challenge(challenge: &PaymentChallenge) -> Result<()> {
+    if method_to_network(&challenge.method).is_none() {
+        return Err(PrestoError::UnsupportedPaymentMethod(format!(
+            "Payment method '{}' is not supported. Supported methods: tempo",
+            challenge.method
+        )));
+    }
+
+    if !challenge.intent.is_session() {
+        return Err(PrestoError::UnsupportedPaymentIntent(format!(
+            "Expected 'session' intent, got: {}",
+            challenge.intent
+        )));
+    }
+
+    Ok(())
+}
+
 /// Presto-specific extensions to ChargeRequest.
 ///
 /// For core EVM accessors (including `memo()`), use `TempoChargeExt` from mpp.
@@ -141,6 +160,38 @@ mod tests {
             expires: None,
         };
         assert!(validate_challenge(&challenge).is_err());
+    }
+
+    #[test]
+    fn test_validate_session_challenge_valid() {
+        use mpp::Base64UrlJson;
+        let challenge = PaymentChallenge {
+            id: "test".to_string(),
+            realm: "test.example.com".to_string(),
+            method: MethodName::new("tempo"),
+            intent: "session".into(),
+            request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
+            digest: None,
+            description: None,
+            expires: None,
+        };
+        assert!(validate_session_challenge(&challenge).is_ok());
+    }
+
+    #[test]
+    fn test_validate_session_challenge_wrong_intent() {
+        use mpp::Base64UrlJson;
+        let challenge = PaymentChallenge {
+            id: "test".to_string(),
+            realm: "test.example.com".to_string(),
+            method: MethodName::new("tempo"),
+            intent: "charge".into(),
+            request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
+            digest: None,
+            description: None,
+            expires: None,
+        };
+        assert!(validate_session_challenge(&challenge).is_err());
     }
 
     #[test]

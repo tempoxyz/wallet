@@ -295,6 +295,13 @@ pub enum Commands {
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
     },
+    /// Manage payment sessions
+    #[command(alias = "s", display_order = 10)]
+    #[command(args_conflicts_with_subcommands = true)]
+    Session {
+        #[command(subcommand)]
+        command: Option<SessionCommands>,
+    },
     /// Generate shell completions script
     #[command(alias = "com", display_order = 11)]
     Completions {
@@ -354,6 +361,20 @@ pub enum Shell {
     Zsh,
     Fish,
     PowerShell,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SessionCommands {
+    /// List active payment sessions
+    List,
+    /// Close a payment session and remove it locally
+    Close {
+        /// URL or origin to close session for
+        url: Option<String>,
+        /// Close all active sessions
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

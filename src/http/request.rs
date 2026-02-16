@@ -114,6 +114,18 @@ impl RequestContext {
         Ok(builder.build()?)
     }
 
+    /// Build a reqwest::Client with the same configuration as the normal HTTP client.
+    ///
+    /// Used for session/SSE flows that need direct access to reqwest's streaming API
+    /// (e.g., bytes_stream() for SSE event parsing).
+    pub fn build_reqwest_client(
+        &self,
+        extra_headers: Option<&[(String, String)]>,
+    ) -> Result<reqwest::Client> {
+        let client = self.build_client(extra_headers)?;
+        Ok(client.inner_client())
+    }
+
     /// Execute an HTTP request
     pub async fn execute(
         &self,
