@@ -157,8 +157,8 @@ impl Network {
     /// Get the explorer base URL for this network (if available).
     pub const fn explorer_url(&self) -> Option<&'static str> {
         match self {
-            Network::Tempo => Some("https://explorer.tempo.xyz"),
-            Network::TempoModerato => Some("https://explorer.moderato.tempo.xyz"),
+            Network::Tempo => Some("https://explore.tempo.xyz"),
+            Network::TempoModerato => Some("https://explore.moderato.tempo.xyz"),
             Network::TempoLocalnet => None,
         }
     }

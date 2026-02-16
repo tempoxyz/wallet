@@ -283,6 +283,13 @@ impl HttpClient {
         Self::convert_response(response).await
     }
 
+    /// Get a clone of the underlying reqwest client.
+    ///
+    /// Used for session/SSE flows that need direct access to reqwest's streaming API.
+    pub fn inner_client(&self) -> reqwest::Client {
+        self.client.clone()
+    }
+
     /// Convert a reqwest response to our HttpResponse type
     async fn convert_response(response: reqwest::Response) -> Result<HttpResponse> {
         let status_code = response.status().as_u16() as u32;

@@ -26,9 +26,9 @@ futures = "0.3"
 hex = "0.4"
 hostname = "0.4"
 posthog-rs = "0.3.5"
-mpp = { git = "https://github.com/tempoxyz/mpay-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client"] }
+mpp = { git = "https://github.com/tempoxyz/mpp-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client", "server"] }
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
