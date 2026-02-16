@@ -104,6 +104,10 @@ pub struct QueryArgs {
     #[arg(short = 'D', long, help_heading = "Payment Options")]
     pub dry_run: bool,
 
+    /// Force charge (pay-per-request) mode instead of session channels
+    #[arg(long = "charge", help_heading = "Payment Options")]
+    pub charge: bool,
+
     /// Disable automatic token swaps when you don't have the requested currency
     #[arg(
         long = "no-swap",

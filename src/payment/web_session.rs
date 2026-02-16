@@ -32,7 +32,7 @@ use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::Network;
 use crate::payment::abi::encode_approve;
-use crate::payment::mpp_ext::{method_to_network, validate_session_challenge};
+use crate::payment::mpp_ext::{extract_tx_hash, method_to_network, validate_session_challenge};
 use crate::payment::providers::tempo::create_tempo_payment_from_calls;
 use crate::payment::session_store::{self, SessionRecord, SESSION_TTL_SECS};
 use crate::wallet::signer::load_signer_with_priority;
@@ -320,15 +320,16 @@ pub async fn handle_web_session_request(
 
     if let Some(receipt_str) = open_response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_str) {
+            let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
             let explorer = Network::from_str(network_name)
                 .ok()
                 .and_then(|n| n.info().explorer);
             if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
                 if let Some(exp) = explorer.as_ref() {
-                    let tx_url = exp.tx_url(&receipt.reference);
+                    let tx_url = exp.tx_url(&tx_ref);
                     eprintln!("Channel open tx: {}", tx_url);
                 } else {
-                    eprintln!("Channel open tx: {}", receipt.reference);
+                    eprintln!("Channel open tx: {}", tx_ref);
                 }
             }
         }
@@ -444,6 +445,7 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
         SessionRecord {
             version: 1,
             origin: ctx.origin.to_string(),
+            request_url: ctx.url.to_string(),
             network_name: ctx.network_name.to_string(),
             chain_id: state.chain_id,
             escrow_contract: format!("{:#x}", state.escrow_contract),
@@ -529,15 +531,19 @@ pub async fn close_session_from_record(record: &SessionRecord) -> Result<()> {
         .build()
         .context("Failed to build HTTP client")?;
 
-    let close_url = format!(
-        "{}://{}",
-        if record.origin.starts_with("https") {
-            "https"
-        } else {
-            "http"
-        },
-        record.origin.split("://").nth(1).unwrap_or(&record.origin),
-    );
+    let close_url = if record.request_url.is_empty() {
+        format!(
+            "{}://{}",
+            if record.origin.starts_with("https") {
+                "https"
+            } else {
+                "http"
+            },
+            record.origin.split("://").nth(1).unwrap_or(&record.origin),
+        )
+    } else {
+        record.request_url.clone()
+    };
 
     match client
         .post(&close_url)
@@ -549,14 +555,15 @@ pub async fn close_session_from_record(record: &SessionRecord) -> Result<()> {
             if let Some(receipt_str) = response.headers().get("payment-receipt") {
                 if let Ok(receipt_str) = receipt_str.to_str() {
                     if let Ok(receipt) = parse_receipt(receipt_str) {
+                        let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
                         let explorer = Network::from_str(&record.network_name)
                             .ok()
                             .and_then(|n| n.info().explorer);
                         if let Some(exp) = explorer.as_ref() {
-                            let tx_url = exp.tx_url(&receipt.reference);
+                            let tx_url = exp.tx_url(&tx_ref);
                             eprintln!("Channel settled: {}", tx_url);
                         } else {
-                            eprintln!("Channel settled: {}", receipt.reference);
+                            eprintln!("Channel settled: {}", tx_ref);
                         }
                     }
                 }
@@ -792,15 +799,29 @@ async fn stream_sse_response(
                         // the request to be received, not the full response.
                         let voucher_url = ctx.url.split('?').next().unwrap_or(ctx.url).to_string();
                         let voucher_client = reqwest::Client::builder()
-                            .timeout(std::time::Duration::from_secs(5))
+                            .timeout(std::time::Duration::from_secs(30))
                             .build()
                             .unwrap_or_default();
+                        let verbose = cli.is_verbose() && cli.should_show_output();
                         tokio::spawn(async move {
-                            let _ = voucher_client
+                            match voucher_client
                                 .post(&voucher_url)
                                 .header("Authorization", &auth)
                                 .send()
-                                .await;
+                                .await
+                            {
+                                Ok(resp) if !resp.status().is_success() => {
+                                    if verbose {
+                                        eprintln!("[voucher POST returned {}]", resp.status());
+                                    }
+                                }
+                                Err(e) => {
+                                    if verbose {
+                                        eprintln!("[voucher POST failed: {}]", e);
+                                    }
+                                }
+                                _ => {}
+                            }
                         });
                     }
                     SseEvent::PaymentReceipt(receipt) => {

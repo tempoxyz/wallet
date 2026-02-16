@@ -20,6 +20,8 @@ pub struct SessionRecord {
     #[serde(default = "default_version")]
     pub version: u32,
     pub origin: String,
+    #[serde(default)]
+    pub request_url: String,
     pub network_name: String,
     pub chain_id: u64,
     pub escrow_contract: String,
@@ -206,6 +208,7 @@ mod tests {
         let record = SessionRecord {
             version: 1,
             origin: "https://example.com".into(),
+            request_url: "https://example.com/api/v1".into(),
             network_name: "tempo".into(),
             chain_id: 4217,
             escrow_contract: "0x00".into(),
@@ -233,6 +236,7 @@ mod tests {
         let record = SessionRecord {
             version: 1,
             origin: "https://example.com".into(),
+            request_url: "https://example.com/api/v1".into(),
             network_name: "tempo".into(),
             chain_id: 4217,
             escrow_contract: "0x00".into(),

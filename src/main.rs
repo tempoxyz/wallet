@@ -444,11 +444,13 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
         );
     }
 
-    // Detect intent from challenge to branch between charge and session flows
-    let is_session = response
-        .get_header("www-authenticate")
-        .and_then(|h| mpp::parse_www_authenticate(h).ok())
-        .is_some_and(|challenge| challenge.intent.is_session());
+    // Detect intent from challenge to branch between charge and session flows.
+    // --charge flag forces charge mode regardless of server's intent.
+    let is_session = !request_ctx.query.charge
+        && response
+            .get_header("www-authenticate")
+            .and_then(|h| mpp::parse_www_authenticate(h).ok())
+            .is_some_and(|challenge| challenge.intent.is_session());
 
     if is_session {
         if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {

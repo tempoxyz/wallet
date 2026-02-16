@@ -18,6 +18,9 @@
 
 set -euo pipefail
 
+STDERR_FILE=$(mktemp)
+trap 'rm -f "$STDERR_FILE"' EXIT
+
 ENDPOINT="https://openrouter.payments.tempo.xyz/v1/chat/completions"
 MODEL="openai/gpt-4o-mini"
 
@@ -66,18 +69,64 @@ for i in "${!PROMPTS[@]}"; do
   PROMPT="${PROMPTS[$i]}"
   N=$((i + 1))
   echo "[$N/${#PROMPTS[@]}] Prompt: \"${PROMPT}\""
-  echo "---"
 
-  presto -v query -X POST \
+  RESPONSE=$(presto -v query -X POST \
     --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
-    "${ENDPOINT}" 2>/dev/null || true
+    "${ENDPOINT}" 2>"$STDERR_FILE") || true
+
+  STDERR=$(cat "$STDERR_FILE")
+
+  # Extract payment details from stderr (strip ANSI/OSC escape sequences)
+  CLEAN_STDERR=$(echo "$STDERR" | sed $'s/\x1b[^m]*m//g' | sed $'s/\x1b\\][^\x1b]*\x1b\\\\//g')
+  TX_HASH=$(echo "$CLEAN_STDERR" | grep "Channel open tx:" | awk '{print $NF}' || true)
+  if [ -n "$TX_HASH" ] && [ -z "${OPEN_TX:-}" ]; then
+    OPEN_TX="$TX_HASH"
+  fi
+  COST=$(echo "$CLEAN_STDERR" | grep "Cost per request:" | awk '{print $(NF-2)}' || true)
+  METHOD=$(echo "$CLEAN_STDERR" | grep "Payment method:" | awk '{print $NF}' || true)
+  INTENT=$(echo "$CLEAN_STDERR" | grep "Payment intent:" | awk '{print $NF}' || true)
+  CUMULATIVE=$(echo "$CLEAN_STDERR" | grep "Session persisted" | sed 's/.*cumulative: \(.*\))/\1/' || true)
+
+  # Extract LLM response
+  LLM_RESPONSE=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+  TOKENS_IN=$(echo "$RESPONSE" | jq -r '.usage.prompt_tokens // empty' 2>/dev/null)
+  TOKENS_OUT=$(echo "$RESPONSE" | jq -r '.usage.completion_tokens // empty' 2>/dev/null)
 
   echo ""
+  echo "--- Response ---"
+  echo "$LLM_RESPONSE"
+
+  echo ""
+  echo "--- Payment ---"
+  echo "  Intent: ${INTENT}"
+  echo "  Method: ${METHOD}"
+  echo "  Cost:   ${COST} atomic units"
+  if [ -n "$TX_HASH" ]; then
+    echo "  TX:     ${TX_HASH}"
+  fi
+  if [ -n "$CUMULATIVE" ]; then
+    echo "  Total:  ${CUMULATIVE}"
+  fi
+  echo "  Tokens: ${TOKENS_IN} in / ${TOKENS_OUT} out"
   echo ""
 done
 
 echo "--- Closing session ---"
-presto session close "${ENDPOINT}" 2>/dev/null || true
+presto session close "${ENDPOINT}" 2>"$STDERR_FILE" || true
+CLOSE_STDERR=$(cat "$STDERR_FILE")
+CLEAN_CLOSE=$(echo "$CLOSE_STDERR" | sed $'s/\x1b[^m]*m//g' | sed $'s/\x1b\\][^\x1b]*\x1b\\\\//g')
+CLOSE_TX=$(echo "$CLEAN_CLOSE" | grep "Channel settled:" | awk '{print $NF}' || true)
+echo ""
+
+echo "--- Channel ---"
+if [ -n "${OPEN_TX:-}" ]; then
+  echo "  Open:   ${OPEN_TX}"
+fi
+if [ -n "$CLOSE_TX" ]; then
+  echo "  Settle: ${CLOSE_TX}"
+else
+  echo "  Settle: pending (server did not return a receipt)"
+fi
 echo ""
 
 echo "--- Balance (after) ---"
