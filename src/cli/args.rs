@@ -20,6 +20,12 @@ pub enum ColorMode {
 #[command(name = "presto")]
 #[command(about = "A command-line HTTP client with built-in payment support", long_about = None)]
 #[command(version)]
+#[command(
+    override_usage = "presto [OPTIONS] <URL> [-- HTTP_OPTIONS]\n  presto [OPTIONS] <COMMAND>"
+)]
+#[command(
+    after_help = "Examples:\n  presto https://api.example.com/data\n  presto -X POST --json '{\"key\": \"value\"}' https://api.example.com/endpoint\n  presto login"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -167,7 +173,7 @@ pub struct QueryArgs {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Make an HTTP request with optional payment
-    #[command(alias = "q", display_order = 1)]
+    #[command(alias = "q", display_order = 1, hide = true)]
     Query(Box<QueryArgs>),
     /// Log in to your Tempo wallet
     #[command(display_order = 2)]

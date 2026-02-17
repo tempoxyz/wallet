@@ -277,7 +277,7 @@ fn test_main_help_lists_all_commands() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("query"))
+        .stdout(predicate::str::contains("URL"))
         .stdout(predicate::str::contains("login"))
         .stdout(predicate::str::contains("logout"))
         .stdout(predicate::str::contains("balance"))
