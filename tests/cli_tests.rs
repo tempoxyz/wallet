@@ -385,3 +385,31 @@ fn test_explicit_query_still_works() {
         .assert()
         .success();
 }
+
+#[test]
+fn test_typo_subcommand_not_swallowed() {
+    // A typo'd subcommand should fail with a clap error, not be treated as query
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["qurey", "http://example.com"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error"));
+}
+
+#[test]
+fn test_bare_url_with_dry_run() {
+    // `--dry-run` with a bare URL should succeed without making a payment
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["--dry-run", "http://example.com"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_no_args_shows_help() {
+    // Running with no arguments should show help and succeed
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage"));
+}

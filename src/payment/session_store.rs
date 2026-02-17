@@ -244,4 +244,34 @@ mod tests {
         };
         assert!(record.is_expired());
     }
+
+    #[test]
+    fn test_touch_updates_timestamps() {
+        let mut record = SessionRecord {
+            version: 1,
+            origin: "https://example.com".into(),
+            request_url: "https://example.com/api/v1".into(),
+            network_name: "tempo".into(),
+            chain_id: 4217,
+            escrow_contract: "0x00".into(),
+            currency: "0x00".into(),
+            recipient: "0x00".into(),
+            payer: "0x00".into(),
+            authorized_signer: "0x00".into(),
+            salt: "0x00".into(),
+            channel_id: "0x00".into(),
+            deposit: "1000000".into(),
+            tick_cost: "100".into(),
+            cumulative_amount: "0".into(),
+            did: "did:pkh:eip155:4217:0x00".into(),
+            challenge_echo: "echo".into(),
+            challenge_id: "id".into(),
+            created_at: 1000,
+            last_used_at: 1000,
+            expires_at: 1000,
+        };
+        record.touch();
+        assert!(record.last_used_at > 1000);
+        assert_eq!(record.expires_at, record.last_used_at + SESSION_TTL_SECS);
+    }
 }

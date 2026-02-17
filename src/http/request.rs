@@ -296,4 +296,49 @@ mod tests {
         let query = make_query_args(&["query", "-d", "plain text", "http://example.com"]);
         assert!(!should_auto_add_json_content_type(&query));
     }
+
+    #[test]
+    fn test_resolve_data_nonexistent_file_error() {
+        let err = resolve_data("@nonexistent_file_12345.txt").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("failed to read file"), "got: {msg}");
+        assert!(msg.contains("nonexistent_file_12345.txt"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_multiple_data_values_joined_with_ampersand() {
+        let query = make_query_args(&["query", "-d", "a=1", "-d", "b=2", "http://example.com"]);
+        let (_method, body) = get_request_method_and_body(&query).unwrap();
+        assert_eq!(body.unwrap(), b"a=1&b=2");
+    }
+
+    #[test]
+    fn test_body_implies_post() {
+        let query = make_query_args(&["query", "-d", "foo", "http://example.com"]);
+        let (method, _body) = get_request_method_and_body(&query).unwrap();
+        assert_eq!(method, HttpMethod::Post);
+    }
+
+    #[test]
+    fn test_explicit_method_overrides_body_implied_post() {
+        let query = make_query_args(&["query", "-X", "PUT", "-d", "foo", "http://example.com"]);
+        let (method, _body) = get_request_method_and_body(&query).unwrap();
+        assert_eq!(method, HttpMethod::Put);
+    }
+
+    #[test]
+    fn test_data_file_does_not_auto_add_json_content_type() {
+        let query = make_query_args(&["query", "-d", "@Cargo.toml", "http://example.com"]);
+        assert!(!should_auto_add_json_content_type(&query));
+    }
+
+    #[test]
+    fn test_validate_header_size_limit() {
+        let header = format!("X-Big: {}", "a".repeat(MAX_HEADER_SIZE));
+        let err = validate_header_size(&header).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds maximum size"),
+            "got: {err}"
+        );
+    }
 }

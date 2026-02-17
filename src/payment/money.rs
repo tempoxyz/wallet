@@ -597,4 +597,25 @@ mod tests {
         assert!(display.contains("tempo-moderato"));
         assert!(display.contains("0x"));
     }
+
+    #[test]
+    fn test_from_human_leading_decimal() {
+        let token = test_token();
+        let money = Money::from_human(".5", token, 6, "pathUSD").expect("leading decimal");
+        assert_eq!(money.atomic(), U256::from(500_000u64));
+    }
+
+    #[test]
+    fn test_from_human_trailing_decimal() {
+        let token = test_token();
+        let money = Money::from_human("1.", token, 6, "pathUSD").expect("trailing decimal");
+        assert_eq!(money.atomic(), U256::from(1_000_000u64));
+    }
+
+    #[test]
+    fn test_from_human_leading_zeros() {
+        let token = test_token();
+        let money = Money::from_human("0001.500", token, 6, "pathUSD").expect("leading zeros");
+        assert_eq!(money.atomic(), U256::from(1_500_000u64));
+    }
 }
