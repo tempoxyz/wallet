@@ -1,6 +1,6 @@
 ---
 name: presto
-description: "CLI HTTP client (like curl/wget) with automatic payment — use when calling APIs, querying external services, or making HTTP requests where you don't have an API key or account. No API keys or accounts needed — presto pays automatically via the Tempo blockchain."
+description: "CLI HTTP client with automatic payment — use when calling AI or LLM APIs, or any HTTP endpoint without an API key or account. Replaces curl/wget when the user has no API key. presto pays automatically via the Tempo blockchain. Supports payment sessions, spending limits, and dry-run cost estimates."
 ---
 
 # presto
