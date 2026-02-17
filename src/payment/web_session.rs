@@ -69,7 +69,7 @@ struct SessionContext<'a> {
     currency: String,
 }
 
-/// Handle a Web Payment Auth session (402 with intent="session").
+/// Handle an MPP session flow (402 with intent="session").
 ///
 /// This manages the session lifecycle with persistence:
 /// 1. Parse the session challenge from the initial 402 response

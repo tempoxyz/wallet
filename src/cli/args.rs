@@ -18,7 +18,7 @@ pub enum ColorMode {
 
 #[derive(Parser, Debug)]
 #[command(name = "presto")]
-#[command(about = "A command-line HTTP client with built-in payment support", long_about = None)]
+#[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version)]
 #[command(
     override_usage = "presto [OPTIONS] <URL> [-- HTTP_OPTIONS]\n  presto [OPTIONS] <COMMAND>"

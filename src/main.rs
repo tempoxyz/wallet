@@ -1,4 +1,4 @@
-//! presto CLI - A command-line HTTP client with built-in payment support
+//! presto CLI - A command-line HTTP client with built-in MPP payment support
 
 mod analytics;
 mod cli;

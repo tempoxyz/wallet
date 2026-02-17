@@ -2,7 +2,7 @@
 name = "presto"
 version = "0.1.0"
 edition = "2021"
-description = "A command-line HTTP client with built-in payment support"
+description = "A command-line HTTP client with built-in MPP payment support"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tempoxyz/presto"
 

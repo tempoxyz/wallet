@@ -1,7 +1,7 @@
-//! Web Payment Auth protocol handling for the CLI
+//! Machine Payments Protocol (MPP) handling for the CLI
 //!
-//! This module handles the IETF Web Payment Auth protocol (draft-ietf-httpauth-payment)
-//! which uses WWW-Authenticate and Authorization headers for blockchain payments.
+//! This module handles the MPP protocol (https://mpp.sh) which uses
+//! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
 use anyhow::{Context, Result};
 use std::str::FromStr;
@@ -19,7 +19,7 @@ use crate::network::Network;
 use crate::payment::mpp_ext::{extract_tx_hash, method_to_network, validate_challenge};
 use crate::payment::provider::PrestoPaymentProvider;
 
-/// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
+/// Handle MPP charge flow (402 with WWW-Authenticate: Payment header)
 pub async fn handle_web_payment_request(
     config: &Config,
     request_ctx: &RequestContext,
@@ -214,7 +214,7 @@ fn handle_web_dry_run(
         .unwrap_or_else(|_| "unknown".to_string());
 
     println!("[DRY RUN] Web Payment would be made:");
-    println!("Protocol: Web Payment Auth");
+    println!("Protocol: MPP (https://mpp.sh)");
     println!("Method: {}", challenge.method);
     println!("Intent: {}", challenge.intent);
     println!("Network: {}", network);
