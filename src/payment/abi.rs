@@ -87,6 +87,7 @@ mod tests {
     fn test_transfer_encoding() {
         let recipient: Address = "0x496bc2392ba3b6179a15435ed09dad18d85a1705"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let amount = U256::from(1000u64);
 
@@ -99,6 +100,7 @@ mod tests {
     fn test_transfer_with_memo_encoding() {
         let recipient: Address = "0x496bc2392ba3b6179a15435ed09dad18d85a1705"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let amount = U256::from(1000u64);
         let memo: [u8; 32] = [
@@ -128,9 +130,11 @@ mod tests {
     fn test_swap_exact_amount_out_encoding() {
         let token_in: Address = "0x20c0000000000000000000000000000000000001"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let token_out: Address = "0x20c0000000000000000000000000000000000000"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let amount_out: u128 = 1_000_000;
         let max_amount_in: u128 = 1_005_000; // 0.5% slippage

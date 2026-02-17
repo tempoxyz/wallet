@@ -219,6 +219,7 @@ mod tests {
 
     fn headers_with_origin(origin: &str) -> HeaderMap {
         let mut h = HeaderMap::new();
+        // ast-grep-ignore: no-unwrap-in-lib
         h.insert("origin", origin.parse().unwrap());
         h
     }
@@ -269,6 +270,7 @@ mod tests {
     #[test]
     fn test_rejects_referer_without_origin() {
         let mut h = HeaderMap::new();
+        // ast-grep-ignore: no-unwrap-in-lib
         h.insert("referer", "https://app.tempo.xyz/cli-auth".parse().unwrap());
         assert!(!is_origin_allowed(&h));
     }

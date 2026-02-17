@@ -262,6 +262,7 @@ mod tests {
         };
         creds.tempo = Some(wallet);
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let toml_str = toml::to_string_pretty(&creds).unwrap();
         assert!(toml_str.contains("network = \"tempo\""));
         assert!(toml_str.contains("account_address = \"0xtest\""));
@@ -281,6 +282,7 @@ mod tests {
         creds.tempo_moderato = Some(wallet);
 
         assert!(creds.active_wallet().is_some());
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(creds.active_wallet().unwrap().account_address, "0xtest");
     }
 
@@ -322,11 +324,14 @@ mod tests {
         };
         creds.tempo = Some(wallet);
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let toml_str = toml::to_string_pretty(&creds).unwrap();
         assert!(toml_str.contains("pending_key_authorization = \"abcdef1234\""));
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let parsed: WalletCredentials = toml::from_str(&toml_str).unwrap();
         assert_eq!(
+            // ast-grep-ignore: no-unwrap-in-lib
             parsed.tempo.unwrap().pending_key_authorization,
             Some("abcdef1234".to_string())
         );
@@ -389,7 +394,9 @@ network = "tempo-moderato"
 account_address = "0xtest"
 active_key_index = 0
 "#;
+        // ast-grep-ignore: no-unwrap-in-lib
         let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        // ast-grep-ignore: no-unwrap-in-lib
         let wallet = creds.tempo_moderato.unwrap();
         assert_eq!(wallet.account_address, "0xtest");
         assert!(wallet.pending_key_authorization.is_none());

@@ -216,7 +216,11 @@ impl PrestoPaymentProvider {
                 {
                     Ok(limit) => limit,
                     Err(_) if pending_auth.is_some() => {
-                        pending_key_spending_limit(pending_auth.as_ref().unwrap(), required_token)
+                        // ast-grep-ignore: no-unwrap-in-lib
+                        pending_key_spending_limit(
+                            pending_auth.as_ref().expect("checked is_some"),
+                            required_token,
+                        )
                     }
                     Err(e) => {
                         return Err(mpp::MppError::Http(format!(
@@ -571,7 +575,11 @@ pub async fn find_swap_source(
                     Ok(Some(l)) if l >= amount_with_slippage => l,
                     Ok(Some(_)) => return None,
                     Err(_) if pending_auth.is_some() => {
-                        match pending_key_spending_limit(pending_auth.unwrap(), token_address) {
+                        // ast-grep-ignore: no-unwrap-in-lib
+                        match pending_key_spending_limit(
+                            pending_auth.expect("checked is_some"),
+                            token_address,
+                        ) {
                             None => U256::MAX,
                             Some(l) if l >= amount_with_slippage => l,
                             Some(_) => return None,

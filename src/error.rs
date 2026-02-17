@@ -424,8 +424,8 @@ mod tests {
 
     #[test]
     fn test_signing_with_context() {
-        use std::io::{Error as IoError, ErrorKind};
-        let source = IoError::new(ErrorKind::Other, "underlying error");
+        use std::io::Error as IoError;
+        let source = IoError::other("underlying error");
         let ctx = SigningContext {
             network: Some("tempo".to_string()),
             address: Some("0x123".to_string()),
@@ -462,8 +462,8 @@ mod tests {
 
     #[test]
     fn test_result_ext_with_signing_context() {
-        use std::io::{Error as IoError, ErrorKind};
-        let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
+        use std::io::Error as IoError;
+        let result: std::result::Result<(), IoError> = Err(IoError::other("test"));
         let ctx = SigningContext {
             network: Some("tempo".to_string()),
             address: None,
@@ -477,8 +477,8 @@ mod tests {
 
     #[test]
     fn test_result_ext_with_network() {
-        use std::io::{Error as IoError, ErrorKind};
-        let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
+        use std::io::Error as IoError;
+        let result: std::result::Result<(), IoError> = Err(IoError::other("test"));
         let presto_result = result.with_network("base-sepolia");
         assert!(presto_result.is_err());
         let err = presto_result.unwrap_err();
@@ -487,8 +487,8 @@ mod tests {
 
     #[test]
     fn test_with_network_on_signing_error() {
-        use std::io::{Error as IoError, ErrorKind};
-        let source = IoError::new(ErrorKind::Other, "test");
+        use std::io::Error as IoError;
+        let source = IoError::other("test");
         let err = PrestoError::signing_with_context(source, SigningContext::default());
         let err_with_network = err.with_network("optimism");
         assert!(err_with_network.to_string().contains("optimism"));

@@ -747,6 +747,7 @@ fn create_tempo_transaction_with_calls(
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn create_tempo_transaction(
         signer: &PrivateKeySigner,
         chain_id: u64,
@@ -795,6 +796,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let asset = Address::ZERO;
@@ -812,6 +814,7 @@ mod tests {
         );
 
         assert!(result.is_ok());
+        // ast-grep-ignore: no-unwrap-in-lib
         let tx_hex = result.unwrap();
         assert!(tx_hex.starts_with("76"));
     }
@@ -821,6 +824,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let asset = Address::ZERO;
@@ -839,6 +843,7 @@ mod tests {
         );
 
         assert!(result.is_ok());
+        // ast-grep-ignore: no-unwrap-in-lib
         let tx_hex = result.unwrap();
         assert!(tx_hex.starts_with("76"));
     }
@@ -848,6 +853,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let asset = Address::ZERO;
@@ -864,6 +870,7 @@ mod tests {
             None,
             None,
         )
+        // ast-grep-ignore: no-unwrap-in-lib
         .unwrap();
 
         let keychain_tx = create_tempo_transaction(
@@ -876,6 +883,7 @@ mod tests {
             Some(wallet_address),
             None,
         )
+        // ast-grep-ignore: no-unwrap-in-lib
         .unwrap();
 
         assert!(keychain_tx.len() > direct_tx.len());
@@ -885,9 +893,11 @@ mod tests {
     fn test_swap_info_slippage_calculation() {
         let token_in: Address = "0x20c0000000000000000000000000000000000001"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let token_out: Address = "0x20c0000000000000000000000000000000000000"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let amount_out = U256::from(1_000_000u64); // 1 USDC
 
@@ -918,9 +928,11 @@ mod tests {
     fn test_swap_info_preserves_addresses() {
         let token_in: Address = "0x20c0000000000000000000000000000000000001"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let token_out: Address = "0x20c0000000000000000000000000000000000000"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let amount_out = U256::from(100u64);
 
@@ -942,28 +954,35 @@ mod tests {
 
         let token_in: Address = "0x20c0000000000000000000000000000000000001"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let token_out: Address = "0x20c0000000000000000000000000000000000000"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let recipient: Address = "0x1234567890123456789012345678901234567890"
             .parse()
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         let amount = U256::from(1_000_000u64);
 
         let swap_info = SwapInfo::new(token_in, token_out, amount);
+        // ast-grep-ignore: no-unwrap-in-lib
         let calls = build_swap_calls(&swap_info, recipient, amount, None).unwrap();
 
         // Should produce exactly 3 calls
         assert_eq!(calls.len(), 3);
 
         // Call 1: approve on token_in
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(calls[0].to.to().unwrap(), &token_in);
 
         // Call 2: swap on DEX
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(calls[1].to.to().unwrap(), &DEX_ADDRESS);
 
         // Call 3: transfer on token_out
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(calls[2].to.to().unwrap(), &token_out);
 
         // All calls should have zero value
@@ -979,6 +998,7 @@ mod tests {
         let memo = Some([0xab; 32]);
 
         let swap_info = SwapInfo::new(token_in, token_out, amount);
+        // ast-grep-ignore: no-unwrap-in-lib
         let calls = build_swap_calls(&swap_info, recipient, amount, memo).unwrap();
 
         // Should still produce 3 calls with memo
@@ -1000,6 +1020,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let asset = Address::ZERO;
@@ -1014,6 +1035,7 @@ mod tests {
             limits: None,
         };
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let inner_sig = signer.sign_hash_sync(&key_auth.signature_hash()).unwrap();
         let signed_auth = key_auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
@@ -1027,6 +1049,7 @@ mod tests {
             Some(wallet_address),
             None,
         )
+        // ast-grep-ignore: no-unwrap-in-lib
         .unwrap();
 
         let tx_with = create_tempo_transaction(
@@ -1039,6 +1062,7 @@ mod tests {
             Some(wallet_address),
             Some(signed_auth),
         )
+        // ast-grep-ignore: no-unwrap-in-lib
         .unwrap();
 
         assert!(tx_with.len() > tx_without.len());
@@ -1050,6 +1074,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let asset = Address::ZERO;
@@ -1067,6 +1092,7 @@ mod tests {
         );
 
         assert!(result.is_ok());
+        // ast-grep-ignore: no-unwrap-in-lib
         let tx_hex = result.unwrap();
         assert!(tx_hex.starts_with("76"));
     }
@@ -1078,6 +1104,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let auth = KeyAuthorization {
@@ -1088,6 +1115,7 @@ mod tests {
             limits: None,
         };
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
@@ -1102,6 +1130,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let token = Address::repeat_byte(0x01);
@@ -1115,6 +1144,7 @@ mod tests {
             limits: Some(vec![TokenLimit { token, limit }]),
         };
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
@@ -1128,6 +1158,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let allowed_token = Address::repeat_byte(0x01);
@@ -1144,6 +1175,7 @@ mod tests {
             }]),
         };
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
@@ -1160,6 +1192,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let auth = KeyAuthorization {
@@ -1170,6 +1203,7 @@ mod tests {
             limits: Some(vec![]),
         };
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
@@ -1194,6 +1228,7 @@ mod tests {
             input: alloy::primitives::Bytes::from_static(&[0xaa, 0xbb]),
         }];
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let req = build_estimate_gas_request(from, chain_id, nonce, fee_token, &calls, &gas, None)
             .unwrap();
 
@@ -1208,6 +1243,7 @@ mod tests {
         assert_eq!(req["feeToken"], format!("{:#x}", fee_token));
         assert_eq!(req["nonceKey"], "0x0");
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let calls_json = req["calls"].as_array().unwrap();
         assert_eq!(calls_json.len(), 1);
         assert_eq!(calls_json[0]["to"], format!("{:#x}", call_to));
@@ -1240,6 +1276,7 @@ mod tests {
             },
         ];
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let req = build_estimate_gas_request(
             from,
             4217,
@@ -1251,6 +1288,7 @@ mod tests {
         )
         .unwrap();
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let calls_json = req["calls"].as_array().unwrap();
         assert_eq!(calls_json.len(), 3);
         assert_eq!(calls_json[1]["value"], format!("{:#x}", 42u64));
@@ -1265,6 +1303,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let auth = KeyAuthorization {
@@ -1274,6 +1313,7 @@ mod tests {
             expiry: Some(9999999999),
             limits: None,
         };
+        // ast-grep-ignore: no-unwrap-in-lib
         let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
         let signed_auth = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
@@ -1283,6 +1323,7 @@ mod tests {
             input: alloy::primitives::Bytes::new(),
         }];
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let req = build_estimate_gas_request(
             Address::ZERO,
             42431,
@@ -1302,12 +1343,14 @@ mod tests {
     #[test]
     fn test_parse_gas_estimate_with_buffer_hex_prefix() {
         // 100_000 = 0x186a0 → with +5000 buffer = 105_000
+        // ast-grep-ignore: no-unwrap-in-lib
         let result = parse_gas_estimate_with_buffer("0x186a0").unwrap();
         assert_eq!(result, 105_000);
     }
 
     #[test]
     fn test_parse_gas_estimate_with_buffer_no_prefix() {
+        // ast-grep-ignore: no-unwrap-in-lib
         let result = parse_gas_estimate_with_buffer("186a0").unwrap();
         assert_eq!(result, 105_000);
     }
@@ -1315,12 +1358,15 @@ mod tests {
     #[test]
     fn test_parse_gas_estimate_with_buffer_fixed() {
         // 1 gas → 1 + 5000 = 5001
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(parse_gas_estimate_with_buffer("0x1").unwrap(), 5_001);
 
         // 5 gas → 5 + 5000 = 5005
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(parse_gas_estimate_with_buffer("0x5").unwrap(), 5_005);
 
         // 250_000 gas → 250000 + 5000 = 255_000
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(parse_gas_estimate_with_buffer("0x3d090").unwrap(), 255_000);
     }
 
@@ -1338,7 +1384,9 @@ mod tests {
 
     fn decode_gas_limit(tx_hex: &str) -> u64 {
         use alloy::eips::eip2718::Decodable2718;
+        // ast-grep-ignore: no-unwrap-in-lib
         let bytes = hex::decode(tx_hex).unwrap();
+        // ast-grep-ignore: no-unwrap-in-lib
         let signed = AASigned::decode_2718(&mut bytes.as_slice()).unwrap();
         signed.tx().gas_limit
     }
@@ -1348,6 +1396,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let asset = Address::ZERO;
@@ -1364,10 +1413,12 @@ mod tests {
             None,
             None,
         )
+        // ast-grep-ignore: no-unwrap-in-lib
         .unwrap();
 
         let tx_nonce_1 =
             create_tempo_transaction(&signer, 42431, 1, asset, transfer_data, &gas, None, None)
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         assert_eq!(

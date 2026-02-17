@@ -147,6 +147,7 @@ mod tests {
 
     #[test]
     fn test_access_key_address_without_0x_prefix() {
+        // ast-grep-ignore: no-unwrap-in-lib
         let key_hex = TEST_PRIVATE_KEY.strip_prefix("0x").unwrap();
         let key = AccessKey::new(key_hex.to_string());
         let address = key.address();
@@ -157,6 +158,7 @@ mod tests {
     fn test_access_key_is_expired() {
         let past_expiry = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap()
             .as_secs()
             - 3600;
@@ -169,6 +171,7 @@ mod tests {
     fn test_access_key_not_expired() {
         let future_expiry = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap()
             .as_secs()
             + 3600;
@@ -186,6 +189,7 @@ mod tests {
     #[test]
     fn test_access_key_signer() {
         let key = AccessKey::new(TEST_PRIVATE_KEY.to_string());
+        // ast-grep-ignore: no-unwrap-in-lib
         let signer = key.signer().unwrap();
         assert_eq!(
             format!("{:?}", signer.address()).to_lowercase(),

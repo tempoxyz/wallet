@@ -105,6 +105,24 @@ impl ChargeRequestExt for ChargeRequest {
     }
 }
 
+/// Extract the `txHash` field from a base64url-encoded receipt, if present.
+///
+/// The mpp `Receipt` struct only captures `reference` (which for session
+/// receipts is the channel ID). The server also includes a `txHash` field
+/// with the actual on-chain transaction hash. This function decodes the
+/// raw receipt to extract it.
+pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+
+    let decoded = URL_SAFE_NO_PAD.decode(receipt_b64.trim()).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    json.get("txHash")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +156,7 @@ mod tests {
             realm: "test.example.com".to_string(),
             method: MethodName::new("tempo"),
             intent: "charge".into(),
+            // ast-grep-ignore: no-unwrap-in-lib
             request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
             digest: None,
             description: None,
@@ -154,6 +173,7 @@ mod tests {
             realm: "test.example.com".to_string(),
             method: MethodName::new("bitcoin"),
             intent: "charge".into(),
+            // ast-grep-ignore: no-unwrap-in-lib
             request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
             digest: None,
             description: None,
@@ -170,6 +190,7 @@ mod tests {
             realm: "test.example.com".to_string(),
             method: MethodName::new("tempo"),
             intent: "session".into(),
+            // ast-grep-ignore: no-unwrap-in-lib
             request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
             digest: None,
             description: None,
@@ -186,6 +207,7 @@ mod tests {
             realm: "test.example.com".to_string(),
             method: MethodName::new("tempo"),
             intent: "charge".into(),
+            // ast-grep-ignore: no-unwrap-in-lib
             request: Base64UrlJson::from_value(&serde_json::json!({})).unwrap(),
             digest: None,
             description: None,
@@ -215,22 +237,4 @@ mod tests {
         };
         assert!(req.money(Network::TempoModerato).is_err());
     }
-}
-
-/// Extract the `txHash` field from a base64url-encoded receipt, if present.
-///
-/// The mpp `Receipt` struct only captures `reference` (which for session
-/// receipts is the channel ID). The server also includes a `txHash` field
-/// with the actual on-chain transaction hash. This function decodes the
-/// raw receipt to extract it.
-pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
-
-    let decoded = URL_SAFE_NO_PAD.decode(receipt_b64.trim()).ok()?;
-    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    json.get("txHash")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
 }

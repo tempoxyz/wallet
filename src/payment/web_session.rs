@@ -175,7 +175,8 @@ pub async fn handle_web_session_request(
         .is_some_and(|r| !r.is_expired() && r.payer == did);
 
     if reuse {
-        let record = existing.unwrap();
+        // `reuse` is only true when `existing.is_some()`
+        let record = existing.expect("checked is_some above");
         if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
             eprintln!("Reusing existing session for {}", origin);
             eprintln!("  Channel: {}", record.channel_id);

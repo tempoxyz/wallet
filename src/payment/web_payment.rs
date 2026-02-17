@@ -283,6 +283,7 @@ fn classify_payment_provider_error(err: mpp::MppError) -> crate::error::PrestoEr
     }
 
     if msg_lower.contains("insufficient") && msg_lower.contains("balance") {
+        // ast-grep-ignore: no-leading-whitespace-strings
         let token = extract_between(&msg, "Insufficient ", " balance");
         let available = extract_field(&msg, "have")
             .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
@@ -396,6 +397,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_no_constraints() {
         let query = default_query();
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -406,6 +408,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_ok() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -416,6 +419,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_exceeded() {
         let query = make_query_args(&["query", "--max-amount", "500000", "http://example.com"]);
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -432,6 +436,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_max_amount_equal() {
         let query = make_query_args(&["query", "--max-amount", "1000000", "http://example.com"]);
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -442,6 +447,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_match() {
         let query = default_query();
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -452,6 +458,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
         let query = default_query();
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -468,6 +475,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_multiple_networks() {
         let query = default_query();
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -478,6 +486,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_tempo_network() {
         let query = default_query();
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -488,6 +497,7 @@ mod tests {
     #[test]
     fn test_validate_constraints_combined() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
+        // ast-grep-ignore: no-unwrap-in-lib
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
@@ -514,6 +524,7 @@ mod tests {
     fn test_extract_between_token() {
         let msg = "Insufficient pathUSD balance: have 0.50, need 1.00";
         assert_eq!(
+            // ast-grep-ignore: no-leading-whitespace-strings
             extract_between(msg, "Insufficient ", " balance"),
             Some("pathUSD".into())
         );
@@ -523,6 +534,7 @@ mod tests {
     fn test_extract_between_address_token() {
         let msg = "Insufficient 0x20c0000000000000000000000000000000000000 balance: have 0, need 1";
         assert_eq!(
+            // ast-grep-ignore: no-leading-whitespace-strings
             extract_between(msg, "Insufficient ", " balance"),
             Some("0x20c0000000000000000000000000000000000000".into())
         );
@@ -531,6 +543,7 @@ mod tests {
     #[test]
     fn test_extract_between_no_match() {
         assert_eq!(
+            // ast-grep-ignore: no-leading-whitespace-strings
             extract_between("no match", "Insufficient ", " balance"),
             None
         );

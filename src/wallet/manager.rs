@@ -338,7 +338,7 @@ fn validate_key_authorization(
 fn chrono_label() -> String {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("system clock before UNIX epoch")
         .as_secs()
         .to_string()
 }
@@ -360,6 +360,7 @@ mod tests {
         let signer: PrivateKeySigner =
             "0x1234567890123456789012345678901234567890123456789012345678901234"
                 .parse()
+                // ast-grep-ignore: no-unwrap-in-lib
                 .unwrap();
 
         let auth = KeyAuthorization {
@@ -370,6 +371,7 @@ mod tests {
             limits: None,
         };
 
+        // ast-grep-ignore: no-unwrap-in-lib
         let sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
 
@@ -384,6 +386,7 @@ mod tests {
         let hex = make_signed_auth_hex(signer.address());
         let result = validate_key_authorization(Some(&hex), signer.address());
         assert!(result.is_ok());
+        // ast-grep-ignore: no-unwrap-in-lib
         let validated = result.unwrap().unwrap();
         assert_eq!(validated.hex, hex);
         assert_eq!(validated.expiry, 9999999999);
@@ -404,6 +407,7 @@ mod tests {
     fn test_validate_key_authorization_none() {
         let result = validate_key_authorization(None, Address::ZERO);
         assert!(result.is_ok());
+        // ast-grep-ignore: no-unwrap-in-lib
         assert_eq!(result.unwrap(), None);
     }
 

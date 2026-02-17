@@ -342,6 +342,7 @@ mod tests {
     fn test_token_config_by_address() {
         let config = Network::Tempo
             .token_config_by_address(tempo_tokens::PATH_USD)
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap();
         assert_eq!(config.currency.symbol, "pathUSD");
     }

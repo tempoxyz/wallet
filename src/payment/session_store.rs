@@ -203,6 +203,7 @@ mod tests {
     fn test_is_expired_future() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
+            // ast-grep-ignore: no-unwrap-in-lib
             .unwrap()
             .as_secs();
         let record = SessionRecord {

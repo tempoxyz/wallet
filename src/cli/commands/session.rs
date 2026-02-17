@@ -17,6 +17,7 @@ pub fn list_sessions() -> Result<()> {
     println!("Active payment sessions:\n");
     for session in &sessions {
         let expired = if session.is_expired() {
+            // ast-grep-ignore: no-leading-whitespace-strings
             " (expired)"
         } else {
             ""
