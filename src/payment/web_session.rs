@@ -715,10 +715,47 @@ fn extract_sse_content(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
+/// Post a voucher to the server in a background task.
+///
+/// We MUST NOT await the response inline because the server may respond
+/// with a streaming body (treating the POST as a new chat request).
+/// Awaiting would deadlock: the server waits for us to read the SSE
+/// stream, and we wait for the POST response.
+fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) {
+    let vc = client.clone();
+    let url = url.to_string();
+    let auth = auth.to_string();
+    tokio::spawn(async move {
+        match vc.post(&url).header("Authorization", &auth).send().await {
+            Ok(resp) => {
+                if verbose {
+                    let status = resp.status();
+                    let ct = resp
+                        .headers()
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("none")
+                        .to_string();
+                    eprintln!("[voucher POST: {} content-type={}]", status, ct);
+                }
+            }
+            Err(e) => {
+                eprintln!("[voucher POST failed: {}]", e);
+            }
+        }
+    });
+}
+
 /// Stream SSE events from a response, handling voucher top-ups mid-stream.
 ///
 /// Persists cumulative amount updates during streaming so that if the
 /// process is interrupted, the session record reflects the last voucher sent.
+///
+/// The server has a known race condition where its `wait_for_update` notification
+/// can be lost (tokio::sync::Notify without permit storage). When a voucher POST
+/// arrives but the server hasn't started awaiting yet, the notification is dropped
+/// and the stream stalls. We work around this by re-posting the same voucher if
+/// no progress is seen within a short timeout after the last need-voucher event.
 async fn stream_sse_response(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
@@ -732,18 +769,62 @@ async fn stream_sse_response(
 
     let mut stream_done = false;
 
-    // Per-chunk timeout: if no data arrives within 30 seconds, assume the
-    // stream has stalled (e.g. server waiting for a voucher that was lost).
-    let chunk_timeout = std::time::Duration::from_secs(30);
+    // Reuse a single client for voucher POSTs to maintain connection affinity
+    // with the server (important when behind a load balancer).
+    let voucher_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    // Track pending voucher for retry on stall. When we send a voucher but
+    // the server's notify is lost, we need to re-send to wake it up.
+    let mut pending_voucher_auth: Option<String> = None;
+    let mut voucher_retry_count: u32 = 0;
+    const MAX_VOUCHER_RETRIES: u32 = 5;
+
+    // Normal timeout for when we're actively receiving tokens.
+    let normal_timeout = std::time::Duration::from_secs(30);
+    // Short timeout after sending a voucher — if the server doesn't resume
+    // quickly, the notify was likely lost and we should re-post.
+    let voucher_stall_timeout = std::time::Duration::from_secs(3);
 
     loop {
         if stream_done {
             break;
         }
-        let chunk = match tokio::time::timeout(chunk_timeout, stream.next()).await {
+
+        let timeout = if pending_voucher_auth.is_some() {
+            voucher_stall_timeout
+        } else {
+            normal_timeout
+        };
+
+        let chunk = match tokio::time::timeout(timeout, stream.next()).await {
             Ok(Some(chunk)) => chunk,
             Ok(None) => break, // stream ended
             Err(_) => {
+                // Timeout — if we have a pending voucher, re-post it
+                if let Some(ref auth) = pending_voucher_auth {
+                    voucher_retry_count += 1;
+                    if voucher_retry_count > MAX_VOUCHER_RETRIES {
+                        if cli.is_verbose() && cli.should_show_output() {
+                            eprintln!(
+                                "[stream stall — voucher not accepted after {} retries]",
+                                MAX_VOUCHER_RETRIES
+                            );
+                        }
+                        break;
+                    }
+                    if cli.is_verbose() && cli.should_show_output() {
+                        eprintln!(
+                            "[re-posting voucher (retry {}/{})]",
+                            voucher_retry_count, MAX_VOUCHER_RETRIES
+                        );
+                    }
+                    let verbose = cli.is_verbose() && cli.should_show_output();
+                    post_voucher(&voucher_client, ctx.url, auth, verbose);
+                    continue;
+                }
                 if cli.is_verbose() && cli.should_show_output() {
                     eprintln!("[stream timeout — no data for 30s]");
                 }
@@ -751,7 +832,14 @@ async fn stream_sse_response(
             }
         };
         let chunk = chunk.context("Stream error")?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        let chunk_str = String::from_utf8_lossy(&chunk);
+        // Normalize \r\n to \n so SSE event boundary detection works with
+        // servers/proxies that emit CRLF line endings.
+        if chunk_str.contains('\r') {
+            buffer.push_str(&chunk_str.replace("\r\n", "\n"));
+        } else {
+            buffer.push_str(&chunk_str);
+        }
 
         while let Some(pos) = buffer.find("\n\n") {
             let event_str = buffer[..pos + 2].to_string();
@@ -760,6 +848,10 @@ async fn stream_sse_response(
             if let Some(event) = parse_event(&event_str) {
                 match event {
                     SseEvent::Message(data) => {
+                        // Any message means the voucher was accepted
+                        pending_voucher_auth = None;
+                        voucher_retry_count = 0;
+
                         if data.trim() == "[DONE]" {
                             stream_done = true;
                             break;
@@ -791,40 +883,15 @@ async fn stream_sse_response(
                         let auth = mpp::format_authorization(&voucher)
                             .context("Failed to format voucher")?;
 
-                        // POST the voucher to the server. The server reads the
-                        // Authorization header to update the channel balance,
-                        // then unblocks our SSE stream. We use a short timeout
-                        // because the proxy may respond with a new SSE stream
-                        // (treating the POST as a chat request); we only need
-                        // the request to be received, not the full response.
-                        let voucher_url = ctx.url.split('?').next().unwrap_or(ctx.url).to_string();
-                        let voucher_client = reqwest::Client::builder()
-                            .timeout(std::time::Duration::from_secs(30))
-                            .build()
-                            .unwrap_or_default();
                         let verbose = cli.is_verbose() && cli.should_show_output();
-                        tokio::spawn(async move {
-                            match voucher_client
-                                .post(&voucher_url)
-                                .header("Authorization", &auth)
-                                .send()
-                                .await
-                            {
-                                Ok(resp) if !resp.status().is_success() => {
-                                    if verbose {
-                                        eprintln!("[voucher POST returned {}]", resp.status());
-                                    }
-                                }
-                                Err(e) => {
-                                    if verbose {
-                                        eprintln!("[voucher POST failed: {}]", e);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        });
+                        post_voucher(&voucher_client, ctx.url, &auth, verbose);
+
+                        // Track this voucher for retry if the server stalls
+                        pending_voucher_auth = Some(auth);
+                        voucher_retry_count = 0;
                     }
                     SseEvent::PaymentReceipt(receipt) => {
+                        pending_voucher_auth = None;
                         if cli.is_verbose() && cli.should_show_output() {
                             eprintln!();
                             eprintln!("Stream receipt:");
