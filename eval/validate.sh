@@ -185,12 +185,13 @@ if [ -n "$PRESTO_CMDS" ]; then
 fi
 
 # --- Extract performance metrics from transcript ---
+# Use grep to isolate the result line before passing to jq, avoiding parse
+# errors from non-JSON lines (e.g., ANSI escape codes in the transcript).
 DURATION_MS=0
 NUM_TURNS=0
 if [ -f "$TRANSCRIPT" ] && [ -s "$TRANSCRIPT" ]; then
-  DURATION_MS=$(jq -r 'select(.type == "result") | .duration_ms // 0' "$TRANSCRIPT" 2>/dev/null | tail -1)
-  NUM_TURNS=$(jq -r 'select(.type == "result") | .num_turns // 0' "$TRANSCRIPT" 2>/dev/null | tail -1)
-  # Default to 0 if empty
+  DURATION_MS=$(grep '"type":"result"' "$TRANSCRIPT" 2>/dev/null | jq -r '.duration_ms // 0' 2>/dev/null | tail -1 || true)
+  NUM_TURNS=$(grep '"type":"result"' "$TRANSCRIPT" 2>/dev/null | jq -r '.num_turns // 0' 2>/dev/null | tail -1 || true)
   DURATION_MS=${DURATION_MS:-0}
   NUM_TURNS=${NUM_TURNS:-0}
 fi

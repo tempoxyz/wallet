@@ -41,11 +41,10 @@ jobs:
 
       - name: Changelogs
         uses: wevm/changelogs-rs@master
-        continue-on-error: true
         with:
           conventional-commit: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
   build:
     name: Build (${{ matrix.target }})

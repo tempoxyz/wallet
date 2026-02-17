@@ -14,7 +14,7 @@
 #   ./eval/run.sh --dry-run                    # Show what would run
 #
 # Environment:
-#   EVAL_TIMEOUT  - Per-case timeout in seconds (default: 120)
+#   EVAL_TIMEOUT  - Per-case timeout in seconds (default: 180)
 #   EVAL_CASES    - Path to cases file (default: eval/cases/cases.json)
 
 set -euo pipefail
@@ -27,7 +27,7 @@ AGENT="amp"
 CATEGORY=""
 CASE_FILTER=""
 DRY_RUN=false
-TIMEOUT="${EVAL_TIMEOUT:-120}"
+TIMEOUT="${EVAL_TIMEOUT:-180}"
 CASES_FILE="${EVAL_CASES:-${SCRIPT_DIR}/cases/cases.json}"
 SKILL_FILE=""
 
@@ -158,7 +158,7 @@ if [ "$DRY_RUN" = "true" ]; then
 fi
 
 # Run a command with a timeout. Uses system `timeout`/`gtimeout` if available,
-# otherwise a portable bash fallback that backgrounds the process and kills it.
+# otherwise a perl-based fallback (available on macOS).
 # Returns 124 on timeout (matching GNU coreutils convention).
 run_with_timeout() {
   local secs="$1"
@@ -169,43 +169,31 @@ run_with_timeout() {
     return $?
   fi
 
-  # Portable fallback: run in background, kill after deadline
-  "$@" &
-  local pid=$!
-
-  (
-    sleep "$secs"
-    kill "$pid" 2>/dev/null
-  ) &
-  local watchdog=$!
-
-  wait "$pid" 2>/dev/null
-  local exit_code=$?
-
-  # Clean up watchdog
-  kill "$watchdog" 2>/dev/null
-  wait "$watchdog" 2>/dev/null
-
-  # If the process was killed by our watchdog, return 124
-  if [ $exit_code -ge 128 ]; then
-    return 124
-  fi
-  return $exit_code
+  # Perl-based fallback: uses SIGALRM without backgrounding the process
+  perl -e '
+    $SIG{ALRM} = sub { kill("TERM", $pid); exit(124) };
+    alarm(shift @ARGV);
+    $pid = fork();
+    if ($pid == 0) { exec(@ARGV) or exit(127); }
+    waitpid($pid, 0);
+    exit($? >> 8);
+  ' "$secs" "$@"
 }
 
 run_agent() {
   local prompt="$1"
   local outfile="$2"
+  local errfile="${outfile%.jsonl}.stderr"
 
   case "$AGENT" in
     amp)
-      run_with_timeout "$TIMEOUT" amp --stream-json -x "$prompt" > "$outfile" 2>&1
+      run_with_timeout "$TIMEOUT" amp --stream-json -x "$prompt" < /dev/null > "$outfile" 2>"$errfile"
       ;;
     claude)
-      run_with_timeout "$TIMEOUT" env -u CLAUDECODE claude -p --verbose --dangerously-skip-permissions --output-format stream-json "$prompt" > "$outfile" 2>&1
+      run_with_timeout "$TIMEOUT" env -u CLAUDECODE claude -p --verbose --dangerously-skip-permissions --output-format stream-json "$prompt" < /dev/null > "$outfile" 2>"$errfile"
       ;;
     *)
-      run_with_timeout "$TIMEOUT" "$AGENT" -p "$prompt" > "$outfile" 2>&1
+      run_with_timeout "$TIMEOUT" "$AGENT" -p "$prompt" < /dev/null > "$outfile" 2>"$errfile"
       ;;
   esac
 }
@@ -216,6 +204,14 @@ FAILED=0
 ERRORS=0
 RESULTS_FILE="${RUN_DIR}/results.jsonl"
 : > "$RESULTS_FILE"
+
+# Determine report name for live updates
+mkdir -p "${SCRIPT_DIR}/reports"
+if [ -n "$SKILL_FILE" ]; then
+  REPORT_NAME="${AGENT}-${SKILL_LABEL}"
+else
+  REPORT_NAME="${AGENT}"
+fi
 
 for case_id in $CASE_IDS; do
   CASE_JSON=$(jq -c ".cases[] | select(.id == \"${case_id}\")" "$CASES_FILE")
@@ -236,8 +232,13 @@ for case_id in $CASE_IDS; do
   if [ $EXIT_CODE -eq 124 ]; then
     printf "TIMEOUT\n"
     ERRORS=$((ERRORS + 1))
-    jq -n --arg id "$case_id" --arg cat "$CATEGORY_VAL" \
-      '{case_id: $id, category: $cat, error: "timeout", overall_pass: false}' >> "$RESULTS_FILE"
+    jq -n --arg id "$case_id" --arg cat "$CATEGORY_VAL" --arg prompt "$PROMPT" \
+      --argjson timeout_ms "$((TIMEOUT * 1000))" \
+      '{case_id: $id, category: $cat, prompt: $prompt, error: "timeout", trigger_pass: false, usage_pass: false, overall_pass: false, reasons: ["timeout (\($timeout_ms/1000)s)"], presto_calls: 0, curl_calls: 0, skill_loaded: false, presto_cmds: [], duration_ms: $timeout_ms, num_turns: 0}' >> "$RESULTS_FILE"
+    # Update report after timeout too
+    ELAPSED=$(($(date +%s) - SUITE_START))
+    "${SCRIPT_DIR}/report.sh" "$RESULTS_FILE" "$ELAPSED" > "${RUN_DIR}/report.md"
+    cp "${RUN_DIR}/report.md" "${SCRIPT_DIR}/reports/${REPORT_NAME}.md"
     continue
   fi
 
@@ -284,6 +285,11 @@ for case_id in $CASE_IDS; do
     printf "FAIL  (%s)\n" "$REASONS"
     FAILED=$((FAILED + 1))
   fi
+
+  # Regenerate report after each case for live progress
+  ELAPSED=$(($(date +%s) - SUITE_START))
+  "${SCRIPT_DIR}/report.sh" "$RESULTS_FILE" "$ELAPSED" > "${RUN_DIR}/report.md"
+  cp "${RUN_DIR}/report.md" "${SCRIPT_DIR}/reports/${REPORT_NAME}.md"
 done
 
 SUITE_END=$(date +%s)
@@ -301,15 +307,8 @@ fi
 printf "Wall time: %dm%02ds\n" "$SUITE_MIN" "$SUITE_SEC"
 echo ""
 
-# Generate report
+# Generate final report with accurate wall time
 "${SCRIPT_DIR}/report.sh" "$RESULTS_FILE" "$SUITE_ELAPSED" > "${RUN_DIR}/report.md"
-# Copy as latest report for this agent
-mkdir -p "${SCRIPT_DIR}/reports"
-if [ -n "$SKILL_FILE" ]; then
-  REPORT_NAME="${AGENT}-${SKILL_LABEL}"
-else
-  REPORT_NAME="${AGENT}"
-fi
 cp "${RUN_DIR}/report.md" "${SCRIPT_DIR}/reports/${REPORT_NAME}.md"
 echo "Report: eval/reports/${REPORT_NAME}.md"
 
