@@ -74,7 +74,9 @@ fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
 
 fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
     if header.len() > MAX_HEADER_SIZE {
-        return Err(RequestError::HeaderTooLarge { max: MAX_HEADER_SIZE });
+        return Err(RequestError::HeaderTooLarge {
+            max: MAX_HEADER_SIZE,
+        });
     }
     Ok(())
 }
