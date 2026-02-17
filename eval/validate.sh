@@ -184,6 +184,18 @@ if [ -n "$PRESTO_CMDS" ]; then
   PRESTO_CMDS_JSON=$(echo "$PRESTO_CMDS" | jq -R -s 'split("\n") | map(select(. != ""))')
 fi
 
+# --- Extract performance metrics from transcript ---
+# Use grep to isolate the result line before passing to jq, avoiding parse
+# errors from non-JSON lines (e.g., ANSI escape codes in the transcript).
+DURATION_MS=0
+NUM_TURNS=0
+if [ -f "$TRANSCRIPT" ] && [ -s "$TRANSCRIPT" ]; then
+  DURATION_MS=$(grep '"type":"result"' "$TRANSCRIPT" 2>/dev/null | jq -r '.duration_ms // 0' 2>/dev/null | tail -1 || true)
+  NUM_TURNS=$(grep '"type":"result"' "$TRANSCRIPT" 2>/dev/null | jq -r '.num_turns // 0' 2>/dev/null | tail -1 || true)
+  DURATION_MS=${DURATION_MS:-0}
+  NUM_TURNS=${NUM_TURNS:-0}
+fi
+
 jq -n \
   --arg case_id "$CASE_ID" \
   --argjson trigger_pass "$TRIGGER_PASS" \
@@ -194,6 +206,8 @@ jq -n \
   --argjson skill_loaded "$SKILL_LOADED" \
   --argjson reasons "$REASONS" \
   --argjson presto_cmds "$PRESTO_CMDS_JSON" \
+  --argjson duration_ms "$DURATION_MS" \
+  --argjson num_turns "$NUM_TURNS" \
   '{
     case_id: $case_id,
     trigger_pass: $trigger_pass,
@@ -203,5 +217,7 @@ jq -n \
     curl_calls: $curl_calls,
     skill_loaded: $skill_loaded,
     reasons: $reasons,
-    presto_cmds: $presto_cmds
+    presto_cmds: $presto_cmds,
+    duration_ms: $duration_ms,
+    num_turns: $num_turns
   }'

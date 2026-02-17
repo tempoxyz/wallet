@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Generate a markdown report from eval results.
 #
-# Usage: report.sh <results.jsonl>
+# Usage: report.sh <results.jsonl> [wall_time_seconds]
 
 set -euo pipefail
 
 RESULTS_FILE="$1"
+WALL_TIME_S="${2:-}"
 
 if [ ! -f "$RESULTS_FILE" ]; then
   echo "Error: results file not found: $RESULTS_FILE" >&2
@@ -21,6 +22,14 @@ USAGE_ACC=$(jq -s '
   ([.[] | select(.trigger_pass == true and .usage_pass == true)] | length) as $correct |
   if $triggered == 0 then 0 else ($correct / $triggered * 100 | floor) end
 ' "$RESULTS_FILE")
+AVG_DURATION=$(jq -s '
+  [.[] | .duration_ms // 0] | 
+  if length == 0 then 0 else (add / length / 1000 * 10 | floor) / 10 end
+' "$RESULTS_FILE")
+AVG_TURNS=$(jq -s '
+  [.[] | .num_turns // 0] | 
+  if length == 0 then 0 else (add / length * 10 | floor) / 10 end
+' "$RESULTS_FILE")
 
 cat <<EOF
 # Presto Skill Eval Report
@@ -34,6 +43,9 @@ cat <<EOF
 | Failed | $FAILED |
 | Trigger accuracy | ${TRIGGER_ACC}% |
 | Usage accuracy | ${USAGE_ACC}% |
+| Avg duration | ${AVG_DURATION}s |
+| Avg turns | ${AVG_TURNS} |
+| Wall time | $(if [ -n "$WALL_TIME_S" ]; then printf "%dm%02ds" $((WALL_TIME_S / 60)) $((WALL_TIME_S % 60)); else echo "n/a"; fi) |
 
 ## Results by Category
 
@@ -55,11 +67,11 @@ jq -s '
 echo ""
 echo "## All Cases"
 echo ""
-echo "| Case | Category | Trigger | Usage | Result | Notes |"
-echo "|------|----------|---------|-------|--------|-------|"
+echo "| Case | Category | Trigger | Usage | Result | Duration | Turns | Notes |"
+echo "|------|----------|---------|-------|--------|----------|-------|-------|"
 
 jq -s '.[] |
-  "| \(.case_id) | \(.category // "-") | \(if .trigger_pass then "✅" else "❌" end) | \(if .usage_pass then "✅" else "❌" end) | \(if .overall_pass then "✅ PASS" else "❌ FAIL" end) | \(.reasons // [] | join("; ")) |"
+  "| \(.case_id) | \(.category // "-") | \(if .trigger_pass then "✅" else "❌" end) | \(if .usage_pass then "✅" else "❌" end) | \(if .overall_pass then "✅ PASS" else "❌ FAIL" end) | \((.duration_ms // 0) / 1000 | tostring | split(".") | .[0] + "." + (.[1] // "0" | .[:1]))s | \(.num_turns // 0) | \(.reasons // [] | join("; ")) |"
 ' -r "$RESULTS_FILE"
 
 # Show failures detail
