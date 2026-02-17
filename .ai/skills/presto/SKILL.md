@@ -155,6 +155,10 @@ presto balance
 presto balance -n tempo
 ```
 
+## Error Recovery
+
+If presto fails with "No wallet configured" or "Run 'presto login'", **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
+
 ## How Payment Works
 
 1. presto sends the HTTP request normally

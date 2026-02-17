@@ -194,17 +194,26 @@ run_agent() {
   local outfile="$2"
   local errfile="${outfile%.jsonl}.stderr"
 
+  # Run in a temp directory to prevent side effects (file creation) from
+  # polluting the repo. The global skill at ~/.claude/skills/ is still found.
+  local workdir
+  workdir=$(mktemp -d)
+  local rc=0
+
   case "$AGENT" in
     amp)
-      run_with_timeout "$TIMEOUT" amp --stream-json -x "$prompt" < /dev/null > "$outfile" 2>"$errfile"
+      (cd "$workdir" && run_with_timeout "$TIMEOUT" amp --stream-json -x "$prompt" < /dev/null > "$outfile" 2>"$errfile") || rc=$?
       ;;
     claude)
-      run_with_timeout "$TIMEOUT" env -u CLAUDECODE claude -p --verbose --dangerously-skip-permissions --output-format stream-json "$prompt" < /dev/null > "$outfile" 2>"$errfile"
+      (cd "$workdir" && run_with_timeout "$TIMEOUT" env -u CLAUDECODE claude -p --verbose --dangerously-skip-permissions --output-format stream-json "$prompt" < /dev/null > "$outfile" 2>"$errfile") || rc=$?
       ;;
     *)
-      run_with_timeout "$TIMEOUT" "$AGENT" -p "$prompt" < /dev/null > "$outfile" 2>"$errfile"
+      (cd "$workdir" && run_with_timeout "$TIMEOUT" "$AGENT" -p "$prompt" < /dev/null > "$outfile" 2>"$errfile") || rc=$?
       ;;
   esac
+
+  rm -rf "$workdir"
+  return $rc
 }
 
 # --- Report lifecycle ---
