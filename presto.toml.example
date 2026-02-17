@@ -3,7 +3,6 @@
 # Locations:
 #   macOS:   ~/Library/Application Support/presto/config.toml
 #   Linux:   ~/.config/presto/config.toml
-#   Windows: %APPDATA%\presto\config.toml
 #
 # Alternatively, run ` tempo-walletlogin` to create this file interactively.
 

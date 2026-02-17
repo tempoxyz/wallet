@@ -37,20 +37,10 @@ pub mod tempo_tokens {
 pub struct NetworkInfo {
     /// Chain ID
     pub chain_id: Option<u64>,
-    /// True if this is a mainnet, false for testnets
-    pub mainnet: bool,
-    /// Human-readable display name
-    pub display_name: String,
     /// RPC endpoint URL for blockchain interactions
     pub rpc_url: String,
     /// Block explorer configuration
     pub explorer: Option<ExplorerConfig>,
-}
-
-impl NetworkInfo {
-    pub fn is_testnet(&self) -> bool {
-        !self.mainnet
-    }
 }
 
 /// Token configuration for a network.
@@ -129,19 +119,11 @@ impl Network {
     }
 
     /// Check if this is a mainnet.
+    #[cfg(test)]
     pub const fn is_mainnet(&self) -> bool {
         match self {
             Network::Tempo => true,
             Network::TempoModerato | Network::TempoLocalnet => false,
-        }
-    }
-
-    /// Get the display name for this network.
-    pub const fn display_name(&self) -> &'static str {
-        match self {
-            Network::Tempo => "Tempo",
-            Network::TempoModerato => "Tempo Moderato (Testnet)",
-            Network::TempoLocalnet => "Tempo Localnet",
         }
     }
 
@@ -167,8 +149,6 @@ impl Network {
     pub fn info(&self) -> NetworkInfo {
         NetworkInfo {
             chain_id: Some(self.chain_id()),
-            mainnet: self.is_mainnet(),
-            display_name: self.display_name().to_string(),
             rpc_url: self.rpc_url().to_string(),
             explorer: self.explorer_url().map(ExplorerConfig::tempo),
         }
@@ -198,6 +178,7 @@ impl Network {
     }
 
     /// Get token configuration by address, or error if not found.
+    #[cfg(test)]
     pub fn require_token_config(&self, address: &str) -> crate::error::Result<TokenConfig> {
         self.token_config_by_address(address).ok_or_else(|| {
             crate::error::PrestoError::UnsupportedToken(format!(
@@ -208,8 +189,8 @@ impl Network {
     }
 
     /// Get the default token configuration (pathUSD) for this network.
-    #[allow(dead_code)]
-    pub fn default_token_config(&self) -> TokenConfig {
+    #[cfg(test)]
+    pub(crate) fn default_token_config(&self) -> TokenConfig {
         use crate::payment::currency::currencies;
         TokenConfig {
             currency: currencies::PATH_USD,
@@ -217,7 +198,13 @@ impl Network {
         }
     }
 
+    /// Check if this is the localnet (local development) network.
+    pub const fn is_localnet(&self) -> bool {
+        matches!(self, Network::TempoLocalnet)
+    }
+
     /// Filter networks by name (substring match).
+    /// When no filter is provided, returns only public networks (excludes localnet).
     pub fn by_name_filter(name_filter: Option<&str>) -> Vec<Network> {
         let all = Self::all();
         match name_filter {
@@ -226,7 +213,7 @@ impl Network {
                 .copied()
                 .filter(|n| n.as_str().contains(filter))
                 .collect(),
-            None => all.to_vec(),
+            None => all.iter().copied().filter(|n| !n.is_localnet()).collect(),
         }
     }
 }
@@ -266,7 +253,6 @@ mod tests {
     fn test_network_lookup() {
         let tempo = get_network("tempo").expect("tempo network should exist");
         assert_eq!(tempo.chain_id, Some(4217));
-        assert!(tempo.mainnet);
     }
 
     #[test]
@@ -348,13 +334,18 @@ mod tests {
 
     #[test]
     fn test_by_name_filter() {
+        // None returns only public networks (excludes localnet)
         let all = Network::by_name_filter(None);
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&Network::Tempo));
+        assert!(all.contains(&Network::TempoModerato));
+        assert!(!all.contains(&Network::TempoLocalnet));
 
         let filtered = Network::by_name_filter(Some("moderato"));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0], Network::TempoModerato);
 
+        // Localnet can still be explicitly selected via filter
         let localnet_filtered = Network::by_name_filter(Some("localnet"));
         assert_eq!(localnet_filtered.len(), 1);
         assert_eq!(localnet_filtered[0], Network::TempoLocalnet);
@@ -364,8 +355,6 @@ mod tests {
     fn test_network_info() {
         let info = Network::Tempo.info();
         assert_eq!(info.chain_id, Some(4217));
-        assert!(info.mainnet);
-        assert_eq!(info.display_name, "Tempo");
         assert!(info.explorer.is_some());
 
         // Localnet has no explorer

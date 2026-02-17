@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplorerConfig {
-    /// Base URL (e.g., "https://explore.tempo.xyz")
+    /// Base URL (e.g., `https://explore.tempo.xyz`)
     pub base_url: String,
     /// Path template for transactions (default: "/tx/{hash}")
     #[serde(default = "default_tx_path")]

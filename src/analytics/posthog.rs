@@ -1,3 +1,5 @@
+//! PostHog analytics client wrapper.
+
 use posthog_rs::{Client, Event};
 use serde_json::Value;
 

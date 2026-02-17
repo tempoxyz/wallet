@@ -25,6 +25,21 @@ pub enum HttpMethod {
 }
 
 impl HttpMethod {
+    /// Convert to a reqwest::Method.
+    pub fn to_reqwest(&self) -> std::result::Result<reqwest::Method, crate::error::PrestoError> {
+        match self {
+            HttpMethod::Get => Ok(reqwest::Method::GET),
+            HttpMethod::Post => Ok(reqwest::Method::POST),
+            HttpMethod::Put => Ok(reqwest::Method::PUT),
+            HttpMethod::Patch => Ok(reqwest::Method::PATCH),
+            HttpMethod::Delete => Ok(reqwest::Method::DELETE),
+            HttpMethod::Head => Ok(reqwest::Method::HEAD),
+            HttpMethod::Options => Ok(reqwest::Method::OPTIONS),
+            HttpMethod::Custom(s) => reqwest::Method::from_bytes(s.as_bytes())
+                .map_err(|e| crate::error::PrestoError::UnsupportedHttpMethod(e.to_string())),
+        }
+    }
+
     /// Returns the method as an uppercase string.
     pub fn as_str(&self) -> &str {
         match self {
@@ -119,7 +134,6 @@ pub struct HttpClientConfig {
     pub(crate) follow_redirects: bool,
     pub(crate) user_agent: Option<String>,
     pub(crate) headers: Vec<(String, String)>,
-    pub(crate) insecure: bool,
 }
 
 /// Builder for configuring HTTP clients.
@@ -168,12 +182,6 @@ impl HttpClientBuilder {
         self
     }
 
-    /// Skip TLS certificate verification (DANGEROUS).
-    pub fn insecure(mut self, insecure: bool) -> Self {
-        self.config.insecure = insecure;
-        self
-    }
-
     /// Build the configured async HTTP client.
     pub fn build(self) -> Result<HttpClient> {
         HttpClient::from_config(self.config)
@@ -211,12 +219,6 @@ impl HttpClient {
             builder = builder.redirect(reqwest::redirect::Policy::limited(10));
         } else {
             builder = builder.redirect(reqwest::redirect::Policy::none());
-        }
-
-        if config.insecure {
-            builder = builder
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
         }
 
         if let Some(ref ua) = config.user_agent {
@@ -261,17 +263,7 @@ impl HttpClient {
     ) -> Result<HttpResponse> {
         let method = method.into();
 
-        let reqwest_method = match &method {
-            HttpMethod::Get => reqwest::Method::GET,
-            HttpMethod::Post => reqwest::Method::POST,
-            HttpMethod::Put => reqwest::Method::PUT,
-            HttpMethod::Patch => reqwest::Method::PATCH,
-            HttpMethod::Delete => reqwest::Method::DELETE,
-            HttpMethod::Head => reqwest::Method::HEAD,
-            HttpMethod::Options => reqwest::Method::OPTIONS,
-            HttpMethod::Custom(s) => reqwest::Method::from_bytes(s.as_bytes())
-                .map_err(|e| crate::error::PrestoError::UnsupportedHttpMethod(e.to_string()))?,
-        };
+        let reqwest_method = method.to_reqwest()?;
 
         let mut request = self.client.request(reqwest_method, url);
 

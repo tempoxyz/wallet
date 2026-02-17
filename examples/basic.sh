@@ -44,7 +44,7 @@ fi
 
 echo "--- Sending paid request ---"
 
-RESPONSE=$( tempo-wallet-v query -X POST \
+RESPONSE=$( tempo-wallet-v -X POST \
   --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
   "${ENDPOINT}" 2>"$STDERR_FILE")
 

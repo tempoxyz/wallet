@@ -1,7 +1,7 @@
 //! Persistent session storage for payment channels across CLI invocations.
 //!
 //! Sessions are stored as individual TOML files in the data directory,
-//! keyed by the origin (scheme://host[:port]) of the endpoint.
+//! keyed by the origin (scheme://host\[:port\]) of the endpoint.
 
 use std::fs;
 use std::path::PathBuf;
@@ -124,7 +124,8 @@ pub fn save_session(record: &SessionRecord) -> Result<()> {
     let key = session_key(&record.origin);
     let path = sessions_dir()?.join(format!("{key}.toml"));
     let contents = toml::to_string_pretty(record).context("Failed to serialize session")?;
-    fs::write(&path, contents).context("Failed to write session file")?;
+    crate::util::atomic_write::atomic_write(&path, &contents, 0o600)
+        .context("Failed to write session file")?;
     Ok(())
 }
 
@@ -157,21 +158,6 @@ pub fn list_sessions() -> Result<Vec<SessionRecord>> {
         }
     }
     Ok(records)
-}
-
-/// Delete expired sessions and return them (for best-effort close).
-#[allow(dead_code)]
-pub fn collect_expired_sessions() -> Result<Vec<SessionRecord>> {
-    let sessions = list_sessions()?;
-    let mut expired = Vec::new();
-    for session in sessions {
-        if session.is_expired() {
-            let key = session_key(&session.origin);
-            delete_session(&key)?;
-            expired.push(session);
-        }
-    }
-    Ok(expired)
 }
 
 #[cfg(test)]
@@ -257,5 +243,35 @@ mod tests {
             expires_at: 1000,
         };
         assert!(record.is_expired());
+    }
+
+    #[test]
+    fn test_touch_updates_timestamps() {
+        let mut record = SessionRecord {
+            version: 1,
+            origin: "https://example.com".into(),
+            request_url: "https://example.com/api/v1".into(),
+            network_name: "tempo".into(),
+            chain_id: 4217,
+            escrow_contract: "0x00".into(),
+            currency: "0x00".into(),
+            recipient: "0x00".into(),
+            payer: "0x00".into(),
+            authorized_signer: "0x00".into(),
+            salt: "0x00".into(),
+            channel_id: "0x00".into(),
+            deposit: "1000000".into(),
+            tick_cost: "100".into(),
+            cumulative_amount: "0".into(),
+            did: "did:pkh:eip155:4217:0x00".into(),
+            challenge_echo: "echo".into(),
+            challenge_id: "id".into(),
+            created_at: 1000,
+            last_used_at: 1000,
+            expires_at: 1000,
+        };
+        record.touch();
+        assert!(record.last_used_at > 1000);
+        assert_eq!(record.expires_at, record.last_used_at + SESSION_TTL_SECS);
     }
 }

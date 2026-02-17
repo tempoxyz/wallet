@@ -42,6 +42,7 @@ impl NetworkWallet {
     }
 
     /// Remove an access key by index.
+    #[cfg(test)]
     pub fn remove_key(&mut self, index: usize) -> Option<AccessKey> {
         if index >= self.access_keys.len() {
             return None;
@@ -61,6 +62,7 @@ impl NetworkWallet {
     }
 
     /// Switch to a different access key by index.
+    #[cfg(test)]
     pub fn switch_key(&mut self, index: usize) -> bool {
         if index < self.access_keys.len() {
             self.active_key_index = index;
@@ -76,7 +78,7 @@ impl NetworkWallet {
     }
 
     /// Check if there is a pending key authorization.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn has_pending_key_authorization(&self) -> bool {
         self.pending_key_authorization.is_some()
     }
@@ -185,21 +187,6 @@ impl WalletCredentials {
             "tempo" => self.tempo = None,
             "tempo-moderato" => self.tempo_moderato = None,
             _ => {}
-        }
-    }
-
-    /// Check if there's a valid wallet for the active network.
-    #[allow(dead_code)]
-    pub fn has_wallet(&self) -> bool {
-        self.active_wallet().is_some()
-    }
-
-    /// Get auth server URL for the active network.
-    #[allow(dead_code)]
-    pub fn auth_server_url(&self) -> &'static str {
-        match self.network.as_str() {
-            "tempo" => "https://app.tempo.xyz/cli-auth",
-            _ => "https://app.moderato.tempo.xyz/cli-auth",
         }
     }
 }

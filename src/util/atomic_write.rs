@@ -1,3 +1,5 @@
+//! Atomic file write utilities using write-to-temp-then-rename.
+
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};

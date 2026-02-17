@@ -99,16 +99,12 @@ impl RequestContext {
 
         let mut builder = HttpClientBuilder::new()
             .verbose(self.cli.is_verbose())
-            .follow_redirects(self.query.follow_redirects)
-            .insecure(self.query.insecure)
+            .follow_redirects(!self.query.no_redirect)
+            .user_agent(format!("presto/{}", env!("CARGO_PKG_VERSION")))
             .headers(&headers);
 
         if let Some(timeout) = self.query.get_timeout() {
             builder = builder.timeout(timeout);
-        }
-
-        if let Some(user_agent) = &self.query.user_agent {
-            builder = builder.user_agent(user_agent);
         }
 
         Ok(builder.build()?)
@@ -145,8 +141,17 @@ fn get_request_method_and_body(query: &QueryArgs) -> Result<(HttpMethod, Option<
         let bytes = json.as_bytes().to_vec();
         validate_body_size(bytes.len())?;
         Some(bytes)
-    } else if let Some(ref data) = query.data {
-        Some(resolve_data(data)?)
+    } else if !query.data.is_empty() {
+        let mut combined = Vec::new();
+        for item in &query.data {
+            let resolved = resolve_data(item)?;
+            if !combined.is_empty() {
+                combined.push(b'&');
+            }
+            combined.extend(resolved);
+        }
+        validate_body_size(combined.len())?;
+        Some(combined)
     } else {
         None
     };
@@ -184,7 +189,7 @@ fn should_auto_add_json_content_type(query: &QueryArgs) -> bool {
     if query.json.is_some() {
         return true;
     }
-    if let Some(data) = &query.data {
+    if let Some(data) = query.data.first() {
         if data.starts_with('@') {
             return false;
         }
@@ -290,5 +295,50 @@ mod tests {
     fn test_should_not_auto_add_content_type_for_plain_data() {
         let query = make_query_args(&["query", "-d", "plain text", "http://example.com"]);
         assert!(!should_auto_add_json_content_type(&query));
+    }
+
+    #[test]
+    fn test_resolve_data_nonexistent_file_error() {
+        let err = resolve_data("@nonexistent_file_12345.txt").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("failed to read file"), "got: {msg}");
+        assert!(msg.contains("nonexistent_file_12345.txt"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_multiple_data_values_joined_with_ampersand() {
+        let query = make_query_args(&["query", "-d", "a=1", "-d", "b=2", "http://example.com"]);
+        let (_method, body) = get_request_method_and_body(&query).unwrap();
+        assert_eq!(body.unwrap(), b"a=1&b=2");
+    }
+
+    #[test]
+    fn test_body_implies_post() {
+        let query = make_query_args(&["query", "-d", "foo", "http://example.com"]);
+        let (method, _body) = get_request_method_and_body(&query).unwrap();
+        assert_eq!(method, HttpMethod::Post);
+    }
+
+    #[test]
+    fn test_explicit_method_overrides_body_implied_post() {
+        let query = make_query_args(&["query", "-X", "PUT", "-d", "foo", "http://example.com"]);
+        let (method, _body) = get_request_method_and_body(&query).unwrap();
+        assert_eq!(method, HttpMethod::Put);
+    }
+
+    #[test]
+    fn test_data_file_does_not_auto_add_json_content_type() {
+        let query = make_query_args(&["query", "-d", "@Cargo.toml", "http://example.com"]);
+        assert!(!should_auto_add_json_content_type(&query));
+    }
+
+    #[test]
+    fn test_validate_header_size_limit() {
+        let header = format!("X-Big: {}", "a".repeat(MAX_HEADER_SIZE));
+        let err = validate_header_size(&header).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds maximum size"),
+            "got: {err}"
+        );
     }
 }

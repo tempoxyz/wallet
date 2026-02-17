@@ -1,11 +1,8 @@
 //! Tempo wallet commands (passkey-based authentication).
 
-use crate::analytics::Analytics;
 use crate::error::{PrestoError, Result};
 use crate::network::get_network;
 use crate::util::constants::{BALANCE_OF_SELECTOR, BUILTIN_TOKENS};
-use crate::wallet::credentials::WalletCredentials;
-use crate::wallet::WalletManager;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -13,22 +10,6 @@ pub struct TokenBalance {
     pub token: String,
     pub balance: String,
     pub balance_raw: u128,
-}
-
-/// Refresh the access key for the current wallet.
-pub async fn refresh_wallet(network: Option<&str>, analytics: Option<Analytics>) -> Result<()> {
-    let mut creds = WalletCredentials::load()?;
-    if let Some(n) = network {
-        creds.network = n.to_string();
-    }
-
-    let wallet = creds.active_wallet().ok_or_else(|| {
-        PrestoError::ConfigMissing("No wallet connected. Run ' tempo-walletlogin' first.".to_string())
-    })?;
-
-    let account_address = wallet.account_address.clone();
-    let manager = WalletManager::new(Some(&creds.network), analytics);
-    manager.refresh_access_key(&account_address).await
 }
 
 pub async fn query_all_balances(network: &str, account_address: &str) -> Vec<TokenBalance> {

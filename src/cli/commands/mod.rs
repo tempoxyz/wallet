@@ -1,10 +1,6 @@
 pub mod balance;
-pub mod inspect;
-pub mod keys;
 pub mod login;
 pub mod logout;
-pub mod network;
-pub mod services;
 pub mod session;
 pub mod tempo_wallet;
 pub mod whoami;
