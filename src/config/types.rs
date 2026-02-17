@@ -94,13 +94,16 @@ impl WalletConfig for EvmConfig {
 impl Config {
     /// Load config from the specified path or default location
     pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
-        let config_path = if let Some(path) = config_path {
-            PathBuf::from(path.as_ref())
+        let (config_path, explicit) = if let Some(path) = config_path {
+            (PathBuf::from(path.as_ref()), true)
         } else {
-            Self::default_config_path()?
+            (Self::default_config_path()?, false)
         };
 
         if !config_path.exists() {
+            if !explicit {
+                return Ok(Self::default());
+            }
             return Err(PrestoError::ConfigMissing(format!(
                 "Config file not found at {}. Run 'presto login' to create one.",
                 config_path.display()

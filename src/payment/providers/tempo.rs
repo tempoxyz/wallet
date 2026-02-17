@@ -157,9 +157,9 @@ impl SigningSetupContext {
         })?;
         let provider = HttpProvider::new_http(rpc_url);
 
+        // Use confirmed nonce (not pending) so we replace any stuck transactions.
         let nonce = provider
             .get_transaction_count(from)
-            .pending()
             .await
             .with_signing_context(SigningContext {
                 network: Some(network_name.to_string()),
@@ -167,7 +167,23 @@ impl SigningSetupContext {
                 operation: "get_nonce",
             })?;
 
-        let gas_config = if let Ok(latest_block) = provider.get_block_number().await {
+        // Check for stuck pending txs and bump gas aggressively to replace them.
+        let pending_nonce = provider
+            .get_transaction_count(from)
+            .pending()
+            .await
+            .unwrap_or(nonce);
+
+        let gas_config = if pending_nonce > nonce {
+            debug!(
+                confirmed_nonce = nonce,
+                pending_nonce, "stuck pending txs detected, using aggressive gas"
+            );
+            GasConfig {
+                max_priority_fee_per_gas: gas_config.max_priority_fee_per_gas * 100,
+                max_fee_per_gas: gas_config.max_fee_per_gas * 100,
+            }
+        } else if let Ok(latest_block) = provider.get_block_number().await {
             if let Ok(Some(block)) = provider.get_block_by_number(latest_block.into()).await {
                 if let Some(base_fee) = block.header.base_fee_per_gas {
                     let min_max_fee = base_fee * 2 + gas_config.max_priority_fee_per_gas;

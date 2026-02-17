@@ -339,6 +339,7 @@ fn extract_field(msg: &str, prefix: &str) -> Option<String> {
 /// Parse a non-200 response after payment submission into a descriptive error.
 fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError {
     let reason = if let Ok(body) = response.body_string() {
+        tracing::debug!(status = response.status_code, body = %body, "payment rejection response");
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
             if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
                 error.to_string()
