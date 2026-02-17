@@ -2,7 +2,7 @@
   "name": "presto",
   "version": "0.1.0",
   "private": true,
-  "description": "A wget-like CLI tool for making HTTP requests with automatic payment support",
+  "description": "A command-line HTTP client with built-in payment support",
   "scripts": {
     "lint": "npx @tempoxyz/lints rust src"
   },

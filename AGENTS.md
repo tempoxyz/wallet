@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-This is `presto` - a pure binary crate providing a wget-like CLI tool for making HTTP requests with automatic payment support.
+This is `presto` - a pure binary crate providing a command-line HTTP client with built-in payment support.
 
 **Supported Payment Protocols:**
 - [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) - IETF standard for HTTP authentication-based payments
@@ -17,7 +17,8 @@ Single binary crate with source organized by module directories:
 - `src/network/` - Network definitions and RPC
 - `src/payment/` - Payment protocol implementations
 - `src/wallet/` - Wallet management and signing
-- `src/util/` - Shared utilities
+- `src/analytics/` - Opt-out telemetry (PostHog)
+- `src/util/` - Shared utilities (atomic writes, constants)
 - `src/error.rs` - Error types
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
@@ -41,7 +42,7 @@ When the user explicitly says "ask the oracle" to check a value, run `presto` ag
 
 Example:
 ```bash
-presto -v query -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+presto -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements
@@ -108,7 +109,7 @@ pub enum MyError {
 
 - Each module should have a clear single responsibility
 - Use `mod.rs` for modules with submodules
-- CLI commands go in `*_commands.rs` files
+- CLI commands go in `src/cli/commands/` (e.g., `balance.rs`, `login.rs`, `session.rs`)
 
 ### Testing
 
@@ -146,7 +147,7 @@ fn test_something() {
 ```rust
 #[derive(Parser, Debug)]
 pub struct Cli {
-    #[arg(short = 'v', long = "verbosity", action = clap::ArgAction::Count)]
+    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
     pub verbosity: u8,
     
     #[arg(long, env = "PRESTO_MAX_AMOUNT", help_heading = "Payment Options")]
@@ -163,7 +164,7 @@ pub struct Cli {
 ### Adding New Features
 
 1. Add core logic in appropriate module under `src/`
-2. Add CLI commands/flags in `cli.rs`, implement in `*_commands.rs`
+2. Add CLI flags in `src/cli/args.rs`, implement commands in `src/cli/commands/`
 3. Add tests: unit tests in source files, integration tests in `tests/`
 
 ## Dependencies
@@ -198,9 +199,11 @@ For testing and development, these environment variables are used:
 | `XDG_CONFIG_HOME` | Linux config directory |
 | `PRESTO_MAX_AMOUNT` | Default max payment amount |
 | `PRESTO_NETWORK` | Default network filter |
-| `PRESTO_CONFIRM` | Require payment confirmation |
-| `PRESTO_NO_SWAP` | Disable automatic token swaps |
 | `PRESTO_RPC_URL` | Override RPC URL |
+| `PRESTO_MOCK_NETWORK` | Enable mock mode for network calls in tests |
+| `PRESTO_MOCK_PAYMENT` | Enable mock mode for payment flows in tests |
+| `PRESTO_DEBUG` | Enable debug logging in the auth server |
+| `PRESTO_NO_TELEMETRY` | Disable telemetry |
 
 ## Data Locations
 
@@ -210,7 +213,7 @@ For testing and development, these environment variables are used:
 
 **Linux:**
 - Config: `~/.config/presto/config.toml`
-- Wallet: `~/.config/presto/wallet.toml`
+- Wallet: `~/.local/share/presto/wallet.toml`
 
 ## Configuration Structure
 

@@ -14,9 +14,7 @@ $$ |      $$ |  $$ |$$$$$$$$\ \$$$$$$  |  $$ |    $$$$$$  |
 \__|      \__|  \__|\________| \______/   \__|    \______/
 '
 
-echo "$PRESTO_BANNER"
-echo ""
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="tempoxyz/presto"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="presto"
@@ -127,12 +125,126 @@ verify_installation() {
     fi
 }
 
+install_ai_skill() {
+    local skill_dir="${HOME}/.claude/skills/presto"
+    local skill_file="${skill_dir}/SKILL.md"
+    local local_skill="${SCRIPT_DIR}/.ai/skills/presto/SKILL.md"
+
+    mkdir -p "${skill_dir}" 2>/dev/null || return 0
+
+    if [[ -f "${local_skill}" ]]; then
+        # Use local copy when available (--local install or running from repo)
+        cp "${local_skill}" "${skill_file}"
+        echo "AI skill installed to: ${skill_file}"
+    else
+        # Download from GitHub
+        local skill_url="https://raw.githubusercontent.com/${REPO}/main/.ai/skills/presto/SKILL.md"
+        if curl -fsSL "${skill_url}" -o "${skill_file}" 2>/dev/null; then
+            echo "AI skill installed to: ${skill_file}"
+        fi
+    fi
+}
+
+remove_file() {
+    local path="$1"
+    local label="$2"
+    if [[ ! -f "${path}" && ! -d "${path}" ]]; then
+        echo "  ${label}: not found (already removed)"
+        return 0
+    fi
+    if rm -rf "${path}" 2>/dev/null; then
+        echo "  ${label}: ${path}"
+    elif sudo rm -rf "${path}"; then
+        echo "  ${label}: ${path}"
+    else
+        echo "  ${label}: FAILED to remove ${path}"
+    fi
+}
+
+uninstall_presto() {
+    echo "Uninstalling presto..."
+
+    # Remove binary
+    remove_file "${INSTALL_DIR}/${BINARY_NAME}" "Binary"
+
+    # Remove config + data directory
+    # macOS: ~/Library/Application Support/presto (config and data share the same dir)
+    # Linux: ~/.config/presto (config), ~/.local/share/presto (data)
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        remove_file "${HOME}/Library/Application Support/presto" "Data"
+    else
+        remove_file "${XDG_CONFIG_HOME:-${HOME}/.config}/presto" "Config"
+        remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/presto" "Data"
+    fi
+
+    # Remove AI skill
+    remove_file "${HOME}/.claude/skills/presto" "AI skill"
+
+    echo ""
+    echo "presto has been uninstalled."
+}
+
+install_local() {
+    echo ""
+    echo "Building presto from source..."
+
+    if ! command -v cargo >/dev/null 2>&1; then
+        echo "Error: cargo is required for --local install. Install Rust: https://rustup.rs/"
+        exit 1
+    fi
+
+    cargo build --release --manifest-path="${SCRIPT_DIR}/Cargo.toml"
+
+    local built_binary="${SCRIPT_DIR}/target/release/${BINARY_NAME}"
+    if [[ ! -f "${built_binary}" ]]; then
+        echo "Error: Build succeeded but binary not found at ${built_binary}"
+        exit 1
+    fi
+
+    echo "Installing to ${INSTALL_DIR}/${BINARY_NAME}..."
+
+    if cp "${built_binary}" "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null; then
+        echo "Installation successful!"
+    elif sudo cp "${built_binary}" "${INSTALL_DIR}/${BINARY_NAME}"; then
+        echo "Installation successful!"
+    else
+        echo "Error: Failed to install to ${INSTALL_DIR}"
+        echo "Try running with sudo or install manually"
+        exit 1
+    fi
+}
+
 main() {
-    check_dependencies
-    detect_platform
-    detect_arch
-    install_presto
+    if [[ "${1:-}" == "--uninstall" ]]; then
+        uninstall_presto
+        exit 0
+    fi
+
+    if [[ "${1:-}" == "--reinstall" ]]; then
+        uninstall_presto
+        echo ""
+        install_local
+        verify_installation
+        install_ai_skill
+        echo ""
+        echo "Reinstall complete!"
+        exit 0
+    fi
+
+    echo "$PRESTO_BANNER"
+    echo ""
+
+    if [[ "${1:-}" == "--local" ]]; then
+        install_local
+    else
+        check_dependencies
+        detect_platform
+        detect_arch
+        install_presto
+    fi
+
     verify_installation
+    install_ai_skill
 
     echo ""
     echo "Installation complete!"
@@ -146,4 +258,4 @@ main() {
     echo ""
 }
 
-main
+main "$@"

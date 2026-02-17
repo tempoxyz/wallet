@@ -72,7 +72,10 @@ impl From<ExitCode> for i32 {
 impl From<&anyhow::Error> for ExitCode {
     fn from(err: &anyhow::Error) -> Self {
         // Try to downcast to PrestoError for specific handling
-        if let Some(presto_err) = err.downcast_ref::<crate::error::PrestoError>() {
+        if let Some(presto_err) = err
+            .chain()
+            .find_map(|e| e.downcast_ref::<crate::error::PrestoError>())
+        {
             return ExitCode::from(presto_err);
         }
 
@@ -107,11 +110,22 @@ impl From<&crate::error::PrestoError> for ExitCode {
 
             // Payment/funds errors
             PrestoError::AmountExceedsMax { .. }
-            | PrestoError::InvalidAmount(_)
             | PrestoError::SpendingLimitExceeded { .. }
             | PrestoError::InsufficientBalance { .. } => ExitCode::InsufficientFunds,
 
-            PrestoError::PaymentRejected { .. } => ExitCode::PaymentFailed,
+            // Invalid usage errors
+            PrestoError::InvalidAmount(_) | PrestoError::UnsupportedHttpMethod(_) => {
+                ExitCode::InvalidUsage
+            }
+
+            // Payment protocol errors
+            PrestoError::PaymentRejected { .. }
+            | PrestoError::InvalidChallenge(_)
+            | PrestoError::MissingHeader(_)
+            | PrestoError::ChallengeExpired(_)
+            | PrestoError::UnsupportedPaymentMethod(_)
+            | PrestoError::UnsupportedPaymentIntent(_)
+            | PrestoError::Mpp(_) => ExitCode::PaymentFailed,
 
             // Network/provider errors
             PrestoError::UnknownNetwork(_) | PrestoError::Http(_) | PrestoError::Reqwest(_) => {
@@ -152,6 +166,24 @@ mod tests {
         assert_eq!(
             ExitCode::from(&PrestoError::UnknownNetwork("test".into())),
             ExitCode::NetworkError
+        );
+    }
+
+    #[test]
+    fn test_invalid_amount_exit_code() {
+        use crate::error::PrestoError;
+        assert_eq!(
+            ExitCode::from(&PrestoError::InvalidAmount("abc".into())),
+            ExitCode::InvalidUsage
+        );
+    }
+
+    #[test]
+    fn test_challenge_expired_exit_code() {
+        use crate::error::PrestoError;
+        assert_eq!(
+            ExitCode::from(&PrestoError::ChallengeExpired("expired".into())),
+            ExitCode::PaymentFailed
         );
     }
 }

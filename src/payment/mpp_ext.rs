@@ -6,12 +6,18 @@
 //! For core EVM accessors (recipient_address, currency_address, amount_u256,
 //! chain_id, fee_payer), use `mpp::protocol::methods::tempo::TempoChargeExt`.
 
+#[cfg(test)]
 use alloy::primitives::{Address, U256};
-use mpp::{ChargeRequest, MethodName, PaymentChallenge};
+#[cfg(test)]
+use mpp::ChargeRequest;
+use mpp::{MethodName, PaymentChallenge};
 
 use crate::error::{PrestoError, Result};
-use crate::network::{networks, Network};
-use crate::payment::money::{Money, TokenId};
+use crate::network::networks;
+#[cfg(test)]
+use crate::network::Network;
+#[cfg(test)]
+use crate::payment::money::Money;
 
 // Re-export TempoChargeExt for convenience
 pub use mpp::protocol::methods::tempo::TempoChargeExt;
@@ -33,8 +39,8 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
 /// # Validation Checks
 ///
 /// - The payment method is supported (has a network mapping)
-/// - The intent is "charge" (unless `force` is true, e.g. via `--charge` flag)
-pub fn validate_challenge(challenge: &PaymentChallenge, force: bool) -> Result<()> {
+/// - The intent is "charge"
+pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
     if method_to_network(&challenge.method).is_none() {
         return Err(PrestoError::UnsupportedPaymentMethod(format!(
             "Payment method '{}' is not supported. Supported methods: tempo",
@@ -42,7 +48,7 @@ pub fn validate_challenge(challenge: &PaymentChallenge, force: bool) -> Result<(
         )));
     }
 
-    if !force && !challenge.intent.is_charge() {
+    if !challenge.intent.is_charge() {
         return Err(PrestoError::UnsupportedPaymentIntent(format!(
             "Only 'charge' intent is supported, got: {}",
             challenge.intent
@@ -74,6 +80,7 @@ pub fn validate_session_challenge(challenge: &PaymentChallenge) -> Result<()> {
 /// Presto-specific extensions to ChargeRequest.
 ///
 /// For core EVM accessors (including `memo()`), use `TempoChargeExt` from mpp.
+#[cfg(test)]
 pub trait ChargeRequestExt {
     /// Create a type-safe `Money` value from this charge request.
     ///
@@ -81,8 +88,10 @@ pub trait ChargeRequestExt {
     fn money(&self, network: Network) -> Result<Money>;
 }
 
+#[cfg(test)]
 impl ChargeRequestExt for ChargeRequest {
     fn money(&self, network: Network) -> Result<Money> {
+        use crate::payment::money::{Money, TokenId};
         use mpp::protocol::methods::tempo::TempoChargeExt;
 
         let currency_addr: Address = self
@@ -103,6 +112,24 @@ impl ChargeRequestExt for ChargeRequest {
             token_config.currency.symbol,
         ))
     }
+}
+
+/// Extract the `txHash` field from a base64url-encoded receipt, if present.
+///
+/// The mpp `Receipt` struct only captures `reference` (which for session
+/// receipts is the channel ID). The server also includes a `txHash` field
+/// with the actual on-chain transaction hash. This function decodes the
+/// raw receipt to extract it.
+pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+
+    let decoded = URL_SAFE_NO_PAD.decode(receipt_b64.trim()).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    json.get("txHash")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 #[cfg(test)]
@@ -143,7 +170,7 @@ mod tests {
             description: None,
             expires: None,
         };
-        assert!(validate_challenge(&challenge, false).is_ok());
+        assert!(validate_challenge(&challenge).is_ok());
     }
 
     #[test]
@@ -159,7 +186,7 @@ mod tests {
             description: None,
             expires: None,
         };
-        assert!(validate_challenge(&challenge, false).is_err());
+        assert!(validate_challenge(&challenge).is_err());
     }
 
     #[test]
@@ -215,22 +242,4 @@ mod tests {
         };
         assert!(req.money(Network::TempoModerato).is_err());
     }
-}
-
-/// Extract the `txHash` field from a base64url-encoded receipt, if present.
-///
-/// The mpp `Receipt` struct only captures `reference` (which for session
-/// receipts is the channel ID). The server also includes a `txHash` field
-/// with the actual on-chain transaction hash. This function decodes the
-/// raw receipt to extract it.
-pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
-
-    let decoded = URL_SAFE_NO_PAD.decode(receipt_b64.trim()).ok()?;
-    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    json.get("txHash")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
 }

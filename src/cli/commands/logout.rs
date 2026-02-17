@@ -1,3 +1,5 @@
+//! Wallet logout command implementation.
+
 use anyhow::Result;
 
 use crate::wallet::credentials::WalletCredentials;

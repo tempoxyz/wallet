@@ -9,7 +9,6 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{setup_test_config, test_command};
 
 #[test]
 fn test_completions_bash() {
@@ -42,50 +41,16 @@ fn test_completions_fish() {
 #[test]
 fn test_completions_powershell() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["completions", "power-shell"])
+        .args(["completions", "powershell"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Register-ArgumentCompleter"));
 }
 
 #[test]
-fn test_completions_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["com", "bash"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("_presto"));
-}
-
-#[test]
-fn test_login_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["l", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Log in"));
-}
-
-#[test]
 fn test_quiet_flag() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-q"])
-        .assert()
-        .success();
-}
-
-#[test]
-fn test_quiet_alias_short() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-s"])
-        .assert()
-        .success();
-}
-
-#[test]
-fn test_quiet_alias_long() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "--silent"])
+        .args(["completions", "-q"])
         .assert()
         .success();
 }
@@ -93,7 +58,7 @@ fn test_quiet_alias_long() {
 #[test]
 fn test_verbosity_single() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-v"])
+        .args(["completions", "-v"])
         .assert()
         .success();
 }
@@ -101,7 +66,7 @@ fn test_verbosity_single() {
 #[test]
 fn test_verbosity_multiple() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-vv"])
+        .args(["completions", "-vv"])
         .assert()
         .success();
 }
@@ -109,7 +74,7 @@ fn test_verbosity_multiple() {
 #[test]
 fn test_verbosity_long_form() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "--verbosity"])
+        .args(["completions", "--verbose"])
         .assert()
         .success();
 }
@@ -117,7 +82,7 @@ fn test_verbosity_long_form() {
 #[test]
 fn test_color_auto() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "--color", "auto"])
+        .args(["completions", "--color", "auto"])
         .assert()
         .success();
 }
@@ -125,7 +90,7 @@ fn test_color_auto() {
 #[test]
 fn test_color_always() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "--color", "always"])
+        .args(["completions", "--color", "always"])
         .assert()
         .success();
 }
@@ -133,7 +98,7 @@ fn test_color_always() {
 #[test]
 fn test_color_never() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "--color", "never"])
+        .args(["completions", "--color", "never"])
         .assert()
         .success();
 }
@@ -166,31 +131,12 @@ fn test_help_has_http_options_section() {
 }
 
 #[test]
-fn test_help_has_request_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["query", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Request Options:"));
-}
-
-#[test]
-fn test_insecure_flag_short() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["query", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("-k, --insecure"));
-}
-
-#[test]
 fn test_help_shows_env_vars() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("[env: PRESTO_MAX_AMOUNT=]"))
-        .stdout(predicate::str::contains("[env: PRESTO_CONFIRM=]"));
+        .stdout(predicate::str::contains("[env: PRESTO_MAX_AMOUNT=]"));
 
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
@@ -215,15 +161,6 @@ fn test_help_shows_default_values() {
 }
 
 #[test]
-fn test_help_shows_aliases() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[aliases:"));
-}
-
-#[test]
 fn test_help_shows_possible_values() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
@@ -236,263 +173,9 @@ fn test_help_shows_possible_values() {
 #[test]
 fn test_alias_with_display_options() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["n", "list", "-q", "--color", "never"])
+        .args(["completions", "-q", "--color", "never"])
         .assert()
         .success();
-}
-
-#[test]
-fn test_completions_alias_with_verbosity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["com", "bash", "-v"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("_presto"));
-}
-
-#[test]
-fn test_networks_list() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("NAME"))
-        .stdout(predicate::str::contains("DISPLAY NAME"))
-        .stdout(predicate::str::contains("TYPE"))
-        .stdout(predicate::str::contains("CHAIN ID"))
-        .stdout(predicate::str::contains("tempo"))
-        .stdout(predicate::str::contains("tempo-moderato"));
-}
-
-#[test]
-fn test_networks_list_json() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "--output-format", "json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"name\""))
-        .stdout(predicate::str::contains("\"type\""))
-        .stdout(predicate::str::contains("\"tempo\""));
-}
-
-#[test]
-fn test_networks_list_yaml() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "--output-format", "yaml"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("name:"))
-        .stdout(predicate::str::contains("type:"))
-        .stdout(predicate::str::contains("tempo"));
-}
-
-#[test]
-fn test_networks_no_subcommand_defaults_to_list() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("NAME"))
-        .stdout(predicate::str::contains("tempo"))
-        .stdout(predicate::str::contains("tempo-moderato"));
-}
-
-#[test]
-fn test_networks_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["n", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("NAME"));
-}
-
-#[test]
-fn test_networks_info_tempo() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "info", "tempo"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Network Information"))
-        .stdout(predicate::str::contains("Name:"))
-        .stdout(predicate::str::contains("tempo"))
-        .stdout(predicate::str::contains("Display Name:"))
-        .stdout(predicate::str::contains("Tempo"))
-        .stdout(predicate::str::contains("Chain ID:"))
-        .stdout(predicate::str::contains("4217"))
-        .stdout(predicate::str::contains("Mainnet:"))
-        .stdout(predicate::str::contains("yes"));
-}
-
-#[test]
-fn test_networks_info_testnet() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "info", "tempo-moderato"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("tempo-moderato"))
-        .stdout(predicate::str::contains("42431"))
-        .stdout(predicate::str::contains("Testnet:"))
-        .stdout(predicate::str::contains("yes"));
-}
-
-#[test]
-fn test_networks_info_json() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "info", "tempo", "--output-format", "json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"name\": \"tempo\""))
-        .stdout(predicate::str::contains("\"chain_id\": 4217"));
-}
-
-#[test]
-fn test_networks_info_yaml() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args([
-            "networks",
-            "info",
-            "tempo-moderato",
-            "--output-format",
-            "yaml",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("name: tempo-moderato"))
-        .stdout(predicate::str::contains("chain_id: 42431"));
-}
-
-#[test]
-fn test_networks_info_unknown_network() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "info", "unknown-network"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Unknown network"))
-        .stderr(predicate::str::contains("unknown-network"));
-}
-
-#[test]
-fn test_networks_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "Manage and inspect supported networks",
-        ))
-        .stdout(predicate::str::contains("list"))
-        .stdout(predicate::str::contains("info"));
-}
-
-#[test]
-fn test_inspect_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["inspect", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Inspect payment requirements"));
-}
-
-#[test]
-fn test_inspect_missing_url() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .arg("inspect")
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_inspect_with_output_format_json() {
-    let temp = setup_test_config();
-
-    // This will fail because we don't have a real 402 endpoint, but we can verify the args parse
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "--output-format", "json"])
-        .assert()
-        .failure(); // Will fail due to no 402 response, but that's expected
-}
-
-#[test]
-fn test_inspect_with_output_format_yaml() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "--output-format", "yaml"])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_inspect_with_verbose() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "-v"])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_inspect_with_quiet() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "-q"])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_inspect_alias() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["inspect", "https://example.com"])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_inspect_with_network_filter() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "--network", "base"])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_inspect_invalid_url() {
-    let temp = setup_test_config();
-
-    test_command(&temp)
-        .args(["inspect", "not-a-url"])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_inspect_with_all_output_formats() {
-    let temp = setup_test_config();
-
-    // Test text format (default)
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "--output-format", "text"])
-        .assert()
-        .failure();
-
-    // Test json format
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "--output-format", "json"])
-        .assert()
-        .failure();
-
-    // Test yaml format
-    test_command(&temp)
-        .args(["inspect", "https://example.com", "--output-format", "yaml"])
-        .assert()
-        .failure();
 }
 
 #[test]
@@ -513,15 +196,6 @@ fn test_login_help() {
 }
 
 #[test]
-fn test_login_alias_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["l", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Log in"));
-}
-
-#[test]
 fn test_logout_help() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["logout", "--help"])
@@ -534,7 +208,7 @@ fn test_logout_help() {
 #[test]
 fn test_multiple_global_flags_together() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-v", "-q", "--color", "never"])
+        .args(["completions", "-v", "-q", "--color", "never"])
         .assert()
         .success();
 }
@@ -543,19 +217,19 @@ fn test_multiple_global_flags_together() {
 fn test_verbosity_levels() {
     // Single -v
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-v"])
+        .args(["completions", "-v"])
         .assert()
         .success();
 
     // Double -vv
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-vv"])
+        .args(["completions", "-vv"])
         .assert()
         .success();
 
     // Triple -vvv
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "list", "-vvv"])
+        .args(["completions", "-vvv"])
         .assert()
         .success();
 }
@@ -564,17 +238,7 @@ fn test_verbosity_levels() {
 fn test_all_color_modes() {
     for color_mode in ["auto", "always", "never"] {
         Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-            .args(["networks", "list", "--color", color_mode])
-            .assert()
-            .success();
-    }
-}
-
-#[test]
-fn test_all_output_formats_with_networks() {
-    for format in ["text", "json", "yaml"] {
-        Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-            .args(["networks", "list", "--output-format", format])
+            .args(["completions", "--color", color_mode])
             .assert()
             .success();
     }
@@ -608,45 +272,15 @@ fn test_completions_case_sensitivity() {
 }
 
 #[test]
-fn test_networks_info_case_sensitivity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "info", "BASE"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Unknown network"));
-}
-
-#[test]
-fn test_networks_info_with_quiet() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "info", "tempo", "-q"])
-        .assert()
-        .success();
-}
-
-#[test]
-fn test_networks_list_with_all_formats() {
-    for format in ["text", "json", "yaml"] {
-        Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-            .args(["networks", "list", "--output-format", format])
-            .assert()
-            .success();
-    }
-}
-
-#[test]
 fn test_main_help_lists_all_commands() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("query"))
+        .stdout(predicate::str::contains("URL"))
         .stdout(predicate::str::contains("login"))
         .stdout(predicate::str::contains("logout"))
-        .stdout(predicate::str::contains("completions"))
         .stdout(predicate::str::contains("balance"))
-        .stdout(predicate::str::contains("networks"))
-        .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("whoami"));
 }
 
@@ -692,7 +326,7 @@ fn test_help_flag() {
 #[test]
 fn test_invalid_command() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["networks", "invalid-subcommand"])
+        .args(["session", "invalid-subcommand"])
         .assert()
         .failure();
 }
@@ -703,4 +337,79 @@ fn test_invalid_flag() {
         .arg("--invalid-flag")
         .assert()
         .failure();
+}
+
+// ==================== Implicit Query (bare URL) ====================
+
+#[test]
+fn test_bare_url_acts_as_query() {
+    // `presto http://example.com` should work like `presto query http://example.com`
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .arg("http://example.com")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_bare_url_with_verbose() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["-v", "http://example.com"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Making GET request"));
+}
+
+#[test]
+fn test_bare_url_with_include_headers() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["-i", "http://example.com"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("HTTP 200"));
+}
+
+#[test]
+fn test_bare_url_with_method() {
+    // `-X HEAD` with a bare URL
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["-X", "HEAD", "http://example.com"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_explicit_query_still_works() {
+    // Explicit `query` subcommand should still work
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["query", "http://example.com"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_typo_subcommand_not_swallowed() {
+    // A typo'd subcommand should fail with a clap error, not be treated as query
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["qurey", "http://example.com"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error"));
+}
+
+#[test]
+fn test_bare_url_with_dry_run() {
+    // `--dry-run` with a bare URL should succeed without making a payment
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["--dry-run", "http://example.com"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_no_args_shows_help() {
+    // Running with no arguments should show help and succeed
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage"));
 }

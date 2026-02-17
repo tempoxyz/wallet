@@ -53,7 +53,9 @@ pub async fn balance_command(
                 .active_wallet()
                 .map(|w| w.account_address.clone())
                 .ok_or_else(|| {
-                    anyhow::anyhow!("No wallet connected. Run 'presto login' to connect.")
+                    crate::error::PrestoError::ConfigMissing(
+                        "No wallet connected. Run 'presto login' to connect.".to_string(),
+                    )
                 })?
         }
     };
@@ -130,9 +132,10 @@ mod tests {
     #[test]
     fn test_all_networks() {
         let networks = Network::by_name_filter(None);
-        assert!(!networks.is_empty());
+        assert_eq!(networks.len(), 2);
         assert!(networks.contains(&Network::Tempo));
         assert!(networks.contains(&Network::TempoModerato));
+        assert!(!networks.contains(&Network::TempoLocalnet));
     }
 
     #[test]

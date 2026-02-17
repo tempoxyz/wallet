@@ -76,12 +76,6 @@ impl SwapInfo {
     }
 }
 
-/// Check if a network name refers to a Tempo network.
-#[allow(dead_code)]
-pub fn is_tempo_network(name: &str) -> bool {
-    matches!(name.to_lowercase().as_str(), "tempo" | "tempo-moderato")
-}
-
 type HttpProvider = alloy::providers::RootProvider;
 
 /// Common signing context shared between charge and session payment flows.
@@ -163,9 +157,9 @@ impl SigningSetupContext {
         })?;
         let provider = HttpProvider::new_http(rpc_url);
 
+        // Use confirmed nonce (not pending) so we replace any stuck transactions.
         let nonce = provider
             .get_transaction_count(from)
-            .pending()
             .await
             .with_signing_context(SigningContext {
                 network: Some(network_name.to_string()),
@@ -173,7 +167,77 @@ impl SigningSetupContext {
                 operation: "get_nonce",
             })?;
 
-        let gas_config = if let Ok(latest_block) = provider.get_block_number().await {
+        // Check for stuck pending txs and bump gas aggressively to replace them.
+        let pending_nonce = provider
+            .get_transaction_count(from)
+            .pending()
+            .await
+            .unwrap_or(nonce);
+
+        let gas_config = if pending_nonce > nonce {
+            debug!(
+                confirmed_nonce = nonce,
+                pending_nonce, "stuck pending txs detected, bumping gas to replace"
+            );
+
+            // Try to read the stuck tx's gas to bid just above it.
+            // Use txpool_content to find the tx at the confirmed nonce.
+            let stuck_gas = async {
+                let pool: serde_json::Value = provider
+                    .raw_request("txpool_content".into(), ())
+                    .await
+                    .ok()?;
+                let from_hex = format!("{:#x}", from);
+                let nonce_str = format!("{}", nonce);
+                let tx = pool
+                    .get("pending")?
+                    .get(&from_hex)
+                    .or_else(|| {
+                        // txpool keys may use checksummed addresses
+                        pool.get("pending")?
+                            .as_object()?
+                            .iter()
+                            .find(|(k, _)| k.to_lowercase() == from_hex.to_lowercase())
+                            .map(|(_, v)| v)
+                    })?
+                    .get(&nonce_str)?;
+                let max_fee = u64::from_str_radix(
+                    tx.get("maxFeePerGas")?.as_str()?.trim_start_matches("0x"),
+                    16,
+                )
+                .ok()?;
+                let max_priority = u64::from_str_radix(
+                    tx.get("maxPriorityFeePerGas")?
+                        .as_str()?
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .ok()?;
+                Some((max_fee, max_priority))
+            }
+            .await;
+
+            if let Some((stuck_max_fee, stuck_priority)) = stuck_gas {
+                debug!(
+                    stuck_max_fee,
+                    stuck_priority, "found stuck tx gas, bidding 2x to replace"
+                );
+                GasConfig {
+                    max_fee_per_gas: std::cmp::max(stuck_max_fee * 2, gas_config.max_fee_per_gas),
+                    max_priority_fee_per_gas: std::cmp::max(
+                        stuck_priority * 2,
+                        gas_config.max_priority_fee_per_gas,
+                    ),
+                }
+            } else {
+                // Can't read stuck tx — use 10x default as safe fallback
+                debug!("could not read stuck tx gas, using 10x default");
+                GasConfig {
+                    max_priority_fee_per_gas: gas_config.max_priority_fee_per_gas * 10,
+                    max_fee_per_gas: gas_config.max_fee_per_gas * 10,
+                }
+            }
+        } else if let Ok(latest_block) = provider.get_block_number().await {
             if let Ok(Some(block)) = provider.get_block_by_number(latest_block.into()).await {
                 if let Some(base_fee) = block.header.base_fee_per_gas {
                     let min_max_fee = base_fee * 2 + gas_config.max_priority_fee_per_gas;
@@ -747,6 +811,7 @@ fn create_tempo_transaction_with_calls(
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn create_tempo_transaction(
         signer: &PrivateKeySigner,
         chain_id: u64,
@@ -776,18 +841,6 @@ mod tests {
             wallet_address,
             key_authorization,
         )
-    }
-
-    #[test]
-    fn test_is_tempo_network() {
-        assert!(is_tempo_network("tempo"));
-        assert!(is_tempo_network("tempo-moderato"));
-        assert!(is_tempo_network("Tempo"));
-        assert!(is_tempo_network("TEMPO-MODERATO"));
-
-        assert!(!is_tempo_network("ethereum"));
-        assert!(!is_tempo_network("base"));
-        assert!(!is_tempo_network("tempo-invalid"));
     }
 
     #[test]

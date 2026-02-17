@@ -7,7 +7,7 @@ use super::{Cli, OutputFormat, QueryArgs};
 
 /// Handle a regular (non-402) HTTP response
 pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpResponse) -> Result<()> {
-    match query.effective_output_format(cli.json_output) {
+    match cli.output_format {
         OutputFormat::Json => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
                 let output = serde_json::to_string_pretty(&json_value)?;
@@ -16,16 +16,8 @@ pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpRespo
                 output_response_body(query.output.as_deref(), cli, &response.body)?;
             }
         }
-        OutputFormat::Yaml => {
-            if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
-                let output = serde_yaml::to_string(&json_value)?;
-                write_output_to(query.output.as_deref(), cli, output)?;
-            } else {
-                output_response_body(query.output.as_deref(), cli, &response.body)?;
-            }
-        }
         OutputFormat::Text => {
-            if query.include_headers || query.head_only {
+            if query.include_headers {
                 println!("HTTP {}", response.status_code);
                 for (name, value) in &response.headers {
                     println!("{name}: {value}");
@@ -33,9 +25,7 @@ pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpRespo
                 println!();
             }
 
-            if !query.head_only {
-                output_response_body(query.output.as_deref(), cli, &response.body)?;
-            }
+            output_response_body(query.output.as_deref(), cli, &response.body)?;
         }
     }
 

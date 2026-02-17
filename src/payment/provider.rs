@@ -61,30 +61,16 @@ impl std::fmt::Display for NetworkBalance {
 /// This provider handles both Tempo and EVM networks, automatically selecting
 /// the appropriate transaction format based on the payment method.
 ///
-/// When `no_swap` is false (default), the provider will automatically swap from
-/// a different stablecoin if the user doesn't have the required token.
 #[derive(Clone)]
 pub struct PrestoPaymentProvider {
     config: Arc<Config>,
-    /// If true, disable automatic token swaps.
-    no_swap: bool,
 }
 
 impl PrestoPaymentProvider {
     /// Create a new provider with the given configuration.
-    #[allow(dead_code)]
     pub fn new(config: Config) -> Self {
         Self {
             config: Arc::new(config),
-            no_swap: false,
-        }
-    }
-
-    /// Create a new provider with swap behavior configured.
-    pub fn with_no_swap(config: Config, no_swap: bool) -> Self {
-        Self {
-            config: Arc::new(config),
-            no_swap,
         }
     }
 }
@@ -272,15 +258,6 @@ impl PrestoPaymentProvider {
                 }
                 .to_string(),
             ));
-        }
-
-        if self.no_swap {
-            return Err(mpp::MppError::Http(format!(
-                "Insufficient {} balance: have {}, need {}. Use a different token or remove --no-swap to enable automatic swaps.",
-                token_symbol,
-                format_u256_with_decimals(balance, token_decimals),
-                format_u256_with_decimals(required_amount, token_decimals),
-            )));
         }
 
         let keychain_info = wallet_address.map(|wa| (wa, key_address));
@@ -488,9 +465,6 @@ pub async fn query_token_balance(
 pub struct SwapSource {
     /// Token address that can be used as swap source.
     pub token_address: Address,
-    /// Current balance of the token.
-    #[allow(dead_code)]
-    pub balance: U256,
     /// Human-readable symbol.
     pub symbol: String,
 }
@@ -593,7 +567,6 @@ pub async fn find_swap_source(
                 Ok(balance) if balance >= amount_with_slippage => {
                     return Ok(Some(SwapSource {
                         token_address,
-                        balance,
                         symbol,
                     }));
                 }
@@ -618,7 +591,6 @@ pub async fn find_swap_source(
                 Ok(balance) if balance >= amount_with_slippage => {
                     return Ok(Some(SwapSource {
                         token_address,
-                        balance,
                         symbol,
                     }));
                 }

@@ -148,10 +148,6 @@ pub enum PrestoError {
     #[error("Base64 decoding error: {0}")]
     Base64Decode(#[from] base64::DecodeError),
 
-    /// Base58 decoding error
-    #[error("Base58 decoding error: {0}")]
-    Base58Decode(#[from] bs58::decode::Error),
-
     // ==================== Web Payment Auth Errors ====================
     /// Unsupported payment method
     #[error("Unsupported payment method: {0}")]
@@ -254,27 +250,11 @@ impl PrestoError {
 pub trait ResultExt<T> {
     /// Add signing context to an error
     fn with_signing_context(self, context: SigningContext) -> Result<T>;
-
-    /// Add network context to an error
-    #[allow(dead_code)]
-    fn with_network(self, network: &str) -> Result<T>;
 }
 
 impl<T, E: StdError + Send + Sync + 'static> ResultExt<T> for std::result::Result<T, E> {
     fn with_signing_context(self, context: SigningContext) -> Result<T> {
         self.map_err(|e| PrestoError::signing_with_context(e, context))
-    }
-
-    fn with_network(self, network: &str) -> Result<T> {
-        self.map_err(|e| {
-            PrestoError::signing_with_context(
-                e,
-                SigningContext {
-                    network: Some(network.to_string()),
-                    ..Default::default()
-                },
-            )
-        })
     }
 }
 
@@ -424,8 +404,8 @@ mod tests {
 
     #[test]
     fn test_signing_with_context() {
-        use std::io::{Error as IoError, ErrorKind};
-        let source = IoError::new(ErrorKind::Other, "underlying error");
+        use std::io::Error as IoError;
+        let source = IoError::other("underlying error");
         let ctx = SigningContext {
             network: Some("tempo".to_string()),
             address: Some("0x123".to_string()),
@@ -462,8 +442,8 @@ mod tests {
 
     #[test]
     fn test_result_ext_with_signing_context() {
-        use std::io::{Error as IoError, ErrorKind};
-        let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
+        use std::io::Error as IoError;
+        let result: std::result::Result<(), IoError> = Err(IoError::other("test"));
         let ctx = SigningContext {
             network: Some("tempo".to_string()),
             address: None,
@@ -473,25 +453,6 @@ mod tests {
         assert!(presto_result.is_err());
         let err = presto_result.unwrap_err();
         assert!(err.to_string().contains("signing failed"));
-    }
-
-    #[test]
-    fn test_result_ext_with_network() {
-        use std::io::{Error as IoError, ErrorKind};
-        let result: std::result::Result<(), IoError> = Err(IoError::new(ErrorKind::Other, "test"));
-        let presto_result = result.with_network("base-sepolia");
-        assert!(presto_result.is_err());
-        let err = presto_result.unwrap_err();
-        assert!(err.to_string().contains("base-sepolia"));
-    }
-
-    #[test]
-    fn test_with_network_on_signing_error() {
-        use std::io::{Error as IoError, ErrorKind};
-        let source = IoError::new(ErrorKind::Other, "test");
-        let err = PrestoError::signing_with_context(source, SigningContext::default());
-        let err_with_network = err.with_network("optimism");
-        assert!(err_with_network.to_string().contains("optimism"));
     }
 
     #[test]
