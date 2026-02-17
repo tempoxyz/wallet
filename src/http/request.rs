@@ -6,7 +6,8 @@
 use std::io::Read;
 
 use crate::http::{has_header, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
-use anyhow::{bail, Result};
+use anyhow::Result;
+use thiserror::Error;
 
 use crate::cli::{Cli, QueryArgs};
 
@@ -16,12 +17,27 @@ const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 /// Maximum header size (8 KB)
 const MAX_HEADER_SIZE: usize = 8 * 1024;
 
-fn validate_body_size(len: usize) -> Result<()> {
+#[derive(Error, Debug)]
+pub enum RequestError {
+    #[error("Request body exceeds maximum size of {max} bytes")]
+    BodyTooLarge { max: usize },
+
+    #[error("Header exceeds maximum size of {max} bytes")]
+    HeaderTooLarge { max: usize },
+
+    #[error("failed to read stdin: {0}")]
+    ReadStdin(#[source] std::io::Error),
+
+    #[error("failed to read file '{path}': {source}")]
+    ReadFile {
+        path: String,
+        source: std::io::Error,
+    },
+}
+
+fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
     if len > MAX_BODY_SIZE {
-        bail!(
-            "Request body exceeds maximum size of {} bytes",
-            MAX_BODY_SIZE
-        );
+        return Err(RequestError::BodyTooLarge { max: MAX_BODY_SIZE });
     }
     Ok(())
 }
@@ -32,18 +48,20 @@ fn validate_body_size(len: usize) -> Result<()> {
 /// - `@filename` — read the file as binary
 /// - `@-` — read stdin as binary
 /// - anything else — treat as a literal UTF-8 string
-fn resolve_data(data: &str) -> Result<Vec<u8>> {
+fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
     if let Some(path) = data.strip_prefix('@') {
         if path == "-" {
             let mut buf = Vec::new();
             std::io::stdin()
                 .read_to_end(&mut buf)
-                .map_err(|e| anyhow::anyhow!("failed to read stdin: {e}"))?;
+                .map_err(RequestError::ReadStdin)?;
             validate_body_size(buf.len())?;
             Ok(buf)
         } else {
-            let buf = std::fs::read(path)
-                .map_err(|e| anyhow::anyhow!("failed to read file '{}': {}", path, e))?;
+            let buf = std::fs::read(path).map_err(|e| RequestError::ReadFile {
+                path: path.to_string(),
+                source: e,
+            })?;
             validate_body_size(buf.len())?;
             Ok(buf)
         }
@@ -54,9 +72,9 @@ fn resolve_data(data: &str) -> Result<Vec<u8>> {
     }
 }
 
-fn validate_header_size(header: &str) -> Result<()> {
+fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
     if header.len() > MAX_HEADER_SIZE {
-        bail!("Header exceeds maximum size of {} bytes", MAX_HEADER_SIZE);
+        return Err(RequestError::HeaderTooLarge { max: MAX_HEADER_SIZE });
     }
     Ok(())
 }
