@@ -1,7 +1,7 @@
 //! Payment provider abstraction for presto.
 //!
 //! This module provides payment providers that implement the mpp::client::PaymentProvider trait,
-//! enabling automatic Web Payment Auth handling with presto-specific features like keychain signing.
+//! enabling automatic MPP (https://mpp.sh) handling with presto-specific features like keychain signing.
 
 use crate::config::Config;
 use crate::error::{PrestoError, Result};

@@ -1,4 +1,4 @@
-//!  tempo-walletCLI - A command-line HTTP client with built-in payment support
+//!  tempo-walletCLI - A command-line HTTP client with built-in MPP payment support
 
 mod analytics;
 mod cli;
@@ -23,8 +23,8 @@ use analytics::Analytics;
 use cli::output::handle_regular_response;
 use config::{load_config, load_config_with_overrides};
 use http::request::RequestContext;
-use payment::web_payment::handle_web_payment_request;
-use payment::web_session::{handle_web_session_request, SessionResult};
+use payment::charge::handle_charge_request;
+use payment::session::{handle_session_request, SessionResult};
 
 #[tokio::main]
 async fn main() {
@@ -376,7 +376,7 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
             eprintln!("Payment intent: session");
         }
 
-        match handle_web_session_request(&config, &request_ctx, &url, &response).await {
+        match handle_session_request(&config, &request_ctx, &url, &response).await {
             Ok(result) => {
                 if let Some(ref a) = analytics {
                     a.track(
@@ -429,7 +429,7 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
             }
         }
     } else {
-        match handle_web_payment_request(&config, &request_ctx, &url, &response).await {
+        match handle_charge_request(&config, &request_ctx, &url, &response).await {
             Ok(response) => {
                 if let Some(ref a) = analytics {
                     a.track(

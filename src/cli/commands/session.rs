@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
+use crate::payment::session::close_session_from_record;
 use crate::payment::session_store;
-use crate::payment::web_session::close_session_from_record;
 
 /// List all active payment sessions.
 pub fn list_sessions() -> Result<()> {

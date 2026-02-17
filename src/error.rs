@@ -148,7 +148,7 @@ pub enum PrestoError {
     #[error("Base64 decoding error: {0}")]
     Base64Decode(#[from] base64::DecodeError),
 
-    // ==================== Web Payment Auth Errors ====================
+    // ==================== MPP Errors ====================
     /// Unsupported payment method
     #[error("Unsupported payment method: {0}")]
     UnsupportedPaymentMethod(String),

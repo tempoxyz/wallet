@@ -1,8 +1,8 @@
 # presto
 
-A command-line HTTP client with built-in payment support. Like `curl` or `wget`, but when a server requires payment,  tempo-wallethandles it automatically.
+A command-line HTTP client with built-in [MPP](https://mpp.sh) payment support. Like `curl` or `wget`, but when a server requires payment,  tempo-wallethandles it automatically.
 
-When a server responds with `402 Payment Required`,  tempo-walletdetects the [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) challenge, signs a transaction on the [Tempo](https://tempo.xyz) blockchain, and retries the request — all in one step.
+When a server responds with `402 Payment Required`,  tempo-walletdetects the [Machine Payments Protocol (MPP)](https://mpp.sh) challenge, signs a transaction on the [Tempo](https://tempo.xyz) blockchain, and retries the request — all in one step.
 
 ## Quick Start
 

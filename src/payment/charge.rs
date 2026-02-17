@@ -1,7 +1,7 @@
-//! Web Payment Auth protocol handling for the CLI
+//! Machine Payments Protocol (MPP) handling for the CLI
 //!
-//! This module handles the IETF Web Payment Auth protocol (draft-ietf-httpauth-payment)
-//! which uses WWW-Authenticate and Authorization headers for blockchain payments.
+//! This module handles the MPP protocol (https://mpp.sh) which uses
+//! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
 use anyhow::{Context, Result};
 use std::str::FromStr;
@@ -19,8 +19,8 @@ use crate::network::Network;
 use crate::payment::mpp_ext::{extract_tx_hash, method_to_network, validate_challenge};
 use crate::payment::provider::PrestoPaymentProvider;
 
-/// Handle Web Payment Auth protocol (402 with WWW-Authenticate: Payment header)
-pub async fn handle_web_payment_request(
+/// Handle MPP charge flow (402 with WWW-Authenticate: Payment header)
+pub async fn handle_charge_request(
     config: &Config,
     request_ctx: &RequestContext,
     url: &str,
@@ -75,7 +75,7 @@ pub async fn handle_web_payment_request(
 
     validate_challenge(&challenge).context("Challenge validation failed")?;
 
-    validate_web_payment_constraints(
+    validate_charge_constraints(
         &request_ctx.query,
         &request_ctx.cli,
         &challenge,
@@ -169,7 +169,7 @@ fn normalize_max_amount(amount: &str) -> String {
     amount.to_string()
 }
 
-fn validate_web_payment_constraints(
+fn validate_charge_constraints(
     query: &QueryArgs,
     cli: &Cli,
     challenge: &PaymentChallenge,
@@ -214,7 +214,7 @@ fn handle_web_dry_run(
         .unwrap_or_else(|_| "unknown".to_string());
 
     println!("[DRY RUN] Web Payment would be made:");
-    println!("Protocol: Web Payment Auth");
+    println!("Protocol: MPP (https://mpp.sh)");
     println!("Method: {}", challenge.method);
     println!("Intent: {}", challenge.intent);
     println!("Network: {}", network);
@@ -410,7 +410,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -420,7 +420,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -430,7 +430,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -446,7 +446,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -456,7 +456,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -466,7 +466,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -482,7 +482,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -492,7 +492,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -502,7 +502,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -638,7 +638,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -648,7 +648,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
         assert!(result.is_err());
     }
 }

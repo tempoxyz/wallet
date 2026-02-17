@@ -319,7 +319,7 @@ impl PaymentSetupContext {
     }
 }
 
-/// Create a Tempo payment credential for a Web Payment Auth challenge.
+/// Create a Tempo payment credential for an MPP charge challenge.
 ///
 /// Supports keychain signing mode when `wallet_address` is configured.
 /// If a pending `key_authorization` exists, it is included in the transaction
