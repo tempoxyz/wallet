@@ -651,6 +651,117 @@ pub fn pending_key_spending_limit(
     }
 }
 
+/// Register an access key on-chain by submitting a Tempo transaction
+/// containing only the key authorization (no payment calls).
+///
+/// This is called during `presto login` to provision the key immediately,
+/// rather than deferring it to the first payment transaction.
+pub async fn register_key_on_chain(config: &Config, network_name: &str) -> Result<String> {
+    use alloy::providers::Provider;
+    use alloy::rlp::Decodable;
+
+    let signer_ctx = load_signer_with_priority()?;
+    let signer = signer_ctx.signer;
+
+    let wallet_address = signer_ctx
+        .wallet_address
+        .as_ref()
+        .map(|addr| {
+            Address::from_str(addr)
+                .map_err(|e| PrestoError::InvalidConfig(format!("Invalid wallet address: {}", e)))
+        })
+        .transpose()?;
+
+    let pending_hex = signer_ctx.pending_key_authorization.ok_or_else(|| {
+        PrestoError::ConfigMissing("No pending key authorization to register".to_string())
+    })?;
+
+    let raw = pending_hex.strip_prefix("0x").unwrap_or(&pending_hex);
+    let bytes = hex::decode(raw).map_err(|e| {
+        PrestoError::InvalidConfig(format!("Invalid pending key authorization hex: {}", e))
+    })?;
+    let mut slice = bytes.as_slice();
+    let key_authorization = SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
+        PrestoError::InvalidConfig(format!("Invalid pending key authorization RLP: {}", e))
+    })?;
+
+    let from = wallet_address.unwrap_or_else(|| signer.address());
+
+    let network_info = config.resolve_network(network_name)?;
+    let chain_id = network_info.chain_id.ok_or_else(|| {
+        PrestoError::InvalidConfig(format!("{} network missing chain ID", network_name))
+    })?;
+
+    let gas_config = Network::from_str(network_name)
+        .map(|n| n.gas_config())
+        .unwrap_or(GasConfig::DEFAULT);
+
+    let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
+        PrestoError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
+    })?;
+    let provider = HttpProvider::new_http(rpc_url);
+
+    // Check if already registered
+    if let Some(wallet_addr) = wallet_address {
+        if is_key_authorized_on_chain(&provider, wallet_addr, signer.address()).await {
+            clear_pending_key_authorization();
+            return Ok(String::new());
+        }
+    }
+
+    let nonce = provider
+        .get_transaction_count(from)
+        .pending()
+        .await
+        .with_signing_context(SigningContext {
+            network: Some(network_name.to_string()),
+            address: Some(format!("{:#x}", from)),
+            operation: "get_nonce",
+        })?;
+
+    let fee_token: Address = crate::network::tempo_tokens::PATH_USD
+        .parse()
+        .map_err(|e| PrestoError::InvalidConfig(format!("Invalid pathUSD address: {}", e)))?;
+
+    let calls: Vec<Call> = vec![];
+
+    let gas_limit = estimate_tempo_gas(
+        &provider,
+        from,
+        chain_id,
+        nonce,
+        fee_token,
+        &calls,
+        &gas_config,
+        Some(&key_authorization),
+    )
+    .await?;
+
+    let signed_tx = create_tempo_transaction_with_calls(
+        &signer,
+        chain_id,
+        nonce,
+        fee_token,
+        calls,
+        &gas_config,
+        gas_limit,
+        wallet_address,
+        Some(key_authorization),
+    )?;
+
+    let tx_hash: String = provider
+        .raw_request(
+            "eth_sendRawTransaction".into(),
+            [format!("0x{}", signed_tx)],
+        )
+        .await
+        .map_err(|e| PrestoError::Http(format!("Failed to submit key registration tx: {}", e)))?;
+
+    clear_pending_key_authorization();
+
+    Ok(tx_hash)
+}
+
 /// Clear the pending key authorization from wallet.toml.
 ///
 /// Called after confirming the access key is already provisioned on-chain.
