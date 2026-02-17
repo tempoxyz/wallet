@@ -2,7 +2,7 @@
   "name": "presto",
   "version": "0.1.0",
   "private": true,
-  "description": "A command-line HTTP client with built-in payment support",
+  "description": "A command-line HTTP client with built-in MPP payment support",
   "scripts": {
     "lint": "npx @tempoxyz/lints rust src"
   },

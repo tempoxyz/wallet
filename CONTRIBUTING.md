@@ -70,7 +70,7 @@ src/
 ├── config/          # Configuration file handling
 ├── http/            # HTTP client and request building
 ├── network/         # Network definitions (Tempo, Moderato) and RPC
-├── payment/         # Payment protocol logic (Web Payment Auth)
+├── payment/         # Payment protocol logic (MPP - https://mpp.sh)
 ├── wallet/          # Wallet management, signing, and auth server
 ├── util/            # Shared utilities (atomic writes, constants)
 └── analytics/       # Opt-out telemetry
