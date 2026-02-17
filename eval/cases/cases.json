@@ -430,6 +430,228 @@
       "expect": {
         "presto": { "should_invoke": false }
       }
+    },
+
+    {
+      "id": "real-scrape-docs",
+      "category": "trigger-positive",
+      "prompt": "I need to scrape https://docs.rs/tokio/latest/tokio/ and get the content as markdown. I don't have a Firecrawl API key.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "firecrawl\\.payments\\.tempo\\.xyz.*/v1/scrape",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "real-web-search",
+      "category": "trigger-positive",
+      "prompt": "Search the web for 'rust async best practices 2025' using the Exa search API. I don't have an API key.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "exa\\.payments\\.tempo\\.xyz.*/search",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "real-code-review",
+      "category": "trigger-positive",
+      "prompt": "I want a second opinion on this function. Ask GPT-4o to review this code and suggest improvements: 'fn add(a: i32, b: i32) -> i32 { return a + b; }'. Keep spending under $0.10.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz.*/v1/chat/completions",
+          "method": "POST",
+          "has_flag": "--json",
+          "argv_contains": ["--max-amount", "-M"]
+        }
+      }
+    },
+    {
+      "id": "real-generate-tests",
+      "category": "trigger-positive",
+      "prompt": "Use an LLM API to generate unit tests for this Rust struct: 'pub struct Config { pub timeout: u64, pub retries: u32 }'. No API key needed, just use presto.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "real-compare-models",
+      "category": "trigger-positive",
+      "prompt": "I want to compare how GPT-4o-mini and Claude answer the same question. Ask both 'What is the CAP theorem?' via their respective APIs. Keep it brief.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "real-crawl-site",
+      "category": "trigger-positive",
+      "prompt": "Crawl https://example.com and return a sitemap of all pages. Use the Firecrawl API — I don't have an account.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "firecrawl\\.payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "real-tts-audio",
+      "category": "trigger-positive",
+      "prompt": "Convert the text 'Hello, welcome to the demo' to speech audio using ElevenLabs and save the output to demo.mp3. I don't have an ElevenLabs key.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "elevenlabs\\.payments\\.tempo\\.xyz.*/v1/text-to-speech",
+          "method": "POST",
+          "argv_contains": ["-o"]
+        }
+      }
+    },
+    {
+      "id": "real-json-output",
+      "category": "trigger-positive",
+      "prompt": "Ask GPT-4o-mini to return a JSON object with 3 creative project name suggestions. I need the raw JSON output with no extra logging, piped through jq.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "real-debug-api",
+      "category": "trigger-positive",
+      "prompt": "I'm getting errors calling the OpenAI API through Tempo. Make the request with maximum verbosity so I can debug the payment flow.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "argv_contains": ["-vv", "-v"]
+        }
+      }
+    },
+
+    {
+      "id": "neg-npm-install",
+      "category": "trigger-negative",
+      "prompt": "Install the lodash package and add it to package.json.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-docker-build",
+      "category": "trigger-negative",
+      "prompt": "Write a Dockerfile for this Rust project that builds a minimal release image.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-refactor",
+      "category": "trigger-negative",
+      "prompt": "Refactor the error handling in src/http/request.rs to use thiserror instead of manual impl.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-aws-s3",
+      "category": "trigger-negative",
+      "prompt": "Upload the file ./report.csv to my S3 bucket using the AWS CLI. My credentials are configured.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-existing-key",
+      "category": "trigger-negative",
+      "prompt": "Call the OpenAI API with my key in OPENAI_API_KEY to generate embeddings for 'hello world'.",
+      "expect": {
+        "presto": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-db-query",
+      "category": "trigger-negative",
+      "prompt": "Connect to the PostgreSQL database at localhost:5432 and show me the schema of the users table.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-ci-pipeline",
+      "category": "trigger-negative",
+      "prompt": "Set up a GitHub Actions workflow that runs cargo test on every PR.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+
+    {
+      "id": "ambig-no-api-key-generic",
+      "category": "trigger-positive",
+      "prompt": "I need to call an LLM but I don't have any API keys set up. What's the fastest way to get an answer to 'explain the difference between TCP and UDP'?",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "ambig-scrape-vs-browse",
+      "category": "trigger-negative",
+      "prompt": "Read the page at https://news.ycombinator.com and tell me what the top 3 stories are right now.",
+      "expect": {
+        "presto": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "ambig-help-flag",
+      "category": "trigger-positive",
+      "prompt": "Show me the help output for the  tempo-walletCLI.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "argv_contains": ["--help", "-h", "help"]
+        }
+      }
+    },
+    {
+      "id": "ambig-cost-question",
+      "category": "trigger-negative",
+      "prompt": "How much does it cost to call GPT-4o through Tempo payments?",
+      "expect": {
+        "presto": { "should_invoke": false }
+      }
     }
   ]
 }

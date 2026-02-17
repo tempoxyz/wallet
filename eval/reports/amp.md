@@ -4,62 +4,79 @@
 
 | Metric | Value |
 |--------|-------|
-| Total cases | 39 |
-| Passed | 39 |
-| Failed | 0 |
-| Trigger accuracy | 100% |
-| Usage accuracy | 100% |
-| Avg duration | 12.4s |
-| Avg turns | 2.5 |
-| Wall time | 2m11s |
+| Total cases | 59 |
+| Passed | - |
+| Failed | - |
+| Trigger accuracy | - |
+| Usage accuracy | - |
+| Avg duration | - |
+| Avg turns | - |
+| Wall time | running... |
 
 ## Results by Category
 
-| Category | Passed | Total | Rate |
-|----------|--------|-------|------|
-| trigger-negative | 15 | 15 | 100% |
-| trigger-positive | 24 | 24 | 100% |
+_Pending..._
 
 ## All Cases
 
 | Case | Category | Trigger | Usage | Result | Duration | Turns | Notes |
 |------|----------|---------|-------|--------|----------|-------|-------|
-| llm-ask-gpt | trigger-positive | ✅ | ✅ | ✅ PASS | 15.6s | 3 |  |
-| llm-ask-claude | trigger-positive | ✅ | ✅ | ✅ PASS | 23.1s | 4 |  |
-| llm-openrouter | trigger-positive | ✅ | ✅ | ✅ PASS | 17.1s | 3 |  |
-| llm-generic-no-key | trigger-positive | ✅ | ✅ | ✅ PASS | 12.9s | 2 |  |
-| llm-with-spending-limit | trigger-positive | ✅ | ✅ | ✅ PASS | 16.5s | 3 |  |
-| llm-dry-run | trigger-positive | ✅ | ✅ | ✅ PASS | 13.9s | 3 |  |
-| api-generic-http | trigger-positive | ✅ | ✅ | ✅ PASS | 12.1s | 3 |  |
-| wallet-check-balance | trigger-positive | ✅ | ✅ | ✅ PASS | 6.8s | 2 |  |
-| wallet-whoami | trigger-positive | ✅ | ✅ | ✅ PASS | 17.1s | 4 |  |
-| wallet-login | trigger-positive | ✅ | ✅ | ✅ PASS | 12.6s | 3 |  |
-| session-list | trigger-positive | ✅ | ✅ | ✅ PASS | 10.0s | 2 |  |
-| api-post-json | trigger-positive | ✅ | ✅ | ✅ PASS | 9.0s | 3 |  |
-| api-verbose | trigger-positive | ✅ | ✅ | ✅ PASS | 9.8s | 3 |  |
-| api-save-output | trigger-positive | ✅ | ✅ | ✅ PASS | 11.9s | 3 |  |
-| api-services-directory | trigger-positive | ✅ | ✅ | ✅ PASS | 19.4s | 3 |  |
-| neg-read-file | trigger-negative | ✅ | ✅ | ✅ PASS | 9.8s | 2 |  |
-| neg-git-status | trigger-negative | ✅ | ✅ | ✅ PASS | 8.2s | 2 |  |
-| neg-write-code | trigger-negative | ✅ | ✅ | ✅ PASS | 4.0s | 1 |  |
-| neg-local-build | trigger-negative | ✅ | ✅ | ✅ PASS | 10.9s | 3 |  |
-| neg-grep-code | trigger-negative | ✅ | ✅ | ✅ PASS | 5.1s | 2 |  |
-| neg-explain-code | trigger-negative | ✅ | ✅ | ✅ PASS | 13.3s | 2 |  |
-| neg-math | trigger-negative | ✅ | ✅ | ✅ PASS | 1.9s | 1 |  |
-| neg-edit-file | trigger-negative | ✅ | ✅ | ✅ PASS | 5.6s | 2 |  |
-| neg-web-search | trigger-negative | ✅ | ✅ | ✅ PASS | 15.7s | 2 |  |
-| neg-local-server | trigger-negative | ✅ | ✅ | ✅ PASS | 8.0s | 2 |  |
-| ambig-implicit-llm | trigger-positive | ✅ | ✅ | ✅ PASS | 13.0s | 2 |  |
-| ambig-translate | trigger-positive | ✅ | ✅ | ✅ PASS | 8.2s | 2 |  |
-| ambig-summarize-url | trigger-negative | ✅ | ✅ | ✅ PASS | 31.2s | 2 |  |
-| ambig-public-api | trigger-negative | ✅ | ✅ | ✅ PASS | 12.5s | 2 |  |
-| ambig-presto-the-word | trigger-negative | ✅ | ✅ | ✅ PASS | 7.0s | 2 |  |
-| ambig-curl-explicit | trigger-positive | ✅ | ✅ | ✅ PASS | 10.1s | 2 |  |
-| usage-custom-headers | trigger-positive | ✅ | ✅ | ✅ PASS | 11.6s | 3 |  |
-| usage-quiet-mode | trigger-positive | ✅ | ✅ | ✅ PASS | 11.5s | 3 |  |
-| usage-network-filter | trigger-positive | ✅ | ✅ | ✅ PASS | 8.8s | 2 |  |
-| usage-combined-flags | trigger-positive | ✅ | ✅ | ✅ PASS | 12.6s | 3 |  |
-| usage-include-headers | trigger-positive | ✅ | ✅ | ✅ PASS | 10.2s | 3 |  |
-| usage-session-close | trigger-positive | ✅ | ✅ | ✅ PASS | 28.6s | 3 |  |
-| neg-github-api | trigger-negative | ✅ | ✅ | ✅ PASS | 20.3s | 6 |  |
-| neg-internal-api | trigger-negative | ✅ | ✅ | ✅ PASS | 8.7s | 2 |  |
+| llm-ask-gpt | trigger-positive | ❌ | ✅ | ❌ FAIL | 8.0s | 1 | expected  tempo-walletinvocation but none found in Bash commands |
+| llm-ask-claude | trigger-positive | ❌ | ✅ | ❌ FAIL | 13.1s | 3 | expected  tempo-walletinvocation but none found in Bash commands |
+| llm-openrouter | trigger-positive | ✅ | ✅ | ✅ PASS | 17.8s | 3 |  |
+| llm-generic-no-key | trigger-positive | ❌ | ✅ | ❌ FAIL | 4.5s | 1 | expected  tempo-walletinvocation but none found in Bash commands |
+| llm-with-spending-limit | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| llm-dry-run | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| api-generic-http | trigger-positive | ✅ | ✅ | ✅ PASS | 11.2s | 3 |  |
+| wallet-check-balance | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| wallet-whoami | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| wallet-login | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| session-list | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| api-post-json | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| api-verbose | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| api-save-output | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| api-services-directory | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-read-file | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-git-status | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-write-code | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-local-build | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-grep-code | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-explain-code | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-math | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-edit-file | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-web-search | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-local-server | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-implicit-llm | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-translate | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-summarize-url | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-public-api | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-presto-the-word | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-curl-explicit | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| usage-custom-headers | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| usage-quiet-mode | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| usage-network-filter | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| usage-combined-flags | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| usage-include-headers | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| usage-session-close | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-github-api | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-internal-api | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-scrape-docs | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-web-search | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-code-review | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-generate-tests | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-compare-models | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-crawl-site | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-tts-audio | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-json-output | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| real-debug-api | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-npm-install | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-docker-build | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-refactor | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-aws-s3 | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-existing-key | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-db-query | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| neg-ci-pipeline | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-no-api-key-generic | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-scrape-vs-browse | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-help-flag | trigger-positive | ⏳ | ⏳ | ⏳ Running | - | - |  |
+| ambig-cost-question | trigger-negative | ⏳ | ⏳ | ⏳ Running | - | - |  |

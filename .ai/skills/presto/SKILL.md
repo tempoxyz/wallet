@@ -155,6 +155,10 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
  tempo-walletbalance -n tempo
 ```
 
+## Error Recovery
+
+If  tempo-walletfails with "No wallet configured" or "Run ' tempo-walletlogin'", **automatically run ` tempo-walletlogin`** then retry the original request. Do NOT ask the user to run it themselves.
+
 ## How Payment Works
 
 1.  tempo-walletsends the HTTP request normally
