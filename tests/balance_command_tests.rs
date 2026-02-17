@@ -47,19 +47,9 @@ fn test_balance_help_shows_network_flag() {
         .stdout(predicate::str::contains("-n, --network"));
 }
 
-#[test]
-fn test_balance_help_via_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["b", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Check wallet balance"));
-}
-
 // ============================================================================
 // Mock network tests (use PRESTO_MOCK_NETWORK=1 for fast, reliable tests)
 // ============================================================================
-
 #[test]
 fn test_balance_with_explicit_address() {
     let temp = setup_test_config();
@@ -104,17 +94,6 @@ fn test_balance_with_network_filter_short_and_address() {
         .success()
         .stdout(predicate::str::contains("tempo-moderato:"))
         .stdout(predicate::str::contains("5.000000"));
-}
-
-#[test]
-fn test_balance_alias_with_address() {
-    let temp = setup_test_config();
-
-    mock_test_command(&temp)
-        .args(["b", "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Tempo Stablecoin Balances:"));
 }
 
 #[test]

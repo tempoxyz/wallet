@@ -1,6 +1,6 @@
 //! Web Payment Auth protocol handling for the CLI
 //!
-//! This module handles the IETF Web Payment Auth protocol (draft-ietf-httpauth-payment-01)
+//! This module handles the IETF Web Payment Auth protocol (draft-ietf-httpauth-payment)
 //! which uses WWW-Authenticate and Authorization headers for blockchain payments.
 
 use anyhow::{Context, Result};
@@ -8,7 +8,6 @@ use std::str::FromStr;
 
 use mpp::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
 
-use crate::cli::confirm::confirm_web_payment;
 use crate::cli::formatting::format_address_link;
 use crate::cli::hyperlink::hyperlink;
 use crate::cli::{Cli, QueryArgs};
@@ -73,8 +72,7 @@ pub async fn handle_web_payment_request(
         }
     }
 
-    validate_challenge(&challenge, request_ctx.query.charge)
-        .context("Challenge validation failed")?;
+    validate_challenge(&challenge).context("Challenge validation failed")?;
 
     validate_web_payment_constraints(
         &request_ctx.query,
@@ -87,12 +85,8 @@ pub async fn handle_web_payment_request(
         return handle_web_dry_run(config, &challenge, &charge_req, explorer.as_ref());
     }
 
-    if request_ctx.query.confirm {
-        confirm_web_payment(config, &challenge, &charge_req, explorer.as_ref())?;
-    }
-
     // Use mpp::client::PaymentProvider to create the credential
-    let provider = PrestoPaymentProvider::with_no_swap(config.clone(), request_ctx.query.no_swap);
+    let provider = PrestoPaymentProvider::new(config.clone());
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
@@ -161,6 +155,19 @@ async fn handle_mock_payment(
     }
 }
 
+/// Normalize a max-amount string: if it contains a decimal point, treat as
+/// human-readable dollars (6 decimal places for pathUSD) and convert to atomic units.
+/// If it's a plain integer, pass through unchanged.
+fn normalize_max_amount(amount: &str) -> String {
+    if amount.contains('.') {
+        if let Ok(dollars) = amount.parse::<f64>() {
+            let atomic = (dollars * 1_000_000.0) as u128;
+            return atomic.to_string();
+        }
+    }
+    amount.to_string()
+}
+
 fn validate_web_payment_constraints(
     query: &QueryArgs,
     cli: &Cli,
@@ -168,8 +175,9 @@ fn validate_web_payment_constraints(
     charge_req: &ChargeRequest,
 ) -> Result<()> {
     if let Some(ref max_amount) = query.max_amount {
+        let normalized = normalize_max_amount(max_amount);
         charge_req
-            .validate_max_amount(max_amount)
+            .validate_max_amount(&normalized)
             .context("Amount validation failed")?;
     }
 
@@ -598,5 +606,46 @@ mod tests {
             }
             other => panic!("Expected Http passthrough, got: {other}"),
         }
+    }
+
+    #[test]
+    fn test_normalize_max_amount_integer_passthrough() {
+        assert_eq!(normalize_max_amount("50000"), "50000");
+        assert_eq!(normalize_max_amount("1000000"), "1000000");
+        assert_eq!(normalize_max_amount("0"), "0");
+    }
+
+    #[test]
+    fn test_normalize_max_amount_decimal_to_atomic() {
+        assert_eq!(normalize_max_amount("0.05"), "50000");
+        assert_eq!(normalize_max_amount("1.0"), "1000000");
+        assert_eq!(normalize_max_amount("1.5"), "1500000");
+        assert_eq!(normalize_max_amount("0.000001"), "1");
+        assert_eq!(normalize_max_amount("100.0"), "100000000");
+    }
+
+    #[test]
+    fn test_normalize_max_amount_invalid_decimal() {
+        assert_eq!(normalize_max_amount("abc.def"), "abc.def");
+    }
+
+    #[test]
+    fn test_validate_constraints_max_amount_dollar_format() {
+        let query = make_query_args(&["query", "--max-amount", "2.0", "http://example.com"]);
+        let cli = Cli::try_parse_from(["presto"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_constraints_max_amount_dollar_exceeded() {
+        let query = make_query_args(&["query", "--max-amount", "0.05", "http://example.com"]);
+        let cli = Cli::try_parse_from(["presto"]).unwrap();
+        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+
+        let result = validate_web_payment_constraints(&query, &cli, &challenge, &charge_req);
+        assert!(result.is_err());
     }
 }

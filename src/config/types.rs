@@ -139,11 +139,6 @@ impl Config {
         crate::util::constants::default_config_path().ok_or(PrestoError::NoConfigDir)
     }
 
-    /// Get the default config directory (~/.config/presto/)
-    pub fn default_config_dir() -> Result<PathBuf> {
-        crate::util::constants::presto_config_dir().ok_or(PrestoError::NoConfigDir)
-    }
-
     /// Save config to the default location with validation
     pub fn save(&self) -> Result<()> {
         self.validate()?;
@@ -156,6 +151,7 @@ impl Config {
     }
 
     /// Detect which payment method is available based on config
+    #[cfg(test)]
     pub fn available_payment_methods(&self) -> Vec<PaymentMethod> {
         let mut methods = Vec::new();
         if self.evm.is_some() {
@@ -203,8 +199,6 @@ impl Config {
             let explorer = custom.explorer_url.as_ref().map(ExplorerConfig::tempo);
             return Ok(crate::network::NetworkInfo {
                 chain_id: custom.chain_id,
-                mainnet: custom.mainnet,
-                display_name: custom.display_name.clone(),
                 rpc_url: custom.rpc_url.clone(),
                 explorer,
             });
@@ -235,6 +229,7 @@ impl Config {
 }
 
 /// Payment method types supported by the library.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PaymentMethod {
@@ -242,6 +237,7 @@ pub enum PaymentMethod {
     Evm,
 }
 
+#[cfg(test)]
 impl PaymentMethod {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -257,6 +253,7 @@ impl PaymentMethod {
     }
 }
 
+#[cfg(test)]
 impl fmt::Display for PaymentMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.display_name())
@@ -621,9 +618,7 @@ mod tests {
             .resolve_network("my-local-chain")
             .expect("custom network should resolve");
         assert_eq!(network_info.chain_id, Some(31337));
-        assert_eq!(network_info.display_name, "Local Dev Chain");
         assert_eq!(network_info.rpc_url, "http://localhost:8545");
-        assert!(!network_info.mainnet);
         assert!(network_info.explorer.is_some());
     }
 
@@ -671,7 +666,6 @@ mod tests {
             .resolve_network("tempo")
             .expect("custom tempo should resolve");
         assert_eq!(network_info.chain_id, Some(99999));
-        assert_eq!(network_info.display_name, "My Custom Tempo");
         assert_eq!(network_info.rpc_url, "https://my-tempo-fork.com");
     }
 

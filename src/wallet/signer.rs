@@ -16,15 +16,6 @@ pub struct SignerWithContext {
     pub wallet_address: Option<String>,
     /// Hex-encoded pending key authorization from wallet credentials.
     pub pending_key_authorization: Option<String>,
-    /// Source of the signer for debugging.
-    #[allow(dead_code)]
-    pub source: SignerSource,
-}
-
-/// Where the signer was loaded from.
-#[derive(Debug, Clone, PartialEq)]
-pub enum SignerSource {
-    TempoWallet,
 }
 
 /// Load a signer from Tempo wallet credentials.
@@ -67,6 +58,5 @@ pub fn load_signer_with_priority() -> Result<SignerWithContext> {
         signer,
         wallet_address: Some(wallet.account_address.clone()),
         pending_key_authorization,
-        source: SignerSource::TempoWallet,
     })
 }

@@ -36,7 +36,7 @@ Error: Insufficient pathUSD balance: have 0.50, need 1.00
 Fix: Deposit funds into your wallet.
 ```
 
-### InsufficientBalance — no swap source (exit 6)
+### InsufficientBalance (exit 6)
 
 ```
 Error: Insufficient pathUSD balance: have 0.00, need 1.00
@@ -93,7 +93,7 @@ The detail is passed through (e.g., TOML parse error, invalid value).
 ```
 Error: Invalid configuration: {reason}
 
-Fix: Run 'presto config' to view your current configuration.
+Fix: Check your configuration file.
 ```
 
 ### InvalidKey (exit 8)
@@ -111,7 +111,7 @@ The signing error is passed through from the signing backend.
 ```
 Error: Signing error: {reason}
 
-Fix: Check your wallet configuration with 'presto config'.
+Fix: Check your wallet configuration.
 ```
 
 ### UnknownNetwork (exit 4)
@@ -119,7 +119,7 @@ Fix: Check your wallet configuration with 'presto config'.
 ```
 Error: Unknown network: {name}
 
-Fix: Run 'presto networks list' to see available networks.
+Fix: Supported networks: tempo, tempo-moderato.
 ```
 
 ### BalanceQuery / SpendingLimitQuery (exit 1)

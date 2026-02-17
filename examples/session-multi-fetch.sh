@@ -70,7 +70,7 @@ for i in "${!PROMPTS[@]}"; do
   N=$((i + 1))
   echo "[$N/${#PROMPTS[@]}] Prompt: \"${PROMPT}\""
 
-  RESPONSE=$(presto -v query -X POST \
+  RESPONSE=$(presto -v -X POST \
     --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
     "${ENDPOINT}" 2>"$STDERR_FILE") || true
 

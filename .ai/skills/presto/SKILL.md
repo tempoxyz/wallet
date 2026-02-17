@@ -5,63 +5,148 @@ description: A wget-like CLI tool for making HTTP requests with automatic paymen
 
 # presto
 
-A wget-like CLI tool for making HTTP requests with automatic support for payments.
+A command-line HTTP client with built-in payment support. When a server responds with `402 Payment Required`, presto detects the [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) challenge, signs a transaction on the Tempo blockchain, and retries the request — all in one step.
 
-## Supported Payment Protocols
-
-- **Web Payment Auth** - IETF standard for HTTP authentication-based payments
-
-## Overview
+## Quick Start
 
 ```bash
-# Log in (connect your Tempo wallet)
+# Connect your Tempo wallet
 presto login
 
-# Make a payment-enabled HTTP request
-presto query https://api.example.com/premium-data
+# Make a paid request (payment handled automatically on 402)
+presto https://api.example.com/data
+
+# POST with JSON body
+presto -X POST --json '{"key": "value"}' https://api.example.com/endpoint
 
 # Preview payment without executing
-presto query --dry-run https://api.example.com/data
-
-# Require confirmation before payment
-presto query --confirm https://api.example.com/data
+presto --dry-run https://api.example.com/data
 ```
 
-## Common Commands
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `presto login` | Log in and connect your Tempo wallet |
-| `presto logout` | Log out and disconnect your wallet |
-| `presto whoami` | Show wallet status, balances, and access keys |
-| `presto query <URL>` (alias `presto q <URL>`) | Make an HTTP request (handles 402 payments automatically) |
-| `presto --help` | Show all available options |
-| `presto config` | View current configuration |
-| `presto balance` | Check wallet balance |
+| `presto <URL>` | Make an HTTP request with automatic payment |
+| `presto login` | Connect your Tempo wallet via browser |
+| `presto logout` | Disconnect your wallet |
+| `presto balance` | Check wallet token balances |
+| `presto whoami` | Show wallet address, balances, access keys, and readiness |
+| `presto session list` | List active payment sessions |
+| `presto session close` | Close a payment session |
 
-## Key Options
+## Query Options
+
+### Payment Options
 
 | Option | Description |
 |--------|-------------|
+| `-M, --max-amount <AMOUNT>` | Maximum amount willing to pay (e.g., `0.05` for dollars, or `50000` for atomic units) |
 | `--dry-run` | Show what would be paid without executing |
-| `--confirm` | Require confirmation before paying |
-| `--max-amount <AMOUNT>` | Set maximum payment amount (atomic units) |
-| `--network <NETWORKS>` | Filter to specific networks (e.g., "tempo","tempo-moderato") |
-| `-v, --verbose` | Verbose output with headers |
-| `-o, --output <FILE>` | Write output to file |
+| `-n, --network <NETWORKS>` | Filter to specific networks (e.g., `tempo`, `tempo-moderato`) |
 
-## Example Usage
+### HTTP Options
+
+| Option | Description |
+|--------|-------------|
+| `-X, --request <METHOD>` | Custom request method (GET, POST, etc.) |
+| `-H, --header <HEADER>` | Add custom header (can be repeated) |
+| `--json <JSON>` | Send JSON data with Content-Type header |
+| `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
+| `--no-redirect` | Disable following redirects |
+| `-m, --timeout <SECONDS>` | Maximum time for the request |
+| `-r, --rpc <URL>` | Override RPC URL |
+
+### Display Options
+
+| Option | Description |
+|--------|-------------|
+| `-v` | Verbose output (use `-vv` for debug) |
+| `-q, --quiet` | Suppress log messages |
+| `-i, --include` | Include HTTP response headers in output |
+| `-o, --output <FILE>` | Write output to file |
+| `--output-format json` | JSON output format |
+| `--color never` | Disable colored output |
+
+## Real-World Examples
+
+### LLM API Request (Single Payment)
+
+Each request is a separate on-chain transaction:
 
 ```bash
-# Basic request with verbose output
-presto query -v https://api.example.com/data
-
-# POST request with JSON data
-presto query -X POST --json '{"key": "value"}' https://api.example.com/endpoint
-
-# Filter to specific network
-presto query --network base-sepolia https://api.example.com/data
-
-# Set maximum payment amount
-presto query --max-amount 10000 https://api.example.com/data
+presto -X POST \
+  --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
+  https://openai.payments.tempo.xyz/v1/chat/completions
 ```
+
+### OpenRouter via Tempo
+
+```bash
+presto -v -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
+  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+```
+
+### Payment Sessions (Multiple Requests, One Channel)
+
+Sessions open a payment channel on-chain once, then use off-chain vouchers for subsequent requests (no gas per request):
+
+```bash
+# First request opens a channel on-chain
+presto -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"First question"}]}' \
+  https://openrouter.payments.tempo.xyz/v1/chat/completions
+
+# Subsequent requests to the same origin reuse the session automatically
+presto -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Second question"}]}' \
+  https://openrouter.payments.tempo.xyz/v1/chat/completions
+
+# View active sessions
+presto session list
+
+# Close a session when done
+presto session close https://openrouter.payments.tempo.xyz
+```
+
+### Limit Spending
+
+```bash
+# Cap at $0.05 per request
+presto -M 0.05 https://api.example.com/data
+
+# Cap using atomic units (50000 = $0.05 for 6-decimal token)
+presto -M 50000 https://api.example.com/data
+```
+
+### Check Wallet Status
+
+```bash
+# Full wallet status with balances and access keys
+presto whoami
+
+# Just balances
+presto balance
+
+# Filter balances to a specific network
+presto balance -n tempo
+```
+
+## How Payment Works
+
+1. presto sends the HTTP request normally
+2. If the server returns `402 Payment Required` with a `WWW-Authenticate: Payment` header, presto parses the challenge
+3. For **charge** intent: signs an on-chain payment transaction and retries with an `Authorization: Payment` credential
+4. For **session** intent: opens a payment channel on-chain (first request), then uses off-chain vouchers for subsequent requests to the same origin
+5. The server validates the credential and returns the response
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `PRESTO_MAX_AMOUNT` | Default max payment amount |
+| `PRESTO_NETWORK` | Default network filter |
+| `PRESTO_RPC_URL` | Override RPC URL |
+| `PRESTO_NO_TELEMETRY` | Disable telemetry |
+| `NO_COLOR` | Disable colored output |

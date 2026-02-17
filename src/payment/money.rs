@@ -1,9 +1,13 @@
-//! Type-safe token amount handling with [`TokenId`] and [`Money`].
+//! Type-safe token amount handling with `TokenId` and `Money`.
 
 #[cfg(test)]
 use crate::error::{PrestoError, Result};
+#[cfg(test)]
 use crate::network::Network;
-use alloy::primitives::{Address, U256};
+#[cfg(test)]
+use alloy::primitives::Address;
+use alloy::primitives::U256;
+#[cfg(test)]
 use std::fmt;
 #[cfg(test)]
 use std::str::FromStr;
@@ -12,21 +16,7 @@ use std::str::FromStr;
 ///
 /// This prevents cross-chain and cross-token confusion by requiring
 /// both the network and asset address to match for operations.
-///
-/// # Examples
-///
-/// ```
-/// use presto::payment::money::TokenId;
-/// use presto::network::{Network, tempo_tokens};
-/// use alloy::primitives::Address;
-/// use std::str::FromStr;
-///
-/// let path_usd = TokenId::new(
-///     Network::Tempo,
-///     Address::from_str(tempo_tokens::PATH_USD).unwrap(),
-/// );
-///
-/// ```
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TokenId {
     /// The network this token exists on
@@ -35,6 +25,7 @@ pub struct TokenId {
     asset: Address,
 }
 
+#[cfg(test)]
 impl TokenId {
     /// Create a new token identity.
     pub const fn new(network: Network, asset: Address) -> Self {
@@ -42,7 +33,6 @@ impl TokenId {
     }
 
     /// Get the network for this token.
-    #[cfg(test)]
     pub const fn network(&self) -> Network {
         self.network
     }
@@ -52,7 +42,6 @@ impl TokenId {
     /// # Errors
     ///
     /// Returns an error if the address string is not a valid EVM address.
-    #[cfg(test)]
     pub fn from_network_and_address(network: Network, address: &str) -> Result<Self> {
         let asset = Address::from_str(address).map_err(|e| {
             PrestoError::invalid_address(format!("Invalid token address '{}': {}", address, e))
@@ -63,7 +52,6 @@ impl TokenId {
     /// Get the default token for this network (pathUSD).
     ///
     /// Returns None if the network doesn't have a configured token.
-    #[cfg(test)]
     pub fn default_for_network(network: Network) -> Option<Self> {
         let config = network.default_token_config();
         let asset = Address::from_str(config.address).ok()?;
@@ -71,6 +59,7 @@ impl TokenId {
     }
 }
 
+#[cfg(test)]
 impl fmt::Display for TokenId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{:#x}", self.network, self.asset)
@@ -89,25 +78,7 @@ impl fmt::Display for TokenId {
 /// - Includes TokenId to prevent cross-token operations
 /// - Centralizes all formatting logic
 /// - Provides checked arithmetic operations
-///
-/// # Examples
-///
-/// ```
-/// use presto::payment::money::{Money, TokenId};
-/// use presto::network::{Network, tempo_tokens};
-/// use alloy::primitives::{Address, U256};
-/// use std::str::FromStr;
-///
-/// // Create 1.5 pathUSD on Tempo
-/// let token = TokenId::new(
-///     Network::Tempo,
-///     Address::from_str(tempo_tokens::PATH_USD).unwrap(),
-/// );
-/// let amount = Money::new(token, U256::from(1_500_000u64), 6, "pathUSD");
-///
-/// assert_eq!(amount.format_human(), "1.500000");
-/// assert_eq!(amount.format_trimmed(), "1.5 pathUSD");
-/// ```
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Money {
     /// The token identity (network + asset)
@@ -120,6 +91,7 @@ pub struct Money {
     symbol: String,
 }
 
+#[cfg(test)]
 impl Money {
     /// Create a new Money instance.
     ///
@@ -142,7 +114,6 @@ impl Money {
     ///
     /// This is the recommended way to create Money for balance queries
     /// and payment operations when no specific token is specified.
-    #[cfg(test)]
     pub fn from_network_config(network: Network, atomic: U256) -> Result<Self> {
         let config = network.default_token_config();
 
@@ -161,7 +132,6 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the string cannot be parsed as U256.
-    #[cfg(test)]
     pub fn from_atomic_str(
         token: TokenId,
         atomic_str: &str,
@@ -186,7 +156,6 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the string cannot be parsed.
-    #[cfg(test)]
     pub fn from_human(
         human: &str,
         token: TokenId,
@@ -244,29 +213,22 @@ impl Money {
 
     // ==================== Accessors ====================
 
-    // ==================== Test-only Accessors ====================
-
-    #[cfg(test)]
     pub const fn network(&self) -> Network {
         self.token.network
     }
 
-    #[cfg(test)]
     pub const fn atomic(&self) -> U256 {
         self.atomic
     }
 
-    #[cfg(test)]
     pub const fn decimals(&self) -> u8 {
         self.decimals
     }
 
-    #[cfg(test)]
     pub fn symbol(&self) -> &str {
         &self.symbol
     }
 
-    #[cfg(test)]
     pub fn is_zero(&self) -> bool {
         self.atomic == U256::ZERO
     }
@@ -276,7 +238,6 @@ impl Money {
     /// Format the amount as a human-readable string with full decimal places.
     ///
     /// This always includes all decimal places (e.g., "1.500000" for 6 decimals).
-    #[cfg(test)]
     pub fn format_human(&self) -> String {
         format_u256_with_decimals(self.atomic, self.decimals)
     }
@@ -295,7 +256,6 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the tokens don't match or if overflow occurs.
-    #[cfg(test)]
     pub fn checked_add(&self, other: &Money) -> Result<Money> {
         if self.token != other.token {
             return Err(PrestoError::InvalidAmount(format!(
@@ -322,7 +282,6 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the tokens don't match or if underflow occurs.
-    #[cfg(test)]
     pub fn checked_sub(&self, other: &Money) -> Result<Money> {
         if self.token != other.token {
             return Err(PrestoError::InvalidAmount(format!(
@@ -349,7 +308,6 @@ impl Money {
     /// # Errors
     ///
     /// Returns an error if the tokens don't match.
-    #[cfg(test)]
     pub fn checked_cmp(&self, other: &Money) -> Result<std::cmp::Ordering> {
         if self.token != other.token {
             return Err(PrestoError::InvalidAmount(format!(
@@ -362,6 +320,7 @@ impl Money {
     }
 }
 
+#[cfg(test)]
 impl fmt::Display for Money {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.format_trimmed())
@@ -391,7 +350,8 @@ pub fn format_u256_with_decimals(value: U256, decimals: u8) -> String {
 }
 
 /// Format a U256 value with trimmed trailing zeros and symbol.
-pub fn format_u256_trimmed(value: U256, decimals: u8, symbol: &str) -> String {
+#[cfg(test)]
+fn format_u256_trimmed(value: U256, decimals: u8, symbol: &str) -> String {
     if decimals == 0 {
         return format!("{} {}", value, symbol);
     }

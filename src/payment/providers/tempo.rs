@@ -76,12 +76,6 @@ impl SwapInfo {
     }
 }
 
-/// Check if a network name refers to a Tempo network.
-#[allow(dead_code)]
-pub fn is_tempo_network(name: &str) -> bool {
-    matches!(name.to_lowercase().as_str(), "tempo" | "tempo-moderato")
-}
-
 type HttpProvider = alloy::providers::RootProvider;
 
 /// Common signing context shared between charge and session payment flows.
@@ -747,6 +741,7 @@ fn create_tempo_transaction_with_calls(
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn create_tempo_transaction(
         signer: &PrivateKeySigner,
         chain_id: u64,
@@ -776,18 +771,6 @@ mod tests {
             wallet_address,
             key_authorization,
         )
-    }
-
-    #[test]
-    fn test_is_tempo_network() {
-        assert!(is_tempo_network("tempo"));
-        assert!(is_tempo_network("tempo-moderato"));
-        assert!(is_tempo_network("Tempo"));
-        assert!(is_tempo_network("TEMPO-MODERATO"));
-
-        assert!(!is_tempo_network("ethereum"));
-        assert!(!is_tempo_network("base"));
-        assert!(!is_tempo_network("tempo-invalid"));
     }
 
     #[test]

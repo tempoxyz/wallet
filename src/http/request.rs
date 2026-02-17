@@ -99,16 +99,12 @@ impl RequestContext {
 
         let mut builder = HttpClientBuilder::new()
             .verbose(self.cli.is_verbose())
-            .follow_redirects(self.query.follow_redirects)
-            .insecure(self.query.insecure)
+            .follow_redirects(!self.query.no_redirect)
+            .user_agent(format!("presto/{}", env!("CARGO_PKG_VERSION")))
             .headers(&headers);
 
         if let Some(timeout) = self.query.get_timeout() {
             builder = builder.timeout(timeout);
-        }
-
-        if let Some(user_agent) = &self.query.user_agent {
-            builder = builder.user_agent(user_agent);
         }
 
         Ok(builder.build()?)
@@ -145,8 +141,17 @@ fn get_request_method_and_body(query: &QueryArgs) -> Result<(HttpMethod, Option<
         let bytes = json.as_bytes().to_vec();
         validate_body_size(bytes.len())?;
         Some(bytes)
-    } else if let Some(ref data) = query.data {
-        Some(resolve_data(data)?)
+    } else if !query.data.is_empty() {
+        let mut combined = Vec::new();
+        for item in &query.data {
+            let resolved = resolve_data(item)?;
+            if !combined.is_empty() {
+                combined.push(b'&');
+            }
+            combined.extend(resolved);
+        }
+        validate_body_size(combined.len())?;
+        Some(combined)
     } else {
         None
     };
@@ -184,7 +189,7 @@ fn should_auto_add_json_content_type(query: &QueryArgs) -> bool {
     if query.json.is_some() {
         return true;
     }
-    if let Some(data) = &query.data {
+    if let Some(data) = query.data.first() {
         if data.starts_with('@') {
             return false;
         }

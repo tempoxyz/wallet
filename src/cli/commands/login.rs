@@ -1,3 +1,5 @@
+//! Wallet login command implementation.
+
 use crate::analytics::Analytics;
 use crate::config::Config;
 use crate::wallet::WalletManager;

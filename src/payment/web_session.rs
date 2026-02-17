@@ -579,7 +579,7 @@ pub async fn close_session_from_record(record: &SessionRecord) -> Result<()> {
     Ok(())
 }
 
-/// Extract the origin (scheme://host[:port]) from a URL.
+/// Extract the origin (scheme://host\[:port\]) from a URL.
 fn extract_origin(url: &str) -> String {
     match url::Url::parse(url) {
         Ok(parsed) => {
@@ -930,18 +930,10 @@ fn build_reqwest_request(
     request_ctx: &RequestContext,
     url: &str,
 ) -> reqwest::RequestBuilder {
-    let method = match &request_ctx.method {
-        crate::http::HttpMethod::Get => reqwest::Method::GET,
-        crate::http::HttpMethod::Post => reqwest::Method::POST,
-        crate::http::HttpMethod::Put => reqwest::Method::PUT,
-        crate::http::HttpMethod::Patch => reqwest::Method::PATCH,
-        crate::http::HttpMethod::Delete => reqwest::Method::DELETE,
-        crate::http::HttpMethod::Head => reqwest::Method::HEAD,
-        crate::http::HttpMethod::Options => reqwest::Method::OPTIONS,
-        crate::http::HttpMethod::Custom(s) => {
-            reqwest::Method::from_bytes(s.as_bytes()).unwrap_or(reqwest::Method::GET)
-        }
-    };
+    let method = request_ctx
+        .method
+        .to_reqwest()
+        .unwrap_or(reqwest::Method::GET);
 
     let mut builder = client.request(method, url);
 

@@ -51,9 +51,7 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
             Some("Increase with --max-amount or remove the limit.".into())
         }
 
-        PrestoError::UnknownNetwork(_) => {
-            Some("Run 'presto networks list' to see available networks.".into())
-        }
+        PrestoError::UnknownNetwork(_) => Some("Supported networks: tempo, tempo-moderato.".into()),
 
         PrestoError::Http(msg) => {
             if msg.starts_with("402") {
@@ -254,7 +252,7 @@ mod tests {
         assert_error_format(
             PrestoError::UnknownNetwork("testnet".into()),
             "Unknown network: testnet",
-            "Run 'presto networks list' to see available networks.",
+            "Supported networks: tempo, tempo-moderato.",
         );
     }
 

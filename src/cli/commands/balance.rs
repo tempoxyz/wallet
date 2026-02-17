@@ -130,9 +130,10 @@ mod tests {
     #[test]
     fn test_all_networks() {
         let networks = Network::by_name_filter(None);
-        assert!(!networks.is_empty());
+        assert_eq!(networks.len(), 2);
         assert!(networks.contains(&Network::Tempo));
         assert!(networks.contains(&Network::TempoModerato));
+        assert!(!networks.contains(&Network::TempoLocalnet));
     }
 
     #[test]

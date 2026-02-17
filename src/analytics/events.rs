@@ -1,3 +1,5 @@
+//! Analytics event types and payload definitions.
+
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,16 +20,7 @@ pub enum Event {
 
     BalanceChecked,
 
-    WalletRefreshStarted,
-    WalletRefreshed,
-    WalletRefreshFailure,
-
     KeyCreated,
-    KeyListViewed,
-    KeySwitched,
-    KeySwitchFailure,
-    KeyDeleted,
-    KeyDeleteFailure,
     WhoamiViewed,
 
     CallbackWindowOpened,
@@ -52,15 +45,7 @@ impl Event {
             Self::PaymentSuccess => "payment_success",
             Self::PaymentFailure => "payment_failure",
             Self::BalanceChecked => "balance_checked",
-            Self::WalletRefreshStarted => "wallet_refresh_started",
-            Self::WalletRefreshed => "wallet_refreshed",
-            Self::WalletRefreshFailure => "wallet_refresh_failure",
             Self::KeyCreated => "key_created",
-            Self::KeyListViewed => "key_list_viewed",
-            Self::KeySwitched => "key_switched",
-            Self::KeySwitchFailure => "key_switch_failure",
-            Self::KeyDeleted => "key_deleted",
-            Self::KeyDeleteFailure => "key_delete_failure",
             Self::WhoamiViewed => "whoami_viewed",
             Self::CallbackWindowOpened => "callback_window_opened",
             Self::CallbackReceived => "callback_received",
@@ -165,20 +150,6 @@ pub struct KeyCreatedPayload {
 impl EventPayload for KeyCreatedPayload {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct KeySwitchedPayload {
-    pub index: usize,
-    pub label: String,
-}
-impl EventPayload for KeySwitchedPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct KeyDeletedPayload {
-    pub index: usize,
-    pub label: String,
-}
-impl EventPayload for KeyDeletedPayload {}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct CallbackWindowOpenedPayload {
     pub is_refresh: bool,
     pub network: String,
@@ -197,17 +168,3 @@ pub struct LoginTimeoutPayload {
     pub network: String,
 }
 impl EventPayload for LoginTimeoutPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct WalletRefreshFailurePayload {
-    pub network: String,
-    pub error: String,
-}
-impl EventPayload for WalletRefreshFailurePayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct KeyFailurePayload {
-    pub index: usize,
-    pub error: String,
-}
-impl EventPayload for KeyFailurePayload {}

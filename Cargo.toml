@@ -2,7 +2,7 @@
 name = "presto"
 version = "0.1.0"
 edition = "2021"
-description = "A wget-like CLI tool for making HTTP requests with automatic payment support"
+description = "A command-line HTTP client with built-in payment support"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tempoxyz/presto"
 
@@ -11,31 +11,26 @@ name = "presto"
 path = "src/main.rs"
 
 [dependencies]
-alloy = { version = "1.2", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
+alloy = { version = "1.6", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
 anyhow = "1.0"
 axum = "0.8"
 base64 = "0.22"
-bs58 = "0.5"
-
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
-colored = "3.0"
-dialoguer = "0.12"
+colored = "3.1"
 dirs = "6.0"
 futures = "0.3"
 hex = "0.4"
 hostname = "0.4"
-posthog-rs = "0.3.5"
-mpp = { git = "https://github.com/tempoxyz/mpp-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client", "server"] }
-rand = "0.8"
+posthog-rs = "0.4"
+mpp = { git = "https://github.com/tempoxyz/mpp-rs.git", rev = "1545f8ad3447e35ccfbaa4a9d0259075ee98ff06", features = ["tempo", "evm", "utils", "client", "server"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
 tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "07dfcd2d2b8c109d6b8502515c7db00198a8b3a3", features = ["serde"] }
 thiserror = "2.0"
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
-toml = "0.9"
+toml = "1.0"
 tower-http = { version = "0.6", features = ["limit"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -51,5 +46,5 @@ serial_test = "3.2"
 [workspace]
 
 [patch.crates-io]
-tempo-alloy = { git = "https://github.com/tempoxyz/tempo" }
-tempo-primitives = { git = "https://github.com/tempoxyz/tempo" }
+tempo-alloy = { git = "https://github.com/tempoxyz/tempo", rev = "0b733465c4b24b0e80ca30036ac0708a1827f56c" }
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo", rev = "0b733465c4b24b0e80ca30036ac0708a1827f56c" }

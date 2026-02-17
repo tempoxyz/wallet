@@ -1,4 +1,4 @@
-//! presto CLI - A wget-like tool for payment-enabled HTTP requests
+//! presto CLI - A command-line HTTP client with built-in payment support
 
 mod analytics;
 mod cli;
@@ -7,19 +7,16 @@ mod error;
 mod http;
 mod network;
 mod payment;
-mod services;
 mod util;
 mod wallet;
 
 use mpp::PaymentProtocol;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{
-    Cli, ColorMode, Commands, NetworkCommands, QueryArgs, SessionCommands, Shell, WalletCommands,
-};
+use cli::{Cli, ColorMode, Commands, QueryArgs, SessionCommands, Shell};
 use colored::control;
 
 use analytics::Analytics;
@@ -47,7 +44,7 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
-    let mut cli = Cli::parse();
+    let mut cli = parse_cli();
 
     init_tracing(cli.verbosity);
 
@@ -63,6 +60,26 @@ async fn run() -> Result<()> {
     // No subcommand — show help
     Cli::command().print_help()?;
     Ok(())
+}
+
+/// Parse CLI args, treating a bare URL as an implicit `query` subcommand.
+///
+/// This allows `presto https://example.com` as a shorthand for
+/// `presto query https://example.com`, making the primary use case
+/// as frictionless as curl/wget.
+fn parse_cli() -> Cli {
+    match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(original_err) => {
+            // If normal parsing failed, try again with "query" inserted.
+            // This handles cases like `presto https://example.com` or
+            // `presto -X POST --json '{}' https://example.com`.
+            let args: Vec<String> = std::env::args().collect();
+            let mut with_query = vec![args[0].clone(), "query".to_string()];
+            with_query.extend(args[1..].iter().cloned());
+            Cli::try_parse_from(with_query).unwrap_or_else(|_| original_err.exit())
+        }
+    }
 }
 
 /// Handle CLI subcommands
@@ -83,14 +100,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
             Commands::Balance { .. } => "balance",
-            Commands::Networks { .. } => "networks",
-            Commands::Inspect { .. } => "inspect",
-            Commands::Wallet { .. } => "wallet",
-
-            Commands::Services { .. } => "services",
             Commands::Session { .. } => "session",
-            Commands::Keys { .. } => "keys",
-            Commands::Whoami { .. } => "whoami",
+            Commands::Whoami => "whoami",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -167,16 +178,12 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(shell) = shell {
                 generate_completions(shell)
             } else {
-                println!("Supported shells: bash, zsh, fish, power-shell");
+                println!("Supported shells: bash, zsh, fish, powershell");
                 Ok(())
             }
         }
 
-        Commands::Balance {
-            address,
-            output_format,
-        } => {
-            let effective_format = cli.effective_output_format(output_format);
+        Commands::Balance { address } => {
             let config = load_config(cli.config.as_ref())?;
             if let Some(ref a) = analytics {
                 a.track(
@@ -190,193 +197,9 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 &config,
                 address,
                 cli.network.clone(),
-                effective_format,
+                cli.output_format,
             )
             .await
-        }
-
-        Commands::Networks {
-            command,
-            output_format,
-        } => {
-            if let Some(subcommand) = command {
-                match subcommand {
-                    NetworkCommands::List { output_format } => {
-                        let fmt = cli.effective_output_format(output_format);
-                        cli::commands::network::list_networks(fmt)
-                            .context("Failed to list networks")
-                    }
-                    NetworkCommands::Info {
-                        network,
-                        output_format,
-                    } => {
-                        let fmt = cli.effective_output_format(output_format);
-                        cli::commands::network::show_network_info(&network, fmt)
-                            .context("Failed to show network info")
-                    }
-                }
-            } else {
-                let fmt = cli.effective_output_format(output_format);
-                cli::commands::network::list_networks(fmt).context("Failed to list networks")
-            }
-        }
-
-        Commands::Inspect { url, output_format } => {
-            let fmt = cli.effective_output_format(output_format);
-            cli::commands::inspect::inspect_command(&cli, &url, fmt).await
-        }
-
-        Commands::Wallet { command } => {
-            let network = cli.network.as_deref();
-            match command {
-                WalletCommands::Refresh => {
-                    if let Some(ref a) = analytics {
-                        a.track(
-                            analytics::Event::WalletRefreshStarted,
-                            analytics::LoginPayload {
-                                network: network.unwrap_or_default().to_string(),
-                            },
-                        );
-                    }
-                    let result =
-                        cli::commands::tempo_wallet::refresh_wallet(network, analytics.clone())
-                            .await;
-                    if let Some(ref a) = analytics {
-                        match &result {
-                            Ok(()) => {
-                                a.track(analytics::Event::WalletRefreshed, analytics::EmptyPayload);
-                            }
-                            Err(e) => {
-                                a.track(
-                                    analytics::Event::WalletRefreshFailure,
-                                    analytics::WalletRefreshFailurePayload {
-                                        network: network.unwrap_or_default().to_string(),
-                                        error: e.to_string(),
-                                    },
-                                );
-                            }
-                        }
-                    }
-                    result.map_err(Into::into)
-                }
-            }
-        }
-
-        Commands::Services {
-            command,
-            output_format,
-            refresh,
-        } => {
-            let effective_format = cli.effective_output_format(output_format);
-            if let Some(subcommand) = command {
-                match subcommand {
-                    cli::ServicesCommands::List {
-                        refresh,
-                        output_format,
-                    } => {
-                        let fmt = cli.effective_output_format(output_format);
-                        cli::commands::services::list_services(fmt, refresh)
-                            .await
-                            .map_err(Into::into)
-                    }
-                    cli::ServicesCommands::Info {
-                        name,
-                        output_format,
-                    } => {
-                        let fmt = cli.effective_output_format(output_format);
-                        cli::commands::services::show_service(&name, fmt)
-                            .await
-                            .map_err(Into::into)
-                    }
-                }
-            } else {
-                cli::commands::services::list_services(effective_format, refresh)
-                    .await
-                    .map_err(Into::into)
-            }
-        }
-
-        Commands::Keys {
-            command,
-            output_format,
-        } => {
-            let output_format = cli.effective_output_format(output_format);
-            let network = cli.network.as_deref();
-            if let Some(subcommand) = command {
-                match subcommand {
-                    cli::KeysCommands::List => {
-                        if let Some(ref a) = analytics {
-                            a.track(analytics::Event::KeyListViewed, analytics::EmptyPayload);
-                        }
-                        cli::commands::keys::list_keys(output_format, network)
-                            .await
-                            .map_err(Into::into)
-                    }
-                    cli::KeysCommands::Switch { index } => {
-                        let result =
-                            cli::commands::keys::switch_key(index, output_format, network).await;
-                        if let Some(ref a) = analytics {
-                            match &result {
-                                Ok(Some(label)) => {
-                                    a.track(
-                                        analytics::Event::KeySwitched,
-                                        analytics::KeySwitchedPayload {
-                                            index,
-                                            label: label.clone(),
-                                        },
-                                    );
-                                }
-                                Err(e) => {
-                                    a.track(
-                                        analytics::Event::KeySwitchFailure,
-                                        analytics::KeyFailurePayload {
-                                            index,
-                                            error: e.to_string(),
-                                        },
-                                    );
-                                }
-                                _ => {}
-                            }
-                        }
-                        result.map(|_| ()).map_err(Into::into)
-                    }
-                    cli::KeysCommands::Delete { index } => {
-                        let result =
-                            cli::commands::keys::delete_key(index, output_format, network).await;
-                        if let Some(ref a) = analytics {
-                            match &result {
-                                Ok(Some(label)) => {
-                                    a.track(
-                                        analytics::Event::KeyDeleted,
-                                        analytics::KeyDeletedPayload {
-                                            index,
-                                            label: label.clone(),
-                                        },
-                                    );
-                                }
-                                Err(e) => {
-                                    a.track(
-                                        analytics::Event::KeyDeleteFailure,
-                                        analytics::KeyFailurePayload {
-                                            index,
-                                            error: e.to_string(),
-                                        },
-                                    );
-                                }
-                                _ => {}
-                            }
-                        }
-                        result.map(|_| ()).map_err(Into::into)
-                    }
-                }
-            } else {
-                if let Some(ref a) = analytics {
-                    a.track(analytics::Event::KeyListViewed, analytics::EmptyPayload);
-                }
-                cli::commands::keys::list_keys(output_format, network)
-                    .await
-                    .map_err(Into::into)
-            }
         }
 
         Commands::Session { command } => {
@@ -392,13 +215,12 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Whoami { output_format } => {
-            let fmt = cli.effective_output_format(output_format);
+        Commands::Whoami => {
             let network = cli.network.as_deref();
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
             }
-            cli::commands::whoami::show_whoami(fmt, network)
+            cli::commands::whoami::show_whoami(cli.output_format, network)
                 .await
                 .map_err(Into::into)
         }
@@ -461,7 +283,15 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                 },
             );
         }
+        let status = response.status_code;
         handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
+        if status >= 400 {
+            anyhow::bail!(crate::error::PrestoError::Http(format!(
+                "{} {}",
+                status,
+                http_status_text(status)
+            )));
+        }
         return Ok(());
     }
 
@@ -477,7 +307,7 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
 
     if !has_wallet && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
         anyhow::bail!(crate::error::PrestoError::ConfigMissing(
-            "This request requires payment, but no wallet is configured".to_string()
+            "No wallet configured. Run 'presto login' to connect your wallet, then retry the request.".to_string()
         ));
     }
 
@@ -525,12 +355,10 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
     }
 
     // Detect intent from challenge to branch between charge and session flows.
-    // --charge flag forces charge mode regardless of server's intent.
-    let is_session = !request_ctx.query.charge
-        && response
-            .get_header("www-authenticate")
-            .and_then(|h| mpp::parse_www_authenticate(h).ok())
-            .is_some_and(|challenge| challenge.intent.is_session());
+    let is_session = response
+        .get_header("www-authenticate")
+        .and_then(|h| mpp::parse_www_authenticate(h).ok())
+        .is_some_and(|challenge| challenge.intent.is_session());
 
     if is_session {
         if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
@@ -561,7 +389,15 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                 match result {
                     SessionResult::Streamed => Ok(()),
                     SessionResult::Response(resp) => {
+                        let status = resp.status_code;
                         handle_regular_response(&request_ctx.cli, &request_ctx.query, resp)?;
+                        if status >= 400 {
+                            anyhow::bail!(crate::error::PrestoError::Http(format!(
+                                "{} {}",
+                                status,
+                                http_status_text(status)
+                            )));
+                        }
                         Ok(())
                     }
                 }
@@ -606,7 +442,15 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                         },
                     );
                 }
+                let status = response.status_code;
                 handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
+                if status >= 400 {
+                    anyhow::bail!(crate::error::PrestoError::Http(format!(
+                        "{} {}",
+                        status,
+                        http_status_text(status)
+                    )));
+                }
                 Ok(())
             }
             Err(e) => {
@@ -624,6 +468,23 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                 Err(e)
             }
         }
+    }
+}
+
+fn http_status_text(code: u32) -> &'static str {
+    match code {
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        408 => "Request Timeout",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => "Error",
     }
 }
 

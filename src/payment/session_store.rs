@@ -1,7 +1,7 @@
 //! Persistent session storage for payment channels across CLI invocations.
 //!
 //! Sessions are stored as individual TOML files in the data directory,
-//! keyed by the origin (scheme://host[:port]) of the endpoint.
+//! keyed by the origin (scheme://host\[:port\]) of the endpoint.
 
 use std::fs;
 use std::path::PathBuf;
@@ -124,7 +124,8 @@ pub fn save_session(record: &SessionRecord) -> Result<()> {
     let key = session_key(&record.origin);
     let path = sessions_dir()?.join(format!("{key}.toml"));
     let contents = toml::to_string_pretty(record).context("Failed to serialize session")?;
-    fs::write(&path, contents).context("Failed to write session file")?;
+    crate::util::atomic_write::atomic_write(&path, &contents, 0o600)
+        .context("Failed to write session file")?;
     Ok(())
 }
 
@@ -157,21 +158,6 @@ pub fn list_sessions() -> Result<Vec<SessionRecord>> {
         }
     }
     Ok(records)
-}
-
-/// Delete expired sessions and return them (for best-effort close).
-#[allow(dead_code)]
-pub fn collect_expired_sessions() -> Result<Vec<SessionRecord>> {
-    let sessions = list_sessions()?;
-    let mut expired = Vec::new();
-    for session in sessions {
-        if session.is_expired() {
-            let key = session_key(&session.origin);
-            delete_session(&key)?;
-            expired.push(session);
-        }
-    }
-    Ok(expired)
 }
 
 #[cfg(test)]
