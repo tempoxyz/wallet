@@ -12,7 +12,7 @@ Benchmarks how well AI agents understand and use presto based on its SKILL.md.
 ## Quick start
 
 ```bash
-# Run all cases with amp
+# Run all cases with amp (5 concurrent by default)
 ./eval/run.sh
 
 # Run with claude
@@ -23,6 +23,11 @@ Benchmarks how well AI agents understand and use presto based on its SKILL.md.
 
 # Filter by category
 ./eval/run.sh --category trigger-positive
+
+# Control parallelism
+./eval/run.sh --parallel 8      # 8 concurrent cases
+./eval/run.sh -j 10             # short form
+./eval/run.sh --sequential      # one at a time (with live reports)
 
 # A/B test a SKILL.md variant
 ./eval/run.sh --skill eval/variants/v2.md
@@ -62,6 +67,18 @@ The `--skill` flag temporarily swaps the SKILL.md in all known locations (`.ai/s
 
 - `trigger-positive` — prompts where the agent SHOULD use presto (LLM calls, API requests, wallet commands)
 - `trigger-negative` — prompts where the agent should NOT use presto (file reads, git ops, local tasks)
+
+### Case subcategories
+
+| Prefix | Tests | Examples |
+|--------|-------|----------|
+| `llm-*` | LLM API calls via Tempo payment proxies | GPT, Claude, OpenRouter |
+| `api-*` | Generic HTTP usage and flag correctness | POST JSON, verbose, save output |
+| `wallet-*` | Wallet management commands | balance, whoami, login |
+| `session-*` | Payment session management | list, close |
+| `usage-*` | Advanced flag/option usage | custom headers, quiet mode, combined flags |
+| `ambig-*` | Ambiguous prompts requiring reasoning | implicit LLM needs, "curl" mentions, "presto" the word |
+| `neg-*` | Clear negative cases | file reads, git, math, local servers |
 
 ## Output
 
