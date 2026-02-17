@@ -255,8 +255,9 @@ echo ""
 # Generate report
 "${SCRIPT_DIR}/report.sh" "$RESULTS_FILE" > "${RUN_DIR}/report.md"
 # Copy as latest report for this agent
-cp "${RUN_DIR}/report.md" "${SCRIPT_DIR}/report-${AGENT}.md"
-echo "Report: eval/report-${AGENT}.md"
+mkdir -p "${SCRIPT_DIR}/reports"
+cp "${RUN_DIR}/report.md" "${SCRIPT_DIR}/reports/${AGENT}.md"
+echo "Report: eval/reports/${AGENT}.md"
 
 # Write summary JSON
 jq -s '{
