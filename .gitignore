@@ -22,6 +22,9 @@ presto.toml
 /presto
 *.tar.gz
 
+# Eval runs (contain agent transcripts)
+eval/runs/
+
 # Logs
 *.log
 

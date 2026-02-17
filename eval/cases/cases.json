@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "description": "Skill eval for presto. Tests whether agents know when and how to use presto given its SKILL.md.",
+  "cases": [
+    {
+      "id": "llm-ask-gpt",
+      "category": "trigger-positive",
+      "prompt": "Ask GPT-4o-mini what the best sorting algorithm for nearly-sorted data is. Just give me the answer.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz.*/v1/chat/completions",
+          "method": "POST",
+          "has_flag": "--json",
+          "json_checks": [".messages | type == \"array\"", ".model | type == \"string\""]
+        }
+      }
+    },
+    {
+      "id": "llm-ask-claude",
+      "category": "trigger-positive",
+      "prompt": "Use the Anthropic API to ask Claude what a monad is. Short answer only.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz.*/v1/messages",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "llm-openrouter",
+      "category": "trigger-positive",
+      "prompt": "Use OpenRouter to ask any model: what is 1+1?",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "openrouter\\.payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "llm-generic-no-key",
+      "category": "trigger-positive",
+      "prompt": "I don't have an OpenAI API key. Can you call GPT-4o-mini and ask it to explain recursion in one sentence?",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json"
+        }
+      }
+    },
+    {
+      "id": "llm-with-spending-limit",
+      "category": "trigger-positive",
+      "prompt": "Ask GPT-4o-mini what pi is, but don't spend more than $0.05.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "method": "POST",
+          "has_flag": "--json",
+          "argv_contains": ["--max-amount", "-M"]
+        }
+      }
+    },
+    {
+      "id": "llm-dry-run",
+      "category": "trigger-positive",
+      "prompt": "Show me what it would cost to call GPT-4o-mini, but don't actually pay for it.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz",
+          "argv_contains": ["--dry-run"]
+        }
+      }
+    },
+    {
+      "id": "api-generic-http",
+      "category": "trigger-positive",
+      "prompt": "Fetch data from https://api.example.com/data using presto.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "url_pattern": "api\\.example\\.com"
+        },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "wallet-check-balance",
+      "category": "trigger-positive",
+      "prompt": "Check my presto wallet balance.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "argv_contains": ["balance"]
+        }
+      }
+    },
+    {
+      "id": "wallet-whoami",
+      "category": "trigger-positive",
+      "prompt": "Show my presto wallet status and address.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "argv_contains": ["whoami", "balance"]
+        }
+      }
+    },
+    {
+      "id": "wallet-login",
+      "category": "trigger-positive",
+      "prompt": "Set up presto so I can make paid API calls.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "argv_contains": ["login", "whoami"]
+        }
+      }
+    },
+    {
+      "id": "session-list",
+      "category": "trigger-positive",
+      "prompt": "Show my active presto payment sessions.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "argv_contains": ["session", "list"]
+        }
+      }
+    },
+    {
+      "id": "api-post-json",
+      "category": "trigger-positive",
+      "prompt": "POST {\"name\": \"test\"} as JSON to https://httpbin.org/post using presto.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "method": "POST",
+          "has_flag": "--json"
+        },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "api-verbose",
+      "category": "trigger-positive",
+      "prompt": "Make a verbose presto request to https://api.example.com/data so I can see payment details.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "argv_contains": ["-v"]
+        },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "api-save-output",
+      "category": "trigger-positive",
+      "prompt": "Use presto to download https://api.example.com/report and save it to report.json.",
+      "expect": {
+        "presto": {
+          "should_invoke": true,
+          "argv_contains": ["-o"]
+        },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "api-services-directory",
+      "category": "trigger-positive",
+      "prompt": "Fetch the live service directory from Tempo payments to see what APIs are available.",
+      "expect": {
+        "curl": {
+          "should_invoke": true,
+          "url_pattern": "payments\\.tempo\\.xyz/services"
+        }
+      }
+    },
+    {
+      "id": "neg-read-file",
+      "category": "trigger-negative",
+      "prompt": "Read the contents of ./README.md and summarize it.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-git-status",
+      "category": "trigger-negative",
+      "prompt": "Show me the current git status of this repository.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-write-code",
+      "category": "trigger-negative",
+      "prompt": "Write a Python function that computes the fibonacci sequence.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-local-build",
+      "category": "trigger-negative",
+      "prompt": "Build this Rust project and run the tests.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-grep-code",
+      "category": "trigger-negative",
+      "prompt": "Find all TODO comments in the source code.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-explain-code",
+      "category": "trigger-negative",
+      "prompt": "Explain what the handle_charge_request function in src/payment/charge.rs does.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-math",
+      "category": "trigger-negative",
+      "prompt": "What is the square root of 144?",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-edit-file",
+      "category": "trigger-negative",
+      "prompt": "Add a comment to the top of src/main.rs explaining what the binary does.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-web-search",
+      "category": "trigger-negative",
+      "prompt": "Search the web for the latest Rust release notes.",
+      "expect": {
+        "presto": { "should_invoke": false },
+        "curl": { "should_invoke": false }
+      }
+    },
+    {
+      "id": "neg-local-server",
+      "category": "trigger-negative",
+      "prompt": "Check if the local dev server is healthy by hitting localhost:8080/health.",
+      "expect": {
+        "presto": { "should_invoke": false }
+      }
+    }
+  ]
+}
