@@ -24,6 +24,9 @@ Benchmarks how well AI agents understand and use presto based on its SKILL.md.
 # Filter by category
 ./eval/run.sh --category trigger-positive
 
+# A/B test a SKILL.md variant
+./eval/run.sh --skill eval/variants/v2.md
+
 # Preview without running
 ./eval/run.sh --dry-run
 ```
@@ -35,6 +38,25 @@ Benchmarks how well AI agents understand and use presto based on its SKILL.md.
 | **Trigger accuracy** | Does the agent correctly decide to use presto? (true positives + true negatives) |
 | **Usage correctness** | When presto is used, are the flags/URL/body correct? |
 | **SKILL.md quality** | Compare scores across SKILL.md variants (A/B testing) |
+| **Avg duration** | Mean wall-clock time per case (seconds) |
+| **Avg turns** | Mean agent turns per case (fewer = more efficient) |
+
+## A/B testing SKILL.md variants
+
+Test alternate versions of SKILL.md to measure which teaches agents best:
+
+```bash
+# Run baseline
+./eval/run.sh --agent amp
+
+# Run variant
+./eval/run.sh --agent amp --skill eval/variants/compact.md
+
+# Compare reports
+diff eval/reports/amp.md eval/reports/amp-compact.md
+```
+
+The `--skill` flag temporarily swaps the SKILL.md in all known locations (`.ai/skills/presto/` and `~/.claude/skills/presto/`), runs the eval, then restores the originals. The variant file is saved in the run directory for reference. Reports are named `<agent>-<variant>.md`.
 
 ## Test case categories
 
@@ -44,11 +66,12 @@ Benchmarks how well AI agents understand and use presto based on its SKILL.md.
 ## Output
 
 Each run creates `eval/runs/<timestamp>-<agent>/` with:
-- `results.jsonl` — per-case pass/fail with reasons
-- `summary.json` — aggregate metrics
-- `report.md` — human-readable report
-- `<case_id>/tool_calls.jsonl` — raw shim logs
-- `<case_id>/transcript.txt` — agent output
+- `results.jsonl` — per-case pass/fail with reasons, duration, and turns
+- `summary.json` — aggregate metrics (accuracy, avg duration, avg turns)
+- `report.md` — human-readable report with per-case performance
+- `SKILL.md` — the variant used (only when `--skill` is provided)
+- `<case_id>/transcript.jsonl` — raw stream-json transcript
+- `<case_id>/transcript.md` — human-readable transcript
 
 ## Adding test cases
 
