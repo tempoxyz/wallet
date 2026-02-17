@@ -79,7 +79,7 @@ struct SessionContext<'a> {
 /// 5. Send the real request with a voucher
 /// 6. Stream SSE events (or return buffered response)
 /// 7. Persist/update the session (do NOT close the channel)
-pub async fn handle_web_session_request(
+pub async fn handle_session_request(
     config: &Config,
     request_ctx: &RequestContext,
     url: &str,
