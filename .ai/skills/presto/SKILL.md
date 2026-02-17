@@ -157,29 +157,7 @@ presto balance -n tempo
 
 ## Error Recovery
 
-If presto fails with "No wallet configured" or "Run 'presto login'", handle it automatically based on the environment:
-
-**Local machine** (macOS, or Linux desktop without SSH — i.e., no `SSH_TTY` / `SSH_CONNECTION` env vars):
-- Automatically run `presto login` (it opens a browser for authentication)
-- Then retry the original request
-- Do NOT ask the user to run login themselves
-
-**Remote / headless server** (Linux with `SSH_TTY` or `SSH_CONNECTION` set, or Docker/CI):
-- Run `presto login` but warn the user it will print a URL they must open manually
-- Show the URL from the output so the user can copy it to their local browser
-- Wait for login to complete, then retry the original request
-
-```bash
-# Detect environment before running login:
-# Local: just run it
-presto login && presto <original>
-
-# Remote: tell user to watch for the URL
-echo "Running presto login — copy the URL below into your local browser:"
-presto login
-# then retry
-presto <original>
-```
+If presto fails with "No wallet configured" or "Run 'presto login'", **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
 
 ## How Payment Works
 
