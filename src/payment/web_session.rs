@@ -87,15 +87,16 @@ pub async fn handle_web_session_request(
 ) -> Result<SessionResult> {
     let www_auth = initial_response
         .get_header("www-authenticate")
-        .ok_or_else(|| anyhow::anyhow!("Missing WWW-Authenticate header in 402 response"))?;
+        .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     validate_session_challenge(&challenge)?;
 
-    let network_name = method_to_network(&challenge.method)
-        .ok_or_else(|| anyhow::anyhow!("Unsupported payment method: {}", challenge.method))?;
+    let network_name = method_to_network(&challenge.method).ok_or_else(|| {
+        crate::error::PrestoError::UnsupportedPaymentMethod(challenge.method.to_string())
+    })?;
 
     let session_req: SessionRequest = challenge
         .request

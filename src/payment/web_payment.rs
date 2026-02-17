@@ -32,14 +32,15 @@ pub async fn handle_web_payment_request(
 
     let www_auth = initial_response
         .get_header("www-authenticate")
-        .ok_or_else(|| anyhow::anyhow!("Missing WWW-Authenticate header in 402 response"))?;
+        .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // Get network and explorer config early for clickable links
-    let network = method_to_network(&challenge.method)
-        .ok_or_else(|| anyhow::anyhow!("Unsupported payment method: {}", challenge.method))?;
+    let network = method_to_network(&challenge.method).ok_or_else(|| {
+        crate::error::PrestoError::UnsupportedPaymentMethod(challenge.method.to_string())
+    })?;
     let explorer = Network::from_str(network)
         .ok()
         .and_then(|n| n.info().explorer);

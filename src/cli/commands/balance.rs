@@ -53,7 +53,9 @@ pub async fn balance_command(
                 .active_wallet()
                 .map(|w| w.account_address.clone())
                 .ok_or_else(|| {
-                    anyhow::anyhow!("No wallet connected. Run 'presto login' to connect.")
+                    crate::error::PrestoError::ConfigMissing(
+                        "No wallet connected. Run 'presto login' to connect.".to_string(),
+                    )
                 })?
         }
     };

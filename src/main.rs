@@ -324,7 +324,9 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
         PaymentProtocol::detect(response.get_header("www-authenticate").map(|s| s.as_str()));
 
     let Some(protocol) = protocol else {
-        anyhow::bail!("402 response missing WWW-Authenticate: Payment header");
+        anyhow::bail!(crate::error::PrestoError::MissingHeader(
+            "WWW-Authenticate: Payment".to_string()
+        ));
     };
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {

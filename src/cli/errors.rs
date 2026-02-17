@@ -5,10 +5,15 @@
 
 use crate::error::PrestoError;
 
+/// Walk the anyhow error chain to find a PrestoError.
+fn find_presto_error(err: &anyhow::Error) -> Option<&PrestoError> {
+    err.chain().find_map(|e| e.downcast_ref::<PrestoError>())
+}
+
 /// Get a suggestion for how to fix an error, if available.
 pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
-    // Try to downcast to PrestoError
-    if let Some(presto_err) = err.downcast_ref::<PrestoError>() {
+    // Try to find a PrestoError in the error chain
+    if let Some(presto_err) = find_presto_error(err) {
         return get_presto_error_suggestion(presto_err);
     }
 
@@ -89,7 +94,59 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
             }
         }
 
-        _ => None,
+        PrestoError::InvalidAmount(_) => {
+            Some("Use a numeric amount (e.g., --max-amount 1.0 or --max-amount 1000000).".into())
+        }
+        PrestoError::MissingRequirement(_) => {
+            Some("The server's payment challenge is incomplete. Retry the request.".into())
+        }
+        PrestoError::UnsupportedToken(_) => {
+            Some("This token is not supported. Check the server's accepted currencies.".into())
+        }
+        PrestoError::UnsupportedHttpMethod(_) => {
+            Some("Use a supported HTTP method (GET, POST, PUT, PATCH, DELETE).".into())
+        }
+        PrestoError::InvalidAddress(_) => {
+            Some("Provide a valid EVM address (0x + 40 hex chars).".into())
+        }
+        PrestoError::Json(_) => {
+            Some("Check your JSON syntax. If using --json, verify shell quoting.".into())
+        }
+        PrestoError::TomlParse(_) | PrestoError::TomlSerialize(_) => {
+            Some("Fix your config file, or run 'presto login' to regenerate it.".into())
+        }
+        PrestoError::HexDecode(_)
+        | PrestoError::Base64Decode(_)
+        | PrestoError::InvalidBase64Url(_) => Some(
+            "Ensure the value is correctly encoded (no extra whitespace or truncation).".into(),
+        ),
+        PrestoError::UnsupportedPaymentMethod(_) => Some(
+            "This payment method is not supported. Upgrade presto or try a different server."
+                .into(),
+        ),
+        PrestoError::UnsupportedPaymentIntent(_) => Some(
+            "This payment intent is not supported. Upgrade presto or try a different server."
+                .into(),
+        ),
+        PrestoError::InvalidChallenge(_) => {
+            Some("The server's payment challenge is malformed. Retry the request.".into())
+        }
+        PrestoError::MissingHeader(_) => {
+            Some("The server response is missing a required header. Use -v for details.".into())
+        }
+        PrestoError::ChallengeExpired(_) => {
+            Some("Retry immediately. If it keeps expiring, check your system clock.".into())
+        }
+        PrestoError::InvalidDid(_) => {
+            Some("Run 'presto login' to recreate identity credentials.".into())
+        }
+        PrestoError::Io(_) => Some("Check file paths and permissions.".into()),
+        PrestoError::Reqwest(_) => Some("Check your internet connection and retry.".into()),
+        PrestoError::InvalidUtf8(_) => {
+            Some("The response contains non-UTF8 data. Try saving to a file with -o.".into())
+        }
+        PrestoError::SystemTime(_) => Some("Check that your system clock is set correctly.".into()),
+        PrestoError::Mpp(_) => Some("Payment protocol error. Retry the request.".into()),
     }
 }
 
@@ -319,6 +376,42 @@ mod tests {
             "Http with non-status message should not match: {:?}",
             suggestion
         );
+    }
+
+    #[test]
+    fn test_unsupported_payment_method_format() {
+        assert_error_format(
+            PrestoError::UnsupportedPaymentMethod("bitcoin".into()),
+            "Unsupported payment method: bitcoin",
+            "This payment method is not supported. Upgrade presto or try a different server.",
+        );
+    }
+
+    #[test]
+    fn test_challenge_expired_format() {
+        assert_error_format(
+            PrestoError::ChallengeExpired("5 minutes ago".into()),
+            "Challenge expired: 5 minutes ago",
+            "Retry immediately. If it keeps expiring, check your system clock.",
+        );
+    }
+
+    #[test]
+    fn test_invalid_amount_format() {
+        assert_error_format(
+            PrestoError::InvalidAmount("abc".into()),
+            "Invalid amount: abc",
+            "Use a numeric amount (e.g., --max-amount 1.0 or --max-amount 1000000).",
+        );
+    }
+
+    #[test]
+    fn test_io_error_has_suggestion() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err = PrestoError::Io(io_err);
+        let suggestion = get_presto_error_suggestion(&err);
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("file paths"));
     }
 
     #[test]
