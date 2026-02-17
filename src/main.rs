@@ -1,4 +1,11 @@
-//!  tempo-walletCLI - A command-line HTTP client with built-in MPP payment support
+//!  tempo-walletCLI - A command-line HTTP client with automatic payment support.
+//!
+//! Works like curl/wget but handles HTTP 402 (Payment Required) responses
+//! automatically using the Machine Payment Protocol (MPP). When a server
+//! demands payment,  tempo-walletdetects the payment protocol from the
+//! WWW-Authenticate header, constructs a transaction via the user's
+//! configured wallet, and retries the request with a payment receipt —
+//! supporting both one-shot charges and persistent sessions.
 
 mod analytics;
 mod cli;
