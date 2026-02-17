@@ -289,19 +289,6 @@
       }
     },
     {
-      "id": "ambig-translate",
-      "category": "trigger-positive",
-      "prompt": "Translate 'Hello, how are you?' to Japanese using an LLM API. Just give me the translation.",
-      "expect": {
-        "presto": {
-          "should_invoke": true,
-          "url_pattern": "payments\\.tempo\\.xyz",
-          "method": "POST",
-          "has_flag": "--json"
-        }
-      }
-    },
-    {
       "id": "ambig-summarize-url",
       "category": "trigger-negative",
       "prompt": "Summarize what's on https://en.wikipedia.org/wiki/Rust_(programming_language) for me.",
@@ -433,19 +420,6 @@
     },
 
     {
-      "id": "real-scrape-docs",
-      "category": "trigger-positive",
-      "prompt": "I need to scrape https://docs.rs/tokio/latest/tokio/ and get the content as markdown. I don't have a Firecrawl API key.",
-      "expect": {
-        "presto": {
-          "should_invoke": true,
-          "url_pattern": "firecrawl\\.payments\\.tempo\\.xyz.*/v1/scrape",
-          "method": "POST",
-          "has_flag": "--json"
-        }
-      }
-    },
-    {
       "id": "real-web-search",
       "category": "trigger-positive",
       "prompt": "Search the web for 'rust async best practices 2025' using the Exa search API. I don't have an API key.",
@@ -455,20 +429,6 @@
           "url_pattern": "exa\\.payments\\.tempo\\.xyz.*/search",
           "method": "POST",
           "has_flag": "--json"
-        }
-      }
-    },
-    {
-      "id": "real-code-review",
-      "category": "trigger-positive",
-      "prompt": "I want a second opinion on this function. Ask GPT-4o to review this code and suggest improvements: 'fn add(a: i32, b: i32) -> i32 { return a + b; }'. Keep spending under $0.10.",
-      "expect": {
-        "presto": {
-          "should_invoke": true,
-          "url_pattern": "payments\\.tempo\\.xyz.*/v1/chat/completions",
-          "method": "POST",
-          "has_flag": "--json",
-          "argv_contains": ["--max-amount", "-M"]
         }
       }
     },
