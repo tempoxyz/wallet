@@ -33,6 +33,18 @@ use http::request::RequestContext;
 use payment::charge::handle_charge_request;
 use payment::session::{handle_session_request, SessionResult};
 
+/// Entry point for the  tempo-walletCLI.
+///
+///  Tempo Walletis a command-line HTTP client (like curl/wget) that automatically
+/// handles paid APIs. When a server responds with HTTP 402 Payment Required,
+///  tempo-walletdetects the payment details from the `WWW-Authenticate` header,
+/// submits a transaction through the user's configured wallet using the
+/// Machine Payment Protocol (MPP), and retries the request with a payment
+/// receipt — supporting both one-shot charges and persistent sessions.
+///
+/// This function parses CLI arguments, dispatches to the appropriate
+/// subcommand (query, session management, login/logout, balance, or shell
+/// completions), and installs a Ctrl-C handler for graceful shutdown.
 #[tokio::main]
 async fn main() {
     // Set up signal handling for graceful shutdown
