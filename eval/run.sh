@@ -205,9 +205,30 @@ for case_id in $CASE_IDS; do
   RESULT=$("${SCRIPT_DIR}/validate.sh" "$CASE_JSON" "$TRANSCRIPT" 2>/dev/null || \
     echo '{"error":"validation_failed","overall_pass":false}')
 
+  # Extract agent's final answer from transcript for failure diagnosis
+  FINAL_ANSWER=""
+  if [ "$(echo "$RESULT" | jq -r '.overall_pass')" = "false" ]; then
+    # Amp: look for result.result; Claude: last assistant text block
+    FINAL_ANSWER=$(jq -r '
+      select(.type == "result") | .result // empty
+    ' "$TRANSCRIPT" 2>/dev/null | tail -1)
+    if [ -z "$FINAL_ANSWER" ]; then
+      FINAL_ANSWER=$(jq -r '
+        select(.type == "assistant") |
+        .message.content[]? |
+        select(.type == "text") | .text
+      ' "$TRANSCRIPT" 2>/dev/null | tail -1)
+    fi
+    # Truncate to keep results reasonable
+    FINAL_ANSWER=$(echo "$FINAL_ANSWER" | head -c 2000)
+  fi
+
   # Add metadata
-  RESULT=$(echo "$RESULT" | jq --arg cat "$CATEGORY_VAL" --arg prompt "$PROMPT" \
-    '. + {category: $cat, prompt: $prompt}')
+  RESULT=$(echo "$RESULT" | jq \
+    --arg cat "$CATEGORY_VAL" \
+    --arg prompt "$PROMPT" \
+    --arg answer "$FINAL_ANSWER" \
+    '. + {category: $cat, prompt: $prompt, agent_response: (if $answer == "" then null else $answer end)}')
 
   echo "$RESULT" >> "$RESULTS_FILE"
 
@@ -233,7 +254,9 @@ echo ""
 
 # Generate report
 "${SCRIPT_DIR}/report.sh" "$RESULTS_FILE" > "${RUN_DIR}/report.md"
-echo "Report: ${RUN_DIR}/report.md"
+# Copy as latest report for this agent
+cp "${RUN_DIR}/report.md" "${SCRIPT_DIR}/report-${AGENT}.md"
+echo "Report: eval/report-${AGENT}.md"
 
 # Write summary JSON
 jq -s '{

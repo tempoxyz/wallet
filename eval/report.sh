@@ -69,6 +69,6 @@ if [ "$FAIL_COUNT" -gt 0 ]; then
   echo "## Failures"
   echo ""
   jq -s '.[] | select(.overall_pass == false) |
-    "### \(.case_id)\n\n**Prompt:** \(.prompt // "n/a")\n\n**Reasons:**\n\(.reasons // [] | map("- " + .) | join("\n"))\n\n**Presto calls:** \(.presto_calls // 0) | **Curl calls:** \(.curl_calls // 0)\n"
+    "### \(.case_id)\n\n**Prompt:** \(.prompt // "n/a")\n\n**Reasons:**\n\(.reasons // [] | map("- " + .) | join("\n"))\n\n**Presto calls:** \(.presto_calls // 0) | **Curl calls:** \(.curl_calls // 0)\n\(if .agent_response then "\n**Agent response:**\n> \(.agent_response | gsub("\n"; "\n> "))\n" else "" end)"
   ' -r "$RESULTS_FILE"
 fi
