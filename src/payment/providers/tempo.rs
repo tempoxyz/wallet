@@ -177,11 +177,65 @@ impl SigningSetupContext {
         let gas_config = if pending_nonce > nonce {
             debug!(
                 confirmed_nonce = nonce,
-                pending_nonce, "stuck pending txs detected, using aggressive gas"
+                pending_nonce, "stuck pending txs detected, bumping gas to replace"
             );
-            GasConfig {
-                max_priority_fee_per_gas: gas_config.max_priority_fee_per_gas * 100,
-                max_fee_per_gas: gas_config.max_fee_per_gas * 100,
+
+            // Try to read the stuck tx's gas to bid just above it.
+            // Use txpool_content to find the tx at the confirmed nonce.
+            let stuck_gas = async {
+                let pool: serde_json::Value = provider
+                    .raw_request("txpool_content".into(), ())
+                    .await
+                    .ok()?;
+                let from_hex = format!("{:#x}", from);
+                let nonce_str = format!("{}", nonce);
+                let tx = pool
+                    .get("pending")?
+                    .get(&from_hex)
+                    .or_else(|| {
+                        // txpool keys may use checksummed addresses
+                        pool.get("pending")?
+                            .as_object()?
+                            .iter()
+                            .find(|(k, _)| k.to_lowercase() == from_hex.to_lowercase())
+                            .map(|(_, v)| v)
+                    })?
+                    .get(&nonce_str)?;
+                let max_fee = u64::from_str_radix(
+                    tx.get("maxFeePerGas")?.as_str()?.trim_start_matches("0x"),
+                    16,
+                )
+                .ok()?;
+                let max_priority = u64::from_str_radix(
+                    tx.get("maxPriorityFeePerGas")?
+                        .as_str()?
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .ok()?;
+                Some((max_fee, max_priority))
+            }
+            .await;
+
+            if let Some((stuck_max_fee, stuck_priority)) = stuck_gas {
+                debug!(
+                    stuck_max_fee,
+                    stuck_priority, "found stuck tx gas, bidding 2x to replace"
+                );
+                GasConfig {
+                    max_fee_per_gas: std::cmp::max(stuck_max_fee * 2, gas_config.max_fee_per_gas),
+                    max_priority_fee_per_gas: std::cmp::max(
+                        stuck_priority * 2,
+                        gas_config.max_priority_fee_per_gas,
+                    ),
+                }
+            } else {
+                // Can't read stuck tx — use 10x default as safe fallback
+                debug!("could not read stuck tx gas, using 10x default");
+                GasConfig {
+                    max_priority_fee_per_gas: gas_config.max_priority_fee_per_gas * 10,
+                    max_fee_per_gas: gas_config.max_fee_per_gas * 10,
+                }
             }
         } else if let Ok(latest_block) = provider.get_block_number().await {
             if let Ok(Some(block)) = provider.get_block_by_number(latest_block.into()).await {

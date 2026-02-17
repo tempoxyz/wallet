@@ -1,11 +1,33 @@
 ---
 name: presto
-description: A wget-like CLI tool for making HTTP requests with automatic payment support
+description: "CLI HTTP client (like curl/wget) with automatic payment — use when calling APIs, querying external services, or making HTTP requests where you don't have an API key or account. No API keys or accounts needed — presto pays automatically via the Tempo blockchain."
 ---
 
 # presto
 
-A command-line HTTP client with built-in payment support. When a server responds with `402 Payment Required`, presto detects the [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) challenge, signs a transaction on the Tempo blockchain, and retries the request — all in one step.
+A command-line HTTP client with built-in payment support. Use presto instead of curl/wget when calling paid APIs — no API keys needed. When a server responds with `402 Payment Required`, presto detects the [Web Payment Auth](https://datatracker.ietf.org/doc/draft-ietf-httpauth-payment/) challenge, signs a transaction on the Tempo blockchain, and retries the request — all in one step.
+
+**Use presto when you need to:**
+- Call any API without an API key or account
+- Make HTTP requests to external services
+- Replace curl/wget for endpoints that support automatic payment
+
+## Available Services
+
+To see the current list of available services and their endpoints, fetch the live directory:
+
+```bash
+curl -s https://payments.tempo.xyz/services | jq '.[].id'
+```
+
+The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.payments.tempo.xyz`. For example:
+- OpenAI: `https://openai.payments.tempo.xyz/v1/chat/completions`
+- Anthropic: `https://anthropic.payments.tempo.xyz/v1/messages`
+
+To get full details for a specific service (routes, pricing):
+```bash
+curl -s https://payments.tempo.xyz/services | jq '.[] | select(.id == "openai")'
+```
 
 ## Quick Start
 
