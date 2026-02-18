@@ -32,7 +32,7 @@ use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::Network;
 use crate::payment::abi::encode_approve;
-use crate::payment::mpp_ext::{extract_tx_hash, method_to_network, validate_session_challenge};
+use crate::payment::mpp_ext::{extract_tx_hash, network_from_session_request, validate_session_challenge};
 use crate::payment::providers::tempo::create_tempo_payment_from_calls;
 use crate::payment::session_store::{self, SessionRecord, SESSION_TTL_SECS};
 use crate::wallet::signer::load_signer_with_priority;
@@ -94,14 +94,13 @@ pub async fn handle_session_request(
 
     validate_session_challenge(&challenge)?;
 
-    let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-        crate::error::PrestoError::UnsupportedPaymentMethod(challenge.method.to_string())
-    })?;
-
     let session_req: SessionRequest = challenge
         .request
         .decode()
         .context("Failed to parse session request from challenge")?;
+
+    let network = network_from_session_request(&session_req)?;
+    let network_name = network.as_str();
 
     let tick_cost: u128 = session_req
         .amount

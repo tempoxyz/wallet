@@ -4,7 +4,6 @@
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
 use anyhow::{Context, Result};
-use std::str::FromStr;
 
 use mpp::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
 
@@ -15,8 +14,7 @@ use crate::config::{Config, WalletConfig};
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::explorer::ExplorerConfig;
-use crate::network::Network;
-use crate::payment::mpp_ext::{extract_tx_hash, method_to_network, validate_challenge};
+use crate::payment::mpp_ext::{extract_tx_hash, network_from_charge_request, validate_challenge};
 use crate::payment::provider::PrestoPaymentProvider;
 
 /// Handle MPP charge flow (402 with WWW-Authenticate: Payment header)
@@ -38,12 +36,12 @@ pub async fn handle_charge_request(
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // Get network and explorer config early for clickable links
-    let network = method_to_network(&challenge.method).ok_or_else(|| {
-        crate::error::PrestoError::UnsupportedPaymentMethod(challenge.method.to_string())
-    })?;
-    let explorer = Network::from_str(network)
-        .ok()
-        .and_then(|n| n.info().explorer);
+    let charge_req_preview: ChargeRequest = challenge
+        .request
+        .decode()
+        .context("Failed to parse charge request from challenge")?;
+    let network_enum = network_from_charge_request(&charge_req_preview)?;
+    let explorer = network_enum.info().explorer;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Challenge ID: {}", challenge.id);
@@ -78,7 +76,6 @@ pub async fn handle_charge_request(
     validate_charge_constraints(
         &request_ctx.query,
         &request_ctx.cli,
-        &challenge,
         &charge_req,
     )?;
 
@@ -172,7 +169,6 @@ fn normalize_max_amount(amount: &str) -> String {
 fn validate_charge_constraints(
     query: &QueryArgs,
     cli: &Cli,
-    challenge: &PaymentChallenge,
     charge_req: &ChargeRequest,
 ) -> Result<()> {
     if let Some(ref max_amount) = query.max_amount {
@@ -184,13 +180,13 @@ fn validate_charge_constraints(
 
     if let Some(ref networks) = cli.network {
         let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
-        let network = method_to_network(&challenge.method)
-            .ok_or_else(|| anyhow::anyhow!("Unsupported payment method: {}", challenge.method))?;
+        let network = network_from_charge_request(charge_req)?;
+        let network_str = network.as_str();
 
         anyhow::ensure!(
-            allowed.contains(&network),
+            allowed.contains(&network_str),
             "Network '{}' not in allowed networks: {:?}",
-            network,
+            network_str,
             allowed
         );
     }
@@ -205,8 +201,7 @@ fn handle_web_dry_run(
     charge_req: &ChargeRequest,
     explorer: Option<&ExplorerConfig>,
 ) -> Result<HttpResponse> {
-    let network = method_to_network(&challenge.method)
-        .ok_or_else(|| anyhow::anyhow!("Unsupported payment method: {}", challenge.method))?;
+    let network = network_from_charge_request(charge_req)?;
 
     let from_address = config
         .require_evm()
@@ -383,7 +378,7 @@ mod tests {
             expires: Some("2099-12-31T23:59:59Z".to_string()),
             description: None,
             external_id: None,
-            method_details: None,
+            method_details: Some(serde_json::json!({ "chainId": 42431 })),
         };
 
         let challenge = PaymentChallenge {
@@ -410,7 +405,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -420,7 +415,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -430,7 +425,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -446,7 +441,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -456,7 +451,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -466,7 +461,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -482,7 +477,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -492,7 +487,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -502,7 +497,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -638,7 +633,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -648,7 +643,7 @@ mod tests {
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &challenge, &charge_req);
+        let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_err());
     }
 }

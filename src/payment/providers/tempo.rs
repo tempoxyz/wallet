@@ -7,7 +7,7 @@
 
 use crate::config::Config;
 use crate::error::{PrestoError, Result, ResultExt, SigningContext};
-use crate::network::{GasConfig, Network};
+use crate::network::GasConfig;
 use crate::payment::abi::{
     encode_approve, encode_swap_exact_amount_out, encode_transfer, IAccountKeychain, DEX_ADDRESS,
     KEYCHAIN_ADDRESS,
@@ -93,7 +93,7 @@ struct SigningSetupContext {
 impl SigningSetupContext {
     /// Load signer, resolve network, fetch nonce, and set up all common signing context.
     async fn from_challenge(config: &Config, challenge: &mpp::PaymentChallenge) -> Result<Self> {
-        use crate::payment::mpp_ext::method_to_network;
+        use crate::payment::mpp_ext::network_from_charge_request;
         use alloy::providers::Provider;
         use alloy::rlp::Decodable;
 
@@ -136,21 +136,19 @@ impl SigningSetupContext {
 
         let from = wallet_address.unwrap_or_else(|| signer.address());
 
-        let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            PrestoError::UnsupportedPaymentMethod(format!(
-                "Unsupported payment method: {}",
-                challenge.method
-            ))
-        })?;
+        let charge_req: mpp::ChargeRequest = challenge
+            .request
+            .decode()
+            .map_err(|e| PrestoError::InvalidConfig(format!("Invalid charge request: {}", e)))?;
+        let network = network_from_charge_request(&charge_req)?;
+        let network_name = network.as_str();
 
         let network_info = config.resolve_network(network_name)?;
         let chain_id = network_info.chain_id.ok_or_else(|| {
             PrestoError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
-        let gas_config = Network::from_str(network_name)
-            .map(|n| n.gas_config())
-            .unwrap_or(GasConfig::DEFAULT);
+        let gas_config = network.gas_config();
 
         let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
             PrestoError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
