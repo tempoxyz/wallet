@@ -24,7 +24,6 @@ presto.toml
 
 # Eval (promptfoo output and old run artifacts)
 eval/runs/
-eval/reports/
 eval/output/
 
 # Logs
@@ -38,4 +37,3 @@ node_modules/
 package-lock.json
 .ai/
 !.ai/skills/
-
