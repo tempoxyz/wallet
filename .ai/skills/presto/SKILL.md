@@ -12,22 +12,6 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
 
-## Important: Mainnet RPC
-
-The Tempo mainnet RPC requires authentication. Set `PRESTO_RPC_URL` before making mainnet payments:
-
-```bash
-export PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz'
-```
-
-Or pass it per-request with `-r`:
-
-```bash
-presto -r 'https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' ...
-```
-
-Without this, balance queries and payments on mainnet will fail with a 401 error.
-
 ## Available Services
 
 To see the current list of available services and their endpoints, fetch the live directory:
