@@ -73,11 +73,7 @@ pub async fn handle_charge_request(
 
     validate_challenge(&challenge).context("Challenge validation failed")?;
 
-    validate_charge_constraints(
-        &request_ctx.query,
-        &request_ctx.cli,
-        &charge_req,
-    )?;
+    validate_charge_constraints(&request_ctx.query, &request_ctx.cli, &charge_req)?;
 
     if request_ctx.query.dry_run {
         return handle_web_dry_run(config, &challenge, &charge_req, explorer.as_ref());
