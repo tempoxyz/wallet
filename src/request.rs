@@ -96,7 +96,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 
     match dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await {
         Ok(result) => {
-            mark_chain_provisioned(challenge_ctx.chain_id);
+            mark_network_provisioned(&challenge_ctx.network);
             pay_analytics.track_success(result.tx_hash, &url, &method_str, result.status_code);
             if let Some(resp) = result.response {
                 finalize_response(&request_ctx.cli, &request_ctx.query, resp)?;
@@ -123,7 +123,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 match dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await
                 {
                     Ok(result) => {
-                        mark_chain_provisioned(challenge_ctx.chain_id);
+                        mark_network_provisioned(&challenge_ctx.network);
                         pay_analytics.track_success(
                             result.tx_hash,
                             &url,
@@ -213,11 +213,14 @@ fn is_not_provisioned(err: &anyhow::Error) -> bool {
     })
 }
 
-/// Mark a chain as provisioned in wallet.toml after a successful payment.
-fn mark_chain_provisioned(chain_id: Option<u64>) {
-    if let Some(cid) = chain_id {
-        if let Ok(mut creds) = crate::wallet::credentials::WalletCredentials::load() {
-            creds.mark_provisioned(cid);
+/// Mark a network as provisioned in wallet.toml after a successful payment.
+fn mark_network_provisioned(network: &str) {
+    if let Ok(mut creds) = crate::wallet::credentials::WalletCredentials::load() {
+        if let Some(key) = creds.network_key_mut(network) {
+            if !key.provisioned {
+                key.provisioned = true;
+                let _ = creds.save();
+            }
         }
     }
 }
@@ -227,7 +230,6 @@ struct ChallengeContext {
     protocol: PaymentProtocol,
     is_session: bool,
     network: String,
-    chain_id: Option<u64>,
     amount: String,
     currency: String,
 }
@@ -248,32 +250,25 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
 
     let is_session = challenge.intent.is_session();
 
-    let (network, chain_id, amount, currency) =
+    let (network, amount, currency) =
         if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
-            let net = crate::payment::mpp_ext::network_from_charge_request(&charge);
-            let name = net
-                .as_ref()
+            let name = crate::payment::mpp_ext::network_from_charge_request(&charge)
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
-            let cid = net.ok().map(|n| n.chain_id());
-            (name, cid, charge.amount, charge.currency)
+            (name, charge.amount, charge.currency)
         } else if let Ok(session) = challenge.request.decode::<mpp::SessionRequest>() {
-            let net = crate::payment::mpp_ext::network_from_session_request(&session);
-            let name = net
-                .as_ref()
+            let name = crate::payment::mpp_ext::network_from_session_request(&session)
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
-            let cid = net.ok().map(|n| n.chain_id());
-            (name, cid, session.amount, session.currency)
+            (name, session.amount, session.currency)
         } else {
-            ("unknown".to_string(), None, String::new(), String::new())
+            ("unknown".to_string(), String::new(), String::new())
         };
 
     Ok(ChallengeContext {
         protocol,
         is_session,
         network,
-        chain_id,
         amount,
         currency,
     })

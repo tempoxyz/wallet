@@ -13,7 +13,7 @@ use crate::payment::abi::{
     KEYCHAIN_ADDRESS,
 };
 use crate::payment::mpp_ext::TempoChargeExt;
-use crate::wallet::signer::load_signer_with_priority;
+use crate::wallet::signer::load_signer_for_network;
 use alloy::primitives::{Address, U256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use std::str::FromStr;
@@ -97,9 +97,18 @@ impl SigningSetupContext {
         use alloy::providers::Provider;
         use alloy::rlp::Decodable;
 
-        // Load signer from Tempo wallet credentials
-        let signer_ctx = load_signer_with_priority()?;
+        // Decode charge request and resolve network first (needed for signer loading)
+        let charge_req: mpp::ChargeRequest = challenge
+            .request
+            .decode()
+            .map_err(|e| PrestoError::InvalidConfig(format!("Invalid charge request: {}", e)))?;
+        let network = network_from_charge_request(&charge_req)?;
+        let network_name = network.as_str();
+
+        // Load signer from Tempo wallet credentials for this network
+        let signer_ctx = load_signer_for_network(network_name)?;
         let signer = signer_ctx.signer;
+        let provisioned = signer_ctx.provisioned;
 
         // If wallet_address is set, use keychain signing mode
         let wallet_address = signer_ctx
@@ -128,16 +137,7 @@ impl SigningSetupContext {
             })
             .transpose()?;
 
-        let provisioned_on = signer_ctx.provisioned_on;
-
         let from = wallet_address.unwrap_or_else(|| signer.address());
-
-        let charge_req: mpp::ChargeRequest = challenge
-            .request
-            .decode()
-            .map_err(|e| PrestoError::InvalidConfig(format!("Invalid charge request: {}", e)))?;
-        let network = network_from_charge_request(&charge_req)?;
-        let network_name = network.as_str();
 
         let network_info = config.resolve_network(network_name)?;
         let chain_id = network_info.chain_id.ok_or_else(|| {
@@ -259,13 +259,12 @@ impl SigningSetupContext {
             gas_config
         };
 
-        // Include key authorization only if not yet provisioned on this chain.
-        let key_authorization =
-            if key_authorization.is_some() && !provisioned_on.contains(&chain_id) {
-                key_authorization
-            } else {
-                None
-            };
+        // Include key authorization only if not yet provisioned on this network.
+        let key_authorization = if key_authorization.is_some() && !provisioned {
+            key_authorization
+        } else {
+            None
+        };
 
         Ok(Self {
             signer,

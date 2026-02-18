@@ -38,7 +38,7 @@ use crate::payment::mpp_ext::{
 };
 use crate::payment::providers::tempo::create_tempo_payment_from_calls;
 use crate::payment::session_store;
-use crate::wallet::signer::load_signer_with_priority;
+use crate::wallet::signer::load_signer_for_network;
 
 use channel::{build_open_calls, extract_origin, send_session_request};
 use persist::persist_session;
@@ -116,7 +116,7 @@ pub async fn handle_session_request(
     }
 
     // Load signer for channel operations
-    let signer_ctx = load_signer_with_priority()
+    let signer_ctx = load_signer_for_network(network_name)
         .context("Failed to load wallet. Run 'presto login' to get started.")?;
 
     let key_address = signer_ctx.signer.address();
@@ -338,7 +338,7 @@ pub async fn close_session_from_record(record: &session_store::SessionRecord) ->
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
 
-    let signer_ctx = load_signer_with_priority()
+    let signer_ctx = load_signer_for_network(&record.network_name)
         .context("Failed to load wallet. Run 'presto login' to get started.")?;
 
     let channel_id: B256 = record.channel_id_b256()?;

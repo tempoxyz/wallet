@@ -14,16 +14,16 @@ pub struct SignerWithContext {
     pub signer: PrivateKeySigner,
     /// The smart wallet address if using keychain signing (tempo wallet).
     pub wallet_address: Option<String>,
-    /// Hex-encoded key authorization from wallet credentials.
+    /// Hex-encoded key authorization for this network.
     pub key_authorization: Option<String>,
-    /// Chain IDs where the key is already provisioned.
-    pub provisioned_on: Vec<u64>,
+    /// Whether the key is already provisioned on-chain for this network.
+    pub provisioned: bool,
 }
 
-/// Load a signer from Tempo wallet credentials.
+/// Load a signer from Tempo wallet credentials for a specific network.
 ///
 /// Returns the signer along with the wallet address for keychain signing.
-pub fn load_signer_with_priority() -> Result<SignerWithContext> {
+pub fn load_signer_for_network(network: &str) -> Result<SignerWithContext> {
     let creds = WalletCredentials::load().map_err(|_| {
         PrestoError::ConfigMissing(
             "No wallet configured. Run 'presto login' to get started.".to_string(),
@@ -36,13 +36,14 @@ pub fn load_signer_with_priority() -> Result<SignerWithContext> {
         ));
     }
 
-    let access_key = creds.active_access_key().ok_or_else(|| {
-        PrestoError::ConfigMissing(
-            "No access key found. Run 'presto login' to get started.".to_string(),
-        )
+    let network_key = creds.network_key(network).ok_or_else(|| {
+        PrestoError::ConfigMissing(format!(
+            "No access key for network '{}'. Run 'presto login --network {}' to set up.",
+            network, network
+        ))
     })?;
 
-    let signer = access_key.signer().map_err(|_| {
+    let signer = network_key.signer().map_err(|_| {
         PrestoError::ConfigMissing(
             "Failed to load signer from access key. Run 'presto login' to reconnect.".to_string(),
         )
@@ -51,7 +52,7 @@ pub fn load_signer_with_priority() -> Result<SignerWithContext> {
     Ok(SignerWithContext {
         signer,
         wallet_address: Some(creds.account_address.clone()),
-        key_authorization: creds.key_authorization.clone(),
-        provisioned_on: creds.provisioned_on.clone(),
+        key_authorization: network_key.key_authorization.clone(),
+        provisioned: network_key.provisioned,
     })
 }

@@ -2,25 +2,17 @@
 
 use alloy::primitives::Address;
 use alloy::providers::ProviderBuilder;
-use tempo_primitives::transaction::SignedKeyAuthorization;
 use tracing::debug;
 
 use crate::cli::commands::tempo_wallet::{query_all_balances, TokenBalance};
 use crate::cli::OutputFormat;
 use crate::error::Result;
 use crate::network::get_network;
+use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{local_key_spending_limit, query_key_spending_limit};
-use crate::util::constants::BUILTIN_TOKENS;
 use crate::wallet::credentials::WalletCredentials;
 use serde::Serialize;
-
-#[derive(Debug, Serialize)]
-pub(crate) struct AccessKeyInfo {
-    index: usize,
-    address: String,
-    active: bool,
-}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SpendingLimitInfo {
@@ -42,10 +34,8 @@ pub struct StatusResponse {
     pub balances: Vec<TokenBalance>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub spending_limits: Vec<SpendingLimitInfo>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub access_keys: Vec<AccessKeyInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_key_index: Option<usize>,
+    pub access_key: Option<String>,
     pub issues: Vec<String>,
 }
 
@@ -59,29 +49,23 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
         network: network.to_string(),
         balances: vec![],
         spending_limits: vec![],
-        access_keys: vec![],
-        active_key_index: None,
+        access_key: None,
         issues: vec![],
     };
 
     if creds.has_wallet() {
         response.wallet = Some(creds.account_address.clone());
-        response.active_key_index = Some(creds.active_key_index);
 
-        response.access_keys = creds
-            .access_keys
-            .iter()
-            .enumerate()
-            .map(|(i, key)| AccessKeyInfo {
-                index: i,
-                address: key.address(),
-                active: i == creds.active_key_index,
-            })
-            .collect();
+        let network_key = creds.network_key(network);
 
-        if creds.active_access_key().is_none() {
+        if let Some(key) = network_key {
+            response.access_key = Some(key.address());
+        } else {
             response.ready = false;
-            response.issues.push("No access key".to_string());
+            response.issues.push(format!(
+                "No access key for network '{}'. Run 'presto login --network {}'.",
+                network, network
+            ));
         }
 
         response.balances = query_all_balances(network, &creds.account_address).await;
@@ -130,17 +114,8 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
                 }
             }
 
-            if let Some(key) = response.access_keys.iter().find(|k| k.active) {
-                println!();
-                println!("Access Key: {}", key.address);
-            }
-
-            if response.access_keys.len() > 1 {
-                println!("\nAll access keys ({}):", response.access_keys.len());
-                for key in &response.access_keys {
-                    let marker = if key.active { "→" } else { " " };
-                    println!("  {} [{}] {}", marker, key.index, key.address);
-                }
+            if let Some(key) = &response.access_key {
+                println!("\nAccess Key: {}", key);
             }
 
             if !response.issues.is_empty() {
@@ -155,13 +130,6 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
     Ok(())
 }
 
-fn decode_key_auth(creds: &WalletCredentials) -> Option<SignedKeyAuthorization> {
-    creds
-        .key_authorization
-        .as_deref()
-        .and_then(crate::wallet::decode_key_authorization)
-}
-
 async fn query_spending_limits(
     network: &str,
     creds: &WalletCredentials,
@@ -172,7 +140,7 @@ async fn query_spending_limits(
         None => return Vec::new(),
     };
 
-    let key = match creds.active_access_key() {
+    let network_key = match creds.network_key(network) {
         Some(k) => k,
         None => return Vec::new(),
     };
@@ -182,7 +150,7 @@ async fn query_spending_limits(
         Err(_) => return Vec::new(),
     };
 
-    let key_address: Address = match key.address().parse() {
+    let key_address: Address = match network_key.address().parse() {
         Ok(a) => a,
         Err(_) => return Vec::new(),
     };
@@ -192,38 +160,50 @@ async fn query_spending_limits(
         Err(_) => return Vec::new(),
     };
 
-    let local_auth = decode_key_auth(creds);
+    let local_auth = network_key
+        .key_authorization
+        .as_deref()
+        .and_then(crate::wallet::decode_key_authorization);
     let provider = ProviderBuilder::new().connect_http(rpc_url);
     let mut limits = Vec::new();
 
-    for token in BUILTIN_TOKENS {
-        let token_address: Address = match token.address.parse() {
+    let tokens = network
+        .parse::<Network>()
+        .map(|n| n.supported_tokens())
+        .unwrap_or_default();
+
+    for token_config in &tokens {
+        let token_address: Address = match token_config.address.parse() {
             Ok(a) => a,
             Err(_) => continue,
         };
 
-        let limit =
-            match query_key_spending_limit(&provider, wallet_address, key_address, token_address)
-                .await
-            {
-                Ok(limit) => limit,
-                Err(_) if local_auth.is_some() => {
-                    local_key_spending_limit(local_auth.as_ref().unwrap(), token_address)
-                }
-                Err(e) => {
-                    debug!(%e, token = token.symbol, "failed to query spending limit");
-                    issues.push(format!(
-                        "Could not query {} spending limit: {}",
-                        token.symbol, e
-                    ));
-                    continue;
-                }
-            };
+        let limit = match query_key_spending_limit(
+            &provider,
+            wallet_address,
+            key_address,
+            token_address,
+        )
+        .await
+        {
+            Ok(limit) => limit,
+            Err(_) if local_auth.is_some() => {
+                local_key_spending_limit(local_auth.as_ref().unwrap(), token_address)
+            }
+            Err(e) => {
+                debug!(%e, token = token_config.currency.symbol, "failed to query spending limit");
+                issues.push(format!(
+                    "Could not query {} spending limit: {}",
+                    token_config.currency.symbol, e
+                ));
+                continue;
+            }
+        };
 
         match limit {
             None => {
                 limits.push(SpendingLimitInfo {
-                    token: token.symbol.to_string(),
+                    token: token_config.currency.symbol.to_string(),
                     unlimited: true,
                     remaining: None,
                     remaining_raw: None,
@@ -231,9 +211,12 @@ async fn query_spending_limits(
             }
             Some(remaining) => {
                 limits.push(SpendingLimitInfo {
-                    token: token.symbol.to_string(),
+                    token: token_config.currency.symbol.to_string(),
                     unlimited: false,
-                    remaining: Some(format_u256_with_decimals(remaining, 6)),
+                    remaining: Some(format_u256_with_decimals(
+                        remaining,
+                        token_config.currency.decimals,
+                    )),
                     remaining_raw: Some(remaining.to_string()),
                 });
             }

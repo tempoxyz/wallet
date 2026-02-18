@@ -11,7 +11,7 @@ use crate::payment::providers::tempo::{
     local_key_spending_limit, query_key_spending_limit, SwapInfo, BPS_DENOMINATOR,
     SWAP_SLIPPAGE_BPS,
 };
-use crate::wallet::signer::load_signer_with_priority;
+use crate::wallet::signer::load_signer_for_network;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::sol;
@@ -120,8 +120,12 @@ impl PrestoPaymentProvider {
             .amount_u256()
             .map_err(|e| mpp::MppError::Http(format!("Invalid amount: {}", e)))?;
 
-        let signer_ctx =
-            load_signer_with_priority().map_err(|e| mpp::MppError::Http(e.to_string()))?;
+        let network = network_from_charge_request(&charge_req)
+            .map_err(|e| mpp::MppError::Http(e.to_string()))?;
+        let network_name = network.as_str();
+
+        let signer_ctx = load_signer_for_network(network_name)
+            .map_err(|e| mpp::MppError::Http(e.to_string()))?;
 
         let key_address = signer_ctx.signer.address();
         let wallet_address = signer_ctx
@@ -137,10 +141,6 @@ impl PrestoPaymentProvider {
             .and_then(crate::wallet::decode_key_authorization);
 
         let from = wallet_address.unwrap_or(key_address);
-
-        let network = network_from_charge_request(&charge_req)
-            .map_err(|e| mpp::MppError::Http(e.to_string()))?;
-        let network_name = network.as_str();
 
         let token_config = network.token_config_by_address(&format!("{:#x}", required_token));
         let token_symbol = token_config
