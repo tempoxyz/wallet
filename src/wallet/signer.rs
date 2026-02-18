@@ -24,15 +24,12 @@ pub struct SignerWithContext {
 ///
 /// Returns the signer along with the wallet address for keychain signing.
 pub fn load_signer_for_network(network: &str) -> Result<SignerWithContext> {
-    let creds = WalletCredentials::load().map_err(|_| {
-        PrestoError::ConfigMissing(
-            "No wallet configured. Run 'presto login' to get started.".to_string(),
-        )
-    })?;
+    let creds = WalletCredentials::load()
+        .map_err(|_| PrestoError::ConfigMissing("No wallet configured.".to_string()))?;
 
     if !creds.has_wallet() {
         return Err(PrestoError::ConfigMissing(
-            "No wallet configured. Run 'presto login' to get started.".to_string(),
+            "No wallet configured.".to_string(),
         ));
     }
 
