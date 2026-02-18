@@ -234,10 +234,6 @@ struct Config {
 
 **Built-in Tokens:** USDC.e (mainnet), pathUSD (testnet)
 
-## Spec
-
-See [SPEC.md](SPEC.md) for expected CLI behaviors (error formats, exit codes, user-facing messages).
-
 ## Documentation
 
 - [Rust Book](https://doc.rust-lang.org/book/)
