@@ -9,7 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{test_command, TestConfigBuilder};
+use common::{mock_test_command, test_command, TestConfigBuilder};
 
 #[test]
 fn test_login_mock_device_code() {
@@ -424,4 +424,73 @@ fn test_no_args_shows_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Usage"));
+}
+
+// ==================== Network Validation ====================
+
+#[test]
+fn test_invalid_network_flag_rejected() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-n", "not-a-network", "balance"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown network"));
+}
+
+#[test]
+fn test_valid_network_flag_accepted() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = mock_test_command(&temp);
+    cmd.args([
+        "-n",
+        "tempo",
+        "balance",
+        "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+    ]);
+    cmd.assert().success();
+}
+
+#[test]
+fn test_valid_network_moderato_accepted() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = mock_test_command(&temp);
+    cmd.args([
+        "-n",
+        "tempo-moderato",
+        "balance",
+        "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+    ]);
+    cmd.assert().success();
+}
+
+#[test]
+fn test_invalid_network_env_var_rejected() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.env("PRESTO_NETWORK", "bogus-chain");
+    cmd.arg("balance");
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown network"));
+}
+
+#[test]
+fn test_invalid_network_whoami_rejected() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-n", "foobar", "whoami"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown network"));
+}
+
+#[test]
+fn test_invalid_network_login_rejected() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-n", "bad-net", "login"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown network"));
 }

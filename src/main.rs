@@ -96,8 +96,22 @@ fn parse_cli() -> Cli {
     }
 }
 
+/// Validate the --network flag value against known built-in networks.
+///
+/// This catches typos and invalid names early, before they cause silent
+/// failures in login/logout/whoami where the network name is used as an
+/// exact match to select wallet credentials.
+fn validate_network_flag(network: &str) -> Result<()> {
+    network::validate_network_name(network)
+        .map_err(|msg| anyhow::anyhow!(error::PrestoError::UnknownNetwork(msg)))
+}
+
 /// Handle CLI subcommands
 async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
+    if let Some(ref network) = cli.network {
+        validate_network_flag(network)?;
+    }
+
     let analytics = Analytics::new(cli.network.as_deref()).await;
 
     if let Some(ref a) = analytics {

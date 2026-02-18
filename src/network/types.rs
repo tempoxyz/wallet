@@ -253,6 +253,23 @@ impl fmt::Display for Network {
 
 // ==================== Convenience Functions ====================
 
+/// Validate that a network name is a known built-in network.
+///
+/// Returns `Ok(())` if the name matches a built-in network,
+/// or an error with a suggestion message if not.
+pub fn validate_network_name(name: &str) -> std::result::Result<(), String> {
+    let all_names: Vec<&str> = Network::all().iter().map(|n| n.as_str()).collect();
+    if all_names.contains(&name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unknown network '{}'. Available networks: {}",
+            name,
+            all_names.join(", ")
+        ))
+    }
+}
+
 /// Look up network info by name.
 #[must_use]
 pub fn get_network(name: &str) -> Option<NetworkInfo> {
@@ -394,5 +411,33 @@ mod tests {
         assert_eq!(Network::from_chain_id(42431), Some(Network::TempoModerato));
         assert_eq!(Network::from_chain_id(1337), Some(Network::TempoLocalnet));
         assert_eq!(Network::from_chain_id(99999), None);
+    }
+
+    #[test]
+    fn test_validate_network_name_valid() {
+        assert!(validate_network_name("tempo").is_ok());
+        assert!(validate_network_name("tempo-moderato").is_ok());
+        assert!(validate_network_name("tempo-localnet").is_ok());
+    }
+
+    #[test]
+    fn test_validate_network_name_invalid() {
+        let result = validate_network_name("not-a-network");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown network 'not-a-network'"));
+        assert!(err.contains("tempo"));
+        assert!(err.contains("tempo-moderato"));
+    }
+
+    #[test]
+    fn test_validate_network_name_empty() {
+        assert!(validate_network_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_network_name_case_sensitive() {
+        assert!(validate_network_name("Tempo").is_err());
+        assert!(validate_network_name("TEMPO").is_err());
     }
 }
