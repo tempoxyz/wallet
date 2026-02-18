@@ -17,16 +17,16 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 To see the current list of available services and their endpoints, fetch the live directory:
 
 ```bash
-curl -s https://payments.tempo.xyz/services | jq '.[].id'
+curl -s https://mpp.tempo.xyz/services | jq '.[].id'
 ```
 
-The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.payments.tempo.xyz`. For example:
-- OpenAI: `https://openai.payments.tempo.xyz/v1/chat/completions`
-- Anthropic: `https://anthropic.payments.tempo.xyz/v1/messages`
+The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.mpp.tempo.xyz`. For example:
+- OpenAI: `https://openai.mpp.tempo.xyz/v1/chat/completions`
+- Anthropic: `https://anthropic.mpp.tempo.xyz/v1/messages`
 
 To get full details for a specific service (routes, pricing):
 ```bash
-curl -s https://payments.tempo.xyz/services | jq '.[] | select(.id == "openai")'
+curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 ```
 
 ## Quick Start
@@ -99,7 +99,7 @@ Each request is a separate on-chain transaction:
 ```bash
 presto -X POST \
   --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
-  https://openai.payments.tempo.xyz/v1/chat/completions
+  https://openai.mpp.tempo.xyz/v1/chat/completions
 ```
 
 ### OpenRouter via Tempo
@@ -107,7 +107,7 @@ presto -X POST \
 ```bash
 presto -v -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
-  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 ```
 
 ### Payment Sessions (Multiple Requests, One Channel)
@@ -118,18 +118,18 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 # First request opens a channel on-chain
 presto -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"First question"}]}' \
-  https://openrouter.payments.tempo.xyz/v1/chat/completions
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions
 
 # Subsequent requests to the same origin reuse the session automatically
 presto -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Second question"}]}' \
-  https://openrouter.payments.tempo.xyz/v1/chat/completions
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions
 
 # View active sessions
 presto session list
 
 # Close a session when done
-presto session close https://openrouter.payments.tempo.xyz
+presto session close https://openrouter.mpp.tempo.xyz
 ```
 
 ### Limit Spending
