@@ -36,6 +36,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 webbrowser = "1"
+fs2 = "0.4.3"
 
 [dev-dependencies]
 assert_cmd = "2.1"

@@ -362,7 +362,7 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
                 .as_ref()
                 .and_then(|c| payment::mpp_ext::network_from_charge_request(c).ok())
                 .map(|n| n.as_str().to_string())
-                .unwrap_or_default();
+                .unwrap_or_else(|| "unknown".to_string());
             let amount = charge
                 .as_ref()
                 .map(|c| c.amount.clone())
