@@ -112,8 +112,7 @@ These options apply when making HTTP requests (`presto <URL>`):
 Each request is a separate on-chain transaction:
 
 ```bash
-PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
-  presto -X POST \
+presto -X POST \
   --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
   https://openai.mpp.tempo.xyz/v1/chat/completions
 ```
@@ -121,8 +120,7 @@ PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
 ### OpenRouter via Tempo
 
 ```bash
-PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
-  presto -v -X POST \
+presto -v -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 ```
@@ -130,8 +128,7 @@ PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
 ### Image Generation via fal
 
 ```bash
-PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
-  presto -v -X POST \
+presto -v -X POST \
   --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3","num_images":1}' \
   https://fal.mpp.tempo.xyz/fal-ai/flux/schnell
 ```
@@ -188,7 +185,7 @@ presto balance -n tempo
 
 If presto fails with "No wallet configured" or "Run 'presto login'", **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
 
-If presto fails with a 401 RPC error, set `PRESTO_RPC_URL` to the authenticated mainnet RPC URL shown above.
+If presto fails with a 401 RPC error, set `PRESTO_RPC_URL` to an authenticated RPC endpoint.
 
 ## How Payment Works
 
