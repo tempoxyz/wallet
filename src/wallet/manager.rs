@@ -10,11 +10,19 @@ use url::Url;
 
 use crate::analytics::Analytics;
 use crate::error::{PrestoError, Result};
-use crate::wallet::auth_server::{run_callback_server, AuthCallback};
 use crate::wallet::credentials::{NetworkWallet, WalletCredentials};
+use crate::wallet::device_code::{create_device_code, poll_device_code};
+use crate::wallet::pkce;
 use crate::wallet::AccessKey;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 300; // 5 minutes
+const POLL_INTERVAL_SECS: u64 = 2;
+
+#[derive(Debug, Clone)]
+struct AuthCallback {
+    pub account_address: String,
+    pub key_authorization: Option<String>,
+}
 
 /// Orchestrates browser-based wallet authentication.
 pub struct WalletManager {
@@ -66,30 +74,63 @@ impl WalletManager {
     /// Open browser for wallet authentication.
     pub async fn setup_wallet(&self) -> Result<()> {
         let local_signer = PrivateKeySigner::random();
-        let pub_key = format!("0x{}", hex::encode(local_signer.address()));
+        let uncompressed = local_signer
+            .credential()
+            .verifying_key()
+            .to_encoded_point(false);
+        let pub_key = format!("0x{}", hex::encode(uncompressed.as_bytes()));
 
         let auth_base_url = self.get_auth_base_url();
 
-        println!("Starting authentication server...");
-        let (port, rx) = run_callback_server(auth_base_url).await?;
+        let code_verifier = pkce::generate_code_verifier();
+        let code_challenge = pkce::compute_code_challenge(&code_verifier);
+
+        let client = reqwest::Client::new();
+        let device_code_resp = create_device_code(
+            &client,
+            &auth_base_url,
+            &pub_key,
+            "secp256k1",
+            &code_challenge,
+        )
+        .await
+        .map_err(|e| PrestoError::Http(format!("{}", e)))?;
+
+        let code = &device_code_resp.code;
 
         let mut auth_url = Url::parse(&self.auth_server_url)
             .map_err(|e| PrestoError::Http(format!("Invalid auth server URL: {}", e)))?;
 
-        auth_url
-            .query_pairs_mut()
-            .append_pair("port", &port.to_string())
-            .append_pair("pub_key", &pub_key)
-            .append_pair("key_type", "secp256k1");
+        auth_url.query_pairs_mut().append_pair("code", code);
 
         let url_str = auth_url.to_string();
 
-        println!("Opening browser for authentication...");
-        println!("If the browser doesn't open, visit: {}", url_str);
+        let is_mock = std::env::var("PRESTO_MOCK_DEVICE_CODE").is_ok();
 
-        if let Err(e) = webbrowser::open(&url_str) {
-            eprintln!("Failed to open browser: {}", e);
-            println!("Please open this URL manually: {}", url_str);
+        println!();
+        let display_code = if code.len() == 8 {
+            format!("{}-{}", &code[..4], &code[4..])
+        } else {
+            code.to_string()
+        };
+        println!("Verification code: \x1b[1m{}\x1b[0m", display_code);
+
+        if !is_mock {
+            print!(
+                "\x1b[1mPress Enter\x1b[0m to open your browser to {}... ",
+                url_str
+            );
+            std::io::Write::flush(&mut std::io::stdout()).ok();
+            tokio::task::spawn_blocking(|| {
+                let _ = std::io::stdin().read_line(&mut String::new());
+            })
+            .await
+            .ok();
+
+            if let Err(e) = webbrowser::open(&url_str) {
+                eprintln!("Failed to open browser: {}", e);
+                println!("Please open this URL manually: {}", url_str);
+            }
         }
 
         if let Some(ref a) = self.analytics {
@@ -102,15 +143,36 @@ impl WalletManager {
             );
         }
 
-        println!("\nWaiting for authentication...");
+        println!("Waiting for authentication...");
         let wait_start = Instant::now();
+        let timeout = Duration::from_secs(CALLBACK_TIMEOUT_SECS);
 
-        let callback = tokio::time::timeout(Duration::from_secs(CALLBACK_TIMEOUT_SECS), rx)
-            .await
-            .map_err(|_| PrestoError::Http("Authentication timed out".to_string()))?
-            .map_err(|_| {
-                PrestoError::Http("Failed to receive authentication callback".to_string())
-            })?;
+        let callback = loop {
+            if wait_start.elapsed() >= timeout {
+                return Err(PrestoError::Http("Authentication timed out".to_string()));
+            }
+
+            let poll_resp = poll_device_code(&client, &auth_base_url, code, &code_verifier)
+                .await
+                .map_err(|e| PrestoError::Http(format!("{}", e)))?;
+
+            if let Some(err) = &poll_resp.error {
+                return Err(PrestoError::Http(err.clone()));
+            }
+
+            if poll_resp.status == "authorized" {
+                break AuthCallback {
+                    account_address: poll_resp.account_address.ok_or_else(|| {
+                        PrestoError::Http(
+                            "Missing account_address in authorized response".to_string(),
+                        )
+                    })?,
+                    key_authorization: poll_resp.key_authorization,
+                };
+            }
+
+            tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
+        };
 
         if let Some(ref a) = self.analytics {
             a.track(
@@ -124,7 +186,6 @@ impl WalletManager {
 
         self.save_credentials(callback, local_signer).await?;
 
-        println!("Wallet connected successfully!");
         Ok(())
     }
 
