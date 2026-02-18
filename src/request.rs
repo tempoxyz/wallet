@@ -296,7 +296,7 @@ async fn ensure_wallet_or_prompt_login(
             *config = load_config_with_overrides(&request_ctx.cli)?;
         } else {
             anyhow::bail!(crate::error::PrestoError::ConfigMissing(
-                "No wallet configured. Run ' tempo-walletlogin' to connect your wallet, then retry the request.".to_string()
+                "No wallet configured.".to_string()
             ));
         }
     }
