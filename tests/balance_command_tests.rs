@@ -151,8 +151,8 @@ fn test_balance_invalid_network() {
             "invalid-network",
         ])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("No balances found"));
+        .failure()
+        .stderr(predicate::str::contains("Unknown network"));
 }
 
 #[test]
