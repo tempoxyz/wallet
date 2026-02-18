@@ -399,7 +399,7 @@ mod tests {
     fn test_validate_constraints_no_constraints() {
         let query = default_query();
         let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -409,7 +409,7 @@ mod tests {
     fn test_validate_constraints_max_amount_ok() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
         let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -419,7 +419,7 @@ mod tests {
     fn test_validate_constraints_max_amount_exceeded() {
         let query = make_query_args(&["query", "--max-amount", "500000", "http://example.com"]);
         let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_err());
@@ -435,7 +435,7 @@ mod tests {
     fn test_validate_constraints_max_amount_equal() {
         let query = make_query_args(&["query", "--max-amount", "1000000", "http://example.com"]);
         let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -445,7 +445,7 @@ mod tests {
     fn test_validate_constraints_network_filter_match() {
         let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -455,7 +455,7 @@ mod tests {
     fn test_validate_constraints_network_filter_no_match() {
         let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "ethereum"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_err());
@@ -471,7 +471,7 @@ mod tests {
     fn test_validate_constraints_multiple_networks() {
         let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -481,7 +481,7 @@ mod tests {
     fn test_validate_constraints_tempo_network() {
         let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -491,7 +491,7 @@ mod tests {
     fn test_validate_constraints_combined() {
         let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -627,7 +627,7 @@ mod tests {
     fn test_validate_constraints_max_amount_dollar_format() {
         let query = make_query_args(&["query", "--max-amount", "2.0", "http://example.com"]);
         let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_ok());
@@ -637,7 +637,7 @@ mod tests {
     fn test_validate_constraints_max_amount_dollar_exceeded() {
         let query = make_query_args(&["query", "--max-amount", "0.05", "http://example.com"]);
         let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
+        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
         let result = validate_charge_constraints(&query, &cli, &charge_req);
         assert!(result.is_err());
