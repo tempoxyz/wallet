@@ -64,7 +64,8 @@ let value = something.unwrap();
 
 ```
 src/
-├── main.rs          # CLI entry point and request orchestration
+├── main.rs          # CLI entry point and module declarations
+├── request.rs       # Request orchestration (query → 402 → payment → response)
 ├── error.rs         # Error types (thiserror)
 ├── cli/             # Argument parsing (clap) and command implementations
 ├── config/          # Configuration file handling

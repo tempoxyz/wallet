@@ -11,15 +11,15 @@ use serde::{Deserialize, Serialize};
 /// ```
 /// use presto::network::explorer::ExplorerConfig;
 ///
-/// let explorer = ExplorerConfig::tempo("https://explore.tempo.xyz");
+/// let explorer = ExplorerConfig::tempo("https://explore.mainnet.tempo.xyz");
 /// assert_eq!(
 ///     explorer.tx_url("0xabc123"),
-///     "https://explore.tempo.xyz/receipt/0xabc123"
+///     "https://explore.mainnet.tempo.xyz/receipt/0xabc123"
 /// );
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplorerConfig {
-    /// Base URL (e.g., `https://explore.tempo.xyz`)
+    /// Base URL (e.g., `https://explore.mainnet.tempo.xyz`)
     pub base_url: String,
     /// Path template for transactions (default: "/tx/{hash}")
     #[serde(default = "default_tx_path")]
@@ -78,27 +78,27 @@ mod tests {
 
     #[test]
     fn test_tempo_urls() {
-        let explorer = ExplorerConfig::tempo("https://explore.tempo.xyz");
+        let explorer = ExplorerConfig::tempo("https://explore.mainnet.tempo.xyz");
 
         assert_eq!(
             explorer.tx_url("0xabc123"),
-            "https://explore.tempo.xyz/receipt/0xabc123"
+            "https://explore.mainnet.tempo.xyz/receipt/0xabc123"
         );
         assert_eq!(
             explorer.address_url("0x742d35Cc"),
-            "https://explore.tempo.xyz/address/0x742d35Cc"
+            "https://explore.mainnet.tempo.xyz/address/0x742d35Cc"
         );
     }
 
     #[test]
     fn test_deserialize_explorer_config() {
         let json = r#"{
-            "base_url": "https://explore.tempo.xyz"
+            "base_url": "https://explore.mainnet.tempo.xyz"
         }"#;
 
         let explorer: ExplorerConfig =
             serde_json::from_str(json).expect("should deserialize explorer config");
-        assert_eq!(explorer.base_url, "https://explore.tempo.xyz");
+        assert_eq!(explorer.base_url, "https://explore.mainnet.tempo.xyz");
         assert_eq!(explorer.tx_path, "/receipt/{hash}");
         assert_eq!(explorer.block_path, "/block/{num}");
         assert_eq!(explorer.address_path, "/address/{addr}");

@@ -11,6 +11,7 @@ This is `presto` - a pure binary crate providing a command-line HTTP client with
 
 Single binary crate with source organized by module directories:
 - `src/main.rs` - CLI entry point and module declarations
+- `src/request.rs` - Request orchestration (query → 402 → payment → response)
 - `src/cli/` - CLI argument parsing and command implementations
 - `src/config/` - Configuration file handling
 - `src/http/` - HTTP client and request handling
@@ -231,7 +232,7 @@ struct Config {
 
 **Built-in Networks:** `tempo` (chain 4217, mainnet), `tempo-moderato` (chain 42431, testnet)
 
-**Built-in Tokens:** pathUSD at fixed address
+**Built-in Tokens:** USDC.e (mainnet), pathUSD (testnet)
 
 ## Spec
 

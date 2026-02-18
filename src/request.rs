@@ -219,7 +219,9 @@ fn mark_network_provisioned(network: &str) {
         if let Some(key) = creds.network_key_mut(network) {
             if !key.provisioned {
                 key.provisioned = true;
-                let _ = creds.save();
+                if let Err(e) = creds.save() {
+                    tracing::warn!("Failed to persist provisioned flag: {e}");
+                }
             }
         }
     }
