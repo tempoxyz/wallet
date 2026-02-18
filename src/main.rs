@@ -357,10 +357,12 @@ async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) 
         .get_header("www-authenticate")
         .and_then(|h| mpp::parse_www_authenticate(h).ok())
         .map(|challenge| {
-            let network = payment::mpp_ext::method_to_network(&challenge.method)
-                .unwrap_or("")
-                .to_string();
             let charge: Option<mpp::ChargeRequest> = challenge.request.decode().ok();
+            let network = charge
+                .as_ref()
+                .and_then(|c| payment::mpp_ext::network_from_charge_request(c).ok())
+                .map(|n| n.as_str().to_string())
+                .unwrap_or_default();
             let amount = charge
                 .as_ref()
                 .map(|c| c.amount.clone())

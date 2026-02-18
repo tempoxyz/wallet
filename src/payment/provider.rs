@@ -104,7 +104,7 @@ impl PrestoPaymentProvider {
         &self,
         challenge: &mpp::PaymentChallenge,
     ) -> std::result::Result<mpp::PaymentCredential, mpp::MppError> {
-        use crate::payment::mpp_ext::{method_to_network, TempoChargeExt};
+        use crate::payment::mpp_ext::{network_from_charge_request, TempoChargeExt};
         use crate::payment::providers::tempo::{
             create_tempo_payment, create_tempo_payment_with_swap,
         };
@@ -149,14 +149,9 @@ impl PrestoPaymentProvider {
 
         let from = wallet_address.unwrap_or(key_address);
 
-        let network_name = method_to_network(&challenge.method).ok_or_else(|| {
-            mpp::MppError::UnsupportedPaymentMethod(format!(
-                "Unsupported payment method: {}",
-                challenge.method
-            ))
-        })?;
-        let network = Network::from_str(network_name)
-            .map_err(|e| mpp::MppError::Http(format!("Unknown network: {}", e)))?;
+        let network = network_from_charge_request(&charge_req)
+            .map_err(|e| mpp::MppError::Http(e.to_string()))?;
+        let network_name = network.as_str();
 
         let token_config = network.token_config_by_address(&format!("{:#x}", required_token));
         let token_symbol = token_config
