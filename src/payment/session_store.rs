@@ -3,10 +3,11 @@
 //! Sessions are stored as individual TOML files in the data directory,
 //! keyed by the origin (scheme://host\[:port\]) of the endpoint.
 
-use std::fs;
+use std::fs::{self, File};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::PrestoError;
@@ -119,7 +120,36 @@ pub fn load_session(key: &str) -> Result<Option<SessionRecord>> {
     }
 }
 
-/// Save a session record to disk.
+/// Acquire an exclusive lock file for a session key.
+///
+/// Returns the locked `File` handle. The lock is held until the handle is dropped.
+/// Hold across load → modify → save to prevent concurrent CLI invocations
+/// from clobbering each other's session state.
+///
+/// Retries for up to 5 seconds before failing with a helpful error.
+pub fn lock_session(key: &str) -> Result<File> {
+    let lock_path = sessions_dir()?.join(format!("{key}.lock"));
+    let file = File::create(&lock_path).context("Failed to create session lock file")?;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match file.try_lock_exclusive() {
+            Ok(()) => return Ok(file),
+            Err(_) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "Session file is locked by another  tempo-walletprocess. \
+                     If no other process is running, remove: {}",
+                    lock_path.display()
+                );
+            }
+        }
+    }
+}
+
+/// Save a session record to disk (caller must hold the session lock if needed).
 pub fn save_session(record: &SessionRecord) -> Result<()> {
     let key = session_key(&record.origin);
     let path = sessions_dir()?.join(format!("{key}.toml"));

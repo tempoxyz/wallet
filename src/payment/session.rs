@@ -435,6 +435,7 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
         serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
 
     let session_key = session_store::session_key(ctx.url);
+    let _lock = session_store::lock_session(&session_key)?;
     let existing = session_store::load_session(&session_key)?;
 
     let record = if let Some(mut rec) = existing {

@@ -35,12 +35,11 @@ pub async fn handle_charge_request(
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
-    // Get network and explorer config early for clickable links
-    let charge_req_preview: ChargeRequest = challenge
+    let charge_req: ChargeRequest = challenge
         .request
         .decode()
         .context("Failed to parse charge request from challenge")?;
-    let network_enum = network_from_charge_request(&charge_req_preview)?;
+    let network_enum = network_from_charge_request(&charge_req)?;
     let explorer = network_enum.info().explorer;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
@@ -51,11 +50,6 @@ pub async fn handle_charge_request(
             eprintln!("Expires: {}", expires);
         }
     }
-
-    let charge_req: ChargeRequest = challenge
-        .request
-        .decode()
-        .context("Failed to parse charge request from challenge")?;
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Amount: {} (atomic units)", charge_req.amount);
@@ -150,16 +144,38 @@ async fn handle_mock_payment(
 }
 
 /// Normalize a max-amount string: if it contains a decimal point, treat as
-/// human-readable dollars (6 decimal places for pathUSD) and convert to atomic units.
-/// If it's a plain integer, pass through unchanged.
-fn normalize_max_amount(amount: &str) -> String {
-    if amount.contains('.') {
-        if let Ok(dollars) = amount.parse::<f64>() {
-            let atomic = (dollars * 1_000_000.0) as u128;
-            return atomic.to_string();
-        }
+/// human-readable (e.g., dollars) and convert to atomic units using the
+/// token's decimal places. If it's a plain integer, pass through unchanged.
+///
+/// Uses string manipulation instead of f64 to avoid floating-point precision loss.
+fn normalize_max_amount(amount: &str, decimals: u8) -> String {
+    let Some((whole_str, frac_str)) = amount.split_once('.') else {
+        return amount.to_string();
+    };
+
+    let Ok(whole) = whole_str.parse::<u128>() else {
+        return amount.to_string();
+    };
+
+    // Validate fractional part is all digits
+    if !frac_str.chars().all(|c| c.is_ascii_digit()) {
+        return amount.to_string();
     }
-    amount.to_string()
+
+    let decimals = decimals as usize;
+    let multiplier = 10u128.pow(decimals as u32);
+
+    let frac_value = if frac_str.len() <= decimals {
+        // Pad with trailing zeros: "5" with 6 decimals → 500000
+        let padded = format!("{:0<width$}", frac_str, width = decimals);
+        padded.parse::<u128>().unwrap_or(0)
+    } else {
+        // Truncate excess digits: "1234567" with 6 decimals → 123456
+        frac_str[..decimals].parse::<u128>().unwrap_or(0)
+    };
+
+    let atomic = whole * multiplier + frac_value;
+    atomic.to_string()
 }
 
 fn validate_charge_constraints(
@@ -168,7 +184,10 @@ fn validate_charge_constraints(
     charge_req: &ChargeRequest,
 ) -> Result<()> {
     if let Some(ref max_amount) = query.max_amount {
-        let normalized = normalize_max_amount(max_amount);
+        let network = network_from_charge_request(charge_req)?;
+        let token_config = network.token_config_by_address(&charge_req.currency);
+        let decimals = token_config.map(|t| t.currency.decimals).unwrap_or(6);
+        let normalized = normalize_max_amount(max_amount, decimals);
         charge_req
             .validate_max_amount(&normalized)
             .context("Amount validation failed")?;
@@ -604,23 +623,29 @@ mod tests {
 
     #[test]
     fn test_normalize_max_amount_integer_passthrough() {
-        assert_eq!(normalize_max_amount("50000"), "50000");
-        assert_eq!(normalize_max_amount("1000000"), "1000000");
-        assert_eq!(normalize_max_amount("0"), "0");
+        assert_eq!(normalize_max_amount("50000", 6), "50000");
+        assert_eq!(normalize_max_amount("1000000", 6), "1000000");
+        assert_eq!(normalize_max_amount("0", 6), "0");
     }
 
     #[test]
     fn test_normalize_max_amount_decimal_to_atomic() {
-        assert_eq!(normalize_max_amount("0.05"), "50000");
-        assert_eq!(normalize_max_amount("1.0"), "1000000");
-        assert_eq!(normalize_max_amount("1.5"), "1500000");
-        assert_eq!(normalize_max_amount("0.000001"), "1");
-        assert_eq!(normalize_max_amount("100.0"), "100000000");
+        assert_eq!(normalize_max_amount("0.05", 6), "50000");
+        assert_eq!(normalize_max_amount("1.0", 6), "1000000");
+        assert_eq!(normalize_max_amount("1.5", 6), "1500000");
+        assert_eq!(normalize_max_amount("0.000001", 6), "1");
+        assert_eq!(normalize_max_amount("100.0", 6), "100000000");
+    }
+
+    #[test]
+    fn test_normalize_max_amount_18_decimals() {
+        assert_eq!(normalize_max_amount("1.0", 18), "1000000000000000000");
+        assert_eq!(normalize_max_amount("0.5", 18), "500000000000000000");
     }
 
     #[test]
     fn test_normalize_max_amount_invalid_decimal() {
-        assert_eq!(normalize_max_amount("abc.def"), "abc.def");
+        assert_eq!(normalize_max_amount("abc.def", 6), "abc.def");
     }
 
     #[test]
