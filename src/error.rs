@@ -83,6 +83,10 @@ pub enum PrestoError {
     #[error("Spending limit query failed: {0}")]
     SpendingLimitQuery(String),
 
+    /// Access key is not provisioned on-chain
+    #[error("Access key is not provisioned on-chain. Run ' tempo-walletlogin' to set up your key.")]
+    AccessKeyNotProvisioned,
+
     /// Access key spending limit exceeded on-chain
     #[error("Spending limit exceeded: limit is {limit} {token}, need {required} {token}")]
     SpendingLimitExceeded {

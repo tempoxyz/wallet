@@ -24,7 +24,7 @@ set -euo pipefail
 STDERR_FILE=$(mktemp)
 trap 'rm -f "$STDERR_FILE"' EXIT
 
-ENDPOINT="https://openai.payments.tempo.xyz/v1/chat/completions"
+ENDPOINT="https://openai.mpp.tempo.xyz/v1/chat/completions"
 MODEL="gpt-4o-mini"
 PROMPT="${1:-Tell me a fortune in one sentence.}"
 

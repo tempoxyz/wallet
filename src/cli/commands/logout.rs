@@ -4,13 +4,10 @@ use anyhow::Result;
 
 use crate::wallet::credentials::WalletCredentials;
 
-pub async fn run_logout(yes: bool, network: Option<&str>) -> Result<()> {
+pub async fn run_logout(yes: bool) -> Result<()> {
     let mut creds = WalletCredentials::load()?;
-    if let Some(n) = network {
-        creds.network = n.to_string();
-    }
 
-    if creds.active_wallet().is_none() {
+    if !creds.has_wallet() {
         println!("No wallet connected.");
         return Ok(());
     }
@@ -33,7 +30,7 @@ pub async fn run_logout(yes: bool, network: Option<&str>) -> Result<()> {
         }
     }
 
-    creds.clear_wallet();
+    creds.clear();
     creds.save()?;
     println!("Wallet disconnected.");
     Ok(())

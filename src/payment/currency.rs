@@ -3,9 +3,9 @@
 /// Represents a cryptocurrency or token with its metadata
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Currency {
-    /// Symbol/ticker (e.g., "pathUSD")
+    /// Symbol/ticker (e.g., "USDC.e", "pathUSD")
     pub symbol: &'static str,
-    /// Full name (e.g., "pathUSD")
+    /// Full name (e.g., "USDC.e", "pathUSD")
     pub name: &'static str,
     /// Number of decimal places
     pub decimals: u8,
@@ -56,7 +56,6 @@ impl Currency {
     ///
     /// Unlike `format_atomic`, this trims trailing zeros for cleaner display.
     /// e.g., "1.500000 pathUSD" becomes "1.5 pathUSD"
-    #[cfg(test)]
     pub fn format_trimmed(&self, atomic: u128) -> String {
         let divisor = self.divisor as u128;
         let whole = atomic / divisor;
@@ -92,8 +91,10 @@ impl Currency {
 pub mod currencies {
     use super::Currency;
 
-    /// pathUSD - primary Tempo stablecoin at 0x20c0000000000000000000000000000000000000
+    /// pathUSD - Tempo testnet stablecoin
     pub const PATH_USD: Currency = Currency::new("pathUSD", "pathUSD", 6);
+    /// USDC.e - Bridged USDC on Tempo mainnet
+    pub const USDCE: Currency = Currency::new("USDC.e", "USDC.e", 6);
 }
 
 #[cfg(test)]

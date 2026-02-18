@@ -170,7 +170,7 @@ tests:
       expect: "{\"presto\":{\"should_invoke\":true,\"argv_contains\":[\"-i\",\"--include\"]},\"curl\":{\"should_invoke\":false}}"
   - description: "usage-session-close [trigger-positive]"
     vars:
-      prompt: "Close the payment session for openrouter.payments.tempo.xyz."
+      prompt: "Close the payment session for openrouter.mpp.tempo.xyz."
       expect: "{\"presto\":{\"should_invoke\":true,\"argv_contains\":[\"session\"]}}"
   - description: "neg-github-api [trigger-negative]"
     vars:

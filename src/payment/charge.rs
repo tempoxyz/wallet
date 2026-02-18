@@ -10,7 +10,7 @@ use mpp::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge
 use crate::cli::formatting::format_address_link;
 use crate::cli::hyperlink::hyperlink;
 use crate::cli::{Cli, QueryArgs};
-use crate::config::{Config, WalletConfig};
+use crate::config::Config;
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::explorer::ExplorerConfig;
@@ -70,7 +70,7 @@ pub async fn handle_charge_request(
     validate_charge_constraints(&request_ctx.query, &request_ctx.cli, &charge_req)?;
 
     if request_ctx.query.dry_run {
-        return handle_web_dry_run(config, &challenge, &charge_req, explorer.as_ref());
+        return handle_web_dry_run(&challenge, &charge_req, explorer.as_ref());
     }
 
     // Use mpp::client::PaymentProvider to create the credential
@@ -101,7 +101,17 @@ pub async fn handle_charge_request(
         return Err(parse_payment_rejection(&response).into());
     }
 
-    display_web_receipt(&request_ctx.cli, &response, explorer.as_ref())?;
+    let token_symbol = network_enum
+        .token_config_by_address(&charge_req.currency)
+        .map(|t| t.currency)
+        .unwrap_or(crate::payment::currency::currencies::USDCE);
+    display_web_receipt(
+        &request_ctx.cli,
+        &response,
+        explorer.as_ref(),
+        &charge_req.amount,
+        &token_symbol,
+    )?;
 
     Ok(response)
 }
@@ -211,17 +221,17 @@ fn validate_charge_constraints(
 
 /// Handle dry-run mode for web payments
 fn handle_web_dry_run(
-    config: &Config,
     challenge: &PaymentChallenge,
     charge_req: &ChargeRequest,
     explorer: Option<&ExplorerConfig>,
 ) -> Result<HttpResponse> {
     let network = network_from_charge_request(charge_req)?;
 
-    let from_address = config
-        .require_evm()
-        .and_then(|evm| evm.get_address())
-        .unwrap_or_else(|_| "unknown".to_string());
+    let from_address = crate::wallet::credentials::WalletCredentials::load()
+        .ok()
+        .filter(|c| c.has_wallet())
+        .map(|c| c.account_address)
+        .unwrap_or_else(|| "unknown".to_string());
 
     println!("[DRY RUN] Web Payment would be made:");
     println!("Protocol: MPP (https://mpp.sh)");
@@ -253,24 +263,34 @@ fn display_web_receipt(
     cli: &Cli,
     response: &HttpResponse,
     explorer: Option<&ExplorerConfig>,
+    amount: &str,
+    currency: &crate::payment::currency::Currency,
 ) -> Result<()> {
     if let Some(receipt_header) = response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_header) {
-            if cli.is_verbose() && cli.should_show_output() {
+            if cli.should_show_output() {
                 let tx_ref = extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
-                eprintln!("Payment receipt:");
-                eprintln!("  Status: {}", receipt.status);
-                eprintln!("  Method: {}", receipt.method);
 
-                let tx_display = if let Some(exp) = explorer {
+                // Format amount: "0.01 USDC.e"
+                let amount_display = amount
+                    .parse::<u128>()
+                    .ok()
+                    .map(|a| currency.format_trimmed(a))
+                    .unwrap_or_else(|| format!("{} {}", amount, currency.symbol));
+
+                let link = if let Some(exp) = explorer {
                     let url = exp.tx_url(&tx_ref);
-                    hyperlink(&tx_ref, &url)
+                    hyperlink(&url, &url)
                 } else {
                     tx_ref
                 };
-                eprintln!("  TX Hash: {}", tx_display);
+                eprintln!("Paid {amount_display} · {link}");
 
-                eprintln!("  Timestamp: {}", receipt.timestamp);
+                if cli.is_verbose() {
+                    eprintln!("  Status: {}", receipt.status);
+                    eprintln!("  Method: {}", receipt.method);
+                    eprintln!("  Timestamp: {}", receipt.timestamp);
+                }
             }
         }
     }
@@ -282,6 +302,10 @@ fn classify_payment_provider_error(err: mpp::MppError) -> crate::error::PrestoEr
     let raw = err.to_string();
     let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
     let msg_lower = msg.to_lowercase();
+
+    if msg_lower.contains("not provisioned") {
+        return crate::error::PrestoError::AccessKeyNotProvisioned;
+    }
 
     if msg_lower.contains("spending limit exceeded") || msg_lower.contains("spending limit too low")
     {

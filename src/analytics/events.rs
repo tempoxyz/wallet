@@ -145,13 +145,11 @@ impl EventPayload for SessionStartedPayload {}
 #[derive(Debug, Clone, Serialize)]
 pub struct KeyCreatedPayload {
     pub network: String,
-    pub label: String,
 }
 impl EventPayload for KeyCreatedPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CallbackWindowOpenedPayload {
-    pub is_refresh: bool,
     pub network: String,
 }
 impl EventPayload for CallbackWindowOpenedPayload {}

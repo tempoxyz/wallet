@@ -64,7 +64,8 @@ let value = something.unwrap();
 
 ```
 src/
-├── main.rs          # CLI entry point and request orchestration
+├── main.rs          # CLI entry point and module declarations
+├── request.rs       # Request orchestration (query → 402 → payment → response)
 ├── error.rs         # Error types (thiserror)
 ├── cli/             # Argument parsing (clap) and command implementations
 ├── config/          # Configuration file handling
@@ -104,12 +105,7 @@ use crate::config::Config;
 1. Add core logic in the appropriate module under `src/`
 2. Add CLI flags/commands in `src/cli/args.rs`, implement in `src/cli/commands/`
 3. Add tests: unit tests in source files, integration tests in `tests/`
-4. Update [SPEC.md](SPEC.md) if the change affects error messages, exit codes, or user-facing behavior
-5. Run `make check` — zero warnings required
-
-## Specification
-
-[SPEC.md](SPEC.md) defines expected CLI behaviors — error message formats, exit codes, and user-facing messages. Changes that affect user-facing output should conform to the spec, or update it.
+4. Run `make check` — zero warnings required
 
 ## Environment Variables
 

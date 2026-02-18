@@ -76,8 +76,20 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
             Some("Check your wallet configuration.".into())
         }
 
-        PrestoError::BalanceQuery(_) | PrestoError::SpendingLimitQuery(_) => {
+        PrestoError::BalanceQuery(_) => {
             Some("Check your network connection and RPC endpoint.".into())
+        }
+
+        PrestoError::AccessKeyNotProvisioned => {
+            Some("Run ' tempo-walletlogin' to provision your access key.".into())
+        }
+
+        PrestoError::SpendingLimitQuery(msg) => {
+            if msg.contains("revoked") || msg.contains("expired") {
+                Some("Run ' tempo-walletlogin' to generate a fresh access key.".into())
+            } else {
+                Some("Check your network connection and RPC endpoint.".into())
+            }
         }
 
         PrestoError::SpendingLimitExceeded { .. } => {
@@ -87,7 +99,11 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
         PrestoError::InsufficientBalance { .. } => Some("Deposit funds into your wallet.".into()),
 
         PrestoError::PaymentRejected { reason, .. } => {
-            if reason.contains("insufficient") {
+            if reason.contains("access key does not exist")
+                || reason.contains("access key is not provisioned")
+            {
+                Some("Run ' tempo-walletlogin' to provision your access key.".into())
+            } else if reason.contains("insufficient") {
                 Some("The price may have changed. Try the request again.".into())
             } else {
                 Some("Try the request again.".into())
