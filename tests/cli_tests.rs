@@ -9,6 +9,18 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
+use common::{test_command, TestConfigBuilder};
+
+#[test]
+fn test_login_mock_device_code() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.env("PRESTO_MOCK_DEVICE_CODE", "1");
+    cmd.arg("login");
+    cmd.assert()
+        .success()
+        .stdout(predicates::str::contains("Tempo wallet connected!"));
+}
 
 #[test]
 fn test_completions_bash() {

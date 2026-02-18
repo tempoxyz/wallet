@@ -1,9 +1,10 @@
 //! Wallet management: signers and Tempo passkey wallets.
 
 pub mod access_key;
-mod auth_server;
 pub mod credentials;
+mod device_code;
 mod manager;
+mod pkce;
 pub mod signer;
 
 pub use access_key::AccessKey;
