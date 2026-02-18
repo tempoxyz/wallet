@@ -2,7 +2,6 @@
 
 use alloy::primitives::Address;
 use alloy::providers::ProviderBuilder;
-use alloy::rlp::Decodable;
 use tempo_primitives::transaction::SignedKeyAuthorization;
 use tracing::debug;
 
@@ -180,11 +179,10 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
 }
 
 fn decode_pending_auth(wallet: &NetworkWallet) -> Option<SignedKeyAuthorization> {
-    let hex_str = wallet.pending_key_authorization.as_ref()?;
-    let raw = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = hex::decode(raw).ok()?;
-    let mut slice = bytes.as_slice();
-    SignedKeyAuthorization::decode(&mut slice).ok()
+    wallet
+        .pending_key_authorization
+        .as_deref()
+        .and_then(crate::wallet::decode_key_authorization)
 }
 
 async fn query_spending_limits(

@@ -21,8 +21,8 @@ pub fn list_sessions() -> Result<()> {
         } else {
             ""
         };
-        let cumulative: f64 = session.cumulative_amount.parse::<u128>().unwrap_or(0) as f64 / 1e6;
-        let deposit: f64 = session.deposit.parse::<u128>().unwrap_or(0) as f64 / 1e6;
+        let cumulative: f64 = session.cumulative_amount_u128().unwrap_or(0) as f64 / 1e6;
+        let deposit: f64 = session.deposit_u128().unwrap_or(0) as f64 / 1e6;
 
         println!("  Origin:     {}", session.origin);
         println!("  Network:    {}", session.network_name);

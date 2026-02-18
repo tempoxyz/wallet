@@ -48,6 +48,32 @@ fn default_version() -> u32 {
 }
 
 impl SessionRecord {
+    /// Parse the cumulative amount.
+    pub fn cumulative_amount_u128(&self) -> anyhow::Result<u128> {
+        self.cumulative_amount
+            .parse()
+            .context("Invalid cumulative_amount in session record")
+    }
+
+    /// Parse the deposit amount.
+    pub fn deposit_u128(&self) -> anyhow::Result<u128> {
+        self.deposit
+            .parse()
+            .context("Invalid deposit in session record")
+    }
+
+    /// Parse the channel ID.
+    pub fn channel_id_b256(&self) -> anyhow::Result<alloy::primitives::B256> {
+        self.channel_id
+            .parse()
+            .context("Invalid channel_id in session record")
+    }
+
+    /// Update the cumulative amount.
+    pub fn set_cumulative_amount(&mut self, amount: u128) {
+        self.cumulative_amount = amount.to_string();
+    }
+
     /// Returns `true` if this session has expired.
     pub fn is_expired(&self) -> bool {
         let now = std::time::SystemTime::now()

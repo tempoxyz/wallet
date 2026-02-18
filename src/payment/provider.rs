@@ -14,7 +14,6 @@ use crate::payment::providers::tempo::{
 use crate::wallet::signer::load_signer_with_priority;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
-use alloy::rlp::Decodable;
 use alloy::sol;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -134,18 +133,8 @@ impl PrestoPaymentProvider {
 
         let pending_auth = signer_ctx
             .pending_key_authorization
-            .as_ref()
-            .map(|hex_str| {
-                let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-                let bytes = hex::decode(hex_str).map_err(|e| {
-                    mpp::MppError::Http(format!("Invalid pending key authorization hex: {}", e))
-                })?;
-                let mut slice = bytes.as_slice();
-                SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
-                    mpp::MppError::Http(format!("Invalid pending key authorization RLP: {}", e))
-                })
-            })
-            .transpose()?;
+            .as_deref()
+            .and_then(crate::wallet::decode_key_authorization);
 
         let from = wallet_address.unwrap_or(key_address);
 
@@ -445,7 +434,16 @@ pub async fn query_token_balance(
             PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
-    let contract = IERC20::new(token_address, &provider);
+    query_token_balance_with_provider(&provider, token_address, account).await
+}
+
+/// Query the balance of a specific token using an already-constructed provider.
+pub async fn query_token_balance_with_provider<P: alloy::providers::Provider + Clone>(
+    provider: &P,
+    token_address: Address,
+    account: Address,
+) -> Result<U256> {
+    let contract = IERC20::new(token_address, provider);
     let balance = contract
         .balanceOf(account)
         .call()

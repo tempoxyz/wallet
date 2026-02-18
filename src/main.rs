@@ -14,24 +14,19 @@ mod error;
 mod http;
 mod network;
 mod payment;
+mod request;
 mod util;
 mod wallet;
-
-use mpp::PaymentProtocol;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, QueryArgs, SessionCommands, Shell};
+use cli::{Cli, ColorMode, Commands, SessionCommands, Shell};
 use colored::control;
 
 use analytics::Analytics;
-use cli::output::handle_regular_response;
-use config::{load_config, load_config_with_overrides};
-use http::request::RequestContext;
-use payment::charge::handle_charge_request;
-use payment::session::{handle_session_request, SessionResult};
+use config::load_config;
 
 /// Entry point for the presto CLI.
 ///
@@ -138,7 +133,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
     }
 
     let result = match command {
-        Commands::Query(query) => make_request(cli, *query, analytics.clone()).await,
+        Commands::Query(query) => request::make_request(cli, *query, analytics.clone()).await,
 
         Commands::Login => {
             let network = cli.network.as_deref();
@@ -250,274 +245,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
     }
 
     result
-}
-
-/// Make an HTTP request (main flow)
-async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) -> Result<()> {
-    let mut config = load_config_with_overrides(&cli)?;
-
-    let url = query.url.clone();
-    let request_ctx = RequestContext::new(cli, query)?;
-    let method_str = request_ctx.method.to_string();
-
-    if let Some(ref a) = analytics {
-        a.track(
-            analytics::Event::QueryStarted,
-            analytics::QueryStartedPayload {
-                url: url.clone(),
-                method: method_str.clone(),
-            },
-        );
-    }
-
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
-        eprintln!("Making {} request to: {url}", request_ctx.method);
-    }
-
-    let response = match request_ctx.execute(&url, None).await {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(ref a) = analytics {
-                a.track(
-                    analytics::Event::QueryFailure,
-                    analytics::QueryFailurePayload {
-                        url: url.clone(),
-                        method: method_str,
-                        error: e.to_string(),
-                    },
-                );
-            }
-            return Err(e);
-        }
-    };
-
-    if !response.is_payment_required() {
-        if let Some(ref a) = analytics {
-            a.track(
-                analytics::Event::QuerySuccess,
-                analytics::QuerySuccessPayload {
-                    url: url.clone(),
-                    method: method_str,
-                    status_code: response.status_code,
-                },
-            );
-        }
-        let status = response.status_code;
-        handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
-        if status >= 400 {
-            anyhow::bail!(crate::error::PrestoError::Http(format!(
-                "{} {}",
-                status,
-                http_status_text(status)
-            )));
-        }
-        return Ok(());
-    }
-
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
-        eprintln!("402 status: payment required");
-    }
-
-    let has_wallet = config.evm.is_some()
-        || wallet::credentials::WalletCredentials::load()
-            .ok()
-            .and_then(|c| c.active_wallet().cloned())
-            .is_some();
-
-    if !has_wallet && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
-        use std::io::IsTerminal;
-        if std::io::stdin().is_terminal() {
-            eprintln!("This request requires payment. Let's connect your wallet first.\n");
-            let network = request_ctx.cli.network.as_deref();
-            cli::commands::login::run_login(network, analytics.clone()).await?;
-            eprintln!("\nRetrying request...");
-            config = load_config_with_overrides(&request_ctx.cli)?;
-        } else {
-            anyhow::bail!(crate::error::PrestoError::ConfigMissing(
-                "No wallet configured. Run 'presto login' to connect your wallet, then retry the request.".to_string()
-            ));
-        }
-    }
-
-    let protocol =
-        PaymentProtocol::detect(response.get_header("www-authenticate").map(|s| s.as_str()));
-
-    let Some(protocol) = protocol else {
-        anyhow::bail!(crate::error::PrestoError::MissingHeader(
-            "WWW-Authenticate: Payment".to_string()
-        ));
-    };
-
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
-        eprintln!("Payment protocol: {}", protocol);
-    }
-
-    // Extract payment details from 402 response for analytics
-    let (pay_network, pay_amount, pay_currency) = response
-        .get_header("www-authenticate")
-        .and_then(|h| mpp::parse_www_authenticate(h).ok())
-        .map(|challenge| {
-            let charge: Option<mpp::ChargeRequest> = challenge.request.decode().ok();
-            let network = charge
-                .as_ref()
-                .and_then(|c| payment::mpp_ext::network_from_charge_request(c).ok())
-                .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            let amount = charge
-                .as_ref()
-                .map(|c| c.amount.clone())
-                .unwrap_or_default();
-            let currency = charge
-                .as_ref()
-                .map(|c| c.currency.clone())
-                .unwrap_or_default();
-            (network, amount, currency)
-        })
-        .unwrap_or_default();
-
-    if let Some(ref a) = analytics {
-        a.track(
-            analytics::Event::PaymentStarted,
-            analytics::PaymentStartedPayload {
-                network: pay_network.clone(),
-                amount: pay_amount.clone(),
-                currency: pay_currency.clone(),
-            },
-        );
-    }
-
-    // Detect intent from challenge to branch between charge and session flows.
-    let is_session = response
-        .get_header("www-authenticate")
-        .and_then(|h| mpp::parse_www_authenticate(h).ok())
-        .is_some_and(|challenge| challenge.intent.is_session());
-
-    if is_session {
-        if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
-            eprintln!("Payment intent: session");
-        }
-
-        match handle_session_request(&config, &request_ctx, &url, &response).await {
-            Ok(result) => {
-                if let Some(ref a) = analytics {
-                    a.track(
-                        analytics::Event::PaymentSuccess,
-                        analytics::PaymentSuccessPayload {
-                            network: pay_network,
-                            amount: pay_amount,
-                            currency: pay_currency,
-                            tx_hash: String::new(),
-                        },
-                    );
-                    a.track(
-                        analytics::Event::QuerySuccess,
-                        analytics::QuerySuccessPayload {
-                            url: url.clone(),
-                            method: method_str,
-                            status_code: 200,
-                        },
-                    );
-                }
-                match result {
-                    SessionResult::Streamed => Ok(()),
-                    SessionResult::Response(resp) => {
-                        let status = resp.status_code;
-                        handle_regular_response(&request_ctx.cli, &request_ctx.query, resp)?;
-                        if status >= 400 {
-                            anyhow::bail!(crate::error::PrestoError::Http(format!(
-                                "{} {}",
-                                status,
-                                http_status_text(status)
-                            )));
-                        }
-                        Ok(())
-                    }
-                }
-            }
-            Err(e) => {
-                if let Some(ref a) = analytics {
-                    a.track(
-                        analytics::Event::PaymentFailure,
-                        analytics::PaymentFailurePayload {
-                            network: pay_network,
-                            amount: pay_amount,
-                            currency: pay_currency,
-                            error: e.to_string(),
-                        },
-                    );
-                }
-                Err(e)
-            }
-        }
-    } else {
-        match handle_charge_request(&config, &request_ctx, &url, &response).await {
-            Ok(response) => {
-                if let Some(ref a) = analytics {
-                    a.track(
-                        analytics::Event::PaymentSuccess,
-                        analytics::PaymentSuccessPayload {
-                            network: pay_network,
-                            amount: pay_amount,
-                            currency: pay_currency,
-                            tx_hash: response
-                                .get_header("payment-receipt")
-                                .cloned()
-                                .unwrap_or_default(),
-                        },
-                    );
-                    a.track(
-                        analytics::Event::QuerySuccess,
-                        analytics::QuerySuccessPayload {
-                            url: url.clone(),
-                            method: method_str,
-                            status_code: response.status_code,
-                        },
-                    );
-                }
-                let status = response.status_code;
-                handle_regular_response(&request_ctx.cli, &request_ctx.query, response)?;
-                if status >= 400 {
-                    anyhow::bail!(crate::error::PrestoError::Http(format!(
-                        "{} {}",
-                        status,
-                        http_status_text(status)
-                    )));
-                }
-                Ok(())
-            }
-            Err(e) => {
-                if let Some(ref a) = analytics {
-                    a.track(
-                        analytics::Event::PaymentFailure,
-                        analytics::PaymentFailurePayload {
-                            network: pay_network,
-                            amount: pay_amount,
-                            currency: pay_currency,
-                            error: e.to_string(),
-                        },
-                    );
-                }
-                Err(e)
-            }
-        }
-    }
-}
-
-fn http_status_text(code: u32) -> &'static str {
-    match code {
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        408 => "Request Timeout",
-        429 => "Too Many Requests",
-        500 => "Internal Server Error",
-        502 => "Bad Gateway",
-        503 => "Service Unavailable",
-        504 => "Gateway Timeout",
-        _ => "Error",
-    }
 }
 
 // ==================== Simple Commands ====================

@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use crate::network::tempo_tokens;
+
 /// Application name for XDG directories
 pub const APP_NAME: &str = "presto";
 
@@ -18,9 +20,6 @@ pub fn default_config_path() -> Option<PathBuf> {
     presto_config_dir().map(|p| p.join(CONFIG_FILE))
 }
 
-/// ERC-20 balanceOf function selector
-pub const BALANCE_OF_SELECTOR: &str = "0x70a08231";
-
 /// A built-in stablecoin token with name and address
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinToken {
@@ -33,7 +32,7 @@ pub struct BuiltinToken {
 /// Built-in stablecoin tokens on Tempo
 pub const BUILTIN_TOKENS: &[BuiltinToken] = &[BuiltinToken {
     symbol: "pathUSD",
-    address: "0x20c0000000000000000000000000000000000000",
+    address: tempo_tokens::PATH_USD,
 }];
 
 #[cfg(test)]
