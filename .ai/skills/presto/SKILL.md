@@ -12,6 +12,22 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
 
+## Important: Mainnet RPC
+
+The Tempo mainnet RPC requires authentication. Set `PRESTO_RPC_URL` before making mainnet payments:
+
+```bash
+export PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz'
+```
+
+Or pass it per-request with `-r`:
+
+```bash
+presto -r 'https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' ...
+```
+
+Without this, balance queries and payments on mainnet will fail with a 401 error.
+
 ## Available Services
 
 To see the current list of available services and their endpoints, fetch the live directory:
@@ -23,6 +39,7 @@ curl -s https://mpp.tempo.xyz/services | jq '.[].id'
 The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.mpp.tempo.xyz`. For example:
 - OpenAI: `https://openai.mpp.tempo.xyz/v1/chat/completions`
 - Anthropic: `https://anthropic.mpp.tempo.xyz/v1/messages`
+- fal (image gen): `https://fal.mpp.tempo.xyz/fal-ai/flux/schnell`
 
 To get full details for a specific service (routes, pricing):
 ```bash
@@ -50,14 +67,28 @@ presto --dry-run https://api.example.com/data
 | Command | Description |
 |---------|-------------|
 | `presto <URL>` | Make an HTTP request with automatic payment |
-| `presto login` | Connect your Tempo wallet via browser |
+| `presto login` | Connect your Tempo wallet via browser (device code flow) |
 | `presto logout` | Disconnect your wallet |
-| `presto balance` | Check wallet token balances |
+| `presto balance [ADDRESS]` | Check wallet token balances (optionally for a specific address) |
 | `presto whoami` | Show wallet address, balances, access keys, and readiness |
 | `presto session list` | List active payment sessions |
-| `presto session close` | Close a payment session |
+| `presto session close [URL]` | Close a payment session (use `--all` to close all) |
+
+## Global Options
+
+These options are available on all commands:
+
+| Option | Description |
+|--------|-------------|
+| `-n, --network <NETWORKS>` | Filter to specific networks (e.g., `tempo`, `tempo-moderato`) |
+| `-v` | Verbose output (use `-vv` for debug) |
+| `-q, --quiet` | Suppress log messages |
+| `--output-format json` | JSON output format |
+| `--color never` | Disable colored output |
 
 ## Query Options
+
+These options apply when making HTTP requests (`presto <URL>`):
 
 ### Payment Options
 
@@ -65,7 +96,6 @@ presto --dry-run https://api.example.com/data
 |--------|-------------|
 | `-M, --max-amount <AMOUNT>` | Maximum amount willing to pay (e.g., `0.05` for dollars, or `50000` for atomic units) |
 | `--dry-run` | Show what would be paid without executing |
-| `-n, --network <NETWORKS>` | Filter to specific networks (e.g., `tempo`, `tempo-moderato`) |
 
 ### HTTP Options
 
@@ -77,18 +107,19 @@ presto --dry-run https://api.example.com/data
 | `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
 | `--no-redirect` | Disable following redirects |
 | `-m, --timeout <SECONDS>` | Maximum time for the request |
-| `-r, --rpc <URL>` | Override RPC URL |
+
+### RPC Options
+
+| Option | Description |
+|--------|-------------|
+| `-r, --rpc <URL>` | Override RPC URL for blockchain operations |
 
 ### Display Options
 
 | Option | Description |
 |--------|-------------|
-| `-v` | Verbose output (use `-vv` for debug) |
-| `-q, --quiet` | Suppress log messages |
 | `-i, --include` | Include HTTP response headers in output |
 | `-o, --output <FILE>` | Write output to file |
-| `--output-format json` | JSON output format |
-| `--color never` | Disable colored output |
 
 ## Real-World Examples
 
@@ -97,7 +128,8 @@ presto --dry-run https://api.example.com/data
 Each request is a separate on-chain transaction:
 
 ```bash
-presto -X POST \
+PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
+  presto -X POST \
   --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
   https://openai.mpp.tempo.xyz/v1/chat/completions
 ```
@@ -105,9 +137,19 @@ presto -X POST \
 ### OpenRouter via Tempo
 
 ```bash
-presto -v -X POST \
+PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
+  presto -v -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+```
+
+### Image Generation via fal
+
+```bash
+PRESTO_RPC_URL='https://eng:acard-melody-fashion-finish@rpc.mainnet.tempo.xyz' \
+  presto -v -X POST \
+  --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3","num_images":1}' \
+  https://fal.mpp.tempo.xyz/fal-ai/flux/schnell
 ```
 
 ### Payment Sessions (Multiple Requests, One Channel)
@@ -130,6 +172,9 @@ presto session list
 
 # Close a session when done
 presto session close https://openrouter.mpp.tempo.xyz
+
+# Close all sessions
+presto session close --all
 ```
 
 ### Limit Spending
@@ -159,6 +204,8 @@ presto balance -n tempo
 
 If presto fails with "No wallet configured" or "Run 'presto login'", **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
 
+If presto fails with a 401 RPC error, set `PRESTO_RPC_URL` to the authenticated mainnet RPC URL shown above.
+
 ## How Payment Works
 
 1. presto sends the HTTP request normally
@@ -171,8 +218,9 @@ If presto fails with "No wallet configured" or "Run 'presto login'", **automatic
 
 | Variable | Description |
 |----------|-------------|
+| `PRESTO_RPC_URL` | Override RPC URL (required for mainnet — see above) |
 | `PRESTO_MAX_AMOUNT` | Default max payment amount |
 | `PRESTO_NETWORK` | Default network filter |
-| `PRESTO_RPC_URL` | Override RPC URL |
+| `PRESTO_AUTH_URL` | Override auth server URL for login |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
 | `NO_COLOR` | Disable colored output |
