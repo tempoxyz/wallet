@@ -13,8 +13,6 @@ use mpp::ChargeRequest;
 use mpp::{MethodName, PaymentChallenge};
 
 use crate::error::{PrestoError, Result};
-use crate::network::networks;
-#[cfg(test)]
 use crate::network::Network;
 #[cfg(test)]
 use crate::payment::money::Money;
@@ -22,16 +20,31 @@ use crate::payment::money::Money;
 // Re-export TempoChargeExt for convenience
 pub use mpp::protocol::methods::tempo::TempoChargeExt;
 
-/// Map an mpp `MethodName` to a  tempo-walletnetwork name.
-///
-/// # Supported Mappings
-///
-/// - "tempo" → "tempo-moderato"
-pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
-    match method.as_str().to_lowercase().as_str() {
-        "tempo" => Some(networks::TEMPO_MODERATO),
-        _ => None,
-    }
+/// Check whether a payment method is supported by presto.
+pub fn is_supported_method(method: &MethodName) -> bool {
+    method.as_str().eq_ignore_ascii_case("tempo")
+}
+
+/// Derive the network from a charge request's chain ID.
+pub fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result<Network> {
+    use crate::payment::mpp_ext::TempoChargeExt;
+    let chain_id = req.chain_id().ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
+    })?;
+    Network::from_chain_id(chain_id).ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+    })
+}
+
+/// Derive the network from a session request's chain ID.
+pub fn network_from_session_request(req: &mpp::SessionRequest) -> crate::error::Result<Network> {
+    use mpp::protocol::methods::tempo::session::TempoSessionExt;
+    let chain_id = req.chain_id().ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig("Missing chainId in session request".to_string())
+    })?;
+    Network::from_chain_id(chain_id).ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+    })
 }
 
 /// Validate that a payment challenge can be processed by presto's charge flow.
@@ -41,7 +54,7 @@ pub fn method_to_network(method: &MethodName) -> Option<&'static str> {
 /// - The payment method is supported (has a network mapping)
 /// - The intent is "charge"
 pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
-    if method_to_network(&challenge.method).is_none() {
+    if !is_supported_method(&challenge.method) {
         return Err(PrestoError::UnsupportedPaymentMethod(format!(
             "Payment method '{}' is not supported. Supported methods: tempo",
             challenge.method
@@ -60,7 +73,7 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
 
 /// Validate that a payment challenge is a valid session challenge.
 pub fn validate_session_challenge(challenge: &PaymentChallenge) -> Result<()> {
-    if method_to_network(&challenge.method).is_none() {
+    if !is_supported_method(&challenge.method) {
         return Err(PrestoError::UnsupportedPaymentMethod(format!(
             "Payment method '{}' is not supported. Supported methods: tempo",
             challenge.method
@@ -137,24 +150,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_method_to_network_tempo() {
-        let method = MethodName::new("tempo");
-        assert_eq!(method_to_network(&method), Some(networks::TEMPO_MODERATO));
-    }
-
-    #[test]
-    fn test_method_to_network_case_insensitive() {
-        let method = MethodName::new("TEMPO");
-        assert_eq!(method_to_network(&method), Some(networks::TEMPO_MODERATO));
-    }
-
-    #[test]
-    fn test_method_to_network_unsupported() {
-        let method = MethodName::new("unknown");
-        assert_eq!(method_to_network(&method), None);
-
-        let method = MethodName::new("base");
-        assert_eq!(method_to_network(&method), None);
+    fn test_is_supported_method() {
+        assert!(is_supported_method(&MethodName::new("tempo")));
+        assert!(is_supported_method(&MethodName::new("TEMPO")));
+        assert!(!is_supported_method(&MethodName::new("unknown")));
+        assert!(!is_supported_method(&MethodName::new("base")));
     }
 
     #[test]

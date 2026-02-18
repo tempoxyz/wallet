@@ -118,6 +118,16 @@ impl Network {
         }
     }
 
+    /// Look up a network by its EVM chain ID.
+    pub fn from_chain_id(chain_id: u64) -> Option<Self> {
+        match chain_id {
+            evm_chain_ids::TEMPO => Some(Network::Tempo),
+            evm_chain_ids::TEMPO_MODERATO => Some(Network::TempoModerato),
+            evm_chain_ids::TEMPO_LOCALNET => Some(Network::TempoLocalnet),
+            _ => None,
+        }
+    }
+
     /// Check if this is a mainnet.
     #[cfg(test)]
     pub const fn is_mainnet(&self) -> bool {
@@ -360,5 +370,13 @@ mod tests {
         // Localnet has no explorer
         let localnet_info = Network::TempoLocalnet.info();
         assert!(localnet_info.explorer.is_none());
+    }
+
+    #[test]
+    fn test_from_chain_id() {
+        assert_eq!(Network::from_chain_id(4217), Some(Network::Tempo));
+        assert_eq!(Network::from_chain_id(42431), Some(Network::TempoModerato));
+        assert_eq!(Network::from_chain_id(1337), Some(Network::TempoLocalnet));
+        assert_eq!(Network::from_chain_id(99999), None);
     }
 }
