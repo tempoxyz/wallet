@@ -11,6 +11,7 @@ This is `presto` - a pure binary crate providing a command-line HTTP client with
 
 Single binary crate with source organized by module directories:
 - `src/main.rs` - CLI entry point and module declarations
+- `src/request.rs` - Request orchestration (query → 402 → payment → response)
 - `src/cli/` - CLI argument parsing and command implementations
 - `src/config/` - Configuration file handling
 - `src/http/` - HTTP client and request handling
@@ -42,7 +43,7 @@ When the user explicitly says "ask the oracle" to check a value, run `presto` ag
 
 Example:
 ```bash
-presto -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.payments.tempo.xyz/v1/chat/completions | jq
+presto -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements
@@ -127,9 +128,7 @@ use crate::common::{TestConfigBuilder, test_command};
 
 #[test]
 fn test_something() {
-    let temp_dir = TestConfigBuilder::new()
-        .with_default_evm()
-        .build();
+    let temp_dir = TestConfigBuilder::new().build();
     
     let mut cmd = test_command(&temp_dir);
     cmd.arg("--help");
@@ -219,28 +218,21 @@ For testing and development, these environment variables are used:
 
 ```rust
 struct Config {
-    evm: Option<EvmConfig>,       // Wallet config (alias: tempo)
     tempo_rpc: Option<String>,    // Typed RPC override for Tempo mainnet
     moderato_rpc: Option<String>, // Typed RPC override for Moderato testnet
     rpc: HashMap<String, String>, // General RPC overrides by network id
-    networks: Vec<CustomNetwork>, // Custom network definitions
 }
 ```
 
 **Network Resolution Priority:**
-1. Custom networks from `[[networks]]` config section
-2. Built-in networks (Tempo, Tempo Moderato) with RPC overrides:
-   - Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence
-   - General `[rpc]` table as fallback
-   - Default RPC if no override
+1. `PRESTO_RPC_URL` env var (overrides everything)
+2. Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence
+3. General `[rpc]` table as fallback
+4. Default RPC if no override
 
 **Built-in Networks:** `tempo` (chain 4217, mainnet), `tempo-moderato` (chain 42431, testnet)
 
-**Built-in Tokens:** pathUSD at fixed address
-
-## Spec
-
-See [SPEC.md](SPEC.md) for expected CLI behaviors (error formats, exit codes, user-facing messages).
+**Built-in Tokens:** USDC.e (mainnet), pathUSD (testnet)
 
 ## Documentation
 

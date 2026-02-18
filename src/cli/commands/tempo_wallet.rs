@@ -1,9 +1,15 @@
 //! Tempo wallet commands (passkey-based authentication).
 
-use crate::error::{PrestoError, Result};
-use crate::network::get_network;
-use crate::util::constants::{BALANCE_OF_SELECTOR, BUILTIN_TOKENS};
+use alloy::primitives::Address;
+use alloy::providers::ProviderBuilder;
 use serde::Serialize;
+use std::str::FromStr;
+use tracing::debug;
+
+use crate::network::get_network;
+use crate::payment::money::format_u256_with_decimals;
+use crate::payment::provider::query_token_balance_with_provider;
+use crate::util::constants::BUILTIN_TOKENS;
 
 #[derive(Debug, Serialize)]
 pub struct TokenBalance {
@@ -18,70 +24,45 @@ pub async fn query_all_balances(network: &str, account_address: &str) -> Vec<Tok
         None => return Vec::new(),
     };
 
-    let client = reqwest::Client::new();
+    let rpc_url = match network_info.rpc_url.parse() {
+        Ok(u) => u,
+        Err(_) => return Vec::new(),
+    };
+
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
+
+    let account: Address = match account_address.parse() {
+        Ok(a) => a,
+        Err(_) => return Vec::new(),
+    };
+
     let mut balances = Vec::new();
 
     for token in BUILTIN_TOKENS {
-        let balance = query_balance(
-            &client,
-            &network_info.rpc_url,
-            token.address,
-            account_address,
-        )
-        .await
-        .unwrap_or(0);
+        let token_address: Address = match Address::from_str(token.address) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
 
-        let whole = balance / 10u128.pow(6);
-        let frac = balance % 10u128.pow(6);
+        let balance =
+            match query_token_balance_with_provider(&provider, token_address, account).await {
+                Ok(b) => b,
+                Err(e) => {
+                    debug!(%e, token = token.symbol, "failed to query balance");
+                    continue;
+                }
+            };
+
+        // Convert U256 to u128 for backward compatibility (safe for token balances)
+        let balance_raw: u128 = balance.try_into().unwrap_or(u128::MAX);
+        let balance_human = format_u256_with_decimals(balance, 6);
 
         balances.push(TokenBalance {
             token: token.symbol.to_string(),
-            balance: format!("{}.{:06}", whole, frac),
-            balance_raw: balance,
+            balance: balance_human,
+            balance_raw,
         });
     }
 
     balances
-}
-
-async fn query_balance(
-    client: &reqwest::Client,
-    rpc_url: &str,
-    token_address: &str,
-    account_address: &str,
-) -> Result<u128> {
-    let address_without_prefix = account_address
-        .strip_prefix("0x")
-        .unwrap_or(account_address);
-    let padded_address = format!("{:0>64}", address_without_prefix);
-    let call_data = format!("{}{}", BALANCE_OF_SELECTOR, padded_address);
-
-    let response = client
-        .post(rpc_url)
-        .json(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "eth_call",
-            "params": [
-                {
-                    "to": token_address,
-                    "data": call_data
-                },
-                "latest"
-            ],
-            "id": 1
-        }))
-        .send()
-        .await?;
-
-    let json: serde_json::Value = response.json().await?;
-
-    if let Some(error) = json.get("error") {
-        return Err(PrestoError::BalanceQuery(error.to_string()));
-    }
-
-    let result = json.get("result").and_then(|r| r.as_str()).unwrap_or("0x0");
-    let balance_hex = result.strip_prefix("0x").unwrap_or(result);
-    let balance = u128::from_str_radix(balance_hex, 16).unwrap_or(0);
-
-    Ok(balance)
 }

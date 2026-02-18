@@ -49,14 +49,13 @@ pub async fn balance_command(
         Some(addr) => addr.to_string(),
         None => {
             let creds = crate::wallet::credentials::WalletCredentials::load()?;
-            creds
-                .active_wallet()
-                .map(|w| w.account_address.clone())
-                .ok_or_else(|| {
-                    crate::error::PrestoError::ConfigMissing(
-                        "No wallet connected. Run 'presto login' to connect.".to_string(),
-                    )
-                })?
+            if !creds.has_wallet() {
+                return Err(crate::error::PrestoError::ConfigMissing(
+                    "No wallet connected. Run 'presto login' to connect.".to_string(),
+                )
+                .into());
+            }
+            creds.account_address
         }
     };
 
@@ -149,17 +148,19 @@ mod tests {
     fn test_supported_tokens() {
         let tokens = Network::Tempo.supported_tokens();
         assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].currency.symbol, "USDC.e");
 
-        let symbols: Vec<_> = tokens.iter().map(|t| t.currency.symbol).collect();
-        assert!(symbols.contains(&"pathUSD"));
+        let tokens = Network::TempoModerato.supported_tokens();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].currency.symbol, "pathUSD");
     }
 
     #[test]
     fn test_token_config_by_address() {
         let config = Network::Tempo
-            .token_config_by_address(tempo_tokens::PATH_USD)
+            .token_config_by_address(tempo_tokens::USDCE)
             .unwrap();
-        assert_eq!(config.currency.symbol, "pathUSD");
+        assert_eq!(config.currency.symbol, "USDC.e");
         assert_eq!(config.currency.decimals, 6);
 
         let tempo_info = Network::Tempo.info();

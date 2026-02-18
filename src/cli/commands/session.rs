@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 
+use crate::network::Network;
 use crate::payment::session::close_session_from_record;
 use crate::payment::session_store;
 
@@ -21,13 +22,20 @@ pub fn list_sessions() -> Result<()> {
         } else {
             ""
         };
-        let cumulative: f64 = session.cumulative_amount.parse::<u128>().unwrap_or(0) as f64 / 1e6;
-        let deposit: f64 = session.deposit.parse::<u128>().unwrap_or(0) as f64 / 1e6;
+        let cumulative: f64 = session.cumulative_amount_u128().unwrap_or(0) as f64 / 1e6;
+        let deposit: f64 = session.deposit_u128().unwrap_or(0) as f64 / 1e6;
 
         println!("  Origin:     {}", session.origin);
         println!("  Network:    {}", session.network_name);
         println!("  Channel:    {}", session.channel_id);
-        println!("  Spent:      {cumulative:.6} / {deposit:.6} pathUSD");
+        let symbol = session
+            .network_name
+            .parse::<Network>()
+            .ok()
+            .and_then(|n| n.token_config_by_address(&session.currency))
+            .map(|t| t.currency.symbol)
+            .unwrap_or("tokens");
+        println!("  Spent:      {cumulative:.6} / {deposit:.6} {symbol}");
         println!(
             "  Status:     {}{}",
             if session.is_expired() {

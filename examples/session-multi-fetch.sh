@@ -21,7 +21,7 @@ set -euo pipefail
 STDERR_FILE=$(mktemp)
 trap 'rm -f "$STDERR_FILE"' EXIT
 
-ENDPOINT="https://openrouter.payments.tempo.xyz/v1/chat/completions"
+ENDPOINT="https://openrouter.mpp.tempo.xyz/v1/chat/completions"
 MODEL="openai/gpt-4o-mini"
 
 # 9 short prompts — one request per prompt, all over a single session channel

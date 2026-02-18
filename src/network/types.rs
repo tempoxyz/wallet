@@ -28,8 +28,10 @@ pub mod evm_chain_ids {
 
 /// Supported Tempo stablecoin token addresses
 pub mod tempo_tokens {
-    /// pathUSD token address
+    /// pathUSD token address (testnet)
     pub const PATH_USD: &str = "0x20c0000000000000000000000000000000000000";
+    /// USDC.e token address (mainnet)
+    pub const USDCE: &str = "0x20c000000000000000000000b9537d11c60e8b50";
 }
 
 /// Runtime network information
@@ -149,7 +151,7 @@ impl Network {
     /// Get the explorer base URL for this network (if available).
     pub const fn explorer_url(&self) -> Option<&'static str> {
         match self {
-            Network::Tempo => Some("https://explore.tempo.xyz"),
+            Network::Tempo => Some("https://explore.mainnet.tempo.xyz"),
             Network::TempoModerato => Some("https://explore.moderato.tempo.xyz"),
             Network::TempoLocalnet => None,
         }
@@ -173,10 +175,16 @@ impl Network {
     pub fn supported_tokens(&self) -> Vec<TokenConfig> {
         use crate::payment::currency::currencies;
 
-        vec![TokenConfig {
-            currency: currencies::PATH_USD,
-            address: tempo_tokens::PATH_USD,
-        }]
+        match self {
+            Network::Tempo => vec![TokenConfig {
+                currency: currencies::USDCE,
+                address: tempo_tokens::USDCE,
+            }],
+            _ => vec![TokenConfig {
+                currency: currencies::PATH_USD,
+                address: tempo_tokens::PATH_USD,
+            }],
+        }
     }
 
     /// Get token configuration by address (case-insensitive).
@@ -192,20 +200,16 @@ impl Network {
     pub fn require_token_config(&self, address: &str) -> crate::error::Result<TokenConfig> {
         self.token_config_by_address(address).ok_or_else(|| {
             crate::error::PrestoError::UnsupportedToken(format!(
-                "Currency {} is not supported on {}. Supported tokens: pathUSD",
+                "Currency {} is not supported on {}",
                 address, self
             ))
         })
     }
 
-    /// Get the default token configuration (pathUSD) for this network.
+    /// Get the default token configuration for this network.
     #[cfg(test)]
     pub(crate) fn default_token_config(&self) -> TokenConfig {
-        use crate::payment::currency::currencies;
-        TokenConfig {
-            currency: currencies::PATH_USD,
-            address: tempo_tokens::PATH_USD,
-        }
+        self.supported_tokens()[0]
     }
 
     /// Check if this is the localnet (local development) network.
@@ -326,17 +330,29 @@ mod tests {
     }
 
     #[test]
-    fn test_supported_tokens() {
+    fn test_supported_tokens_mainnet() {
         let tokens = Network::Tempo.supported_tokens();
         assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].currency.symbol, "USDC.e");
+        assert_eq!(tokens[0].address, tempo_tokens::USDCE);
+    }
 
-        let symbols: Vec<_> = tokens.iter().map(|t| t.currency.symbol).collect();
-        assert!(symbols.contains(&"pathUSD"));
+    #[test]
+    fn test_supported_tokens_testnet() {
+        let tokens = Network::TempoModerato.supported_tokens();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].currency.symbol, "pathUSD");
+        assert_eq!(tokens[0].address, tempo_tokens::PATH_USD);
     }
 
     #[test]
     fn test_token_config_by_address() {
         let config = Network::Tempo
+            .token_config_by_address(tempo_tokens::USDCE)
+            .unwrap();
+        assert_eq!(config.currency.symbol, "USDC.e");
+
+        let config = Network::TempoModerato
             .token_config_by_address(tempo_tokens::PATH_USD)
             .unwrap();
         assert_eq!(config.currency.symbol, "pathUSD");
