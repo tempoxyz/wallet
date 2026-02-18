@@ -6,8 +6,6 @@ use crate::wallet::WalletManager;
 use anyhow::{Context, Result};
 
 pub async fn run_login(network: Option<&str>, analytics: Option<Analytics>) -> Result<()> {
-    println!("Connecting your Tempo wallet...");
-
     let manager = WalletManager::new(network, analytics);
     manager.setup_wallet().await?;
 
