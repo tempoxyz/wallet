@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// let explorer = ExplorerConfig::tempo("https://explore.tempo.xyz");
 /// assert_eq!(
 ///     explorer.tx_url("0xabc123"),
-///     "https://explore.tempo.xyz/tx/0xabc123"
+///     "https://explore.tempo.xyz/receipt/0xabc123"
 /// );
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +33,7 @@ pub struct ExplorerConfig {
 }
 
 fn default_tx_path() -> String {
-    "/tx/{hash}".to_string()
+    "/receipt/{hash}".to_string()
 }
 
 fn default_block_path() -> String {
@@ -47,7 +47,7 @@ fn default_address_path() -> String {
 impl ExplorerConfig {
     /// Create a Tempo explorer config.
     ///
-    /// Uses Tempo-specific paths: `/tx/{hash}` for transactions.
+    /// Uses Tempo-specific paths: `/receipt/{hash}` for transactions.
     pub fn tempo(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
@@ -82,7 +82,7 @@ mod tests {
 
         assert_eq!(
             explorer.tx_url("0xabc123"),
-            "https://explore.tempo.xyz/tx/0xabc123"
+            "https://explore.tempo.xyz/receipt/0xabc123"
         );
         assert_eq!(
             explorer.address_url("0x742d35Cc"),
@@ -99,7 +99,7 @@ mod tests {
         let explorer: ExplorerConfig =
             serde_json::from_str(json).expect("should deserialize explorer config");
         assert_eq!(explorer.base_url, "https://explore.tempo.xyz");
-        assert_eq!(explorer.tx_path, "/tx/{hash}");
+        assert_eq!(explorer.tx_path, "/receipt/{hash}");
         assert_eq!(explorer.block_path, "/block/{num}");
         assert_eq!(explorer.address_path, "/address/{addr}");
     }

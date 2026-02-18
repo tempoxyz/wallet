@@ -134,7 +134,7 @@ pub async fn handle_session_request(
     let origin = extract_origin(url);
     let session_key = session_store::session_key(url);
 
-    // Determine deposit: use suggested_deposit or default to 1 pathUSD
+    // Determine deposit: use suggested_deposit or default to 1 token (1_000_000 atomic units)
     let deposit: u128 = session_req
         .suggested_deposit
         .as_ref()

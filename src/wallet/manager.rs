@@ -10,10 +10,10 @@ use url::Url;
 
 use crate::analytics::Analytics;
 use crate::error::{PrestoError, Result};
-use crate::wallet::credentials::{NetworkWallet, WalletCredentials};
+use crate::wallet::credentials::NetworkKey;
+use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::device_code::{create_device_code, poll_device_code};
 use crate::wallet::pkce;
-use crate::wallet::AccessKey;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 300; // 5 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
@@ -34,8 +34,7 @@ pub struct WalletManager {
 impl WalletManager {
     /// Create a new wallet manager for a specific network.
     pub fn new(network: Option<&str>, analytics: Option<Analytics>) -> Self {
-        let creds = WalletCredentials::load().unwrap_or_default();
-        let network = network.unwrap_or(&creds.network).to_string();
+        let network = network.unwrap_or("tempo").to_string();
 
         let auth_server_url = std::env::var("PRESTO_AUTH_URL")
             .ok()
@@ -137,7 +136,6 @@ impl WalletManager {
             a.track(
                 crate::analytics::Event::CallbackWindowOpened,
                 crate::analytics::CallbackWindowOpenedPayload {
-                    is_refresh: false,
                     network: self.network.clone(),
                 },
             );
@@ -200,27 +198,17 @@ impl WalletManager {
             local_signer.address(),
         )?;
 
-        let mut creds = WalletCredentials::load()?;
-        creds.network = self.network.clone();
-
         let private_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
-        let mut access_key = AccessKey::new(private_key_hex).with_label("Default".to_string());
-        let mut pending_hex = None;
-
-        if let Some(v) = &validated {
-            access_key = access_key.with_expiry(v.expiry);
-            pending_hex = Some(v.hex.clone());
-        }
-
-        let mut wallet = NetworkWallet {
-            account_address: callback.account_address,
-            access_keys: vec![],
-            active_key_index: 0,
-            pending_key_authorization: pending_hex,
+        let network_key = NetworkKey {
+            private_key: private_key_hex,
+            key_authorization: validated.map(|v| v.hex),
+            provisioned: false,
         };
 
-        wallet.add_key(access_key, true);
-        creds.set_wallet(wallet);
+        // Load existing credentials to preserve other network keys
+        let mut creds = WalletCredentials::load().unwrap_or_default();
+        creds.account_address = callback.account_address;
+        creds.networks.insert(self.network.clone(), network_key);
         creds.save()?;
 
         if let Some(ref a) = self.analytics {
@@ -228,7 +216,6 @@ impl WalletManager {
                 crate::analytics::Event::KeyCreated,
                 crate::analytics::KeyCreatedPayload {
                     network: self.network.clone(),
-                    label: "Default".to_string(),
                 },
             );
             a.identify();

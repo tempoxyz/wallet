@@ -180,7 +180,8 @@ pub(super) async fn stream_sse_response(
     if cli.is_verbose() && cli.should_show_output() {
         eprintln!("Tokens streamed: {}", token_count);
         let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
-        eprintln!("Voucher cumulative: {:.6} pathUSD", cumulative_f64);
+        let symbol = ctx.token_symbol();
+        eprintln!("Voucher cumulative: {cumulative_f64:.6} {symbol}");
     }
 
     Ok(())

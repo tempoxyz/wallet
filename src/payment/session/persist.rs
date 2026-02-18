@@ -54,10 +54,8 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
 
     if ctx.request_ctx.cli.is_verbose() && ctx.request_ctx.cli.should_show_output() {
         let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
-        eprintln!(
-            "Session persisted (cumulative: {:.6} pathUSD)",
-            cumulative_f64
-        );
+        let symbol = ctx.token_symbol();
+        eprintln!("Session persisted (cumulative: {cumulative_f64:.6} {symbol})");
     }
 
     Ok(())

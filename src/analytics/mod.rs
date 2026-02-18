@@ -17,11 +17,10 @@ fn get_wallet_address() -> Option<String> {
     use crate::wallet::credentials::WalletCredentials;
 
     let creds = WalletCredentials::load().ok()?;
-    let wallet = creds.active_wallet()?;
-    if wallet.account_address.is_empty() {
+    if creds.account_address.is_empty() {
         None
     } else {
-        Some(wallet.account_address.clone())
+        Some(creds.account_address.clone())
     }
 }
 

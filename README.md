@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/tempoxyz/presto/main/install.sh | b
 presto login
 
 # Make a paid request
-presto https://openai.payments.tempo.xyz/v1/chat/completions \
+presto https://openai.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
@@ -126,16 +126,13 @@ presto uses platform-native directories:
 | Platform | Config | Wallet |
 |----------|--------|--------|
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/wallet.toml` |
-| **Linux** | `~/.config/presto/config.toml` | `~/.config/presto/wallet.toml` |
+| **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/wallet.toml` |
 
 You can override the config path with `-c <PATH>` or `--config <PATH>`.
 
 ### Config File Reference
 
 ```toml
-# Optional: presence marker indicating an EVM wallet is configured
-[evm]
-
 # RPC overrides for built-in networks
 tempo_rpc = "https://my-custom-tempo-rpc.com"
 moderato_rpc = "https://my-custom-moderato-rpc.com"
@@ -144,16 +141,9 @@ moderato_rpc = "https://my-custom-moderato-rpc.com"
 [rpc]
 tempo = "https://alternate-tempo-rpc.com"
 "tempo-moderato" = "https://alternate-moderato-rpc.com"
-
-# Custom network definitions
-[[networks]]
-id = "my-private-chain"
-chain_id = 12345
-rpc_url = "https://rpc.myprivatechain.com"
-explorer_url = "https://explorer.myprivatechain.com"
 ```
 
-Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence over the `[rpc]` table. Custom networks are checked before built-in networks, so you can override a built-in by using the same `id`.
+Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence over the `[rpc]` table. The `PRESTO_RPC_URL` env var overrides everything.
 
 ## Examples
 

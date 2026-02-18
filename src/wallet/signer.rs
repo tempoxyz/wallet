@@ -14,8 +14,10 @@ pub struct SignerWithContext {
     pub signer: PrivateKeySigner,
     /// The smart wallet address if using keychain signing (tempo wallet).
     pub wallet_address: Option<String>,
-    /// Hex-encoded pending key authorization from wallet credentials.
-    pub pending_key_authorization: Option<String>,
+    /// Hex-encoded key authorization from wallet credentials.
+    pub key_authorization: Option<String>,
+    /// Chain IDs where the key is already provisioned.
+    pub provisioned_on: Vec<u64>,
 }
 
 /// Load a signer from Tempo wallet credentials.
@@ -28,23 +30,17 @@ pub fn load_signer_with_priority() -> Result<SignerWithContext> {
         )
     })?;
 
-    let wallet = creds.active_wallet().ok_or_else(|| {
-        PrestoError::ConfigMissing(
+    if !creds.has_wallet() {
+        return Err(PrestoError::ConfigMissing(
             "No wallet configured. Run 'presto login' to get started.".to_string(),
-        )
-    })?;
+        ));
+    }
 
-    let access_key = wallet.active_access_key().ok_or_else(|| {
+    let access_key = creds.active_access_key().ok_or_else(|| {
         PrestoError::ConfigMissing(
             "No access key found. Run 'presto login' to get started.".to_string(),
         )
     })?;
-
-    if access_key.is_expired() {
-        return Err(PrestoError::ConfigMissing(
-            "Access key expired. Run 'presto login' to reconnect.".to_string(),
-        ));
-    }
 
     let signer = access_key.signer().map_err(|_| {
         PrestoError::ConfigMissing(
@@ -52,11 +48,10 @@ pub fn load_signer_with_priority() -> Result<SignerWithContext> {
         )
     })?;
 
-    let pending_key_authorization = wallet.pending_key_authorization.clone();
-
     Ok(SignerWithContext {
         signer,
-        wallet_address: Some(wallet.account_address.clone()),
-        pending_key_authorization,
+        wallet_address: Some(creds.account_address.clone()),
+        key_authorization: creds.key_authorization.clone(),
+        provisioned_on: creds.provisioned_on.clone(),
     })
 }

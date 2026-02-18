@@ -2,6 +2,7 @@ use alloy::primitives::{Address, B256};
 use mpp::ChallengeEcho;
 
 use crate::http::request::RequestContext;
+use crate::network::Network;
 
 /// Result of a session request — either streamed (already printed) or a buffered response.
 pub enum SessionResult {
@@ -33,4 +34,16 @@ pub(super) struct SessionContext<'a> {
     pub(super) salt: String,
     pub(super) recipient: String,
     pub(super) currency: String,
+}
+
+impl SessionContext<'_> {
+    /// Resolve the token symbol for the current session (e.g., "USDC.e" or "pathUSD").
+    pub(super) fn token_symbol(&self) -> &'static str {
+        self.network_name
+            .parse::<Network>()
+            .ok()
+            .and_then(|n| n.token_config_by_address(&self.currency))
+            .map(|t| t.currency.symbol)
+            .unwrap_or("tokens")
+    }
 }

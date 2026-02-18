@@ -94,42 +94,130 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     let pay_analytics = PaymentAnalytics::from_challenge(&challenge_ctx, &analytics);
     pay_analytics.track_started();
 
+    match dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await {
+        Ok(result) => {
+            mark_chain_provisioned(challenge_ctx.chain_id);
+            pay_analytics.track_success(result.tx_hash, &url, &method_str, result.status_code);
+            if let Some(resp) = result.response {
+                finalize_response(&request_ctx.cli, &request_ctx.query, resp)?;
+            }
+            Ok(())
+        }
+        Err(e) if is_not_provisioned(&e) => {
+            // Access key not provisioned — auto-login and retry
+            use std::io::IsTerminal;
+            if std::io::stdin().is_terminal() && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
+                eprintln!(
+                    "Access key is not provisioned on-chain. Running login to set it up...\n"
+                );
+                // Use the network from the 402 challenge so login targets the right chain
+                let network = request_ctx
+                    .cli
+                    .network
+                    .as_deref()
+                    .or(Some(challenge_ctx.network.as_str()));
+                crate::cli::commands::login::run_login(network, analytics.clone()).await?;
+                eprintln!("\nRetrying payment...");
+
+                let config = load_config_with_overrides(&request_ctx.cli)?;
+                match dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await
+                {
+                    Ok(result) => {
+                        mark_chain_provisioned(challenge_ctx.chain_id);
+                        pay_analytics.track_success(
+                            result.tx_hash,
+                            &url,
+                            &method_str,
+                            result.status_code,
+                        );
+                        if let Some(resp) = result.response {
+                            finalize_response(&request_ctx.cli, &request_ctx.query, resp)?;
+                        }
+                        Ok(())
+                    }
+                    Err(e) => {
+                        pay_analytics.track_failure(&e);
+                        Err(e)
+                    }
+                }
+            } else {
+                pay_analytics.track_failure(&e);
+                Err(e)
+            }
+        }
+        Err(e) => {
+            pay_analytics.track_failure(&e);
+            Err(e)
+        }
+    }
+}
+
+/// Result of a successful payment dispatch.
+struct PaymentResult {
+    tx_hash: String,
+    status_code: u32,
+    response: Option<HttpResponse>,
+}
+
+/// Dispatch to charge or session payment flow.
+async fn dispatch_payment(
+    config: &Config,
+    request_ctx: &RequestContext,
+    challenge_ctx: &ChallengeContext,
+    url: &str,
+    response: &HttpResponse,
+) -> Result<PaymentResult> {
     if challenge_ctx.is_session {
         if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
             eprintln!("Payment intent: session");
         }
-
-        match handle_session_request(&config, &request_ctx, &url, &response).await {
-            Ok(result) => {
-                pay_analytics.track_success(String::new(), &url, &method_str, 200);
-                match result {
-                    SessionResult::Streamed => Ok(()),
-                    SessionResult::Response(resp) => {
-                        finalize_response(&request_ctx.cli, &request_ctx.query, resp)
-                    }
-                }
-            }
-            Err(e) => {
-                pay_analytics.track_failure(&e);
-                Err(e)
-            }
+        let result = handle_session_request(config, request_ctx, url, response).await?;
+        match result {
+            SessionResult::Streamed => Ok(PaymentResult {
+                tx_hash: String::new(),
+                status_code: 200,
+                response: None,
+            }),
+            SessionResult::Response(resp) => Ok(PaymentResult {
+                tx_hash: String::new(),
+                status_code: resp.status_code,
+                response: Some(resp),
+            }),
         }
     } else {
-        match handle_charge_request(&config, &request_ctx, &url, &response).await {
-            Ok(response) => {
-                let tx_hash = response
-                    .get_header("payment-receipt")
-                    .cloned()
-                    .unwrap_or_default();
-                let status_code = response.status_code;
-                pay_analytics.track_success(tx_hash, &url, &method_str, status_code);
-                finalize_response(&request_ctx.cli, &request_ctx.query, response)?;
-                Ok(())
-            }
-            Err(e) => {
-                pay_analytics.track_failure(&e);
-                Err(e)
-            }
+        let resp = handle_charge_request(config, request_ctx, url, response).await?;
+        let tx_hash = resp
+            .get_header("payment-receipt")
+            .cloned()
+            .unwrap_or_default();
+        let status_code = resp.status_code;
+        Ok(PaymentResult {
+            tx_hash,
+            status_code,
+            response: Some(resp),
+        })
+    }
+}
+
+/// Check if an error is due to an unprovisioned access key.
+fn is_not_provisioned(err: &anyhow::Error) -> bool {
+    err.chain().any(|e| {
+        if let Some(pe) = e.downcast_ref::<crate::error::PrestoError>() {
+            matches!(pe, crate::error::PrestoError::AccessKeyNotProvisioned)
+                || matches!(pe, crate::error::PrestoError::PaymentRejected { reason, .. }
+                    if reason.contains("access key does not exist")
+                       || reason.contains("access key is not provisioned"))
+        } else {
+            false
+        }
+    })
+}
+
+/// Mark a chain as provisioned in wallet.toml after a successful payment.
+fn mark_chain_provisioned(chain_id: Option<u64>) {
+    if let Some(cid) = chain_id {
+        if let Ok(mut creds) = crate::wallet::credentials::WalletCredentials::load() {
+            creds.mark_provisioned(cid);
         }
     }
 }
@@ -139,6 +227,7 @@ struct ChallengeContext {
     protocol: PaymentProtocol,
     is_session: bool,
     network: String,
+    chain_id: Option<u64>,
     amount: String,
     currency: String,
 }
@@ -159,25 +248,32 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
 
     let is_session = challenge.intent.is_session();
 
-    let (network, amount, currency) =
+    let (network, chain_id, amount, currency) =
         if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
-            let net = crate::payment::mpp_ext::network_from_charge_request(&charge)
+            let net = crate::payment::mpp_ext::network_from_charge_request(&charge);
+            let name = net
+                .as_ref()
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
-            (net, charge.amount, charge.currency)
+            let cid = net.ok().map(|n| n.chain_id());
+            (name, cid, charge.amount, charge.currency)
         } else if let Ok(session) = challenge.request.decode::<mpp::SessionRequest>() {
-            let net = crate::payment::mpp_ext::network_from_session_request(&session)
+            let net = crate::payment::mpp_ext::network_from_session_request(&session);
+            let name = net
+                .as_ref()
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
-            (net, session.amount, session.currency)
+            let cid = net.ok().map(|n| n.chain_id());
+            (name, cid, session.amount, session.currency)
         } else {
-            ("unknown".to_string(), String::new(), String::new())
+            ("unknown".to_string(), None, String::new(), String::new())
         };
 
     Ok(ChallengeContext {
         protocol,
         is_session,
         network,
+        chain_id,
         amount,
         currency,
     })
@@ -189,11 +285,9 @@ async fn ensure_wallet_or_prompt_login(
     config: &mut Config,
     analytics: &Option<Analytics>,
 ) -> Result<()> {
-    let has_wallet = config.evm.is_some()
-        || crate::wallet::credentials::WalletCredentials::load()
-            .ok()
-            .and_then(|c| c.active_wallet().cloned())
-            .is_some();
+    let has_wallet = crate::wallet::credentials::WalletCredentials::load()
+        .ok()
+        .is_some_and(|c| c.has_wallet());
 
     if !has_wallet && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
         use std::io::IsTerminal;

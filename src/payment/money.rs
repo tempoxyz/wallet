@@ -49,7 +49,7 @@ impl TokenId {
         Ok(Self { network, asset })
     }
 
-    /// Get the default token for this network (pathUSD).
+    /// Get the default token for this network.
     ///
     /// Returns None if the network doesn't have a configured token.
     pub fn default_for_network(network: Network) -> Option<Self> {
@@ -100,7 +100,7 @@ impl Money {
     /// * `token` - The token identity (network + asset address)
     /// * `atomic` - The amount in atomic units (e.g., wei, base units)
     /// * `decimals` - Number of decimal places for human formatting
-    /// * `symbol` - Token symbol for display (e.g., "pathUSD")
+    /// * `symbol` - Token symbol for display (e.g., "USDC.e")
     pub fn new(token: TokenId, atomic: U256, decimals: u8, symbol: impl Into<String>) -> Self {
         Self {
             token,
@@ -110,7 +110,7 @@ impl Money {
         }
     }
 
-    /// Create Money from a network's default token configuration (pathUSD).
+    /// Create Money from a network's default token configuration.
     ///
     /// This is the recommended way to create Money for balance queries
     /// and payment operations when no specific token is specified.
@@ -244,7 +244,7 @@ impl Money {
 
     /// Format the amount with trimmed trailing zeros.
     ///
-    /// More compact display: "1.5 pathUSD" instead of "1.500000 pathUSD"
+    /// More compact display: "1.5 USDC.e" instead of "1.500000 USDC.e"
     pub fn format_trimmed(&self) -> String {
         format_u256_trimmed(self.atomic, self.decimals, &self.symbol)
     }

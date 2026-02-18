@@ -1,8 +1,7 @@
 //! Access key management.
 //!
 //! An access key is a local private key authorized to sign transactions
-//! on behalf of a passkey wallet. The authorization is registered on-chain
-//! with an expiry timestamp.
+//! on behalf of a passkey wallet. The authorization is registered on-chain.
 
 use alloy::signers::local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
@@ -13,42 +12,12 @@ use crate::error::{PrestoError, Result};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessKey {
     pub private_key: String,
-
-    #[serde(default = "default_label")]
-    pub label: String,
-
-    #[serde(default)]
-    pub spending_limit: u64,
-
-    #[serde(default)]
-    pub expiry: u64,
-}
-
-fn default_label() -> String {
-    "Default".to_string()
 }
 
 impl AccessKey {
     /// Create a new access key from a private key string.
     pub fn new(private_key: String) -> Self {
-        Self {
-            private_key,
-            label: default_label(),
-            spending_limit: 0,
-            expiry: 0,
-        }
-    }
-
-    /// Set the expiry timestamp (Unix seconds).
-    pub fn with_expiry(mut self, expiry: u64) -> Self {
-        self.expiry = expiry;
-        self
-    }
-
-    /// Set the key label.
-    pub fn with_label(mut self, label: String) -> Self {
-        self.label = label;
-        self
+        Self { private_key }
     }
 
     /// Parse the private key bytes from the stored string.
@@ -87,20 +56,6 @@ impl AccessKey {
         }
     }
 
-    /// Check if this access key has expired.
-    pub fn is_expired(&self) -> bool {
-        if self.expiry == 0 {
-            return false;
-        }
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        self.expiry < now
-    }
-
     /// Get an alloy `PrivateKeySigner` for this access key.
     pub fn signer(&self) -> Result<PrivateKeySigner> {
         let bytes = self
@@ -122,20 +77,6 @@ mod tests {
     fn test_access_key_new() {
         let key = AccessKey::new(TEST_PRIVATE_KEY.to_string());
         assert_eq!(key.private_key, TEST_PRIVATE_KEY);
-        assert_eq!(key.label, "Default");
-        assert_eq!(key.expiry, 0);
-    }
-
-    #[test]
-    fn test_access_key_with_expiry() {
-        let key = AccessKey::new(TEST_PRIVATE_KEY.to_string()).with_expiry(1234567890);
-        assert_eq!(key.expiry, 1234567890);
-    }
-
-    #[test]
-    fn test_access_key_with_label() {
-        let key = AccessKey::new(TEST_PRIVATE_KEY.to_string()).with_label("Test Key".to_string());
-        assert_eq!(key.label, "Test Key");
     }
 
     #[test]
@@ -154,36 +95,6 @@ mod tests {
     }
 
     #[test]
-    fn test_access_key_is_expired() {
-        let past_expiry = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            - 3600;
-
-        let key = AccessKey::new(TEST_PRIVATE_KEY.to_string()).with_expiry(past_expiry);
-        assert!(key.is_expired());
-    }
-
-    #[test]
-    fn test_access_key_not_expired() {
-        let future_expiry = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + 3600;
-
-        let key = AccessKey::new(TEST_PRIVATE_KEY.to_string()).with_expiry(future_expiry);
-        assert!(!key.is_expired());
-    }
-
-    #[test]
-    fn test_access_key_zero_expiry_not_expired() {
-        let key = AccessKey::new(TEST_PRIVATE_KEY.to_string());
-        assert!(!key.is_expired());
-    }
-
-    #[test]
     fn test_access_key_signer() {
         let key = AccessKey::new(TEST_PRIVATE_KEY.to_string());
         let signer = key.signer().unwrap();
@@ -197,5 +108,18 @@ mod tests {
     fn test_access_key_invalid_key() {
         let key = AccessKey::new("not_a_valid_key".to_string());
         assert_eq!(key.address(), "Invalid key");
+    }
+
+    #[test]
+    fn test_backward_compat_with_legacy_fields() {
+        // Old wallet.toml files have label, expiry, spending_limit — serde ignores them
+        let toml_str = r#"
+private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+label = "Default"
+spending_limit = 0
+expiry = 9999999999
+"#;
+        let key: AccessKey = toml::from_str(toml_str).unwrap();
+        assert_eq!(key.private_key, TEST_PRIVATE_KEY);
     }
 }

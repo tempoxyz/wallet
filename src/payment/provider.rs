@@ -8,7 +8,7 @@ use crate::error::{PrestoError, Result};
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::providers::tempo::{
-    pending_key_spending_limit, query_key_spending_limit, SwapInfo, BPS_DENOMINATOR,
+    local_key_spending_limit, query_key_spending_limit, SwapInfo, BPS_DENOMINATOR,
     SWAP_SLIPPAGE_BPS,
 };
 use crate::wallet::signer::load_signer_with_priority;
@@ -29,7 +29,7 @@ pub struct NetworkBalance {
     pub balance: U256,
     /// Human-readable balance string (for display)
     pub balance_human: String,
-    /// Asset symbol (e.g., "pathUSD")
+    /// Asset symbol (e.g., "USDC.e")
     pub asset: String,
 }
 
@@ -131,8 +131,8 @@ impl PrestoPaymentProvider {
             .transpose()
             .map_err(|e| mpp::MppError::Http(format!("Invalid wallet address: {}", e)))?;
 
-        let pending_auth = signer_ctx
-            .pending_key_authorization
+        let local_auth = signer_ctx
+            .key_authorization
             .as_deref()
             .and_then(crate::wallet::decode_key_authorization);
 
@@ -185,13 +185,12 @@ impl PrestoPaymentProvider {
                     .await
                 {
                     Ok(limit) => limit,
-                    Err(_) if pending_auth.is_some() => {
-                        pending_key_spending_limit(pending_auth.as_ref().unwrap(), required_token)
+                    Err(_) if local_auth.is_some() => {
+                        local_key_spending_limit(local_auth.as_ref().unwrap(), required_token)
                     }
                     Err(e) => {
                         return Err(mpp::MppError::Http(format!(
-                            "Cannot verify key spending limit for {}: {}. \
-                         Refusing to proceed — the key may not be authorized for this token.",
+                            "Cannot verify key spending limit for {}: {}",
                             token_symbol, e
                         )));
                     }
@@ -252,7 +251,7 @@ impl PrestoPaymentProvider {
             required_token,
             required_amount,
             keychain_info,
-            pending_auth.as_ref(),
+            local_auth.as_ref(),
         )
         .await
         .map_err(|e| mpp::MppError::Http(e.to_string()))?;
@@ -369,7 +368,7 @@ sol! {
 
 /// Query balances for all supported tokens on a network.
 ///
-/// Returns balances for pathUSD.
+/// Returns balances for the network's supported tokens.
 pub async fn get_balances(
     config: &Config,
     address: &str,
@@ -468,8 +467,8 @@ pub struct SwapSource {
 /// filters and sorts candidates by limit descending, then checks balances only
 /// for candidates with sufficient limit. This minimizes on-chain balance queries.
 ///
-/// If the key is not yet provisioned on-chain and `pending_auth` is provided,
-/// falls back to the pending authorization's limits to determine token eligibility.
+/// If the key is not yet provisioned on-chain and `auth` is provided,
+/// falls back to the authorization's limits locally to determine token eligibility.
 ///
 /// When no keychain is used, queries all balances in parallel and returns the
 /// first token with sufficient balance (including slippage).
@@ -481,7 +480,7 @@ pub struct SwapSource {
 /// * `required_token` - The token the merchant wants (we need to find a different one)
 /// * `required_amount` - The amount needed (will include slippage in the check)
 /// * `keychain_info` - Optional (wallet_address, key_address) for spending limit checks
-/// * `pending_auth` - Optional pending key authorization for local limit validation
+/// * `local_auth` - Optional key authorization for local limit validation
 ///
 /// # Returns
 /// * `Ok(Some(SwapSource))` - Found a token with sufficient balance and limit
@@ -493,7 +492,7 @@ pub async fn find_swap_source(
     required_token: Address,
     required_amount: U256,
     keychain_info: Option<(Address, Address)>,
-    pending_auth: Option<&SignedKeyAuthorization>,
+    local_auth: Option<&SignedKeyAuthorization>,
 ) -> Result<Option<SwapSource>> {
     use futures::future::join_all;
 
@@ -537,8 +536,8 @@ pub async fn find_swap_source(
                     Ok(None) => U256::MAX,
                     Ok(Some(l)) if l >= amount_with_slippage => l,
                     Ok(Some(_)) => return None,
-                    Err(_) if pending_auth.is_some() => {
-                        match pending_key_spending_limit(pending_auth.unwrap(), token_address) {
+                    Err(_) if local_auth.is_some() => {
+                        match local_key_spending_limit(local_auth.unwrap(), token_address) {
                             None => U256::MAX,
                             Some(l) if l >= amount_with_slippage => l,
                             Some(_) => return None,

@@ -3,14 +3,12 @@
 use alloy::rlp::Decodable;
 use tempo_primitives::transaction::SignedKeyAuthorization;
 
-pub mod access_key;
 pub mod credentials;
 mod device_code;
 mod manager;
 mod pkce;
 pub mod signer;
 
-pub use access_key::AccessKey;
 pub use manager::WalletManager;
 
 /// Decode a hex-encoded SignedKeyAuthorization.
@@ -22,7 +20,7 @@ pub fn decode_key_authorization(hex_str: &str) -> Option<SignedKeyAuthorization>
     let bytes = match hex::decode(raw) {
         Ok(b) => b,
         Err(e) => {
-            tracing::warn!("Invalid pending key authorization hex: {e}");
+            tracing::warn!("Invalid key authorization hex: {e}");
             return None;
         }
     };
@@ -30,7 +28,7 @@ pub fn decode_key_authorization(hex_str: &str) -> Option<SignedKeyAuthorization>
     match SignedKeyAuthorization::decode(&mut slice) {
         Ok(auth) => Some(auth),
         Err(e) => {
-            tracing::warn!("Invalid pending key authorization RLP: {e}");
+            tracing::warn!("Invalid key authorization RLP: {e}");
             None
         }
     }

@@ -9,11 +9,12 @@ use std::fs;
 use std::path::PathBuf;
 
 const WALLET_FILE_NAME: &str = "wallet.toml";
-const DEFAULT_NETWORK: &str = "tempo-moderato";
 
-/// Credentials for a Tempo network wallet.
+/// Wallet credentials stored in wallet.toml.
+///
+/// Flat structure: one wallet, works on all Tempo chains (access keys use chain_id 0).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NetworkWallet {
+pub struct WalletCredentials {
     #[serde(default)]
     pub account_address: String,
 
@@ -23,95 +24,14 @@ pub struct NetworkWallet {
     #[serde(default)]
     pub active_key_index: usize,
 
+    /// Hex-encoded `SignedKeyAuthorization` (chain_id 0 = valid on all chains).
+    /// Kept permanently; included in the first tx on each new chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_key_authorization: Option<String>,
-}
+    pub key_authorization: Option<String>,
 
-impl NetworkWallet {
-    /// Get the currently active access key.
-    pub fn active_access_key(&self) -> Option<&AccessKey> {
-        self.access_keys.get(self.active_key_index)
-    }
-
-    /// Add a new access key to the wallet.
-    pub fn add_key(&mut self, key: AccessKey, make_active: bool) {
-        self.access_keys.push(key);
-        if make_active {
-            self.active_key_index = self.access_keys.len() - 1;
-        }
-    }
-
-    /// Remove an access key by index.
-    #[cfg(test)]
-    pub fn remove_key(&mut self, index: usize) -> Option<AccessKey> {
-        if index >= self.access_keys.len() {
-            return None;
-        }
-
-        let key = self.access_keys.remove(index);
-
-        if self.access_keys.is_empty() {
-            self.active_key_index = 0;
-        } else if self.active_key_index >= self.access_keys.len() {
-            self.active_key_index = self.access_keys.len() - 1;
-        } else if index < self.active_key_index {
-            self.active_key_index -= 1;
-        }
-
-        Some(key)
-    }
-
-    /// Switch to a different access key by index.
-    #[cfg(test)]
-    pub fn switch_key(&mut self, index: usize) -> bool {
-        if index < self.access_keys.len() {
-            self.active_key_index = index;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Returns and clears the pending key authorization.
-    pub fn take_pending_key_authorization(&mut self) -> Option<String> {
-        self.pending_key_authorization.take()
-    }
-
-    /// Check if there is a pending key authorization.
-    #[cfg(test)]
-    pub fn has_pending_key_authorization(&self) -> bool {
-        self.pending_key_authorization.is_some()
-    }
-}
-
-/// Wallet credentials stored in wallet.toml.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WalletCredentials {
-    /// Active network for Tempo wallet
-    #[serde(default = "default_network")]
-    pub network: String,
-
-    /// Tempo mainnet wallet
-    #[serde(default)]
-    pub tempo: Option<NetworkWallet>,
-
-    /// Tempo Moderato testnet wallet
-    #[serde(default, rename = "tempo-moderato")]
-    pub tempo_moderato: Option<NetworkWallet>,
-}
-
-fn default_network() -> String {
-    DEFAULT_NETWORK.to_string()
-}
-
-impl Default for WalletCredentials {
-    fn default() -> Self {
-        Self {
-            network: default_network(),
-            tempo: None,
-            tempo_moderato: None,
-        }
-    }
+    /// Chain IDs where the access key has been confirmed on-chain.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provisioned_on: Vec<u64>,
 }
 
 impl WalletCredentials {
@@ -132,6 +52,10 @@ impl WalletCredentials {
     }
 
     /// Load wallet credentials from disk.
+    ///
+    /// Returns default (empty) credentials if the file doesn't exist or
+    /// can't be parsed — callers treat empty credentials as "no wallet",
+    /// which prompts a fresh login.
     pub fn load() -> Result<Self> {
         let path = Self::wallet_path()?;
 
@@ -140,54 +64,53 @@ impl WalletCredentials {
         }
 
         let contents = fs::read_to_string(&path)?;
-        let creds: WalletCredentials = toml::from_str(&contents)?;
-        Ok(creds)
+        Ok(toml::from_str(&contents).unwrap_or_default())
     }
 
     /// Save wallet credentials atomically.
     pub fn save(&self) -> Result<()> {
         let path = Self::wallet_path()?;
-        let contents = toml::to_string_pretty(self)?;
+        let body = toml::to_string_pretty(self)?;
+        let contents = format!(
+            "# presto wallet credentials — managed by `presto login`\n\
+             # Do not edit manually.\n\n\
+             {body}"
+        );
         crate::util::atomic_write::atomic_write(&path, &contents, 0o600)?;
         Ok(())
     }
 
-    /// Get the wallet for the currently active network.
-    pub fn active_wallet(&self) -> Option<&NetworkWallet> {
-        match self.network.as_str() {
-            "tempo" => self.tempo.as_ref(),
-            "tempo-moderato" => self.tempo_moderato.as_ref(),
-            _ => None,
-        }
-        .filter(|w| !w.account_address.is_empty())
+    /// Check if a wallet is configured.
+    pub fn has_wallet(&self) -> bool {
+        !self.account_address.is_empty()
     }
 
-    /// Get a mutable reference to the wallet for the currently active network.
-    pub fn active_wallet_mut(&mut self) -> Option<&mut NetworkWallet> {
-        match self.network.as_str() {
-            "tempo" => self.tempo.as_mut(),
-            "tempo-moderato" => self.tempo_moderato.as_mut(),
-            _ => None,
-        }
-        .filter(|w| !w.account_address.is_empty())
+    /// Get the currently active access key.
+    pub fn active_access_key(&self) -> Option<&AccessKey> {
+        self.access_keys.get(self.active_key_index)
     }
 
-    /// Set the wallet for the currently active network.
-    pub fn set_wallet(&mut self, wallet: NetworkWallet) {
-        match self.network.as_str() {
-            "tempo" => self.tempo = Some(wallet),
-            "tempo-moderato" => self.tempo_moderato = Some(wallet),
-            _ => {}
+    /// Check if the access key is provisioned on a specific chain.
+    #[cfg(test)]
+    pub fn is_provisioned_on(&self, chain_id: u64) -> bool {
+        self.provisioned_on.contains(&chain_id)
+    }
+
+    /// Mark the access key as provisioned on a chain and save.
+    pub fn mark_provisioned(&mut self, chain_id: u64) {
+        if !self.provisioned_on.contains(&chain_id) {
+            self.provisioned_on.push(chain_id);
+            let _ = self.save();
         }
     }
 
-    /// Clear the wallet for the currently active network.
-    pub fn clear_wallet(&mut self) {
-        match self.network.as_str() {
-            "tempo" => self.tempo = None,
-            "tempo-moderato" => self.tempo_moderato = None,
-            _ => {}
-        }
+    /// Clear the wallet credentials.
+    pub fn clear(&mut self) {
+        self.account_address.clear();
+        self.access_keys.clear();
+        self.active_key_index = 0;
+        self.key_authorization = None;
+        self.provisioned_on.clear();
     }
 }
 
@@ -198,157 +121,122 @@ mod tests {
     #[test]
     fn test_default_credentials() {
         let creds = WalletCredentials::default();
-        assert_eq!(creds.network, "tempo-moderato");
-        assert!(creds.tempo.is_none());
-        assert!(creds.tempo_moderato.is_none());
+        assert!(!creds.has_wallet());
+        assert!(creds.account_address.is_empty());
+        assert!(creds.access_keys.is_empty());
     }
 
     #[test]
-    fn test_network_wallet_add_key() {
-        let mut wallet = NetworkWallet::default();
-        let key = AccessKey::new("0x1234".to_string());
-        wallet.add_key(key, true);
-        assert_eq!(wallet.active_key_index, 0);
-        assert_eq!(wallet.access_keys.len(), 1);
+    fn test_has_wallet() {
+        let creds = WalletCredentials {
+            account_address: "0xtest".to_string(),
+            ..Default::default()
+        };
+        assert!(creds.has_wallet());
     }
 
     #[test]
-    fn test_network_wallet_switch_key() {
-        let mut wallet = NetworkWallet::default();
-        wallet.add_key(AccessKey::new("0x1111".to_string()), true);
-        wallet.add_key(AccessKey::new("0x2222".to_string()), false);
+    fn test_active_access_key() {
+        let mut creds = WalletCredentials {
+            account_address: "0xtest".to_string(),
+            ..Default::default()
+        };
+        creds.access_keys.push(AccessKey::new("0x1111".to_string()));
+        creds.access_keys.push(AccessKey::new("0x2222".to_string()));
+        creds.active_key_index = 1;
 
-        assert_eq!(wallet.active_key_index, 0);
-        assert!(wallet.switch_key(1));
-        assert_eq!(wallet.active_key_index, 1);
-        assert!(!wallet.switch_key(5));
-    }
-
-    #[test]
-    fn test_network_wallet_remove_key() {
-        let mut wallet = NetworkWallet::default();
-        wallet.add_key(AccessKey::new("0x1111".to_string()), true);
-        wallet.add_key(AccessKey::new("0x2222".to_string()), true);
-
-        assert_eq!(wallet.active_key_index, 1);
-        wallet.remove_key(0);
-        assert_eq!(wallet.active_key_index, 0);
-        assert_eq!(wallet.access_keys.len(), 1);
+        let key = creds.active_access_key().unwrap();
+        assert_eq!(key.private_key, "0x2222");
     }
 
     #[test]
     fn test_credentials_serialization() {
-        let mut creds = WalletCredentials {
-            network: "tempo".to_string(),
-            ..Default::default()
-        };
-
-        let wallet = NetworkWallet {
+        let creds = WalletCredentials {
             account_address: "0xtest".to_string(),
             ..Default::default()
         };
-        creds.tempo = Some(wallet);
 
         let toml_str = toml::to_string_pretty(&creds).unwrap();
-        assert!(toml_str.contains("network = \"tempo\""));
         assert!(toml_str.contains("account_address = \"0xtest\""));
-    }
-
-    #[test]
-    fn test_active_wallet() {
-        let mut creds = WalletCredentials {
-            network: "tempo-moderato".to_string(),
-            ..Default::default()
-        };
-
-        let wallet = NetworkWallet {
-            account_address: "0xtest".to_string(),
-            ..Default::default()
-        };
-        creds.tempo_moderato = Some(wallet);
-
-        assert!(creds.active_wallet().is_some());
-        assert_eq!(creds.active_wallet().unwrap().account_address, "0xtest");
-    }
-
-    #[test]
-    fn test_active_wallet_empty_address() {
-        let mut creds = WalletCredentials::default();
-        let wallet = NetworkWallet::default();
-        creds.tempo_moderato = Some(wallet);
-
-        assert!(creds.active_wallet().is_none());
-    }
-
-    #[test]
-    fn test_take_pending_key_authorization() {
-        let mut wallet = NetworkWallet {
-            account_address: "0xtest".to_string(),
-            pending_key_authorization: Some("deadbeef".to_string()),
-            ..Default::default()
-        };
-
-        assert!(wallet.has_pending_key_authorization());
-        let auth = wallet.take_pending_key_authorization();
-        assert_eq!(auth, Some("deadbeef".to_string()));
-        assert!(!wallet.has_pending_key_authorization());
-        assert_eq!(wallet.take_pending_key_authorization(), None);
-    }
-
-    #[test]
-    fn test_credentials_serialization_with_pending_key_authorization() {
-        let mut creds = WalletCredentials {
-            network: "tempo".to_string(),
-            ..Default::default()
-        };
-
-        let wallet = NetworkWallet {
-            account_address: "0xtest".to_string(),
-            pending_key_authorization: Some("abcdef1234".to_string()),
-            ..Default::default()
-        };
-        creds.tempo = Some(wallet);
-
-        let toml_str = toml::to_string_pretty(&creds).unwrap();
-        assert!(toml_str.contains("pending_key_authorization = \"abcdef1234\""));
 
         let parsed: WalletCredentials = toml::from_str(&toml_str).unwrap();
-        assert_eq!(
-            parsed.tempo.unwrap().pending_key_authorization,
-            Some("abcdef1234".to_string())
-        );
+        assert_eq!(parsed.account_address, "0xtest");
     }
 
     #[test]
-    fn test_wallet_save_round_trip_via_atomic_write() {
+    fn test_serialization_with_key_authorization() {
+        let mut creds = WalletCredentials {
+            account_address: "0xtest".to_string(),
+            ..Default::default()
+        };
+        creds.key_authorization = Some("abcdef1234".to_string());
+        creds.provisioned_on = vec![4217];
+        creds.access_keys.push(AccessKey::new("0xkey1".to_string()));
+
+        let toml_str = toml::to_string_pretty(&creds).unwrap();
+        assert!(toml_str.contains("key_authorization = \"abcdef1234\""));
+        assert!(toml_str.contains("provisioned_on"));
+
+        let parsed: WalletCredentials = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.key_authorization, Some("abcdef1234".to_string()));
+        assert_eq!(parsed.provisioned_on, vec![4217]);
+    }
+
+    #[test]
+    fn test_provisioned_on() {
+        let mut creds = WalletCredentials {
+            account_address: "0xtest".to_string(),
+            key_authorization: Some("auth".to_string()),
+            ..Default::default()
+        };
+
+        assert!(!creds.is_provisioned_on(4217));
+        creds.provisioned_on.push(4217);
+        assert!(creds.is_provisioned_on(4217));
+        assert!(!creds.is_provisioned_on(42431));
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut creds = WalletCredentials {
+            account_address: "0xtest".to_string(),
+            key_authorization: Some("auth".to_string()),
+            provisioned_on: vec![4217],
+            ..Default::default()
+        };
+        creds.access_keys.push(AccessKey::new("0xkey".to_string()));
+
+        creds.clear();
+        assert!(!creds.has_wallet());
+        assert!(creds.access_keys.is_empty());
+        assert!(creds.key_authorization.is_none());
+        assert!(creds.provisioned_on.is_empty());
+    }
+
+    #[test]
+    fn test_round_trip_via_atomic_write() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("wallet.toml");
 
         let mut creds = WalletCredentials {
-            network: "tempo".to_string(),
-            ..Default::default()
-        };
-
-        let mut wallet = NetworkWallet {
             account_address: "0xdeadbeef".to_string(),
             ..Default::default()
         };
-        wallet.add_key(AccessKey::new("0xkey1".to_string()), true);
-        wallet.add_key(AccessKey::new("0xkey2".to_string()), false);
-        wallet.pending_key_authorization = Some("pending123".to_string());
-        creds.tempo = Some(wallet);
+        creds.access_keys.push(AccessKey::new("0xkey1".to_string()));
+        creds.access_keys.push(AccessKey::new("0xkey2".to_string()));
+        creds.key_authorization = Some("pending123".to_string());
+        creds.provisioned_on = vec![4217];
 
         let contents = toml::to_string_pretty(&creds).expect("serialize");
         crate::util::atomic_write::atomic_write(&path, &contents, 0o600).expect("write");
 
         let loaded: WalletCredentials =
             toml::from_str(&fs::read_to_string(&path).expect("read")).expect("deserialize");
-        assert_eq!(loaded.network, "tempo");
-        let w = loaded.tempo.expect("tempo wallet");
-        assert_eq!(w.account_address, "0xdeadbeef");
-        assert_eq!(w.access_keys.len(), 2);
-        assert_eq!(w.active_key_index, 0);
-        assert_eq!(w.pending_key_authorization, Some("pending123".to_string()));
+        assert_eq!(loaded.account_address, "0xdeadbeef");
+        assert_eq!(loaded.access_keys.len(), 2);
+        assert_eq!(loaded.active_key_index, 0);
+        assert_eq!(loaded.key_authorization, Some("pending123".to_string()));
+        assert_eq!(loaded.provisioned_on, vec![4217]);
     }
 
     #[cfg(unix)]
@@ -368,17 +256,17 @@ mod tests {
     }
 
     #[test]
-    fn test_backward_compat_without_pending_key_authorization() {
+    fn test_load_returns_default_for_legacy_format() {
+        // Legacy per-network format should parse as default (no wallet),
+        // prompting a fresh login.
         let toml_str = r#"
-network = "tempo-moderato"
+network = "tempo"
 
-[tempo-moderato]
-account_address = "0xtest"
+[tempo]
+account_address = "0xmainnet"
 active_key_index = 0
 "#;
-        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
-        let wallet = creds.tempo_moderato.unwrap();
-        assert_eq!(wallet.account_address, "0xtest");
-        assert!(wallet.pending_key_authorization.is_none());
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap_or_default();
+        assert!(!creds.has_wallet());
     }
 }

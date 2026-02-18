@@ -112,27 +112,23 @@ impl SigningSetupContext {
             })
             .transpose()?;
 
-        // Decode pending key authorization from hex
+        // Decode key authorization from hex
         let key_authorization = signer_ctx
-            .pending_key_authorization
+            .key_authorization
             .as_ref()
             .map(|hex_str| {
                 let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
                 let bytes = hex::decode(hex_str).map_err(|e| {
-                    PrestoError::InvalidConfig(format!(
-                        "Invalid pending key authorization hex: {}",
-                        e
-                    ))
+                    PrestoError::InvalidConfig(format!("Invalid key authorization hex: {}", e))
                 })?;
                 let mut slice = bytes.as_slice();
                 SignedKeyAuthorization::decode(&mut slice).map_err(|e| {
-                    PrestoError::InvalidConfig(format!(
-                        "Invalid pending key authorization RLP: {}",
-                        e
-                    ))
+                    PrestoError::InvalidConfig(format!("Invalid key authorization RLP: {}", e))
                 })
             })
             .transpose()?;
+
+        let provisioned_on = signer_ctx.provisioned_on;
 
         let from = wallet_address.unwrap_or_else(|| signer.address());
 
@@ -263,23 +259,13 @@ impl SigningSetupContext {
             gas_config
         };
 
-        // If there's a pending key authorization, check if the key is already
-        // authorized on-chain. If so, clear it locally and skip inclusion.
-        let key_authorization = if key_authorization.is_some() {
-            if let Some(wallet_addr) = wallet_address {
-                let key_address = signer.address();
-                if is_key_authorized_on_chain(&provider, wallet_addr, key_address).await {
-                    clear_pending_key_authorization();
-                    None
-                } else {
-                    key_authorization
-                }
-            } else {
+        // Include key authorization only if not yet provisioned on this chain.
+        let key_authorization =
+            if key_authorization.is_some() && !provisioned_on.contains(&chain_id) {
                 key_authorization
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
 
         Ok(Self {
             signer,
@@ -320,9 +306,9 @@ impl PaymentSetupContext {
 /// Create a Tempo payment credential for an MPP charge challenge.
 ///
 /// Supports keychain signing mode when `wallet_address` is configured.
-/// If a pending `key_authorization` exists, it is included in the transaction
-/// to atomically provision the access key and make the payment, then cleared
-/// from wallet.toml.
+/// If a `key_authorization` exists and the key is not yet provisioned on
+/// this chain, it is included in the transaction to atomically provision
+/// the access key and make the payment.
 pub async fn create_tempo_payment(
     config: &Config,
     challenge: &mpp::PaymentChallenge,
@@ -611,32 +597,6 @@ async fn estimate_tempo_gas(
     Ok(gas_limit)
 }
 
-/// Check if an access key is already authorized on-chain via the keychain precompile.
-///
-/// Queries `IAccountKeychain.getKey(account, keyId)` and returns `true` if the key
-/// exists, is not revoked, and has not expired.
-async fn is_key_authorized_on_chain<P: alloy::providers::Provider>(
-    provider: &P,
-    wallet_address: Address,
-    key_address: Address,
-) -> bool {
-    let keychain = IAccountKeychain::new(KEYCHAIN_ADDRESS, provider);
-    let Ok(result) = keychain.getKey(wallet_address, key_address).call().await else {
-        return false;
-    };
-
-    if result.expiry == 0 || result.isRevoked {
-        return false;
-    }
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    result.expiry > now
-}
-
 /// Query the key's remaining spending limit for a token.
 ///
 /// Returns `Ok(None)` if the key doesn't enforce limits (unlimited spending),
@@ -666,9 +626,7 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
     }
 
     if key_info.expiry == 0 {
-        return Err(PrestoError::SpendingLimitQuery(
-            "Access key is not provisioned on-chain".to_string(),
-        ));
+        return Err(PrestoError::AccessKeyNotProvisioned);
     }
 
     let now = std::time::SystemTime::now()
@@ -697,37 +655,21 @@ pub async fn query_key_spending_limit<P: alloy::providers::Provider>(
     Ok(Some(result))
 }
 
-/// Resolve the spending limit for a token from a pending key authorization.
+/// Resolve the spending limit for a token from a key authorization.
 ///
-/// When the key is not yet provisioned on-chain (pending authorization will be
+/// When the key is not yet provisioned on-chain (authorization will be
 /// included in the transaction), this checks the authorization's limits locally
 /// instead of querying on-chain.
 ///
-/// Returns `Ok(None)` if the pending authorization has unlimited spending,
-/// `Ok(Some(limit))` if the token has a specific limit, or
-/// `Ok(Some(U256::ZERO))` if limits are enforced but the token is not listed.
-pub fn pending_key_spending_limit(
-    pending_auth: &SignedKeyAuthorization,
-    token: Address,
-) -> Option<U256> {
-    match &pending_auth.authorization.limits {
+/// Returns `None` if the authorization has unlimited spending,
+/// `Some(limit)` if the token has a specific limit, or
+/// `Some(U256::ZERO)` if limits are enforced but the token is not listed.
+pub fn local_key_spending_limit(auth: &SignedKeyAuthorization, token: Address) -> Option<U256> {
+    match &auth.authorization.limits {
         None => None,
         Some(limits) => {
             let token_limit = limits.iter().find(|tl| tl.token == token);
             Some(token_limit.map(|tl| tl.limit).unwrap_or(U256::ZERO))
-        }
-    }
-}
-
-/// Clear the pending key authorization from wallet.toml.
-///
-/// Called after confirming the access key is already provisioned on-chain.
-fn clear_pending_key_authorization() {
-    use crate::wallet::credentials::WalletCredentials;
-    if let Ok(mut creds) = WalletCredentials::load() {
-        if let Some(wallet) = creds.active_wallet_mut() {
-            wallet.take_pending_key_authorization();
-            let _ = creds.save();
         }
     }
 }
@@ -1123,7 +1065,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pending_key_spending_limit_unlimited() {
+    fn test_local_key_spending_limit_unlimited() {
         use tempo_primitives::transaction::{KeyAuthorization, SignatureType};
 
         let signer: PrivateKeySigner =
@@ -1143,11 +1085,11 @@ mod tests {
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
         let token = Address::repeat_byte(0x01);
-        assert_eq!(pending_key_spending_limit(&signed, token), None);
+        assert_eq!(local_key_spending_limit(&signed, token), None);
     }
 
     #[test]
-    fn test_pending_key_spending_limit_with_matching_token() {
+    fn test_local_key_spending_limit_with_matching_token() {
         use tempo_primitives::transaction::{KeyAuthorization, SignatureType, TokenLimit};
 
         let signer: PrivateKeySigner =
@@ -1169,11 +1111,11 @@ mod tests {
         let inner_sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
-        assert_eq!(pending_key_spending_limit(&signed, token), Some(limit));
+        assert_eq!(local_key_spending_limit(&signed, token), Some(limit));
     }
 
     #[test]
-    fn test_pending_key_spending_limit_token_not_in_limits() {
+    fn test_local_key_spending_limit_token_not_in_limits() {
         use tempo_primitives::transaction::{KeyAuthorization, SignatureType, TokenLimit};
 
         let signer: PrivateKeySigner =
@@ -1199,13 +1141,13 @@ mod tests {
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
         assert_eq!(
-            pending_key_spending_limit(&signed, disallowed_token),
+            local_key_spending_limit(&signed, disallowed_token),
             Some(U256::ZERO)
         );
     }
 
     #[test]
-    fn test_pending_key_spending_limit_empty_limits() {
+    fn test_local_key_spending_limit_empty_limits() {
         use tempo_primitives::transaction::{KeyAuthorization, SignatureType};
 
         let signer: PrivateKeySigner =
@@ -1225,7 +1167,7 @@ mod tests {
         let signed = auth.into_signed(PrimitiveSignature::Secp256k1(inner_sig));
 
         let token = Address::repeat_byte(0x01);
-        assert_eq!(pending_key_spending_limit(&signed, token), Some(U256::ZERO));
+        assert_eq!(local_key_spending_limit(&signed, token), Some(U256::ZERO));
     }
 
     #[test]

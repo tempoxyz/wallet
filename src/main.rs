@@ -105,8 +105,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 
         let is_new_user = wallet::credentials::WalletCredentials::load()
             .ok()
-            .and_then(|c| c.active_wallet().cloned())
-            .is_none();
+            .is_none_or(|c| !c.has_wallet());
 
         let cmd_name = match &command {
             Commands::Query(_) => "query",
@@ -178,8 +177,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Logout { yes } => {
-            let network = cli.network.as_deref();
-            let result = cli::commands::logout::run_logout(yes, network).await;
+            let result = cli::commands::logout::run_logout(yes).await;
             if let Some(ref a) = analytics {
                 if result.is_ok() {
                     a.track(analytics::Event::Logout, analytics::EmptyPayload);
