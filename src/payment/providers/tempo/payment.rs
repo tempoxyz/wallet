@@ -7,7 +7,6 @@ use crate::payment::mpp_ext::TempoChargeExt;
 use alloy::primitives::{Address, U256};
 use tempo_primitives::transaction::Call;
 
-use super::gas::estimate_tempo_gas;
 use super::signing::SigningSetupContext;
 use super::swap::build_swap_calls;
 use super::transaction::{build_tempo_tx, sign_and_encode, TempoTxOptions};
@@ -46,7 +45,7 @@ pub async fn create_tempo_payment(
     config: &Config,
     challenge: &mpp::PaymentChallenge,
 ) -> Result<mpp::PaymentCredential> {
-    let ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
+    let mut ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
 
     let currency = ctx.charge_req.currency_address()?;
     let recipient = ctx.charge_req.recipient_address()?;
@@ -61,18 +60,7 @@ pub async fn create_tempo_payment(
         input: transfer_data,
     }];
 
-    let gas_limit = estimate_tempo_gas(
-        &ctx.signing.provider,
-        ctx.signing.from,
-        ctx.signing.chain_id,
-        ctx.signing.nonce,
-        currency,
-        &calls,
-        ctx.signing.gas_config.max_fee_per_gas_u128(),
-        ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
-        ctx.signing.signing_mode.key_authorization(),
-    )
-    .await?;
+    let gas_limit = ctx.signing.estimate_gas(currency, &calls).await?;
 
     let tx = build_tempo_tx(TempoTxOptions {
         calls,
@@ -117,7 +105,7 @@ pub async fn create_tempo_payment_with_swap(
     challenge: &mpp::PaymentChallenge,
     swap_info: &SwapInfo,
 ) -> Result<mpp::PaymentCredential> {
-    let ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
+    let mut ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
 
     let recipient = ctx.charge_req.recipient_address()?;
     let amount = ctx.charge_req.amount_u256()?;
@@ -125,18 +113,7 @@ pub async fn create_tempo_payment_with_swap(
 
     let calls = build_swap_calls(swap_info, recipient, amount, memo)?;
 
-    let gas_limit = estimate_tempo_gas(
-        &ctx.signing.provider,
-        ctx.signing.from,
-        ctx.signing.chain_id,
-        ctx.signing.nonce,
-        swap_info.token_in,
-        &calls,
-        ctx.signing.gas_config.max_fee_per_gas_u128(),
-        ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
-        ctx.signing.signing_mode.key_authorization(),
-    )
-    .await?;
+    let gas_limit = ctx.signing.estimate_gas(swap_info.token_in, &calls).await?;
 
     let tx = build_tempo_tx(TempoTxOptions {
         calls,
@@ -178,20 +155,9 @@ pub async fn create_tempo_payment_from_calls(
     calls: Vec<Call>,
     fee_token: Address,
 ) -> Result<mpp::PaymentCredential> {
-    let ctx = SigningSetupContext::from_challenge(config, challenge).await?;
+    let mut ctx = SigningSetupContext::from_challenge(config, challenge).await?;
 
-    let gas_limit = estimate_tempo_gas(
-        &ctx.provider,
-        ctx.from,
-        ctx.chain_id,
-        ctx.nonce,
-        fee_token,
-        &calls,
-        ctx.gas_config.max_fee_per_gas_u128(),
-        ctx.gas_config.max_priority_fee_per_gas_u128(),
-        ctx.signing_mode.key_authorization(),
-    )
-    .await?;
+    let gas_limit = ctx.estimate_gas(fee_token, &calls).await?;
 
     let tx = build_tempo_tx(TempoTxOptions {
         calls,

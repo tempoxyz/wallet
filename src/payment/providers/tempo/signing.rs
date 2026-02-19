@@ -23,6 +23,7 @@ pub(super) struct SigningSetupContext {
     pub gas_config: GasConfig,
     pub provider: HttpProvider,
     pub signing_mode: TempoSigningMode,
+    pub network_name: String,
 }
 
 impl SigningSetupContext {
@@ -221,6 +222,103 @@ impl SigningSetupContext {
             gas_config,
             provider,
             signing_mode,
+            network_name: network_name.to_string(),
         })
+    }
+
+    /// Estimate gas for a Tempo transaction, automatically retrying without
+    /// `key_authorization` if gas estimation fails with `KeyAlreadyExists`.
+    ///
+    /// This handles the case where the local `provisioned` flag is out of sync
+    /// with the on-chain state (key already provisioned but local wallet says
+    /// it isn't). On retry, the signing mode is updated in-place and the
+    /// provisioned flag is persisted to wallet.toml.
+    pub async fn estimate_gas(
+        &mut self,
+        fee_token: Address,
+        calls: &[tempo_primitives::transaction::Call],
+    ) -> Result<u64> {
+        use super::gas::estimate_tempo_gas;
+
+        let result = estimate_tempo_gas(
+            &self.provider,
+            self.from,
+            self.chain_id,
+            self.nonce,
+            fee_token,
+            calls,
+            self.gas_config.max_fee_per_gas_u128(),
+            self.gas_config.max_priority_fee_per_gas_u128(),
+            self.signing_mode.key_authorization(),
+        )
+        .await;
+
+        match result {
+            Ok(gas) => Ok(gas),
+            Err(e)
+                if self.signing_mode.key_authorization().is_some() && is_key_already_exists(&e) =>
+            {
+                debug!("access key already provisioned on-chain, retrying gas estimation without key_authorization");
+                self.drop_key_authorization();
+                estimate_tempo_gas(
+                    &self.provider,
+                    self.from,
+                    self.chain_id,
+                    self.nonce,
+                    fee_token,
+                    calls,
+                    self.gas_config.max_fee_per_gas_u128(),
+                    self.gas_config.max_priority_fee_per_gas_u128(),
+                    None,
+                )
+                .await
+                .map_err(Into::into)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Strip key_authorization from signing mode and persist provisioned flag.
+    fn drop_key_authorization(&mut self) {
+        if let TempoSigningMode::Keychain {
+            key_authorization, ..
+        } = &mut self.signing_mode
+        {
+            *key_authorization = None;
+        }
+        crate::wallet::credentials::WalletCredentials::mark_provisioned(&self.network_name);
+    }
+}
+
+/// Check if an MppError is caused by a KeyAlreadyExists revert from the keychain precompile.
+fn is_key_already_exists(err: &mpp::MppError) -> bool {
+    err.to_string().contains("KeyAlreadyExists")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_key_already_exists_matches() {
+        let err = mpp::MppError::Http(
+            "gas estimation failed: server returned an error response: error code -32603: \
+             Revm error: keychain precompile error: Account keychain error: \
+             KeyAlreadyExists(KeyAlreadyExists)"
+                .to_string(),
+        );
+        assert!(is_key_already_exists(&err));
+    }
+
+    #[test]
+    fn test_is_key_already_exists_no_match() {
+        let err = mpp::MppError::Http("gas estimation failed: out of gas".to_string());
+        assert!(!is_key_already_exists(&err));
+    }
+
+    #[test]
+    fn test_is_key_already_exists_not_provisioned() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
+        assert!(!is_key_already_exists(&err));
     }
 }
