@@ -92,8 +92,7 @@ impl WalletManager {
             "secp256k1",
             &code_challenge,
         )
-        .await
-        .map_err(|e| PrestoError::Http(format!("{}", e)))?;
+        .await?;
 
         let code = &device_code_resp.code;
 
@@ -148,14 +147,15 @@ impl WalletManager {
 
         let callback = loop {
             if wait_start.elapsed() >= timeout {
-                return Err(PrestoError::Http("Authentication timed out".to_string()));
+                return Err(PrestoError::LoginExpired);
             }
 
-            let poll_resp = poll_device_code(&client, &auth_base_url, code, &code_verifier)
-                .await
-                .map_err(|e| PrestoError::Http(format!("{}", e)))?;
+            let poll_resp = poll_device_code(&client, &auth_base_url, code, &code_verifier).await?;
 
             if let Some(err) = &poll_resp.error {
+                if err.to_lowercase().contains("expired") {
+                    return Err(PrestoError::LoginExpired);
+                }
                 return Err(PrestoError::Http(err.clone()));
             }
 
