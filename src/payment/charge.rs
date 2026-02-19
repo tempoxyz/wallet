@@ -206,75 +206,38 @@ fn display_web_receipt(
 
 /// Classify an mpp provider error into a PrestoError with actionable context.
 fn classify_payment_provider_error(err: mpp::MppError) -> crate::error::PrestoError {
-    let raw = err.to_string();
-    let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
-    let msg_lower = msg.to_lowercase();
+    use mpp::client::TempoClientError;
 
-    if msg_lower.contains("not provisioned") {
-        return crate::error::PrestoError::AccessKeyNotProvisioned;
-    }
-
-    if msg_lower.contains("spending limit exceeded") || msg_lower.contains("spending limit too low")
-    {
-        let token = extract_field(&msg, "need")
-            .and_then(|s| s.split_whitespace().nth(1).map(|t| t.to_string()));
-        let limit = extract_field(&msg, "limit is")
-            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
-        let required = extract_field(&msg, "need")
-            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
-
-        if let (Some(token), Some(limit), Some(required)) = (token, limit, required) {
-            return crate::error::PrestoError::SpendingLimitExceeded {
+    match err {
+        mpp::MppError::Tempo(tempo_err) => match tempo_err {
+            TempoClientError::AccessKeyNotProvisioned => {
+                crate::error::PrestoError::AccessKeyNotProvisioned
+            }
+            TempoClientError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
-            };
-        }
-    }
-
-    if msg_lower.contains("insufficient") && msg_lower.contains("balance") {
-        let token = extract_between(&msg, "Insufficient ", " balance");
-        let available = extract_field(&msg, "have")
-            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
-        let required = extract_field(&msg, "need")
-            .and_then(|s| s.split_whitespace().next().map(|v| v.to_string()));
-
-        if let (Some(token), Some(available), Some(required)) = (token, available, required) {
-            return crate::error::PrestoError::InsufficientBalance {
+            } => crate::error::PrestoError::SpendingLimitExceeded {
+                token,
+                limit,
+                required,
+            },
+            TempoClientError::InsufficientBalance {
                 token,
                 available,
                 required,
-            };
+            } => crate::error::PrestoError::InsufficientBalance {
+                token,
+                available,
+                required,
+            },
+            TempoClientError::TransactionReverted(msg) => crate::error::PrestoError::Http(msg),
+        },
+        other => {
+            let raw = other.to_string();
+            let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
+            crate::error::PrestoError::Http(msg)
         }
-    }
-
-    crate::error::PrestoError::Http(msg)
-}
-
-/// Extract text between two markers, e.g. extract_between("Insufficient pathUSD balance", "Insufficient ", " balance") => "pathUSD".
-fn extract_between(msg: &str, start: &str, end: &str) -> Option<String> {
-    let start_idx = msg.find(start)?;
-    let after = &msg[start_idx + start.len()..];
-    let end_idx = after.find(end)?;
-    let value = after[..end_idx].trim();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value.to_string())
-    }
-}
-
-/// Extract a field value from error messages like "have X, need Y" or "limit is X".
-fn extract_field(msg: &str, prefix: &str) -> Option<String> {
-    let search = format!("{} ", prefix);
-    let idx = msg.find(&search)?;
-    let after = &msg[idx + search.len()..];
-    let end = after.find([',', '\n']).unwrap_or(after.len());
-    let value = after[..end].trim();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value.to_string())
     }
 }
 
@@ -392,50 +355,12 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_field_with_decimals() {
-        let msg = "limit is 0.000000 pathUSD, need 0.010000 pathUSD";
-        assert_eq!(
-            extract_field(msg, "limit is"),
-            Some("0.000000 pathUSD".into())
-        );
-        assert_eq!(extract_field(msg, "need"), Some("0.010000 pathUSD".into()));
-    }
-
-    #[test]
-    fn test_extract_field_no_match() {
-        assert_eq!(extract_field("no match here", "limit is"), None);
-    }
-
-    #[test]
-    fn test_extract_between_token() {
-        let msg = "Insufficient pathUSD balance: have 0.50, need 1.00";
-        assert_eq!(
-            extract_between(msg, "Insufficient ", " balance"),
-            Some("pathUSD".into())
-        );
-    }
-
-    #[test]
-    fn test_extract_between_address_token() {
-        let msg = "Insufficient 0x20c0000000000000000000000000000000000000 balance: have 0, need 1";
-        assert_eq!(
-            extract_between(msg, "Insufficient ", " balance"),
-            Some("0x20c0000000000000000000000000000000000000".into())
-        );
-    }
-
-    #[test]
-    fn test_extract_between_no_match() {
-        assert_eq!(
-            extract_between("no match", "Insufficient ", " balance"),
-            None
-        );
-    }
-
-    #[test]
-    fn test_classify_spending_limit_from_mpp_error() {
-        let inner = "Spending limit exceeded: limit is 0.000000 pathUSD, need 0.010000 pathUSD";
-        let err = mpp::MppError::Http(inner.to_string());
+    fn test_classify_spending_limit_typed() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::SpendingLimitExceeded {
+            token: "pathUSD".to_string(),
+            limit: "0.000000".to_string(),
+            required: "0.010000".to_string(),
+        });
         let result = classify_payment_provider_error(err);
         match result {
             crate::error::PrestoError::SpendingLimitExceeded {
@@ -452,23 +377,12 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_spending_limit_with_address_token() {
-        let addr = "0x20c0000000000000000000000000000000000000";
-        let inner = format!("Spending limit exceeded: limit is 0.50 {addr}, need 1.00 {addr}");
-        let err = mpp::MppError::Http(inner);
-        let result = classify_payment_provider_error(err);
-        match result {
-            crate::error::PrestoError::SpendingLimitExceeded { token, .. } => {
-                assert_eq!(token, addr);
-            }
-            other => panic!("Expected SpendingLimitExceeded, got: {other}"),
-        }
-    }
-
-    #[test]
-    fn test_classify_insufficient_balance_from_mpp_error() {
-        let inner = "Insufficient pathUSD balance: have 0.50, need 1.00";
-        let err = mpp::MppError::Http(inner.to_string());
+    fn test_classify_insufficient_balance_typed() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::InsufficientBalance {
+            token: "pathUSD".to_string(),
+            available: "0.50".to_string(),
+            required: "1.00".to_string(),
+        });
         let result = classify_payment_provider_error(err);
         match result {
             crate::error::PrestoError::InsufficientBalance {
@@ -482,6 +396,16 @@ mod tests {
             }
             other => panic!("Expected InsufficientBalance, got: {other}"),
         }
+    }
+
+    #[test]
+    fn test_classify_access_key_not_provisioned() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
+        let result = classify_payment_provider_error(err);
+        assert!(matches!(
+            result,
+            crate::error::PrestoError::AccessKeyNotProvisioned
+        ));
     }
 
     #[test]
