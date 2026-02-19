@@ -8,7 +8,7 @@ use tracing::debug;
 
 use crate::config::Config;
 use crate::network::Network;
-use crate::payment::money::format_u256_with_decimals;
+use crate::payment::currency::format_u256_with_decimals;
 use crate::payment::provider::query_token_balance_with_provider;
 
 #[derive(Debug, Serialize)]

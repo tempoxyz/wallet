@@ -15,7 +15,7 @@ use mpp::PaymentChallenge;
 use crate::error::{PrestoError, Result};
 use crate::network::Network;
 #[cfg(test)]
-use crate::payment::money::Money;
+use crate::payment::currency::Money;
 
 /// Derive the network from a charge request's chain ID.
 pub fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result<Network> {
@@ -91,7 +91,7 @@ pub trait ChargeRequestExt {
 #[cfg(test)]
 impl ChargeRequestExt for ChargeRequest {
     fn money(&self, network: Network) -> Result<Money> {
-        use crate::payment::money::{Money, TokenId};
+        use crate::payment::currency::{Money, TokenId};
         use mpp::protocol::methods::tempo::TempoChargeExt;
 
         let currency_addr: Address = self

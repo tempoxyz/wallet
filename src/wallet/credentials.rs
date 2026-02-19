@@ -130,7 +130,7 @@ impl WalletCredentials {
              # Do not edit manually.\n\n\
              {body}"
         );
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600)?;
+        crate::util::atomic_write(&path, &contents, 0o600)?;
         Ok(())
     }
 
@@ -404,7 +404,7 @@ mod tests {
         );
 
         let contents = toml::to_string_pretty(&creds).expect("serialize");
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).expect("write");
+        crate::util::atomic_write(&path, &contents, 0o600).expect("write");
 
         let loaded: WalletCredentials =
             toml::from_str(&fs::read_to_string(&path).expect("read")).expect("deserialize");
@@ -432,7 +432,7 @@ mod tests {
 
         let creds = WalletCredentials::default();
         let contents = toml::to_string_pretty(&creds).expect("serialize");
-        crate::util::atomic_write::atomic_write(&path, &contents, 0o600).expect("write");
+        crate::util::atomic_write(&path, &contents, 0o600).expect("write");
 
         let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);

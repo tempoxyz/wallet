@@ -7,13 +7,12 @@ use anyhow::{Context, Result};
 
 use mpp::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge};
 
-use crate::cli::formatting::format_address_link;
-use crate::cli::hyperlink::hyperlink;
+use crate::cli::output::{format_address_link, hyperlink};
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
-use crate::network::explorer::ExplorerConfig;
+use crate::network::ExplorerConfig;
 use crate::payment::mpp_ext::{network_from_charge_request, validate_challenge};
 use mpp::protocol::core::extract_tx_hash;
 use crate::payment::provider::PrestoPaymentProvider;

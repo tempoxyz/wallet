@@ -6,7 +6,7 @@
 use crate::config::Config;
 use crate::error::{PrestoError, Result};
 use crate::network::Network;
-use crate::payment::money::format_u256_with_decimals;
+use crate::payment::currency::format_u256_with_decimals;
 use mpp::client::tempo::keychain::{local_key_spending_limit, query_key_spending_limit};
 use mpp::client::tempo::swap::{SwapInfo, BPS_DENOMINATOR, SWAP_SLIPPAGE_BPS};
 use crate::wallet::signer::load_signer_for_network;
@@ -68,7 +68,7 @@ impl PrestoPaymentProvider {
     ) -> std::result::Result<mpp::PaymentCredential, mpp::MppError> {
         use crate::payment::mpp_ext::network_from_charge_request;
         use mpp::protocol::methods::tempo::TempoChargeExt;
-        use crate::payment::providers::tempo::{
+        use crate::payment::tempo::{
             create_tempo_payment, create_tempo_payment_with_swap,
         };
 
