@@ -217,7 +217,6 @@ impl Network {
     pub(crate) fn default_token_config(&self) -> TokenConfig {
         self.supported_tokens()[0]
     }
-
 }
 
 impl FromStr for Network {

@@ -35,13 +35,7 @@ pub struct Cli {
     pub config: Option<String>,
 
     /// Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato")
-    #[arg(
-        short = 'n',
-        long,
-        value_name = "NETWORKS",
-        global = true,
-        hide = true
-    )]
+    #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
     pub network: Option<String>,
 
     /// Verbosity level (can be used multiple times: -v, -vv, -vvv)

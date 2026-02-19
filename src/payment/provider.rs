@@ -331,8 +331,6 @@ sol! {
     }
 }
 
-
-
 /// Query the balance of a specific token for an account.
 pub async fn query_token_balance(
     config: &Config,

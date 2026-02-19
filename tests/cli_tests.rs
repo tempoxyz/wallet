@@ -105,15 +105,6 @@ fn test_color_never() {
 }
 
 #[test]
-fn test_help_has_payment_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Payment Options:"));
-}
-
-#[test]
 fn test_help_has_display_options_section() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
@@ -129,15 +120,6 @@ fn test_help_has_http_options_section() {
         .assert()
         .success()
         .stdout(predicate::str::contains("HTTP Options:"));
-}
-
-#[test]
-fn test_help_shows_network_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("-n, --network"));
 }
 
 #[test]

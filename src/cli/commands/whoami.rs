@@ -79,8 +79,7 @@ pub async fn show_whoami(
             ));
         }
 
-        response.balances =
-            query_all_balances(config, network, &creds.account_address).await;
+        response.balances = query_all_balances(config, network, &creds.account_address).await;
 
         response.spending_limit =
             query_spending_limit(config, network, &creds, &mut response.issues).await;
@@ -181,14 +180,10 @@ async fn query_spending_limit(
                     let total_limit = tl.limit;
 
                     // Query remaining from chain
-                    let remaining = query_key_spending_limit(
-                        &provider,
-                        wallet_address,
-                        key_address,
-                        tl.token,
-                    )
-                    .await
-                    .unwrap_or(Some(total_limit));
+                    let remaining =
+                        query_key_spending_limit(&provider, wallet_address, key_address, tl.token)
+                            .await
+                            .unwrap_or(Some(total_limit));
 
                     let remaining_val = remaining.unwrap_or(total_limit);
                     let spent = total_limit.saturating_sub(remaining_val);
