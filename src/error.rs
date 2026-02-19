@@ -108,10 +108,6 @@ pub enum PrestoError {
     #[error("HTTP error: {0}")]
     Http(String),
 
-    /// Unsupported HTTP method
-    #[error("Unsupported HTTP method: {0}")]
-    UnsupportedHttpMethod(String),
-
     /// EVM/Alloy signing error with context and source chain
     #[error("signing failed ({context})")]
     Signing {
@@ -323,12 +319,6 @@ mod tests {
     fn test_http_display() {
         let err = PrestoError::Http("404 Not Found".to_string());
         assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
-    }
-
-    #[test]
-    fn test_unsupported_http_method_display() {
-        let err = PrestoError::UnsupportedHttpMethod("TRACE".to_string());
-        assert_eq!(err.to_string(), "Unsupported HTTP method: TRACE");
     }
 
     #[test]

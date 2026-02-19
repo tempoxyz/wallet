@@ -5,7 +5,7 @@
 
 use std::io::Read;
 
-use crate::http::{has_header, HttpClient, HttpClientBuilder, HttpMethod, HttpResponse};
+use crate::http::{has_header, HttpClient, HttpClientBuilder, HttpResponse};
 use anyhow::Result;
 use thiserror::Error;
 
@@ -83,7 +83,7 @@ fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
 
 /// Context for making HTTP requests with optional payment headers
 pub struct RequestContext {
-    pub method: HttpMethod,
+    pub method: reqwest::Method,
     pub body: Option<Vec<u8>>,
     pub cli: Cli,
     pub query: QueryArgs,
@@ -153,7 +153,7 @@ impl RequestContext {
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<reqwest::RequestBuilder> {
         let client = self.build_reqwest_client(extra_headers)?;
-        let method = self.method.to_reqwest().unwrap_or(reqwest::Method::GET);
+        let method = self.method.clone();
 
         let mut builder = client.request(method, url);
 
@@ -178,7 +178,7 @@ impl RequestContext {
 }
 
 /// Determine the HTTP method and body based on query arguments
-fn get_request_method_and_body(query: &QueryArgs) -> Result<(HttpMethod, Option<Vec<u8>>)> {
+fn get_request_method_and_body(query: &QueryArgs) -> Result<(reqwest::Method, Option<Vec<u8>>)> {
     let body = if let Some(ref json) = query.json {
         let bytes = json.as_bytes().to_vec();
         validate_body_size(bytes.len())?;
@@ -201,12 +201,15 @@ fn get_request_method_and_body(query: &QueryArgs) -> Result<(HttpMethod, Option<
     let method = query
         .method
         .as_ref()
-        .map(HttpMethod::from)
+        .map(|m| {
+            reqwest::Method::from_bytes(m.to_uppercase().as_bytes())
+                .unwrap_or(reqwest::Method::GET)
+        })
         .unwrap_or_else(|| {
             if body.is_some() {
-                HttpMethod::Post
+                reqwest::Method::POST
             } else {
-                HttpMethod::Get
+                reqwest::Method::GET
             }
         });
 
@@ -358,14 +361,14 @@ mod tests {
     fn test_body_implies_post() {
         let query = make_query_args(&["query", "-d", "foo", "http://example.com"]);
         let (method, _body) = get_request_method_and_body(&query).unwrap();
-        assert_eq!(method, HttpMethod::Post);
+        assert_eq!(method, reqwest::Method::POST);
     }
 
     #[test]
     fn test_explicit_method_overrides_body_implied_post() {
         let query = make_query_args(&["query", "-X", "PUT", "-d", "foo", "http://example.com"]);
         let (method, _body) = get_request_method_and_body(&query).unwrap();
-        assert_eq!(method, HttpMethod::Put);
+        assert_eq!(method, reqwest::Method::PUT);
     }
 
     #[test]

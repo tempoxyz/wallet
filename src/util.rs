@@ -1,13 +1,8 @@
 //! Utility functions and constants.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 
 use crate::error::{PrestoError, Result};
 
@@ -31,28 +26,6 @@ pub fn default_config_path() -> Option<PathBuf> {
 
 // ── Atomic file writes ──────────────────────────────────────────────
 
-struct TempFileGuard {
-    path: Option<PathBuf>,
-}
-
-impl TempFileGuard {
-    fn new(path: PathBuf) -> Self {
-        Self { path: Some(path) }
-    }
-
-    fn defuse(&mut self) {
-        self.path = None;
-    }
-}
-
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        if let Some(ref path) = self.path {
-            let _ = fs::remove_file(path);
-        }
-    }
-}
-
 pub fn atomic_write(
     path: &Path,
     contents: &str,
@@ -67,70 +40,20 @@ pub fn atomic_write(
 
     fs::create_dir_all(parent)?;
 
-    if !parent.is_dir() {
-        return Err(PrestoError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotADirectory,
-            format!("parent is not a directory: {}", parent.display()),
-        )));
+    // Create temp file in the same directory (ensures same filesystem for rename)
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file()
+            .set_permissions(fs::Permissions::from_mode(unix_mode))?;
     }
 
-    let filename = path
-        .file_name()
-        .ok_or_else(|| {
-            PrestoError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("path has no filename: {}", path.display()),
-            ))
-        })?
-        .to_string_lossy();
+    temp.write_all(contents.as_bytes())?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|e| PrestoError::Io(e.error))?;
 
-    let pid = process::id();
-    let base_nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-
-    let mut last_err = None;
-    for attempt in 0..10u128 {
-        let nonce = base_nonce ^ attempt;
-        let tmp_name = format!(".{}.{}.{}.tmp", filename, pid, nonce);
-        let tmp_path = parent.join(&tmp_name);
-
-        let mut opts = OpenOptions::new();
-        opts.write(true).create_new(true);
-
-        #[cfg(unix)]
-        opts.mode(unix_mode);
-
-        match opts.open(&tmp_path) {
-            Ok(file) => {
-                let mut guard = TempFileGuard::new(tmp_path.clone());
-                write_and_rename(file, contents, &tmp_path, path)?;
-                guard.defuse();
-                return Ok(());
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                last_err = Some(e);
-                continue;
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-
-    Err(last_err.map(PrestoError::Io).unwrap_or_else(|| {
-        PrestoError::Io(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "failed to create temp file after 10 attempts",
-        ))
-    }))
-}
-
-fn write_and_rename(
-    mut file: File,
-    contents: &str,
-    tmp_path: &Path,
-    final_path: &Path,
-) -> Result<()> {
-    file.write_all(contents.as_bytes())?;
-    file.sync_all()?;
-    fs::rename(tmp_path, final_path)?;
     Ok(())
 }
 
@@ -280,26 +203,6 @@ mod tests {
         let path = blocker.join("test.txt");
         let result = atomic_write(&path, "content", 0o644);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_atomic_write_retries_on_temp_collision() {
-        let dir = tempdir().expect("tempdir");
-        let path = dir.path().join("test.txt");
-
-        let pid = process::id();
-        let base_nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let colliding_name = format!(".test.txt.{}.{}.tmp", pid, base_nonce);
-        fs::write(dir.path().join(&colliding_name), "blocker").expect("write blocker");
-
-        atomic_write(&path, "should succeed via retry", 0o644).expect("write");
-        assert_eq!(
-            fs::read_to_string(&path).expect("read"),
-            "should succeed via retry"
-        );
     }
 
     #[test]

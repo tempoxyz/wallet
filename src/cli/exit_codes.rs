@@ -114,7 +114,7 @@ impl From<&crate::error::PrestoError> for ExitCode {
             }
 
             // Invalid usage errors
-            PrestoError::InvalidAmount(_) | PrestoError::UnsupportedHttpMethod(_) => {
+            PrestoError::InvalidAmount(_) => {
                 ExitCode::InvalidUsage
             }
 
