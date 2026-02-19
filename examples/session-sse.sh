@@ -39,7 +39,7 @@ echo "Requests: ${#PROMPTS[@]}"
 echo ""
 
 # Ensure wallet is configured
-if !  tempo-walletwhoami 2>/dev/null | grep -q "Ready"; then
+if !  tempo-walletwhoami 2>/dev/null | grep -q "Wallet:"; then
   echo "No wallet configured. Running ' tempo-walletlogin'..."
    tempo-walletlogin
   echo ""

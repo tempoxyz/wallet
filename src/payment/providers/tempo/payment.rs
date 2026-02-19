@@ -10,7 +10,7 @@ use tempo_primitives::transaction::Call;
 use super::gas::estimate_tempo_gas;
 use super::signing::SigningSetupContext;
 use super::swap::build_swap_calls;
-use super::transaction::create_tempo_transaction_with_calls;
+use super::transaction::{build_tempo_tx, sign_and_encode, TempoTxOptions};
 use super::util::{parse_memo, SwapInfo};
 
 /// Common context for payment setup, shared between direct and swap payments.
@@ -68,22 +68,30 @@ pub async fn create_tempo_payment(
         ctx.signing.nonce,
         currency,
         &calls,
-        &ctx.signing.gas_config,
-        ctx.signing.key_authorization.as_ref(),
+        ctx.signing.gas_config.max_fee_per_gas_u128(),
+        ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
+        ctx.signing.signing_mode.key_authorization(),
     )
-    .await?;
+    .await
+    .map_err(|e| PrestoError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
 
-    let signed_tx = create_tempo_transaction_with_calls(
-        &ctx.signing.signer,
-        ctx.signing.chain_id,
-        ctx.signing.nonce,
-        currency,
+    let tx = build_tempo_tx(TempoTxOptions {
         calls,
-        &ctx.signing.gas_config,
+        chain_id: ctx.signing.chain_id,
+        fee_token: currency,
+        nonce: ctx.signing.nonce,
+        nonce_key: U256::ZERO,
         gas_limit,
-        ctx.signing.wallet_address,
-        ctx.signing.key_authorization,
-    )?;
+        max_fee_per_gas: ctx.signing.gas_config.max_fee_per_gas_u128(),
+        max_priority_fee_per_gas: ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
+        fee_payer: false,
+        valid_before: None,
+        key_authorization: ctx.signing.signing_mode.key_authorization().cloned(),
+    });
+
+    let tx_bytes = sign_and_encode(tx, &ctx.signing.signer, &ctx.signing.signing_mode)
+        .map_err(|e| PrestoError::SigningSimple(e.to_string()))?;
+    let signed_tx = hex::encode(&tx_bytes);
 
     let did = format!(
         "did:pkh:eip155:{}:{:#x}",
@@ -125,22 +133,30 @@ pub async fn create_tempo_payment_with_swap(
         ctx.signing.nonce,
         swap_info.token_in,
         &calls,
-        &ctx.signing.gas_config,
-        ctx.signing.key_authorization.as_ref(),
+        ctx.signing.gas_config.max_fee_per_gas_u128(),
+        ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
+        ctx.signing.signing_mode.key_authorization(),
     )
-    .await?;
+    .await
+    .map_err(|e| PrestoError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
 
-    let signed_tx = create_tempo_transaction_with_calls(
-        &ctx.signing.signer,
-        ctx.signing.chain_id,
-        ctx.signing.nonce,
-        swap_info.token_in, // Fee token is the token we're swapping from
+    let tx = build_tempo_tx(TempoTxOptions {
         calls,
-        &ctx.signing.gas_config,
+        chain_id: ctx.signing.chain_id,
+        fee_token: swap_info.token_in,
+        nonce: ctx.signing.nonce,
+        nonce_key: U256::ZERO,
         gas_limit,
-        ctx.signing.wallet_address,
-        ctx.signing.key_authorization,
-    )?;
+        max_fee_per_gas: ctx.signing.gas_config.max_fee_per_gas_u128(),
+        max_priority_fee_per_gas: ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
+        fee_payer: false,
+        valid_before: None,
+        key_authorization: ctx.signing.signing_mode.key_authorization().cloned(),
+    });
+
+    let tx_bytes = sign_and_encode(tx, &ctx.signing.signer, &ctx.signing.signing_mode)
+        .map_err(|e| PrestoError::SigningSimple(e.to_string()))?;
+    let signed_tx = hex::encode(&tx_bytes);
 
     let did = format!(
         "did:pkh:eip155:{}:{:#x}",
@@ -173,22 +189,30 @@ pub async fn create_tempo_payment_from_calls(
         ctx.nonce,
         fee_token,
         &calls,
-        &ctx.gas_config,
-        ctx.key_authorization.as_ref(),
+        ctx.gas_config.max_fee_per_gas_u128(),
+        ctx.gas_config.max_priority_fee_per_gas_u128(),
+        ctx.signing_mode.key_authorization(),
     )
-    .await?;
+    .await
+    .map_err(|e| PrestoError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
 
-    let signed_tx = create_tempo_transaction_with_calls(
-        &ctx.signer,
-        ctx.chain_id,
-        ctx.nonce,
-        fee_token,
+    let tx = build_tempo_tx(TempoTxOptions {
         calls,
-        &ctx.gas_config,
+        chain_id: ctx.chain_id,
+        fee_token,
+        nonce: ctx.nonce,
+        nonce_key: U256::ZERO,
         gas_limit,
-        ctx.wallet_address,
-        ctx.key_authorization,
-    )?;
+        max_fee_per_gas: ctx.gas_config.max_fee_per_gas_u128(),
+        max_priority_fee_per_gas: ctx.gas_config.max_priority_fee_per_gas_u128(),
+        fee_payer: false,
+        valid_before: None,
+        key_authorization: ctx.signing_mode.key_authorization().cloned(),
+    });
+
+    let tx_bytes = sign_and_encode(tx, &ctx.signer, &ctx.signing_mode)
+        .map_err(|e| PrestoError::SigningSimple(e.to_string()))?;
+    let signed_tx = hex::encode(&tx_bytes);
 
     let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
 
