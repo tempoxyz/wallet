@@ -22,11 +22,11 @@ futures = "0.3"
 hex = "0.4"
 hostname = "0.4"
 posthog-rs = "0.4"
-mpp = { git = "https://github.com/tempoxyz/mpp-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client", "server"] }
+mpp = { git = "https://github.com/tempoxyz/mpp-rs.git", branch = "kartik/rf-pr1", features = ["tempo", "evm", "utils", "client", "server"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "07dfcd2d2b8c109d6b8502515c7db00198a8b3a3", features = ["serde"] }
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", features = ["serde"] }
 thiserror = "2.0"
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
 toml = "1.0"
@@ -47,5 +47,5 @@ serial_test = "3.2"
 [workspace]
 
 [patch.crates-io]
-tempo-alloy = { git = "https://github.com/tempoxyz/tempo", rev = "0b733465c4b24b0e80ca30036ac0708a1827f56c" }
-tempo-primitives = { git = "https://github.com/tempoxyz/tempo", rev = "0b733465c4b24b0e80ca30036ac0708a1827f56c" }
+tempo-alloy = { git = "https://github.com/tempoxyz/tempo" }
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo" }

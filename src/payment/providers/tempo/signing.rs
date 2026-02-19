@@ -9,6 +9,7 @@ use alloy::signers::local::PrivateKeySigner;
 use std::str::FromStr;
 use tracing::debug;
 
+use mpp::client::tempo::signing::TempoSigningMode;
 use tempo_primitives::transaction::SignedKeyAuthorization;
 
 pub(super) type HttpProvider = alloy::providers::RootProvider;
@@ -16,13 +17,12 @@ pub(super) type HttpProvider = alloy::providers::RootProvider;
 /// Common signing context shared between charge and session payment flows.
 pub(super) struct SigningSetupContext {
     pub signer: PrivateKeySigner,
-    pub wallet_address: Option<Address>,
-    pub key_authorization: Option<SignedKeyAuthorization>,
     pub from: Address,
     pub chain_id: u64,
     pub nonce: u64,
     pub gas_config: GasConfig,
     pub provider: HttpProvider,
+    pub signing_mode: TempoSigningMode,
 }
 
 impl SigningSetupContext {
@@ -204,15 +204,23 @@ impl SigningSetupContext {
             None
         };
 
+        let signing_mode = if let Some(wallet) = wallet_address {
+            TempoSigningMode::Keychain {
+                wallet,
+                key_authorization: key_authorization.clone().map(Box::new),
+            }
+        } else {
+            TempoSigningMode::Direct
+        };
+
         Ok(Self {
             signer,
-            wallet_address,
-            key_authorization,
             from,
             chain_id,
             nonce,
             gas_config,
             provider,
+            signing_mode,
         })
     }
 }
