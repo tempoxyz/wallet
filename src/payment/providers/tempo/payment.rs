@@ -72,8 +72,7 @@ pub async fn create_tempo_payment(
         ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
         ctx.signing.signing_mode.key_authorization(),
     )
-    .await
-    .map_err(|e| PrestoError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
+    .await?;
 
     let tx = build_tempo_tx(TempoTxOptions {
         calls,
@@ -137,8 +136,7 @@ pub async fn create_tempo_payment_with_swap(
         ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
         ctx.signing.signing_mode.key_authorization(),
     )
-    .await
-    .map_err(|e| PrestoError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
+    .await?;
 
     let tx = build_tempo_tx(TempoTxOptions {
         calls,
@@ -193,8 +191,7 @@ pub async fn create_tempo_payment_from_calls(
         ctx.gas_config.max_priority_fee_per_gas_u128(),
         ctx.signing_mode.key_authorization(),
     )
-    .await
-    .map_err(|e| PrestoError::InvalidChallenge(format!("Gas estimation failed: {}", e)))?;
+    .await?;
 
     let tx = build_tempo_tx(TempoTxOptions {
         calls,
