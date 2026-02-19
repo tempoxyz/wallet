@@ -114,9 +114,7 @@ impl From<&crate::error::PrestoError> for ExitCode {
             }
 
             // Invalid usage errors
-            PrestoError::InvalidAmount(_) => {
-                ExitCode::InvalidUsage
-            }
+            PrestoError::InvalidAmount(_) => ExitCode::InvalidUsage,
 
             // Payment protocol errors
             PrestoError::PaymentRejected { .. }

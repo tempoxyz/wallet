@@ -202,8 +202,7 @@ fn get_request_method_and_body(query: &QueryArgs) -> Result<(reqwest::Method, Op
         .method
         .as_ref()
         .map(|m| {
-            reqwest::Method::from_bytes(m.to_uppercase().as_bytes())
-                .unwrap_or(reqwest::Method::GET)
+            reqwest::Method::from_bytes(m.to_uppercase().as_bytes()).unwrap_or(reqwest::Method::GET)
         })
         .unwrap_or_else(|| {
             if body.is_some() {

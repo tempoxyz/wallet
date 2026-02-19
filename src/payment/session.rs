@@ -27,10 +27,10 @@ use mpp::server::sse::{parse_event, SseEvent};
 use mpp::{parse_receipt, parse_www_authenticate, ChallengeEcho};
 
 use crate::config::Config;
+use crate::error::map_mpp_validation_error;
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::Network;
-use crate::error::map_mpp_validation_error;
 use crate::payment::session_store::{self, SessionRecord, SESSION_TTL_SECS};
 use crate::wallet::signer::load_wallet_signer;
 
@@ -479,7 +479,6 @@ fn extract_sse_content(raw: &str) -> Option<String> {
     // Not JSON — return raw content as-is (plain text SSE)
     Some(trimmed.to_string())
 }
-
 
 // ==================== Persistence ====================
 

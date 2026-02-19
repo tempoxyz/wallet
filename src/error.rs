@@ -490,7 +490,11 @@ mod tests {
             required: "0.010000".to_string(),
         });
         match classify_payment_error(err) {
-            PrestoError::SpendingLimitExceeded { token, limit, required } => {
+            PrestoError::SpendingLimitExceeded {
+                token,
+                limit,
+                required,
+            } => {
                 assert_eq!(token, "pathUSD");
                 assert_eq!(limit, "0.000000");
                 assert_eq!(required, "0.010000");
@@ -507,7 +511,11 @@ mod tests {
             required: "1.00".to_string(),
         });
         match classify_payment_error(err) {
-            PrestoError::InsufficientBalance { token, available, required } => {
+            PrestoError::InsufficientBalance {
+                token,
+                available,
+                required,
+            } => {
                 assert_eq!(token, "pathUSD");
                 assert_eq!(available, "0.50");
                 assert_eq!(required, "1.00");
@@ -519,7 +527,10 @@ mod tests {
     #[test]
     fn test_classify_access_key_not_provisioned() {
         let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
-        assert!(matches!(classify_payment_error(err), PrestoError::AccessKeyNotProvisioned));
+        assert!(matches!(
+            classify_payment_error(err),
+            PrestoError::AccessKeyNotProvisioned
+        ));
     }
 
     #[test]

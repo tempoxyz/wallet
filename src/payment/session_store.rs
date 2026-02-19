@@ -180,8 +180,7 @@ pub fn save_session(record: &SessionRecord) -> Result<()> {
     let key = session_key(&record.origin);
     let path = sessions_dir()?.join(format!("{key}.toml"));
     let contents = toml::to_string_pretty(record).context("Failed to serialize session")?;
-    crate::util::atomic_write(&path, &contents, 0o600)
-        .context("Failed to write session file")?;
+    crate::util::atomic_write(&path, &contents, 0o600).context("Failed to write session file")?;
     Ok(())
 }
 

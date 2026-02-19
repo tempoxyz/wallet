@@ -10,12 +10,12 @@ use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::error::Result;
 use crate::network::Network;
-use mpp::format_u256_with_decimals;
-use mpp::client::tempo::query_token_balance;
 use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::WalletManager;
 use anyhow::Context;
 use mpp::client::tempo::keychain::query_key_spending_limit;
+use mpp::client::tempo::query_token_balance;
+use mpp::format_u256_with_decimals;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
@@ -287,10 +287,7 @@ async fn query_spending_limit(
                     token: token_config.symbol.to_string(),
                     unlimited: false,
                     limit: None,
-                    remaining: Some(format_u256_with_decimals(
-                        remaining,
-                        token_config.decimals,
-                    )),
+                    remaining: Some(format_u256_with_decimals(remaining, token_config.decimals)),
                     spent: None,
                 });
             }
@@ -340,14 +337,13 @@ async fn query_all_balances(
             Err(_) => continue,
         };
 
-        let balance =
-            match query_token_balance(&provider, token_address, account).await {
-                Ok(b) => b,
-                Err(e) => {
-                    debug!(%e, token = token_config.symbol, "failed to query balance");
-                    continue;
-                }
-            };
+        let balance = match query_token_balance(&provider, token_address, account).await {
+            Ok(b) => b,
+            Err(e) => {
+                debug!(%e, token = token_config.symbol, "failed to query balance");
+                continue;
+            }
+        };
 
         let balance_raw: u128 = balance.try_into().unwrap_or(u128::MAX);
         let balance_human = format_u256_with_decimals(balance, token_config.decimals);

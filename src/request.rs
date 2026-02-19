@@ -12,11 +12,13 @@ use mpp::PaymentProtocol;
 
 use crate::analytics::{self, Analytics};
 use crate::cli::output::handle_regular_response;
+use crate::cli::output::hyperlink;
 use crate::cli::{Cli, QueryArgs};
 use crate::config::{load_config_with_overrides, Config};
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
-use crate::payment::charge::handle_charge_request;
+use crate::network::ExplorerConfig;
+use crate::payment::charge::prepare_charge;
 use crate::payment::session::{handle_session_request, SessionResult};
 
 /// Execute an HTTP request with automatic payment handling.
@@ -175,7 +177,42 @@ async fn dispatch_payment(
             }),
         }
     } else {
-        let resp = handle_charge_request(config, request_ctx, url, response).await?;
+        let auth_header = prepare_charge(config, &request_ctx.cli, response).await?;
+
+        if request_ctx.query.dry_run {
+            eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
+            return Ok(PaymentResult {
+                tx_hash: String::new(),
+                status_code: 200,
+                response: None,
+            });
+        }
+
+        if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+            eprintln!("Submitting payment to server...");
+        }
+
+        let headers = vec![("Authorization".to_string(), auth_header)];
+        let resp = request_ctx.execute(url, Some(&headers)).await?;
+
+        if resp.status_code >= 400 {
+            return Err(parse_payment_rejection(&resp).into());
+        }
+
+        let network: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
+        let explorer = network.and_then(|n| n.info().explorer);
+        let token = network.and_then(|n| n.token_config_by_address(&challenge_ctx.currency));
+        let symbol = token.map(|t| t.symbol).unwrap_or("USDC");
+        let decimals = token.map(|t| t.decimals).unwrap_or(6);
+        display_receipt(
+            &request_ctx.cli,
+            &resp,
+            explorer.as_ref(),
+            &challenge_ctx.amount,
+            symbol,
+            decimals,
+        );
+
         let tx_hash = resp
             .get_header("payment-receipt")
             .cloned()
@@ -236,14 +273,16 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
     let (network, amount, currency) =
         if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
             use mpp::protocol::methods::tempo::TempoChargeExt;
-            let name = charge.chain_id()
+            let name = charge
+                .chain_id()
                 .and_then(crate::network::Network::from_chain_id)
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             (name, charge.amount, charge.currency)
         } else if let Ok(session) = challenge.request.decode::<mpp::SessionRequest>() {
             use mpp::protocol::methods::tempo::session::TempoSessionExt;
-            let name = session.chain_id()
+            let name = session
+                .chain_id()
                 .and_then(crate::network::Network::from_chain_id)
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
@@ -391,5 +430,87 @@ fn http_status_text(code: u32) -> &'static str {
         503 => "Service Unavailable",
         504 => "Gateway Timeout",
         _ => "Error",
+    }
+}
+
+/// Parse a non-200 response after payment submission into a descriptive error.
+fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError {
+    let reason = if let Ok(body) = response.body_string() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                error.to_string()
+            } else if let Some(message) = json.get("message").and_then(|m| m.as_str()) {
+                message.to_string()
+            } else if let Some(detail) = json.get("detail").and_then(|d| d.as_str()) {
+                detail.to_string()
+            } else {
+                format!("HTTP {}", response.status_code)
+            }
+        } else if !body.trim().is_empty() {
+            body.chars().take(200).collect()
+        } else {
+            format!("HTTP {}", response.status_code)
+        }
+    } else {
+        format!("HTTP {}", response.status_code)
+    };
+
+    crate::error::PrestoError::PaymentRejected {
+        reason,
+        status_code: response.status_code,
+    }
+}
+
+/// Display receipt information from response with optional clickable explorer links.
+fn display_receipt(
+    cli: &Cli,
+    response: &HttpResponse,
+    explorer: Option<&ExplorerConfig>,
+    amount: &str,
+    symbol: &str,
+    decimals: u8,
+) {
+    let Some(receipt_header) = response.get_header("payment-receipt") else {
+        return;
+    };
+    let Ok(receipt) = mpp::parse_receipt(receipt_header) else {
+        return;
+    };
+    if !cli.is_verbose() {
+        return;
+    }
+
+    let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
+
+    let amount_display = amount
+        .parse::<u128>()
+        .ok()
+        .map(|a| format_token_amount(a, symbol, decimals))
+        .unwrap_or_else(|| format!("{} {}", amount, symbol));
+
+    let link = if let Some(exp) = explorer {
+        let url = exp.tx_url(&tx_ref);
+        hyperlink(&url, &url)
+    } else {
+        tx_ref
+    };
+    eprintln!("Paid {amount_display} · {link}");
+    eprintln!("  Status: {}", receipt.status);
+    eprintln!("  Method: {}", receipt.method);
+    eprintln!("  Timestamp: {}", receipt.timestamp);
+}
+
+/// Format atomic token units as a human-readable string with trimmed trailing zeros.
+fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
+    let divisor = 10u128.pow(decimals as u32);
+    let whole = atomic / divisor;
+    let remainder = atomic % divisor;
+
+    if remainder == 0 {
+        format!("{whole} {symbol}")
+    } else {
+        let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
+        let trimmed = frac_str.trim_end_matches('0');
+        format!("{whole}.{trimmed} {symbol}")
     }
 }

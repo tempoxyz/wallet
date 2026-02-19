@@ -251,7 +251,6 @@ impl Network {
             .into_iter()
             .find(|t| t.address.to_lowercase() == addr_lower)
     }
-
 }
 
 impl FromStr for Network {

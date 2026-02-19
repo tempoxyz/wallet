@@ -13,7 +13,10 @@ use std::path::{Component, Path, PathBuf};
 
 /// Validates that a path doesn't contain directory traversal sequences.
 /// Returns the validated path or an error if traversal is detected.
-pub fn validate_path(path: &str, allow_absolute: bool) -> std::result::Result<PathBuf, PrestoError> {
+pub fn validate_path(
+    path: &str,
+    allow_absolute: bool,
+) -> std::result::Result<PathBuf, PrestoError> {
     let path = PathBuf::from(path);
 
     // Check for parent directory components (..)
