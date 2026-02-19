@@ -111,7 +111,8 @@ pub async fn handle_session_request(
         eprintln!("Network: {}", network_name);
         eprintln!(
             "Cost per {}: {} atomic units",
-            session_req.unit_type, tick_cost
+            session_req.unit_type.as_deref().unwrap_or("unit"),
+            tick_cost
         );
     }
 
@@ -128,7 +129,8 @@ pub async fn handle_session_request(
         println!("Network: {}", network_name);
         println!(
             "Cost per {}: {} atomic units",
-            session_req.unit_type, tick_cost
+            session_req.unit_type.as_deref().unwrap_or("unit"),
+            tick_cost
         );
         println!(
             "Currency: {}",

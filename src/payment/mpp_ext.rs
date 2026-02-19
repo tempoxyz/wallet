@@ -10,7 +10,7 @@
 use alloy::primitives::{Address, U256};
 #[cfg(test)]
 use mpp::ChargeRequest;
-use mpp::{MethodName, PaymentChallenge};
+use mpp::PaymentChallenge;
 
 use crate::error::{PrestoError, Result};
 use crate::network::Network;
@@ -19,11 +19,6 @@ use crate::payment::money::Money;
 
 // Re-export TempoChargeExt for convenience
 pub use mpp::protocol::methods::tempo::TempoChargeExt;
-
-/// Check whether a payment method is supported by presto.
-pub fn is_supported_method(method: &MethodName) -> bool {
-    method.as_str().eq_ignore_ascii_case("tempo")
-}
 
 /// Derive the network from a charge request's chain ID.
 pub fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result<Network> {
@@ -49,137 +44,40 @@ pub fn network_from_session_request(req: &mpp::SessionRequest) -> crate::error::
 
 /// Validate that a payment challenge can be processed by presto's charge flow.
 ///
-/// # Validation Checks
-///
-/// - The payment method is supported (has a network mapping)
-/// - The intent is "charge"
-/// - The challenge has not expired (if an expiry is set)
+/// Delegates to `PaymentChallenge::validate_for_charge("tempo")` from mpp,
+/// mapping mpp errors to  tempo-walleterror types.
 pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
-    if !is_supported_method(&challenge.method) {
-        return Err(PrestoError::UnsupportedPaymentMethod(format!(
-            "Payment method '{}' is not supported. Supported methods: tempo",
-            challenge.method
-        )));
-    }
-
-    if !challenge.intent.is_charge() {
-        return Err(PrestoError::UnsupportedPaymentIntent(format!(
-            "Only 'charge' intent is supported, got: {}",
-            challenge.intent
-        )));
-    }
-
-    check_challenge_expiry(challenge)?;
-
-    Ok(())
+    challenge.validate_for_charge("tempo").map_err(|e| match e {
+        mpp::MppError::UnsupportedPaymentMethod(msg) => PrestoError::UnsupportedPaymentMethod(msg),
+        mpp::MppError::PaymentExpired(_) => {
+            PrestoError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
+        }
+        mpp::MppError::InvalidChallenge { reason, .. } => {
+            PrestoError::UnsupportedPaymentIntent(reason.unwrap_or_default())
+        }
+        other => PrestoError::InvalidChallenge(other.to_string()),
+    })
 }
 
 /// Validate that a payment challenge is a valid session challenge.
+///
+/// Delegates to `PaymentChallenge::validate_for_session("tempo")` from mpp,
+/// mapping mpp errors to  tempo-walleterror types.
 pub fn validate_session_challenge(challenge: &PaymentChallenge) -> Result<()> {
-    if !is_supported_method(&challenge.method) {
-        return Err(PrestoError::UnsupportedPaymentMethod(format!(
-            "Payment method '{}' is not supported. Supported methods: tempo",
-            challenge.method
-        )));
-    }
-
-    if !challenge.intent.is_session() {
-        return Err(PrestoError::UnsupportedPaymentIntent(format!(
-            "Expected 'session' intent, got: {}",
-            challenge.intent
-        )));
-    }
-
-    check_challenge_expiry(challenge)?;
-
-    Ok(())
-}
-
-/// Fail fast if the challenge has an expiry timestamp in the past.
-///
-/// Accepts RFC 3339 / ISO 8601 timestamps (e.g. `"2024-01-15T10:30:00Z"`).
-/// If the expiry can't be parsed, we skip the check and let the server decide.
-fn check_challenge_expiry(challenge: &PaymentChallenge) -> Result<()> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let expires_str = match challenge.expires.as_deref() {
-        Some(s) => s,
-        None => return Ok(()),
-    };
-
-    // Parse ISO 8601 / RFC 3339: "YYYY-MM-DDTHH:MM:SSZ"
-    // If we can't parse it, skip the check — the server will enforce.
-    let Ok(expires) = parse_rfc3339(expires_str) else {
-        return Ok(());
-    };
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    if now > expires {
-        return Err(PrestoError::ChallengeExpired(expires_str.to_string()));
-    }
-
-    Ok(())
-}
-
-/// Minimal RFC 3339 parser for "YYYY-MM-DDTHH:MM:SSZ" → Unix timestamp.
-///
-/// Handles UTC timestamps only (trailing 'Z'). Returns `Err` for
-/// non-UTC offsets or unparseable input — caller should skip the check.
-fn parse_rfc3339(s: &str) -> std::result::Result<u64, ()> {
-    // Expected: "2024-01-15T10:30:00Z" (20 chars)
-    let s = s.trim();
-    if !s.ends_with('Z') || s.len() < 20 {
-        return Err(());
-    }
-    let s = &s[..s.len() - 1]; // strip 'Z'
-
-    let parts: Vec<&str> = s.split('T').collect();
-    if parts.len() != 2 {
-        return Err(());
-    }
-
-    let date_parts: Vec<u64> = parts[0].split('-').filter_map(|p| p.parse().ok()).collect();
-    let time_parts: Vec<u64> = parts[1].split(':').filter_map(|p| p.parse().ok()).collect();
-    if date_parts.len() != 3 || time_parts.len() != 3 {
-        return Err(());
-    }
-
-    let (year, month, day) = (date_parts[0], date_parts[1], date_parts[2]);
-    let (hour, min, sec) = (time_parts[0], time_parts[1], time_parts[2]);
-
-    // Days-from-epoch calculation (simplified, no leap second handling)
-    let mut days: u64 = 0;
-    for y in 1970..year {
-        days += if is_leap_year(y) { 366 } else { 365 };
-    }
-    let month_days = [
-        31,
-        28 + u64::from(is_leap_year(year)),
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    for m in 0..(month.saturating_sub(1) as usize) {
-        days += month_days.get(m).copied().unwrap_or(30);
-    }
-    days += day.saturating_sub(1);
-
-    Ok(days * 86400 + hour * 3600 + min * 60 + sec)
-}
-
-fn is_leap_year(y: u64) -> bool {
-    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
+    challenge
+        .validate_for_session("tempo")
+        .map_err(|e| match e {
+            mpp::MppError::UnsupportedPaymentMethod(msg) => {
+                PrestoError::UnsupportedPaymentMethod(msg)
+            }
+            mpp::MppError::PaymentExpired(_) => {
+                PrestoError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
+            }
+            mpp::MppError::InvalidChallenge { reason, .. } => {
+                PrestoError::UnsupportedPaymentIntent(reason.unwrap_or_default())
+            }
+            other => PrestoError::InvalidChallenge(other.to_string()),
+        })
 }
 
 /// Presto-specific extensions to ChargeRequest.
@@ -221,33 +119,15 @@ impl ChargeRequestExt for ChargeRequest {
 
 /// Extract the `txHash` field from a base64url-encoded receipt, if present.
 ///
-/// The mpp `Receipt` struct only captures `reference` (which for session
-/// receipts is the channel ID). The server also includes a `txHash` field
-/// with the actual on-chain transaction hash. This function decodes the
-/// raw receipt to extract it.
+/// Delegates to `mpp::protocol::core::extract_tx_hash`.
 pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
-
-    let decoded = URL_SAFE_NO_PAD.decode(receipt_b64.trim()).ok()?;
-    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    json.get("txHash")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+    mpp::protocol::core::extract_tx_hash(receipt_b64)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_is_supported_method() {
-        assert!(is_supported_method(&MethodName::new("tempo")));
-        assert!(is_supported_method(&MethodName::new("TEMPO")));
-        assert!(!is_supported_method(&MethodName::new("unknown")));
-        assert!(!is_supported_method(&MethodName::new("base")));
-    }
+    use mpp::MethodName;
 
     #[test]
     fn test_validate_challenge_valid() {
