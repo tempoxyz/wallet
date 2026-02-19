@@ -235,14 +235,18 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
 
     let (network, amount, currency) =
         if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
-            let name = crate::payment::provider::network_from_charge_request(&charge)
+            use mpp::protocol::methods::tempo::TempoChargeExt;
+            let name = charge.chain_id()
+                .and_then(crate::network::Network::from_chain_id)
                 .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|_| "unknown".to_string());
+                .unwrap_or_else(|| "unknown".to_string());
             (name, charge.amount, charge.currency)
         } else if let Ok(session) = challenge.request.decode::<mpp::SessionRequest>() {
-            let name = crate::payment::provider::network_from_session_request(&session)
+            use mpp::protocol::methods::tempo::session::TempoSessionExt;
+            let name = session.chain_id()
+                .and_then(crate::network::Network::from_chain_id)
                 .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|_| "unknown".to_string());
+                .unwrap_or_else(|| "unknown".to_string());
             (name, session.amount, session.currency)
         } else {
             ("unknown".to_string(), String::new(), String::new())

@@ -229,7 +229,7 @@ async fn query_spending_limit(
                 });
 
                 if let Some(tc) = token_config {
-                    let decimals = tc.currency.decimals;
+                    let decimals = tc.decimals;
                     let total_limit = tl.limit;
 
                     let remaining =
@@ -241,7 +241,7 @@ async fn query_spending_limit(
                     let spent = total_limit.saturating_sub(remaining_val);
 
                     return Some(SpendingLimitInfo {
-                        token: tc.currency.symbol.to_string(),
+                        token: tc.symbol.to_string(),
                         unlimited: false,
                         limit: Some(format_u256_with_decimals(total_limit, decimals)),
                         remaining: Some(format_u256_with_decimals(remaining_val, decimals)),
@@ -252,7 +252,7 @@ async fn query_spending_limit(
         } else {
             let symbol = tokens
                 .first()
-                .map(|t| t.currency.symbol.to_string())
+                .map(|t| t.symbol.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             return Some(SpendingLimitInfo {
                 token: symbol,
@@ -275,7 +275,7 @@ async fn query_spending_limit(
         {
             Ok(None) => {
                 return Some(SpendingLimitInfo {
-                    token: token_config.currency.symbol.to_string(),
+                    token: token_config.symbol.to_string(),
                     unlimited: true,
                     limit: None,
                     remaining: None,
@@ -284,19 +284,19 @@ async fn query_spending_limit(
             }
             Ok(Some(remaining)) if remaining > U256::ZERO => {
                 return Some(SpendingLimitInfo {
-                    token: token_config.currency.symbol.to_string(),
+                    token: token_config.symbol.to_string(),
                     unlimited: false,
                     limit: None,
                     remaining: Some(format_u256_with_decimals(
                         remaining,
-                        token_config.currency.decimals,
+                        token_config.decimals,
                     )),
                     spent: None,
                 });
             }
             Ok(Some(_)) => continue,
             Err(e) => {
-                debug!(%e, token = token_config.currency.symbol, "failed to query spending limit");
+                debug!(%e, token = token_config.symbol, "failed to query spending limit");
                 continue;
             }
         }
@@ -344,16 +344,16 @@ async fn query_all_balances(
             match query_token_balance(&provider, token_address, account).await {
                 Ok(b) => b,
                 Err(e) => {
-                    debug!(%e, token = token_config.currency.symbol, "failed to query balance");
+                    debug!(%e, token = token_config.symbol, "failed to query balance");
                     continue;
                 }
             };
 
         let balance_raw: u128 = balance.try_into().unwrap_or(u128::MAX);
-        let balance_human = format_u256_with_decimals(balance, token_config.currency.decimals);
+        let balance_human = format_u256_with_decimals(balance, token_config.decimals);
 
         balances.push(TokenBalance {
-            token: token_config.currency.symbol.to_string(),
+            token: token_config.symbol.to_string(),
             balance: balance_human,
             balance_raw,
         });

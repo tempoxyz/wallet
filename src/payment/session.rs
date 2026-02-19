@@ -30,10 +30,9 @@ use crate::config::Config;
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::Network;
-use crate::payment::provider::{network_from_session_request, validate_session_challenge};
+use crate::error::map_mpp_validation_error;
 use crate::payment::session_store::{self, SessionRecord, SESSION_TTL_SECS};
-use crate::payment::tempo::create_tempo_payment_from_calls;
-use crate::wallet::signer::load_signer_for_network;
+use crate::wallet::signer::load_wallet_signer;
 
 // ==================== Types ====================
 
@@ -76,7 +75,7 @@ impl SessionContext<'_> {
             .parse::<Network>()
             .ok()
             .and_then(|n| n.token_config_by_address(&self.currency))
-            .map(|t| t.currency.symbol)
+            .map(|t| t.symbol)
             .unwrap_or("tokens")
     }
 }
@@ -566,14 +565,17 @@ pub async fn handle_session_request(
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
-    validate_session_challenge(&challenge)?;
+    challenge
+        .validate_for_session("tempo")
+        .map_err(|e| map_mpp_validation_error(e, &challenge))?;
 
     let session_req: mpp::SessionRequest = challenge
         .request
         .decode()
         .context("Failed to parse session request from challenge")?;
 
-    let network = network_from_session_request(&session_req)?;
+    let network = network_from_session_request(&session_req)
+        .context("Failed to resolve network from session request")?;
     let network_name = network.as_str();
 
     let tick_cost: u128 = session_req
@@ -652,19 +654,12 @@ pub async fn handle_session_request(
         }));
     }
 
-    // Load signer for channel operations
-    let signer_ctx = load_signer_for_network(network_name)
+    // Load signer and resolve signing mode (direct or keychain)
+    let signing = load_wallet_signer(network_name)
         .context("Failed to load wallet. Run 'presto login' to get started.")?;
 
-    let key_address = signer_ctx.signer.address();
-    let wallet_address = signer_ctx
-        .wallet_address
-        .as_ref()
-        .map(|addr| Address::from_str(addr))
-        .transpose()
-        .context("Invalid wallet address")?;
-
-    let from = wallet_address.unwrap_or(key_address);
+    let key_address = signing.signer.address();
+    let from = signing.from;
 
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
@@ -712,7 +707,7 @@ pub async fn handle_session_request(
         };
 
         let ctx = SessionContext {
-            signer: &signer_ctx.signer,
+            signer: &signing.signer,
             echo: &echo,
             did: &did,
             request_ctx,
@@ -784,7 +779,7 @@ pub async fn handle_session_request(
 
     let initial_cumulative = tick_cost;
     let voucher_sig = sign_voucher(
-        &signer_ctx.signer,
+        &signing.signer,
         channel_id,
         initial_cumulative,
         escrow_contract,
@@ -896,7 +891,7 @@ pub async fn handle_session_request(
     };
 
     let ctx = SessionContext {
-        signer: &signer_ctx.signer,
+        signer: &signing.signer,
         echo: &echo,
         did: &did,
         request_ctx,
@@ -922,7 +917,7 @@ pub async fn close_session_from_record(record: &session_store::SessionRecord) ->
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
 
-    let signer_ctx = load_signer_for_network(&record.network_name)
+    let wallet = load_wallet_signer(&record.network_name)
         .context("Failed to load wallet. Run 'presto login' to get started.")?;
 
     let channel_id: B256 = record.channel_id_b256()?;
@@ -935,7 +930,7 @@ pub async fn close_session_from_record(record: &session_store::SessionRecord) ->
     let cumulative_amount: u128 = record.cumulative_amount_u128()?;
 
     let sig = sign_voucher(
-        &signer_ctx.signer,
+        &wallet.signer,
         channel_id,
         cumulative_amount,
         escrow_contract,
@@ -1001,4 +996,70 @@ pub async fn close_session_from_record(record: &session_store::SessionRecord) ->
     }
 
     Ok(())
+}
+
+/// Derive the network from a session request's chain ID.
+fn network_from_session_request(req: &mpp::SessionRequest) -> crate::error::Result<Network> {
+    use mpp::protocol::methods::tempo::session::TempoSessionExt;
+    let chain_id = req.chain_id().ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig("Missing chainId in session request".to_string())
+    })?;
+    Network::from_chain_id(chain_id).ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+    })
+}
+
+/// Derive the network from a charge request's chain ID (used by
+/// `create_tempo_payment_from_calls` which receives a charge-encoded challenge).
+fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result<Network> {
+    use mpp::protocol::methods::tempo::TempoChargeExt;
+    let chain_id = req.chain_id().ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
+    })?;
+    Network::from_chain_id(chain_id).ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+    })
+}
+
+/// Create a Tempo payment credential from pre-built calls.
+///
+/// Used by session payments where the calls (e.g., approve + escrow.open)
+/// are built externally. Resolves nonce/gas at signing time inside mpp-rs
+/// (including stuck-tx detection) and signs with keychain-aware signing mode.
+async fn create_tempo_payment_from_calls(
+    config: &Config,
+    challenge: &mpp::PaymentChallenge,
+    calls: Vec<tempo_primitives::transaction::Call>,
+    fee_token: Address,
+) -> Result<mpp::PaymentCredential> {
+    use mpp::client::tempo::charge::{SignOptions, TempoCharge};
+
+    let charge_req: mpp::ChargeRequest = challenge
+        .request
+        .decode()
+        .context("Invalid charge request")?;
+    let network = network_from_charge_request(&charge_req)?;
+    let network_name = network.as_str();
+
+    let signing = load_wallet_signer(network_name)?;
+    let network_info = config.resolve_network(network_name)?;
+
+    let opts = SignOptions {
+        rpc_url: Some(network_info.rpc_url.clone()),
+        fee_token: Some(fee_token),
+        signing_mode: Some(signing.signing_mode),
+        replace_stuck_txs: true,
+        ..Default::default()
+    };
+
+    let charge = TempoCharge::from_challenge(challenge)
+        .map_err(|e| crate::error::PrestoError::InvalidChallenge(e.to_string()))?;
+
+    let signed = charge
+        .with_calls(calls)
+        .sign_with_options(&signing.signer, opts)
+        .await
+        .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
+
+    Ok(signed.into_credential())
 }

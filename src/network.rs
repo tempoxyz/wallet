@@ -1,6 +1,5 @@
 //! Network types and explorer configuration for Tempo blockchain networks.
 
-use crate::payment::currency::Currency;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -101,6 +100,7 @@ pub mod tempo_tokens {
 
 /// Runtime network information
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NetworkInfo {
     /// Chain ID
     pub chain_id: Option<u64>,
@@ -113,13 +113,16 @@ pub struct NetworkInfo {
 /// Token configuration for a network.
 #[derive(Debug, Clone, Copy)]
 pub struct TokenConfig {
-    /// Currency information (symbol, decimals, etc.)
-    pub currency: Currency,
+    /// Token symbol (e.g., "USDC", "pathUSD")
+    pub symbol: &'static str,
+    /// Number of decimal places
+    pub decimals: u8,
     /// Token address - contract address for EVM chains (ERC20)
     pub address: &'static str,
 }
 
 /// Gas configuration for EVM networks.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 pub struct GasConfig {
     /// Maximum priority fee per gas in wei (1 gwei).
@@ -128,22 +131,13 @@ pub struct GasConfig {
     pub max_fee_per_gas: u64,
 }
 
+#[cfg(test)]
 impl GasConfig {
     /// Default gas configuration for Tempo networks.
     pub const DEFAULT: Self = Self {
         max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
         max_fee_per_gas: 20_000_000_000,         // 20 gwei
     };
-
-    /// Get max_fee_per_gas as u128 (for alloy compatibility).
-    pub const fn max_fee_per_gas_u128(&self) -> u128 {
-        self.max_fee_per_gas as u128
-    }
-
-    /// Get max_priority_fee_per_gas as u128 (for alloy compatibility).
-    pub const fn max_priority_fee_per_gas_u128(&self) -> u128 {
-        self.max_priority_fee_per_gas as u128
-    }
 }
 
 /// Tempo blockchain network.
@@ -222,27 +216,29 @@ impl Network {
     }
 
     /// Get gas configuration for this network.
+    #[cfg(test)]
     pub const fn gas_config(&self) -> GasConfig {
         GasConfig::DEFAULT
     }
 
     /// Get all supported token configurations for this network.
     pub fn supported_tokens(&self) -> Vec<TokenConfig> {
-        use crate::payment::currency::currencies;
-
         match self {
             Network::Tempo => vec![
                 TokenConfig {
-                    currency: currencies::USDCE,
+                    symbol: "USDC",
+                    decimals: 6,
                     address: tempo_tokens::USDCE,
                 },
                 TokenConfig {
-                    currency: currencies::PATH_USD,
+                    symbol: "pathUSD",
+                    decimals: 6,
                     address: tempo_tokens::PATH_USD,
                 },
             ],
             Network::TempoModerato => vec![TokenConfig {
-                currency: currencies::PATH_USD,
+                symbol: "pathUSD",
+                decimals: 6,
                 address: tempo_tokens::PATH_USD,
             }],
         }
@@ -256,22 +252,6 @@ impl Network {
             .find(|t| t.address.to_lowercase() == addr_lower)
     }
 
-    /// Get token configuration by address, or error if not found.
-    #[cfg(test)]
-    pub fn require_token_config(&self, address: &str) -> crate::error::Result<TokenConfig> {
-        self.token_config_by_address(address).ok_or_else(|| {
-            crate::error::PrestoError::UnsupportedToken(format!(
-                "Currency {} is not supported on {}",
-                address, self
-            ))
-        })
-    }
-
-    /// Get the default token configuration for this network.
-    #[cfg(test)]
-    pub(crate) fn default_token_config(&self) -> TokenConfig {
-        self.supported_tokens()[0]
-    }
 }
 
 impl FromStr for Network {
@@ -410,9 +390,9 @@ mod tests {
     fn test_supported_tokens_mainnet() {
         let tokens = Network::Tempo.supported_tokens();
         assert_eq!(tokens.len(), 2);
-        assert_eq!(tokens[0].currency.symbol, "USDC");
+        assert_eq!(tokens[0].symbol, "USDC");
         assert_eq!(tokens[0].address, tempo_tokens::USDCE);
-        assert_eq!(tokens[1].currency.symbol, "pathUSD");
+        assert_eq!(tokens[1].symbol, "pathUSD");
         assert_eq!(tokens[1].address, tempo_tokens::PATH_USD);
     }
 
@@ -420,7 +400,7 @@ mod tests {
     fn test_supported_tokens_testnet() {
         let tokens = Network::TempoModerato.supported_tokens();
         assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].currency.symbol, "pathUSD");
+        assert_eq!(tokens[0].symbol, "pathUSD");
         assert_eq!(tokens[0].address, tempo_tokens::PATH_USD);
     }
 
@@ -429,12 +409,12 @@ mod tests {
         let config = Network::Tempo
             .token_config_by_address(tempo_tokens::USDCE)
             .unwrap();
-        assert_eq!(config.currency.symbol, "USDC");
+        assert_eq!(config.symbol, "USDC");
 
         let config = Network::TempoModerato
             .token_config_by_address(tempo_tokens::PATH_USD)
             .unwrap();
-        assert_eq!(config.currency.symbol, "pathUSD");
+        assert_eq!(config.symbol, "pathUSD");
     }
 
     #[test]

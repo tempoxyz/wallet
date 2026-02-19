@@ -13,9 +13,9 @@ use crate::config::Config;
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::ExplorerConfig;
-use crate::payment::provider::{network_from_charge_request, validate_challenge};
+use crate::error::{classify_payment_error, map_mpp_validation_error};
+use crate::network::Network;
 use mpp::protocol::core::extract_tx_hash;
-use crate::payment::provider::PrestoPaymentProvider;
 
 /// Handle MPP charge flow (402 with WWW-Authenticate: Payment header)
 pub async fn handle_charge_request(
@@ -61,7 +61,9 @@ pub async fn handle_charge_request(
         }
     }
 
-    validate_challenge(&challenge).context("Challenge validation failed")?;
+    challenge
+        .validate_for_charge("tempo")
+        .map_err(|e| map_mpp_validation_error(e, &challenge))?;
 
     validate_charge_constraints(&request_ctx.cli, &charge_req)?;
 
@@ -69,18 +71,18 @@ pub async fn handle_charge_request(
         return handle_web_dry_run(&challenge, &charge_req, explorer.as_ref());
     }
 
-    // Use mpp::client::PaymentProvider to create the credential
-    let provider = PrestoPaymentProvider::new(config.clone());
-
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Creating payment credential...");
     }
+
+    // Build an mpp::client::TempoProvider with presto's config
+    let provider = build_tempo_provider(config, network_enum)?;
 
     use mpp::client::PaymentProvider;
     let credential = provider
         .pay(&challenge)
         .await
-        .map_err(classify_payment_provider_error)?;
+        .map_err(classify_payment_error)?;
 
     let auth_header =
         mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
@@ -97,19 +99,44 @@ pub async fn handle_charge_request(
         return Err(parse_payment_rejection(&response).into());
     }
 
-    let token_symbol = network_enum
-        .token_config_by_address(&charge_req.currency)
-        .map(|t| t.currency)
-        .unwrap_or(crate::payment::currency::currencies::USDCE);
+    let token = network_enum
+        .token_config_by_address(&charge_req.currency);
+    let symbol = token.map(|t| t.symbol).unwrap_or("USDC");
+    let decimals = token.map(|t| t.decimals).unwrap_or(6);
     display_web_receipt(
         &request_ctx.cli,
         &response,
         explorer.as_ref(),
         &charge_req.amount,
-        &token_symbol,
+        symbol,
+        decimals,
     )?;
 
     Ok(response)
+}
+
+/// Build an mpp::client::TempoProvider from presto's config and network.
+///
+/// Constructs the mpp-rs payment provider with presto-specific configuration:
+/// signer from wallet credentials, keychain signing mode, and stuck-tx
+/// replacement. Nonce/gas resolution happens lazily at `.pay()` time inside
+/// mpp-rs, not at provider construction time.
+fn build_tempo_provider(
+    config: &Config,
+    network: crate::network::Network,
+) -> Result<mpp::client::TempoProvider> {
+    use crate::wallet::signer::load_wallet_signer;
+
+    let network_name = network.as_str();
+    let signing = load_wallet_signer(network_name)?;
+    let network_info = config.resolve_network(network_name)?;
+
+    let provider = mpp::client::TempoProvider::new(signing.signer.clone(), &network_info.rpc_url)
+        .map_err(|e| crate::error::PrestoError::InvalidConfig(e.to_string()))?
+        .with_signing_mode(signing.signing_mode)
+        .with_replace_stuck_transactions(true);
+
+    Ok(provider)
 }
 
 fn validate_charge_constraints(cli: &Cli, charge_req: &ChargeRequest) -> Result<()> {
@@ -174,7 +201,8 @@ fn display_web_receipt(
     response: &HttpResponse,
     explorer: Option<&ExplorerConfig>,
     amount: &str,
-    currency: &crate::payment::currency::Currency,
+    symbol: &str,
+    decimals: u8,
 ) -> Result<()> {
     if let Some(receipt_header) = response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_header) {
@@ -185,8 +213,8 @@ fn display_web_receipt(
                 let amount_display = amount
                     .parse::<u128>()
                     .ok()
-                    .map(|a| currency.format_trimmed(a))
-                    .unwrap_or_else(|| format!("{} {}", amount, currency.symbol));
+                    .map(|a| format_token_amount(a, symbol, decimals))
+                    .unwrap_or_else(|| format!("{} {}", amount, symbol));
 
                 let link = if let Some(exp) = explorer {
                     let url = exp.tx_url(&tx_ref);
@@ -204,41 +232,32 @@ fn display_web_receipt(
     Ok(())
 }
 
-/// Classify an mpp provider error into a PrestoError with actionable context.
-fn classify_payment_provider_error(err: mpp::MppError) -> crate::error::PrestoError {
-    use mpp::client::TempoClientError;
+/// Format atomic token units as a human-readable string with trimmed trailing zeros.
+///
+/// e.g., `format_token_amount(1_500_000, "USDC", 6)` → `"1.5 USDC"`
+fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
+    let divisor = 10u128.pow(decimals as u32);
+    let whole = atomic / divisor;
+    let remainder = atomic % divisor;
 
-    match err {
-        mpp::MppError::Tempo(tempo_err) => match tempo_err {
-            TempoClientError::AccessKeyNotProvisioned => {
-                crate::error::PrestoError::AccessKeyNotProvisioned
-            }
-            TempoClientError::SpendingLimitExceeded {
-                token,
-                limit,
-                required,
-            } => crate::error::PrestoError::SpendingLimitExceeded {
-                token,
-                limit,
-                required,
-            },
-            TempoClientError::InsufficientBalance {
-                token,
-                available,
-                required,
-            } => crate::error::PrestoError::InsufficientBalance {
-                token,
-                available,
-                required,
-            },
-            TempoClientError::TransactionReverted(msg) => crate::error::PrestoError::Http(msg),
-        },
-        other => {
-            let raw = other.to_string();
-            let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
-            crate::error::PrestoError::Http(msg)
-        }
+    if remainder == 0 {
+        format!("{whole} {symbol}")
+    } else {
+        let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
+        let trimmed = frac_str.trim_end_matches('0');
+        format!("{whole}.{trimmed} {symbol}")
     }
+}
+
+/// Derive the network from a charge request's chain ID.
+fn network_from_charge_request(req: &ChargeRequest) -> Result<Network> {
+    use mpp::protocol::methods::tempo::TempoChargeExt;
+    let chain_id = req.chain_id().ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
+    })?;
+    Ok(Network::from_chain_id(chain_id).ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+    })?)
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
@@ -354,69 +373,4 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_classify_spending_limit_typed() {
-        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::SpendingLimitExceeded {
-            token: "pathUSD".to_string(),
-            limit: "0.000000".to_string(),
-            required: "0.010000".to_string(),
-        });
-        let result = classify_payment_provider_error(err);
-        match result {
-            crate::error::PrestoError::SpendingLimitExceeded {
-                token,
-                limit,
-                required,
-            } => {
-                assert_eq!(token, "pathUSD");
-                assert_eq!(limit, "0.000000");
-                assert_eq!(required, "0.010000");
-            }
-            other => panic!("Expected SpendingLimitExceeded, got: {other}"),
-        }
-    }
-
-    #[test]
-    fn test_classify_insufficient_balance_typed() {
-        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::InsufficientBalance {
-            token: "pathUSD".to_string(),
-            available: "0.50".to_string(),
-            required: "1.00".to_string(),
-        });
-        let result = classify_payment_provider_error(err);
-        match result {
-            crate::error::PrestoError::InsufficientBalance {
-                token,
-                available,
-                required,
-            } => {
-                assert_eq!(token, "pathUSD");
-                assert_eq!(available, "0.50");
-                assert_eq!(required, "1.00");
-            }
-            other => panic!("Expected InsufficientBalance, got: {other}"),
-        }
-    }
-
-    #[test]
-    fn test_classify_access_key_not_provisioned() {
-        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
-        let result = classify_payment_provider_error(err);
-        assert!(matches!(
-            result,
-            crate::error::PrestoError::AccessKeyNotProvisioned
-        ));
-    }
-
-    #[test]
-    fn test_classify_unrecognized_falls_through() {
-        let err = mpp::MppError::Http("something unexpected".to_string());
-        let result = classify_payment_provider_error(err);
-        match result {
-            crate::error::PrestoError::Http(msg) => {
-                assert_eq!(msg, "something unexpected");
-            }
-            other => panic!("Expected Http passthrough, got: {other}"),
-        }
-    }
 }

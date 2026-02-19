@@ -3,8 +3,5 @@
 //! This module provides payment providers, currencies, and protocol handling.
 
 pub mod charge;
-pub mod currency;
-pub mod provider;
 pub mod session;
-mod tempo;
 pub mod session_store;
