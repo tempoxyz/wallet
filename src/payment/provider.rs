@@ -198,14 +198,12 @@ impl PrestoPaymentProvider {
             let limit_human =
                 format_u256_with_decimals(spending_limit.unwrap_or(U256::ZERO), token_decimals);
             let needed_human = format_u256_with_decimals(required_amount, token_decimals);
-            return Err(mpp::MppError::Http(
-                PrestoError::SpendingLimitExceeded {
-                    token: token_symbol.clone(),
-                    limit: limit_human,
-                    required: needed_human,
-                }
-                .to_string(),
-            ));
+            return Err(mpp::client::TempoClientError::SpendingLimitExceeded {
+                token: token_symbol.clone(),
+                limit: limit_human,
+                required: needed_human,
+            }
+            .into());
         }
 
         let keychain_info = wallet_address.map(|wa| (wa, key_address));
@@ -257,23 +255,20 @@ impl PrestoPaymentProvider {
                         )
                     })
             }
-            None => Err(mpp::MppError::Http(
-                PrestoError::InsufficientBalance {
-                    token: token_symbol.clone(),
-                    available: format_u256_with_decimals(balance, token_decimals),
-                    required: format_u256_with_decimals(required_amount, token_decimals),
-                }
-                .to_string(),
-            )),
+            None => Err(mpp::client::TempoClientError::InsufficientBalance {
+                token: token_symbol.clone(),
+                available: format_u256_with_decimals(balance, token_decimals),
+                required: format_u256_with_decimals(required_amount, token_decimals),
+            }
+            .into()),
         }
     }
 }
 
 /// Classify a payment transaction error into a specific MppError.
 ///
-/// Parses the error message from gas estimation or transaction broadcast to detect
-/// spending limit exceeded or insufficient balance reverts, and returns a descriptive
-/// error with token context.
+/// Matches on typed mpp error variants that propagate through from gas estimation
+/// and signing. Enriches revert errors with token context (symbol, decimals).
 fn classify_payment_error(
     err: PrestoError,
     token_symbol: &str,
@@ -282,34 +277,36 @@ fn classify_payment_error(
     spending_limit: Option<U256>,
     required_amount: U256,
 ) -> mpp::MppError {
-    let msg = err.to_string();
-    let msg_lower = msg.to_lowercase();
+    use mpp::client::TempoClientError;
 
-    if msg_lower.contains("spendinglimitexceeded") || msg_lower.contains("spending limit") {
-        let limit_value = spending_limit.unwrap_or(balance);
-        return mpp::MppError::Http(
-            PrestoError::SpendingLimitExceeded {
-                token: token_symbol.to_string(),
-                limit: format_u256_with_decimals(limit_value, token_decimals),
-                required: format_u256_with_decimals(required_amount, token_decimals),
+    match err {
+        PrestoError::Mpp(mpp::MppError::Tempo(ref tempo_err)) => match tempo_err {
+            TempoClientError::AccessKeyNotProvisioned => {
+                mpp::MppError::from(TempoClientError::AccessKeyNotProvisioned)
             }
-            .to_string(),
-        );
+            TempoClientError::TransactionReverted(revert_msg) => {
+                let lower = revert_msg.to_lowercase();
+                if lower.contains("spendinglimitexceeded") || lower.contains("spending limit") {
+                    let limit_value = spending_limit.unwrap_or(balance);
+                    TempoClientError::SpendingLimitExceeded {
+                        token: token_symbol.to_string(),
+                        limit: format_u256_with_decimals(limit_value, token_decimals),
+                        required: format_u256_with_decimals(required_amount, token_decimals),
+                    }
+                    .into()
+                } else {
+                    TempoClientError::InsufficientBalance {
+                        token: token_symbol.to_string(),
+                        available: format_u256_with_decimals(balance, token_decimals),
+                        required: format_u256_with_decimals(required_amount, token_decimals),
+                    }
+                    .into()
+                }
+            }
+            _ => mpp::MppError::Http(err.to_string()),
+        },
+        other => mpp::MppError::Http(other.to_string()),
     }
-
-    if msg_lower.contains("insufficientbalance")
-        || msg_lower.contains("transfer amount exceeds balance")
-        || msg_lower.contains("insufficient balance")
-    {
-        let err = PrestoError::InsufficientBalance {
-            token: token_symbol.to_string(),
-            available: format_u256_with_decimals(balance, token_decimals),
-            required: format_u256_with_decimals(required_amount, token_decimals),
-        };
-        return mpp::MppError::Http(err.to_string());
-    }
-
-    mpp::MppError::Http(err.to_string())
 }
 
 /// Compute effective spending capacity from wallet balance and optional key spending limit.

@@ -3331,7 +3331,7 @@ dependencies = [
 [[package]]
 name = "mpp"
 version = "0.4.0"
-source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#68d201eac93ab4bd23586099971a72c8c52c9263"
+source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#23796586ad4ae3f1eb7c613d5c8882c1b1eaea6d"
 dependencies = [
  "alloy",
  "alloy-signer-local",
@@ -5833,7 +5833,7 @@ dependencies = [
 [[package]]
 name = "tempo-contracts"
 version = "1.2.0"
-source = "git+https://github.com/tempoxyz/tempo.git#9f275eed15cf2134091adc8bb06cd565118fd2e6"
+source = "git+https://github.com/tempoxyz/tempo.git#cb7c4440e326d11f76e7967c8563feead921f3bb"
 dependencies = [
  "alloy-contract",
  "alloy-primitives",
@@ -5843,7 +5843,7 @@ dependencies = [
 [[package]]
 name = "tempo-primitives"
 version = "1.2.0"
-source = "git+https://github.com/tempoxyz/tempo.git#9f275eed15cf2134091adc8bb06cd565118fd2e6"
+source = "git+https://github.com/tempoxyz/tempo.git#cb7c4440e326d11f76e7967c8563feead921f3bb"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
