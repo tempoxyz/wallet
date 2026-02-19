@@ -5,6 +5,8 @@
 //! the charge and session payment paths, handles wallet login prompting,
 //! and tracks analytics throughout the lifecycle.
 
+use std::io::IsTerminal;
+
 use anyhow::{Context, Result};
 use mpp::PaymentProtocol;
 
@@ -90,9 +92,12 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         eprintln!("402 status: payment required");
     }
 
-    ensure_wallet_or_prompt_login(&request_ctx, &mut config, &analytics).await?;
-
     let challenge_ctx = parse_payment_challenge(&response)?;
+
+    // Skip wallet login for dry-run — the user just wants to see what would happen
+    if !request_ctx.query.dry_run {
+        ensure_wallet_or_prompt_login(&request_ctx, &mut config, &analytics).await?;
+    }
 
     if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
         eprintln!("Payment protocol: {}", challenge_ctx.protocol);
@@ -101,7 +106,27 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     let pay_analytics = PaymentAnalytics::from_challenge(&challenge_ctx, &analytics);
     pay_analytics.track_started();
 
-    match dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await {
+    let result = dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await;
+
+    // Auto-login retry: if the key isn't provisioned and we're interactive, login and retry once
+    let result = match result {
+        Err(e) if is_not_provisioned(&e) && std::io::stdin().is_terminal() => {
+            eprintln!("Access key is not provisioned on-chain. Running login to set it up...\n");
+            let network = request_ctx
+                .cli
+                .network
+                .as_deref()
+                .or(Some(challenge_ctx.network.as_str()));
+            crate::cli::commands::login::run_login(network, analytics.clone()).await?;
+            eprintln!("\nRetrying payment...");
+
+            let config = load_config_with_overrides(&request_ctx.cli)?;
+            dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await
+        }
+        other => other,
+    };
+
+    match result {
         Ok(result) => {
             mark_network_provisioned(&challenge_ctx.network);
             pay_analytics.track_success(result.tx_hash, &url, &method_str, result.status_code);
@@ -109,48 +134,6 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 finalize_response(&request_ctx.cli, &request_ctx.query, resp)?;
             }
             Ok(())
-        }
-        Err(e) if is_not_provisioned(&e) => {
-            // Access key not provisioned — auto-login and retry
-            use std::io::IsTerminal;
-            if std::io::stdin().is_terminal() {
-                eprintln!(
-                    "Access key is not provisioned on-chain. Running login to set it up...\n"
-                );
-                // Use the network from the 402 challenge so login targets the right chain
-                let network = request_ctx
-                    .cli
-                    .network
-                    .as_deref()
-                    .or(Some(challenge_ctx.network.as_str()));
-                crate::cli::commands::login::run_login(network, analytics.clone()).await?;
-                eprintln!("\nRetrying payment...");
-
-                let config = load_config_with_overrides(&request_ctx.cli)?;
-                match dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await
-                {
-                    Ok(result) => {
-                        mark_network_provisioned(&challenge_ctx.network);
-                        pay_analytics.track_success(
-                            result.tx_hash,
-                            &url,
-                            &method_str,
-                            result.status_code,
-                        );
-                        if let Some(resp) = result.response {
-                            finalize_response(&request_ctx.cli, &request_ctx.query, resp)?;
-                        }
-                        Ok(())
-                    }
-                    Err(e) => {
-                        pay_analytics.track_failure(&e);
-                        Err(e)
-                    }
-                }
-            } else {
-                pay_analytics.track_failure(&e);
-                Err(e)
-            }
         }
         Err(e) => {
             pay_analytics.track_failure(&e);
@@ -294,7 +277,6 @@ async fn ensure_wallet_or_prompt_login(
         .is_some_and(|c| c.has_wallet());
 
     if !has_wallet {
-        use std::io::IsTerminal;
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");
             let network = request_ctx.cli.network.as_deref();

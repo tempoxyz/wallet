@@ -53,7 +53,6 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | ` tempo-wallet<URL>` | Make an HTTP request with automatic payment |
 | ` tempo-walletlogin` | Connect your Tempo wallet via browser (device code flow) |
 | ` tempo-walletlogout` | Disconnect your wallet |
-| ` tempo-walletbalance [ADDRESS]` | Check wallet token balances (optionally for a specific address) |
 | ` tempo-walletwhoami` | Show wallet address, balances, access keys, and readiness |
 | ` tempo-walletsession list` | List active payment sessions |
 | ` tempo-walletsession close [URL]` | Close a payment session (use `--all` to close all) |
@@ -157,27 +156,11 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
  tempo-walletsession close --all
 ```
 
-### Limit Spending
-
-```bash
-# Cap at $0.05 per request
- tempo-wallet-M 0.05 https://api.example.com/data
-
-# Cap using atomic units (50000 = $0.05 for 6-decimal token)
- tempo-wallet-M 50000 https://api.example.com/data
-```
-
 ### Check Wallet Status
 
 ```bash
 # Full wallet status with balances and access keys
  tempo-walletwhoami
-
-# Just balances
- tempo-walletbalance
-
-# Filter balances to a specific network
- tempo-walletbalance -n tempo
 ```
 
 ## Error Recovery

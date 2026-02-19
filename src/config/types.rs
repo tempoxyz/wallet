@@ -95,10 +95,12 @@ impl Config {
     /// Resolve network information with config overrides applied.
     ///
     /// RPC overrides are resolved in order:
-    /// 1. `PRESTO_RPC_URL` env var (overrides everything)
-    /// 2. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
-    /// 3. General `[rpc]` table overrides (for any network by id)
+    /// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
+    /// 2. General `[rpc]` table overrides (for any network by id)
     ///
+    /// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
+    /// via `set_rpc_override()` in `load_config_with_overrides` / `make_request`,
+    /// which sets `tempo_rpc` and `moderato_rpc` so they flow through this logic.
     pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
         use crate::network::{get_network, networks};
 
@@ -108,12 +110,6 @@ impl Config {
                 network_id
             ))
         })?;
-
-        //  TEMPO_RPC_URLenv var overrides everything
-        if let Ok(env_url) = std::env::var("PRESTO_RPC_URL") {
-            network_info.rpc_url = env_url;
-            return Ok(network_info);
-        }
 
         // Apply RPC override if configured (typed overrides take precedence)
         let rpc_override = match network_id {

@@ -3,6 +3,7 @@
 use anyhow::Result;
 
 use crate::network::Network;
+use crate::payment::money::format_u256_with_decimals;
 use crate::payment::session::close_session_from_record;
 use crate::payment::session_store;
 
@@ -22,20 +23,27 @@ pub fn list_sessions() -> Result<()> {
         } else {
             ""
         };
-        let cumulative: f64 = session.cumulative_amount_u128().unwrap_or(0) as f64 / 1e6;
-        let deposit: f64 = session.deposit_u128().unwrap_or(0) as f64 / 1e6;
+        let token_config = session
+            .network_name
+            .parse::<Network>()
+            .ok()
+            .and_then(|n| n.token_config_by_address(&session.currency));
+        let symbol = token_config.map(|t| t.currency.symbol).unwrap_or("tokens");
+        let decimals = token_config.map(|t| t.currency.decimals).unwrap_or(6);
+
+        let cumulative = format_u256_with_decimals(
+            alloy::primitives::U256::from(session.cumulative_amount_u128().unwrap_or(0)),
+            decimals,
+        );
+        let deposit = format_u256_with_decimals(
+            alloy::primitives::U256::from(session.deposit_u128().unwrap_or(0)),
+            decimals,
+        );
 
         println!("  Origin:     {}", session.origin);
         println!("  Network:    {}", session.network_name);
         println!("  Channel:    {}", session.channel_id);
-        let symbol = session
-            .network_name
-            .parse::<Network>()
-            .ok()
-            .and_then(|n| n.token_config_by_address(&session.currency))
-            .map(|t| t.currency.symbol)
-            .unwrap_or("tokens");
-        println!("  Spent:      {cumulative:.6} / {deposit:.6} {symbol}");
+        println!("  Spent:      {cumulative} / {deposit} {symbol}");
         println!(
             "  Status:     {}{}",
             if session.is_expired() {
@@ -62,27 +70,51 @@ pub async fn close_sessions(url: Option<String>, all: bool) -> Result<()> {
         }
 
         let mut closed = 0;
+        let mut failed = 0;
         for session in &sessions {
             let key = session_store::session_key(&session.origin);
+            let _lock = session_store::lock_session(&key)?;
             eprintln!("Closing session for {}...", session.origin);
-            let _ = close_session_from_record(session).await;
-            let _ = session_store::delete_session(&key);
-            closed += 1;
+            if let Err(e) = close_session_from_record(session).await {
+                eprintln!("  Failed to close: {e}");
+                eprintln!("  Keeping local record for retry.");
+                failed += 1;
+            } else {
+                closed += 1;
+                if let Err(e) = session_store::delete_session(&key) {
+                    eprintln!("  Failed to remove local session: {e}");
+                }
+            }
         }
 
-        println!("Closed {closed} session(s).");
+        if failed > 0 {
+            println!("Closed {closed} session(s), {failed} failed.");
+        } else {
+            println!("Closed {closed} session(s).");
+        }
         return Ok(());
     }
 
     if let Some(ref url) = url {
         let key = session_store::session_key(url);
+        let _lock = session_store::lock_session(&key)?;
         let session = session_store::load_session(&key)?;
 
         if let Some(record) = session {
             eprintln!("Closing session for {url}...");
-            let _ = close_session_from_record(&record).await;
-            let _ = session_store::delete_session(&key);
-            println!("Session closed.");
+            match close_session_from_record(&record).await {
+                Ok(()) => {
+                    if let Err(e) = session_store::delete_session(&key) {
+                        eprintln!("Failed to remove local session: {e}");
+                    } else {
+                        println!("Session closed.");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to close session: {e}");
+                    eprintln!("Keeping local record for retry.");
+                }
+            }
         } else {
             println!("No active session for {url}");
         }

@@ -33,7 +33,7 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
     }
 
     if msg.contains("timeout") {
-        return Some("The request timed out. Try again or use --max-time.".into());
+        return Some("The request timed out. Try again or use --timeout.".into());
     }
 
     None
@@ -443,6 +443,6 @@ mod tests {
         let err = anyhow::anyhow!("timeout");
         let suggestion = get_suggestion(&err);
         assert!(suggestion.is_some());
-        assert!(suggestion.unwrap().contains("--max-time"));
+        assert!(suggestion.unwrap().contains("--timeout"));
     }
 }
