@@ -1,18 +1,88 @@
-//! Whoami command — unified wallet/balance/key info.
+//! Authentication commands — login, logout, and wallet status.
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
+use std::str::FromStr;
 use tracing::debug;
 
-use crate::cli::commands::tempo_wallet::{query_all_balances, TokenBalance};
+use crate::analytics::Analytics;
 use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::error::Result;
 use crate::network::Network;
 use crate::payment::currency::format_u256_with_decimals;
-use mpp::client::tempo::keychain::query_key_spending_limit;
+use crate::payment::provider::query_token_balance_with_provider;
 use crate::wallet::credentials::WalletCredentials;
+use crate::wallet::WalletManager;
+use anyhow::Context;
+use mpp::client::tempo::keychain::query_key_spending_limit;
 use serde::Serialize;
+
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+
+pub async fn run_login(network: Option<&str>, analytics: Option<Analytics>) -> anyhow::Result<()> {
+    let manager = WalletManager::new(network, analytics);
+    manager.setup_wallet().await?;
+
+    let config_path = Config::default_config_path()?;
+    if !config_path.exists() {
+        let config = Config::default();
+        config.save().context("Failed to save configuration")?;
+    }
+
+    println!("\nTempo wallet connected! You can now make HTTP payments.");
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Logout
+// ---------------------------------------------------------------------------
+
+pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
+    let mut creds = WalletCredentials::load()?;
+
+    if !creds.has_wallet() {
+        println!("No wallet connected.");
+        return Ok(());
+    }
+
+    if !yes {
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!("Use --yes for non-interactive logout");
+        }
+
+        print!("Disconnect wallet? [y/N] ");
+        use std::io::{self, Write};
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    creds.clear();
+    creds.save()?;
+    println!("Wallet disconnected.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Whoami / Status
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct TokenBalance {
+    pub token: String,
+    pub balance: String,
+    pub balance_raw: u128,
+}
 
 /// Spending limit info for the token a key is authorized for.
 #[derive(Debug, Serialize)]
@@ -50,7 +120,7 @@ pub async fn show_whoami(
 
     if !creds.has_wallet() {
         eprintln!("No wallet connected. Starting login...\n");
-        super::login::run_login(Some(network), None)
+        run_login(Some(network), None)
             .await
             .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
         creds = WalletCredentials::load()?;
@@ -233,4 +303,61 @@ async fn query_spending_limit(
     }
 
     None
+}
+
+async fn query_all_balances(
+    config: &Config,
+    network: &str,
+    account_address: &str,
+) -> Vec<TokenBalance> {
+    let network_info = match config.resolve_network(network) {
+        Ok(info) => info,
+        Err(_) => return Vec::new(),
+    };
+
+    let rpc_url = match network_info.rpc_url.parse() {
+        Ok(u) => u,
+        Err(_) => return Vec::new(),
+    };
+
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
+
+    let account: Address = match account_address.parse() {
+        Ok(a) => a,
+        Err(_) => return Vec::new(),
+    };
+
+    let tokens = network
+        .parse::<Network>()
+        .map(|n| n.supported_tokens())
+        .unwrap_or_default();
+
+    let mut balances = Vec::new();
+
+    for token_config in &tokens {
+        let token_address: Address = match Address::from_str(token_config.address) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+
+        let balance =
+            match query_token_balance_with_provider(&provider, token_address, account).await {
+                Ok(b) => b,
+                Err(e) => {
+                    debug!(%e, token = token_config.currency.symbol, "failed to query balance");
+                    continue;
+                }
+            };
+
+        let balance_raw: u128 = balance.try_into().unwrap_or(u128::MAX);
+        let balance_human = format_u256_with_decimals(balance, token_config.currency.decimals);
+
+        balances.push(TokenBalance {
+            token: token_config.currency.symbol.to_string(),
+            balance: balance_human,
+            balance_raw,
+        });
+    }
+
+    balances
 }

@@ -117,7 +117,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 .network
                 .as_deref()
                 .or(Some(challenge_ctx.network.as_str()));
-            crate::cli::commands::login::run_login(network, analytics.clone()).await?;
+            crate::cli::auth::run_login(network, analytics.clone()).await?;
             eprintln!("\nRetrying payment...");
 
             let config = load_config_with_overrides(&request_ctx.cli)?;
@@ -235,12 +235,12 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
 
     let (network, amount, currency) =
         if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
-            let name = crate::payment::mpp_ext::network_from_charge_request(&charge)
+            let name = crate::payment::provider::network_from_charge_request(&charge)
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
             (name, charge.amount, charge.currency)
         } else if let Ok(session) = challenge.request.decode::<mpp::SessionRequest>() {
-            let name = crate::payment::mpp_ext::network_from_session_request(&session)
+            let name = crate::payment::provider::network_from_session_request(&session)
                 .map(|n| n.as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
             (name, session.amount, session.currency)
@@ -271,7 +271,7 @@ async fn ensure_wallet_or_prompt_login(
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");
             let network = request_ctx.cli.network.as_deref();
-            crate::cli::commands::login::run_login(network, analytics.clone()).await?;
+            crate::cli::auth::run_login(network, analytics.clone()).await?;
             eprintln!("\nRetrying request...");
             *config = load_config_with_overrides(&request_ctx.cli)?;
         } else {

@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::network::ExplorerConfig;
-use crate::payment::mpp_ext::{network_from_charge_request, validate_challenge};
+use crate::payment::provider::{network_from_charge_request, validate_challenge};
 use mpp::protocol::core::extract_tx_hash;
 use crate::payment::provider::PrestoPaymentProvider;
 

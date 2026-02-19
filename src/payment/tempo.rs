@@ -37,7 +37,7 @@ impl SigningSetupContext {
         config: &Config,
         challenge: &mpp::PaymentChallenge,
     ) -> Result<Self> {
-        use crate::payment::mpp_ext::network_from_charge_request;
+        use crate::payment::provider::network_from_charge_request;
         use alloy::providers::Provider;
         use alloy::rlp::Decodable;
 
