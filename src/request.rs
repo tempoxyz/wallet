@@ -490,7 +490,7 @@ fn display_receipt(
 
     let link = if let Some(exp) = explorer {
         let url = exp.tx_url(&tx_ref);
-        hyperlink(&url, &url)
+        hyperlink(&tx_ref, &url)
     } else {
         tx_ref
     };

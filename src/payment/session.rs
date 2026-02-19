@@ -788,7 +788,7 @@ pub async fn handle_session_request(
     .context("Failed to sign initial voucher")?;
 
     let open_credential =
-        create_tempo_payment_from_calls(config, &challenge, open_calls, currency).await?;
+        create_tempo_payment_from_calls(config, &signing, &challenge, open_calls, currency).await?;
 
     let open_tx = open_credential
         .payload
@@ -1027,6 +1027,7 @@ fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result
 /// (including stuck-tx detection) and signs with keychain-aware signing mode.
 async fn create_tempo_payment_from_calls(
     config: &Config,
+    signing: &crate::wallet::signer::WalletSigner,
     challenge: &mpp::PaymentChallenge,
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
@@ -1038,15 +1039,12 @@ async fn create_tempo_payment_from_calls(
         .decode()
         .context("Invalid charge request")?;
     let network = network_from_charge_request(&charge_req)?;
-    let network_name = network.as_str();
-
-    let signing = load_wallet_signer(network_name)?;
-    let network_info = config.resolve_network(network_name)?;
+    let network_info = config.resolve_network(network.as_str())?;
 
     let opts = SignOptions {
         rpc_url: Some(network_info.rpc_url.clone()),
         fee_token: Some(fee_token),
-        signing_mode: Some(signing.signing_mode),
+        signing_mode: Some(signing.signing_mode.clone()),
         replace_stuck_txs: true,
         ..Default::default()
     };
