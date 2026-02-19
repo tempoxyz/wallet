@@ -98,8 +98,6 @@ use crate::config::Config;
 
 **Testing** — unit tests live in source files (`#[cfg(test)] mod tests`). Integration tests in `tests/` use `assert_cmd` for black-box CLI testing. Use `TestConfigBuilder` and `test_command()` helpers.
 
-**Mock mode** — set `PRESTO_MOCK_NETWORK=1` to enable mock mode for tests that would otherwise need network access.
-
 ## Adding a New Feature
 
 1. Add core logic in the appropriate module under `src/`
@@ -109,12 +107,9 @@ use crate::config::Config;
 
 ## Environment Variables
 
-These are used for testing and development:
-
 | Variable | Description |
 |----------|-------------|
-| `PRESTO_MOCK_NETWORK` | Enable mock mode for network calls in tests |
-| `PRESTO_MOCK_PAYMENT` | Enable mock mode for payment flows in tests |
-| `PRESTO_DEBUG` | Enable debug logging in the auth server |
+| `PRESTO_RPC_URL` | Override RPC endpoint |
+| `PRESTO_AUTH_URL` | Override auth server URL |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
 | `RUST_LOG` | Override tracing filter (e.g., `debug`, `info`) |

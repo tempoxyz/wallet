@@ -278,14 +278,54 @@ pub async fn handle_session_request(
     let open_headers = vec![("Authorization".to_string(), auth_header)];
     let open_response = request_ctx.execute(url, Some(&open_headers)).await?;
 
-    if open_response.status_code >= 400 {
+    // Retry on 410 "channel not funded" — the on-chain tx may still be confirming.
+    let open_response = if open_response.status_code == 410 {
+        let body = open_response.body_string().unwrap_or_default();
+        if body.contains("channel not funded") || body.contains("Channel Not Found") {
+            if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+                eprintln!("Channel tx still confirming, waiting to retry...");
+            }
+            let delays = [2000, 3000, 5000];
+            let mut final_response = None;
+            for delay_ms in delays {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                let retry_headers = vec![("Authorization".to_string(), open_headers[0].1.clone())];
+                let resp = request_ctx.execute(url, Some(&retry_headers)).await?;
+                if resp.status_code < 400 {
+                    final_response = Some(resp);
+                    break;
+                }
+                let retry_body = resp.body_string().unwrap_or_default();
+                if resp.status_code != 410 {
+                    anyhow::bail!(
+                        "Session open failed: HTTP {} — {}",
+                        resp.status_code,
+                        retry_body.chars().take(500).collect::<String>()
+                    );
+                }
+            }
+            match final_response {
+                Some(resp) => resp,
+                None => anyhow::bail!(
+                    "Session open failed after retries: channel not funded on-chain. TX may have failed."
+                ),
+            }
+        } else {
+            anyhow::bail!(
+                "Session open failed: HTTP 410 — {}",
+                body.chars().take(500).collect::<String>()
+            );
+        }
+    } else if open_response.status_code >= 400 {
         let body = open_response.body_string().unwrap_or_default();
         anyhow::bail!(
             "Session open failed: HTTP {} — {}",
             open_response.status_code,
             body.chars().take(500).collect::<String>()
         );
-    }
+    } else {
+        open_response
+    };
 
     if let Some(receipt_str) = open_response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_str) {

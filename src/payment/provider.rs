@@ -20,41 +20,6 @@ use std::sync::Arc;
 use tempo_primitives::transaction::SignedKeyAuthorization;
 use tracing::{debug, warn};
 
-/// Balance information for a single token on a network
-#[derive(Debug, Clone)]
-pub struct NetworkBalance {
-    /// The network this balance is for (typed enum)
-    pub network: Network,
-    /// The balance as a typed U256 value
-    pub balance: U256,
-    /// Human-readable balance string (for display)
-    pub balance_human: String,
-    /// Asset symbol (e.g., "USDC.e")
-    pub asset: String,
-}
-
-impl NetworkBalance {
-    /// Create a new NetworkBalance.
-    pub fn new(network: Network, balance: U256, balance_human: String, asset: String) -> Self {
-        Self {
-            network,
-            balance,
-            balance_human,
-            asset,
-        }
-    }
-}
-
-impl std::fmt::Display for NetworkBalance {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} {} on {}",
-            self.balance_human, self.asset, self.network
-        )
-    }
-}
-
 ///  Tempo Walletpayment provider that wraps config and implements mpp::client::PaymentProvider.
 ///
 /// This provider handles both Tempo and EVM networks, automatically selecting
@@ -364,60 +329,6 @@ sol! {
     interface IERC20 {
         function balanceOf(address account) external view returns (uint256);
     }
-}
-
-/// Query balances for all supported tokens on a network.
-///
-/// Returns balances for the network's supported tokens.
-pub async fn get_balances(
-    config: &Config,
-    address: &str,
-    network: Network,
-) -> Result<Vec<NetworkBalance>> {
-    let network_info = config.resolve_network(network.as_str())?;
-    let provider =
-        ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-            PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
-        })?);
-
-    let user_addr = Address::from_str(address)
-        .map_err(|e| PrestoError::invalid_address(format!("Invalid Ethereum address: {e}")))?;
-
-    let mut balances = Vec::new();
-
-    for token_config in network.supported_tokens() {
-        let token_addr = Address::from_str(token_config.address).map_err(|e| {
-            PrestoError::invalid_address(format!(
-                "Invalid {} contract address for {}: {}",
-                token_config.currency.symbol, network, e
-            ))
-        })?;
-
-        let contract = IERC20::new(token_addr, &provider);
-
-        match contract.balanceOf(user_addr).call().await {
-            Ok(balance) => {
-                let balance_human =
-                    format_u256_with_decimals(balance, token_config.currency.decimals);
-                balances.push(NetworkBalance::new(
-                    network,
-                    balance,
-                    balance_human,
-                    token_config.currency.symbol.to_string(),
-                ));
-            }
-            Err(e) => {
-                warn!(
-                    token = %token_config.currency.symbol,
-                    network = %network,
-                    error = %e,
-                    "failed to get token balance"
-                );
-            }
-        }
-    }
-
-    Ok(balances)
 }
 
 /// Query the balance of a specific token for an account.

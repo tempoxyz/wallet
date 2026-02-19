@@ -3,9 +3,9 @@
 /// Represents a cryptocurrency or token with its metadata
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Currency {
-    /// Symbol/ticker (e.g., "USDC.e", "pathUSD")
+    /// Symbol/ticker (e.g., "USDC", "pathUSD")
     pub symbol: &'static str,
-    /// Full name (e.g., "USDC.e", "pathUSD")
+    /// Full name (e.g., "USDC", "pathUSD")
     pub name: &'static str,
     /// Number of decimal places
     pub decimals: u8,
@@ -93,8 +93,8 @@ pub mod currencies {
 
     /// pathUSD - Tempo testnet stablecoin
     pub const PATH_USD: Currency = Currency::new("pathUSD", "pathUSD", 6);
-    /// USDC.e - Bridged USDC on Tempo mainnet
-    pub const USDCE: Currency = Currency::new("USDC.e", "USDC.e", 6);
+    /// USDC - Bridged USDC on Tempo mainnet
+    pub const USDCE: Currency = Currency::new("USDC", "USDC", 6);
 }
 
 #[cfg(test)]

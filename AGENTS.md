@@ -118,11 +118,6 @@ pub enum MyError {
 - Use `TestConfigBuilder` for setting up test configurations
 - Use `test_command(&temp)` helper to create properly configured CLI commands
 
-**Mock Mode for Network Tests:**
-- Set `PRESTO_MOCK_NETWORK=1` environment variable to enable mock mode
-- When enabled, the balance command returns fake data instead of making RPC calls
-- Use `mock_test_command(&temp)` helper in integration tests for mock mode
-
 ```rust
 use crate::common::{TestConfigBuilder, test_command};
 
@@ -141,16 +136,11 @@ fn test_something() {
 - Use derive macros for argument parsing
 - Group related args with `help_heading`
 - Support short aliases (`-v`) and long aliases (`--verbose`)
-- Use environment variable fallbacks with `env = "PRESTO_*"`
-
 ```rust
 #[derive(Parser, Debug)]
 pub struct Cli {
     #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
     pub verbosity: u8,
-    
-    #[arg(long, env = "PRESTO_MAX_AMOUNT", help_heading = "Payment Options")]
-    pub max_amount: Option<String>,
 }
 ```
 
@@ -190,18 +180,10 @@ new-crate = "1.0"
 
 ## Environment Variables
 
-For testing and development, these environment variables are used:
-
 | Variable | Description |
 | -------- | ----------- |
-| `HOME` | User home directory (for config paths) |
-| `XDG_CONFIG_HOME` | Linux config directory |
-| `PRESTO_MAX_AMOUNT` | Default max payment amount |
-| `PRESTO_NETWORK` | Default network filter |
-| `PRESTO_RPC_URL` | Override RPC URL |
-| `PRESTO_MOCK_NETWORK` | Enable mock mode for network calls in tests |
-| `PRESTO_MOCK_PAYMENT` | Enable mock mode for payment flows in tests |
-| `PRESTO_DEBUG` | Enable debug logging in the auth server |
+| `PRESTO_RPC_URL` | Override RPC endpoint |
+| `PRESTO_AUTH_URL` | Override auth server URL |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
 
 ## Data Locations
@@ -232,7 +214,7 @@ struct Config {
 
 **Built-in Networks:** `tempo` (chain 4217, mainnet), `tempo-moderato` (chain 42431, testnet)
 
-**Built-in Tokens:** USDC.e (mainnet), pathUSD (testnet)
+**Built-in Tokens:** USDC (mainnet), pathUSD (testnet)
 
 ## Documentation
 

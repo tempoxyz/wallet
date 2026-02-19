@@ -38,7 +38,7 @@ use config::load_config_with_overrides;
 /// receipt — supporting both one-shot charges and persistent sessions.
 ///
 /// This function parses CLI arguments, dispatches to the appropriate
-/// subcommand (query, session management, login/logout, balance, or shell
+/// subcommand (query, session management, login/logout, whoami, or shell
 /// completions), and installs a Ctrl-C handler for graceful shutdown.
 #[tokio::main]
 async fn main() {
@@ -126,9 +126,9 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
-            Commands::Balance { .. } => "balance",
+
             Commands::Session { .. } => "session",
-            Commands::Whoami => "whoami",
+            Commands::Whoami | Commands::Balance => "whoami",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -209,25 +209,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Balance { address } => {
-            let config = load_config_with_overrides(&cli)?;
-            if let Some(ref a) = analytics {
-                a.track(
-                    analytics::Event::BalanceChecked,
-                    analytics::BalanceCheckedPayload {
-                        network: cli.network.clone().unwrap_or_default(),
-                    },
-                );
-            }
-            cli::commands::balance::balance_command(
-                &config,
-                address,
-                cli.network.clone(),
-                cli.output_format,
-            )
-            .await
-        }
-
         Commands::Session { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
@@ -241,12 +222,13 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Whoami => {
+        Commands::Whoami | Commands::Balance => {
+            let config = load_config_with_overrides(&cli)?;
             let network = cli.network.as_deref();
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
             }
-            cli::commands::whoami::show_whoami(cli.output_format, network)
+            cli::commands::whoami::show_whoami(&config, cli.output_format, network)
                 .await
                 .map_err(Into::into)
         }

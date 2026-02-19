@@ -100,7 +100,7 @@ impl Money {
     /// * `token` - The token identity (network + asset address)
     /// * `atomic` - The amount in atomic units (e.g., wei, base units)
     /// * `decimals` - Number of decimal places for human formatting
-    /// * `symbol` - Token symbol for display (e.g., "USDC.e")
+    /// * `symbol` - Token symbol for display (e.g., "USDC")
     pub fn new(token: TokenId, atomic: U256, decimals: u8, symbol: impl Into<String>) -> Self {
         Self {
             token,
@@ -244,7 +244,7 @@ impl Money {
 
     /// Format the amount with trimmed trailing zeros.
     ///
-    /// More compact display: "1.5 USDC.e" instead of "1.500000 USDC.e"
+    /// More compact display: "1.5 USDC" instead of "1.500000 USDC"
     pub fn format_trimmed(&self) -> String {
         format_u256_trimmed(self.atomic, self.decimals, &self.symbol)
     }

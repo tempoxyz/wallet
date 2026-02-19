@@ -78,7 +78,6 @@ These options apply when making HTTP requests (` tempo-wallet<URL>`):
 
 | Option | Description |
 |--------|-------------|
-| `-M, --max-amount <AMOUNT>` | Maximum amount willing to pay (e.g., `0.05` for dollars, or `50000` for atomic units) |
 | `--dry-run` | Show what would be paid without executing |
 
 ### HTTP Options
@@ -199,9 +198,7 @@ If  tempo-walletfails with a 401 RPC error, set `PRESTO_RPC_URL` to an authentic
 
 | Variable | Description |
 |----------|-------------|
-| `PRESTO_RPC_URL` | Override RPC URL (required for mainnet — see above) |
-| `PRESTO_MAX_AMOUNT` | Default max payment amount |
-| `PRESTO_NETWORK` | Default network filter |
+| `PRESTO_RPC_URL` | Override RPC endpoint (required for mainnet — see above) |
 | `PRESTO_AUTH_URL` | Override auth server URL for login |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
 | `NO_COLOR` | Disable colored output |
