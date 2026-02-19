@@ -38,7 +38,6 @@ pub struct StatusResponse {
     pub access_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) spending_limit: Option<SpendingLimitInfo>,
-    pub issues: Vec<String>,
 }
 
 pub async fn show_whoami(
@@ -63,7 +62,6 @@ pub async fn show_whoami(
         balances: vec![],
         access_key: None,
         spending_limit: None,
-        issues: vec![],
     };
 
     if creds.has_wallet() {
@@ -73,19 +71,13 @@ pub async fn show_whoami(
             response.access_key = Some(key.address());
         } else {
             response.ready = false;
-            response.issues.push(format!(
-                "No access key. Run 'presto login --network {}'.",
-                network
-            ));
         }
 
         response.balances = query_all_balances(config, network, &creds.account_address).await;
 
-        response.spending_limit =
-            query_spending_limit(config, network, &creds, &mut response.issues).await;
+        response.spending_limit = query_spending_limit(config, network, &creds).await;
     } else {
         response.ready = false;
-        response.issues.push("No wallet connected.".to_string());
     }
 
     match output_format {
@@ -118,13 +110,6 @@ pub async fn show_whoami(
                     }
                 }
             }
-
-            if !response.issues.is_empty() {
-                println!("\n  Issues:");
-                for issue in &response.issues {
-                    println!("    ⚠ {}", issue);
-                }
-            }
         }
     }
 
@@ -141,7 +126,6 @@ async fn query_spending_limit(
     config: &Config,
     network: &str,
     creds: &WalletCredentials,
-    issues: &mut Vec<String>,
 ) -> Option<SpendingLimitInfo> {
     let network_info = config.resolve_network(network).ok()?;
     let network_key = creds.network_key(network)?;
@@ -166,7 +150,6 @@ async fn query_spending_limit(
     // and its original limit so we can compute spent = limit - remaining.
     if let Some(ref auth) = local_auth {
         if let Some(ref token_limits) = auth.authorization.limits {
-            // Key has explicit token limits — find the matching supported token
             for tl in token_limits {
                 let token_config = tokens.iter().find(|t| {
                     t.address
@@ -179,7 +162,6 @@ async fn query_spending_limit(
                     let decimals = tc.currency.decimals;
                     let total_limit = tl.limit;
 
-                    // Query remaining from chain
                     let remaining =
                         query_key_spending_limit(&provider, wallet_address, key_address, tl.token)
                             .await
@@ -198,7 +180,6 @@ async fn query_spending_limit(
                 }
             }
         } else {
-            // limits = None means unlimited — pick the first supported token as label
             let symbol = tokens
                 .first()
                 .map(|t| t.currency.symbol.to_string())
@@ -223,7 +204,6 @@ async fn query_spending_limit(
         match query_key_spending_limit(&provider, wallet_address, key_address, token_address).await
         {
             Ok(None) => {
-                // Unlimited
                 return Some(SpendingLimitInfo {
                     token: token_config.currency.symbol.to_string(),
                     unlimited: true,
@@ -233,8 +213,6 @@ async fn query_spending_limit(
                 });
             }
             Ok(Some(remaining)) if remaining > U256::ZERO => {
-                // Has a limit with remaining balance — we don't know the original
-                // limit without local auth, so just show remaining
                 return Some(SpendingLimitInfo {
                     token: token_config.currency.symbol.to_string(),
                     unlimited: false,
@@ -246,17 +224,9 @@ async fn query_spending_limit(
                     spent: None,
                 });
             }
-            Ok(Some(_)) => {
-                // Zero remaining — might be this token with exhausted limit,
-                // or might not be the authorized token at all. Skip.
-                continue;
-            }
+            Ok(Some(_)) => continue,
             Err(e) => {
                 debug!(%e, token = token_config.currency.symbol, "failed to query spending limit");
-                issues.push(format!(
-                    "Could not query {} spending limit: {}",
-                    token_config.currency.symbol, e
-                ));
                 continue;
             }
         }
