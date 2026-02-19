@@ -15,7 +15,7 @@ use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::device_code::{create_device_code, poll_device_code};
 use crate::wallet::pkce;
 
-const CALLBACK_TIMEOUT_SECS: u64 = 300; // 5 minutes
+const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
 #[derive(Debug, Clone)]
