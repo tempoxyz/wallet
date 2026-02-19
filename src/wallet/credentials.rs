@@ -149,6 +149,22 @@ impl WalletCredentials {
         self.networks.get_mut(network)
     }
 
+    /// Mark a network's access key as provisioned and persist to disk.
+    ///
+    /// No-op if the key is already marked provisioned or the network doesn't exist.
+    pub fn mark_provisioned(network: &str) {
+        if let Ok(mut creds) = Self::load() {
+            if let Some(key) = creds.network_key_mut(network) {
+                if !key.provisioned {
+                    key.provisioned = true;
+                    if let Err(e) = creds.save() {
+                        tracing::warn!("failed to persist provisioned flag: {e}");
+                    }
+                }
+            }
+        }
+    }
+
     /// Clear the wallet credentials.
     pub fn clear(&mut self) {
         self.account_address.clear();

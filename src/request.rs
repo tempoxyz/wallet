@@ -205,16 +205,7 @@ fn is_not_provisioned(err: &anyhow::Error) -> bool {
 
 /// Mark a network as provisioned in wallet.toml after a successful payment.
 fn mark_network_provisioned(network: &str) {
-    if let Ok(mut creds) = crate::wallet::credentials::WalletCredentials::load() {
-        if let Some(key) = creds.network_key_mut(network) {
-            if !key.provisioned {
-                key.provisioned = true;
-                if let Err(e) = creds.save() {
-                    tracing::warn!("Failed to persist provisioned flag: {e}");
-                }
-            }
-        }
-    }
+    crate::wallet::credentials::WalletCredentials::mark_provisioned(network);
 }
 
 /// Parsed payment challenge context extracted from a 402 response.
