@@ -37,7 +37,7 @@ pub(super) struct SessionContext<'a> {
 }
 
 impl SessionContext<'_> {
-    /// Resolve the token symbol for the current session (e.g., "USDC.e" or "pathUSD").
+    /// Resolve the token symbol for the current session (e.g., "USDC" or "pathUSD").
     pub(super) fn token_symbol(&self) -> &'static str {
         self.network_name
             .parse::<Network>()

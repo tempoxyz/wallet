@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::str::FromStr;
 use tracing::debug;
 
-use crate::network::get_network;
+use crate::config::Config;
 use crate::payment::money::format_u256_with_decimals;
 use crate::payment::provider::query_token_balance_with_provider;
 use crate::util::constants::BUILTIN_TOKENS;
@@ -18,10 +18,14 @@ pub struct TokenBalance {
     pub balance_raw: u128,
 }
 
-pub async fn query_all_balances(network: &str, account_address: &str) -> Vec<TokenBalance> {
-    let network_info = match get_network(network) {
-        Some(info) => info,
-        None => return Vec::new(),
+pub async fn query_all_balances(
+    config: &Config,
+    network: &str,
+    account_address: &str,
+) -> Vec<TokenBalance> {
+    let network_info = match config.resolve_network(network) {
+        Ok(info) => info,
+        Err(_) => return Vec::new(),
     };
 
     let rpc_url = match network_info.rpc_url.parse() {

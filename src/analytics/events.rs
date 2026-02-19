@@ -18,8 +18,6 @@ pub enum Event {
     PaymentSuccess,
     PaymentFailure,
 
-    BalanceChecked,
-
     KeyCreated,
     WhoamiViewed,
 
@@ -44,7 +42,7 @@ impl Event {
             Self::PaymentStarted => "payment_started",
             Self::PaymentSuccess => "payment_success",
             Self::PaymentFailure => "payment_failure",
-            Self::BalanceChecked => "balance_checked",
+
             Self::KeyCreated => "key_created",
             Self::WhoamiViewed => "whoami_viewed",
             Self::CallbackWindowOpened => "callback_window_opened",
@@ -122,12 +120,6 @@ pub struct PaymentFailurePayload {
     pub error: String,
 }
 impl EventPayload for PaymentFailurePayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BalanceCheckedPayload {
-    pub network: String,
-}
-impl EventPayload for BalanceCheckedPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CommandRunPayload {

@@ -24,7 +24,7 @@ pub enum ColorMode {
     override_usage = "presto [OPTIONS] <URL> [-- HTTP_OPTIONS]\n  presto [OPTIONS] <COMMAND>"
 )]
 #[command(
-    after_help = "Examples:\n  presto https://api.example.com/data\n  presto -X POST --json '{\"key\": \"value\"}' https://api.example.com/endpoint\n  presto login"
+    after_help = "Examples:\n  # Query Ethereum via Alchemy — no API key needed\n  presto https://alchemy.mpp.tempo.xyz/eth-mainnet/v2 \\\n    -X POST --json '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | jq .result\n\n  # Use GPT-4o — no API key, no signup, just pay and go\n  presto https://openrouter.mpp.tempo.xyz/v1/chat/completions \\\n    -X POST --json '{\"model\":\"openai/gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a fun fact\"}]}' \\\n    | jq -r '.choices[0].message.content'\n\n  # Search the web — find anything, instantly\n  presto https://exa.mpp.tempo.xyz/search \\\n    -X POST --json '{\"query\":\"best new developer tools\",\"numResults\":5}' \\\n    | jq -r '.results[] | \"\\(.title)\\n  \\(.url)\\n\"'"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -35,14 +35,7 @@ pub struct Cli {
     pub config: Option<String>,
 
     /// Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato")
-    #[arg(
-        short = 'n',
-        long,
-        value_name = "NETWORKS",
-        env = "PRESTO_NETWORK",
-        global = true,
-        help_heading = "Payment Options"
-    )]
+    #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
     pub network: Option<String>,
 
     /// Verbosity level (can be used multiple times: -v, -vv, -vvv)
@@ -85,17 +78,6 @@ pub struct QueryArgs {
     /// URL to request
     #[arg(value_name = "URL")]
     pub url: String,
-
-    /// Maximum amount willing to pay (e.g., 0.05 for dollars, or 50000 for atomic units)
-    #[arg(
-        short = 'M',
-        long,
-        visible_alias = "max",
-        value_name = "AMOUNT",
-        env = "PRESTO_MAX_AMOUNT",
-        help_heading = "Payment Options"
-    )]
-    pub max_amount: Option<String>,
 
     /// Dry run mode - show what would be paid without executing
     #[arg(long, help_heading = "Payment Options")]
@@ -165,7 +147,7 @@ pub struct QueryArgs {
         visible_alias = "rpc-url",
         value_name = "URL",
         env = "PRESTO_RPC_URL",
-        help_heading = "RPC Options"
+        hide = true
     )]
     pub rpc_url: Option<String>,
 }
@@ -185,15 +167,12 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
-    /// Check wallet balance (uses global --network/-n filter)
-    #[command(display_order = 4)]
-    Balance {
-        /// Check balance for specific address (defaults to configured addresses)
-        address: Option<String>,
-    },
     /// Show who you are: wallet, balances, access keys
-    #[command(display_order = 5)]
+    #[command(display_order = 4)]
     Whoami,
+    /// Alias for whoami
+    #[command(hide = true, name = "balance")]
+    Balance,
     /// Manage payment sessions
     #[command(display_order = 6)]
     #[command(args_conflicts_with_subcommands = true)]

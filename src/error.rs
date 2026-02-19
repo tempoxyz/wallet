@@ -39,10 +39,6 @@ impl std::fmt::Display for SigningContext {
 
 #[derive(Error, Debug)]
 pub enum PrestoError {
-    /// Required amount exceeds user's maximum allowed
-    #[error("Required amount ({required}) exceeds maximum allowed ({max})")]
-    AmountExceedsMax { required: u128, max: u128 },
-
     /// Invalid payment amount format
     #[error("Invalid amount: {0}")]
     InvalidAmount(String),
@@ -265,16 +261,6 @@ impl<T, E: StdError + Send + Sync + 'static> ResultExt<T> for std::result::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_amount_exceeds_max_display() {
-        let err = PrestoError::AmountExceedsMax {
-            required: 1000,
-            max: 500,
-        };
-        let display = err.to_string();
-        assert!(display.contains("Required amount (1000) exceeds maximum allowed (500)"));
-    }
 
     #[test]
     fn test_invalid_amount_display() {

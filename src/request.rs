@@ -29,9 +29,9 @@ use crate::payment::session::{handle_session_request, SessionResult};
 pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) -> Result<()> {
     let mut config = load_config_with_overrides(&cli)?;
 
-    // Apply --rpc flag override from query args to config.
+    // Apply --rpc flag override to config.
     // The PRESTO_RPC_URL env var is already handled by load_config_with_overrides,
-    // but the explicit --rpc flag on QueryArgs takes final precedence.
+    // but the explicit --rpc flag takes final precedence.
     if let Some(ref rpc_url) = query.rpc_url {
         config.set_rpc_override(rpc_url.clone());
     }
@@ -113,7 +113,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         Err(e) if is_not_provisioned(&e) => {
             // Access key not provisioned — auto-login and retry
             use std::io::IsTerminal;
-            if std::io::stdin().is_terminal() && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
+            if std::io::stdin().is_terminal() {
                 eprintln!(
                     "Access key is not provisioned on-chain. Running login to set it up...\n"
                 );
@@ -293,7 +293,7 @@ async fn ensure_wallet_or_prompt_login(
         .ok()
         .is_some_and(|c| c.has_wallet());
 
-    if !has_wallet && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
+    if !has_wallet {
         use std::io::IsTerminal;
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");

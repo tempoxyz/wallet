@@ -1,27 +1,30 @@
 //! Whoami command — unified wallet/balance/key info.
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use tracing::debug;
 
 use crate::cli::commands::tempo_wallet::{query_all_balances, TokenBalance};
 use crate::cli::OutputFormat;
+use crate::config::Config;
 use crate::error::Result;
-use crate::network::get_network;
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
-use crate::payment::providers::tempo::{local_key_spending_limit, query_key_spending_limit};
+use crate::payment::providers::tempo::query_key_spending_limit;
 use crate::wallet::credentials::WalletCredentials;
 use serde::Serialize;
 
+/// Spending limit info for the token a key is authorized for.
 #[derive(Debug, Serialize)]
 pub(crate) struct SpendingLimitInfo {
     token: String,
     unlimited: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    limit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     remaining: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    remaining_raw: Option<String>,
+    spent: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,54 +32,52 @@ pub struct StatusResponse {
     pub ready: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet: Option<String>,
-    pub network: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub balances: Vec<TokenBalance>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub spending_limits: Vec<SpendingLimitInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_key: Option<String>,
-    pub issues: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) spending_limit: Option<SpendingLimitInfo>,
 }
 
-pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> Result<()> {
-    let creds = WalletCredentials::load()?;
+pub async fn show_whoami(
+    config: &Config,
+    output_format: OutputFormat,
+    network: Option<&str>,
+) -> Result<()> {
+    let mut creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
+
+    if !creds.has_wallet() {
+        eprintln!("No wallet connected. Starting login...\n");
+        super::login::run_login(Some(network), None)
+            .await
+            .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
+        creds = WalletCredentials::load()?;
+    }
 
     let mut response = StatusResponse {
         ready: true,
         wallet: None,
-        network: network.to_string(),
         balances: vec![],
-        spending_limits: vec![],
         access_key: None,
-        issues: vec![],
+        spending_limit: None,
     };
 
     if creds.has_wallet() {
         response.wallet = Some(creds.account_address.clone());
 
-        let network_key = creds.network_key(network);
-
-        if let Some(key) = network_key {
+        if let Some(key) = creds.network_key(network) {
             response.access_key = Some(key.address());
         } else {
             response.ready = false;
-            response.issues.push(format!(
-                "No access key for network '{}'. Run 'presto login --network {}'.",
-                network, network
-            ));
         }
 
-        response.balances = query_all_balances(network, &creds.account_address).await;
+        response.balances = query_all_balances(config, network, &creds.account_address).await;
 
-        response.spending_limits =
-            query_spending_limits(network, &creds, &mut response.issues).await;
+        response.spending_limit = query_spending_limit(config, network, &creds).await;
     } else {
         response.ready = false;
-        response
-            .issues
-            .push("No wallet connected. Run 'presto login'.".to_string());
     }
 
     match output_format {
@@ -84,44 +85,29 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
             println!("{}", serde_json::to_string(&response)?);
         }
         _ => {
-            if response.ready {
-                println!("Ready to make requests\n");
-            } else {
-                println!("Not ready\n");
-            }
-
-            println!("Network: {}", response.network);
-
             if let Some(wallet) = &response.wallet {
-                println!("Wallet: {}", wallet);
+                println!("  Wallet: {}", wallet);
             }
 
             if !response.balances.is_empty() {
-                println!();
+                println!("\n  Balances:");
                 for tb in &response.balances {
-                    println!("{:>16} {}", tb.balance, tb.token);
-                }
-            }
-
-            if !response.spending_limits.is_empty() {
-                println!("\nSpending Limits:");
-                for sl in &response.spending_limits {
-                    if sl.unlimited {
-                        println!("  {:>12} {}  (unlimited)", "∞", sl.token);
-                    } else if let Some(remaining) = &sl.remaining {
-                        println!("  {:>12} {}  remaining", remaining, sl.token);
-                    }
+                    println!("    {:>12} {}", tb.balance, tb.token);
                 }
             }
 
             if let Some(key) = &response.access_key {
-                println!("\nAccess Key: {}", key);
-            }
-
-            if !response.issues.is_empty() {
-                println!("\nIssues:");
-                for issue in &response.issues {
-                    println!("  - {}", issue);
+                println!("\n  Access Key: {}", key);
+                if let Some(sl) = &response.spending_limit {
+                    if sl.unlimited {
+                        println!("    Token: {} (unlimited)", sl.token);
+                    } else if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
+                        let spent = sl.spent.as_deref().unwrap_or("0");
+                        println!("    Token: {}", sl.token);
+                        println!("    Limit: {}", limit);
+                        println!("    Spent: {}", spent);
+                        println!("    Remaining: {}", remaining);
+                    }
                 }
             }
         }
@@ -130,98 +116,121 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
     Ok(())
 }
 
-async fn query_spending_limits(
+/// Query the spending limit for the key's authorized token on this network.
+///
+/// Each key is authorized for a single token. We determine which token by
+/// checking the local key authorization first, then falling back to querying
+/// all supported tokens on-chain and picking the one with a non-zero or
+/// unlimited limit.
+async fn query_spending_limit(
+    config: &Config,
     network: &str,
     creds: &WalletCredentials,
-    issues: &mut Vec<String>,
-) -> Vec<SpendingLimitInfo> {
-    let network_info = match get_network(network) {
-        Some(info) => info,
-        None => return Vec::new(),
-    };
+) -> Option<SpendingLimitInfo> {
+    let network_info = config.resolve_network(network).ok()?;
+    let network_key = creds.network_key(network)?;
 
-    let network_key = match creds.network_key(network) {
-        Some(k) => k,
-        None => return Vec::new(),
-    };
-
-    let wallet_address: Address = match creds.account_address.parse() {
-        Ok(a) => a,
-        Err(_) => return Vec::new(),
-    };
-
-    let key_address: Address = match network_key.address().parse() {
-        Ok(a) => a,
-        Err(_) => return Vec::new(),
-    };
-
-    let rpc_url = match network_info.rpc_url.parse() {
-        Ok(u) => u,
-        Err(_) => return Vec::new(),
-    };
+    let wallet_address: Address = creds.account_address.parse().ok()?;
+    let key_address: Address = network_key.address().parse().ok()?;
+    let rpc_url = network_info.rpc_url.parse().ok()?;
 
     let local_auth = network_key
         .key_authorization
         .as_deref()
         .and_then(crate::wallet::decode_key_authorization);
+
     let provider = ProviderBuilder::new().connect_http(rpc_url);
-    let mut limits = Vec::new();
 
     let tokens = network
         .parse::<Network>()
         .map(|n| n.supported_tokens())
         .unwrap_or_default();
 
+    // If we have a local key authorization, use it to find the authorized token
+    // and its original limit so we can compute spent = limit - remaining.
+    if let Some(ref auth) = local_auth {
+        if let Some(ref token_limits) = auth.authorization.limits {
+            for tl in token_limits {
+                let token_config = tokens.iter().find(|t| {
+                    t.address
+                        .parse::<Address>()
+                        .map(|a| a == tl.token)
+                        .unwrap_or(false)
+                });
+
+                if let Some(tc) = token_config {
+                    let decimals = tc.currency.decimals;
+                    let total_limit = tl.limit;
+
+                    let remaining =
+                        query_key_spending_limit(&provider, wallet_address, key_address, tl.token)
+                            .await
+                            .unwrap_or(Some(total_limit));
+
+                    let remaining_val = remaining.unwrap_or(total_limit);
+                    let spent = total_limit.saturating_sub(remaining_val);
+
+                    return Some(SpendingLimitInfo {
+                        token: tc.currency.symbol.to_string(),
+                        unlimited: false,
+                        limit: Some(format_u256_with_decimals(total_limit, decimals)),
+                        remaining: Some(format_u256_with_decimals(remaining_val, decimals)),
+                        spent: Some(format_u256_with_decimals(spent, decimals)),
+                    });
+                }
+            }
+        } else {
+            let symbol = tokens
+                .first()
+                .map(|t| t.currency.symbol.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            return Some(SpendingLimitInfo {
+                token: symbol,
+                unlimited: true,
+                limit: None,
+                remaining: None,
+                spent: None,
+            });
+        }
+    }
+
+    // Fallback: no local auth, query each supported token on-chain
     for token_config in &tokens {
         let token_address: Address = match token_config.address.parse() {
             Ok(a) => a,
             Err(_) => continue,
         };
 
-        let limit = match query_key_spending_limit(
-            &provider,
-            wallet_address,
-            key_address,
-            token_address,
-        )
-        .await
+        match query_key_spending_limit(&provider, wallet_address, key_address, token_address).await
         {
-            Ok(limit) => limit,
-            Err(_) if local_auth.is_some() => {
-                local_key_spending_limit(local_auth.as_ref().unwrap(), token_address)
-            }
-            Err(e) => {
-                debug!(%e, token = token_config.currency.symbol, "failed to query spending limit");
-                issues.push(format!(
-                    "Could not query {} spending limit: {}",
-                    token_config.currency.symbol, e
-                ));
-                continue;
-            }
-        };
-
-        match limit {
-            None => {
-                limits.push(SpendingLimitInfo {
+            Ok(None) => {
+                return Some(SpendingLimitInfo {
                     token: token_config.currency.symbol.to_string(),
                     unlimited: true,
+                    limit: None,
                     remaining: None,
-                    remaining_raw: None,
+                    spent: None,
                 });
             }
-            Some(remaining) => {
-                limits.push(SpendingLimitInfo {
+            Ok(Some(remaining)) if remaining > U256::ZERO => {
+                return Some(SpendingLimitInfo {
                     token: token_config.currency.symbol.to_string(),
                     unlimited: false,
+                    limit: None,
                     remaining: Some(format_u256_with_decimals(
                         remaining,
                         token_config.currency.decimals,
                     )),
-                    remaining_raw: Some(remaining.to_string()),
+                    spent: None,
                 });
+            }
+            Ok(Some(_)) => continue,
+            Err(e) => {
+                debug!(%e, token = token_config.currency.symbol, "failed to query spending limit");
+                continue;
             }
         }
     }
 
-    limits
+    None
 }

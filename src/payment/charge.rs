@@ -9,7 +9,7 @@ use mpp::{parse_receipt, parse_www_authenticate, ChargeRequest, PaymentChallenge
 
 use crate::cli::formatting::format_address_link;
 use crate::cli::hyperlink::hyperlink;
-use crate::cli::{Cli, QueryArgs};
+use crate::cli::Cli;
 use crate::config::Config;
 use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
@@ -24,10 +24,6 @@ pub async fn handle_charge_request(
     url: &str,
     initial_response: &HttpResponse,
 ) -> Result<HttpResponse> {
-    if let Ok(mode) = std::env::var("PRESTO_MOCK_PAYMENT") {
-        return handle_mock_payment(request_ctx, url, &mode).await;
-    }
-
     let www_auth = initial_response
         .get_header("www-authenticate")
         .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
@@ -67,7 +63,7 @@ pub async fn handle_charge_request(
 
     validate_challenge(&challenge).context("Challenge validation failed")?;
 
-    validate_charge_constraints(&request_ctx.query, &request_ctx.cli, &charge_req)?;
+    validate_charge_constraints(&request_ctx.cli, &charge_req)?;
 
     if request_ctx.query.dry_run {
         return handle_web_dry_run(&challenge, &charge_req, explorer.as_ref());
@@ -116,93 +112,7 @@ pub async fn handle_charge_request(
     Ok(response)
 }
 
-/// Handle mock payment mode for integration testing.
-///
-/// This enables testing of error display, suggestions, and exit codes
-/// without requiring real wallet signing or RPC calls.
-async fn handle_mock_payment(
-    request_ctx: &RequestContext,
-    url: &str,
-    mode: &str,
-) -> Result<HttpResponse> {
-    match mode {
-        "spending_limit_exceeded" => Err(crate::error::PrestoError::SpendingLimitExceeded {
-            token: "pathUSD".into(),
-            limit: "0.50".into(),
-            required: "1.00".into(),
-        }
-        .into()),
-        "insufficient_balance" => Err(crate::error::PrestoError::InsufficientBalance {
-            token: "pathUSD".into(),
-            available: "0.50".into(),
-            required: "1.00".into(),
-        }
-        .into()),
-        "payment_rejected" => {
-            let payment_headers = vec![(
-                "Authorization".to_string(),
-                "Payment mock-credential".to_string(),
-            )];
-            let response = request_ctx.execute(url, Some(&payment_headers)).await?;
-            if response.status_code >= 400 {
-                return Err(parse_payment_rejection(&response).into());
-            }
-            Ok(response)
-        }
-        _ => anyhow::bail!("Unknown mock payment mode: {}", mode),
-    }
-}
-
-/// Normalize a max-amount string: if it contains a decimal point, treat as
-/// human-readable (e.g., dollars) and convert to atomic units using the
-/// token's decimal places. If it's a plain integer, pass through unchanged.
-///
-/// Uses string manipulation instead of f64 to avoid floating-point precision loss.
-fn normalize_max_amount(amount: &str, decimals: u8) -> String {
-    let Some((whole_str, frac_str)) = amount.split_once('.') else {
-        return amount.to_string();
-    };
-
-    let Ok(whole) = whole_str.parse::<u128>() else {
-        return amount.to_string();
-    };
-
-    // Validate fractional part is all digits
-    if !frac_str.chars().all(|c| c.is_ascii_digit()) {
-        return amount.to_string();
-    }
-
-    let decimals = decimals as usize;
-    let multiplier = 10u128.pow(decimals as u32);
-
-    let frac_value = if frac_str.len() <= decimals {
-        // Pad with trailing zeros: "5" with 6 decimals → 500000
-        let padded = format!("{:0<width$}", frac_str, width = decimals);
-        padded.parse::<u128>().unwrap_or(0)
-    } else {
-        // Truncate excess digits: "1234567" with 6 decimals → 123456
-        frac_str[..decimals].parse::<u128>().unwrap_or(0)
-    };
-
-    let atomic = whole * multiplier + frac_value;
-    atomic.to_string()
-}
-
-fn validate_charge_constraints(
-    query: &QueryArgs,
-    cli: &Cli,
-    charge_req: &ChargeRequest,
-) -> Result<()> {
-    if let Some(ref max_amount) = query.max_amount {
-        let network = network_from_charge_request(charge_req)?;
-        let token_config = network.token_config_by_address(&charge_req.currency);
-        let decimals = token_config.map(|t| t.currency.decimals).unwrap_or(6);
-        let normalized = normalize_max_amount(max_amount, decimals);
-        charge_req
-            .validate_max_amount(&normalized)
-            .context("Amount validation failed")?;
-    }
-
+fn validate_charge_constraints(cli: &Cli, charge_req: &ChargeRequest) -> Result<()> {
     if let Some(ref networks) = cli.network {
         let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
         let network = network_from_charge_request(charge_req)?;
@@ -268,10 +178,10 @@ fn display_web_receipt(
 ) -> Result<()> {
     if let Some(receipt_header) = response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_header) {
-            if cli.should_show_output() {
+            if cli.is_verbose() {
                 let tx_ref = extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
 
-                // Format amount: "0.01 USDC.e"
+                // Format amount: "0.01 USDC"
                 let amount_display = amount
                     .parse::<u128>()
                     .ok()
@@ -285,12 +195,9 @@ fn display_web_receipt(
                     tx_ref
                 };
                 eprintln!("Paid {amount_display} · {link}");
-
-                if cli.is_verbose() {
-                    eprintln!("  Status: {}", receipt.status);
-                    eprintln!("  Method: {}", receipt.method);
-                    eprintln!("  Timestamp: {}", receipt.timestamp);
-                }
+                eprintln!("  Status: {}", receipt.status);
+                eprintln!("  Method: {}", receipt.method);
+                eprintln!("  Timestamp: {}", receipt.timestamp);
             }
         }
     }
@@ -402,7 +309,6 @@ fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::test_utils::make_query_args;
     use clap::Parser;
     use mpp::{MethodName, PaymentChallenge};
 
@@ -434,73 +340,30 @@ mod tests {
         (challenge, charge_req)
     }
 
-    fn default_query() -> QueryArgs {
-        make_query_args(&["query", "http://example.com"])
-    }
-
     #[test]
     fn test_validate_constraints_no_constraints() {
-        let query = default_query();
         let cli = Cli::try_parse_from(["presto"]).unwrap();
         let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_constraints_max_amount_ok() {
-        let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
-
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_constraints_max_amount_exceeded() {
-        let query = make_query_args(&["query", "--max-amount", "500000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
-
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Amount validation failed") || err.contains("exceeds"),
-            "Error should mention amount validation: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_validate_constraints_max_amount_equal() {
-        let query = make_query_args(&["query", "--max-amount", "1000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
-
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
+        let result = validate_charge_constraints(&cli, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_network_filter_match() {
-        let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
+        let result = validate_charge_constraints(&cli, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_network_filter_no_match() {
-        let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "ethereum"]).unwrap();
         let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
+        let result = validate_charge_constraints(&cli, &charge_req);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -512,31 +375,19 @@ mod tests {
 
     #[test]
     fn test_validate_constraints_multiple_networks() {
-        let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato, ethereum"]).unwrap();
         let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
+        let result = validate_charge_constraints(&cli, &charge_req);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_constraints_tempo_network() {
-        let query = default_query();
         let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
         let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
 
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_constraints_combined() {
-        let query = make_query_args(&["query", "--max-amount", "2000000", "http://example.com"]);
-        let cli = Cli::try_parse_from(["presto", "--network", "tempo-moderato"]).unwrap();
-        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
-
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
+        let result = validate_charge_constraints(&cli, &charge_req);
         assert!(result.is_ok());
     }
 
@@ -643,52 +494,5 @@ mod tests {
             }
             other => panic!("Expected Http passthrough, got: {other}"),
         }
-    }
-
-    #[test]
-    fn test_normalize_max_amount_integer_passthrough() {
-        assert_eq!(normalize_max_amount("50000", 6), "50000");
-        assert_eq!(normalize_max_amount("1000000", 6), "1000000");
-        assert_eq!(normalize_max_amount("0", 6), "0");
-    }
-
-    #[test]
-    fn test_normalize_max_amount_decimal_to_atomic() {
-        assert_eq!(normalize_max_amount("0.05", 6), "50000");
-        assert_eq!(normalize_max_amount("1.0", 6), "1000000");
-        assert_eq!(normalize_max_amount("1.5", 6), "1500000");
-        assert_eq!(normalize_max_amount("0.000001", 6), "1");
-        assert_eq!(normalize_max_amount("100.0", 6), "100000000");
-    }
-
-    #[test]
-    fn test_normalize_max_amount_18_decimals() {
-        assert_eq!(normalize_max_amount("1.0", 18), "1000000000000000000");
-        assert_eq!(normalize_max_amount("0.5", 18), "500000000000000000");
-    }
-
-    #[test]
-    fn test_normalize_max_amount_invalid_decimal() {
-        assert_eq!(normalize_max_amount("abc.def", 6), "abc.def");
-    }
-
-    #[test]
-    fn test_validate_constraints_max_amount_dollar_format() {
-        let query = make_query_args(&["query", "--max-amount", "2.0", "http://example.com"]);
-        let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
-
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_constraints_max_amount_dollar_exceeded() {
-        let query = make_query_args(&["query", "--max-amount", "0.05", "http://example.com"]);
-        let cli = Cli::try_parse_from(["presto"]).unwrap();
-        let (_challenge, charge_req) = mock_challenge(MethodName::new("tempo"), "1000000");
-
-        let result = validate_charge_constraints(&query, &cli, &charge_req);
-        assert!(result.is_err());
     }
 }

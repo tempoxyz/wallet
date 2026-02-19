@@ -104,8 +104,6 @@ impl WalletManager {
 
         let url_str = auth_url.to_string();
 
-        let is_mock = std::env::var("PRESTO_MOCK_DEVICE_CODE").is_ok();
-
         println!();
         let display_code = if code.len() == 8 {
             format!("{}-{}", &code[..4], &code[4..])
@@ -114,27 +112,25 @@ impl WalletManager {
         };
         println!("Verification code: \x1b[1m{}\x1b[0m", display_code);
 
-        if !is_mock {
-            use std::io::IsTerminal;
-            if std::io::stdin().is_terminal() {
-                print!(
-                    "\x1b[1mPress Enter\x1b[0m to open your browser to {}... ",
-                    url_str
-                );
-                std::io::Write::flush(&mut std::io::stdout()).ok();
-                tokio::task::spawn_blocking(|| {
-                    let _ = std::io::stdin().read_line(&mut String::new());
-                })
-                .await
-                .ok();
-            } else {
-                println!("Opening browser to {}...", url_str);
-            }
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() {
+            print!(
+                "\x1b[1mPress Enter\x1b[0m to open your browser to {}... ",
+                url_str
+            );
+            std::io::Write::flush(&mut std::io::stdout()).ok();
+            tokio::task::spawn_blocking(|| {
+                let _ = std::io::stdin().read_line(&mut String::new());
+            })
+            .await
+            .ok();
+        } else {
+            println!("Opening browser to {}...", url_str);
+        }
 
-            if let Err(e) = webbrowser::open(&url_str) {
-                eprintln!("Failed to open browser: {}", e);
-                println!("Please open this URL manually: {}", url_str);
-            }
+        if let Err(e) = webbrowser::open(&url_str) {
+            eprintln!("Failed to open browser: {}", e);
+            println!("Please open this URL manually: {}", url_str);
         }
 
         if let Some(ref a) = self.analytics {

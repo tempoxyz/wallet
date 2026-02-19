@@ -21,7 +21,7 @@ pub fn get_suggestion(err: &anyhow::Error) -> Option<String> {
     let msg = err.to_string().to_lowercase();
 
     if (msg.contains("no such file") || msg.contains("not found")) && msg.contains("config") {
-        return Some("Run 'presto login' to set up your wallet.".into());
+        return Some("Try running 'presto login' to set up your wallet.".into());
     }
 
     if msg.contains("permission denied") {
@@ -50,10 +50,6 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
 
         PrestoError::InvalidKey(_) => {
             Some("EVM private keys should be 64 hex characters (with optional 0x prefix).".into())
-        }
-
-        PrestoError::AmountExceedsMax { .. } => {
-            Some("Increase with --max-amount or remove the limit.".into())
         }
 
         PrestoError::UnknownNetwork(_) => Some("Supported networks: tempo, tempo-moderato.".into()),
@@ -111,7 +107,7 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
         }
 
         PrestoError::InvalidAmount(_) => {
-            Some("Use a numeric amount (e.g., --max-amount 1.0 or --max-amount 1000000).".into())
+            Some("Use a numeric amount (e.g., 1.0 or 1000000).".into())
         }
         PrestoError::MissingRequirement(_) => {
             Some("The server's payment challenge is incomplete. Retry the request.".into())
@@ -264,18 +260,6 @@ mod tests {
     }
 
     #[test]
-    fn test_amount_exceeds_max_format() {
-        assert_error_format(
-            PrestoError::AmountExceedsMax {
-                required: 1000000,
-                max: 500000,
-            },
-            "Required amount (1000000) exceeds maximum allowed (500000)",
-            "Increase with --max-amount or remove the limit.",
-        );
-    }
-
-    #[test]
     fn test_config_missing_format() {
         assert_error_format(
             PrestoError::ConfigMissing("wallet not configured".into()),
@@ -417,7 +401,7 @@ mod tests {
         assert_error_format(
             PrestoError::InvalidAmount("abc".into()),
             "Invalid amount: abc",
-            "Use a numeric amount (e.g., --max-amount 1.0 or --max-amount 1000000).",
+            "Use a numeric amount (e.g., 1.0 or 1000000).",
         );
     }
 

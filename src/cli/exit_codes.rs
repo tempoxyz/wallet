@@ -109,9 +109,9 @@ impl From<&crate::error::PrestoError> for ExitCode {
             | PrestoError::TomlSerialize(_) => ExitCode::ConfigError,
 
             // Payment/funds errors
-            PrestoError::AmountExceedsMax { .. }
-            | PrestoError::SpendingLimitExceeded { .. }
-            | PrestoError::InsufficientBalance { .. } => ExitCode::InsufficientFunds,
+            PrestoError::SpendingLimitExceeded { .. } | PrestoError::InsufficientBalance { .. } => {
+                ExitCode::InsufficientFunds
+            }
 
             // Invalid usage errors
             PrestoError::InvalidAmount(_) | PrestoError::UnsupportedHttpMethod(_) => {
