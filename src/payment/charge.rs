@@ -178,10 +178,10 @@ fn display_web_receipt(
 ) -> Result<()> {
     if let Some(receipt_header) = response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_header) {
-            if cli.should_show_output() {
+            if cli.is_verbose() {
                 let tx_ref = extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
 
-                // Format amount: "0.01 USDC.e"
+                // Format amount: "0.01 USDC"
                 let amount_display = amount
                     .parse::<u128>()
                     .ok()
@@ -195,12 +195,9 @@ fn display_web_receipt(
                     tx_ref
                 };
                 eprintln!("Paid {amount_display} · {link}");
-
-                if cli.is_verbose() {
-                    eprintln!("  Status: {}", receipt.status);
-                    eprintln!("  Method: {}", receipt.method);
-                    eprintln!("  Timestamp: {}", receipt.timestamp);
-                }
+                eprintln!("  Status: {}", receipt.status);
+                eprintln!("  Method: {}", receipt.method);
+                eprintln!("  Timestamp: {}", receipt.timestamp);
             }
         }
     }

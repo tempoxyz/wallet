@@ -30,7 +30,7 @@ pub mod evm_chain_ids {
 pub mod tempo_tokens {
     /// pathUSD token address (testnet)
     pub const PATH_USD: &str = "0x20c0000000000000000000000000000000000000";
-    /// USDC.e token address (mainnet)
+    /// USDC token address (mainnet)
     pub const USDCE: &str = "0x20c000000000000000000000b9537d11c60e8b50";
 }
 
@@ -176,10 +176,16 @@ impl Network {
         use crate::payment::currency::currencies;
 
         match self {
-            Network::Tempo => vec![TokenConfig {
-                currency: currencies::USDCE,
-                address: tempo_tokens::USDCE,
-            }],
+            Network::Tempo => vec![
+                TokenConfig {
+                    currency: currencies::USDCE,
+                    address: tempo_tokens::USDCE,
+                },
+                TokenConfig {
+                    currency: currencies::PATH_USD,
+                    address: tempo_tokens::PATH_USD,
+                },
+            ],
             _ => vec![TokenConfig {
                 currency: currencies::PATH_USD,
                 address: tempo_tokens::PATH_USD,
@@ -212,24 +218,6 @@ impl Network {
         self.supported_tokens()[0]
     }
 
-    /// Check if this is the localnet (local development) network.
-    pub const fn is_localnet(&self) -> bool {
-        matches!(self, Network::TempoLocalnet)
-    }
-
-    /// Filter networks by name (substring match).
-    /// When no filter is provided, returns only public networks (excludes localnet).
-    pub fn by_name_filter(name_filter: Option<&str>) -> Vec<Network> {
-        let all = Self::all();
-        match name_filter {
-            Some(filter) => all
-                .iter()
-                .copied()
-                .filter(|n| n.as_str().contains(filter))
-                .collect(),
-            None => all.iter().copied().filter(|n| !n.is_localnet()).collect(),
-        }
-    }
 }
 
 impl FromStr for Network {
@@ -349,9 +337,11 @@ mod tests {
     #[test]
     fn test_supported_tokens_mainnet() {
         let tokens = Network::Tempo.supported_tokens();
-        assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].currency.symbol, "USDC.e");
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].currency.symbol, "USDC");
         assert_eq!(tokens[0].address, tempo_tokens::USDCE);
+        assert_eq!(tokens[1].currency.symbol, "pathUSD");
+        assert_eq!(tokens[1].address, tempo_tokens::PATH_USD);
     }
 
     #[test]
@@ -367,31 +357,12 @@ mod tests {
         let config = Network::Tempo
             .token_config_by_address(tempo_tokens::USDCE)
             .unwrap();
-        assert_eq!(config.currency.symbol, "USDC.e");
+        assert_eq!(config.currency.symbol, "USDC");
 
         let config = Network::TempoModerato
             .token_config_by_address(tempo_tokens::PATH_USD)
             .unwrap();
         assert_eq!(config.currency.symbol, "pathUSD");
-    }
-
-    #[test]
-    fn test_by_name_filter() {
-        // None returns only public networks (excludes localnet)
-        let all = Network::by_name_filter(None);
-        assert_eq!(all.len(), 2);
-        assert!(all.contains(&Network::Tempo));
-        assert!(all.contains(&Network::TempoModerato));
-        assert!(!all.contains(&Network::TempoLocalnet));
-
-        let filtered = Network::by_name_filter(Some("moderato"));
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0], Network::TempoModerato);
-
-        // Localnet can still be explicitly selected via filter
-        let localnet_filtered = Network::by_name_filter(Some("localnet"));
-        assert_eq!(localnet_filtered.len(), 1);
-        assert_eq!(localnet_filtered[0], Network::TempoLocalnet);
     }
 
     #[test]

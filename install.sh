@@ -221,7 +221,8 @@ main() {
     fi
 
     if [[ "${1:-}" == "--reinstall" ]]; then
-        uninstall_presto
+        echo "Reinstalling presto (preserving config and wallet)..."
+        remove_file "${INSTALL_DIR}/${BINARY_NAME}" "Binary"
         echo ""
         install_local
         verify_installation

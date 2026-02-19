@@ -23,7 +23,7 @@ pub fn default_config_path() -> Option<PathBuf> {
 /// A built-in stablecoin token with name and address
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinToken {
-    /// Token symbol (e.g., "USDC.e", "pathUSD")
+    /// Token symbol (e.g., "USDC", "pathUSD")
     pub symbol: &'static str,
     /// Token contract address
     pub address: &'static str,
@@ -32,7 +32,7 @@ pub struct BuiltinToken {
 /// Built-in stablecoin tokens on Tempo
 pub const BUILTIN_TOKENS: &[BuiltinToken] = &[
     BuiltinToken {
-        symbol: "USDC.e",
+        symbol: "USDC",
         address: tempo_tokens::USDCE,
     },
     BuiltinToken {

@@ -214,7 +214,7 @@ struct Config {
 
 **Built-in Networks:** `tempo` (chain 4217, mainnet), `tempo-moderato` (chain 42431, testnet)
 
-**Built-in Tokens:** USDC.e (mainnet), pathUSD (testnet)
+**Built-in Tokens:** USDC (mainnet), pathUSD (testnet)
 
 ## Documentation
 

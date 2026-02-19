@@ -24,7 +24,7 @@ pub enum ColorMode {
     override_usage = "presto [OPTIONS] <URL> [-- HTTP_OPTIONS]\n  presto [OPTIONS] <COMMAND>"
 )]
 #[command(
-    after_help = "Examples:\n  presto https://api.example.com/data\n  presto -X POST --json '{\"key\": \"value\"}' https://api.example.com/endpoint\n  presto login"
+    after_help = "Examples:\n  # Query Ethereum via Alchemy — no API key needed\n  presto https://alchemy.mpp.tempo.xyz/eth-mainnet/v2 \\\n    -X POST --json '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | jq .result\n\n  # Use GPT-4o — no API key, no signup, just pay and go\n  presto https://openrouter.mpp.tempo.xyz/v1/chat/completions \\\n    -X POST --json '{\"model\":\"openai/gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a fun fact\"}]}' \\\n    | jq -r '.choices[0].message.content'\n\n  # Search the web — find anything, instantly\n  presto https://exa.mpp.tempo.xyz/search \\\n    -X POST --json '{\"query\":\"best new developer tools\",\"numResults\":5}' \\\n    | jq -r '.results[] | \"\\(.title)\\n  \\(.url)\\n\"'"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -173,15 +173,12 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
-    /// Check wallet balance (uses global --network/-n filter)
-    #[command(display_order = 4)]
-    Balance {
-        /// Check balance for specific address (defaults to configured addresses)
-        address: Option<String>,
-    },
     /// Show who you are: wallet, balances, access keys
-    #[command(display_order = 5)]
+    #[command(display_order = 4)]
     Whoami,
+    /// Alias for whoami
+    #[command(hide = true, name = "balance")]
+    Balance,
     /// Manage payment sessions
     #[command(display_order = 6)]
     #[command(args_conflicts_with_subcommands = true)]
