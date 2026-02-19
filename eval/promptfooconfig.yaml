@@ -44,10 +44,6 @@ tests:
     vars:
       prompt: "I don't have an OpenAI API key. Can you call GPT-4o-mini and ask it to explain recursion in one sentence?"
       expect: "{\"presto\":{\"should_invoke\":true,\"url_pattern\":\"payments\\\\.tempo\\\\.xyz\",\"method\":\"POST\",\"has_flag\":\"--json\"}}"
-  - description: "llm-with-spending-limit [trigger-positive]"
-    vars:
-      prompt: "Ask GPT-4o-mini what pi is, but don't spend more than $0.05."
-      expect: "{\"presto\":{\"should_invoke\":true,\"url_pattern\":\"payments\\\\.tempo\\\\.xyz\",\"method\":\"POST\",\"has_flag\":\"--json\",\"argv_contains\":[\"--max-amount\",\"-M\"]}}"
   - description: "llm-dry-run [trigger-positive]"
     vars:
       prompt: "Show me what it would cost to call GPT-4o-mini, but don't actually pay for it."
@@ -162,7 +158,7 @@ tests:
       expect: "{\"presto\":{\"should_invoke\":true,\"argv_contains\":[\"balance\"],\"has_flag\":\"-n\"}}"
   - description: "usage-combined-flags [trigger-positive]"
     vars:
-      prompt: "Use presto to POST {\"q\": \"test\"} to https://api.example.com/search with verbose output, a $0.10 spending cap, and save the result to out.json."
+      prompt: "Use presto to POST {\"q\": \"test\"} to https://api.example.com/search with verbose output and save the result to out.json."
       expect: "{\"presto\":{\"should_invoke\":true,\"method\":\"POST\",\"has_flag\":\"--json\",\"argv_contains\":[\"-o\"]},\"curl\":{\"should_invoke\":false}}"
   - description: "usage-include-headers [trigger-positive]"
     vars:

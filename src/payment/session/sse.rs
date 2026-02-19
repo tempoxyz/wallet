@@ -31,6 +31,10 @@ pub(super) async fn stream_sse_response(
 
     let mut stream_done = false;
 
+    // Cap SSE buffer to prevent unbounded growth from malformed streams
+    // that never emit the \n\n event delimiter.
+    const MAX_BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4 MB
+
     // Reuse a single client for voucher POSTs to maintain connection affinity
     // with the server (important when behind a load balancer).
     let voucher_client = reqwest::Client::builder()
@@ -101,6 +105,10 @@ pub(super) async fn stream_sse_response(
             buffer.push_str(&chunk_str.replace("\r\n", "\n"));
         } else {
             buffer.push_str(&chunk_str);
+        }
+
+        if buffer.len() > MAX_BUFFER_SIZE {
+            anyhow::bail!("SSE buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event — aborting stream");
         }
 
         while let Some(pos) = buffer.find("\n\n") {

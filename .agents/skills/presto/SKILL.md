@@ -53,7 +53,6 @@ presto --dry-run https://api.example.com/data
 | `presto <URL>` | Make an HTTP request with automatic payment |
 | `presto login` | Connect your Tempo wallet via browser (device code flow) |
 | `presto logout` | Disconnect your wallet |
-| `presto balance [ADDRESS]` | Check wallet token balances (optionally for a specific address) |
 | `presto whoami` | Show wallet address, balances, access keys, and readiness |
 | `presto session list` | List active payment sessions |
 | `presto session close [URL]` | Close a payment session (use `--all` to close all) |
@@ -157,27 +156,11 @@ presto session close https://openrouter.mpp.tempo.xyz
 presto session close --all
 ```
 
-### Limit Spending
-
-```bash
-# Cap at $0.05 per request
-presto -M 0.05 https://api.example.com/data
-
-# Cap using atomic units (50000 = $0.05 for 6-decimal token)
-presto -M 50000 https://api.example.com/data
-```
-
 ### Check Wallet Status
 
 ```bash
 # Full wallet status with balances and access keys
 presto whoami
-
-# Just balances
-presto balance
-
-# Filter balances to a specific network
-presto balance -n tempo
 ```
 
 ## Error Recovery

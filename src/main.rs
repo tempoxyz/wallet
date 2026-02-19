@@ -102,8 +102,12 @@ fn parse_cli() -> Cli {
 /// failures in login/logout/whoami where the network name is used as an
 /// exact match to select wallet credentials.
 fn validate_network_flag(network: &str) -> Result<()> {
-    network::validate_network_name(network)
-        .map_err(|msg| anyhow::anyhow!(error::PrestoError::UnknownNetwork(msg)))
+    // Support comma-separated network lists (e.g. "tempo, tempo-moderato")
+    for name in network.split(',').map(|s| s.trim()) {
+        network::validate_network_name(name)
+            .map_err(|msg| anyhow::anyhow!(error::PrestoError::UnknownNetwork(msg)))?;
+    }
+    Ok(())
 }
 
 /// Handle CLI subcommands

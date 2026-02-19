@@ -99,9 +99,8 @@ impl WalletCredentials {
 
     /// Load wallet credentials from disk.
     ///
-    /// Returns default (empty) credentials if the file doesn't exist or
-    /// can't be parsed — callers treat empty credentials as "no wallet",
-    /// which prompts a fresh login.
+    /// Returns default (empty) credentials if the file doesn't exist.
+    /// Returns an error if the file exists but can't be parsed (corrupt wallet).
     pub fn load() -> Result<Self> {
         let path = Self::wallet_path()?;
 
@@ -110,7 +109,12 @@ impl WalletCredentials {
         }
 
         let contents = fs::read_to_string(&path)?;
-        Ok(toml::from_str(&contents).unwrap_or_default())
+        toml::from_str(&contents).map_err(|e| {
+            PrestoError::InvalidConfig(format!(
+                "Failed to parse {}: {e}\nTo reset, delete the file and run 'presto login'.",
+                path.display()
+            ))
+        })
     }
 
     /// Save wallet credentials atomically.

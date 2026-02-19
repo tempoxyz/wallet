@@ -245,15 +245,17 @@ impl fmt::Display for Network {
 /// Returns `Ok(())` if the name matches a built-in network,
 /// or an error with a suggestion message if not.
 pub fn validate_network_name(name: &str) -> std::result::Result<(), String> {
-    let all_names: Vec<&str> = Network::all().iter().map(|n| n.as_str()).collect();
-    if all_names.contains(&name) {
-        Ok(())
-    } else {
-        Err(format!(
-            "Unknown network '{}'. Available networks: {}",
-            name,
-            all_names.join(", ")
-        ))
+    // Use the same case-insensitive parsing as Network::from_str
+    match Network::from_str(name) {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            let all_names: Vec<&str> = Network::all().iter().map(|n| n.as_str()).collect();
+            Err(format!(
+                "Unknown network '{}'. Available networks: {}",
+                name,
+                all_names.join(", ")
+            ))
+        }
     }
 }
 
@@ -406,8 +408,9 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_network_name_case_sensitive() {
-        assert!(validate_network_name("Tempo").is_err());
-        assert!(validate_network_name("TEMPO").is_err());
+    fn test_validate_network_name_case_insensitive() {
+        assert!(validate_network_name("Tempo").is_ok());
+        assert!(validate_network_name("TEMPO").is_ok());
+        assert!(validate_network_name("TEMPO-MODERATO").is_ok());
     }
 }

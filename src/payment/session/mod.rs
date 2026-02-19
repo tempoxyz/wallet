@@ -115,6 +115,42 @@ pub async fn handle_session_request(
         );
     }
 
+    // Dry-run: print session parameters and exit without signing or transacting
+    if request_ctx.query.dry_run {
+        let network_enum = crate::network::Network::from_str(network_name)
+            .unwrap_or(crate::network::Network::Tempo);
+        let explorer = network_enum.info().explorer;
+
+        println!("[DRY RUN] Session payment would be made:");
+        println!("Protocol: MPP (https://mpp.sh)");
+        println!("Method: {}", challenge.method);
+        println!("Intent: session");
+        println!("Network: {}", network_name);
+        println!(
+            "Cost per {}: {} atomic units",
+            session_req.unit_type, tick_cost
+        );
+        println!(
+            "Currency: {}",
+            crate::cli::formatting::format_address_link(&session_req.currency, explorer.as_ref())
+        );
+        if let Some(ref recipient) = session_req.recipient {
+            println!(
+                "Recipient: {}",
+                crate::cli::formatting::format_address_link(recipient, explorer.as_ref())
+            );
+        }
+        if let Some(ref deposit) = session_req.suggested_deposit {
+            println!("Suggested deposit: {} atomic units", deposit);
+        }
+
+        return Ok(SessionResult::Response(crate::http::HttpResponse {
+            status_code: 200,
+            headers: std::collections::HashMap::new(),
+            body: Vec::new(),
+        }));
+    }
+
     // Load signer for channel operations
     let signer_ctx = load_signer_for_network(network_name)
         .context("Failed to load wallet. Run 'presto login' to get started.")?;
@@ -143,11 +179,18 @@ pub async fn handle_session_request(
 
     let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
 
-    // Check for an existing persisted session
+    // Check for an existing persisted session.
+    // Reuse requires matching payer AND challenge parameters (escrow, currency,
+    // recipient, chain) to avoid a wasted round trip when the server changes config.
     let existing = session_store::load_session(&session_key)?;
-    let reuse = existing
-        .as_ref()
-        .is_some_and(|r| !r.is_expired() && r.payer == did);
+    let reuse = existing.as_ref().is_some_and(|r| {
+        !r.is_expired()
+            && r.payer == did
+            && r.escrow_contract == format!("{:#x}", escrow_contract)
+            && r.currency == format!("{:#x}", currency)
+            && r.recipient == format!("{:#x}", recipient)
+            && r.chain_id == chain_id
+    });
 
     if reuse {
         let record = existing.unwrap();
@@ -430,35 +473,30 @@ pub async fn close_session_from_record(record: &session_store::SessionRecord) ->
         record.request_url.clone()
     };
 
-    match client
+    let response = client
         .post(&close_url)
         .header("Authorization", &auth)
         .send()
         .await
-    {
-        Ok(response) => {
-            if let Some(receipt_str) = response.headers().get("payment-receipt") {
-                if let Ok(receipt_str) = receipt_str.to_str() {
-                    if let Ok(receipt) = parse_receipt(receipt_str) {
-                        let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-                        let explorer = Network::from_str(&record.network_name)
-                            .ok()
-                            .and_then(|n| n.info().explorer);
-                        if let Some(exp) = explorer.as_ref() {
-                            let tx_url = exp.tx_url(&tx_ref);
-                            eprintln!("Channel settled: {}", tx_url);
-                        } else {
-                            eprintln!("Channel settled: {}", tx_ref);
-                        }
-                    }
+        .context("Channel close request failed")?;
+
+    if let Some(receipt_str) = response.headers().get("payment-receipt") {
+        if let Ok(receipt_str) = receipt_str.to_str() {
+            if let Ok(receipt) = parse_receipt(receipt_str) {
+                let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
+                let explorer = Network::from_str(&record.network_name)
+                    .ok()
+                    .and_then(|n| n.info().explorer);
+                if let Some(exp) = explorer.as_ref() {
+                    let tx_url = exp.tx_url(&tx_ref);
+                    eprintln!("Channel settled: {}", tx_url);
+                } else {
+                    eprintln!("Channel settled: {}", tx_ref);
                 }
-            } else {
-                eprintln!("Channel close sent (no receipt)");
             }
         }
-        Err(e) => {
-            eprintln!("Channel close failed: {}", e);
-        }
+    } else {
+        eprintln!("Channel close sent (no receipt)");
     }
 
     Ok(())

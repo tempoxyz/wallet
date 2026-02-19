@@ -337,29 +337,30 @@ pub fn has_header(headers: &[String], name: &str) -> bool {
     })
 }
 
-/// Parse raw header strings into a HashMap.
+/// Parse raw header strings into a list of (name, value) pairs.
 ///
-/// Converts headers from "Name: Value" format into a case-insensitive map.
+/// Preserves duplicate headers (important for HTTP headers like Set-Cookie).
+/// Header names are lowercased for consistency. Malformed entries are skipped.
 ///
 /// # Example
 /// ```
 /// use presto::http::parse_headers;
 /// let headers = vec![
 ///     "Content-Type: application/json".to_string(),
-///     "Content-Length: 123".to_string(),
+///     "X-Custom: a".to_string(),
+///     "X-Custom: b".to_string(),
 /// ];
-/// let map = parse_headers(&headers);
-/// assert_eq!(map.get("content-type"), Some(&"application/json".to_string()));
-/// assert_eq!(map.get("content-length"), Some(&"123".to_string()));
+/// let parsed = parse_headers(&headers);
+/// assert_eq!(parsed.len(), 3);
 /// ```
-pub fn parse_headers(headers: &[String]) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    for header in headers {
-        if let Some((key, value)) = header.split_once(':') {
-            map.insert(key.trim().to_lowercase(), value.trim().to_string());
-        }
-    }
-    map
+pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter_map(|header| {
+            let (key, value) = header.split_once(':')?;
+            Some((key.trim().to_lowercase(), value.trim().to_string()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -491,12 +492,25 @@ mod tests {
             "Content-Type: application/json".to_string(),
             "Content-Length: 123".to_string(),
         ];
-        let map = parse_headers(&headers);
+        let parsed = parse_headers(&headers);
+        assert_eq!(parsed.len(), 2);
         assert_eq!(
-            map.get("content-type"),
-            Some(&"application/json".to_string())
+            parsed[0],
+            ("content-type".to_string(), "application/json".to_string())
         );
-        assert_eq!(map.get("content-length"), Some(&"123".to_string()));
+        assert_eq!(parsed[1], ("content-length".to_string(), "123".to_string()));
+    }
+
+    #[test]
+    fn test_parse_headers_preserves_duplicates() {
+        let headers = vec![
+            "X-Custom: first".to_string(),
+            "X-Custom: second".to_string(),
+        ];
+        let parsed = parse_headers(&headers);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].1, "first");
+        assert_eq!(parsed[1].1, "second");
     }
 
     #[test]
@@ -506,8 +520,8 @@ mod tests {
             "MalformedHeader".to_string(),
             "Content-Length: 123".to_string(),
         ];
-        let map = parse_headers(&headers);
-        assert_eq!(map.len(), 2);
-        assert!(!map.contains_key("malformedheader"));
+        let parsed = parse_headers(&headers);
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed.iter().all(|(k, _)| k != "malformedheader"));
     }
 }

@@ -73,9 +73,6 @@ presto -i https://api.example.com/data
 ### Payment Options
 
 ```bash
-# Set maximum amount willing to pay (in dollars)
-presto -M 0.05 https://api.example.com/data
-
 # Preview payment without executing
 presto --dry-run https://api.example.com/data
 
@@ -102,8 +99,7 @@ presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 | `<URL>` | Make an HTTP request with automatic payment |
 | `login` | Connect your Tempo wallet via browser |
 | `logout` | Disconnect your wallet |
-| `balance` | Check wallet token balances |
-| `whoami` | Show wallet address, balances, access keys, and readiness |
+| `whoami` | Show wallet address, balances, and access key |
 | `session list` | List active payment sessions |
 | `session close` | Close a payment session |
 
