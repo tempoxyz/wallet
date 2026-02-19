@@ -45,7 +45,7 @@ echo "Requests: ${#PROMPTS[@]}"
 echo ""
 
 # Ensure wallet is configured
-if ! presto whoami 2>/dev/null | grep -q "Ready"; then
+if ! presto whoami 2>/dev/null | grep -q "Wallet:"; then
   echo "No wallet configured. Running 'presto login'..."
   presto login
   echo ""
