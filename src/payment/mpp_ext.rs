@@ -10,7 +10,7 @@
 use alloy::primitives::{Address, U256};
 #[cfg(test)]
 use mpp::ChargeRequest;
-use mpp::{MethodName, PaymentChallenge};
+use mpp::PaymentChallenge;
 
 use crate::error::{PrestoError, Result};
 use crate::network::Network;
@@ -19,11 +19,6 @@ use crate::payment::money::Money;
 
 // Re-export TempoChargeExt for convenience
 pub use mpp::protocol::methods::tempo::TempoChargeExt;
-
-/// Check whether a payment method is supported by presto.
-pub fn is_supported_method(method: &MethodName) -> bool {
-    method.as_str().eq_ignore_ascii_case("tempo")
-}
 
 /// Derive the network from a charge request's chain ID.
 pub fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result<Network> {
@@ -49,58 +44,40 @@ pub fn network_from_session_request(req: &mpp::SessionRequest) -> crate::error::
 
 /// Validate that a payment challenge can be processed by presto's charge flow.
 ///
-/// # Validation Checks
-///
-/// - The payment method is supported (has a network mapping)
-/// - The intent is "charge"
-/// - The challenge has not expired (if an expiry is set)
+/// Delegates to `PaymentChallenge::validate_for_charge("tempo")` from mpp,
+/// mapping mpp errors to presto error types.
 pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
-    if !is_supported_method(&challenge.method) {
-        return Err(PrestoError::UnsupportedPaymentMethod(format!(
-            "Payment method '{}' is not supported. Supported methods: tempo",
-            challenge.method
-        )));
-    }
-
-    if !challenge.intent.is_charge() {
-        return Err(PrestoError::UnsupportedPaymentIntent(format!(
-            "Only 'charge' intent is supported, got: {}",
-            challenge.intent
-        )));
-    }
-
-    if challenge.is_expired() {
-        return Err(PrestoError::ChallengeExpired(
-            challenge.expires.clone().unwrap_or_default(),
-        ));
-    }
-
-    Ok(())
+    challenge.validate_for_charge("tempo").map_err(|e| match e {
+        mpp::MppError::UnsupportedPaymentMethod(msg) => PrestoError::UnsupportedPaymentMethod(msg),
+        mpp::MppError::PaymentExpired(_) => {
+            PrestoError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
+        }
+        mpp::MppError::InvalidChallenge { reason, .. } => {
+            PrestoError::UnsupportedPaymentIntent(reason.unwrap_or_default())
+        }
+        other => PrestoError::InvalidChallenge(other.to_string()),
+    })
 }
 
 /// Validate that a payment challenge is a valid session challenge.
+///
+/// Delegates to `PaymentChallenge::validate_for_session("tempo")` from mpp,
+/// mapping mpp errors to presto error types.
 pub fn validate_session_challenge(challenge: &PaymentChallenge) -> Result<()> {
-    if !is_supported_method(&challenge.method) {
-        return Err(PrestoError::UnsupportedPaymentMethod(format!(
-            "Payment method '{}' is not supported. Supported methods: tempo",
-            challenge.method
-        )));
-    }
-
-    if !challenge.intent.is_session() {
-        return Err(PrestoError::UnsupportedPaymentIntent(format!(
-            "Expected 'session' intent, got: {}",
-            challenge.intent
-        )));
-    }
-
-    if challenge.is_expired() {
-        return Err(PrestoError::ChallengeExpired(
-            challenge.expires.clone().unwrap_or_default(),
-        ));
-    }
-
-    Ok(())
+    challenge
+        .validate_for_session("tempo")
+        .map_err(|e| match e {
+            mpp::MppError::UnsupportedPaymentMethod(msg) => {
+                PrestoError::UnsupportedPaymentMethod(msg)
+            }
+            mpp::MppError::PaymentExpired(_) => {
+                PrestoError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
+            }
+            mpp::MppError::InvalidChallenge { reason, .. } => {
+                PrestoError::UnsupportedPaymentIntent(reason.unwrap_or_default())
+            }
+            other => PrestoError::InvalidChallenge(other.to_string()),
+        })
 }
 
 /// Presto-specific extensions to ChargeRequest.
@@ -142,33 +119,15 @@ impl ChargeRequestExt for ChargeRequest {
 
 /// Extract the `txHash` field from a base64url-encoded receipt, if present.
 ///
-/// The mpp `Receipt` struct only captures `reference` (which for session
-/// receipts is the channel ID). The server also includes a `txHash` field
-/// with the actual on-chain transaction hash. This function decodes the
-/// raw receipt to extract it.
+/// Delegates to `mpp::protocol::core::extract_tx_hash`.
 pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
-
-    let decoded = URL_SAFE_NO_PAD.decode(receipt_b64.trim()).ok()?;
-    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    json.get("txHash")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+    mpp::protocol::core::extract_tx_hash(receipt_b64)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_is_supported_method() {
-        assert!(is_supported_method(&MethodName::new("tempo")));
-        assert!(is_supported_method(&MethodName::new("TEMPO")));
-        assert!(!is_supported_method(&MethodName::new("unknown")));
-        assert!(!is_supported_method(&MethodName::new("base")));
-    }
+    use mpp::MethodName;
 
     #[test]
     fn test_validate_challenge_valid() {
