@@ -69,7 +69,11 @@ pub fn validate_challenge(challenge: &PaymentChallenge) -> Result<()> {
         )));
     }
 
-    check_challenge_expiry(challenge)?;
+    if challenge.is_expired() {
+        return Err(PrestoError::ChallengeExpired(
+            challenge.expires.clone().unwrap_or_default(),
+        ));
+    }
 
     Ok(())
 }
@@ -90,96 +94,13 @@ pub fn validate_session_challenge(challenge: &PaymentChallenge) -> Result<()> {
         )));
     }
 
-    check_challenge_expiry(challenge)?;
-
-    Ok(())
-}
-
-/// Fail fast if the challenge has an expiry timestamp in the past.
-///
-/// Accepts RFC 3339 / ISO 8601 timestamps (e.g. `"2024-01-15T10:30:00Z"`).
-/// If the expiry can't be parsed, we skip the check and let the server decide.
-fn check_challenge_expiry(challenge: &PaymentChallenge) -> Result<()> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let expires_str = match challenge.expires.as_deref() {
-        Some(s) => s,
-        None => return Ok(()),
-    };
-
-    // Parse ISO 8601 / RFC 3339: "YYYY-MM-DDTHH:MM:SSZ"
-    // If we can't parse it, skip the check — the server will enforce.
-    let Ok(expires) = parse_rfc3339(expires_str) else {
-        return Ok(());
-    };
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    if now > expires {
-        return Err(PrestoError::ChallengeExpired(expires_str.to_string()));
+    if challenge.is_expired() {
+        return Err(PrestoError::ChallengeExpired(
+            challenge.expires.clone().unwrap_or_default(),
+        ));
     }
 
     Ok(())
-}
-
-/// Minimal RFC 3339 parser for "YYYY-MM-DDTHH:MM:SSZ" → Unix timestamp.
-///
-/// Handles UTC timestamps only (trailing 'Z'). Returns `Err` for
-/// non-UTC offsets or unparseable input — caller should skip the check.
-fn parse_rfc3339(s: &str) -> std::result::Result<u64, ()> {
-    // Expected: "2024-01-15T10:30:00Z" (20 chars)
-    let s = s.trim();
-    if !s.ends_with('Z') || s.len() < 20 {
-        return Err(());
-    }
-    let s = &s[..s.len() - 1]; // strip 'Z'
-
-    let parts: Vec<&str> = s.split('T').collect();
-    if parts.len() != 2 {
-        return Err(());
-    }
-
-    let date_parts: Vec<u64> = parts[0].split('-').filter_map(|p| p.parse().ok()).collect();
-    let time_parts: Vec<u64> = parts[1].split(':').filter_map(|p| p.parse().ok()).collect();
-    if date_parts.len() != 3 || time_parts.len() != 3 {
-        return Err(());
-    }
-
-    let (year, month, day) = (date_parts[0], date_parts[1], date_parts[2]);
-    let (hour, min, sec) = (time_parts[0], time_parts[1], time_parts[2]);
-
-    // Days-from-epoch calculation (simplified, no leap second handling)
-    let mut days: u64 = 0;
-    for y in 1970..year {
-        days += if is_leap_year(y) { 366 } else { 365 };
-    }
-    let month_days = [
-        31,
-        28 + u64::from(is_leap_year(year)),
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    for m in 0..(month.saturating_sub(1) as usize) {
-        days += month_days.get(m).copied().unwrap_or(30);
-    }
-    days += day.saturating_sub(1);
-
-    Ok(days * 86400 + hour * 3600 + min * 60 + sec)
-}
-
-fn is_leap_year(y: u64) -> bool {
-    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 /// Presto-specific extensions to ChargeRequest.
