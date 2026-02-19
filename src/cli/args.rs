@@ -215,8 +215,7 @@ pub enum SessionCommands {
 
 impl QueryArgs {
     pub fn parse_headers(&self) -> Vec<(String, String)> {
-        let header_map = crate::http::parse_headers(&self.headers);
-        header_map.into_iter().collect()
+        crate::http::parse_headers(&self.headers)
     }
 
     pub fn get_timeout(&self) -> Option<u64> {

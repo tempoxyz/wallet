@@ -32,16 +32,17 @@ pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpRespo
     Ok(())
 }
 
-/// Write response body to file or stdout
+/// Write response body to file or stdout.
+///
+/// Writes exact bytes with no trailing newline, matching curl-like semantics.
+/// This preserves binary payloads and strict byte-stream consumers.
 pub fn output_response_body(output_file: Option<&str>, cli: &Cli, body: &[u8]) -> Result<()> {
     if let Some(output_file) = output_file {
         if output_file == "-" {
             use std::io::Write;
-            let mut stdout = std::io::stdout();
-            stdout
+            std::io::stdout()
                 .write_all(body)
                 .context("Failed to write response to stdout")?;
-            stdout.write_all(b"\n").context("Failed to write newline")?;
         } else {
             validate_path(output_file, true).context("Invalid output path")?;
             std::fs::write(output_file, body).context("Failed to write output file")?;
@@ -51,11 +52,9 @@ pub fn output_response_body(output_file: Option<&str>, cli: &Cli, body: &[u8]) -
         }
     } else {
         use std::io::Write;
-        let mut stdout = std::io::stdout();
-        stdout
+        std::io::stdout()
             .write_all(body)
             .context("Failed to write response to stdout")?;
-        stdout.write_all(b"\n").context("Failed to write newline")?;
     }
     Ok(())
 }

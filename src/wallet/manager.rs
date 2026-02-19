@@ -206,8 +206,9 @@ impl WalletManager {
             provisioned: false,
         };
 
-        // Load existing credentials to preserve other network keys
-        let mut creds = WalletCredentials::load().unwrap_or_default();
+        // Load existing credentials to preserve other network keys.
+        // If the file is corrupt, surface the error instead of silently resetting.
+        let mut creds = WalletCredentials::load()?;
         creds.account_address = callback.account_address;
         creds.networks.insert(self.network.clone(), network_key);
         creds.save()?;

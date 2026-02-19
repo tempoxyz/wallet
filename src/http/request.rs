@@ -142,6 +142,28 @@ impl RequestContext {
         Ok(client.inner_client())
     }
 
+    /// Build a reqwest::RequestBuilder using the shared client configuration.
+    ///
+    /// Used by session flows that need a raw RequestBuilder for streaming.
+    /// Headers, body, and content-type are applied from the query args,
+    /// matching the behavior of the normal request path.
+    pub fn build_reqwest_request(
+        &self,
+        url: &str,
+        extra_headers: Option<&[(String, String)]>,
+    ) -> Result<reqwest::RequestBuilder> {
+        let client = self.build_reqwest_client(extra_headers)?;
+        let method = self.method.to_reqwest().unwrap_or(reqwest::Method::GET);
+
+        let mut builder = client.request(method, url);
+
+        if let Some(ref body) = self.body {
+            builder = builder.body(body.clone());
+        }
+
+        Ok(builder)
+    }
+
     /// Execute an HTTP request
     pub async fn execute(
         &self,

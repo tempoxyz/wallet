@@ -1,7 +1,6 @@
 use alloy::primitives::{Address, B256, U256};
 use anyhow::{Context, Result};
 
-use crate::http::request::RequestContext;
 use crate::http::HttpResponse;
 use crate::payment::abi::encode_approve;
 
@@ -80,8 +79,9 @@ pub(super) async fn send_session_request(
     let voucher_auth = mpp::format_authorization(&voucher_credential)
         .context("Failed to format voucher credential")?;
 
-    let reqwest_client = ctx.request_ctx.build_reqwest_client(None)?;
-    let data_request = build_reqwest_request(&reqwest_client, ctx.request_ctx, ctx.url)
+    let data_request = ctx
+        .request_ctx
+        .build_reqwest_request(ctx.url, None)?
         .header("Authorization", &voucher_auth);
 
     let response = data_request
@@ -124,34 +124,4 @@ pub(super) async fn send_session_request(
             body,
         }))
     }
-}
-
-/// Build a reqwest request from the RequestContext's configuration.
-fn build_reqwest_request(
-    client: &reqwest::Client,
-    request_ctx: &RequestContext,
-    url: &str,
-) -> reqwest::RequestBuilder {
-    let method = request_ctx
-        .method
-        .to_reqwest()
-        .unwrap_or(reqwest::Method::GET);
-
-    let mut builder = client.request(method, url);
-
-    for header in &request_ctx.query.headers {
-        if let Some((name, value)) = header.split_once(':') {
-            builder = builder.header(name.trim(), value.trim());
-        }
-    }
-
-    if let Some(ref body) = request_ctx.body {
-        builder = builder.body(body.clone());
-    }
-
-    if request_ctx.query.json.is_some() {
-        builder = builder.header("Content-Type", "application/json");
-    }
-
-    builder
 }

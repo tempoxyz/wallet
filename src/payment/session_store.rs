@@ -199,19 +199,28 @@ pub fn delete_session(key: &str) -> Result<()> {
 pub fn list_sessions() -> Result<Vec<SessionRecord>> {
     let dir = sessions_dir()?;
     let mut records = Vec::new();
+    let mut skipped = 0u32;
     for entry in fs::read_dir(&dir).context("Failed to read sessions directory")? {
         let entry = entry?;
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "toml") {
             match fs::read_to_string(&path) {
-                Ok(contents) => {
-                    if let Ok(record) = toml::from_str::<SessionRecord>(&contents) {
-                        records.push(record);
+                Ok(contents) => match toml::from_str::<SessionRecord>(&contents) {
+                    Ok(record) => records.push(record),
+                    Err(e) => {
+                        tracing::warn!(path = %path.display(), error = %e, "skipping corrupt session file");
+                        skipped += 1;
                     }
+                },
+                Err(e) => {
+                    tracing::warn!(path = %path.display(), error = %e, "skipping unreadable session file");
+                    skipped += 1;
                 }
-                Err(_) => continue,
             }
         }
+    }
+    if skipped > 0 {
+        eprintln!("Warning: {skipped} session file(s) could not be read (use -v for details).");
     }
     Ok(records)
 }
