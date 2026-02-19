@@ -40,7 +40,7 @@ pub struct Cli {
         long,
         value_name = "NETWORKS",
         global = true,
-        help_heading = "Payment Options"
+        hide = true
     )]
     pub network: Option<String>,
 
@@ -153,7 +153,7 @@ pub struct QueryArgs {
         visible_alias = "rpc-url",
         value_name = "URL",
         env = "PRESTO_RPC_URL",
-        help_heading = "RPC Options"
+        hide = true
     )]
     pub rpc_url: Option<String>,
 }
