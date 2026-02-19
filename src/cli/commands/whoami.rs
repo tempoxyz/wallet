@@ -40,8 +40,16 @@ pub struct StatusResponse {
 }
 
 pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> Result<()> {
-    let creds = WalletCredentials::load()?;
+    let mut creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
+
+    if !creds.has_wallet() {
+        eprintln!("No wallet connected. Starting login...\n");
+        super::login::run_login(Some(network), None)
+            .await
+            .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
+        creds = WalletCredentials::load()?;
+    }
 
     let mut response = StatusResponse {
         ready: true,
@@ -74,9 +82,7 @@ pub async fn show_whoami(output_format: OutputFormat, network: Option<&str>) -> 
             query_spending_limits(network, &creds, &mut response.issues).await;
     } else {
         response.ready = false;
-        response
-            .issues
-            .push("No wallet connected. Run 'presto login'.".to_string());
+        response.issues.push("No wallet connected.".to_string());
     }
 
     match output_format {

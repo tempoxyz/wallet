@@ -113,7 +113,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         Err(e) if is_not_provisioned(&e) => {
             // Access key not provisioned — auto-login and retry
             use std::io::IsTerminal;
-            if std::io::stdin().is_terminal() && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
+            if std::io::stdin().is_terminal() {
                 eprintln!(
                     "Access key is not provisioned on-chain. Running login to set it up...\n"
                 );
@@ -293,7 +293,7 @@ async fn ensure_wallet_or_prompt_login(
         .ok()
         .is_some_and(|c| c.has_wallet());
 
-    if !has_wallet && std::env::var("PRESTO_MOCK_PAYMENT").is_err() {
+    if !has_wallet {
         use std::io::IsTerminal;
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");

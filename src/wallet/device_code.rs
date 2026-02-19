@@ -25,13 +25,6 @@ pub async fn create_device_code(
     key_type: &str,
     code_challenge: &str,
 ) -> Result<DeviceCodeResponse> {
-    if std::env::var("PRESTO_MOCK_DEVICE_CODE").is_ok() {
-        return Ok(DeviceCodeResponse {
-            code: "TESTCODE".to_string(),
-            expires_in: 600,
-        });
-    }
-
     let url = format!("{}/cli-auth/device-code", base_url);
     let resp = client
         .post(&url)
@@ -65,15 +58,6 @@ pub async fn poll_device_code(
     code: &str,
     code_verifier: &str,
 ) -> Result<PollResponse> {
-    if std::env::var("PRESTO_MOCK_DEVICE_CODE").is_ok() {
-        return Ok(PollResponse {
-            status: "authorized".to_string(),
-            account_address: Some("0x0000000000000000000000000000000000000001".to_string()),
-            key_authorization: None,
-            error: None,
-        });
-    }
-
     let url = format!("{}/cli-auth/poll/{}", base_url, code);
     let resp = client
         .post(&url)

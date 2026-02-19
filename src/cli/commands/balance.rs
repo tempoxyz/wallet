@@ -3,40 +3,9 @@
 use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::network::Network;
-use crate::payment::money::format_u256_with_decimals;
-use crate::payment::provider::{get_balances, NetworkBalance};
-use alloy::primitives::U256;
+use crate::payment::provider::get_balances;
 use anyhow::Result;
 use tracing::warn;
-
-/// Check if mock mode is enabled for testing
-fn is_mock_mode() -> bool {
-    std::env::var("PRESTO_MOCK_NETWORK").is_ok()
-}
-
-/// Generate mock balance data for testing (returns one balance per supported token)
-fn mock_balances(network: Network, _address: &str) -> Vec<NetworkBalance> {
-    let base_amount = match network {
-        Network::Tempo => 1_000_000u64,
-        Network::TempoModerato | Network::TempoLocalnet => 5_000_000u64,
-    };
-
-    network
-        .supported_tokens()
-        .into_iter()
-        .map(|token_config| {
-            let mock_atomic = U256::from(base_amount);
-            let balance_human =
-                format_u256_with_decimals(mock_atomic, token_config.currency.decimals);
-            NetworkBalance::new(
-                network,
-                mock_atomic,
-                balance_human,
-                format!("{} (mock)", token_config.currency.symbol),
-            )
-        })
-        .collect()
-}
 
 /// Check token balances for configured networks
 pub async fn balance_command(
@@ -48,29 +17,30 @@ pub async fn balance_command(
     let check_address = match address.as_deref() {
         Some(addr) => addr.to_string(),
         None => {
-            let creds = crate::wallet::credentials::WalletCredentials::load()?;
+            let mut creds = crate::wallet::credentials::WalletCredentials::load()?;
             if !creds.has_wallet() {
-                return Err(crate::error::PrestoError::ConfigMissing(
-                    "No wallet connected. Run 'presto login' to connect.".to_string(),
-                )
-                .into());
+                eprintln!("No wallet connected. Starting login...\n");
+                let net = network_filter.as_deref();
+                super::login::run_login(net, None).await?;
+                creds = crate::wallet::credentials::WalletCredentials::load()?;
+                if !creds.has_wallet() {
+                    return Err(crate::error::PrestoError::ConfigMissing(
+                        "No wallet configured after login.".to_string(),
+                    )
+                    .into());
+                }
             }
             creds.account_address
         }
     };
 
-    let mock_mode = is_mock_mode();
     let mut balances = Vec::new();
     let networks = Network::by_name_filter(network_filter.as_deref());
 
     for network in networks {
-        if mock_mode {
-            balances.extend(mock_balances(network, &check_address));
-        } else {
-            match get_balances(config, &check_address, network).await {
-                Ok(network_balances) => balances.extend(network_balances),
-                Err(e) => warn!(network = %network, error = %e, "failed to get balances"),
-            }
+        match get_balances(config, &check_address, network).await {
+            Ok(network_balances) => balances.extend(network_balances),
+            Err(e) => warn!(network = %network, error = %e, "failed to get balances"),
         }
     }
 
@@ -165,22 +135,5 @@ mod tests {
 
         let tempo_info = Network::Tempo.info();
         assert!(!tempo_info.rpc_url.is_empty());
-    }
-
-    #[test]
-    fn test_mock_balances_returns_all_tokens() {
-        let balances = mock_balances(Network::Tempo, "0x123");
-        assert_eq!(balances.len(), 1);
-
-        for balance in &balances {
-            assert_eq!(balance.network, Network::Tempo);
-            assert_eq!(balance.balance, U256::from(1_000_000u64));
-            assert!(balance.asset.contains("mock"));
-        }
-    }
-
-    #[test]
-    fn test_is_mock_mode_respects_env() {
-        let _ = is_mock_mode();
     }
 }

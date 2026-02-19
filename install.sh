@@ -128,7 +128,7 @@ verify_installation() {
 install_ai_skill() {
     local skill_dir="${HOME}/.claude/skills/presto"
     local skill_file="${skill_dir}/SKILL.md"
-    local local_skill="${SCRIPT_DIR}/.ai/skills/presto/SKILL.md"
+    local local_skill="${SCRIPT_DIR}/.agents/skills/presto/SKILL.md"
 
     mkdir -p "${skill_dir}" 2>/dev/null || return 0
 
@@ -138,7 +138,7 @@ install_ai_skill() {
         echo "AI skill installed to: ${skill_file}"
     else
         # Download from GitHub
-        local skill_url="https://raw.githubusercontent.com/${REPO}/main/.ai/skills/presto/SKILL.md"
+        local skill_url="https://raw.githubusercontent.com/${REPO}/main/.agents/skills/presto/SKILL.md"
         if curl -fsSL "${skill_url}" -o "${skill_file}" 2>/dev/null; then
             echo "AI skill installed to: ${skill_file}"
         fi

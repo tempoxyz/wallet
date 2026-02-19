@@ -9,18 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{mock_test_command, test_command, TestConfigBuilder};
-
-#[test]
-fn test_login_mock_device_code() {
-    let temp = TestConfigBuilder::new().build();
-    let mut cmd = test_command(&temp);
-    cmd.env("PRESTO_MOCK_DEVICE_CODE", "1");
-    cmd.arg("login");
-    cmd.assert()
-        .success()
-        .stdout(predicates::str::contains("Tempo wallet connected!"));
-}
+use common::{test_command, TestConfigBuilder};
 
 #[test]
 fn test_completions_bash() {
@@ -143,18 +132,12 @@ fn test_help_has_http_options_section() {
 }
 
 #[test]
-fn test_help_shows_env_vars() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["query", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[env: PRESTO_MAX_AMOUNT=]"));
-
+fn test_help_shows_network_flag() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("[env: PRESTO_NETWORK=]"));
+        .stdout(predicate::str::contains("-n, --network"));
 }
 
 #[test]
@@ -433,43 +416,6 @@ fn test_invalid_network_flag_rejected() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
     cmd.args(["-n", "not-a-network", "balance"]);
-    cmd.assert()
-        .failure()
-        .stderr(predicate::str::contains("Unknown network"));
-}
-
-#[test]
-fn test_valid_network_flag_accepted() {
-    let temp = TestConfigBuilder::new().build();
-    let mut cmd = mock_test_command(&temp);
-    cmd.args([
-        "-n",
-        "tempo",
-        "balance",
-        "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
-    ]);
-    cmd.assert().success();
-}
-
-#[test]
-fn test_valid_network_moderato_accepted() {
-    let temp = TestConfigBuilder::new().build();
-    let mut cmd = mock_test_command(&temp);
-    cmd.args([
-        "-n",
-        "tempo-moderato",
-        "balance",
-        "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
-    ]);
-    cmd.assert().success();
-}
-
-#[test]
-fn test_invalid_network_env_var_rejected() {
-    let temp = TestConfigBuilder::new().build();
-    let mut cmd = test_command(&temp);
-    cmd.env("PRESTO_NETWORK", "bogus-chain");
-    cmd.arg("balance");
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("Unknown network"));

@@ -39,7 +39,6 @@ pub struct Cli {
         short = 'n',
         long,
         value_name = "NETWORKS",
-        env = "PRESTO_NETWORK",
         global = true,
         help_heading = "Payment Options"
     )]
@@ -85,17 +84,6 @@ pub struct QueryArgs {
     /// URL to request
     #[arg(value_name = "URL")]
     pub url: String,
-
-    /// Maximum amount willing to pay (e.g., 0.05 for dollars, or 50000 for atomic units)
-    #[arg(
-        short = 'M',
-        long,
-        visible_alias = "max",
-        value_name = "AMOUNT",
-        env = "PRESTO_MAX_AMOUNT",
-        help_heading = "Payment Options"
-    )]
-    pub max_amount: Option<String>,
 
     /// Dry run mode - show what would be paid without executing
     #[arg(long, help_heading = "Payment Options")]
