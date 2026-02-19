@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::network::Network;
 use crate::payment::money::format_u256_with_decimals;
-use crate::payment::providers::tempo::query_key_spending_limit;
+use mpp::client::tempo::keychain::query_key_spending_limit;
 use crate::wallet::credentials::WalletCredentials;
 use serde::Serialize;
 

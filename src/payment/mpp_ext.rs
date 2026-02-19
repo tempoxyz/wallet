@@ -3,8 +3,8 @@
 //! This module provides helper functions that bridge mpp's protocol types
 //! to presto's network abstractions.
 //!
-//! For core EVM accessors (recipient_address, currency_address, amount_u256,
-//! chain_id, fee_payer), use `mpp::protocol::methods::tempo::TempoChargeExt`.
+//! For core EVM accessors (recipient_address, currency_address, amount_u256, chain_id,
+//! fee_payer, memo), import `mpp::protocol::methods::tempo::TempoChargeExt` directly.
 
 #[cfg(test)]
 use alloy::primitives::{Address, U256};
@@ -17,12 +17,9 @@ use crate::network::Network;
 #[cfg(test)]
 use crate::payment::money::Money;
 
-// Re-export TempoChargeExt for convenience
-pub use mpp::protocol::methods::tempo::TempoChargeExt;
-
 /// Derive the network from a charge request's chain ID.
 pub fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result<Network> {
-    use crate::payment::mpp_ext::TempoChargeExt;
+    use mpp::protocol::methods::tempo::TempoChargeExt;
     let chain_id = req.chain_id().ok_or_else(|| {
         crate::error::PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
     })?;
@@ -115,13 +112,6 @@ impl ChargeRequestExt for ChargeRequest {
             token_config.currency.symbol,
         ))
     }
-}
-
-/// Extract the `txHash` field from a base64url-encoded receipt, if present.
-///
-/// Delegates to `mpp::protocol::core::extract_tx_hash`.
-pub(crate) fn extract_tx_hash(receipt_b64: &str) -> Option<String> {
-    mpp::protocol::core::extract_tx_hash(receipt_b64)
 }
 
 #[cfg(test)]

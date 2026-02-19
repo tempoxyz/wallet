@@ -2,7 +2,6 @@
 //!
 //! This module provides payment providers, currencies, and protocol handling.
 
-pub mod abi;
 pub mod charge;
 pub mod currency;
 pub mod money;

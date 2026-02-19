@@ -33,9 +33,8 @@ use mpp::{parse_receipt, parse_www_authenticate, ChallengeEcho};
 use crate::config::Config;
 use crate::http::request::RequestContext;
 use crate::network::Network;
-use crate::payment::mpp_ext::{
-    extract_tx_hash, network_from_session_request, validate_session_challenge,
-};
+use crate::payment::mpp_ext::{network_from_session_request, validate_session_challenge};
+use mpp::protocol::core::extract_tx_hash;
 use crate::payment::providers::tempo::create_tempo_payment_from_calls;
 use crate::payment::session_store;
 use crate::wallet::signer::load_signer_for_network;

@@ -1,8 +1,7 @@
-use alloy::primitives::{Address, B256, U256};
+use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
 
 use crate::http::HttpResponse;
-use crate::payment::abi::encode_approve;
 
 use super::sse::stream_sse_response;
 use super::types::{SessionContext, SessionResult, SessionState};
@@ -24,6 +23,8 @@ pub(super) fn extract_origin(url: &str) -> String {
 }
 
 /// Build the escrow open calls: approve + open.
+///
+/// Delegates to `mpp::client::tempo::build_open_calls`.
 pub(super) fn build_open_calls(
     currency: Address,
     escrow_contract: Address,
@@ -32,37 +33,14 @@ pub(super) fn build_open_calls(
     salt: B256,
     authorized_signer: Address,
 ) -> Vec<tempo_primitives::transaction::Call> {
-    use alloy::sol_types::SolCall;
-    use tempo_primitives::transaction::Call;
-
-    alloy::sol! {
-        interface IEscrow {
-            function open(
-                address payee,
-                address token,
-                uint128 deposit,
-                bytes32 salt,
-                address authorizedSigner
-            ) external;
-        }
-    }
-
-    let approve_data = encode_approve(escrow_contract, U256::from(deposit));
-    let open_data =
-        IEscrow::openCall::new((payee, currency, deposit, salt, authorized_signer)).abi_encode();
-
-    vec![
-        Call {
-            to: alloy::primitives::TxKind::Call(currency),
-            value: U256::ZERO,
-            input: approve_data,
-        },
-        Call {
-            to: alloy::primitives::TxKind::Call(escrow_contract),
-            value: U256::ZERO,
-            input: alloy::primitives::Bytes::from(open_data),
-        },
-    ]
+    mpp::client::tempo::build_open_calls(
+        currency,
+        escrow_contract,
+        deposit,
+        payee,
+        salt,
+        authorized_signer,
+    )
 }
 
 /// Send the actual request with a voucher and handle the response.

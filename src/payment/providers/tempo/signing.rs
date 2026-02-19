@@ -12,16 +12,18 @@ use tracing::debug;
 use mpp::client::tempo::signing::TempoSigningMode;
 use tempo_primitives::transaction::SignedKeyAuthorization;
 
-pub(super) type HttpProvider = alloy::providers::RootProvider;
+type HttpProvider = alloy::providers::RootProvider;
 
 /// Common signing context shared between charge and session payment flows.
+///
+/// Resolves presto-specific concerns (wallet credentials, stuck tx detection,
+/// gas bumping, keychain provisioning) and exposes the results as fields
+/// that can be mapped into [`mpp::client::tempo::charge::SignOptions`].
 pub(super) struct SigningSetupContext {
     pub signer: PrivateKeySigner,
-    pub from: Address,
-    pub chain_id: u64,
     pub nonce: u64,
     pub gas_config: GasConfig,
-    pub provider: HttpProvider,
+    pub rpc_url: String,
     pub signing_mode: TempoSigningMode,
     pub network_name: String,
 }
@@ -79,13 +81,15 @@ impl SigningSetupContext {
         let from = wallet_address.unwrap_or_else(|| signer.address());
 
         let network_info = config.resolve_network(network_name)?;
-        let chain_id = network_info.chain_id.ok_or_else(|| {
+        // Validate chain ID exists in config (TempoCharge derives it from the challenge).
+        let _ = network_info.chain_id.ok_or_else(|| {
             PrestoError::InvalidConfig(format!("{} network missing chain ID", network_name))
         })?;
 
         let gas_config = network.gas_config();
 
-        let rpc_url: reqwest::Url = network_info.rpc_url.parse().map_err(|e| {
+        let rpc_url_str = network_info.rpc_url.clone();
+        let rpc_url: reqwest::Url = rpc_url_str.parse().map_err(|e| {
             PrestoError::InvalidConfig(format!("Invalid RPC URL for {}: {}", network_name, e))
         })?;
         let provider = HttpProvider::new_http(rpc_url);
@@ -214,13 +218,15 @@ impl SigningSetupContext {
             TempoSigningMode::Direct
         };
 
+        // `provider` and `from` are consumed locally for nonce resolution and stuck-tx
+        // detection. TempoCharge creates its own provider from `rpc_url` for gas estimation.
+        drop(provider);
+
         Ok(Self {
             signer,
-            from,
-            chain_id,
             nonce,
             gas_config,
-            provider,
+            rpc_url: rpc_url_str,
             signing_mode,
             network_name: network_name.to_string(),
         })

@@ -2,36 +2,27 @@
 
 use crate::config::Config;
 use crate::error::{PrestoError, Result};
-use crate::payment::abi::encode_transfer;
-use crate::payment::mpp_ext::TempoChargeExt;
-use alloy::primitives::{Address, U256};
+use alloy::primitives::Address;
 use tempo_primitives::transaction::Call;
 
+use mpp::client::tempo::charge::{SignOptions, TempoCharge};
+use mpp::client::tempo::swap::{build_swap_calls, SwapInfo};
+
 use super::signing::SigningSetupContext;
-use super::swap::build_swap_calls;
-use super::transaction::{build_tempo_tx, sign_and_encode, TempoTxOptions};
-use super::util::{parse_memo, SwapInfo};
 
-/// Common context for payment setup, shared between direct and swap payments.
-struct PaymentSetupContext {
-    charge_req: mpp::ChargeRequest,
-    signing: SigningSetupContext,
-}
-
-impl PaymentSetupContext {
-    /// Parse challenge and set up all common payment context.
-    async fn from_challenge(config: &Config, challenge: &mpp::PaymentChallenge) -> Result<Self> {
-        let charge_req: mpp::ChargeRequest = challenge
-            .request
-            .decode()
-            .map_err(|e| PrestoError::InvalidChallenge(format!("Invalid charge request: {}", e)))?;
-
-        let signing = SigningSetupContext::from_challenge(config, challenge).await?;
-
-        Ok(Self {
-            charge_req,
-            signing,
-        })
+/// Map a [`SigningSetupContext`] into [`SignOptions`] for the TempoCharge builder.
+fn sign_options_from_context(ctx: &SigningSetupContext) -> SignOptions {
+    SignOptions {
+        rpc_url: None, // provider already resolved in ctx, but TempoCharge needs a URL
+        nonce: Some(ctx.nonce),
+        nonce_key: None,
+        gas_limit: None, // let TempoCharge estimate via the provider
+        max_fee_per_gas: Some(ctx.gas_config.max_fee_per_gas_u128()),
+        max_priority_fee_per_gas: Some(ctx.gas_config.max_priority_fee_per_gas_u128()),
+        fee_token: None,
+        signing_mode: Some(ctx.signing_mode.clone()),
+        key_authorization: None, // already embedded in signing_mode
+        valid_before: None,
     }
 }
 
@@ -45,51 +36,19 @@ pub async fn create_tempo_payment(
     config: &Config,
     challenge: &mpp::PaymentChallenge,
 ) -> Result<mpp::PaymentCredential> {
-    let mut ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
+    let ctx = SigningSetupContext::from_challenge(config, challenge).await?;
+    let mut opts = sign_options_from_context(&ctx);
+    opts.rpc_url = Some(ctx.rpc_url.clone());
 
-    let currency = ctx.charge_req.currency_address()?;
-    let recipient = ctx.charge_req.recipient_address()?;
-    let amount = ctx.charge_req.amount_u256()?;
-    let memo = parse_memo(ctx.charge_req.memo());
+    let charge = TempoCharge::from_challenge(challenge)
+        .map_err(|e| PrestoError::InvalidChallenge(e.to_string()))?;
 
-    let transfer_data = encode_transfer(recipient, amount, memo);
-
-    let calls = vec![Call {
-        to: alloy::primitives::TxKind::Call(currency),
-        value: U256::ZERO,
-        input: transfer_data,
-    }];
-
-    let gas_limit = ctx.signing.estimate_gas(currency, &calls).await?;
-
-    let tx = build_tempo_tx(TempoTxOptions {
-        calls,
-        chain_id: ctx.signing.chain_id,
-        fee_token: currency,
-        nonce: ctx.signing.nonce,
-        nonce_key: U256::ZERO,
-        gas_limit,
-        max_fee_per_gas: ctx.signing.gas_config.max_fee_per_gas_u128(),
-        max_priority_fee_per_gas: ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
-        fee_payer: false,
-        valid_before: None,
-        key_authorization: ctx.signing.signing_mode.key_authorization().cloned(),
-    });
-
-    let tx_bytes = sign_and_encode(tx, &ctx.signing.signer, &ctx.signing.signing_mode)
+    let signed = charge
+        .sign_with_options(&ctx.signer, opts)
+        .await
         .map_err(|e| PrestoError::SigningSimple(e.to_string()))?;
-    let signed_tx = hex::encode(&tx_bytes);
 
-    let did = format!(
-        "did:pkh:eip155:{}:{:#x}",
-        ctx.signing.chain_id, ctx.signing.from
-    );
-
-    Ok(mpp::PaymentCredential::with_source(
-        challenge.to_echo(),
-        did,
-        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
-    ))
+    Ok(signed.into_credential())
 }
 
 /// Create a Tempo payment credential with an automatic token swap.
@@ -105,44 +64,24 @@ pub async fn create_tempo_payment_with_swap(
     challenge: &mpp::PaymentChallenge,
     swap_info: &SwapInfo,
 ) -> Result<mpp::PaymentCredential> {
-    let mut ctx = PaymentSetupContext::from_challenge(config, challenge).await?;
+    let ctx = SigningSetupContext::from_challenge(config, challenge).await?;
+    let mut opts = sign_options_from_context(&ctx);
+    opts.rpc_url = Some(ctx.rpc_url.clone());
+    opts.fee_token = Some(swap_info.token_in);
 
-    let recipient = ctx.charge_req.recipient_address()?;
-    let amount = ctx.charge_req.amount_u256()?;
-    let memo = parse_memo(ctx.charge_req.memo());
+    let charge = TempoCharge::from_challenge(challenge)
+        .map_err(|e| PrestoError::InvalidChallenge(e.to_string()))?;
 
-    let calls = build_swap_calls(swap_info, recipient, amount, memo)?;
+    let calls = build_swap_calls(swap_info, charge.recipient(), charge.amount(), charge.memo())
+        .map_err(|e| PrestoError::InvalidAmount(e.to_string()))?;
 
-    let gas_limit = ctx.signing.estimate_gas(swap_info.token_in, &calls).await?;
-
-    let tx = build_tempo_tx(TempoTxOptions {
-        calls,
-        chain_id: ctx.signing.chain_id,
-        fee_token: swap_info.token_in,
-        nonce: ctx.signing.nonce,
-        nonce_key: U256::ZERO,
-        gas_limit,
-        max_fee_per_gas: ctx.signing.gas_config.max_fee_per_gas_u128(),
-        max_priority_fee_per_gas: ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
-        fee_payer: false,
-        valid_before: None,
-        key_authorization: ctx.signing.signing_mode.key_authorization().cloned(),
-    });
-
-    let tx_bytes = sign_and_encode(tx, &ctx.signing.signer, &ctx.signing.signing_mode)
+    let signed = charge
+        .with_calls(calls)
+        .sign_with_options(&ctx.signer, opts)
+        .await
         .map_err(|e| PrestoError::SigningSimple(e.to_string()))?;
-    let signed_tx = hex::encode(&tx_bytes);
 
-    let did = format!(
-        "did:pkh:eip155:{}:{:#x}",
-        ctx.signing.chain_id, ctx.signing.from
-    );
-
-    Ok(mpp::PaymentCredential::with_source(
-        challenge.to_echo(),
-        did,
-        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
-    ))
+    Ok(signed.into_credential())
 }
 
 /// Create a Tempo payment credential from pre-built calls.
@@ -155,33 +94,19 @@ pub async fn create_tempo_payment_from_calls(
     calls: Vec<Call>,
     fee_token: Address,
 ) -> Result<mpp::PaymentCredential> {
-    let mut ctx = SigningSetupContext::from_challenge(config, challenge).await?;
+    let ctx = SigningSetupContext::from_challenge(config, challenge).await?;
+    let mut opts = sign_options_from_context(&ctx);
+    opts.rpc_url = Some(ctx.rpc_url.clone());
+    opts.fee_token = Some(fee_token);
 
-    let gas_limit = ctx.estimate_gas(fee_token, &calls).await?;
+    let charge = TempoCharge::from_challenge(challenge)
+        .map_err(|e| PrestoError::InvalidChallenge(e.to_string()))?;
 
-    let tx = build_tempo_tx(TempoTxOptions {
-        calls,
-        chain_id: ctx.chain_id,
-        fee_token,
-        nonce: ctx.nonce,
-        nonce_key: U256::ZERO,
-        gas_limit,
-        max_fee_per_gas: ctx.gas_config.max_fee_per_gas_u128(),
-        max_priority_fee_per_gas: ctx.gas_config.max_priority_fee_per_gas_u128(),
-        fee_payer: false,
-        valid_before: None,
-        key_authorization: ctx.signing_mode.key_authorization().cloned(),
-    });
-
-    let tx_bytes = sign_and_encode(tx, &ctx.signer, &ctx.signing_mode)
+    let signed = charge
+        .with_calls(calls)
+        .sign_with_options(&ctx.signer, opts)
+        .await
         .map_err(|e| PrestoError::SigningSimple(e.to_string()))?;
-    let signed_tx = hex::encode(&tx_bytes);
 
-    let did = format!("did:pkh:eip155:{}:{:#x}", ctx.chain_id, ctx.from);
-
-    Ok(mpp::PaymentCredential::with_source(
-        challenge.to_echo(),
-        did,
-        mpp::PaymentPayload::transaction(format!("0x{}", signed_tx)),
-    ))
+    Ok(signed.into_credential())
 }
