@@ -3331,7 +3331,7 @@ dependencies = [
 [[package]]
 name = "mpp"
 version = "0.4.0"
-source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=kartik%2Frf-pr1#d79caf64ea1fd945a04b2cd1806556d5f64c9557"
+source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#68d201eac93ab4bd23586099971a72c8c52c9263"
 dependencies = [
  "alloy",
  "alloy-signer-local",

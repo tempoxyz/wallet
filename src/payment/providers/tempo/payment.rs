@@ -80,9 +80,12 @@ pub async fn create_tempo_payment(
         chain_id: ctx.signing.chain_id,
         fee_token: currency,
         nonce: ctx.signing.nonce,
+        nonce_key: U256::ZERO,
         gas_limit,
         max_fee_per_gas: ctx.signing.gas_config.max_fee_per_gas_u128(),
         max_priority_fee_per_gas: ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
+        fee_payer: false,
+        valid_before: None,
         key_authorization: ctx.signing.signing_mode.key_authorization().cloned(),
     });
 
@@ -142,9 +145,12 @@ pub async fn create_tempo_payment_with_swap(
         chain_id: ctx.signing.chain_id,
         fee_token: swap_info.token_in,
         nonce: ctx.signing.nonce,
+        nonce_key: U256::ZERO,
         gas_limit,
         max_fee_per_gas: ctx.signing.gas_config.max_fee_per_gas_u128(),
         max_priority_fee_per_gas: ctx.signing.gas_config.max_priority_fee_per_gas_u128(),
+        fee_payer: false,
+        valid_before: None,
         key_authorization: ctx.signing.signing_mode.key_authorization().cloned(),
     });
 
@@ -195,9 +201,12 @@ pub async fn create_tempo_payment_from_calls(
         chain_id: ctx.chain_id,
         fee_token,
         nonce: ctx.nonce,
+        nonce_key: U256::ZERO,
         gas_limit,
         max_fee_per_gas: ctx.gas_config.max_fee_per_gas_u128(),
         max_priority_fee_per_gas: ctx.gas_config.max_priority_fee_per_gas_u128(),
+        fee_payer: false,
+        valid_before: None,
         key_authorization: ctx.signing_mode.key_authorization().cloned(),
     });
 
