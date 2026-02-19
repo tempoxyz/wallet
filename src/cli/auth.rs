@@ -10,8 +10,8 @@ use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::error::Result;
 use crate::network::Network;
-use crate::payment::currency::format_u256_with_decimals;
-use crate::payment::provider::query_token_balance_with_provider;
+use mpp::format_u256_with_decimals;
+use mpp::client::tempo::query_token_balance;
 use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::WalletManager;
 use anyhow::Context;
@@ -341,7 +341,7 @@ async fn query_all_balances(
         };
 
         let balance =
-            match query_token_balance_with_provider(&provider, token_address, account).await {
+            match query_token_balance(&provider, token_address, account).await {
                 Ok(b) => b,
                 Err(e) => {
                     debug!(%e, token = token_config.currency.symbol, "failed to query balance");

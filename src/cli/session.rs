@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::network::Network;
-use crate::payment::currency::format_u256_with_decimals;
+use mpp::format_u256_with_decimals;
 use crate::payment::session::close_session_from_record;
 use crate::payment::session_store;
 

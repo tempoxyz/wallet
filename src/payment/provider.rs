@@ -6,20 +6,19 @@
 use crate::config::Config;
 use crate::error::{PrestoError, Result};
 use crate::network::Network;
-use crate::payment::currency::format_u256_with_decimals;
+use mpp::format_u256_with_decimals;
 use mpp::client::tempo::keychain::{local_key_spending_limit, query_key_spending_limit};
 use mpp::PaymentChallenge;
-use mpp::client::tempo::swap::{SwapInfo, BPS_DENOMINATOR, SWAP_SLIPPAGE_BPS};
+use mpp::client::tempo::swap::{SwapInfo, SWAP_SLIPPAGE_BPS};
 #[cfg(test)]
 use crate::payment::currency::Money;
 use crate::wallet::signer::load_signer_for_network;
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
-use alloy::sol;
 use std::str::FromStr;
 use std::sync::Arc;
 use tempo_primitives::transaction::SignedKeyAuthorization;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Presto payment provider that wraps config and implements mpp::client::PaymentProvider.
 ///
@@ -167,7 +166,7 @@ impl PrestoPaymentProvider {
             None
         };
 
-        let effective_capacity = effective_capacity(balance, spending_limit);
+        let effective_capacity = mpp::client::tempo::effective_capacity(balance, spending_limit);
 
         if effective_capacity >= required_amount {
             debug!(
@@ -310,25 +309,6 @@ fn classify_payment_error(
     }
 }
 
-/// Compute effective spending capacity from wallet balance and optional key spending limit.
-///
-/// When the key enforces spending limits, the effective capacity is the minimum
-/// of the wallet balance and the remaining spending limit. Otherwise, capacity
-/// equals the wallet balance.
-pub fn effective_capacity(balance: U256, spending_limit: Option<U256>) -> U256 {
-    match spending_limit {
-        Some(limit) => balance.min(limit),
-        None => balance,
-    }
-}
-
-sol! {
-    #[sol(rpc)]
-    interface IERC20 {
-        function balanceOf(address account) external view returns (uint256);
-    }
-}
-
 /// Query the balance of a specific token for an account.
 pub async fn query_token_balance(
     config: &Config,
@@ -342,58 +322,15 @@ pub async fn query_token_balance(
             PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
         })?);
 
-    query_token_balance_with_provider(&provider, token_address, account).await
-}
-
-/// Query the balance of a specific token using an already-constructed provider.
-pub async fn query_token_balance_with_provider<P: alloy::providers::Provider + Clone>(
-    provider: &P,
-    token_address: Address,
-    account: Address,
-) -> Result<U256> {
-    let contract = IERC20::new(token_address, provider);
-    let balance = contract
-        .balanceOf(account)
-        .call()
+    mpp::client::tempo::query_token_balance(&provider, token_address, account)
         .await
-        .map_err(|e| PrestoError::BalanceQuery(format!("Failed to query balance: {}", e)))?;
-
-    Ok(balance)
-}
-
-/// Token with sufficient balance for a swap.
-#[derive(Debug, Clone)]
-pub struct SwapSource {
-    /// Token address that can be used as swap source.
-    pub token_address: Address,
-    /// Human-readable symbol.
-    pub symbol: String,
+        .map_err(|e| PrestoError::BalanceQuery(format!("Failed to query balance: {}", e)))
 }
 
 /// Find a token with sufficient balance (and spending limit) to swap from.
 ///
-/// When `keychain_info` is provided, queries spending limits first (in parallel),
-/// filters and sorts candidates by limit descending, then checks balances only
-/// for candidates with sufficient limit. This minimizes on-chain balance queries.
-///
-/// If the key is not yet provisioned on-chain and `auth` is provided,
-/// falls back to the authorization's limits locally to determine token eligibility.
-///
-/// When no keychain is used, queries all balances in parallel and returns the
-/// first token with sufficient balance (including slippage).
-///
-/// # Arguments
-/// * `config` - Configuration for RPC access
-/// * `network` - Network to query on
-/// * `account` - Account to check balances for
-/// * `required_token` - The token the merchant wants (we need to find a different one)
-/// * `required_amount` - The amount needed (will include slippage in the check)
-/// * `keychain_info` - Optional (wallet_address, key_address) for spending limit checks
-/// * `local_auth` - Optional key authorization for local limit validation
-///
-/// # Returns
-/// * `Ok(Some(SwapSource))` - Found a token with sufficient balance and limit
-/// * `Ok(None)` - No token qualifies
+/// Builds the candidate list from the network's supported tokens, constructs
+/// a provider from config, and delegates to `mpp::client::tempo::find_swap_source`.
 pub async fn find_swap_source(
     config: &Config,
     network: Network,
@@ -402,108 +339,38 @@ pub async fn find_swap_source(
     required_amount: U256,
     keychain_info: Option<(Address, Address)>,
     local_auth: Option<&SignedKeyAuthorization>,
-) -> Result<Option<SwapSource>> {
-    use futures::future::join_all;
+) -> Result<Option<mpp::client::tempo::SwapSource>> {
+    use mpp::client::tempo::routing::SwapCandidate;
 
-    let slippage = required_amount * U256::from(SWAP_SLIPPAGE_BPS) / U256::from(BPS_DENOMINATOR);
-    let amount_with_slippage = required_amount + slippage;
+    let network_info = config.resolve_network(network.as_str())?;
+    let provider =
+        ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
+            PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
+        })?);
 
-    let tokens_to_check: Vec<_> = network
+    let candidates: Vec<_> = network
         .supported_tokens()
         .into_iter()
         .filter_map(|token_config| {
             let token_address = Address::from_str(token_config.address).ok()?;
-            if token_address == required_token {
-                None
-            } else {
-                Some((token_address, token_config.currency.symbol.to_string()))
-            }
+            Some(SwapCandidate {
+                address: token_address,
+                symbol: token_config.currency.symbol.to_string(),
+            })
         })
         .collect();
 
-    if let Some((wallet_addr, key_addr)) = keychain_info {
-        let network_info = config.resolve_network(network.as_str())?;
-        let provider =
-            ProviderBuilder::new().connect_http(network_info.rpc_url.parse().map_err(|e| {
-                PrestoError::InvalidConfig(format!("Invalid RPC URL for {network}: {e}"))
-            })?);
-
-        let limit_futures: Vec<_> = tokens_to_check
-            .iter()
-            .map(|(token_address, _)| {
-                query_key_spending_limit(&provider, wallet_addr, key_addr, *token_address)
-            })
-            .collect();
-
-        let limits = join_all(limit_futures).await;
-
-        let mut candidates: Vec<_> = tokens_to_check
-            .into_iter()
-            .zip(limits)
-            .filter_map(|((token_address, symbol), limit_result)| {
-                let effective = match limit_result {
-                    Ok(None) => U256::MAX,
-                    Ok(Some(l)) if l >= amount_with_slippage => l,
-                    Ok(Some(_)) => return None,
-                    Err(_) if local_auth.is_some() => {
-                        match local_key_spending_limit(local_auth.unwrap(), token_address) {
-                            None => U256::MAX,
-                            Some(l) if l >= amount_with_slippage => l,
-                            Some(_) => return None,
-                        }
-                    }
-                    Err(e) => {
-                        warn!(token = %symbol, error = %e, "failed to query spending limit");
-                        return None;
-                    }
-                };
-                Some((token_address, symbol, effective))
-            })
-            .collect();
-
-        candidates.sort_by(|a, b| b.2.cmp(&a.2));
-
-        for (token_address, symbol, _) in candidates {
-            match query_token_balance(config, network, token_address, account).await {
-                Ok(balance) if balance >= amount_with_slippage => {
-                    return Ok(Some(SwapSource {
-                        token_address,
-                        symbol,
-                    }));
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!(token = %symbol, error = %e, "failed to query token balance");
-                }
-            }
-        }
-    } else {
-        let balance_futures: Vec<_> = tokens_to_check
-            .iter()
-            .map(|(token_address, _symbol)| {
-                query_token_balance(config, network, *token_address, account)
-            })
-            .collect();
-
-        let results = join_all(balance_futures).await;
-
-        for ((token_address, symbol), result) in tokens_to_check.into_iter().zip(results) {
-            match result {
-                Ok(balance) if balance >= amount_with_slippage => {
-                    return Ok(Some(SwapSource {
-                        token_address,
-                        symbol,
-                    }));
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!(token = %symbol, error = %e, "failed to query token balance");
-                }
-            }
-        }
-    }
-
-    Ok(None)
+    mpp::client::tempo::find_swap_source(
+        &provider,
+        account,
+        required_token,
+        required_amount,
+        &candidates,
+        keychain_info,
+        local_auth,
+    )
+    .await
+    .map_err(|e| PrestoError::InvalidConfig(e.to_string()))
 }
 
 /// Derive the network from a charge request's chain ID.
@@ -630,49 +497,7 @@ mod tests {
         assert!(!provider.supports("unknown", "charge"));
     }
 
-    #[test]
-    fn test_effective_capacity_no_spending_limit() {
-        let balance = U256::from(1_000_000u64);
-        assert_eq!(effective_capacity(balance, None), balance);
-    }
-
-    #[test]
-    fn test_effective_capacity_limit_below_balance() {
-        let balance = U256::from(1_000_000u64);
-        let limit = U256::from(500_000u64);
-        assert_eq!(effective_capacity(balance, Some(limit)), limit);
-    }
-
-    #[test]
-    fn test_effective_capacity_limit_above_balance() {
-        let balance = U256::from(500_000u64);
-        let limit = U256::from(1_000_000u64);
-        assert_eq!(effective_capacity(balance, Some(limit)), balance);
-    }
-
-    #[test]
-    fn test_effective_capacity_limit_equals_balance() {
-        let balance = U256::from(1_000_000u64);
-        let limit = U256::from(1_000_000u64);
-        assert_eq!(effective_capacity(balance, Some(limit)), balance);
-    }
-
-    #[test]
-    fn test_effective_capacity_zero_limit() {
-        let balance = U256::from(1_000_000u64);
-        assert_eq!(effective_capacity(balance, Some(U256::ZERO)), U256::ZERO);
-    }
-
-    #[test]
-    fn test_effective_capacity_zero_balance() {
-        let limit = U256::from(1_000_000u64);
-        assert_eq!(effective_capacity(U256::ZERO, Some(limit)), U256::ZERO);
-    }
-
-    #[test]
-    fn test_effective_capacity_both_zero() {
-        assert_eq!(effective_capacity(U256::ZERO, Some(U256::ZERO)), U256::ZERO);
-    }
+    // effective_capacity tests are in mpp-rs (client::tempo::balance)
 
     #[test]
     fn test_validate_challenge_valid() {

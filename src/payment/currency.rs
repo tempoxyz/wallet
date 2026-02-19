@@ -1,28 +1,13 @@
 //! Currency definitions and utilities for token amounts
 
-use alloy::primitives::U256;
-
 #[cfg(test)]
 pub use tests::{Money, TokenId};
 
-/// Format a U256 value with the given number of decimal places.
-///
-/// This is the core formatting function that handles U256 directly,
-/// avoiding any truncation to u128.
-pub fn format_u256_with_decimals(value: U256, decimals: u8) -> String {
-    if decimals == 0 {
-        return value.to_string();
-    }
-
-    let divisor = U256::from(10u64).pow(U256::from(decimals));
-    let whole = value / divisor;
-    let remainder = value % divisor;
-
-    // Format remainder with leading zeros
-    let remainder_str = remainder.to_string();
-    let padded = format!("{:0>width$}", remainder_str, width = decimals as usize);
-
-    format!("{}.{}", whole, padded)
+// NOTE: format_u256_with_decimals has been upstreamed to mpp::evm::format_u256_with_decimals.
+// This local copy is retained only for test-only Money::format_human().
+#[cfg(test)]
+fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
+    mpp::format_u256_with_decimals(value, decimals)
 }
 
 /// Represents a cryptocurrency or token with its metadata
@@ -128,7 +113,7 @@ mod tests {
 
     use crate::error::{PrestoError, Result};
     use crate::network::Network;
-    use alloy::primitives::Address;
+    use alloy::primitives::{Address, U256};
     use std::fmt;
     use std::str::FromStr;
 
