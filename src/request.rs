@@ -29,6 +29,13 @@ use crate::payment::session::{handle_session_request, SessionResult};
 pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) -> Result<()> {
     let mut config = load_config_with_overrides(&cli)?;
 
+    // Apply --rpc flag override from query args to config.
+    // The  TEMPO_RPC_URLenv var is already handled by load_config_with_overrides,
+    // but the explicit --rpc flag on QueryArgs takes final precedence.
+    if let Some(ref rpc_url) = query.rpc_url {
+        config.set_rpc_override(rpc_url.clone());
+    }
+
     let url = query.url.clone();
     let request_ctx = RequestContext::new(cli, query)?;
     let method_str = request_ctx.method.to_string();

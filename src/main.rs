@@ -26,7 +26,7 @@ use cli::{Cli, ColorMode, Commands, SessionCommands, Shell};
 use colored::control;
 
 use analytics::Analytics;
-use config::load_config;
+use config::load_config_with_overrides;
 
 /// Entry point for the  tempo-walletCLI.
 ///
@@ -210,7 +210,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Balance { address } => {
-            let config = load_config(cli.config.as_ref())?;
+            let config = load_config_with_overrides(&cli)?;
             if let Some(ref a) = analytics {
                 a.track(
                     analytics::Event::BalanceChecked,

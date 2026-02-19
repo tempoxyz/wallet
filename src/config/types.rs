@@ -83,6 +83,15 @@ impl Config {
         Ok(())
     }
 
+    /// Set a global RPC URL override that applies to all built-in networks.
+    ///
+    /// This is used by `PRESTO_RPC_URL` env var and the `--rpc` CLI flag.
+    /// The override takes precedence over config file settings.
+    pub fn set_rpc_override(&mut self, url: String) {
+        self.tempo_rpc = Some(url.clone());
+        self.moderato_rpc = Some(url);
+    }
+
     /// Resolve network information with config overrides applied.
     ///
     /// RPC overrides are resolved in order:
