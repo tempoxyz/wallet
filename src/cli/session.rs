@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::network::Network;
 use crate::payment::session::close_session_from_record;
 use crate::payment::session_store;
-use mpp::format_u256_with_decimals;
+use crate::util::format_u256_with_decimals;
 
 /// List all active payment sessions.
 pub fn list_sessions() -> Result<()> {

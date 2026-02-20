@@ -10,11 +10,11 @@ use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::error::Result;
 use crate::network::Network;
+use crate::util::format_u256_with_decimals;
 use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::WalletManager;
 use anyhow::Context;
 use mpp::client::tempo::keychain::query_key_spending_limit;
-use mpp::format_u256_with_decimals;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------

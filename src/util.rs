@@ -57,6 +57,29 @@ pub fn atomic_write(
     Ok(())
 }
 
+// ── U256 formatting ─────────────────────────────────────────────────
+
+/// Format a U256 value with the given number of decimal places.
+///
+/// Converts atomic units to a human-readable decimal string.
+/// For example, `1000000` with 6 decimals becomes `"1.000000"`.
+pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
+    use alloy::primitives::U256;
+
+    if decimals == 0 {
+        return value.to_string();
+    }
+
+    let divisor = U256::from(10u64).pow(U256::from(decimals));
+    let whole = value / divisor;
+    let remainder = value % divisor;
+
+    let remainder_str = remainder.to_string();
+    let padded = format!("{:0>width$}", remainder_str, width = decimals as usize);
+
+    format!("{}.{}", whole, padded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

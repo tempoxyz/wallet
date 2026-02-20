@@ -824,8 +824,10 @@ pub async fn handle_session_request(
     .await
     .context("Failed to sign initial voucher")?;
 
-    let open_credential =
-        create_tempo_payment_from_calls(config, &signing, &challenge, open_calls, currency).await?;
+    let open_credential = create_tempo_payment_from_calls(
+        config, &signing, &challenge, open_calls, currency, chain_id,
+    )
+    .await?;
 
     let open_tx = open_credential
         .payload
@@ -1045,18 +1047,6 @@ fn network_from_session_request(req: &mpp::SessionRequest) -> crate::error::Resu
     })
 }
 
-/// Derive the network from a charge request's chain ID (used by
-/// `create_tempo_payment_from_calls` which receives a charge-encoded challenge).
-fn network_from_charge_request(req: &mpp::ChargeRequest) -> crate::error::Result<Network> {
-    use mpp::protocol::methods::tempo::TempoChargeExt;
-    let chain_id = req.chain_id().ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
-    })?;
-    Network::from_chain_id(chain_id).ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
-    })
-}
-
 /// Create a Tempo payment credential from pre-built calls.
 ///
 /// Used by session payments where the calls (e.g., approve + escrow.open)
@@ -1068,32 +1058,72 @@ async fn create_tempo_payment_from_calls(
     challenge: &mpp::PaymentChallenge,
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
+    chain_id: u64,
 ) -> Result<mpp::PaymentCredential> {
-    use mpp::client::tempo::charge::{SignOptions, TempoCharge};
-
-    let charge_req: mpp::ChargeRequest = challenge
-        .request
-        .decode()
-        .context("Invalid charge request")?;
-    let network = network_from_charge_request(&charge_req)?;
+    let network = Network::from_chain_id(chain_id).ok_or_else(|| {
+        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+    })?;
     let network_info = config.resolve_network(network.as_str())?;
 
-    let opts = SignOptions {
-        rpc_url: Some(network_info.rpc_url.clone()),
-        fee_token: Some(fee_token),
-        signing_mode: Some(signing.signing_mode.clone()),
-        replace_stuck_txs: true,
-        ..Default::default()
-    };
+    let rpc_url: url::Url = network_info
+        .rpc_url
+        .parse()
+        .map_err(|e| crate::error::PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))?;
+    let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
-    let charge = TempoCharge::from_challenge(challenge)
-        .map_err(|e| crate::error::PrestoError::InvalidChallenge(e.to_string()))?;
+    let from = signing.from;
 
-    let signed = charge
-        .with_calls(calls)
-        .sign_with_options(&signing.signer, opts)
-        .await
-        .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
+    // Resolve nonce and gas with stuck-tx detection
+    let resolved = mpp::client::tempo::gas::resolve_gas_with_stuck_detection(
+        &provider,
+        from,
+        1_000_000_000, // 1 gwei default max fee
+        1_000_000_000, // 1 gwei default priority fee
+    )
+    .await
+    .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
 
-    Ok(signed.into_credential())
+    // Estimate gas
+    let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
+        &provider,
+        from,
+        chain_id,
+        resolved.nonce,
+        fee_token,
+        &calls,
+        resolved.max_fee_per_gas,
+        resolved.max_priority_fee_per_gas,
+        signing.signing_mode.key_authorization(),
+    )
+    .await
+    .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
+
+    // Build and sign the transaction
+    let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
+        mpp::client::tempo::tx_builder::TempoTxOptions {
+            calls,
+            chain_id,
+            fee_token,
+            nonce: resolved.nonce,
+            nonce_key: alloy::primitives::U256::ZERO,
+            gas_limit,
+            max_fee_per_gas: resolved.max_fee_per_gas,
+            max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
+            fee_payer: false,
+            valid_before: None,
+            key_authorization: signing.signing_mode.key_authorization().cloned(),
+        },
+    );
+
+    let tx_bytes = mpp::client::tempo::signing::sign_and_encode_async(
+        tx,
+        &signing.signer,
+        &signing.signing_mode,
+    )
+    .await
+    .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
+
+    Ok(mpp::client::tempo::tx_builder::build_charge_credential(
+        challenge, &tx_bytes, chain_id, from,
+    ))
 }
