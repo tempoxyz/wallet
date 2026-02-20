@@ -104,10 +104,6 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         ensure_wallet_or_prompt_login(&request_ctx, &cli, &mut config, &analytics).await?;
     }
 
-    if request_ctx.log_enabled() {
-        eprintln!("Payment protocol: {}", challenge_ctx.protocol);
-    }
-
     let pay_analytics = PaymentAnalytics::from_challenge(&challenge_ctx, &analytics);
     pay_analytics.track_started();
 
@@ -121,10 +117,10 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     )
     .await;
 
-    // Auto-login retry: if the key isn't provisioned and we're interactive, login and retry once
+    // Auto-login retry: if the error is fixable by login and we're interactive, do it automatically
     let result = match result {
-        Err(e) if is_not_provisioned(&e) && std::io::stdin().is_terminal() => {
-            eprintln!("Access key is not provisioned on-chain. Running login to set it up...\n");
+        Err(e) if is_login_fixable(&e) && std::io::stdin().is_terminal() => {
+            eprintln!("Setting up wallet for this network...\n");
             let network = request_ctx
                 .runtime
                 .network
@@ -180,9 +176,6 @@ async fn dispatch_payment(
     response: &HttpResponse,
 ) -> Result<PaymentResult> {
     if challenge_ctx.is_session {
-        if request_ctx.log_enabled() {
-            eprintln!("Payment intent: session");
-        }
         let result = handle_session_request(config, request_ctx, url, response).await?;
         match result {
             SessionResult::Streamed => Ok(PaymentResult {
@@ -246,12 +239,16 @@ async fn dispatch_payment(
     }
 }
 
-/// Check if an error is due to an unprovisioned access key.
-fn is_not_provisioned(err: &anyhow::Error) -> bool {
+/// Check if an error is due to missing config or an unprovisioned access key —
+/// i.e., something that `presto login` would fix.
+fn is_login_fixable(err: &anyhow::Error) -> bool {
     err.chain().any(|e| {
         if let Some(pe) = e.downcast_ref::<crate::error::PrestoError>() {
-            matches!(pe, crate::error::PrestoError::AccessKeyNotProvisioned)
-                || matches!(pe, crate::error::PrestoError::PaymentRejected { reason, .. }
+            matches!(
+                pe,
+                crate::error::PrestoError::AccessKeyNotProvisioned
+                    | crate::error::PrestoError::ConfigMissing(_)
+            ) || matches!(pe, crate::error::PrestoError::PaymentRejected { reason, .. }
                     if reason.contains("access key does not exist")
                        || reason.contains("access key is not provisioned"))
         } else {
@@ -267,7 +264,6 @@ fn mark_network_provisioned(network: &str) {
 
 /// Parsed payment challenge context extracted from a 402 response.
 struct ChallengeContext {
-    protocol: PaymentProtocol,
     is_session: bool,
     network: String,
     amount: String,
@@ -281,7 +277,7 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
         .get_header("www-authenticate")
         .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
-    let protocol = PaymentProtocol::detect(Some(www_auth.as_str())).ok_or_else(|| {
+    let _protocol = PaymentProtocol::detect(Some(www_auth.as_str())).ok_or_else(|| {
         crate::error::PrestoError::MissingHeader("WWW-Authenticate: Payment".to_string())
     })?;
 
@@ -312,7 +308,6 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
         };
 
     Ok(ChallengeContext {
-        protocol,
         is_session,
         network,
         amount,
@@ -568,7 +563,7 @@ fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
 }
 
 /// Format atomic token units as a human-readable string with trimmed trailing zeros.
-fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
+pub fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
     let divisor = 10u128.pow(decimals as u32);
     let whole = atomic / divisor;
     let remainder = atomic % divisor;

@@ -63,16 +63,11 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
     }
 
     let network_key = creds.network_key(network).ok_or_else(|| {
-        PrestoError::ConfigMissing(format!(
-            "No access key for network '{}'. Run 'presto login --network {}' to set up.",
-            network, network
-        ))
+        PrestoError::ConfigMissing(format!("No access key for network '{}'.", network))
     })?;
 
     let signer = network_key.signer().map_err(|_| {
-        PrestoError::ConfigMissing(
-            "Failed to load signer from access key. Run 'presto login' to reconnect.".to_string(),
-        )
+        PrestoError::ConfigMissing("Failed to load signer from access key.".to_string())
     })?;
 
     let wallet_address = Address::from_str(&creds.account_address)

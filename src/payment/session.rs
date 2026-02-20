@@ -651,14 +651,26 @@ pub async fn handle_session_request(
         .parse()
         .context("Invalid recipient address")?;
 
+    // Resolve token metadata for human-readable amounts
+    let token_config = network
+        .token_config_by_address(&session_req.currency)
+        .unwrap_or(crate::network::TokenConfig {
+            symbol: "tokens",
+            decimals: 6,
+            address: "",
+        });
+
     if request_ctx.log_enabled() {
-        eprintln!("Session challenge ID: {}", challenge.id);
-        eprintln!("Payment method: {}", challenge.method);
+        let cost_display = crate::cli::query::format_token_amount(
+            tick_cost,
+            token_config.symbol,
+            token_config.decimals,
+        );
         eprintln!("Network: {}", network_name);
         eprintln!(
-            "Cost per {}: {} atomic units",
-            session_req.unit_type.as_deref().unwrap_or("unit"),
-            tick_cost
+            "Cost per {}: {}",
+            session_req.unit_type.as_deref().unwrap_or("request"),
+            cost_display
         );
     }
 
@@ -668,15 +680,21 @@ pub async fn handle_session_request(
             .unwrap_or(crate::network::Network::Tempo);
         let explorer = network_enum.info().explorer;
 
+        let cost_display = crate::cli::query::format_token_amount(
+            tick_cost,
+            token_config.symbol,
+            token_config.decimals,
+        );
+
         println!("[DRY RUN] Session payment would be made:");
         println!("Protocol: MPP (https://mpp.sh)");
         println!("Method: {}", challenge.method);
         println!("Intent: session");
         println!("Network: {}", network_name);
         println!(
-            "Cost per {}: {} atomic units",
-            session_req.unit_type.as_deref().unwrap_or("unit"),
-            tick_cost
+            "Cost per {}: {}",
+            session_req.unit_type.as_deref().unwrap_or("request"),
+            cost_display
         );
         println!(
             "Currency: {}",
@@ -689,7 +707,13 @@ pub async fn handle_session_request(
             );
         }
         if let Some(ref deposit) = session_req.suggested_deposit {
-            println!("Suggested deposit: {} atomic units", deposit);
+            let deposit_val: u128 = deposit.parse().unwrap_or(0);
+            let deposit_display = crate::cli::query::format_token_amount(
+                deposit_val,
+                token_config.symbol,
+                token_config.decimals,
+            );
+            println!("Suggested deposit: {}", deposit_display);
         }
 
         return Ok(SessionResult::Response(crate::http::HttpResponse {
@@ -700,8 +724,7 @@ pub async fn handle_session_request(
     }
 
     // Load signer and resolve signing mode (direct or keychain)
-    let signing = load_wallet_signer(network_name)
-        .context("Failed to load wallet. Run 'presto login' to get started.")?;
+    let signing = load_wallet_signer(network_name)?;
 
     let key_address = signing.signer.address();
     let from = signing.from;
@@ -808,8 +831,13 @@ pub async fn handle_session_request(
     );
 
     if request_ctx.log_enabled() {
+        let deposit_display = crate::cli::query::format_token_amount(
+            deposit,
+            token_config.symbol,
+            token_config.decimals,
+        );
         eprintln!("Opening payment channel...");
-        eprintln!("  Deposit: {} atomic units", deposit);
+        eprintln!("  Deposit: {}", deposit_display);
         eprintln!("  Channel: {:#x}", channel_id);
     }
 
@@ -964,8 +992,7 @@ pub async fn close_session_from_record(record: &session_store::SessionRecord) ->
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
 
-    let wallet = load_wallet_signer(&record.network_name)
-        .context("Failed to load wallet. Run 'presto login' to get started.")?;
+    let wallet = load_wallet_signer(&record.network_name)?;
 
     let channel_id: B256 = record.channel_id_b256()?;
 
