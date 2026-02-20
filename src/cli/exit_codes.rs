@@ -108,6 +108,8 @@ impl From<&crate::error::PrestoError> for ExitCode {
             | PrestoError::TomlParse(_)
             | PrestoError::TomlSerialize(_) => ExitCode::ConfigError,
 
+            PrestoError::LoginExpired => ExitCode::Timeout,
+
             // Payment/funds errors
             PrestoError::SpendingLimitExceeded { .. } | PrestoError::InsufficientBalance { .. } => {
                 ExitCode::InsufficientFunds
