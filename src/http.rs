@@ -1,7 +1,7 @@
 //! HTTP client and request handling.
 //!
-//! Provides [`HttpClient`] for making HTTP requests and [`RequestContext`]
-//! for building requests from CLI arguments.
+//! Provides [`HttpClient`] for making HTTP requests, [`RequestContext`] for
+//! executing requests, and [`RequestRuntime`] for runtime configuration.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -284,26 +284,6 @@ pub struct RequestRuntime {
 
 impl RequestRuntime {
     /// Whether verbose log messages should be printed.
-    pub fn log_enabled(&self) -> bool {
-        self.verbose && self.show_output
-    }
-}
-
-/// Output/display options extracted from CLI arguments.
-///
-/// Used by response formatting functions; kept separate from
-/// `RequestRuntime` to avoid coupling HTTP/payment layers to
-/// presentation concerns.
-#[derive(Clone, Debug)]
-pub struct OutputOptions {
-    pub output_format: crate::cli::OutputFormat,
-    pub include_headers: bool,
-    pub output_file: Option<String>,
-    pub verbose: bool,
-    pub show_output: bool,
-}
-
-impl OutputOptions {
     pub fn log_enabled(&self) -> bool {
         self.verbose && self.show_output
     }

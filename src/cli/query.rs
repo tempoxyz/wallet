@@ -1,9 +1,9 @@
-//! Request orchestration: query → 402 detection → payment → response handling.
+//! Query command: HTTP request with automatic payment handling.
 //!
-//! This module owns the main HTTP request flow, including automatic payment
-//! when the server responds with 402 Payment Required. It coordinates between
-//! the charge and session payment paths, handles wallet login prompting,
-//! and tracks analytics throughout the lifecycle.
+//! This module implements the `query` command — the primary CLI flow.
+//! It sends the initial HTTP request, detects 402 Payment Required responses,
+//! dispatches to the charge or session payment path, handles wallet login
+//! prompting, and displays the final response.
 
 use std::io::IsTerminal;
 
@@ -11,12 +11,13 @@ use anyhow::{Context, Result};
 use mpp::PaymentProtocol;
 
 use crate::analytics::{self, Analytics};
-use crate::cli::output::{handle_regular_response, hyperlink};
-use crate::cli::{Cli, QueryArgs};
 use crate::config::{load_config_with_overrides, Config};
+
+use super::output::{handle_regular_response, hyperlink, OutputOptions};
+use super::{Cli, QueryArgs};
 use crate::http::{
     get_request_method_and_body, should_auto_add_json_content_type, validate_header_size,
-    HttpRequestPlan, HttpResponse, OutputOptions, RequestContext, RequestRuntime,
+    HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
 };
 use crate::network::ExplorerConfig;
 use crate::payment::charge::prepare_charge;
@@ -129,7 +130,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 .network
                 .as_deref()
                 .or(Some(challenge_ctx.network.as_str()));
-            crate::cli::auth::run_login(network, analytics.clone()).await?;
+            super::auth::run_login(network, analytics.clone()).await?;
             eprintln!("\nRetrying payment...");
 
             let config = load_config_with_overrides(cli.config.as_ref())?;
@@ -334,7 +335,7 @@ async fn ensure_wallet_or_prompt_login(
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");
             let network = request_ctx.runtime.network.as_deref();
-            crate::cli::auth::run_login(network, analytics.clone()).await?;
+            super::auth::run_login(network, analytics.clone()).await?;
             eprintln!("\nRetrying request...");
             *config = load_config_with_overrides(cli.config.as_ref())?;
         } else {

@@ -1,4 +1,4 @@
-//! Machine Payments Protocol (MPP) handling for the CLI
+//! MPP charge payment handling.
 //!
 //! This module handles the MPP protocol (https://mpp.sh) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.

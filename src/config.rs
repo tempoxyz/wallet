@@ -133,7 +133,7 @@ impl Config {
     /// 2. General `[rpc]` table overrides (for any network by id)
     ///
     /// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
-    /// via `set_rpc_override()` in `load_config_with_overrides` / `make_request`,
+    /// via `set_rpc_override()` in `load_config_with_overrides` / `cli::query::make_request`,
     /// which sets `tempo_rpc` and `moderato_rpc` so they flow through this logic.
     pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
         use crate::network::{get_network, networks};
@@ -165,7 +165,7 @@ impl Config {
 // Load functions
 // ---------------------------------------------------------------------------
 
-/// Load configuration from CLI arguments or default location.
+/// Load configuration from a path or the default location.
 pub fn load_config(config_path: Option<impl AsRef<Path>>) -> anyhow::Result<Config> {
     if let Some(ref path) = config_path {
         let path_str = path.as_ref().to_string_lossy();

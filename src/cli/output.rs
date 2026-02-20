@@ -6,11 +6,31 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 
 use crate::config::validate_path;
-use crate::http::{HttpResponse, OutputOptions};
+use crate::http::HttpResponse;
 
 use super::OutputFormat;
 
-// Re-export hyperlink from util for use by request.rs
+/// Output/display options extracted from CLI arguments.
+///
+/// Used by response formatting functions; kept separate from
+/// `RequestRuntime` to avoid coupling HTTP/payment layers to
+/// presentation concerns.
+#[derive(Clone, Debug)]
+pub struct OutputOptions {
+    pub output_format: OutputFormat,
+    pub include_headers: bool,
+    pub output_file: Option<String>,
+    pub verbose: bool,
+    pub show_output: bool,
+}
+
+impl OutputOptions {
+    pub fn log_enabled(&self) -> bool {
+        self.verbose && self.show_output
+    }
+}
+
+// Re-export hyperlink from util for use by query.rs
 pub use crate::util::hyperlink;
 
 // ---------------------------------------------------------------------------

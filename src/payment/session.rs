@@ -1,4 +1,4 @@
-//! Session-based payment handling for the CLI
+//! Session-based payment handling.
 //!
 //! This module handles session payments (intent="session") using presto's
 //! keychain-aware transaction building. Sessions open a payment channel
