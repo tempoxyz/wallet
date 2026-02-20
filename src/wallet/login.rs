@@ -1,19 +1,19 @@
-//! Wallet manager for orchestrating browser-based authentication.
+//! Browser-based wallet authentication (device code + PKCE flow).
 
 use std::time::{Duration, Instant};
 
 use alloy::primitives::Address;
-use alloy::rlp::Decodable;
 use alloy::signers::local::PrivateKeySigner;
-use tempo_primitives::transaction::SignedKeyAuthorization;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::analytics::Analytics;
 use crate::error::{PrestoError, Result};
 use crate::wallet::credentials::NetworkKey;
 use crate::wallet::credentials::WalletCredentials;
-use crate::wallet::device_code::{create_device_code, poll_device_code};
-use crate::wallet::pkce;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
@@ -81,8 +81,8 @@ impl WalletManager {
 
         let auth_base_url = self.get_auth_base_url();
 
-        let code_verifier = pkce::generate_code_verifier();
-        let code_challenge = pkce::compute_code_challenge(&code_verifier);
+        let code_verifier = generate_code_verifier();
+        let code_challenge = compute_code_challenge(&code_verifier);
 
         let client = reqwest::Client::new();
         let device_code_resp = create_device_code(
@@ -227,6 +227,14 @@ impl WalletManager {
     }
 }
 
+impl Default for WalletManager {
+    fn default() -> Self {
+        Self::new(None, None)
+    }
+}
+
+// ==================== Key Authorization Validation ====================
+
 #[derive(Debug, PartialEq)]
 struct ValidatedKeyAuth {
     hex: String,
@@ -242,13 +250,8 @@ fn validate_key_authorization(
         None => return Ok(None),
     };
 
-    let raw = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = hex::decode(raw)
-        .map_err(|e| PrestoError::InvalidConfig(format!("Invalid key authorization hex: {}", e)))?;
-
-    let mut slice = bytes.as_slice();
-    let signed = SignedKeyAuthorization::decode(&mut slice)
-        .map_err(|e| PrestoError::InvalidConfig(format!("Invalid key authorization RLP: {}", e)))?;
+    let signed = super::signer::decode_key_authorization(hex_str)
+        .ok_or_else(|| PrestoError::InvalidConfig("Invalid key authorization".to_string()))?;
 
     if signed.authorization.key_id != expected_key_id {
         return Err(PrestoError::InvalidConfig(format!(
@@ -265,11 +268,105 @@ fn validate_key_authorization(
     }))
 }
 
-impl Default for WalletManager {
-    fn default() -> Self {
-        Self::new(None, None)
-    }
+// ==================== Device Code ====================
+
+#[derive(Debug, Deserialize)]
+struct DeviceCodeResponse {
+    code: String,
+    #[allow(dead_code)]
+    expires_in: u64,
 }
+
+#[derive(Debug, Deserialize)]
+struct PollResponse {
+    status: String,
+    account_address: Option<String>,
+    key_authorization: Option<String>,
+    error: Option<String>,
+}
+
+async fn create_device_code(
+    client: &reqwest::Client,
+    base_url: &str,
+    pub_key: &str,
+    key_type: &str,
+    code_challenge: &str,
+) -> anyhow::Result<DeviceCodeResponse> {
+    let url = format!("{}/cli-auth/device-code", base_url);
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({
+            "pub_key": pub_key,
+            "key_type": key_type,
+            "code_challenge": code_challenge,
+        }))
+        .send()
+        .await
+        .map_err(|e| PrestoError::Http(format!("Failed to create device code: {}", e)))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(PrestoError::Http(format!(
+            "Device code request failed ({}): {}",
+            status, body
+        ))
+        .into());
+    }
+
+    resp.json::<DeviceCodeResponse>().await.map_err(|e| {
+        PrestoError::Http(format!("Failed to parse device code response: {}", e)).into()
+    })
+}
+
+async fn poll_device_code(
+    client: &reqwest::Client,
+    base_url: &str,
+    code: &str,
+    code_verifier: &str,
+) -> anyhow::Result<PollResponse> {
+    let url = format!("{}/cli-auth/poll/{}", base_url, code);
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({
+            "code_verifier": code_verifier,
+        }))
+        .send()
+        .await
+        .map_err(|e| PrestoError::Http(format!("Failed to poll device code: {}", e)))?;
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(PrestoError::Http("Device code expired or not found".to_string()).into());
+    }
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(
+            PrestoError::Http(format!("Poll request failed ({}): {}", status, body)).into(),
+        );
+    }
+
+    resp.json::<PollResponse>()
+        .await
+        .map_err(|e| PrestoError::Http(format!("Failed to parse poll response: {}", e)).into())
+}
+
+// ==================== PKCE ====================
+
+fn generate_code_verifier() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).expect("failed to generate random bytes");
+    hex::encode(bytes)[..43].to_string()
+}
+
+fn compute_code_challenge(code_verifier: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(code_verifier.as_bytes());
+    URL_SAFE_NO_PAD.encode(hasher.finalize())
+}
+
+// ==================== Tests ====================
 
 #[cfg(test)]
 mod tests {
@@ -339,5 +436,42 @@ mod tests {
     fn test_validate_key_authorization_invalid_rlp() {
         let result = validate_key_authorization(Some("0xdeadbeef"), Address::ZERO);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_code_challenge_produces_43_char_base64url() {
+        let verifier = "test-code-verifier-12345678901234567890";
+        let challenge = compute_code_challenge(verifier);
+        assert_eq!(challenge.len(), 43);
+        assert!(challenge
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    }
+
+    #[test]
+    fn test_code_challenge_is_deterministic() {
+        let verifier = "deterministic-verifier";
+        let c1 = compute_code_challenge(verifier);
+        let c2 = compute_code_challenge(verifier);
+        assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn test_different_inputs_produce_different_outputs() {
+        let c1 = compute_code_challenge("input-a");
+        let c2 = compute_code_challenge("input-b");
+        assert_ne!(c1, c2);
+    }
+
+    #[test]
+    fn test_generate_code_verifier_length() {
+        let verifier = generate_code_verifier();
+        assert_eq!(verifier.len(), 43);
+    }
+
+    #[test]
+    fn test_generate_code_verifier_is_hex() {
+        let verifier = generate_code_verifier();
+        assert!(verifier.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

@@ -28,8 +28,7 @@ use mpp::{parse_receipt, parse_www_authenticate, ChallengeEcho};
 
 use crate::config::Config;
 use crate::error::map_mpp_validation_error;
-use crate::http::request::RequestContext;
-use crate::http::HttpResponse;
+use crate::http::{HttpResponse, RequestContext};
 use crate::network::Network;
 use crate::payment::session_store::{self, SessionRecord, SESSION_TTL_SECS};
 use crate::wallet::signer::load_wallet_signer;
@@ -412,11 +411,21 @@ async fn stream_sse_response(
                     }
                     SseEvent::PaymentNeedVoucher(nv) => {
                         let required: u128 = nv.required_cumulative.parse().unwrap_or(0);
+                        let deposit: u128 = nv.deposit.parse().unwrap_or(0);
+
+                        // Authorize up to the full deposit so the server can
+                        // stream multiple tokens before needing another voucher,
+                        // instead of a network round-trip per token.
+                        let voucher_amount = if deposit > 0 { deposit } else { required };
+
                         if cli.is_verbose() && cli.should_show_output() {
-                            eprintln!("[voucher top-up: required={}]", required);
+                            eprintln!(
+                                "[voucher top-up: required={} authorizing={}]",
+                                required, voucher_amount
+                            );
                         }
 
-                        state.cumulative_amount = required;
+                        state.cumulative_amount = voucher_amount;
 
                         // Persist the updated cumulative mid-stream
                         let _ = persist_session(ctx, state);

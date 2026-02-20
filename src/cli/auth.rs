@@ -206,7 +206,7 @@ async fn query_spending_limit(
     let local_auth = network_key
         .key_authorization
         .as_deref()
-        .and_then(crate::wallet::decode_key_authorization);
+        .and_then(crate::wallet::signer::decode_key_authorization);
 
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
