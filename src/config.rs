@@ -1,6 +1,5 @@
 //! Configuration management for presto.
 
-use crate::cli::Cli;
 use crate::error::{PrestoError, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -175,8 +174,8 @@ pub fn load_config(config_path: Option<impl AsRef<Path>>) -> anyhow::Result<Conf
     Config::load_from(config_path).context("Failed to load configuration")
 }
 
-pub fn load_config_with_overrides(cli: &Cli) -> anyhow::Result<Config> {
-    let mut config = load_config(cli.config.as_ref())?;
+pub fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
+    let mut config = load_config(config_path)?;
 
     // Apply PRESTO_RPC_URL env var as a global RPC override.
     // This is separate from clap's env handling on QueryArgs because it

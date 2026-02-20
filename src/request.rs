@@ -11,11 +11,13 @@ use anyhow::{Context, Result};
 use mpp::PaymentProtocol;
 
 use crate::analytics::{self, Analytics};
-use crate::cli::output::handle_regular_response;
-use crate::cli::output::hyperlink;
+use crate::cli::output::{handle_regular_response, hyperlink};
 use crate::cli::{Cli, QueryArgs};
 use crate::config::{load_config_with_overrides, Config};
-use crate::http::{HttpResponse, RequestContext};
+use crate::http::{
+    get_request_method_and_body, should_auto_add_json_content_type, validate_header_size,
+    HttpRequestPlan, HttpResponse, OutputOptions, RequestContext, RequestRuntime,
+};
 use crate::network::ExplorerConfig;
 use crate::payment::charge::prepare_charge;
 use crate::payment::session::{handle_session_request, SessionResult};
@@ -30,7 +32,7 @@ use crate::payment::session::{handle_session_request, SessionResult};
 /// 5. Dispatch to charge or session payment flow
 /// 6. Display the final response
 pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) -> Result<()> {
-    let mut config = load_config_with_overrides(&cli)?;
+    let mut config = load_config_with_overrides(cli.config.as_ref())?;
 
     // Apply --rpc flag override to config.
     // The PRESTO_RPC_URL env var is already handled by load_config_with_overrides,
@@ -40,8 +42,9 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     }
 
     let url = query.url.clone();
-    let request_ctx = RequestContext::new(cli, query)?;
-    let method_str = request_ctx.method.to_string();
+    let request_ctx = build_request_context(&cli, &query)?;
+    let output_opts = build_output_options(&cli, &query);
+    let method_str = request_ctx.plan.method.to_string();
 
     if let Some(ref a) = analytics {
         a.track(
@@ -53,8 +56,8 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         );
     }
 
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
-        eprintln!("Making {} request to: {url}", request_ctx.method);
+    if request_ctx.log_enabled() {
+        eprintln!("Making {} request to: {url}", request_ctx.plan.method);
     }
 
     let response = match request_ctx.execute(&url, None).await {
@@ -85,44 +88,60 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 },
             );
         }
-        finalize_response(&request_ctx.cli, &request_ctx.query, response)?;
+        finalize_response(&output_opts, response)?;
         return Ok(());
     }
 
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+    if request_ctx.log_enabled() {
         eprintln!("402 status: payment required");
     }
 
     let challenge_ctx = parse_payment_challenge(&response)?;
 
     // Skip wallet login for dry-run — the user just wants to see what would happen
-    if !request_ctx.query.dry_run {
-        ensure_wallet_or_prompt_login(&request_ctx, &mut config, &analytics).await?;
+    if !request_ctx.runtime.dry_run {
+        ensure_wallet_or_prompt_login(&request_ctx, &cli, &mut config, &analytics).await?;
     }
 
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+    if request_ctx.log_enabled() {
         eprintln!("Payment protocol: {}", challenge_ctx.protocol);
     }
 
     let pay_analytics = PaymentAnalytics::from_challenge(&challenge_ctx, &analytics);
     pay_analytics.track_started();
 
-    let result = dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await;
+    let result = dispatch_payment(
+        &config,
+        &request_ctx,
+        &output_opts,
+        &challenge_ctx,
+        &url,
+        &response,
+    )
+    .await;
 
     // Auto-login retry: if the key isn't provisioned and we're interactive, login and retry once
     let result = match result {
         Err(e) if is_not_provisioned(&e) && std::io::stdin().is_terminal() => {
             eprintln!("Access key is not provisioned on-chain. Running login to set it up...\n");
             let network = request_ctx
-                .cli
+                .runtime
                 .network
                 .as_deref()
                 .or(Some(challenge_ctx.network.as_str()));
             crate::cli::auth::run_login(network, analytics.clone()).await?;
             eprintln!("\nRetrying payment...");
 
-            let config = load_config_with_overrides(&request_ctx.cli)?;
-            dispatch_payment(&config, &request_ctx, &challenge_ctx, &url, &response).await
+            let config = load_config_with_overrides(cli.config.as_ref())?;
+            dispatch_payment(
+                &config,
+                &request_ctx,
+                &output_opts,
+                &challenge_ctx,
+                &url,
+                &response,
+            )
+            .await
         }
         other => other,
     };
@@ -132,7 +151,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
             mark_network_provisioned(&challenge_ctx.network);
             pay_analytics.track_success(result.tx_hash, &url, &method_str, result.status_code);
             if let Some(resp) = result.response {
-                finalize_response(&request_ctx.cli, &request_ctx.query, resp)?;
+                finalize_response(&output_opts, resp)?;
             }
             Ok(())
         }
@@ -154,12 +173,13 @@ struct PaymentResult {
 async fn dispatch_payment(
     config: &Config,
     request_ctx: &RequestContext,
+    output_opts: &OutputOptions,
     challenge_ctx: &ChallengeContext,
     url: &str,
     response: &HttpResponse,
 ) -> Result<PaymentResult> {
     if challenge_ctx.is_session {
-        if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+        if request_ctx.log_enabled() {
             eprintln!("Payment intent: session");
         }
         let result = handle_session_request(config, request_ctx, url, response).await?;
@@ -176,9 +196,9 @@ async fn dispatch_payment(
             }),
         }
     } else {
-        let auth_header = prepare_charge(config, &request_ctx.cli, response).await?;
+        let auth_header = prepare_charge(config, &request_ctx.runtime, response).await?;
 
-        if request_ctx.query.dry_run {
+        if request_ctx.runtime.dry_run {
             eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
             return Ok(PaymentResult {
                 tx_hash: String::new(),
@@ -187,7 +207,7 @@ async fn dispatch_payment(
             });
         }
 
-        if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+        if request_ctx.log_enabled() {
             eprintln!("Submitting payment to server...");
         }
 
@@ -204,7 +224,7 @@ async fn dispatch_payment(
         let symbol = token.map(|t| t.symbol).unwrap_or("USDC");
         let decimals = token.map(|t| t.decimals).unwrap_or(6);
         display_receipt(
-            &request_ctx.cli,
+            output_opts,
             &resp,
             explorer.as_ref(),
             &challenge_ctx.amount,
@@ -302,6 +322,7 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
 /// Ensure a wallet is available, prompting interactive login if needed.
 async fn ensure_wallet_or_prompt_login(
     request_ctx: &RequestContext,
+    cli: &Cli,
     config: &mut Config,
     analytics: &Option<Analytics>,
 ) -> Result<()> {
@@ -312,10 +333,10 @@ async fn ensure_wallet_or_prompt_login(
     if !has_wallet {
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");
-            let network = request_ctx.cli.network.as_deref();
+            let network = request_ctx.runtime.network.as_deref();
             crate::cli::auth::run_login(network, analytics.clone()).await?;
             eprintln!("\nRetrying request...");
-            *config = load_config_with_overrides(&request_ctx.cli)?;
+            *config = load_config_with_overrides(cli.config.as_ref())?;
         } else {
             anyhow::bail!(crate::error::PrestoError::ConfigMissing(
                 "No wallet configured.".to_string()
@@ -398,13 +419,9 @@ impl PaymentAnalytics {
 }
 
 /// Finalize a regular response: display output and fail on HTTP errors.
-pub(crate) fn finalize_response(
-    cli: &Cli,
-    query: &QueryArgs,
-    response: HttpResponse,
-) -> Result<()> {
+pub(crate) fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     let status = response.status_code;
-    handle_regular_response(cli, query, response)?;
+    handle_regular_response(output_opts, response)?;
     if status >= 400 {
         anyhow::bail!(crate::error::PrestoError::Http(format!(
             "{} {}",
@@ -462,7 +479,7 @@ fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError
 
 /// Display receipt information from response with optional clickable explorer links.
 fn display_receipt(
-    cli: &Cli,
+    output_opts: &OutputOptions,
     response: &HttpResponse,
     explorer: Option<&ExplorerConfig>,
     amount: &str,
@@ -475,7 +492,7 @@ fn display_receipt(
     let Ok(receipt) = mpp::parse_receipt(receipt_header) else {
         return;
     };
-    if !cli.is_verbose() {
+    if !output_opts.verbose {
         return;
     }
 
@@ -497,6 +514,56 @@ fn display_receipt(
     eprintln!("  Status: {}", receipt.status);
     eprintln!("  Method: {}", receipt.method);
     eprintln!("  Timestamp: {}", receipt.timestamp);
+}
+
+// ==================== CLI → Domain Conversion ====================
+
+/// Build a `RequestContext` from CLI arguments.
+///
+/// This is the boundary where CLI-specific types are converted into
+/// domain types used by the HTTP and payment layers.
+fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext> {
+    for header in &query.headers {
+        validate_header_size(header)?;
+    }
+
+    let runtime = RequestRuntime {
+        verbose: cli.is_verbose(),
+        show_output: cli.should_show_output(),
+        network: cli.network.clone(),
+        dry_run: query.dry_run,
+    };
+
+    let (method, body) =
+        get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?;
+
+    let mut headers = crate::http::parse_headers(&query.headers);
+    if should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data) {
+        headers.push(("content-type".to_string(), "application/json".to_string()));
+    }
+
+    let plan = HttpRequestPlan {
+        method,
+        headers,
+        body,
+        timeout_secs: query.get_timeout(),
+        follow_redirects: !query.no_redirect,
+        user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
+        verbose_connection: runtime.verbose,
+    };
+
+    Ok(RequestContext::new(runtime, plan))
+}
+
+/// Build `OutputOptions` from CLI arguments.
+fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
+    OutputOptions {
+        output_format: cli.output_format,
+        include_headers: query.include_headers,
+        output_file: query.output.clone(),
+        verbose: cli.is_verbose(),
+        show_output: cli.should_show_output(),
+    }
 }
 
 /// Format atomic token units as a human-readable string with trimmed trailing zeros.

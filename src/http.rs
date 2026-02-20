@@ -11,7 +11,6 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::warn;
 
-use crate::cli::{Cli, QueryArgs};
 use crate::error;
 
 // ==================== HTTP Response ====================
@@ -269,6 +268,59 @@ pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
         .collect()
 }
 
+// ==================== Runtime & Plan ====================
+
+/// Runtime flags for logging and payment decisions.
+///
+/// Derived from CLI arguments at the boundary layer (`request.rs`);
+/// HTTP and payment modules depend on this instead of raw CLI types.
+#[derive(Clone, Debug)]
+pub struct RequestRuntime {
+    pub verbose: bool,
+    pub show_output: bool,
+    pub network: Option<String>,
+    pub dry_run: bool,
+}
+
+impl RequestRuntime {
+    /// Whether verbose log messages should be printed.
+    pub fn log_enabled(&self) -> bool {
+        self.verbose && self.show_output
+    }
+}
+
+/// Output/display options extracted from CLI arguments.
+///
+/// Used by response formatting functions; kept separate from
+/// `RequestRuntime` to avoid coupling HTTP/payment layers to
+/// presentation concerns.
+#[derive(Clone, Debug)]
+pub struct OutputOptions {
+    pub output_format: crate::cli::OutputFormat,
+    pub include_headers: bool,
+    pub output_file: Option<String>,
+    pub verbose: bool,
+    pub show_output: bool,
+}
+
+impl OutputOptions {
+    pub fn log_enabled(&self) -> bool {
+        self.verbose && self.show_output
+    }
+}
+
+/// Pre-resolved HTTP request plan, independent of CLI types.
+#[derive(Clone, Debug)]
+pub struct HttpRequestPlan {
+    pub method: reqwest::Method,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<Vec<u8>>,
+    pub timeout_secs: Option<u64>,
+    pub follow_redirects: bool,
+    pub user_agent: String,
+    pub verbose_connection: bool,
+}
+
 // ==================== Request Context ====================
 
 /// Maximum request body size (100 MB)
@@ -295,7 +347,7 @@ pub enum RequestError {
     },
 }
 
-fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
+pub fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
     if len > MAX_BODY_SIZE {
         return Err(RequestError::BodyTooLarge { max: MAX_BODY_SIZE });
     }
@@ -308,7 +360,7 @@ fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
 /// - `@filename` — read the file as binary
 /// - `@-` — read stdin as binary
 /// - anything else — treat as a literal UTF-8 string
-fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
+pub fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
     if let Some(path) = data.strip_prefix('@') {
         if path == "-" {
             let mut buf = Vec::new();
@@ -332,7 +384,7 @@ fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
     }
 }
 
-fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
+pub fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
     if header.len() > MAX_HEADER_SIZE {
         return Err(RequestError::HeaderTooLarge {
             max: MAX_HEADER_SIZE,
@@ -341,49 +393,41 @@ fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
     Ok(())
 }
 
-/// Context for making HTTP requests with optional payment headers
+/// Context for making HTTP requests with optional payment headers.
+///
+/// Built from `RequestRuntime` + `HttpRequestPlan` at the CLI boundary;
+/// HTTP and payment modules use this without depending on CLI types.
 pub struct RequestContext {
-    pub method: reqwest::Method,
-    pub body: Option<Vec<u8>>,
-    pub cli: Cli,
-    pub query: QueryArgs,
+    pub runtime: RequestRuntime,
+    pub plan: HttpRequestPlan,
 }
 
 impl RequestContext {
-    /// Create a new request context from CLI and query arguments
-    pub fn new(cli: Cli, query: QueryArgs) -> Result<Self> {
-        for header in &query.headers {
-            validate_header_size(header)?;
-        }
-
-        let (method, body) = get_request_method_and_body(&query)?;
-        Ok(Self {
-            method,
-            body,
-            cli,
-            query,
-        })
+    /// Create a new request context from runtime flags and a request plan.
+    pub fn new(runtime: RequestRuntime, plan: HttpRequestPlan) -> Self {
+        Self { runtime, plan }
     }
 
-    /// Build an HTTP client with the configured options
-    pub fn build_client(&self, extra_headers: Option<&[(String, String)]>) -> Result<HttpClient> {
-        let mut headers = self.query.parse_headers();
+    /// Whether verbose log messages should be printed.
+    pub fn log_enabled(&self) -> bool {
+        self.runtime.log_enabled()
+    }
 
-        if should_auto_add_json_content_type(&self.query) {
-            headers.push(("Content-Type".to_string(), "application/json".to_string()));
-        }
+    /// Build an HTTP client from the plan, optionally adding extra headers.
+    pub fn build_client(&self, extra_headers: Option<&[(String, String)]>) -> Result<HttpClient> {
+        let mut headers = self.plan.headers.clone();
 
         if let Some(extra) = extra_headers {
             headers.extend_from_slice(extra);
         }
 
         let mut builder = HttpClientBuilder::new()
-            .verbose(self.cli.is_verbose())
-            .follow_redirects(!self.query.no_redirect)
-            .user_agent(format!("presto/{}", env!("CARGO_PKG_VERSION")))
+            .verbose(self.plan.verbose_connection)
+            .follow_redirects(self.plan.follow_redirects)
+            .user_agent(&self.plan.user_agent)
             .headers(&headers);
 
-        if let Some(timeout) = self.query.get_timeout() {
+        if let Some(timeout) = self.plan.timeout_secs {
             builder = builder.timeout(timeout);
         }
 
@@ -405,19 +449,16 @@ impl RequestContext {
     /// Build a reqwest::RequestBuilder using the shared client configuration.
     ///
     /// Used by session flows that need a raw RequestBuilder for streaming.
-    /// Headers, body, and content-type are applied from the query args,
-    /// matching the behavior of the normal request path.
     pub fn build_reqwest_request(
         &self,
         url: &str,
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<reqwest::RequestBuilder> {
         let client = self.build_reqwest_client(extra_headers)?;
-        let method = self.method.clone();
 
-        let mut builder = client.request(method, url);
+        let mut builder = client.request(self.plan.method.clone(), url);
 
-        if let Some(ref body) = self.body {
+        if let Some(ref body) = self.plan.body {
             builder = builder.body(body.clone());
         }
 
@@ -432,20 +473,24 @@ impl RequestContext {
     ) -> Result<HttpResponse> {
         let client = self.build_client(extra_headers)?;
         Ok(client
-            .request(self.method.clone(), url, self.body.as_deref())
+            .request(self.plan.method.clone(), url, self.plan.body.as_deref())
             .await?)
     }
 }
 
-/// Determine the HTTP method and body based on query arguments
-fn get_request_method_and_body(query: &QueryArgs) -> Result<(reqwest::Method, Option<Vec<u8>>)> {
-    let body = if let Some(ref json) = query.json {
+/// Determine the HTTP method and body from raw query inputs.
+pub fn get_request_method_and_body(
+    method: Option<&str>,
+    data: &[String],
+    json: Option<&str>,
+) -> Result<(reqwest::Method, Option<Vec<u8>>)> {
+    let body = if let Some(json) = json {
         let bytes = json.as_bytes().to_vec();
         validate_body_size(bytes.len())?;
         Some(bytes)
-    } else if !query.data.is_empty() {
+    } else if !data.is_empty() {
         let mut combined = Vec::new();
-        for item in &query.data {
+        for item in data {
             let resolved = resolve_data(item)?;
             if !combined.is_empty() {
                 combined.push(b'&');
@@ -458,9 +503,7 @@ fn get_request_method_and_body(query: &QueryArgs) -> Result<(reqwest::Method, Op
         None
     };
 
-    let method = query
-        .method
-        .as_ref()
+    let method = method
         .map(|m| {
             reqwest::Method::from_bytes(m.to_uppercase().as_bytes()).unwrap_or(reqwest::Method::GET)
         })
@@ -483,17 +526,21 @@ fn is_json_data(data: &str) -> bool {
 /// Determine if we should automatically add a JSON Content-Type header.
 ///
 /// Returns true if:
-/// - The user hasn't already provided a Content-Type header, AND
-/// - Either the `--json` flag is used, OR the `-d` data looks like JSON
-fn should_auto_add_json_content_type(query: &QueryArgs) -> bool {
-    if has_header(&query.headers, "content-type") {
+/// - The provided headers don't already contain a Content-Type header, AND
+/// - Either json data is provided, OR the first data value looks like JSON
+pub fn should_auto_add_json_content_type(
+    headers: &[String],
+    json: Option<&str>,
+    data: &[String],
+) -> bool {
+    if has_header(headers, "content-type") {
         return false;
     }
 
-    if query.json.is_some() {
+    if json.is_some() {
         return true;
     }
-    if let Some(data) = query.data.first() {
+    if let Some(data) = data.first() {
         if data.starts_with('@') {
             return false;
         }
@@ -507,7 +554,6 @@ fn should_auto_add_json_content_type(query: &QueryArgs) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::test_utils::make_query_args;
 
     #[test]
     fn test_has_header() {
@@ -589,87 +635,57 @@ mod tests {
 
     #[test]
     fn test_should_auto_add_json_content_type_with_json_flag() {
-        let query = make_query_args(&[
-            "query",
-            "--json",
-            r#"{"key":"value"}"#,
-            "http://example.com",
-        ]);
-        assert!(should_auto_add_json_content_type(&query));
+        let headers: Vec<String> = vec![];
+        assert!(should_auto_add_json_content_type(
+            &headers,
+            Some(r#"{"key":"value"}"#),
+            &[]
+        ));
     }
 
     #[test]
     fn test_should_auto_add_json_content_type_with_json_data() {
-        let query = make_query_args(&["query", "-d", r#"{"key":"value"}"#, "http://example.com"]);
-        assert!(should_auto_add_json_content_type(&query));
+        let headers: Vec<String> = vec![];
+        let data = vec![r#"{"key":"value"}"#.to_string()];
+        assert!(should_auto_add_json_content_type(&headers, None, &data));
     }
 
     #[test]
     fn test_should_not_auto_add_when_user_provides_content_type() {
-        let query = make_query_args(&[
-            "query",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            r#"{"key":"value"}"#,
-            "http://example.com",
-        ]);
-        assert!(!should_auto_add_json_content_type(&query));
+        let headers = vec!["Content-Type: application/json".to_string()];
+        let data = vec![r#"{"key":"value"}"#.to_string()];
+        assert!(!should_auto_add_json_content_type(&headers, None, &data));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_case_insensitive() {
-        let query = make_query_args(&[
-            "query",
-            "-H",
-            "content-type: application/json",
-            "-d",
-            r#"{"key":"value"}"#,
-            "http://example.com",
-        ]);
-        assert!(!should_auto_add_json_content_type(&query));
+        let headers = vec!["content-type: application/json".to_string()];
+        let data = vec![r#"{"key":"value"}"#.to_string()];
+        assert!(!should_auto_add_json_content_type(&headers, None, &data));
 
-        let query = make_query_args(&[
-            "query",
-            "-H",
-            "CONTENT-TYPE: application/json",
-            "-d",
-            r#"{"key":"value"}"#,
-            "http://example.com",
-        ]);
-        assert!(!should_auto_add_json_content_type(&query));
+        let headers = vec!["CONTENT-TYPE: application/json".to_string()];
+        assert!(!should_auto_add_json_content_type(&headers, None, &data));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_with_different_type() {
-        let query = make_query_args(&[
-            "query",
-            "-H",
-            "Content-Type: text/plain",
-            "-d",
-            r#"{"key":"value"}"#,
-            "http://example.com",
-        ]);
-        assert!(!should_auto_add_json_content_type(&query));
+        let headers = vec!["Content-Type: text/plain".to_string()];
+        let data = vec![r#"{"key":"value"}"#.to_string()];
+        assert!(!should_auto_add_json_content_type(&headers, None, &data));
     }
 
     #[test]
     fn test_should_auto_add_content_type_with_other_headers() {
-        let query = make_query_args(&[
-            "query",
-            "-H",
-            "Authorization: Bearer token",
-            "-d",
-            r#"{"key":"value"}"#,
-            "http://example.com",
-        ]);
-        assert!(should_auto_add_json_content_type(&query));
+        let headers = vec!["Authorization: Bearer token".to_string()];
+        let data = vec![r#"{"key":"value"}"#.to_string()];
+        assert!(should_auto_add_json_content_type(&headers, None, &data));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_for_plain_data() {
-        let query = make_query_args(&["query", "-d", "plain text", "http://example.com"]);
-        assert!(!should_auto_add_json_content_type(&query));
+        let headers: Vec<String> = vec![];
+        let data = vec!["plain text".to_string()];
+        assert!(!should_auto_add_json_content_type(&headers, None, &data));
     }
 
     #[test]
@@ -682,29 +698,30 @@ mod tests {
 
     #[test]
     fn test_multiple_data_values_joined_with_ampersand() {
-        let query = make_query_args(&["query", "-d", "a=1", "-d", "b=2", "http://example.com"]);
-        let (_method, body) = get_request_method_and_body(&query).unwrap();
+        let data = vec!["a=1".to_string(), "b=2".to_string()];
+        let (_method, body) = get_request_method_and_body(None, &data, None).unwrap();
         assert_eq!(body.unwrap(), b"a=1&b=2");
     }
 
     #[test]
     fn test_body_implies_post() {
-        let query = make_query_args(&["query", "-d", "foo", "http://example.com"]);
-        let (method, _body) = get_request_method_and_body(&query).unwrap();
+        let data = vec!["foo".to_string()];
+        let (method, _body) = get_request_method_and_body(None, &data, None).unwrap();
         assert_eq!(method, reqwest::Method::POST);
     }
 
     #[test]
     fn test_explicit_method_overrides_body_implied_post() {
-        let query = make_query_args(&["query", "-X", "PUT", "-d", "foo", "http://example.com"]);
-        let (method, _body) = get_request_method_and_body(&query).unwrap();
+        let data = vec!["foo".to_string()];
+        let (method, _body) = get_request_method_and_body(Some("PUT"), &data, None).unwrap();
         assert_eq!(method, reqwest::Method::PUT);
     }
 
     #[test]
     fn test_data_file_does_not_auto_add_json_content_type() {
-        let query = make_query_args(&["query", "-d", "@Cargo.toml", "http://example.com"]);
-        assert!(!should_auto_add_json_content_type(&query));
+        let headers: Vec<String> = vec![];
+        let data = vec!["@Cargo.toml".to_string()];
+        assert!(!should_auto_add_json_content_type(&headers, None, &data));
     }
 
     #[test]

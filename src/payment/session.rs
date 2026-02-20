@@ -159,7 +159,7 @@ async fn send_session_request(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
 ) -> Result<SessionResult> {
-    if ctx.request_ctx.cli.is_verbose() && ctx.request_ctx.cli.should_show_output() {
+    if ctx.request_ctx.log_enabled() {
         eprintln!("Sending request with session voucher...");
     }
 
@@ -295,7 +295,7 @@ async fn stream_sse_response(
     state: &mut SessionState,
     response: reqwest::Response,
 ) -> Result<()> {
-    let cli = &ctx.request_ctx.cli;
+    let runtime = &ctx.request_ctx.runtime;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut token_count: u64 = 0;
@@ -345,7 +345,7 @@ async fn stream_sse_response(
                 if let Some(ref auth) = pending_voucher_auth {
                     voucher_retry_count += 1;
                     if voucher_retry_count > MAX_VOUCHER_RETRIES {
-                        if cli.is_verbose() && cli.should_show_output() {
+                        if runtime.log_enabled() {
                             eprintln!(
                                 "[stream stall — voucher not accepted after {} retries]",
                                 MAX_VOUCHER_RETRIES
@@ -353,17 +353,17 @@ async fn stream_sse_response(
                         }
                         break;
                     }
-                    if cli.is_verbose() && cli.should_show_output() {
+                    if runtime.log_enabled() {
                         eprintln!(
                             "[re-posting voucher (retry {}/{})]",
                             voucher_retry_count, MAX_VOUCHER_RETRIES
                         );
                     }
-                    let verbose = cli.is_verbose() && cli.should_show_output();
+                    let verbose = runtime.log_enabled();
                     post_voucher(&voucher_client, ctx.url, auth, verbose);
                     continue;
                 }
-                if cli.is_verbose() && cli.should_show_output() {
+                if runtime.log_enabled() {
                     eprintln!("[stream timeout — no data for 30s]");
                 }
                 break;
@@ -418,7 +418,7 @@ async fn stream_sse_response(
                         // instead of a network round-trip per token.
                         let voucher_amount = if deposit > 0 { deposit } else { required };
 
-                        if cli.is_verbose() && cli.should_show_output() {
+                        if runtime.log_enabled() {
                             eprintln!(
                                 "[voucher top-up: required={} authorizing={}]",
                                 required, voucher_amount
@@ -435,7 +435,7 @@ async fn stream_sse_response(
                         let auth = mpp::format_authorization(&voucher)
                             .context("Failed to format voucher")?;
 
-                        let verbose = cli.is_verbose() && cli.should_show_output();
+                        let verbose = runtime.log_enabled();
                         post_voucher(&voucher_client, ctx.url, &auth, verbose);
 
                         // Track this voucher for retry if the server stalls
@@ -444,7 +444,7 @@ async fn stream_sse_response(
                     }
                     SseEvent::PaymentReceipt(receipt) => {
                         pending_voucher_auth = None;
-                        if cli.is_verbose() && cli.should_show_output() {
+                        if runtime.log_enabled() {
                             eprintln!();
                             eprintln!("Stream receipt:");
                             eprintln!("  Channel: {}", receipt.channel_id);
@@ -467,7 +467,7 @@ async fn stream_sse_response(
 
     writeln!(stdout)?;
 
-    if cli.is_verbose() && cli.should_show_output() {
+    if runtime.log_enabled() {
         eprintln!("Tokens streamed: {}", token_count);
         let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
         let symbol = ctx.token_symbol();
@@ -576,7 +576,7 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
 
     session_store::save_session(&record)?;
 
-    if ctx.request_ctx.cli.is_verbose() && ctx.request_ctx.cli.should_show_output() {
+    if ctx.request_ctx.log_enabled() {
         let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
         let symbol = ctx.token_symbol();
         eprintln!("Session persisted (cumulative: {cumulative_f64:.6} {symbol})");
@@ -651,7 +651,7 @@ pub async fn handle_session_request(
         .parse()
         .context("Invalid recipient address")?;
 
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+    if request_ctx.log_enabled() {
         eprintln!("Session challenge ID: {}", challenge.id);
         eprintln!("Payment method: {}", challenge.method);
         eprintln!("Network: {}", network_name);
@@ -663,7 +663,7 @@ pub async fn handle_session_request(
     }
 
     // Dry-run: print session parameters and exit without signing or transacting
-    if request_ctx.query.dry_run {
+    if request_ctx.runtime.dry_run {
         let network_enum = crate::network::Network::from_str(network_name)
             .unwrap_or(crate::network::Network::Tempo);
         let explorer = network_enum.info().explorer;
@@ -680,12 +680,12 @@ pub async fn handle_session_request(
         );
         println!(
             "Currency: {}",
-            crate::cli::output::format_address_link(&session_req.currency, explorer.as_ref())
+            crate::network::format_address_link(&session_req.currency, explorer.as_ref())
         );
         if let Some(ref recipient) = session_req.recipient {
             println!(
                 "Recipient: {}",
-                crate::cli::output::format_address_link(recipient, explorer.as_ref())
+                crate::network::format_address_link(recipient, explorer.as_ref())
             );
         }
         if let Some(ref deposit) = session_req.suggested_deposit {
@@ -735,7 +735,7 @@ pub async fn handle_session_request(
 
     if reuse {
         let record = existing.unwrap();
-        if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+        if request_ctx.log_enabled() {
             eprintln!("Reusing existing session for {}", origin);
             eprintln!("  Channel: {}", record.channel_id);
         }
@@ -773,7 +773,7 @@ pub async fn handle_session_request(
             }
             Err(e) => {
                 // If the server rejected us (stale session), delete and fall through
-                if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+                if request_ctx.log_enabled() {
                     eprintln!("Session reuse failed: {e}");
                     eprintln!("Opening new channel...");
                 }
@@ -783,7 +783,7 @@ pub async fn handle_session_request(
         }
     } else if let Some(ref record) = existing {
         // Expired or different payer — clean up
-        if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+        if request_ctx.log_enabled() {
             if record.is_expired() {
                 eprintln!("Existing session expired, opening new channel...");
             } else {
@@ -807,7 +807,7 @@ pub async fn handle_session_request(
         chain_id,
     );
 
-    if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+    if request_ctx.log_enabled() {
         eprintln!("Opening payment channel...");
         eprintln!("  Deposit: {} atomic units", deposit);
         eprintln!("  Channel: {:#x}", channel_id);
@@ -868,7 +868,7 @@ pub async fn handle_session_request(
     let open_response = if open_response.status_code == 410 {
         let body = open_response.body_string().unwrap_or_default();
         if body.contains("channel not funded") || body.contains("Channel Not Found") {
-            if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+            if request_ctx.log_enabled() {
                 eprintln!("Channel tx still confirming, waiting to retry...");
             }
             let delays = [2000, 3000, 5000];
@@ -919,7 +919,7 @@ pub async fn handle_session_request(
             let explorer = Network::from_str(network_name)
                 .ok()
                 .and_then(|n| n.info().explorer);
-            if request_ctx.cli.is_verbose() && request_ctx.cli.should_show_output() {
+            if request_ctx.log_enabled() {
                 if let Some(exp) = explorer.as_ref() {
                     let tx_url = exp.tx_url(&tx_ref);
                     eprintln!("Channel open tx: {}", tx_url);

@@ -214,10 +214,6 @@ pub enum SessionCommands {
 }
 
 impl QueryArgs {
-    pub fn parse_headers(&self) -> Vec<(String, String)> {
-        crate::http::parse_headers(&self.headers)
-    }
-
     pub fn get_timeout(&self) -> Option<u64> {
         self.max_time
     }
@@ -234,6 +230,7 @@ impl Cli {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub mod test_utils {
     use super::*;
     use clap::Parser;

@@ -227,7 +227,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Whoami | Commands::Balance => {
-            let config = load_config_with_overrides(&cli)?;
+            let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);

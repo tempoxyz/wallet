@@ -72,6 +72,21 @@ impl ExplorerConfig {
             self.address_path.replace("{addr}", addr)
         )
     }
+
+    /// Format an address as a clickable hyperlink (or plain text if no terminal support).
+    pub fn address_link(&self, address: &str) -> String {
+        let url = self.address_url(address);
+        crate::util::hyperlink(address, &url)
+    }
+}
+
+/// Format an address as a clickable hyperlink if an explorer is available.
+pub fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> String {
+    if let Some(exp) = explorer {
+        exp.address_link(address)
+    } else {
+        address.to_string()
+    }
 }
 
 // ==================== Network Types ====================
