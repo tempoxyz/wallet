@@ -14,7 +14,6 @@ use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::WalletManager;
 use anyhow::Context;
 use mpp::client::tempo::keychain::query_key_spending_limit;
-use mpp::client::tempo::query_token_balance;
 use mpp::format_u256_with_decimals;
 use serde::Serialize;
 
@@ -300,6 +299,25 @@ async fn query_spending_limit(
     }
 
     None
+}
+
+async fn query_token_balance(
+    provider: &impl alloy::providers::Provider,
+    token: Address,
+    account: Address,
+) -> anyhow::Result<U256> {
+    use alloy::sol;
+
+    sol! {
+        #[sol(rpc)]
+        interface ITIP20 {
+            function balanceOf(address account) external view returns (uint256);
+        }
+    }
+
+    let contract = ITIP20::new(token, provider);
+    let balance = contract.balanceOf(account).call().await?;
+    Ok(balance)
 }
 
 async fn query_all_balances(
