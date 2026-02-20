@@ -99,7 +99,9 @@ fn extract_origin(url: &str) -> String {
 
 /// Build the escrow open calls: approve + open.
 ///
-/// Delegates to `mpp::client::tempo::build_open_calls`.
+/// Constructs a 2-call sequence:
+/// 1. `approve(escrow_contract, deposit)` on the currency token
+/// 2. `IEscrow::open(payee, currency, deposit, salt, authorizedSigner)` on the escrow contract
 fn build_open_calls(
     currency: Address,
     escrow_contract: Address,
@@ -108,14 +110,49 @@ fn build_open_calls(
     salt: B256,
     authorized_signer: Address,
 ) -> Vec<tempo_primitives::transaction::Call> {
-    mpp::client::tempo::build_open_calls(
-        currency,
-        escrow_contract,
-        deposit,
-        payee,
-        salt,
-        authorized_signer,
-    )
+    use alloy::primitives::{Bytes, TxKind, U256};
+    use alloy::sol;
+    use alloy::sol_types::SolCall;
+    use tempo_primitives::transaction::Call;
+
+    sol! {
+        interface ITIP20 {
+            function approve(address spender, uint256 amount) external returns (bool);
+        }
+        interface IEscrow {
+            function open(
+                address payee,
+                address token,
+                uint128 deposit,
+                bytes32 salt,
+                address authorizedSigner
+            ) external;
+        }
+    }
+
+    let approve_data = Bytes::from(
+        ITIP20::approveCall {
+            spender: escrow_contract,
+            amount: U256::from(deposit),
+        }
+        .abi_encode(),
+    );
+    let open_data = Bytes::from(
+        IEscrow::openCall::new((payee, currency, deposit, salt, authorized_signer)).abi_encode(),
+    );
+
+    vec![
+        Call {
+            to: TxKind::Call(currency),
+            value: U256::ZERO,
+            input: approve_data,
+        },
+        Call {
+            to: TxKind::Call(escrow_contract),
+            value: U256::ZERO,
+            input: open_data,
+        },
+    ]
 }
 
 /// Send the actual request with a voucher and handle the response.
