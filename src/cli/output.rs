@@ -1,130 +1,37 @@
-//! Output formatting, terminal hyperlinks, and display utilities for the CLI.
+//! Output formatting and display utilities for the CLI.
 
-use std::sync::OnceLock;
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::network::ExplorerConfig;
-use crate::{config::validate_path, http::HttpResponse};
+use crate::config::validate_path;
+use crate::http::HttpResponse;
 
-use super::{Cli, OutputFormat, QueryArgs};
+use super::OutputFormat;
 
-// ---------------------------------------------------------------------------
-// Terminal hyperlink support (OSC 8)
-// ---------------------------------------------------------------------------
+/// Output/display options extracted from CLI arguments.
+///
+/// Used by response formatting functions; kept separate from
+/// `RequestRuntime` to avoid coupling HTTP/payment layers to
+/// presentation concerns.
+#[derive(Clone, Debug)]
+pub struct OutputOptions {
+    pub output_format: OutputFormat,
+    pub include_headers: bool,
+    pub output_file: Option<String>,
+    pub verbose: bool,
+    pub show_output: bool,
+}
 
-/// Format text as a clickable hyperlink using the OSC 8 protocol.
-///
-/// In terminals that support OSC 8 hyperlinks (iTerm2, WezTerm, VSCode, Ghostty, etc.),
-/// the text will be clickable and open the URL when clicked.
-///
-/// In terminals that don't support hyperlinks, the text is returned unchanged.
-///
-/// # Examples
-///
-/// ```ignore
-/// let link = hyperlink("View transaction", "https://etherscan.io/tx/0x123");
-/// // In supported terminals: "View transaction" is clickable
-/// // In unsupported terminals: "View transaction"
-/// ```
-pub fn hyperlink(text: &str, url: &str) -> String {
-    if supports_hyperlinks() {
-        format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text)
-    } else {
-        text.to_string()
+impl OutputOptions {
+    pub fn log_enabled(&self) -> bool {
+        self.verbose && self.show_output
     }
 }
 
-/// Check if the current terminal supports OSC 8 hyperlinks.
-///
-/// This function caches its result for performance, only checking once per process.
-///
-/// Detection is based on:
-/// - FORCE_HYPERLINKS=1 environment variable (force enable)
-/// - CI environment variable (disable in CI)
-/// - Known terminal identifiers (TERM_PROGRAM, WT_SESSION, etc.)
-pub fn supports_hyperlinks() -> bool {
-    static SUPPORTS: OnceLock<bool> = OnceLock::new();
-    *SUPPORTS.get_or_init(detect_hyperlink_support)
-}
-
-/// Detect hyperlink support based on environment variables and terminal type.
-fn detect_hyperlink_support() -> bool {
-    use std::env;
-
-    // Force enable via environment variable
-    if env::var("FORCE_HYPERLINKS").is_ok_and(|v| v == "1") {
-        return true;
-    }
-
-    // Disable in CI environments (output is typically not interactive)
-    if env::var("CI").is_ok() {
-        return false;
-    }
-
-    // Check if stderr is a terminal
-    if !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
-        return false;
-    }
-
-    // Environment variables that indicate a terminal with OSC 8 support (presence check)
-    const SUPPORTED_TERMINAL_VARS: &[&str] = &[
-        "ITERM_SESSION_ID",      // iTerm2
-        "WT_SESSION",            // Windows Terminal
-        "WEZTERM_PANE",          // WezTerm
-        "GHOSTTY_RESOURCES_DIR", // Ghostty
-        "KITTY_WINDOW_ID",       // Kitty
-        "ALACRITTY_SOCKET",      // Alacritty (supports OSC 8 since v0.11)
-        "KONSOLE_VERSION",       // Konsole
-    ];
-
-    // Check presence-based env vars
-    if SUPPORTED_TERMINAL_VARS
-        .iter()
-        .any(|var| env::var(var).is_ok())
-    {
-        return true;
-    }
-
-    // TERM_PROGRAM values that indicate OSC 8 support
-    const SUPPORTED_TERM_PROGRAMS: &[&str] = &["vscode", "Hyper"];
-
-    if let Ok(term_program) = env::var("TERM_PROGRAM") {
-        if SUPPORTED_TERM_PROGRAMS.contains(&term_program.as_str()) {
-            return true;
-        }
-    }
-
-    // GNOME Terminal (VTE-based, version 0.50+)
-    if let Ok(vte_version) = env::var("VTE_VERSION") {
-        if vte_version
-            .parse::<u32>()
-            .map(|v| v >= 5000)
-            .unwrap_or(false)
-        {
-            return true;
-        }
-    }
-
-    // Default to false for unknown terminals
-    false
-}
-
-// ---------------------------------------------------------------------------
-// Address formatting
-// ---------------------------------------------------------------------------
-
-/// Format an address as a clickable hyperlink if explorer is available.
-pub fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> String {
-    if let Some(exp) = explorer {
-        let url = exp.address_url(address);
-        hyperlink(address, &url)
-    } else {
-        address.to_string()
-    }
-}
+// Re-export hyperlink from util for use by query.rs
+pub use crate::util::hyperlink;
 
 // ---------------------------------------------------------------------------
 // Time utilities
@@ -162,18 +69,18 @@ pub fn format_expiry(expiry: u64) -> String {
 // ---------------------------------------------------------------------------
 
 /// Handle a regular (non-402) HTTP response
-pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpResponse) -> Result<()> {
-    match cli.output_format {
+pub fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+    match opts.output_format {
         OutputFormat::Json => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
                 let output = serde_json::to_string_pretty(&json_value)?;
-                write_output_to(query.output.as_deref(), cli, output)?;
+                write_output_to(opts, output)?;
             } else {
-                output_response_body(query.output.as_deref(), cli, &response.body)?;
+                output_response_body(opts, &response.body)?;
             }
         }
         OutputFormat::Text => {
-            if query.include_headers {
+            if opts.include_headers {
                 println!("HTTP {}", response.status_code);
                 for (name, value) in &response.headers {
                     println!("{name}: {value}");
@@ -181,7 +88,7 @@ pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpRespo
                 println!();
             }
 
-            output_response_body(query.output.as_deref(), cli, &response.body)?;
+            output_response_body(opts, &response.body)?;
         }
     }
 
@@ -192,8 +99,8 @@ pub fn handle_regular_response(cli: &Cli, query: &QueryArgs, response: HttpRespo
 ///
 /// Writes exact bytes with no trailing newline, matching curl-like semantics.
 /// This preserves binary payloads and strict byte-stream consumers.
-pub fn output_response_body(output_file: Option<&str>, cli: &Cli, body: &[u8]) -> Result<()> {
-    if let Some(output_file) = output_file {
+pub fn output_response_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
+    if let Some(ref output_file) = opts.output_file {
         if output_file == "-" {
             use std::io::Write;
             std::io::stdout()
@@ -202,7 +109,7 @@ pub fn output_response_body(output_file: Option<&str>, cli: &Cli, body: &[u8]) -
         } else {
             validate_path(output_file, true).context("Invalid output path")?;
             std::fs::write(output_file, body).context("Failed to write output file")?;
-            if cli.is_verbose() && cli.should_show_output() {
+            if opts.log_enabled() {
                 eprintln!("Saved to: {output_file}");
             }
         }
@@ -216,19 +123,15 @@ pub fn output_response_body(output_file: Option<&str>, cli: &Cli, body: &[u8]) -
 }
 
 /// Write string output to a specific file or stdout
-pub fn write_output_to(
-    output_file: Option<&str>,
-    cli: &Cli,
-    content: impl AsRef<str>,
-) -> Result<()> {
+pub fn write_output_to(opts: &OutputOptions, content: impl AsRef<str>) -> Result<()> {
     let content = content.as_ref();
-    if let Some(output_file) = output_file {
+    if let Some(ref output_file) = opts.output_file {
         if output_file == "-" {
             println!("{content}");
         } else {
             validate_path(output_file, true).context("Invalid output path")?;
             std::fs::write(output_file, content).context("Failed to write output file")?;
-            if cli.is_verbose() && cli.should_show_output() {
+            if opts.log_enabled() {
                 eprintln!("Saved to: {output_file}");
             }
         }

@@ -11,15 +11,21 @@ This is `presto` - a pure binary crate providing a command-line HTTP client with
 
 Single binary crate with source organized by module directories:
 - `src/main.rs` - CLI entry point and module declarations
-- `src/request.rs` - Request orchestration (query → 402 → payment → response)
-- `src/cli/` - CLI argument parsing and command implementations
-- `src/config/` - Configuration file handling
-- `src/http/` - HTTP client and request handling
-- `src/network/` - Network definitions and RPC
-- `src/payment/` - Payment protocol implementations
+- `src/cli/` - CLI argument parsing and all command implementations
+  - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
+  - `query.rs` - Query command (request → 402 → payment → response)
+  - `auth.rs` - Login, logout, whoami commands
+  - `session.rs` - Session list/close commands
+  - `output.rs` - Response display, `OutputOptions`
+  - `errors.rs` - User-facing error formatting
+  - `exit_codes.rs` - Process exit codes
+- `src/http.rs` - HTTP client, `RequestContext`, `RequestRuntime`
+- `src/config.rs` - Configuration file handling
+- `src/network.rs` - Network definitions, explorer config, RPC
+- `src/payment/` - Payment protocol implementations (charge + session)
 - `src/wallet/` - Wallet management and signing
 - `src/analytics/` - Opt-out telemetry (PostHog)
-- `src/util/` - Shared utilities (atomic writes, constants)
+- `src/util.rs` - Shared utilities (atomic writes, terminal hyperlinks)
 - `src/error.rs` - Error types
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
@@ -110,7 +116,7 @@ pub enum MyError {
 
 - Each module should have a clear single responsibility
 - Use `mod.rs` for modules with submodules
-- CLI commands go in `src/cli/commands/` (e.g., `balance.rs`, `login.rs`, `session.rs`)
+- CLI commands go in `src/cli/` (e.g., `query.rs`, `auth.rs`, `session.rs`)
 
 ### Testing
 
@@ -153,7 +159,7 @@ pub struct Cli {
 ### Adding New Features
 
 1. Add core logic in appropriate module under `src/`
-2. Add CLI flags in `src/cli/args.rs`, implement commands in `src/cli/commands/`
+2. Add CLI flags in `src/cli/args.rs`, implement commands in `src/cli/`
 3. Add tests: unit tests in source files, integration tests in `tests/`
 
 ## Dependencies

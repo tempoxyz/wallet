@@ -14,7 +14,6 @@ mod error;
 mod http;
 mod network;
 mod payment;
-mod request;
 mod util;
 mod wallet;
 
@@ -150,7 +149,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
     }
 
     let result = match command {
-        Commands::Query(query) => request::make_request(cli, *query, analytics.clone()).await,
+        Commands::Query(query) => cli::query::make_request(cli, *query, analytics.clone()).await,
 
         Commands::Login => {
             let network = cli.network.as_deref();
@@ -227,7 +226,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Whoami | Commands::Balance => {
-            let config = load_config_with_overrides(&cli)?;
+            let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);

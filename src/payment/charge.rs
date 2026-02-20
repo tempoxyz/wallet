@@ -1,4 +1,4 @@
-//! Machine Payments Protocol (MPP) handling for the CLI
+//! MPP charge payment handling.
 //!
 //! This module handles the MPP protocol (https://mpp.sh) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
@@ -7,11 +7,9 @@ use anyhow::{Context, Result};
 
 use mpp::{parse_www_authenticate, ChargeRequest};
 
-use crate::cli::output::format_address_link;
-use crate::cli::Cli;
 use crate::config::Config;
 use crate::error::{classify_payment_error, map_mpp_validation_error};
-use crate::http::HttpResponse;
+use crate::http::{HttpResponse, RequestRuntime};
 use crate::network::Network;
 
 /// Prepare an MPP charge payment from a 402 response.
@@ -21,7 +19,7 @@ use crate::network::Network;
 /// for replaying the request with the header (or skipping for dry-run).
 pub async fn prepare_charge(
     config: &Config,
-    cli: &Cli,
+    runtime: &RequestRuntime,
     initial_response: &HttpResponse,
 ) -> Result<String> {
     let www_auth = initial_response
@@ -37,7 +35,7 @@ pub async fn prepare_charge(
         .context("Failed to parse charge request from challenge")?;
     let network_enum = network_from_charge_request(&charge_req)?;
 
-    if cli.is_verbose() && cli.should_show_output() {
+    if runtime.log_enabled() {
         let explorer = network_enum.info().explorer;
         eprintln!("Challenge ID: {}", challenge.id);
         eprintln!("Payment method: {}", challenge.method);
@@ -48,12 +46,12 @@ pub async fn prepare_charge(
         eprintln!("Amount: {} (atomic units)", charge_req.amount);
         eprintln!(
             "Currency: {}",
-            format_address_link(&charge_req.currency, explorer.as_ref())
+            crate::network::format_address_link(&charge_req.currency, explorer.as_ref())
         );
         if let Some(ref recipient) = charge_req.recipient {
             eprintln!(
                 "Recipient: {}",
-                format_address_link(recipient, explorer.as_ref())
+                crate::network::format_address_link(recipient, explorer.as_ref())
             );
         }
     }
@@ -63,7 +61,7 @@ pub async fn prepare_charge(
         .map_err(|e| map_mpp_validation_error(e, &challenge))?;
 
     // Validate --network constraint if set
-    if let Some(ref networks) = cli.network {
+    if let Some(ref networks) = runtime.network {
         let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
         let network_str = network_enum.as_str();
         anyhow::ensure!(
@@ -74,7 +72,7 @@ pub async fn prepare_charge(
         );
     }
 
-    if cli.is_verbose() && cli.should_show_output() {
+    if runtime.log_enabled() {
         eprintln!("Creating payment credential...");
     }
 
@@ -99,7 +97,7 @@ pub async fn prepare_charge(
     let auth_header =
         mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
 
-    if cli.is_verbose() && cli.should_show_output() {
+    if runtime.log_enabled() {
         eprintln!("Authorization header length: {} bytes", auth_header.len());
     }
 

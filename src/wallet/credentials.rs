@@ -27,7 +27,7 @@ impl NetworkKey {
     pub fn address(&self) -> String {
         match self.parse_private_key_bytes() {
             Some(bytes) => PrivateKeySigner::from_slice(&bytes)
-                .map(|s| format!("{:?}", s.address()))
+                .map(|s| format!("{}", s.address()))
                 .unwrap_or_else(|_| "Invalid key".to_string()),
             None => "Invalid key".to_string(),
         }
@@ -44,27 +44,13 @@ impl NetworkKey {
     /// Parse the private key bytes from the stored string.
     fn parse_private_key_bytes(&self) -> Option<Vec<u8>> {
         let key = self.private_key.trim();
-
-        // Try comma-separated bytes first (Uint8Array serialization)
-        if key.contains(',') {
-            let bytes: std::result::Result<Vec<u8>, _> =
-                key.split(',').map(|s| s.trim().parse::<u8>()).collect();
-            if let Ok(b) = bytes {
-                if b.len() == 32 {
-                    return Some(b);
-                }
-            }
-        }
-
-        // Try hex format
         let key_hex = key.strip_prefix("0x").unwrap_or(key);
-        if let Ok(bytes) = hex::decode(key_hex) {
-            if bytes.len() == 32 {
-                return Some(bytes);
-            }
+        let bytes = hex::decode(key_hex).ok()?;
+        if bytes.len() == 32 {
+            Some(bytes)
+        } else {
+            None
         }
-
-        None
     }
 }
 
@@ -277,7 +263,7 @@ mod tests {
             private_key: TEST_PRIVATE_KEY.to_string(),
             ..Default::default()
         };
-        assert_eq!(key.address().to_lowercase(), TEST_ADDRESS.to_lowercase());
+        assert_eq!(key.address(), TEST_ADDRESS);
     }
 
     #[test]
@@ -287,7 +273,7 @@ mod tests {
             private_key: key_hex.to_string(),
             ..Default::default()
         };
-        assert_eq!(key.address().to_lowercase(), TEST_ADDRESS.to_lowercase());
+        assert_eq!(key.address(), TEST_ADDRESS);
     }
 
     #[test]
