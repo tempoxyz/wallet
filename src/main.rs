@@ -173,7 +173,12 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     }
                     Err(e) => {
                         let err_str = e.to_string();
-                        if err_str.contains("timed out") {
+                        let is_login_timeout = err_str.contains("timed out")
+                            || e.chain()
+                                .find_map(|cause| cause.downcast_ref::<error::PrestoError>())
+                                .is_some_and(|pe| matches!(pe, error::PrestoError::LoginExpired));
+
+                        if is_login_timeout {
                             a.track(
                                 analytics::Event::LoginTimeout,
                                 analytics::LoginTimeoutPayload { network: net },

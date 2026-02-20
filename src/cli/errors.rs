@@ -54,6 +54,8 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
 
         PrestoError::UnknownNetwork(_) => Some("Supported networks: tempo, tempo-moderato.".into()),
 
+        PrestoError::LoginExpired => None,
+
         PrestoError::Http(msg) => {
             if msg.starts_with("402") {
                 Some("Run ' tempo-walletlogin' to set up your wallet.".into())
@@ -441,5 +443,16 @@ mod tests {
         let suggestion = get_suggestion(&err);
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("--timeout"));
+    }
+
+    #[test]
+    fn test_login_expired_format() {
+        let anyhow_err: anyhow::Error = PrestoError::LoginExpired.into();
+        let output = format_error_with_suggestion(&anyhow_err);
+
+        assert_eq!(
+            output,
+            "Error: Login expired. Use  tempo-walletlogin to try again."
+        );
     }
 }

@@ -92,8 +92,7 @@ impl WalletManager {
             "secp256k1",
             &code_challenge,
         )
-        .await
-        .map_err(|e| PrestoError::Http(format!("{}", e)))?;
+        .await?;
 
         let code = &device_code_resp.code;
 
@@ -148,14 +147,15 @@ impl WalletManager {
 
         let callback = loop {
             if wait_start.elapsed() >= timeout {
-                return Err(PrestoError::Http("Authentication timed out".to_string()));
+                return Err(PrestoError::LoginExpired);
             }
 
-            let poll_resp = poll_device_code(&client, &auth_base_url, code, &code_verifier)
-                .await
-                .map_err(|e| PrestoError::Http(format!("{}", e)))?;
+            let poll_resp = poll_device_code(&client, &auth_base_url, code, &code_verifier).await?;
 
             if let Some(err) = &poll_resp.error {
+                if err.to_lowercase().contains("expired") {
+                    return Err(PrestoError::LoginExpired);
+                }
                 return Err(PrestoError::Http(err.clone()));
             }
 
@@ -291,7 +291,7 @@ async fn create_device_code(
     pub_key: &str,
     key_type: &str,
     code_challenge: &str,
-) -> anyhow::Result<DeviceCodeResponse> {
+) -> Result<DeviceCodeResponse> {
     let url = format!("{}/cli-auth/device-code", base_url);
     let resp = client
         .post(&url)
@@ -310,13 +310,12 @@ async fn create_device_code(
         return Err(PrestoError::Http(format!(
             "Device code request failed ({}): {}",
             status, body
-        ))
-        .into());
+        )));
     }
 
-    resp.json::<DeviceCodeResponse>().await.map_err(|e| {
-        PrestoError::Http(format!("Failed to parse device code response: {}", e)).into()
-    })
+    resp.json::<DeviceCodeResponse>()
+        .await
+        .map_err(|e| PrestoError::Http(format!("Failed to parse device code response: {}", e)))
 }
 
 async fn poll_device_code(
@@ -324,7 +323,7 @@ async fn poll_device_code(
     base_url: &str,
     code: &str,
     code_verifier: &str,
-) -> anyhow::Result<PollResponse> {
+) -> Result<PollResponse> {
     let url = format!("{}/cli-auth/poll/{}", base_url, code);
     let resp = client
         .post(&url)
@@ -336,20 +335,21 @@ async fn poll_device_code(
         .map_err(|e| PrestoError::Http(format!("Failed to poll device code: {}", e)))?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err(PrestoError::Http("Device code expired or not found".to_string()).into());
+        return Err(PrestoError::LoginExpired);
     }
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(
-            PrestoError::Http(format!("Poll request failed ({}): {}", status, body)).into(),
-        );
+        return Err(PrestoError::Http(format!(
+            "Poll request failed ({}): {}",
+            status, body
+        )));
     }
 
     resp.json::<PollResponse>()
         .await
-        .map_err(|e| PrestoError::Http(format!("Failed to parse poll response: {}", e)).into())
+        .map_err(|e| PrestoError::Http(format!("Failed to parse poll response: {}", e)))
 }
 
 // ==================== PKCE ====================

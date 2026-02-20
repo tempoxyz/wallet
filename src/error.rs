@@ -83,6 +83,10 @@ pub enum PrestoError {
     #[error("Access key is not provisioned on-chain. Run ' tempo-walletlogin' to set up your key.")]
     AccessKeyNotProvisioned,
 
+    /// Browser-based login expired (device code expired or callback window timed out)
+    #[error("Login expired. Use  tempo-walletlogin to try again.")]
+    LoginExpired,
+
     /// Access key spending limit exceeded on-chain
     #[error("Spending limit exceeded: limit is {limit} {token}, need {required} {token}")]
     SpendingLimitExceeded {
