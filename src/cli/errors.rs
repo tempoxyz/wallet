@@ -56,7 +56,7 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
 
         PrestoError::Http(msg) => {
             if msg.starts_with("402") {
-                Some("Ensure you have a wallet configured with ' tempo-walletlogin'.".into())
+                Some("Run ' tempo-walletlogin' to set up your wallet.".into())
             } else if msg.starts_with("401") || msg.starts_with("403") {
                 Some("Check your credentials.".into())
             } else if msg.starts_with("404") {
@@ -333,7 +333,7 @@ mod tests {
         assert_error_format(
             PrestoError::Http("402 Payment Required".into()),
             "HTTP error: 402 Payment Required",
-            "Ensure you have a wallet configured with ' tempo-walletlogin'.",
+            "Run ' tempo-walletlogin' to set up your wallet.",
         );
     }
 

@@ -36,24 +36,13 @@ pub async fn prepare_charge(
     let network_enum = network_from_charge_request(&charge_req)?;
 
     if runtime.log_enabled() {
-        let explorer = network_enum.info().explorer;
-        eprintln!("Challenge ID: {}", challenge.id);
-        eprintln!("Payment method: {}", challenge.method);
-        eprintln!("Payment intent: {}", challenge.intent);
-        if let Some(ref expires) = challenge.expires {
-            eprintln!("Expires: {}", expires);
-        }
-        eprintln!("Amount: {} (atomic units)", charge_req.amount);
-        eprintln!(
-            "Currency: {}",
-            crate::network::format_address_link(&charge_req.currency, explorer.as_ref())
-        );
-        if let Some(ref recipient) = charge_req.recipient {
-            eprintln!(
-                "Recipient: {}",
-                crate::network::format_address_link(recipient, explorer.as_ref())
-            );
-        }
+        let token_config = network_enum.token_config_by_address(&charge_req.currency);
+        let symbol = token_config.map(|t| t.symbol).unwrap_or("tokens");
+        let decimals = token_config.map(|t| t.decimals).unwrap_or(6);
+        let amount: u128 = charge_req.amount.parse().unwrap_or(0);
+        let amount_display = crate::cli::query::format_token_amount(amount, symbol, decimals);
+        eprintln!("Network: {}", network_enum.as_str());
+        eprintln!("Amount: {}", amount_display);
     }
 
     challenge
