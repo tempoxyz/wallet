@@ -1,29 +1,33 @@
 //! Signer management for loading wallets from Tempo wallet credentials
 //!
-//! Provides functionality for loading signers from Tempo passkey wallets.
-//!
-//! Wallet source: Tempo wallet credentials (access key)
+//! Provides [`load_wallet_signer`] — loads credentials, parses the wallet
+//! address, resolves the signing mode (direct or keychain), and returns
+//! a ready-to-use [`WalletSigner`].
+
+use alloy::primitives::Address;
+use alloy::signers::local::PrivateKeySigner;
+use std::str::FromStr;
 
 use crate::error::{PrestoError, Result};
 use crate::wallet::credentials::WalletCredentials;
-use alloy::signers::local::PrivateKeySigner;
+use mpp::client::tempo::signing::TempoSigningMode;
 
-/// Result of loading a signer with wallet priority.
-#[derive(Debug)]
-pub struct SignerWithContext {
+/// A loaded wallet signer ready for transaction signing.
+///
+/// Bundles the private key signer, the resolved `TempoSigningMode`
+/// (direct or keychain), and the effective `from` address.
+pub(crate) struct WalletSigner {
     pub signer: PrivateKeySigner,
-    /// The smart wallet address if using keychain signing (tempo wallet).
-    pub wallet_address: Option<String>,
-    /// Hex-encoded key authorization for this network.
-    pub key_authorization: Option<String>,
-    /// Whether the key is already provisioned on-chain for this network.
-    pub provisioned: bool,
+    pub signing_mode: TempoSigningMode,
+    pub from: Address,
 }
 
-/// Load a signer from Tempo wallet credentials for a specific network.
+/// Load wallet credentials for a network and resolve the signing mode.
 ///
-/// Returns the signer along with the wallet address for keychain signing.
-pub fn load_signer_for_network(network: &str) -> Result<SignerWithContext> {
+/// Loads the access key from persisted credentials, parses the wallet
+/// address, and builds a `TempoSigningMode` (direct EOA or keychain
+/// with optional key authorization).
+pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
     let creds = WalletCredentials::load()
         .map_err(|_| PrestoError::ConfigMissing("No wallet configured.".to_string()))?;
 
@@ -46,10 +50,31 @@ pub fn load_signer_for_network(network: &str) -> Result<SignerWithContext> {
         )
     })?;
 
-    Ok(SignerWithContext {
+    let wallet_address = Address::from_str(&creds.account_address)
+        .map_err(|e| PrestoError::InvalidConfig(format!("Invalid wallet address: {}", e)))?;
+
+    let local_auth = network_key
+        .key_authorization
+        .as_deref()
+        .and_then(crate::wallet::decode_key_authorization);
+
+    // Include key authorization only if not yet provisioned on-chain
+    let key_authorization = if !network_key.provisioned {
+        local_auth.map(Box::new)
+    } else {
+        None
+    };
+
+    let signing_mode = TempoSigningMode::Keychain {
+        wallet: wallet_address,
+        key_authorization,
+    };
+
+    let from = signing_mode.from_address(signer.address());
+
+    Ok(WalletSigner {
         signer,
-        wallet_address: Some(creds.account_address.clone()),
-        key_authorization: network_key.key_authorization.clone(),
-        provisioned: network_key.provisioned,
+        signing_mode,
+        from,
     })
 }

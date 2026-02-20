@@ -3331,7 +3331,7 @@ dependencies = [
 [[package]]
 name = "mpp"
 version = "0.4.0"
-source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#65d7027ea625e8208ca735d3ee9635e10691b520"
+source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#3d945a29cf9ac1b743b79ea39a7a9cea493faf23"
 dependencies = [
  "alloy",
  "alloy-signer-local",
@@ -3946,6 +3946,7 @@ dependencies = [
  "dirs",
  "fs2",
  "futures",
+ "getrandom 0.2.17",
  "hex",
  "hostname",
  "mpp",

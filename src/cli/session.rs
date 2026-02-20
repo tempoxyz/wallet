@@ -3,9 +3,9 @@
 use anyhow::Result;
 
 use crate::network::Network;
-use crate::payment::money::format_u256_with_decimals;
 use crate::payment::session::close_session_from_record;
 use crate::payment::session_store;
+use crate::util::format_u256_with_decimals;
 
 /// List all active payment sessions.
 pub fn list_sessions() -> Result<()> {
@@ -28,8 +28,8 @@ pub fn list_sessions() -> Result<()> {
             .parse::<Network>()
             .ok()
             .and_then(|n| n.token_config_by_address(&session.currency));
-        let symbol = token_config.map(|t| t.currency.symbol).unwrap_or("tokens");
-        let decimals = token_config.map(|t| t.currency.decimals).unwrap_or(6);
+        let symbol = token_config.map(|t| t.symbol).unwrap_or("tokens");
+        let decimals = token_config.map(|t| t.decimals).unwrap_or(6);
 
         let cumulative = format_u256_with_decimals(
             alloy::primitives::U256::from(session.cumulative_amount_u128().unwrap_or(0)),

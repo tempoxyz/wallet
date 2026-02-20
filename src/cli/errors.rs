@@ -115,9 +115,6 @@ fn get_presto_error_suggestion(err: &PrestoError) -> Option<String> {
         PrestoError::UnsupportedToken(_) => {
             Some("This token is not supported. Check the server's accepted currencies.".into())
         }
-        PrestoError::UnsupportedHttpMethod(_) => {
-            Some("Use a supported HTTP method (GET, POST, PUT, PATCH, DELETE).".into())
-        }
         PrestoError::InvalidAddress(_) => {
             Some("Provide a valid EVM address (0x + 40 hex chars).".into())
         }
