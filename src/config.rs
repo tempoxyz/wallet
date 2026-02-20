@@ -1,9 +1,44 @@
 //! Configuration management for presto.
 
+use crate::cli::Cli;
 use crate::error::{PrestoError, Result};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+// ---------------------------------------------------------------------------
+// Path validation
+// ---------------------------------------------------------------------------
+
+/// Validates that a path doesn't contain directory traversal sequences.
+/// Returns the validated path or an error if traversal is detected.
+pub fn validate_path(
+    path: &str,
+    allow_absolute: bool,
+) -> std::result::Result<PathBuf, PrestoError> {
+    let path = PathBuf::from(path);
+
+    // Check for parent directory components (..)
+    if path.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err(PrestoError::ConfigMissing(
+            "Path traversal (..) not allowed".to_string(),
+        ));
+    }
+
+    // Optionally reject absolute paths
+    if !allow_absolute && path.is_absolute() {
+        return Err(PrestoError::ConfigMissing(
+            "Absolute paths not allowed for this option".to_string(),
+        ));
+    }
+
+    Ok(path)
+}
+
+// ---------------------------------------------------------------------------
+// Config struct + impl
+// ---------------------------------------------------------------------------
 
 /// Application configuration (optional RPC overrides).
 ///
@@ -59,7 +94,7 @@ impl Config {
 
     /// Get the default config file path (~/.config/presto/config.toml)
     pub fn default_config_path() -> Result<PathBuf> {
-        crate::util::constants::default_config_path().ok_or(PrestoError::NoConfigDir)
+        crate::util::default_config_path().ok_or(PrestoError::NoConfigDir)
     }
 
     /// Save config to the default location.
@@ -78,7 +113,7 @@ impl Config {
              # \"tempo-moderato\" = \"https://...\"\n\n\
              {body}"
         );
-        crate::util::atomic_write::atomic_write(&config_path, &content, 0o600)?;
+        crate::util::atomic_write(&config_path, &content, 0o600)?;
 
         Ok(())
     }
@@ -127,9 +162,101 @@ impl Config {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Load functions
+// ---------------------------------------------------------------------------
+
+/// Load configuration from CLI arguments or default location.
+pub fn load_config(config_path: Option<impl AsRef<Path>>) -> anyhow::Result<Config> {
+    if let Some(ref path) = config_path {
+        let path_str = path.as_ref().to_string_lossy();
+        validate_path(&path_str, true).context("Invalid config path")?;
+    }
+    Config::load_from(config_path).context("Failed to load configuration")
+}
+
+pub fn load_config_with_overrides(cli: &Cli) -> anyhow::Result<Config> {
+    let mut config = load_config(cli.config.as_ref())?;
+
+    // Apply PRESTO_RPC_URL env var as a global RPC override.
+    // This is separate from clap's env handling on QueryArgs because it
+    // needs to apply to all commands (balance, whoami, etc.), not just queries.
+    if let Ok(rpc_url) = std::env::var("PRESTO_RPC_URL") {
+        config.set_rpc_override(rpc_url);
+    }
+
+    Ok(config)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- path_validation tests --
+
+    #[test]
+    fn test_valid_relative_path() {
+        let result = validate_path("output.txt", false);
+        assert!(result.is_ok());
+        assert_eq!(
+            result.expect("Valid path should be returned"),
+            PathBuf::from("output.txt")
+        );
+    }
+
+    #[test]
+    fn test_valid_nested_relative_path() {
+        let result = validate_path("dir/subdir/file.txt", false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_path_traversal_rejected() {
+        let result = validate_path("../etc/passwd", false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Path traversal"));
+    }
+
+    #[test]
+    fn test_nested_path_traversal_rejected() {
+        let result = validate_path("foo/../bar/../../etc/passwd", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_absolute_path_rejected_when_not_allowed() {
+        let result = validate_path("/etc/passwd", false);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Absolute paths not allowed"));
+    }
+
+    #[test]
+    fn test_absolute_path_allowed_when_specified() {
+        let result = validate_path("/home/user/config.toml", true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_absolute_path_with_traversal_rejected() {
+        let result = validate_path("/home/user/../etc/passwd", true);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Path traversal"));
+    }
+
+    #[test]
+    fn test_current_dir_allowed() {
+        let result = validate_path("./file.txt", false);
+        assert!(result.is_ok());
+    }
+
+    // -- Config tests --
 
     #[derive(Debug, Clone, Default)]
     struct ConfigBuilder {
@@ -342,7 +469,7 @@ mod tests {
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");
-        crate::util::atomic_write::atomic_write(&path, &content, 0o600).expect("write");
+        crate::util::atomic_write(&path, &content, 0o600).expect("write");
 
         let loaded = Config::load_from(Some(&path)).expect("load");
         assert_eq!(loaded.tempo_rpc, config.tempo_rpc);

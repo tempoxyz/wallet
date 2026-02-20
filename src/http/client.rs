@@ -4,97 +4,8 @@
 
 use crate::error::Result;
 use std::collections::HashMap;
-use std::fmt;
-use std::str::FromStr;
 use std::time::Duration;
 use tracing::warn;
-
-/// HTTP request methods.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub enum HttpMethod {
-    #[default]
-    Get,
-    Post,
-    Put,
-    Patch,
-    Delete,
-    Head,
-    Options,
-    /// Custom HTTP method (e.g., "CONNECT", "TRACE", or non-standard methods)
-    Custom(String),
-}
-
-impl HttpMethod {
-    /// Convert to a reqwest::Method.
-    pub fn to_reqwest(&self) -> std::result::Result<reqwest::Method, crate::error::PrestoError> {
-        match self {
-            HttpMethod::Get => Ok(reqwest::Method::GET),
-            HttpMethod::Post => Ok(reqwest::Method::POST),
-            HttpMethod::Put => Ok(reqwest::Method::PUT),
-            HttpMethod::Patch => Ok(reqwest::Method::PATCH),
-            HttpMethod::Delete => Ok(reqwest::Method::DELETE),
-            HttpMethod::Head => Ok(reqwest::Method::HEAD),
-            HttpMethod::Options => Ok(reqwest::Method::OPTIONS),
-            HttpMethod::Custom(s) => reqwest::Method::from_bytes(s.as_bytes())
-                .map_err(|e| crate::error::PrestoError::UnsupportedHttpMethod(e.to_string())),
-        }
-    }
-
-    /// Returns the method as an uppercase string.
-    pub fn as_str(&self) -> &str {
-        match self {
-            HttpMethod::Get => "GET",
-            HttpMethod::Post => "POST",
-            HttpMethod::Put => "PUT",
-            HttpMethod::Patch => "PATCH",
-            HttpMethod::Delete => "DELETE",
-            HttpMethod::Head => "HEAD",
-            HttpMethod::Options => "OPTIONS",
-            HttpMethod::Custom(s) => s,
-        }
-    }
-}
-
-impl fmt::Display for HttpMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl FromStr for HttpMethod {
-    type Err = std::convert::Infallible;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s.to_uppercase().as_str() {
-            "GET" => HttpMethod::Get,
-            "POST" => HttpMethod::Post,
-            "PUT" => HttpMethod::Put,
-            "PATCH" => HttpMethod::Patch,
-            "DELETE" => HttpMethod::Delete,
-            "HEAD" => HttpMethod::Head,
-            "OPTIONS" => HttpMethod::Options,
-            _ => HttpMethod::Custom(s.to_uppercase()),
-        })
-    }
-}
-
-// Note: We don't implement From<&str> to avoid unwrap() in conversion.
-// Use .parse() instead, which returns Result (though the error type is Infallible).
-// This makes the API more explicit and idiomatic.
-
-impl From<&String> for HttpMethod {
-    fn from(s: &String) -> Self {
-        // Safe because FromStr::Err is Infallible
-        s.parse().expect("HttpMethod::from_str cannot fail")
-    }
-}
-
-impl From<String> for HttpMethod {
-    fn from(s: String) -> Self {
-        // Safe because FromStr::Err is Infallible
-        s.parse().expect("HttpMethod::from_str cannot fail")
-    }
-}
 
 #[derive(Debug)]
 pub struct HttpResponse {
@@ -252,20 +163,13 @@ impl HttpClient {
     }
 
     /// Perform a request with the specified HTTP method and optional body.
-    ///
-    /// This method accepts any type that implements `Into<HttpMethod>`, including
-    /// `&str` for convenience.
     pub async fn request(
         &self,
-        method: impl Into<HttpMethod>,
+        method: reqwest::Method,
         url: &str,
         body: Option<&[u8]>,
     ) -> Result<HttpResponse> {
-        let method = method.into();
-
-        let reqwest_method = method.to_reqwest()?;
-
-        let mut request = self.client.request(reqwest_method, url);
+        let mut request = self.client.request(method, url);
 
         if let Some(data) = body {
             request = request.body(data.to_vec());
@@ -366,95 +270,6 @@ pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_http_method_as_str() {
-        assert_eq!(HttpMethod::Get.as_str(), "GET");
-        assert_eq!(HttpMethod::Post.as_str(), "POST");
-        assert_eq!(HttpMethod::Custom("TRACE".to_string()).as_str(), "TRACE");
-    }
-
-    #[test]
-    fn test_http_method_from_str() {
-        assert_eq!(
-            "GET".parse::<HttpMethod>().expect("Failed to parse GET"),
-            HttpMethod::Get
-        );
-        assert_eq!(
-            "post".parse::<HttpMethod>().expect("Failed to parse post"),
-            HttpMethod::Post
-        );
-        assert_eq!(
-            "TRACE"
-                .parse::<HttpMethod>()
-                .expect("Failed to parse TRACE"),
-            HttpMethod::Custom("TRACE".to_string())
-        );
-    }
-
-    #[test]
-    fn test_http_method_from_str_case_insensitive() {
-        assert_eq!(
-            "get".parse::<HttpMethod>().expect("Failed to parse get"),
-            HttpMethod::Get
-        );
-        assert_eq!(
-            "Post".parse::<HttpMethod>().expect("Failed to parse Post"),
-            HttpMethod::Post
-        );
-        assert_eq!(
-            "PUT".parse::<HttpMethod>().expect("Failed to parse PUT"),
-            HttpMethod::Put
-        );
-    }
-
-    #[test]
-    fn test_http_method_display() {
-        assert_eq!(format!("{}", HttpMethod::Get), "GET");
-        assert_eq!(format!("{}", HttpMethod::Post), "POST");
-    }
-
-    #[test]
-    fn test_http_method_equality() {
-        assert_eq!(HttpMethod::Get, HttpMethod::Get);
-        assert_ne!(HttpMethod::Get, HttpMethod::Post);
-        assert_eq!(
-            HttpMethod::Custom("TRACE".to_string()),
-            HttpMethod::Custom("TRACE".to_string())
-        );
-    }
-
-    #[test]
-    fn test_http_method_clone() {
-        let method = HttpMethod::Get;
-        let cloned = method.clone();
-        assert_eq!(method, cloned);
-    }
-
-    #[test]
-    fn test_http_method_default() {
-        assert_eq!(HttpMethod::default(), HttpMethod::Get);
-    }
-
-    #[test]
-    fn test_http_method_hash() {
-        use std::collections::HashMap;
-        let mut map = HashMap::new();
-        map.insert(HttpMethod::Get, "value");
-        assert_eq!(map.get(&HttpMethod::Get), Some(&"value"));
-    }
-
-    #[test]
-    fn test_http_method_parse() {
-        let method: HttpMethod = "GET".parse().expect("Failed to parse GET");
-        assert_eq!(method, HttpMethod::Get);
-    }
-
-    #[test]
-    fn test_http_method_custom() {
-        let method = HttpMethod::Custom("CONNECT".to_string());
-        assert_eq!(method.as_str(), "CONNECT");
-    }
 
     #[test]
     fn test_has_header() {

@@ -3,8 +3,8 @@ use base64::Engine;
 use sha2::{Digest, Sha256};
 
 pub fn generate_code_verifier() -> String {
-    let signer = alloy::signers::local::PrivateKeySigner::random();
-    let bytes = signer.to_bytes();
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).expect("failed to generate random bytes");
     hex::encode(bytes)[..43].to_string()
 }
 

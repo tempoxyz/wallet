@@ -1,37 +1,30 @@
-//! Atomic file write utilities using write-to-temp-then-rename.
+//! Utility functions and constants.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 
 use crate::error::{PrestoError, Result};
 
-struct TempFileGuard {
-    path: Option<PathBuf>,
+// ── Constants ────────────────────────────────────────────────────────
+
+/// Application name for XDG directories
+pub const APP_NAME: &str = "presto";
+
+/// Config file name
+pub const CONFIG_FILE: &str = "config.toml";
+
+/// Get the presto config directory (`~/.config/presto/`)
+pub fn presto_config_dir() -> Option<PathBuf> {
+    dirs::config_dir().map(|c| c.join(APP_NAME))
 }
 
-impl TempFileGuard {
-    fn new(path: PathBuf) -> Self {
-        Self { path: Some(path) }
-    }
-
-    fn defuse(&mut self) {
-        self.path = None;
-    }
+/// Get the default config file path (`~/.config/presto/config.toml`)
+pub fn default_config_path() -> Option<PathBuf> {
+    presto_config_dir().map(|p| p.join(CONFIG_FILE))
 }
 
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        if let Some(ref path) = self.path {
-            let _ = fs::remove_file(path);
-        }
-    }
-}
+// ── Atomic file writes ──────────────────────────────────────────────
 
 pub fn atomic_write(
     path: &Path,
@@ -47,71 +40,44 @@ pub fn atomic_write(
 
     fs::create_dir_all(parent)?;
 
-    if !parent.is_dir() {
-        return Err(PrestoError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotADirectory,
-            format!("parent is not a directory: {}", parent.display()),
-        )));
+    // Create temp file in the same directory (ensures same filesystem for rename)
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file()
+            .set_permissions(fs::Permissions::from_mode(unix_mode))?;
     }
 
-    let filename = path
-        .file_name()
-        .ok_or_else(|| {
-            PrestoError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("path has no filename: {}", path.display()),
-            ))
-        })?
-        .to_string_lossy();
+    temp.write_all(contents.as_bytes())?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|e| PrestoError::Io(e.error))?;
 
-    let pid = process::id();
-    let base_nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-
-    let mut last_err = None;
-    for attempt in 0..10u128 {
-        let nonce = base_nonce ^ attempt;
-        let tmp_name = format!(".{}.{}.{}.tmp", filename, pid, nonce);
-        let tmp_path = parent.join(&tmp_name);
-
-        let mut opts = OpenOptions::new();
-        opts.write(true).create_new(true);
-
-        #[cfg(unix)]
-        opts.mode(unix_mode);
-
-        match opts.open(&tmp_path) {
-            Ok(file) => {
-                let mut guard = TempFileGuard::new(tmp_path.clone());
-                write_and_rename(file, contents, &tmp_path, path)?;
-                guard.defuse();
-                return Ok(());
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                last_err = Some(e);
-                continue;
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-
-    Err(last_err.map(PrestoError::Io).unwrap_or_else(|| {
-        PrestoError::Io(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "failed to create temp file after 10 attempts",
-        ))
-    }))
+    Ok(())
 }
 
-fn write_and_rename(
-    mut file: File,
-    contents: &str,
-    tmp_path: &Path,
-    final_path: &Path,
-) -> Result<()> {
-    file.write_all(contents.as_bytes())?;
-    file.sync_all()?;
-    fs::rename(tmp_path, final_path)?;
-    Ok(())
+// ── U256 formatting ─────────────────────────────────────────────────
+
+/// Format a U256 value with the given number of decimal places.
+///
+/// Converts atomic units to a human-readable decimal string.
+/// For example, `1000000` with 6 decimals becomes `"1.000000"`.
+pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
+    use alloy::primitives::U256;
+
+    if decimals == 0 {
+        return value.to_string();
+    }
+
+    let divisor = U256::from(10u64).pow(U256::from(decimals));
+    let whole = value / divisor;
+    let remainder = value % divisor;
+
+    let remainder_str = remainder.to_string();
+    let padded = format!("{:0>width$}", remainder_str, width = decimals as usize);
+
+    format!("{}.{}", whole, padded)
 }
 
 #[cfg(test)]
@@ -119,6 +85,31 @@ mod tests {
     use super::*;
 
     use tempfile::tempdir;
+
+    // ── Constants tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_presto_config_dir_exists() {
+        let dir = presto_config_dir();
+        assert!(dir.is_some());
+        let path = dir.expect("Config dir should exist");
+        assert!(path
+            .to_str()
+            .expect("Path should be valid UTF-8")
+            .contains(APP_NAME));
+    }
+
+    #[test]
+    fn test_default_config_path() {
+        let path = default_config_path();
+        assert!(path.is_some());
+        let p = path.expect("Config path should exist");
+        let path_str = p.to_str().expect("Path should be valid UTF-8");
+        assert!(path_str.contains(CONFIG_FILE));
+        assert!(path_str.contains(APP_NAME));
+    }
+
+    // ── Atomic write tests ──────────────────────────────────────────
 
     #[test]
     fn test_atomic_write_creates_file() {
@@ -235,26 +226,6 @@ mod tests {
         let path = blocker.join("test.txt");
         let result = atomic_write(&path, "content", 0o644);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_atomic_write_retries_on_temp_collision() {
-        let dir = tempdir().expect("tempdir");
-        let path = dir.path().join("test.txt");
-
-        let pid = process::id();
-        let base_nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let colliding_name = format!(".test.txt.{}.{}.tmp", pid, base_nonce);
-        fs::write(dir.path().join(&colliding_name), "blocker").expect("write blocker");
-
-        atomic_write(&path, "should succeed via retry", 0o644).expect("write");
-        assert_eq!(
-            fs::read_to_string(&path).expect("read"),
-            "should succeed via retry"
-        );
     }
 
     #[test]

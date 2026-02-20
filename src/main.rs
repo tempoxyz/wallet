@@ -162,7 +162,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     },
                 );
             }
-            let result = cli::commands::login::run_login(network, analytics.clone()).await;
+            let result = cli::auth::run_login(network, analytics.clone()).await;
             if let Some(ref a) = analytics {
                 let net = network.unwrap_or_default().to_string();
                 match &result {
@@ -195,7 +195,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Logout { yes } => {
-            let result = cli::commands::logout::run_logout(yes).await;
+            let result = cli::auth::run_logout(yes).await;
             if let Some(ref a) = analytics {
                 if result.is_ok() {
                     a.track(analytics::Event::Logout, analytics::EmptyPayload);
@@ -216,13 +216,13 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         Commands::Session { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
-                    SessionCommands::List => cli::commands::session::list_sessions(),
+                    SessionCommands::List => cli::session::list_sessions(),
                     SessionCommands::Close { url, all } => {
-                        cli::commands::session::close_sessions(url, all).await
+                        cli::session::close_sessions(url, all).await
                     }
                 }
             } else {
-                cli::commands::session::list_sessions()
+                cli::session::list_sessions()
             }
         }
 
@@ -232,7 +232,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
             }
-            cli::commands::whoami::show_whoami(&config, cli.output_format, network)
+            cli::auth::show_whoami(&config, cli.output_format, network)
                 .await
                 .map_err(Into::into)
         }

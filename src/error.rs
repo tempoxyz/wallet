@@ -108,10 +108,6 @@ pub enum PrestoError {
     #[error("HTTP error: {0}")]
     Http(String),
 
-    /// Unsupported HTTP method
-    #[error("Unsupported HTTP method: {0}")]
-    UnsupportedHttpMethod(String),
-
     /// EVM/Alloy signing error with context and source chain
     #[error("signing failed ({context})")]
     Signing {
@@ -246,15 +242,55 @@ impl PrestoError {
     }
 }
 
-/// Extension trait for adding context to Results
-pub trait ResultExt<T> {
-    /// Add signing context to an error
-    fn with_signing_context(self, context: SigningContext) -> Result<T>;
+/// Map mpp validation errors to presto error types.
+pub fn map_mpp_validation_error(
+    e: mpp::MppError,
+    challenge: &mpp::PaymentChallenge,
+) -> PrestoError {
+    match e {
+        mpp::MppError::UnsupportedPaymentMethod(msg) => PrestoError::UnsupportedPaymentMethod(msg),
+        mpp::MppError::PaymentExpired(_) => {
+            PrestoError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
+        }
+        mpp::MppError::InvalidChallenge { reason, .. } => {
+            PrestoError::UnsupportedPaymentIntent(reason.unwrap_or_default())
+        }
+        other => PrestoError::InvalidChallenge(other.to_string()),
+    }
 }
 
-impl<T, E: StdError + Send + Sync + 'static> ResultExt<T> for std::result::Result<T, E> {
-    fn with_signing_context(self, context: SigningContext) -> Result<T> {
-        self.map_err(|e| PrestoError::signing_with_context(e, context))
+/// Classify an mpp provider error into a PrestoError with actionable context.
+pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
+    use mpp::client::TempoClientError;
+
+    match err {
+        mpp::MppError::Tempo(tempo_err) => match tempo_err {
+            TempoClientError::AccessKeyNotProvisioned => PrestoError::AccessKeyNotProvisioned,
+            TempoClientError::SpendingLimitExceeded {
+                token,
+                limit,
+                required,
+            } => PrestoError::SpendingLimitExceeded {
+                token,
+                limit,
+                required,
+            },
+            TempoClientError::InsufficientBalance {
+                token,
+                available,
+                required,
+            } => PrestoError::InsufficientBalance {
+                token,
+                available,
+                required,
+            },
+            TempoClientError::TransactionReverted(msg) => PrestoError::Http(msg),
+        },
+        other => {
+            let raw = other.to_string();
+            let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
+            PrestoError::Http(msg)
+        }
     }
 }
 
@@ -323,12 +359,6 @@ mod tests {
     fn test_http_display() {
         let err = PrestoError::Http("404 Not Found".to_string());
         assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
-    }
-
-    #[test]
-    fn test_unsupported_http_method_display() {
-        let err = PrestoError::UnsupportedHttpMethod("TRACE".to_string());
-        assert_eq!(err.to_string(), "Unsupported HTTP method: TRACE");
     }
 
     #[test]
@@ -431,21 +461,6 @@ mod tests {
     }
 
     #[test]
-    fn test_result_ext_with_signing_context() {
-        use std::io::Error as IoError;
-        let result: std::result::Result<(), IoError> = Err(IoError::other("test"));
-        let ctx = SigningContext {
-            network: Some("tempo".to_string()),
-            address: None,
-            operation: "test_op",
-        };
-        let presto_result = result.with_signing_context(ctx);
-        assert!(presto_result.is_err());
-        let err = presto_result.unwrap_err();
-        assert!(err.to_string().contains("signing failed"));
-    }
-
-    #[test]
     fn test_invalid_address_constructor() {
         let err = PrestoError::invalid_address("test address");
         assert!(matches!(err, PrestoError::InvalidAddress(_)));
@@ -465,5 +480,65 @@ mod tests {
         assert!(matches!(err, PrestoError::UnsupportedPaymentMethod(_)));
         assert!(err.to_string().contains("bitcoin"));
         assert!(err.to_string().contains("not supported"));
+    }
+
+    #[test]
+    fn test_classify_spending_limit() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::SpendingLimitExceeded {
+            token: "pathUSD".to_string(),
+            limit: "0.000000".to_string(),
+            required: "0.010000".to_string(),
+        });
+        match classify_payment_error(err) {
+            PrestoError::SpendingLimitExceeded {
+                token,
+                limit,
+                required,
+            } => {
+                assert_eq!(token, "pathUSD");
+                assert_eq!(limit, "0.000000");
+                assert_eq!(required, "0.010000");
+            }
+            other => panic!("Expected SpendingLimitExceeded, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_insufficient_balance() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::InsufficientBalance {
+            token: "pathUSD".to_string(),
+            available: "0.50".to_string(),
+            required: "1.00".to_string(),
+        });
+        match classify_payment_error(err) {
+            PrestoError::InsufficientBalance {
+                token,
+                available,
+                required,
+            } => {
+                assert_eq!(token, "pathUSD");
+                assert_eq!(available, "0.50");
+                assert_eq!(required, "1.00");
+            }
+            other => panic!("Expected InsufficientBalance, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_access_key_not_provisioned() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
+        assert!(matches!(
+            classify_payment_error(err),
+            PrestoError::AccessKeyNotProvisioned
+        ));
+    }
+
+    #[test]
+    fn test_classify_unrecognized_falls_through() {
+        let err = mpp::MppError::Http("something unexpected".to_string());
+        match classify_payment_error(err) {
+            PrestoError::Http(msg) => assert_eq!(msg, "something unexpected"),
+            other => panic!("Expected Http passthrough, got: {other}"),
+        }
     }
 }
