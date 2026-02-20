@@ -57,6 +57,79 @@ pub fn atomic_write(
     Ok(())
 }
 
+// ── Terminal hyperlinks (OSC 8) ──────────────────────────────────────
+
+/// Format text as a clickable hyperlink using the OSC 8 protocol.
+///
+/// In terminals that support OSC 8 hyperlinks (iTerm2, WezTerm, VSCode, Ghostty, etc.),
+/// the text will be clickable and open the URL when clicked.
+/// In terminals that don't support hyperlinks, the text is returned unchanged.
+pub fn hyperlink(text: &str, url: &str) -> String {
+    if supports_hyperlinks() {
+        format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text)
+    } else {
+        text.to_string()
+    }
+}
+
+/// Check if the current terminal supports OSC 8 hyperlinks.
+pub fn supports_hyperlinks() -> bool {
+    use std::sync::OnceLock;
+    static SUPPORTS: OnceLock<bool> = OnceLock::new();
+    *SUPPORTS.get_or_init(detect_hyperlink_support)
+}
+
+fn detect_hyperlink_support() -> bool {
+    use std::env;
+
+    if env::var("FORCE_HYPERLINKS").is_ok_and(|v| v == "1") {
+        return true;
+    }
+    if env::var("CI").is_ok() {
+        return false;
+    }
+    if !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+        return false;
+    }
+
+    const SUPPORTED_TERMINAL_VARS: &[&str] = &[
+        "ITERM_SESSION_ID",
+        "WT_SESSION",
+        "WEZTERM_PANE",
+        "GHOSTTY_RESOURCES_DIR",
+        "KITTY_WINDOW_ID",
+        "ALACRITTY_SOCKET",
+        "KONSOLE_VERSION",
+    ];
+
+    if SUPPORTED_TERMINAL_VARS
+        .iter()
+        .any(|var| env::var(var).is_ok())
+    {
+        return true;
+    }
+
+    const SUPPORTED_TERM_PROGRAMS: &[&str] = &["vscode", "Hyper"];
+
+    if let Ok(term_program) = env::var("TERM_PROGRAM") {
+        if SUPPORTED_TERM_PROGRAMS.contains(&term_program.as_str()) {
+            return true;
+        }
+    }
+
+    if let Ok(vte_version) = env::var("VTE_VERSION") {
+        if vte_version
+            .parse::<u32>()
+            .map(|v| v >= 5000)
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 // ── U256 formatting ─────────────────────────────────────────────────
 
 /// Format a U256 value with the given number of decimal places.
