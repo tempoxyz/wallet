@@ -3331,6 +3331,7 @@ dependencies = [
 [[package]]
 name = "mpp"
 version = "0.4.0"
+source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#3d945a29cf9ac1b743b79ea39a7a9cea493faf23"
 dependencies = [
  "alloy",
  "alloy-signer-local",
