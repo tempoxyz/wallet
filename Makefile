@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install
+.PHONY: build release clean check test fix install e2e
 
 build:
 	cargo build
@@ -29,3 +29,7 @@ check:
 fix:
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
+
+# Run e2e tests against live mpp-proxy (requires funded wallet)
+e2e: build
+	PRESTO_LIVE_TESTS=1 cargo test --test live -- --ignored --nocapture

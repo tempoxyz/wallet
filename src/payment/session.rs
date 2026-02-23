@@ -79,6 +79,187 @@ impl SessionContext<'_> {
     }
 }
 
+// ==================== On-Chain Recovery ====================
+
+/// On-chain channel state returned by recovery functions.
+#[allow(dead_code)]
+struct OnChainChannel {
+    channel_id: B256,
+    salt: B256,
+    payer: Address,
+    payee: Address,
+    token: Address,
+    authorized_signer: Address,
+    deposit: u128,
+    settled: u128,
+}
+
+/// Query the escrow contract for a specific channel's state.
+///
+/// Returns `Ok(None)` if `deposit == 0` or `finalized == true` (channel
+/// does not exist or is already settled). Returns `Err` on RPC failures
+/// so callers can distinguish "no channel" from "network error".
+async fn get_channel_on_chain(
+    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
+    escrow_contract: Address,
+    channel_id: B256,
+    salt: B256,
+) -> Result<Option<OnChainChannel>> {
+    use alloy::providers::Provider;
+    use alloy::sol;
+    use alloy::sol_types::SolCall;
+
+    sol! {
+        interface IEscrow {
+            function getChannel(bytes32 channelId) external view returns (
+                address payer,
+                address payee,
+                address token,
+                address authorizedSigner,
+                uint128 deposit,
+                uint128 settled,
+                uint64 closeRequestedAt,
+                bool finalized
+            );
+        }
+    }
+
+    let call_data = IEscrow::getChannelCall {
+        channelId: channel_id,
+    }
+    .abi_encode();
+
+    let tx = alloy::rpc::types::TransactionRequest::default()
+        .to(escrow_contract)
+        .input(alloy::primitives::Bytes::from(call_data).into());
+
+    let result = provider
+        .call(tx)
+        .await
+        .context("Failed to call getChannel on escrow contract")?;
+    let decoded = IEscrow::getChannelCall::abi_decode_returns(&result)
+        .context("Failed to decode getChannel response")?;
+
+    if decoded.deposit == 0 || decoded.finalized {
+        return Ok(None);
+    }
+
+    Ok(Some(OnChainChannel {
+        channel_id,
+        salt,
+        payer: decoded.payer,
+        payee: decoded.payee,
+        token: decoded.token,
+        authorized_signer: decoded.authorizedSigner,
+        deposit: decoded.deposit,
+        settled: decoded.settled,
+    }))
+}
+
+/// Maximum block range per `eth_getLogs` query (RPC limit).
+const LOG_QUERY_BLOCK_RANGE: u64 = 50_000;
+
+/// How far back (in blocks) to scan for `ChannelOpened` events.
+/// At ~2s per block this covers ~2.3 days of history.
+const LOG_SCAN_DEPTH: u64 = 100_000;
+
+/// Scan on-chain `ChannelOpened` events to find an open channel matching
+/// the given payer, payee, currency, and authorized signer.
+///
+/// Queries the escrow contract's event logs filtered by payer and payee,
+/// walking backwards from the latest block in chunks to stay within RPC
+/// block-range limits. Returns the most recently opened matching channel
+/// that is still live on-chain.
+async fn find_channel_on_chain(
+    escrow_contract: Address,
+    payer: Address,
+    payee: Address,
+    currency: Address,
+    authorized_signer: Address,
+    network_name: &str,
+    config: &Config,
+) -> Option<OnChainChannel> {
+    use alloy::eips::BlockNumberOrTag;
+    use alloy::primitives::FixedBytes;
+    use alloy::providers::Provider;
+    use alloy::rpc::types::Filter;
+
+    let network_info = config.resolve_network(network_name).ok()?;
+    let rpc_url: url::Url = network_info.rpc_url.parse().ok()?;
+    let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+
+    // keccak256("ChannelOpened(bytes32,address,address,address,address,bytes32,uint256)")
+    let event_topic: FixedBytes<32> =
+        "0xcd6e60364f8ee4c2b0d62afc07a1fb04fd267ce94693f93f8f85daaa099b5c94"
+            .parse()
+            .ok()?;
+
+    // Event topics: [0]=sig, [1]=channelId, [2]=payer, [3]=payee
+    let payer_topic = B256::left_padding_from(&payer.0 .0);
+    let payee_topic = B256::left_padding_from(&payee.0 .0);
+
+    let latest = provider.get_block_number().await.ok()?;
+    let earliest = latest.saturating_sub(LOG_SCAN_DEPTH);
+
+    // Walk backwards in chunks so we find the most recent match first.
+    let mut chunk_end = latest;
+    while chunk_end > earliest {
+        let chunk_start = chunk_end
+            .saturating_sub(LOG_QUERY_BLOCK_RANGE)
+            .max(earliest);
+
+        let filter = Filter::new()
+            .address(escrow_contract)
+            .event_signature(event_topic)
+            .topic2(payer_topic)
+            .topic3(payee_topic)
+            .from_block(BlockNumberOrTag::Number(chunk_start))
+            .to_block(BlockNumberOrTag::Number(chunk_end));
+
+        if let Ok(logs) = provider.get_logs(&filter).await {
+            // Most recent log last in results; walk in reverse.
+            for log in logs.iter().rev() {
+                // topic[0] = event sig, topic[1] = channelId, topic[2] = payer, topic[3] = payee
+                let topics = log.topics();
+                if topics.len() < 4 {
+                    continue;
+                }
+                let channel_id = topics[1];
+
+                // Decode non-indexed data: (address token, address authorizedSigner, bytes32 salt, uint256 deposit)
+                let data = log.data().data.as_ref();
+                if data.len() < 128 {
+                    continue;
+                }
+                let log_token = Address::from_slice(&data[12..32]);
+                let log_signer = Address::from_slice(&data[44..64]);
+                let log_salt = B256::from_slice(&data[64..96]);
+
+                if log_token != currency || log_signer != authorized_signer {
+                    continue;
+                }
+
+                // Verify channel is still open on-chain.
+                match get_channel_on_chain(&provider, escrow_contract, channel_id, log_salt).await {
+                    Ok(Some(ch)) => return Some(ch),
+                    Ok(None) => continue,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to verify channel on-chain, skipping");
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if chunk_start == earliest {
+            break;
+        }
+        chunk_end = chunk_start.saturating_sub(1);
+    }
+
+    None
+}
+
 // ==================== Channel Helpers ====================
 
 /// Extract the origin (scheme://host\[:port\]) from a URL.
@@ -539,7 +720,6 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
         serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
 
     let session_key = session_store::session_key(ctx.url);
-    let _lock = session_store::lock_session(&session_key)?;
     let existing = session_store::load_session(&session_key)?;
 
     let record = if let Some(mut rec) = existing {
@@ -816,6 +996,66 @@ pub async fn handle_session_request(
         session_store::delete_session(&session_key)?;
     }
 
+    // === Try on-chain recovery by scanning ChannelOpened events ===
+    {
+        if request_ctx.log_enabled() {
+            eprintln!("Checking for existing channel on-chain...");
+        }
+        if let Some(on_chain) = find_channel_on_chain(
+            escrow_contract,
+            from,
+            recipient,
+            currency,
+            key_address,
+            network_name,
+            config,
+        )
+        .await
+        {
+            if request_ctx.log_enabled() {
+                eprintln!("Recovered channel from on-chain state");
+                eprintln!("  Channel: {:#x}", on_chain.channel_id);
+            }
+
+            let cumulative = on_chain.settled + tick_cost;
+            let mut state = SessionState {
+                channel_id: on_chain.channel_id,
+                escrow_contract,
+                chain_id,
+                cumulative_amount: cumulative,
+            };
+
+            let ctx = SessionContext {
+                signer: &signing.signer,
+                echo: &echo,
+                did: &did,
+                request_ctx,
+                url,
+                network_name,
+                origin: &origin,
+                tick_cost,
+                deposit: on_chain.deposit,
+                salt: format!("{:#x}", on_chain.salt),
+                recipient: format!("{:#x}", recipient),
+                currency: format!("{:#x}", currency),
+            };
+
+            match send_session_request(&ctx, &mut state).await {
+                Ok(result) => {
+                    persist_session(&ctx, &state)?;
+                    return Ok(result);
+                }
+                Err(e) => {
+                    if request_ctx.log_enabled() {
+                        eprintln!("Recovered channel failed: {e}");
+                        eprintln!("Opening new channel...");
+                    }
+                    // Fall through to open new channel
+                }
+            }
+        }
+    }
+
     // === Open a new channel ===
 
     let salt = B256::random();
@@ -1070,6 +1310,113 @@ pub async fn close_session_from_record(record: &session_store::SessionRecord) ->
     }
 
     Ok(())
+}
+
+/// Attempt to recover a session by fetching a 402 challenge from the URL,
+/// then scanning on-chain `ChannelOpened` events to find an existing open
+/// channel matching the local wallet and the server's payment parameters.
+pub async fn recover_session(
+    config: &Config,
+    url: &str,
+) -> Result<Option<session_store::SessionRecord>> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(url)
+        .send()
+        .await
+        .context("Failed to reach server")?;
+
+    if response.status().as_u16() != 402 {
+        return Ok(None);
+    }
+
+    let www_auth = response
+        .headers()
+        .get("www-authenticate")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| anyhow::anyhow!("No WWW-Authenticate header in 402 response"))?
+        .to_string();
+
+    let challenge =
+        parse_www_authenticate(&www_auth).context("Failed to parse WWW-Authenticate header")?;
+
+    let session_req: mpp::SessionRequest = challenge
+        .request
+        .decode()
+        .context("Failed to parse session request")?;
+
+    let network = network_from_session_request(&session_req)?;
+    let network_name = network.as_str();
+
+    let escrow_contract: Address = session_req
+        .escrow_contract()
+        .context("Missing escrow contract")?
+        .parse()
+        .context("Invalid escrow contract")?;
+
+    let chain_id = session_req.chain_id().context("Missing chain ID")?;
+    let currency: Address = session_req.currency.parse().context("Invalid currency")?;
+    let recipient: Address = session_req
+        .recipient
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("Missing recipient"))?
+        .parse()
+        .context("Invalid recipient")?;
+
+    let signing = load_wallet_signer(network_name)?;
+    let from = signing.from;
+    let key_address = signing.signer.address();
+
+    let on_chain = find_channel_on_chain(
+        escrow_contract,
+        from,
+        recipient,
+        currency,
+        key_address,
+        network_name,
+        config,
+    )
+    .await
+    .ok_or_else(|| anyhow::anyhow!("No open channel found on-chain for this wallet and server"))?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let origin = extract_origin(url);
+    let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
+    let echo = challenge.to_echo();
+    let echo_json = serde_json::to_string(&echo)?;
+
+    let tick_cost: u128 = session_req.amount.parse().unwrap_or(0);
+
+    let record = session_store::SessionRecord {
+        version: 1,
+        origin,
+        request_url: url.to_string(),
+        network_name: network_name.to_string(),
+        chain_id,
+        escrow_contract: format!("{:#x}", escrow_contract),
+        currency: format!("{:#x}", currency),
+        recipient: format!("{:#x}", recipient),
+        payer: did.clone(),
+        authorized_signer: format!("{:#x}", key_address),
+        salt: format!("{:#x}", on_chain.salt),
+        channel_id: format!("{:#x}", on_chain.channel_id),
+        deposit: on_chain.deposit.to_string(),
+        tick_cost: tick_cost.to_string(),
+        cumulative_amount: on_chain.settled.to_string(),
+        did,
+        challenge_echo: echo_json,
+        challenge_id: echo.id,
+        created_at: now,
+        last_used_at: now,
+        expires_at: now + session_store::SESSION_TTL_SECS,
+    };
+
+    session_store::save_session(&record)?;
+    Ok(Some(record))
 }
 
 /// Derive the network from a session request's chain ID.

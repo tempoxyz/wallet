@@ -9,7 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{test_command, TestConfigBuilder};
+use common::{get_combined_output, test_command, TestConfigBuilder};
 
 #[test]
 fn test_completions_bash() {
@@ -421,4 +421,62 @@ fn test_invalid_network_login_rejected() {
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("Unknown network"));
+}
+
+// ==================== Error Paths ====================
+
+#[test]
+fn test_logout_without_wallet() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["logout", "--yes"]);
+    let output = cmd.output().expect("Failed to run command");
+    let combined = get_combined_output(&output).to_lowercase();
+    assert!(
+        combined.contains("no wallet"),
+        "Expected 'no wallet' message, got: {combined}"
+    );
+}
+
+#[test]
+fn test_logout_noninteractive_without_yes() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.arg("logout");
+    // No wallet → prints "No wallet connected." and succeeds regardless
+    let output = cmd.output().expect("Failed to run command");
+    let combined = get_combined_output(&output).to_lowercase();
+    assert!(
+        combined.contains("no wallet"),
+        "Expected 'no wallet' message, got: {combined}"
+    );
+}
+
+#[test]
+fn test_session_close_all_no_sessions() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["session", "close", "--all"]);
+    cmd.assert().success();
+}
+
+#[test]
+fn test_session_help() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["session", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("close"))
+        .stdout(predicate::str::contains("recover"));
+}
+
+#[test]
+fn test_session_list_alias() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.arg("session");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("No active sessions"));
 }

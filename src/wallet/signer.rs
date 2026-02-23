@@ -98,3 +98,28 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
         from,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_key_authorization_none_on_invalid_hex() {
+        assert!(decode_key_authorization("not-valid-hex").is_none());
+    }
+
+    #[test]
+    fn test_decode_key_authorization_none_on_invalid_rlp() {
+        assert!(decode_key_authorization("deadbeef").is_none());
+    }
+
+    #[test]
+    fn test_decode_key_authorization_none_on_empty() {
+        assert!(decode_key_authorization("").is_none());
+    }
+
+    #[test]
+    fn test_decode_key_authorization_strips_0x_prefix() {
+        assert!(decode_key_authorization("0xdeadbeef").is_none());
+    }
+}

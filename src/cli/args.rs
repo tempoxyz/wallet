@@ -211,6 +211,11 @@ pub enum SessionCommands {
         #[arg(long)]
         all: bool,
     },
+    /// Recover a session from on-chain state
+    Recover {
+        /// URL to recover session for
+        url: String,
+    },
 }
 
 impl QueryArgs {
