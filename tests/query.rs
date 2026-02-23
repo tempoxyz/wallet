@@ -59,9 +59,6 @@ impl MockServer {
                 .unwrap();
         });
 
-        // Give the server a moment to start accepting connections
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
         MockServer {
             base_url,
             shutdown_tx: Some(shutdown_tx),
@@ -186,29 +183,35 @@ async fn test_server_error_500() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_connection_refused() {
-    // Bind and immediately drop the listener to get a port with nothing listening
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
+    // Retry with different ports to avoid the race where another process
+    // claims the port between our drop and the CLI's connect attempt.
+    for _ in 0..3 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
 
-    let temp = TestConfigBuilder::new().build();
+        let temp = TestConfigBuilder::new().build();
 
-    let output = test_command(&temp)
-        .arg(format!("http://127.0.0.1:{port}/test"))
-        .output()
-        .unwrap();
+        let output = test_command(&temp)
+            .arg(format!("http://127.0.0.1:{port}/test"))
+            .output()
+            .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "expected failure on connection refused"
-    );
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("error")
-            || combined.contains("connect")
-            || combined.contains("Connection"),
-        "output should mention connection error: {combined}"
-    );
+        if output.status.success() {
+            // Port was reused by another process; try again with a new port
+            continue;
+        }
+
+        let combined = get_combined_output(&output);
+        assert!(
+            combined.contains("error")
+                || combined.contains("connect")
+                || combined.contains("Connection"),
+            "output should mention connection error: {combined}"
+        );
+        return;
+    }
+    panic!("Could not find a closed port after 3 attempts — port reuse race in CI?");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

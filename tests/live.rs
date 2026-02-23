@@ -13,13 +13,23 @@ const ENDPOINT: &str = "https://openrouter.mpp.tempo.xyz/v1/chat/completions";
 const REQUEST_BODY: &str =
     r#"{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"say hi"}]}"#;
 
-/// Extract channel ID from session list output (the hex value after "Channel:").
+/// Extract channel ID from session list output.
+///
+/// Looks for a hex address (0x...) on any line containing "Channel" (case-insensitive),
+/// making this resilient to formatting changes in the output.
 fn extract_channel_id(output: &str) -> Option<String> {
     for line in output.lines() {
-        if let Some(rest) = line.trim().strip_prefix("Channel:") {
-            let id = rest.trim().to_string();
-            if !id.is_empty() {
-                return Some(id);
+        let lower = line.to_lowercase();
+        if lower.contains("channel") {
+            // Find a hex address (0x followed by hex chars)
+            if let Some(start) = line.find("0x") {
+                let hex_str: String = line[start..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_hexdigit() || *c == 'x')
+                    .collect();
+                if hex_str.len() > 2 {
+                    return Some(hex_str);
+                }
             }
         }
     }

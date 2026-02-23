@@ -370,6 +370,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_format_u256_max() {
+        use alloy::primitives::U256;
+        let result = format_u256_with_decimals(U256::MAX, 18);
+        assert!(result.contains('.'));
+        assert!(!result.is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn test_atomic_write_permissions_on_overwrite() {
