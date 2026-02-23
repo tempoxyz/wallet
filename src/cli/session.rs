@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 
+use crate::config::Config;
 use crate::network::Network;
 use crate::payment::session::close_session_from_record;
 use crate::payment::session_store;
@@ -73,7 +74,6 @@ pub async fn close_sessions(url: Option<String>, all: bool) -> Result<()> {
         let mut failed = 0;
         for session in &sessions {
             let key = session_store::session_key(&session.origin);
-            let _lock = session_store::lock_session(&key)?;
             eprintln!("Closing session for {}...", session.origin);
             if let Err(e) = close_session_from_record(session).await {
                 eprintln!("  Failed to close: {e}");
@@ -97,7 +97,6 @@ pub async fn close_sessions(url: Option<String>, all: bool) -> Result<()> {
 
     if let Some(ref url) = url {
         let key = session_store::session_key(url);
-        let _lock = session_store::lock_session(&key)?;
         let session = session_store::load_session(&key)?;
 
         if let Some(record) = session {
@@ -122,4 +121,38 @@ pub async fn close_sessions(url: Option<String>, all: bool) -> Result<()> {
     }
 
     anyhow::bail!("Specify a URL or use --all to close all sessions");
+}
+
+/// Recover a session from on-chain state for a given URL.
+pub async fn recover_session_cmd(config: &Config, url: &str) -> Result<()> {
+    let session_key = session_store::session_key(url);
+    let existing = session_store::load_session(&session_key)?;
+
+    if let Some(ref record) = existing {
+        if !record.is_expired() {
+            println!("Session already exists for this origin.");
+            println!("  Channel: {}", record.channel_id);
+            return Ok(());
+        }
+        eprintln!("Existing session expired, attempting recovery...");
+    }
+
+    eprintln!("Contacting server to check for existing channel...");
+    match crate::payment::session::recover_session(config, url).await {
+        Ok(Some(record)) => {
+            println!("Session recovered from on-chain state.");
+            println!("  Origin:  {}", record.origin);
+            println!("  Channel: {}", record.channel_id);
+            println!("  Deposit: {}", record.deposit);
+            println!("  Settled: {}", record.cumulative_amount);
+        }
+        Ok(None) => {
+            println!("No recoverable session found for this URL.");
+            println!("The server did not return a 402 challenge.");
+        }
+        Err(e) => {
+            anyhow::bail!("Recovery failed: {e}");
+        }
+    }
+    Ok(())
 }
