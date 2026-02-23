@@ -82,14 +82,9 @@ impl SessionContext<'_> {
 // ==================== On-Chain Recovery ====================
 
 /// On-chain channel state returned by recovery functions.
-#[allow(dead_code)]
 struct OnChainChannel {
     channel_id: B256,
     salt: B256,
-    payer: Address,
-    payee: Address,
-    token: Address,
-    authorized_signer: Address,
     deposit: u128,
     settled: u128,
 }
@@ -147,10 +142,6 @@ async fn get_channel_on_chain(
     Ok(Some(OnChainChannel {
         channel_id,
         salt,
-        payer: decoded.payer,
-        payee: decoded.payee,
-        token: decoded.token,
-        authorized_signer: decoded.authorizedSigner,
         deposit: decoded.deposit,
         settled: decoded.settled,
     }))

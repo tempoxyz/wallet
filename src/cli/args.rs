@@ -307,24 +307,3 @@ impl Cli {
         !self.quiet
     }
 }
-
-#[cfg(test)]
-#[allow(dead_code)]
-pub mod test_utils {
-    use super::*;
-    use clap::Parser;
-
-    pub fn make_cli(args: &[&str]) -> Cli {
-        let mut full_args = vec!["presto"];
-        full_args.extend(args);
-        Cli::parse_from(full_args)
-    }
-
-    pub fn make_query_args(args: &[&str]) -> QueryArgs {
-        let cli = make_cli(args);
-        match cli.command {
-            Some(Commands::Query(args)) => *args,
-            _ => panic!("Expected Query command"),
-        }
-    }
-}

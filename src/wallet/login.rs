@@ -276,8 +276,6 @@ fn validate_key_authorization(
 #[derive(Debug, Deserialize)]
 struct DeviceCodeResponse {
     code: String,
-    #[allow(dead_code)]
-    expires_in: u64,
 }
 
 #[derive(Debug, Deserialize)]

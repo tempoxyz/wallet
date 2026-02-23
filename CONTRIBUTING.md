@@ -65,15 +65,21 @@ let value = something.unwrap();
 ```
 src/
 ├── main.rs          # CLI entry point and module declarations
-├── request.rs       # Request orchestration (query → 402 → payment → response)
 ├── error.rs         # Error types (thiserror)
+├── http.rs          # HTTP client and request building
+├── config.rs        # Configuration file handling
+├── network.rs       # Network definitions (Tempo, Moderato) and RPC
+├── util.rs          # Shared utilities (atomic writes, terminal hyperlinks)
 ├── cli/             # Argument parsing (clap) and command implementations
-├── config/          # Configuration file handling
-├── http/            # HTTP client and request building
-├── network/         # Network definitions (Tempo, Moderato) and RPC
+│   ├── args.rs      # CLI argument definitions
+│   ├── query.rs     # Query command (request → 402 → payment → response)
+│   ├── auth.rs      # Login, logout, whoami
+│   ├── account.rs   # Account profile management
+│   ├── session.rs   # Session list/close/recover
+│   ├── output.rs    # Response display
+│   └── exit_codes.rs
 ├── payment/         # Payment protocol logic (MPP - https://mpp.sh)
 ├── wallet/          # Wallet management, signing, and auth server
-├── util/            # Shared utilities (atomic writes, constants)
 └── analytics/       # Opt-out telemetry
 tests/               # Integration tests (black-box CLI testing via assert_cmd)
 examples/            # Runnable example scripts
@@ -94,14 +100,14 @@ use crate::config::Config;
 
 **Error handling** — use `thiserror` for error types, `anyhow` for propagation.
 
-**Modules** — each module has a single responsibility. CLI commands go in `cli/commands/` with `*_commands.rs` naming. Use `mod.rs` for modules with submodules.
+**Modules** — each module has a single responsibility. CLI commands go in `src/cli/` (e.g., `query.rs`, `auth.rs`, `session.rs`). Use `mod.rs` for modules with submodules.
 
 **Testing** — unit tests live in source files (`#[cfg(test)] mod tests`). Integration tests in `tests/` use `assert_cmd` for black-box CLI testing. Use `TestConfigBuilder` and `test_command()` helpers.
 
 ## Adding a New Feature
 
 1. Add core logic in the appropriate module under `src/`
-2. Add CLI flags/commands in `src/cli/args.rs`, implement in `src/cli/commands/`
+2. Add CLI flags/commands in `src/cli/args.rs`, implement in `src/cli/`
 3. Add tests: unit tests in source files, integration tests in `tests/`
 4. Run `make check` — zero warnings required
 

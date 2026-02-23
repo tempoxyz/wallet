@@ -97,11 +97,12 @@ presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 | Command | Description |
 |---------|-------------|
 | `<URL>` | Make an HTTP request with automatic payment |
-| `login` | Connect your Tempo wallet via browser |
-| `logout` | Disconnect your wallet |
-| `whoami` | Show wallet address, balances, and access key |
+| `login` | Sign up or log in to your Tempo wallet |
+| `logout` | Log out and disconnect your wallet |
+| `whoami` | Show wallet address, balances, and access keys |
 | `session list` | List active payment sessions |
 | `session close` | Close a payment session |
+| `session recover` | Recover a session from on-chain state |
 
 Run `presto <command> --help` for detailed usage on any command.
 
@@ -110,7 +111,7 @@ Run `presto <command> --help` for detailed usage on any command.
 ### Setup
 
 ```bash
-presto login    # Opens browser to authenticate with your Tempo wallet
+presto login    # Sign up or log in via browser
 ```
 
 This creates a wallet credential file with your account address and access key.

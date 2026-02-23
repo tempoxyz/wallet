@@ -51,11 +51,12 @@ presto --dry-run https://api.example.com/data
 | Command | Description |
 |---------|-------------|
 | `presto <URL>` | Make an HTTP request with automatic payment |
-| `presto login` | Connect your Tempo wallet via browser (device code flow) |
-| `presto logout` | Disconnect your wallet |
+| `presto login` | Sign up or log in to your Tempo wallet |
+| `presto logout` | Log out and disconnect your wallet |
 | `presto whoami` | Show wallet address, balances, access keys, and readiness |
 | `presto session list` | List active payment sessions |
 | `presto session close [URL]` | Close a payment session (use `--all` to close all) |
+| `presto session recover <URL>` | Recover a session from on-chain state |
 
 ## Global Options
 
