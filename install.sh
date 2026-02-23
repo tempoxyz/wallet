@@ -137,8 +137,8 @@ install_ai_skill() {
         cp "${local_skill}" "${skill_file}"
         echo "AI skill installed to: ${skill_file}"
     else
-        # Download from GitHub
-        local skill_url="https://raw.githubusercontent.com/${REPO}/main/.agents/skills/presto/SKILL.md"
+        # Download from R2
+        local skill_url="${R2_BASE_URL}/SKILL.md"
         if curl -fsSL "${skill_url}" -o "${skill_file}" 2>/dev/null; then
             echo "AI skill installed to: ${skill_file}"
         fi
