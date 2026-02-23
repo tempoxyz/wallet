@@ -312,3 +312,163 @@ async fn test_verbose_shows_logs() {
         "stderr should contain verbose log: {stderr}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_custom_header() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-H", "X-Custom: myvalue", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "expected success with custom header"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ok"),
+        "stdout should contain body: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_post_data_flag() {
+    let server = MockServer::start(200, vec![], "posted").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-d", "key=value", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "expected success with -d flag");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("posted"),
+        "stdout should contain body: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_post_data_from_file() {
+    let server = MockServer::start(200, vec![], "file-posted").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let data_file = temp.path().join("postdata.txt");
+    std::fs::write(&data_file, "file_key=file_value").unwrap();
+
+    let data_arg = format!("@{}", data_file.to_str().unwrap());
+    let output = test_command(&temp)
+        .args(["-d", &data_arg, &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "expected success with -d @file: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("file-posted"),
+        "stdout should contain body: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_multiple_data_flags() {
+    let server = MockServer::start(200, vec![], "multi-posted").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-d", "a=1", "-d", "b=2", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "expected success with multiple -d flags"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("multi-posted"),
+        "stdout should contain body: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_output_format_json() {
+    let server = MockServer::start(
+        200,
+        vec![("content-type", "application/json")],
+        r#"{"key":"value"}"#,
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--output-format", "json", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "expected success with --output-format json"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("key"),
+        "stdout should contain JSON key: {stdout}"
+    );
+    assert!(
+        stdout.contains("value"),
+        "stdout should contain JSON value: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_no_redirect() {
+    let server = MockServer::start(
+        301,
+        vec![("location", "http://127.0.0.1:1/other")],
+        "redirecting",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--no-redirect", "-i", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("301"),
+        "output should contain 301 status: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_timeout_flag() {
+    let server = MockServer::start(200, vec![], "fast").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--timeout", "1", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "expected success with --timeout flag: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("fast"),
+        "stdout should contain body: {stdout}"
+    );
+}
