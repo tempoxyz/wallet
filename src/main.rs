@@ -219,6 +219,10 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     SessionCommands::Close { url, all } => {
                         cli::session::close_sessions(url, all).await
                     }
+                    SessionCommands::Recover { url } => {
+                        let config = load_config_with_overrides(cli.config.as_ref())?;
+                        cli::session::recover_session_cmd(&config, &url).await
+                    }
                 }
             } else {
                 cli::session::list_sessions()
