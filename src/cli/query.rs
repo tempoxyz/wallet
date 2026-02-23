@@ -43,6 +43,12 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     }
 
     let url = query.url.clone();
+
+    // Validate the URL early to give a clear error instead of a cryptic reqwest message.
+    if let Err(e) = url::Url::parse(&url) {
+        anyhow::bail!("Invalid URL: '{url}' ({e})");
+    }
+
     let request_ctx = build_request_context(&cli, &query)?;
     let output_opts = build_output_options(&cli, &query);
     let method_str = request_ctx.plan.method.to_string();
@@ -99,8 +105,8 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 
     let challenge_ctx = parse_payment_challenge(&response)?;
 
-    // Skip wallet login for dry-run — the user just wants to see what would happen
-    if !request_ctx.runtime.dry_run {
+    // Skip wallet login for dry-run or when a private key is provided directly
+    if !request_ctx.runtime.dry_run && !crate::wallet::credentials::has_credentials_override() {
         ensure_wallet_or_prompt_login(&request_ctx, &cli, &mut config, &analytics).await?;
     }
 
@@ -119,7 +125,11 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 
     // Auto-login retry: if the error is fixable by login and we're interactive, do it automatically
     let result = match result {
-        Err(e) if is_login_fixable(&e) && std::io::stdin().is_terminal() => {
+        Err(e)
+            if is_login_fixable(&e)
+                && std::io::stdin().is_terminal()
+                && !crate::wallet::credentials::has_credentials_override() =>
+        {
             eprintln!("Setting up wallet for this network...\n");
             let network = request_ctx
                 .runtime
@@ -283,6 +293,14 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
+
+    // Enforce supported payment protocol (tempo only for now)
+    if !challenge.method.eq_ignore_ascii_case("tempo") {
+        return Err(crate::error::PrestoError::UnsupportedPaymentMethod(
+            challenge.method.to_string(),
+        )
+        .into());
+    }
 
     let is_session = challenge.intent.is_session();
 

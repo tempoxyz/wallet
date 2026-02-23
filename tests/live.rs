@@ -1,6 +1,7 @@
-//! Live end-to-end tests against real MPP endpoints.
+//! Live end-to-end tests against real MPP endpoints on Moderato (testnet).
 //!
-//! All tests are `#[ignore]` — they require `PRESTO_LIVE_TESTS=1` and a funded wallet.
+//! All tests are `#[ignore]` — they require `PRESTO_LIVE_TESTS=1`.
+//! Uses a hardcoded testnet wallet (see `common::setup_live_test`).
 //! Run with: `cargo test --test live -- --ignored --nocapture`
 
 mod common;
@@ -9,7 +10,7 @@ use serial_test::serial;
 
 use crate::common::{delete_sessions_db, get_combined_output, setup_live_test, test_command};
 
-const ENDPOINT: &str = "https://openrouter.mpp.tempo.xyz/v1/chat/completions";
+const ENDPOINT: &str = "https://openrouter.mpp.moderato.tempo.xyz/v1/chat/completions";
 const REQUEST_BODY: &str =
     r#"{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"say hi"}]}"#;
 
