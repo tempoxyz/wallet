@@ -205,7 +205,7 @@ impl Network {
     /// Get the default RPC URL for this network.
     pub const fn rpc_url(&self) -> &'static str {
         match self {
-            Network::Tempo => "https://rpc.tempo.xyz",
+            Network::Tempo => "https://beautiful-tesla:great-benz@rpc.mainnet.tempo.xyz",
             Network::TempoModerato => "https://rpc.moderato.tempo.xyz",
         }
     }
