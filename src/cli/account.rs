@@ -13,14 +13,32 @@ pub fn list_accounts() -> Result<()> {
         return Ok(());
     }
 
-    for (name, account) in &creds.accounts {
-        let active = if name == &creds.active { " *" } else { "" };
+    // Print active first, then remaining profiles sorted lexicographically
+    let mut names: Vec<String> = creds.accounts.keys().cloned().collect();
+    names.sort();
+
+    if !creds.active.is_empty() && creds.accounts.contains_key(&creds.active) {
+        let name = &creds.active;
+        let account = creds.accounts.get(name).unwrap();
         let addr = if account.account_address.is_empty() {
             "(no address)"
         } else {
             &account.account_address
         };
-        println!("  {name}{active}  {addr}");
+        println!("  {name} *  {addr}");
+    }
+
+    for name in names {
+        if name == creds.active {
+            continue;
+        }
+        let account = &creds.accounts[&name];
+        let addr = if account.account_address.is_empty() {
+            "(no address)"
+        } else {
+            &account.account_address
+        };
+        println!("  {name}    {addr}");
     }
 
     Ok(())

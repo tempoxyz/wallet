@@ -317,6 +317,41 @@ async fn test_402_without_valid_payment_header() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_unsupported_payment_method() {
+    // WWW-Authenticate present but with a non-tempo method should be rejected
+    // Build a minimal valid-looking header with method="other"
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-unsupported", realm="mock", method="other", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", &www_auth)],
+        "Payment Required",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .arg(server.url("/paid"))
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected failure on unsupported payment method"
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined
+            .to_lowercase()
+            .contains("unsupported payment method"),
+        "should mention unsupported payment method: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_dry_run_no_payment() {
     let server = MockServer::start(200, vec![], "dry run body").await;
     let temp = TestConfigBuilder::new().build();

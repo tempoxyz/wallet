@@ -294,6 +294,14 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
+    // Enforce supported payment protocol (tempo only for now)
+    if !challenge.method.eq_ignore_ascii_case("tempo") {
+        return Err(crate::error::PrestoError::UnsupportedPaymentMethod(
+            challenge.method.to_string(),
+        )
+        .into());
+    }
+
     let is_session = challenge.intent.is_session();
 
     let (network, amount, currency) =

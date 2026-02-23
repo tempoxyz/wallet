@@ -80,7 +80,10 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
 pub struct TokenBalance {
     pub token: String,
     pub balance: String,
-    pub balance_raw: u128,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub balance_atomic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub balance_raw: Option<u128>,
 }
 
 /// Spending limit info for the token a key is authorized for.
@@ -101,6 +104,10 @@ pub struct StatusResponse {
     pub ready: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc_url: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub balances: Vec<TokenBalance>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,6 +135,8 @@ pub async fn show_whoami(
     let mut response = StatusResponse {
         ready: true,
         wallet: None,
+        network: None,
+        rpc_url: None,
         balances: vec![],
         access_key: None,
         spending_limit: None,
@@ -135,6 +144,14 @@ pub async fn show_whoami(
 
     if creds.has_wallet() {
         response.wallet = Some(creds.account_address().to_string());
+
+        // Include resolved network info for machine-readability
+        if let Ok(info) = config.resolve_network(network) {
+            response.network = Some(network.to_string());
+            response.rpc_url = Some(info.rpc_url.clone());
+        } else {
+            response.network = Some(network.to_string());
+        }
 
         if let Some(addr) = creds.access_key_address() {
             response.access_key = Some(addr);
@@ -361,13 +378,14 @@ async fn query_all_balances(
             }
         };
 
-        let balance_raw: u128 = balance.try_into().unwrap_or(u128::MAX);
+        let balance_raw_u128: Option<u128> = balance.try_into().ok();
         let balance_human = format_u256_with_decimals(balance, token_config.decimals);
 
         balances.push(TokenBalance {
             token: token_config.symbol.to_string(),
             balance: balance_human,
-            balance_raw,
+            balance_atomic: Some(balance.to_string()),
+            balance_raw: balance_raw_u128,
         });
     }
 

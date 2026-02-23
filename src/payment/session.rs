@@ -490,13 +490,19 @@ async fn stream_sse_response(
     // the server's notify is lost, we need to re-send to wake it up.
     let mut pending_voucher_auth: Option<String> = None;
     let mut voucher_retry_count: u32 = 0;
+
+    // Constants for stream behavior.
     const MAX_VOUCHER_RETRIES: u32 = 5;
+    const NORMAL_TIMEOUT_SECS: u64 = 30;
+    const VOUCHER_STALL_TIMEOUT_SECS: u64 = 3;
 
     // Normal timeout for when we're actively receiving tokens.
-    let normal_timeout = std::time::Duration::from_secs(30);
+    let normal_timeout = std::time::Duration::from_secs(NORMAL_TIMEOUT_SECS);
     // Short timeout after sending a voucher — if the server doesn't resume
     // quickly, the notify was likely lost and we should re-post.
-    let voucher_stall_timeout = std::time::Duration::from_secs(3);
+    let base_stall_timeout = std::time::Duration::from_secs(VOUCHER_STALL_TIMEOUT_SECS);
+    // Exponential backoff for re-posting the same voucher (caps at normal_timeout)
+    let mut current_stall_timeout = base_stall_timeout;
 
     loop {
         if stream_done {
@@ -504,7 +510,7 @@ async fn stream_sse_response(
         }
 
         let timeout = if pending_voucher_auth.is_some() {
-            voucher_stall_timeout
+            current_stall_timeout
         } else {
             normal_timeout
         };
@@ -533,10 +539,16 @@ async fn stream_sse_response(
                     }
                     let verbose = runtime.log_enabled();
                     post_voucher(&voucher_client, ctx.url, auth, verbose);
+                    // Backoff the stall timeout for the next retry, up to the normal timeout
+                    current_stall_timeout =
+                        std::cmp::min(current_stall_timeout.saturating_mul(2), normal_timeout);
                     continue;
                 }
                 if runtime.log_enabled() {
-                    eprintln!("[stream timeout — no data for 30s]");
+                    eprintln!(
+                        "[stream timeout — no data for {}s]",
+                        normal_timeout.as_secs()
+                    );
                 }
                 break;
             }
@@ -565,6 +577,7 @@ async fn stream_sse_response(
                         // Any message means the voucher was accepted
                         pending_voucher_auth = None;
                         voucher_retry_count = 0;
+                        current_stall_timeout = base_stall_timeout;
 
                         if data.trim() == "[DONE]" {
                             stream_done = true;
@@ -613,6 +626,7 @@ async fn stream_sse_response(
                         // Track this voucher for retry if the server stalls
                         pending_voucher_auth = Some(auth);
                         voucher_retry_count = 0;
+                        current_stall_timeout = base_stall_timeout;
                     }
                     SseEvent::PaymentReceipt(receipt) => {
                         pending_voucher_auth = None;

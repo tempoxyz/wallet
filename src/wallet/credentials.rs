@@ -291,10 +291,12 @@ impl WalletCredentials {
         if !self.active.is_empty() {
             self.accounts.remove(&self.active);
         }
-        if let Some(next) = self.accounts.keys().next() {
-            self.active = next.clone();
-        } else {
-            self.active.clear();
+        // Pick lexicographically smallest remaining profile for stability
+        let mut keys: Vec<String> = self.accounts.keys().cloned().collect();
+        keys.sort();
+        match keys.into_iter().next() {
+            Some(next) => self.active = next,
+            None => self.active.clear(),
         }
     }
 
@@ -350,10 +352,12 @@ impl WalletCredentials {
         }
         self.accounts.remove(profile);
         if self.active == profile {
-            if let Some(next) = self.accounts.keys().next() {
-                self.active = next.clone();
-            } else {
-                self.active.clear();
+            // Pick lexicographically smallest remaining profile for stability
+            let mut keys: Vec<String> = self.accounts.keys().cloned().collect();
+            keys.sort();
+            match keys.into_iter().next() {
+                Some(next) => self.active = next,
+                None => self.active.clear(),
             }
         }
         Ok(())

@@ -82,8 +82,8 @@ fn resolve_signing_mode(
 /// address, and builds a `TempoSigningMode` (direct EOA or keychain
 /// with optional key authorization).
 pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
-    let creds = WalletCredentials::load()
-        .map_err(|_| PrestoError::ConfigMissing("No wallet configured.".to_string()))?;
+    // Preserve detailed error context from loader
+    let creds = WalletCredentials::load()?;
 
     if !creds.has_wallet() {
         return Err(PrestoError::ConfigMissing(
@@ -91,9 +91,8 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
         ));
     }
 
-    let signer = creds.signer().map_err(|_| {
-        PrestoError::ConfigMissing("Failed to load signer from access key.".to_string())
-    })?;
+    // Propagate exact signer error (invalid key, missing key, etc.)
+    let signer = creds.signer()?;
 
     let wallet_address = Address::from_str(creds.account_address())
         .map_err(|e| PrestoError::InvalidConfig(format!("Invalid wallet address: {}", e)))?;
