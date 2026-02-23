@@ -115,10 +115,7 @@ pub mod tempo_tokens {
 
 /// Runtime network information
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct NetworkInfo {
-    /// Chain ID
-    pub chain_id: Option<u64>,
     /// RPC endpoint URL for blockchain interactions
     pub rpc_url: String,
     /// Block explorer configuration
@@ -224,7 +221,6 @@ impl Network {
     /// Get full network info (with explorer config).
     pub fn info(&self) -> NetworkInfo {
         NetworkInfo {
-            chain_id: Some(self.chain_id()),
             rpc_url: self.rpc_url().to_string(),
             explorer: self.explorer_url().map(ExplorerConfig::tempo),
         }
@@ -347,7 +343,7 @@ mod tests {
     #[test]
     fn test_network_lookup() {
         let tempo = get_network("tempo").expect("tempo network should exist");
-        assert_eq!(tempo.chain_id, Some(4217));
+        assert!(!tempo.rpc_url.is_empty());
     }
 
     #[test]
@@ -434,7 +430,7 @@ mod tests {
     #[test]
     fn test_network_info() {
         let info = Network::Tempo.info();
-        assert_eq!(info.chain_id, Some(4217));
+        assert!(!info.rpc_url.is_empty());
         assert!(info.explorer.is_some());
 
         let moderato_info = Network::TempoModerato.info();

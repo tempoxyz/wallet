@@ -3,7 +3,6 @@
 #![allow(dead_code)]
 
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
@@ -60,50 +59,33 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
     cmd
 }
 
-/// Find the real home directory, checking `REAL_HOME` env var first, then `dirs::home_dir()`.
-fn real_home_dir() -> Option<PathBuf> {
-    std::env::var("REAL_HOME")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(dirs::home_dir)
-}
-
-/// Find the real wallet.toml from the user's actual home directory.
-pub fn find_real_wallet() -> Option<PathBuf> {
-    let home = real_home_dir()?;
-
-    // Check macOS path first, then Linux
-    let candidates = [
-        home.join("Library/Application Support/presto/wallet.toml"),
-        home.join(".local/share/presto/wallet.toml"),
-    ];
-
-    candidates.into_iter().find(|p| p.exists())
-}
-
-/// Find the real config.toml from the user's actual home directory.
-pub fn find_real_config() -> Option<PathBuf> {
-    let home = real_home_dir()?;
-
-    let candidates = [
-        home.join("Library/Application Support/presto/config.toml"),
-        home.join(".config/presto/config.toml"),
-    ];
-
-    candidates.into_iter().find(|p| p.exists())
-}
-
-/// Set up a temp dir for live e2e tests that need a funded wallet.
+/// Hardcoded test wallet for Moderato (testnet).
 ///
-/// Returns `None` if `PRESTO_LIVE_TESTS` env var is not set or no wallet is found,
+/// This is the mpp-proxy client wallet, funded with pathUSD on Moderato.
+/// Since it's a direct EOA (account_address == derived address), presto
+/// will automatically use Direct signing mode.
+const TEST_WALLET_PRIVATE_KEY: &str =
+    "0xbb53fe0be41a5da041ea0c9d2612914cec26bb6c39d747154b519b51feb9ae49";
+const TEST_WALLET_ADDRESS: &str = "0xF0A9071a096674D408F2324c1e0e5eC5ceEDE99F";
+
+/// Set up a temp dir for live e2e tests with a hardcoded Moderato wallet.
+///
+/// Returns `None` if `PRESTO_LIVE_TESTS` env var is not set,
 /// allowing tests to skip gracefully.
 pub fn setup_live_test() -> Option<TempDir> {
     if std::env::var("PRESTO_LIVE_TESTS").is_err() {
         return None;
     }
 
-    let wallet_path = find_real_wallet()?;
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    let wallet_toml = format!(
+        "active = \"default\"\n\
+         \n\
+         [accounts.default]\n\
+         account_address = \"{TEST_WALLET_ADDRESS}\"\n\
+         private_key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
+    );
 
     // Layout paths within the temp dir (both macOS and Linux)
     let macos_dir = temp_dir.path().join("Library/Application Support/presto");
@@ -114,23 +96,14 @@ pub fn setup_live_test() -> Option<TempDir> {
     fs::create_dir_all(&linux_data_dir).expect("Failed to create Linux data directory");
     fs::create_dir_all(&linux_config_dir).expect("Failed to create Linux config directory");
 
-    // Copy wallet.toml into both layouts
-    fs::copy(&wallet_path, macos_dir.join("wallet.toml"))
-        .expect("Failed to copy wallet to macOS path");
-    fs::copy(&wallet_path, linux_data_dir.join("wallet.toml"))
-        .expect("Failed to copy wallet to Linux path");
+    // Write wallet.toml into both layouts
+    fs::write(macos_dir.join("wallet.toml"), &wallet_toml).expect("Failed to write macOS wallet");
+    fs::write(linux_data_dir.join("wallet.toml"), &wallet_toml)
+        .expect("Failed to write Linux wallet");
 
-    // Copy config.toml if it exists
-    if let Some(config_path) = find_real_config() {
-        fs::copy(&config_path, macos_dir.join("config.toml"))
-            .expect("Failed to copy config to macOS path");
-        fs::copy(&config_path, linux_config_dir.join("config.toml"))
-            .expect("Failed to copy config to Linux path");
-    } else {
-        // Write empty config so  tempo-walletdoesn't error
-        fs::write(macos_dir.join("config.toml"), "").expect("Failed to write macOS config");
-        fs::write(linux_config_dir.join("config.toml"), "").expect("Failed to write Linux config");
-    }
+    // Write empty config
+    fs::write(macos_dir.join("config.toml"), "").expect("Failed to write macOS config");
+    fs::write(linux_config_dir.join("config.toml"), "").expect("Failed to write Linux config");
 
     Some(temp_dir)
 }

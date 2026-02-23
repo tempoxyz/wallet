@@ -15,9 +15,9 @@ Single binary crate with source organized by module directories:
   - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
   - `query.rs` - Query command (request → 402 → payment → response)
   - `auth.rs` - Login, logout, whoami commands
-  - `session.rs` - Session list/close commands
+  - `account.rs` - Account profile management (list, rename, delete, switch)
+  - `session.rs` - Session list/close/recover commands
   - `output.rs` - Response display, `OutputOptions`
-  - `errors.rs` - User-facing error formatting
   - `exit_codes.rs` - Process exit codes
 - `src/http.rs` - HTTP client, `RequestContext`, `RequestRuntime`
 - `src/config.rs` - Configuration file handling

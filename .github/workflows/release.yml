@@ -110,6 +110,9 @@ jobs:
           # Upload install script
           aws s3 cp install.sh "s3://presto-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
+          # Upload AI skill
+          aws s3 cp .agents/skills/presto/SKILL.md "s3://presto-binaries/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+
           echo "Uploaded latest binaries to R2"
 
   # On tag or workflow_call: create GitHub release, upload versioned to R2, publish to crates.io

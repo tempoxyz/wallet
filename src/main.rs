@@ -21,7 +21,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, SessionCommands, Shell};
+use cli::{AccountCommands, Cli, ColorMode, Commands, SessionCommands, Shell};
 use colored::control;
 
 use analytics::Analytics;
@@ -51,7 +51,7 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("{}", cli::errors::format_error_with_suggestion(&e));
+        eprintln!("Error: {e:#}");
         ExitCode::from(&e).exit();
     }
 }
@@ -87,7 +87,29 @@ fn parse_cli() -> Cli {
             // If normal parsing failed, try again with "query" inserted.
             // This handles cases like ` tempo-wallethttps://example.com` or
             // ` tempo-wallet-X POST --json '{}' https://example.com`.
+            //
+            // Skip the fallback if the first non-flag arg is a known
+            // subcommand so we don't swallow its parse errors (e.g.,
+            // missing required args) as an implicit query.
             let args: Vec<String> = std::env::args().collect();
+            let mut subcommands: Vec<String> = Cli::command()
+                .get_subcommands()
+                .flat_map(|c| {
+                    let mut names = vec![c.get_name().to_string()];
+                    names.extend(c.get_all_aliases().map(String::from));
+                    names
+                })
+                .collect();
+            subcommands.push("help".to_string());
+            let first_positional = args[1..]
+                .iter()
+                .find(|a| !a.starts_with('-'))
+                .map(|s| s.as_str());
+
+            if first_positional.is_some_and(|p| subcommands.iter().any(|s| s == p)) {
+                original_err.exit()
+            }
+
             let mut with_query = vec![args[0].clone(), "query".to_string()];
             with_query.extend(args[1..].iter().cloned());
             Cli::try_parse_from(with_query).unwrap_or_else(|_| original_err.exit())
@@ -111,6 +133,15 @@ fn validate_network_flag(network: &str) -> Result<()> {
 
 /// Handle CLI subcommands
 async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
+    if let Some(ref profile) = cli.profile {
+        wallet::credentials::set_profile_override(profile.clone());
+    }
+
+    if let Some(ref pk) = cli.private_key {
+        let creds = wallet::credentials::WalletCredentials::from_private_key(pk)?;
+        wallet::credentials::set_credentials_override(creds);
+    }
+
     if let Some(ref network) = cli.network {
         validate_network_flag(network)?;
     }
@@ -129,7 +160,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
-
+            Commands::Account { .. } => "account",
+            Commands::Switch { .. } => "switch",
             Commands::Session { .. } => "session",
             Commands::Whoami | Commands::Balance => "whoami",
         };
@@ -233,6 +265,24 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 cli::session::list_sessions()
             }
         }
+
+        Commands::Account { command } => {
+            if let Some(subcommand) = command {
+                match subcommand {
+                    AccountCommands::List => cli::account::list_accounts(),
+                    AccountCommands::Rename { old, new } => {
+                        cli::account::rename_account(&old, &new)
+                    }
+                    AccountCommands::Delete { profile, yes } => {
+                        cli::account::delete_account(&profile, yes)
+                    }
+                }
+            } else {
+                cli::account::list_accounts()
+            }
+        }
+
+        Commands::Switch { profile } => cli::account::switch_account(&profile),
 
         Commands::Whoami | Commands::Balance => {
             let config = load_config_with_overrides(cli.config.as_ref())?;

@@ -51,11 +51,12 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | Command | Description |
 |---------|-------------|
 | ` tempo-wallet<URL>` | Make an HTTP request with automatic payment |
-| ` tempo-walletlogin` | Connect your Tempo wallet via browser (device code flow) |
-| ` tempo-walletlogout` | Disconnect your wallet |
+| ` tempo-walletlogin` | Sign up or log in to your Tempo wallet |
+| ` tempo-walletlogout` | Log out and disconnect your wallet |
 | ` tempo-walletwhoami` | Show wallet address, balances, access keys, and readiness |
 | ` tempo-walletsession list` | List active payment sessions |
 | ` tempo-walletsession close [URL]` | Close a payment session (use `--all` to close all) |
+| ` tempo-walletsession recover <URL>` | Recover a session from on-chain state |
 
 ## Global Options
 

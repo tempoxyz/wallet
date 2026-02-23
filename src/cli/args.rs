@@ -23,9 +23,34 @@ pub enum ColorMode {
 #[command(
     override_usage = " tempo-wallet[OPTIONS] <URL> [-- HTTP_OPTIONS]\n   tempo-wallet[OPTIONS] <COMMAND>"
 )]
-#[command(
-    after_help = "Examples:\n  # Query Ethereum via Alchemy — no API key needed\n   tempo-wallethttps://alchemy.mpp.tempo.xyz/eth-mainnet/v2 \\\n    -X POST --json '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | jq .result\n\n  # Use GPT-4o — no API key, no signup, just pay and go\n   tempo-wallethttps://openrouter.mpp.tempo.xyz/v1/chat/completions \\\n    -X POST --json '{\"model\":\"openai/gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a fun fact\"}]}' \\\n    | jq -r '.choices[0].message.content'\n\n  # Search the web — find anything, instantly\n   tempo-wallethttps://exa.mpp.tempo.xyz/search \\\n    -X POST --json '{\"query\":\"best new developer tools\",\"numResults\":5}' \\\n    | jq -r '.results[] | \"\\(.title)\\n  \\(.url)\\n\"'"
-)]
+#[command(after_help = "\
+\x1b[1;4mHTTP Options\x1b[0m (for  tempo-wallet<URL>):
+  -X, --request <METHOD>        Custom request method (GET, POST, PUT, DELETE, ...)
+  -H, --header <HEADER>         Add custom header (e.g. -H 'Accept: text/plain')
+  -d, --data <DATA>             POST data (use @filename or @- for stdin)
+      --json <JSON>             Send JSON data with Content-Type header
+  -m, --timeout <SECONDS>       Maximum time for the request
+      --no-redirect             Disable following redirects
+  -i, --include                 Include HTTP response headers in output
+  -o, --output <FILE>           Write output to file
+
+\x1b[1;4mPayment Options:\x1b[0m
+      --dry-run                 Show what would be paid without executing
+
+\x1b[1;4mExamples:\x1b[0m
+  # Query Ethereum via Alchemy — no API key needed
+   tempo-wallethttps://alchemy.mpp.tempo.xyz/eth-mainnet/v2 \\
+    -X POST --json '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | jq .result
+
+  # Use GPT-4o — no API key, no signup, just pay and go
+   tempo-wallethttps://openrouter.mpp.tempo.xyz/v1/chat/completions \\
+    -X POST --json '{\"model\":\"openai/gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a fun fact\"}]}' \\
+    | jq -r '.choices[0].message.content'
+
+  # Search the web — find anything, instantly
+   tempo-wallethttps://exa.mpp.tempo.xyz/search \\
+    -X POST --json '{\"query\":\"best new developer tools\",\"numResults\":5}' \\
+    | jq -r '.results[] | \"\\(.title)\\n  \\(.url)\\n\"'")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -33,6 +58,21 @@ pub struct Cli {
     /// Configuration file path
     #[arg(short = 'c', long = "config", value_name = "PATH", global = true)]
     pub config: Option<String>,
+
+    /// Use a specific account profile
+    #[arg(long = "profile", value_name = "NAME", global = true, hide = true)]
+    pub profile: Option<String>,
+
+    /// Use a private key directly for payment (bypasses wallet login)
+    #[arg(
+        long = "private-key",
+        value_name = "KEY",
+        env = "PRESTO_PRIVATE_KEY",
+        global = true,
+        hide = true,
+        hide_env_values = true
+    )]
+    pub private_key: Option<String>,
 
     /// Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato")
     #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
@@ -157,7 +197,7 @@ pub enum Commands {
     /// Make an HTTP request with optional payment
     #[command(alias = "q", display_order = 1, hide = true)]
     Query(Box<QueryArgs>),
-    /// Log in to your Tempo wallet
+    /// Sign up or log in to your Tempo wallet
     #[command(display_order = 2)]
     Login,
     /// Log out and disconnect your wallet
@@ -179,6 +219,19 @@ pub enum Commands {
     Session {
         #[command(subcommand)]
         command: Option<SessionCommands>,
+    },
+    /// Manage account profiles
+    #[command(display_order = 5, hide = true)]
+    #[command(args_conflicts_with_subcommands = true)]
+    Account {
+        #[command(subcommand)]
+        command: Option<AccountCommands>,
+    },
+    /// Switch the active account profile
+    #[command(hide = true)]
+    Switch {
+        /// Profile name to switch to
+        profile: String,
     },
     /// Generate shell completions script
     #[command(hide = true)]
@@ -218,6 +271,27 @@ pub enum SessionCommands {
     },
 }
 
+#[derive(Subcommand, Debug)]
+pub enum AccountCommands {
+    /// List all account profiles
+    List,
+    /// Rename a profile
+    Rename {
+        /// Current profile name
+        old: String,
+        /// New profile name
+        new: String,
+    },
+    /// Delete a profile
+    Delete {
+        /// Profile name to delete
+        profile: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
 impl QueryArgs {
     pub fn get_timeout(&self) -> Option<u64> {
         self.max_time
@@ -231,26 +305,5 @@ impl Cli {
 
     pub fn should_show_output(&self) -> bool {
         !self.quiet
-    }
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-pub mod test_utils {
-    use super::*;
-    use clap::Parser;
-
-    pub fn make_cli(args: &[&str]) -> Cli {
-        let mut full_args = vec!["presto"];
-        full_args.extend(args);
-        Cli::parse_from(full_args)
-    }
-
-    pub fn make_query_args(args: &[&str]) -> QueryArgs {
-        let cli = make_cli(args);
-        match cli.command {
-            Some(Commands::Query(args)) => *args,
-            _ => panic!("Expected Query command"),
-        }
     }
 }

@@ -216,20 +216,6 @@ impl PrestoError {
         Self::SigningSimple(msg.into())
     }
 
-    /// Add network context to an existing error
-    pub fn with_network(self, network: impl Into<String>) -> Self {
-        match self {
-            Self::Signing {
-                source,
-                mut context,
-            } => {
-                context.network = Some(network.into());
-                Self::Signing { source, context }
-            }
-            other => other,
-        }
-    }
-
     /// Create an invalid address error
     pub fn invalid_address(msg: impl Into<String>) -> Self {
         Self::InvalidAddress(msg.into())

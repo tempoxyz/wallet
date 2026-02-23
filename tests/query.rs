@@ -317,6 +317,41 @@ async fn test_402_without_valid_payment_header() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_unsupported_payment_method() {
+    // WWW-Authenticate present but with a non-tempo method should be rejected
+    // Build a minimal valid-looking header with method="other"
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-unsupported", realm="mock", method="other", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", &www_auth)],
+        "Payment Required",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .arg(server.url("/paid"))
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected failure on unsupported payment method"
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined
+            .to_lowercase()
+            .contains("unsupported payment method"),
+        "should mention unsupported payment method: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_dry_run_no_payment() {
     let server = MockServer::start(200, vec![], "dry run body").await;
     let temp = TestConfigBuilder::new().build();
@@ -665,11 +700,11 @@ async fn test_402_charge_flow() {
     // Set up temp dir with wallet + config pointing RPC to mock
     let temp = tempfile::TempDir::new().unwrap();
 
-    let wallet_toml = r#"account_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+    let wallet_toml = r#"active = "default"
 
-[networks.tempo-moderato]
+[accounts.default]
+account_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-provisioned = true
 "#;
 
     let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
@@ -702,5 +737,325 @@ provisioned = true
     assert!(
         stdout.contains("charge accepted"),
         "stdout should contain success body: {combined}"
+    );
+}
+
+/// Test the 402 → payment → 200 charge flow with Keychain signing mode.
+///
+/// Uses a different `account_address` than the derived address of the private
+/// key, which triggers `TempoSigningMode::Keychain` instead of `Direct`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_charge_flow_keychain() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-charge-kc", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start_payment(&www_auth, "keychain charge accepted").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+
+    // account_address (0x7099...) differs from the private key's derived
+    // address (0xf39F...), triggering Keychain signing mode.
+    let wallet_toml = r#"active = "default"
+
+[accounts.default]
+account_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+provisioned_chain_ids = [42431]
+"#;
+
+    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
+
+    let macos_dir = temp.path().join("Library/Application Support/presto");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    std::fs::write(macos_dir.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
+
+    let linux_data = temp.path().join(".local/share/presto");
+    let linux_config = temp.path().join(".config/presto");
+    std::fs::create_dir_all(&linux_data).unwrap();
+    std::fs::create_dir_all(&linux_config).unwrap();
+    std::fs::write(linux_data.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+
+    let output = test_command(&temp)
+        .args(["-v", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected keychain 402 → payment → 200 flow to succeed: {combined}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("keychain charge accepted"),
+        "stdout should contain success body: {combined}"
+    );
+}
+
+// ==================== --private-key Flag ====================
+
+const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+/// Helper: set up a temp dir with config (pointing RPC to mock) but NO wallet.toml.
+fn setup_config_only(temp: &tempfile::TempDir, rpc_base_url: &str) {
+    let config_toml = format!("moderato_rpc = \"{rpc_base_url}\"\n");
+
+    let macos_dir = temp.path().join("Library/Application Support/presto");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
+
+    let linux_config = temp.path().join(".config/presto");
+    std::fs::create_dir_all(&linux_config).unwrap();
+    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+}
+
+/// The 402 charge flow works with --private-key (no wallet.toml needed).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_charge_flow_with_private_key_flag() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-pk", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start_payment(&www_auth, "private key charge ok").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = test_command(&temp)
+        .args(["-v", "--private-key", TEST_PRIVATE_KEY, &server.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected --private-key charge flow to succeed: {combined}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("private key charge ok"),
+        "stdout should contain success body: {combined}"
+    );
+}
+
+/// --private-key via  TEMPO_PRIVATE_KEYenv var works.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_charge_flow_with_private_key_env() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-pk-env", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start_payment(&www_auth, "env key charge ok").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = test_command(&temp)
+        .env("PRESTO_PRIVATE_KEY", TEST_PRIVATE_KEY)
+        .args(["-v", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected  TEMPO_PRIVATE_KEYcharge flow to succeed: {combined}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("env key charge ok"),
+        "stdout should contain success body: {combined}"
+    );
+}
+
+/// --private-key without 0x prefix works.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_private_key_without_0x_prefix() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-pk-no0x", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start_payment(&www_auth, "no prefix ok").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    // Strip the 0x prefix
+    let pk_no_prefix = TEST_PRIVATE_KEY.strip_prefix("0x").unwrap();
+
+    let output = test_command(&temp)
+        .args(["--private-key", pk_no_prefix, &server.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected --private-key without 0x to succeed: {combined}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("no prefix ok"),
+        "stdout should contain success body: {combined}"
+    );
+}
+
+/// --private-key with invalid hex gives a clear error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_private_key_invalid_hex_fails() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-pk-bad", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start_payment(&www_auth, "should not reach").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = test_command(&temp)
+        .args(["--private-key", "not-a-valid-key", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected failure with invalid private key"
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Invalid private key") || combined.contains("Invalid hex"),
+        "error should mention invalid key: {combined}"
+    );
+}
+
+/// --private-key with too-short key gives a clear error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_private_key_wrong_length_fails() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-pk-short", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start_payment(&www_auth, "should not reach").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = test_command(&temp)
+        .args(["--private-key", "0xdeadbeef", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected failure with too-short key"
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Invalid private key"),
+        "error should mention invalid key: {combined}"
+    );
+}
+
+/// --private-key takes precedence over wallet.toml (wallet.toml is ignored).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_private_key_flag_overrides_wallet() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-pk-override", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    let server = MockServer::start_payment(&www_auth, "override ok").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
+
+    // Set up wallet.toml with a DIFFERENT key (Hardhat #1) that points to a
+    // different address. The --private-key flag should be used instead.
+    let wallet_toml = r#"active = "default"
+
+[accounts.default]
+account_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+private_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+"#;
+
+    let macos_dir = temp.path().join("Library/Application Support/presto");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    std::fs::write(macos_dir.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
+
+    let linux_data = temp.path().join(".local/share/presto");
+    let linux_config = temp.path().join(".config/presto");
+    std::fs::create_dir_all(&linux_data).unwrap();
+    std::fs::create_dir_all(&linux_config).unwrap();
+    std::fs::write(linux_data.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+
+    // Snapshot wallet.toml content before the run
+    let wallet_before = std::fs::read_to_string(macos_dir.join("wallet.toml")).unwrap();
+
+    // Use Hardhat #0 via --private-key flag
+    let output = test_command(&temp)
+        .args(["-v", "--private-key", TEST_PRIVATE_KEY, &server.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected --private-key to override wallet.toml: {combined}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("override ok"),
+        "stdout should contain success body: {combined}"
+    );
+
+    // wallet.toml must not have been modified by --private-key usage
+    let wallet_after = std::fs::read_to_string(macos_dir.join("wallet.toml")).unwrap();
+    assert_eq!(
+        wallet_before, wallet_after,
+        "wallet.toml should not be modified when --private-key is used"
+    );
+}
+
+/// Non-402 response works fine with --private-key (key is ignored, no payment).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_private_key_no_payment_needed() {
+    let server = MockServer::start(200, vec![], "hello no payment").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--private-key", TEST_PRIVATE_KEY, &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "expected success");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("hello no payment"),
+        "stdout should contain body: {stdout}"
     );
 }
