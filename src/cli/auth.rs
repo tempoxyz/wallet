@@ -134,15 +134,15 @@ pub async fn show_whoami(
     };
 
     if creds.has_wallet() {
-        response.wallet = Some(creds.account_address.clone());
+        response.wallet = Some(creds.account_address().to_string());
 
-        if let Some(key) = creds.network_key(network) {
-            response.access_key = Some(key.address());
+        if let Some(addr) = creds.access_key_address() {
+            response.access_key = Some(addr);
         } else {
             response.ready = false;
         }
 
-        response.balances = query_all_balances(config, network, &creds.account_address).await;
+        response.balances = query_all_balances(config, network, creds.account_address()).await;
 
         response.spending_limit = query_spending_limit(config, network, &creds).await;
     } else {
@@ -197,15 +197,13 @@ async fn query_spending_limit(
     creds: &WalletCredentials,
 ) -> Option<SpendingLimitInfo> {
     let network_info = config.resolve_network(network).ok()?;
-    let network_key = creds.network_key(network)?;
 
-    let wallet_address: Address = creds.account_address.parse().ok()?;
-    let key_address: Address = network_key.address().parse().ok()?;
+    let wallet_address: Address = creds.account_address().parse().ok()?;
+    let key_address: Address = creds.access_key_address()?.parse().ok()?;
     let rpc_url = network_info.rpc_url.parse().ok()?;
 
-    let local_auth = network_key
-        .key_authorization
-        .as_deref()
+    let local_auth = creds
+        .key_authorization()
         .and_then(crate::wallet::signer::decode_key_authorization);
 
     let provider = ProviderBuilder::new().connect_http(rpc_url);

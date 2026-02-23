@@ -12,7 +12,6 @@ use url::Url;
 
 use crate::analytics::Analytics;
 use crate::error::{PrestoError, Result};
-use crate::wallet::credentials::NetworkKey;
 use crate::wallet::credentials::WalletCredentials;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
@@ -200,17 +199,21 @@ impl WalletManager {
         )?;
 
         let private_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
-        let network_key = NetworkKey {
-            private_key: private_key_hex,
-            key_authorization: validated.map(|v| v.hex),
-            provisioned: false,
-        };
 
-        // Load existing credentials to preserve other network keys.
+        // Load existing credentials to preserve other accounts.
         // If the file is corrupt, surface the error instead of silently resetting.
         let mut creds = WalletCredentials::load()?;
-        creds.account_address = callback.account_address;
-        creds.networks.insert(self.network.clone(), network_key);
+        let chain_id = self
+            .network
+            .parse::<crate::network::Network>()
+            .map(|n| n.chain_id())
+            .unwrap_or(0);
+        creds.set_account(
+            callback.account_address,
+            private_key_hex,
+            validated.map(|v| v.hex),
+            chain_id,
+        );
         creds.save()?;
 
         if let Some(ref a) = self.analytics {

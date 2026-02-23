@@ -169,7 +169,7 @@ fn test_login_help() {
         .args(["login", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Log in"));
+        .stdout(predicate::str::contains("log in"));
 }
 
 #[test]
@@ -479,4 +479,235 @@ fn test_session_list_alias() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("No active sessions"));
+}
+
+#[test]
+fn test_private_key_env_value_hidden_in_help() {
+    // --private-key is a hidden global flag — it shouldn't appear in help,
+    // and the env var value should never be leaked.
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["--help"])
+        .env("PRESTO_PRIVATE_KEY", "0xsecretkey")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("0xsecretkey"),
+        "help should not show the private key value: {stdout}"
+    );
+    assert!(
+        !stdout.contains("--private-key"),
+        "hidden flag should not appear in help: {stdout}"
+    );
+}
+
+// ==================== Account Management Tests ====================
+
+/// Helper: write a multi-account wallet.toml into both macOS and Linux paths.
+fn setup_multi_account(temp: &tempfile::TempDir) {
+    let wallet_toml = r#"active = "default"
+
+[accounts.default]
+account_address = "0xAAA"
+private_key = "0xkey1"
+
+[accounts.work]
+account_address = "0xBBB"
+private_key = "0xkey2"
+"#;
+    let config_toml = "";
+
+    let macos_dir = temp.path().join("Library/Application Support/presto");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    std::fs::write(macos_dir.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("config.toml"), config_toml).unwrap();
+
+    let linux_data = temp.path().join(".local/share/presto");
+    let linux_config = temp.path().join(".config/presto");
+    std::fs::create_dir_all(&linux_data).unwrap();
+    std::fs::create_dir_all(&linux_config).unwrap();
+    std::fs::write(linux_data.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_config.join("config.toml"), config_toml).unwrap();
+}
+
+#[test]
+fn test_account_list() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_account(&temp);
+
+    let output = test_command(&temp)
+        .args(["account", "list"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("0xAAA"), "should list first account");
+    assert!(stdout.contains("0xBBB"), "should list second account");
+    assert!(stdout.contains("*"), "should mark active account");
+}
+
+#[test]
+fn test_account_bare_lists() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_account(&temp);
+
+    let output = test_command(&temp).args(["account"]).output().unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("0xAAA"), "bare 'account' should list");
+}
+
+#[test]
+fn test_account_list_empty() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["account", "list"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No accounts"),
+        "should say no accounts: {stdout}"
+    );
+}
+
+#[test]
+fn test_switch_account() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_account(&temp);
+
+    let output = test_command(&temp)
+        .args(["switch", "work"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Switched to profile 'work'"),
+        "should confirm switch: {stdout}"
+    );
+
+    // Verify switch persisted
+    let output = test_command(&temp)
+        .args(["account", "list"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("work") && stdout.contains("*"),
+        "work should be active: {stdout}"
+    );
+}
+
+#[test]
+fn test_switch_nonexistent() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_account(&temp);
+
+    let output = test_command(&temp)
+        .args(["switch", "nonexistent"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("not found"),
+        "should error on nonexistent: {combined}"
+    );
+}
+
+#[test]
+fn test_account_rename() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_account(&temp);
+
+    let output = test_command(&temp)
+        .args(["account", "rename", "work", "job"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Renamed"),
+        "should confirm rename: {stdout}"
+    );
+
+    // Verify renamed
+    let output = test_command(&temp)
+        .args(["account", "list"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("job"), "should show new name: {stdout}");
+    assert!(
+        !stdout.contains("work"),
+        "should not show old name: {stdout}"
+    );
+}
+
+#[test]
+fn test_account_delete_with_yes() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_account(&temp);
+
+    let output = test_command(&temp)
+        .args(["account", "delete", "work", "--yes"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Deleted"),
+        "should confirm delete: {stdout}"
+    );
+
+    // Verify deleted
+    let output = test_command(&temp)
+        .args(["account", "list"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("0xBBB"),
+        "should not show deleted account: {stdout}"
+    );
+}
+
+#[test]
+fn test_account_delete_nonexistent() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_account(&temp);
+
+    let output = test_command(&temp)
+        .args(["account", "delete", "nonexistent", "--yes"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(combined.contains("not found"), "should error: {combined}");
+}
+
+#[test]
+fn test_account_hidden_from_help() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp).args(["--help"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("account"),
+        "account command should be hidden: {stdout}"
+    );
+    assert!(
+        !stdout.contains("switch"),
+        "switch command should be hidden: {stdout}"
+    );
 }
