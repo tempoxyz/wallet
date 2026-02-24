@@ -1,22 +1,18 @@
 //! OS keychain abstraction for secure private key storage.
 //!
-//! Stores private keys in the platform keychain (macOS Keychain / Linux Secret Service)
+//! Stores private keys in the platform keychain (macOS Keychain)
 //! using the service name `xyz.tempo.presto`. Keys are indexed by profile name.
 //!
-//! Three backends are available:
-//! - `OsKeychain` (default): macOS `security` CLI or Linux `secret-tool`
+//! Two backends are available:
+//! - `OsKeychain` (default): macOS Keychain via `security-framework`
 //! - `InMemoryKeychain`: in-memory store for tests
 //!
 //! Backend selection:
 //! - Tests use `InMemoryKeychain` automatically
 //! - Release builds use `OsKeychain`
-//! - If the OS keychain is unavailable (headless Linux, no Secret Service),
-//!   operations return errors with clear guidance
 
 #[cfg(test)]
 use std::collections::HashMap;
-#[cfg(target_os = "linux")]
-use std::process::Command;
 #[cfg(test)]
 use std::sync::Mutex;
 
@@ -25,10 +21,6 @@ use zeroize::Zeroizing;
 
 /// Service name used for all keychain entries.
 const SERVICE: &str = "xyz.tempo.presto";
-
-/// Attribute kind for future-proofing (in case we store other secret types).
-#[cfg(target_os = "linux")]
-const KIND: &str = "access-key";
 
 /// Trait for keychain backends.
 pub trait KeychainBackend: Send + Sync {
@@ -73,8 +65,7 @@ pub trait KeychainBackend: Send + Sync {
 
 /// OS keychain backend using platform-native secret storage.
 ///
-/// - macOS: `security` CLI (Keychain Services)
-/// - Linux: `secret-tool` CLI (Secret Service / GNOME Keyring)
+/// Currently supports macOS only (via `security-framework`).
 pub struct OsKeychain;
 
 impl KeychainBackend for OsKeychain {
@@ -83,11 +74,7 @@ impl KeychainBackend for OsKeychain {
         {
             macos::get(profile)
         }
-        #[cfg(target_os = "linux")]
-        {
-            linux::get(profile)
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(target_os = "macos"))]
         {
             let _ = profile;
             anyhow::bail!("OS keychain not supported on this platform")
@@ -99,11 +86,7 @@ impl KeychainBackend for OsKeychain {
         {
             macos::set(profile, secret_hex)
         }
-        #[cfg(target_os = "linux")]
-        {
-            linux::set(profile, secret_hex)
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(target_os = "macos"))]
         {
             let _ = (profile, secret_hex);
             anyhow::bail!("OS keychain not supported on this platform")
@@ -115,11 +98,7 @@ impl KeychainBackend for OsKeychain {
         {
             macos::delete(profile)
         }
-        #[cfg(target_os = "linux")]
-        {
-            linux::delete(profile)
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(target_os = "macos"))]
         {
             let _ = profile;
             anyhow::bail!("OS keychain not supported on this platform")
@@ -162,109 +141,6 @@ mod macos {
             Ok(()) => Ok(()),
             Err(e) if e.code() == ITEM_NOT_FOUND => Ok(()),
             Err(e) => Err(e).context("Failed to delete key from macOS Keychain"),
-        }
-    }
-}
-
-// ===========================================================================
-// Linux implementation
-// ===========================================================================
-
-#[cfg(target_os = "linux")]
-mod linux {
-    use super::*;
-    use std::io::Write;
-
-    pub fn get(profile: &str) -> Result<Option<Zeroizing<String>>> {
-        tracing::debug!("keychain(linux): get '{}'", profile);
-        let output = Command::new("secret-tool")
-            .args([
-                "lookup", "service", SERVICE, "account", profile, "kind", KIND,
-            ])
-            .output()
-            .context(
-                "Failed to run 'secret-tool'. Install libsecret-tools or use --private-key.",
-            )?;
-
-        if output.status.success() {
-            let secret = String::from_utf8(output.stdout)
-                .context("Invalid UTF-8 from secret-tool")?
-                .trim()
-                .to_string();
-            if secret.is_empty() {
-                tracing::debug!("keychain(linux): get '{}' -> not found", profile);
-                Ok(None)
-            } else {
-                tracing::debug!("keychain(linux): get '{}' -> found", profile);
-                Ok(Some(Zeroizing::new(secret)))
-            }
-        } else {
-            // secret-tool returns exit code 1 for "not found" with empty stderr.
-            // Any other failure (daemon unreachable, locked keyring, etc.) has stderr content.
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.trim().is_empty() {
-                tracing::debug!(
-                    "keychain(linux): get '{}' -> not found (empty stderr)",
-                    profile
-                );
-                Ok(None)
-            } else {
-                tracing::debug!(
-                    "keychain(linux): get '{}' -> error: {}",
-                    profile,
-                    stderr.trim()
-                );
-                anyhow::bail!("secret-tool lookup failed: {}", stderr.trim())
-            }
-        }
-    }
-
-    pub fn set(profile: &str, secret_hex: &str) -> Result<()> {
-        tracing::debug!("keychain(linux): set '{}'", profile);
-        let label = format!("Presto ({profile})");
-        let mut child = Command::new("secret-tool")
-            .args([
-                "store", "--label", &label, "service", SERVICE, "account", profile, "kind", KIND,
-            ])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .context(
-                "Failed to run 'secret-tool'. Install libsecret-tools or use --private-key.",
-            )?;
-
-        // Write secret via stdin to avoid leaking in process args
-        if let Some(ref mut stdin) = child.stdin {
-            stdin.write_all(secret_hex.as_bytes())?;
-        }
-
-        let status = child.wait()?;
-        if status.success() {
-            tracing::debug!("keychain(linux): set '{}' -> ok", profile);
-            Ok(())
-        } else {
-            anyhow::bail!(
-                "Failed to store key via secret-tool (exit code: {})",
-                status.code().unwrap_or(-1)
-            )
-        }
-    }
-
-    pub fn delete(profile: &str) -> Result<()> {
-        tracing::debug!("keychain(linux): delete '{}'", profile);
-        let output = Command::new("secret-tool")
-            .args([
-                "clear", "service", SERVICE, "account", profile, "kind", KIND,
-            ])
-            .output()
-            .context("Failed to run 'secret-tool'")?;
-
-        // secret-tool clear succeeds even if the entry doesn't exist
-        if output.status.success() {
-            tracing::debug!("keychain(linux): delete '{}' -> ok", profile);
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to delete key via secret-tool: {stderr}")
         }
     }
 }
@@ -428,6 +304,7 @@ mod tests {
         const TEST_PROFILE: &str = "presto-test-integration";
 
         #[test]
+        #[ignore] // requires macOS Keychain — run with `cargo test -- --ignored`
         fn test_os_keychain_roundtrip() {
             let kc = OsKeychain;
             let secret = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -453,60 +330,7 @@ mod tests {
         }
 
         #[test]
-        fn test_os_keychain_rename() {
-            let kc = OsKeychain;
-            let old = "presto-test-rename-old";
-            let new = "presto-test-rename-new";
-            let secret = "0x1234";
-
-            let _ = kc.delete(old);
-            let _ = kc.delete(new);
-
-            kc.set(old, secret).unwrap();
-            kc.rename(old, new).unwrap();
-
-            assert_eq!(kc.get(old).unwrap(), None);
-            assert_eq!(
-                kc.get(new).unwrap().as_deref().map(String::as_str),
-                Some(secret)
-            );
-
-            let _ = kc.delete(new);
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    mod linux_integration {
-        use super::super::*;
-
-        const TEST_PROFILE: &str = "presto-test-integration";
-
-        #[test]
-        fn test_os_keychain_roundtrip() {
-            let kc = OsKeychain;
-            let secret = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
-            // Clean up any leftover from a previous run
-            let _ = kc.delete(TEST_PROFILE);
-
-            // Should not exist
-            assert_eq!(kc.get(TEST_PROFILE).unwrap(), None);
-            assert!(!kc.exists(TEST_PROFILE).unwrap());
-
-            // Store and retrieve
-            kc.set(TEST_PROFILE, secret).unwrap();
-            assert_eq!(
-                kc.get(TEST_PROFILE).unwrap().as_deref().map(String::as_str),
-                Some(secret)
-            );
-            assert!(kc.exists(TEST_PROFILE).unwrap());
-
-            // Delete
-            kc.delete(TEST_PROFILE).unwrap();
-            assert_eq!(kc.get(TEST_PROFILE).unwrap(), None);
-        }
-
-        #[test]
+        #[ignore] // requires macOS Keychain — run with `cargo test -- --ignored`
         fn test_os_keychain_rename() {
             let kc = OsKeychain;
             let old = "presto-test-rename-old";
