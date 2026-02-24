@@ -198,7 +198,7 @@ pub async fn show_whoami(
     if creds.has_wallet() {
         response.wallet = Some(creds.wallet_address().to_string());
 
-        if let Some(key_entry) = creds.active_key() {
+        if let Some(key_entry) = creds.primary_key() {
             let wt = match key_entry.wallet_type {
                 crate::wallet::credentials::WalletType::Passkey => "passkey",
                 crate::wallet::credentials::WalletType::Local => "local",
@@ -212,7 +212,7 @@ pub async fn show_whoami(
 
         let all_balances = query_all_balances(config, network, creds.wallet_address()).await;
 
-        let active_entry = creds.active_key();
+        let active_entry = creds.primary_key();
         let key_token_info = if let Some(entry) = active_entry {
             query_spending_limit(config, network, entry).await
         } else {
@@ -234,7 +234,7 @@ pub async fn show_whoami(
                 .and_then(key_expiry_timestamp)
                 .map(format_expiry_iso);
             response.active_key = Some(KeyInfo {
-                label: creds.active.clone(),
+                label: creds.primary_key_name().unwrap_or_default(),
                 address: addr,
                 wallet_address: None,
                 wallet_type: None,
@@ -295,7 +295,7 @@ pub async fn show_whoami(
                         }
                     }
                 }
-                if let Some(expiry_ts) = creds.active_key().and_then(key_expiry_timestamp) {
+                if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
                     println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                 }
                 if let Some(bal) = &key.balance {
@@ -332,31 +332,16 @@ fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
 
 /// Format an expiry timestamp as an ISO-8601 UTC string for JSON output.
 fn format_expiry_iso(timestamp: u64) -> String {
-    // Manual UTC formatting to avoid adding chrono dependency.
-    // Unix timestamp → "YYYY-MM-DDTHH:MM:SSZ"
-    const SECS_PER_DAY: u64 = 86400;
-    let days = timestamp / SECS_PER_DAY;
-    let time_of_day = timestamp % SECS_PER_DAY;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-
-    // Days since epoch → year/month/day (civil calendar)
-    // Algorithm from Howard Hinnant's date library
-    let z = days as i64 + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-
+    let dt = time::OffsetDateTime::from_unix_timestamp(timestamp as i64)
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m, d, hours, minutes, seconds
+        dt.year(),
+        dt.month() as u8,
+        dt.day(),
+        dt.hour(),
+        dt.minute(),
+        dt.second()
     )
 }
 
@@ -534,6 +519,7 @@ pub async fn show_keys(
 
     let mut keys = Vec::new();
 
+    let primary_name = creds.primary_key_name();
     for (name, entry) in &creds.keys {
         let address = entry
             .access_key_address
@@ -574,7 +560,7 @@ pub async fn show_keys(
             balance,
             spending_limit,
             expires_at,
-            active: name == &creds.active,
+            active: primary_name.as_deref() == Some(name.as_str()),
         });
     }
 

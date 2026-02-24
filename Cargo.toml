@@ -38,6 +38,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 webbrowser = "1"
 tempfile = "3.24"
+time = "0.3"
 zeroize = { version = "1", features = ["serde"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

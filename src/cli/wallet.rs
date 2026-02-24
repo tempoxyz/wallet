@@ -50,18 +50,23 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
         .unwrap()
         .as_secs()
         + 30 * 24 * 60 * 60;
-    let usdc_address: alloy::primitives::Address =
-        crate::network::tempo_tokens::USDCE.parse().unwrap();
-    let usdc_limit = alloy::primitives::U256::from(100_000_000u64); // $100 with 6 decimals
+    let limit = alloy::primitives::U256::from(100_000_000u64); // $100 with 6 decimals
+    let token_limits: Vec<TokenLimit> = [
+        crate::network::tempo_tokens::USDCE,
+        crate::network::tempo_tokens::PATH_USD,
+    ]
+    .iter()
+    .map(|addr| TokenLimit {
+        token: addr.parse().unwrap(),
+        limit,
+    })
+    .collect();
     let auth = KeyAuthorization {
         chain_id: 0,
         key_type: SignatureType::Secp256k1,
         key_id: access_signer.address(),
         expiry: Some(expiry_secs),
-        limits: Some(vec![TokenLimit {
-            token: usdc_address,
-            limit: usdc_limit,
-        }]),
+        limits: Some(token_limits),
     };
     let sig = wallet_signer
         .sign_hash_sync(&auth.signature_hash())
@@ -80,7 +85,6 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
         ..Default::default()
     };
     creds.keys.insert(name.to_string(), key_entry);
-    creds.active = name.to_string();
     if let Err(e) = creds.save() {
         let _ = keychain().delete(name);
         return Err(e.into());
@@ -119,12 +123,12 @@ pub fn delete_wallet(name: &str, yes: bool) -> Result<()> {
     creds.delete_key(name)?;
     creds.save()?;
 
-    if creds.active.is_empty() {
+    if creds.keys.is_empty() {
         println!("Deleted wallet '{name}'. No wallets configured.");
     } else {
         println!(
             "Deleted wallet '{name}'. Switched active key to '{}'.",
-            creds.active
+            creds.primary_key_name().unwrap_or_default()
         );
     }
     Ok(())
@@ -172,7 +176,6 @@ pub fn import_wallet(name: &str, private_key_arg: Option<String>, stdin_key: boo
         ..Default::default()
     };
     creds.keys.insert(name.to_string(), key);
-    creds.active = name.to_string();
     if let Err(e) = creds.save() {
         let _ = keychain().delete(name);
         return Err(e.into());

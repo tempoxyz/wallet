@@ -112,11 +112,10 @@ impl std::fmt::Debug for KeyEntry {
 /// Wallet credentials stored in keys.toml.
 ///
 /// Supports multiple named keys via `[keys.<name>]` tables.
-/// The `active` field selects which key is currently in use.
+/// Key selection is deterministic: passkey > first key with access_key > first key.
+/// The `--key` CLI flag overrides selection at runtime.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WalletCredentials {
-    #[serde(default)]
-    pub active: String,
     #[serde(default)]
     pub keys: BTreeMap<String, KeyEntry>,
 }
@@ -153,7 +152,6 @@ impl WalletCredentials {
         };
         let mut creds = Self::default();
         creds.keys.insert(DEFAULT_KEY_NAME.to_string(), key_entry);
-        creds.active = DEFAULT_KEY_NAME.to_string();
         Ok(creds)
     }
 
@@ -176,31 +174,12 @@ impl WalletCredentials {
         }
 
         let contents = fs::read_to_string(&path)?;
-        let mut creds: Self = toml::from_str(&contents).map_err(|e| {
+        let creds: Self = toml::from_str(&contents).map_err(|e| {
             PrestoError::InvalidConfig(format!(
                 "Failed to parse {}: {e}\nTo reset, delete the file and run 'presto login'.",
                 path.display()
             ))
         })?;
-
-        // Apply --key override if set
-        if let Some(profile) = KEY_NAME_OVERRIDE.get() {
-            creds.active = profile.clone();
-        }
-
-        // Auto-resolve active key if empty: prefer passkey, then first sorted
-        if creds.active.is_empty() && !creds.keys.is_empty() {
-            if let Some(name) = creds
-                .keys
-                .iter()
-                .find(|(_, k)| k.wallet_type == WalletType::Passkey)
-                .map(|(n, _)| n.clone())
-            {
-                creds.active = name;
-            } else if let Some(name) = creds.keys.keys().next().cloned() {
-                creds.active = name;
-            }
-        }
 
         Ok(creds)
     }
@@ -224,20 +203,41 @@ impl WalletCredentials {
         Ok(())
     }
 
-    /// Get the active key, if one exists.
-    pub fn active_key(&self) -> Option<&KeyEntry> {
-        if self.active.is_empty() {
-            return None;
+    /// Deterministic primary key name: passkey > first key with access_key > first key.
+    /// The `--key` CLI flag overrides this at runtime.
+    pub fn primary_key_name(&self) -> Option<String> {
+        if let Some(name) = KEY_NAME_OVERRIDE.get() {
+            if self.keys.contains_key(name.as_str()) {
+                return Some(name.clone());
+            }
         }
-        self.keys.get(&self.active)
+        if let Some((name, _)) = self
+            .keys
+            .iter()
+            .find(|(_, k)| k.wallet_type == WalletType::Passkey)
+        {
+            return Some(name.clone());
+        }
+        if let Some((name, _)) = self
+            .keys
+            .iter()
+            .find(|(_, k)| k.access_key.as_ref().is_some_and(|ak| !ak.is_empty()))
+        {
+            return Some(name.clone());
+        }
+        self.keys.keys().next().cloned()
     }
 
-    /// Get a mutable reference to the active key.
-    fn active_key_mut(&mut self) -> Option<&mut KeyEntry> {
-        if self.active.is_empty() {
-            return None;
-        }
-        self.keys.get_mut(&self.active)
+    /// Get the primary key entry.
+    pub fn primary_key(&self) -> Option<&KeyEntry> {
+        let name = self.primary_key_name()?;
+        self.keys.get(&name)
+    }
+
+    /// Get a mutable reference to the primary key.
+    fn primary_key_mut(&mut self) -> Option<&mut KeyEntry> {
+        let name = self.primary_key_name()?;
+        self.keys.get_mut(&name)
     }
 
     /// Check if a wallet is configured.
@@ -245,26 +245,26 @@ impl WalletCredentials {
     /// Returns `true` when the active key has a wallet address AND
     /// an inline `access_key`.
     pub fn has_wallet(&self) -> bool {
-        self.active_key().is_some_and(|a| {
+        self.primary_key().is_some_and(|a| {
             !a.wallet_address.is_empty() && a.access_key.as_ref().is_some_and(|k| !k.is_empty())
         })
     }
 
     /// Get the wallet address of the active key.
     pub fn wallet_address(&self) -> &str {
-        self.active_key()
+        self.primary_key()
             .map(|a| a.wallet_address.as_str())
             .unwrap_or("")
     }
 
-    /// Get a PrivateKeySigner for the active key.
+    /// Get a PrivateKeySigner for the primary key.
     ///
     /// Resolution order:
     /// 1. `--private-key` override → use it directly.
     /// 2. Inline `access_key` → use it.
     pub fn signer(&self) -> Result<PrivateKeySigner> {
         let key_entry = self
-            .active_key()
+            .primary_key()
             .ok_or_else(|| PrestoError::ConfigMissing("No active key.".to_string()))?;
 
         let pk = key_entry
@@ -280,18 +280,21 @@ impl WalletCredentials {
         parse_private_key_signer(pk)
     }
 
-    /// Get the key_authorization hex string from the active key.
+    /// Get the key_authorization hex string from the primary key.
     pub fn key_authorization(&self) -> Option<&str> {
-        self.active_key()
+        self.primary_key()
             .and_then(|a| a.key_authorization.as_deref())
     }
 
-    /// Get the access key address for the active key.
+    /// Get the access key address for the primary key.
     ///
     /// Uses the stored `access_key_address` field if available, otherwise
     /// derives it from the available signing key.
     pub fn access_key_address(&self) -> Option<String> {
-        if let Some(addr) = self.active_key().and_then(|a| a.access_key_address.clone()) {
+        if let Some(addr) = self
+            .primary_key()
+            .and_then(|a| a.access_key_address.clone())
+        {
             return Some(addr);
         }
         let signer = self.signer().ok()?;
@@ -300,7 +303,7 @@ impl WalletCredentials {
 
     /// Check if a network's key is provisioned on-chain.
     pub fn is_provisioned(&self, network: &str) -> bool {
-        let Some(key_entry) = self.active_key() else {
+        let Some(key_entry) = self.primary_key() else {
             return false;
         };
         let Some(chain_id) = network.parse::<Network>().ok().map(|n| n.chain_id()) else {
@@ -321,7 +324,7 @@ impl WalletCredentials {
             return;
         };
         if let Ok(mut creds) = Self::load() {
-            if let Some(key_entry) = creds.active_key_mut() {
+            if let Some(key_entry) = creds.primary_key_mut() {
                 if !key_entry.provisioned_chain_ids.contains(&chain_id) {
                     key_entry.provisioned_chain_ids.push(chain_id);
                     if let Err(e) = creds.save() {
@@ -338,43 +341,47 @@ impl WalletCredentials {
     /// other keys, and finally falls back to the `--key` override
     /// or the default passkey name.
     pub fn resolve_key_name(&self, wallet_address: &str) -> String {
-        if self
-            .keys
-            .get(&self.active)
-            .is_some_and(|a| a.wallet_address == wallet_address)
-        {
-            self.active.clone()
-        } else {
-            let first_match = self
+        // Prefer primary key if it matches the address
+        if let Some(name) = self.primary_key_name() {
+            if self
                 .keys
-                .iter()
-                .filter(|(_, a)| a.wallet_address == wallet_address)
-                .map(|(name, _)| name.clone())
-                .next();
-            first_match.unwrap_or_else(|| {
+                .get(&name)
+                .is_some_and(|a| a.wallet_address == wallet_address)
+            {
+                return name;
+            }
+        }
+        // Search all keys for a match
+        self.keys
+            .iter()
+            .find(|(_, a)| a.wallet_address == wallet_address)
+            .map(|(name, _)| name.clone())
+            .unwrap_or_else(|| {
                 KEY_NAME_OVERRIDE
                     .get()
                     .cloned()
                     .unwrap_or_else(|| DEFAULT_PASSKEY_NAME.to_string())
             })
-        }
     }
 
     /// Resolve which key name to update during login using both wallet and signer addresses.
     ///
     /// Priority:
-    /// 1) Active key if its `wallet_address` matches wallet address.
+    /// 1) Primary key if its `wallet_address` matches wallet address.
     /// 2) Any key whose `wallet_address` matches wallet address.
-    /// 3) Active key if its `access_key_address` matches signer address.
+    /// 3) Primary key if its `access_key_address` matches signer address.
     /// 4) Any key whose `access_key_address` matches signer address.
     /// 5) `--key` override or default passkey name.
     pub fn resolve_key_name_for_login(&self, wallet_address: &str, signer_address: &str) -> String {
-        if self
-            .keys
-            .get(&self.active)
-            .is_some_and(|a| a.wallet_address == wallet_address)
-        {
-            return self.active.clone();
+        let primary = self.primary_key_name();
+        if let Some(ref name) = primary {
+            if self
+                .keys
+                .get(name)
+                .is_some_and(|a| a.wallet_address == wallet_address)
+            {
+                return name.clone();
+            }
         }
         if let Some(name) = self
             .keys
@@ -384,12 +391,14 @@ impl WalletCredentials {
         {
             return name;
         }
-        if self
-            .keys
-            .get(&self.active)
-            .is_some_and(|a| a.access_key_address.as_deref() == Some(signer_address))
-        {
-            return self.active.clone();
+        if let Some(ref name) = primary {
+            if self
+                .keys
+                .get(name)
+                .is_some_and(|a| a.access_key_address.as_deref() == Some(signer_address))
+            {
+                return name.clone();
+            }
         }
         if let Some(name) = self
             .keys
@@ -427,8 +436,6 @@ impl WalletCredentials {
         key_entry.access_key_address = Some(access_key_address);
         key_entry.access_key = Some(Zeroizing::new(access_key));
         key_entry.key_authorization = key_authorization;
-
-        self.active = profile;
     }
 
     /// Find the name of the passkey wallet entry, if one exists.
@@ -464,13 +471,6 @@ impl WalletCredentials {
             }
         }
         self.keys.remove(profile);
-        if self.active == profile {
-            // BTreeMap iterates in sorted order; pick the first remaining key
-            match self.keys.keys().next() {
-                Some(next) => self.active = next.clone(),
-                None => self.active.clear(),
-            }
-        }
         Ok(())
     }
 }
@@ -520,7 +520,6 @@ mod tests {
             }
         }
         creds.keys.insert(profile.to_string(), key_entry);
-        creds.active = profile.to_string();
         creds
     }
 
@@ -533,7 +532,7 @@ mod tests {
     fn test_default_credentials() {
         let creds = WalletCredentials::default();
         assert!(!creds.has_wallet());
-        assert!(creds.active.is_empty());
+        assert!(creds.primary_key_name().is_none());
         assert!(creds.keys.is_empty());
     }
 
@@ -608,7 +607,6 @@ mod tests {
             ..Default::default()
         };
         creds.keys.insert("default".to_string(), key_entry);
-        creds.active = "default".to_string();
 
         let toml_str = toml::to_string_pretty(&creds).unwrap();
         assert!(toml_str.contains("access_key_address = \"0xsigner\""));
@@ -629,7 +627,6 @@ mod tests {
             ..Default::default()
         };
         creds.keys.insert("default".to_string(), key_entry);
-        creds.active = "default".to_string();
         assert!(!creds.has_wallet());
     }
 
@@ -648,7 +645,6 @@ mod tests {
             ..Default::default()
         };
         creds.keys.insert("default".to_string(), key_entry);
-        creds.active = "default".to_string();
 
         let contents = toml::to_string_pretty(&creds).expect("serialize");
         crate::util::atomic_write(&path, &contents, 0o600).expect("write");
@@ -719,10 +715,10 @@ wallet_address = "0xtest"
             "0xaccesskey1".to_string(),
             Some("auth".to_string()),
         );
-        assert_eq!(creds.active, "passkey-default");
+        assert_eq!(creds.primary_key_name().unwrap(), "passkey-default");
         assert_eq!(creds.wallet_address(), "0xABC");
         assert!(creds.has_wallet());
-        let key_entry = creds.active_key().unwrap();
+        let key_entry = creds.primary_key().unwrap();
         assert_eq!(key_entry.access_key_address, Some("0xsigner1".to_string()));
         assert_eq!(
             key_entry.access_key,
@@ -737,7 +733,7 @@ wallet_address = "0xtest"
             None,
         );
         assert_eq!(creds.keys.len(), 1);
-        let key_entry = creds.active_key().unwrap();
+        let key_entry = creds.primary_key().unwrap();
         assert_eq!(key_entry.access_key_address, Some("0xsigner2".to_string()));
         assert_eq!(
             key_entry.access_key,
@@ -762,10 +758,11 @@ access_key_address = "0xsigner2"
 provisioned_chain_ids = [4217, 42431]
 "#;
         let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
-        assert_eq!(creds.active, "work");
-        assert_eq!(creds.wallet_address(), "0xBBB");
+        // primary_key_name() picks "default" (first in BTreeMap order)
+        assert_eq!(creds.primary_key_name().unwrap(), "default");
+        assert_eq!(creds.wallet_address(), "0xAAA");
         assert!(creds.is_provisioned("tempo"));
-        assert!(creds.is_provisioned("tempo-moderato"));
+        assert!(!creds.is_provisioned("tempo-moderato"));
     }
 
     #[test]
@@ -777,7 +774,6 @@ provisioned_chain_ids = [4217, 42431]
             ..Default::default()
         };
         creds.keys.insert("work".to_string(), key_entry);
-        creds.active = "work".to_string();
 
         // Login returns same wallet address → resolves to existing key name
         let profile = creds.resolve_key_name("0xWALLET");
@@ -797,7 +793,6 @@ provisioned_chain_ids = [4217, 42431]
                 },
             );
         }
-        creds.active = "unrelated".to_string();
 
         // Should always pick "alpha" (lexicographically first)
         let profile = creds.resolve_key_name("0xSAME");
@@ -818,7 +813,7 @@ provisioned_chain_ids = [4217, 42431]
 
         creds.delete_key("work").unwrap();
         assert_eq!(creds.keys.len(), 1);
-        assert_eq!(creds.active, "default");
+        assert_eq!(creds.primary_key_name().unwrap(), "default");
     }
 
     #[test]
@@ -834,15 +829,15 @@ provisioned_chain_ids = [4217, 42431]
         );
 
         creds.delete_key("default").unwrap();
-        assert_eq!(creds.active, "work");
-        assert_eq!(creds.wallet_address(), "0xBBB");
+        assert_eq!(creds.primary_key_name().unwrap(), "work");
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xBBB");
     }
 
     #[test]
     fn test_delete_last_key() {
         let mut creds = make_creds("0xAAA", Some(TEST_PRIVATE_KEY));
         creds.delete_key("default").unwrap();
-        assert!(creds.active.is_empty());
+        assert!(creds.primary_key_name().is_none());
         assert!(creds.keys.is_empty());
     }
 
@@ -864,7 +859,6 @@ provisioned_chain_ids = [4217, 42431]
             ..Default::default()
         };
         creds.keys.insert("test-profile".to_string(), key_entry);
-        creds.active = "test-profile".to_string();
 
         let signer = creds.signer().unwrap();
         assert_eq!(
@@ -884,7 +878,6 @@ provisioned_chain_ids = [4217, 42431]
             ..Default::default()
         };
         creds.keys.insert("default".to_string(), key_entry);
-        creds.active = "default".to_string();
 
         assert_eq!(creds.access_key_address(), Some("0xsigneraddr".to_string()));
     }
@@ -901,7 +894,6 @@ provisioned_chain_ids = [4217, 42431]
             ..Default::default()
         };
         creds.keys.insert(profile.to_string(), key_entry);
-        creds.active = profile.to_string();
 
         creds.delete_key(profile).unwrap();
         assert!(keychain().get(profile).unwrap().is_none());
@@ -920,16 +912,15 @@ provisioned_chain_ids = [4217, 42431]
                 },
             );
         }
-        creds.active = "zebra".to_string();
 
         creds.delete_key("zebra").unwrap();
-        assert_eq!(creds.active, "alpha");
+        assert_eq!(creds.primary_key_name().unwrap(), "alpha");
     }
 
     #[test]
     fn test_from_private_key() {
         let creds = WalletCredentials::from_private_key(TEST_PRIVATE_KEY).unwrap();
-        assert_eq!(creds.active, "default");
+        assert_eq!(creds.primary_key_name().unwrap(), "default");
         assert_eq!(
             creds.wallet_address().to_lowercase(),
             TEST_ADDRESS.to_lowercase()
@@ -957,7 +948,6 @@ provisioned_chain_ids = [4217, 42431]
                 ..Default::default()
             },
         );
-        creds.active = "work".to_string();
 
         let name = creds.resolve_key_name_for_login("0xWALLET", "0xSIGNER");
         assert_eq!(name, "work");
@@ -974,7 +964,6 @@ provisioned_chain_ids = [4217, 42431]
                 ..Default::default()
             },
         );
-        creds.active = "work".to_string();
 
         let name = creds.resolve_key_name_for_login("0xDIFFERENT", "0xSIGNER");
         assert_eq!(name, "work");
@@ -991,14 +980,13 @@ provisioned_chain_ids = [4217, 42431]
                 ..Default::default()
             },
         );
-        creds.active = "work".to_string();
 
         let name = creds.resolve_key_name_for_login("0xNEW", "0xNEW2");
         assert_eq!(name, "passkey-default");
     }
 
     #[test]
-    fn test_active_key_empty_active() {
+    fn test_primary_key_resolves_first() {
         let mut creds = WalletCredentials::default();
         creds.keys.insert(
             "somekey".to_string(),
@@ -1007,9 +995,9 @@ provisioned_chain_ids = [4217, 42431]
                 ..Default::default()
             },
         );
-        // active is empty (default)
-        assert!(creds.active_key().is_none());
-        assert_eq!(creds.wallet_address(), "");
+        // No passkey type or access_key, but it's the only key so primary_key_name() finds it
+        assert_eq!(creds.primary_key_name(), Some("somekey".to_string()));
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xtest");
     }
 
     #[test]
@@ -1065,7 +1053,7 @@ provisioned_chain_ids = [4217, 42431]
             None,
         );
 
-        let key_entry = creds.active_key().unwrap();
+        let key_entry = creds.primary_key().unwrap();
         assert_eq!(key_entry.provisioned_chain_ids, vec![4217, 42431]);
     }
 }

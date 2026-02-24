@@ -219,7 +219,6 @@ impl WalletManager {
                 key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
                 key.key_authorization = key_auth_hex.clone();
                 // provisioning is tracked after the first successful payment
-                creds.active = profile;
             }
         } else {
             creds.set_passkey(
