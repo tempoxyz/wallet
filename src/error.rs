@@ -59,6 +59,10 @@ pub enum PrestoError {
     #[error("Invalid private key: {0}")]
     InvalidKey(String),
 
+    /// OS keychain operation failed
+    #[error("Keychain error: {0}")]
+    Keychain(String),
+
     /// Failed to determine config directory
     #[error("Failed to determine config directory")]
     NoConfigDir,

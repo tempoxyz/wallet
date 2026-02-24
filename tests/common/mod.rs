@@ -62,29 +62,25 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 /// Hardcoded test wallet for Moderato (testnet).
 ///
 /// This is the mpp-proxy client wallet, funded with pathUSD on Moderato.
-/// Since it's a direct EOA (account_address == derived address), presto
+/// Since it's a direct EOA (wallet_address == derived address), presto
 /// will automatically use Direct signing mode.
-const TEST_WALLET_PRIVATE_KEY: &str =
+pub const TEST_WALLET_PRIVATE_KEY: &str =
     "0xbb53fe0be41a5da041ea0c9d2612914cec26bb6c39d747154b519b51feb9ae49";
 const TEST_WALLET_ADDRESS: &str = "0xF0A9071a096674D408F2324c1e0e5eC5ceEDE99F";
 
 /// Set up a temp dir for live e2e tests with a hardcoded Moderato wallet.
 ///
-/// Returns `None` if `PRESTO_LIVE_TESTS` env var is not set,
-/// allowing tests to skip gracefully.
-pub fn setup_live_test() -> Option<TempDir> {
-    if std::env::var("PRESTO_LIVE_TESTS").is_err() {
-        return None;
-    }
-
+/// Live tests are gated by `#[ignore]` — run with `cargo test --test live -- --ignored`.
+pub fn setup_live_test() -> TempDir {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
 
     let wallet_toml = format!(
         "active = \"default\"\n\
          \n\
-         [accounts.default]\n\
-         account_address = \"{TEST_WALLET_ADDRESS}\"\n\
-         private_key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
+         [keys.default]\n\
+         wallet_address = \"{TEST_WALLET_ADDRESS}\"\n\
+         access_key_address = \"{TEST_WALLET_ADDRESS}\"\n\
+         access_key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
     );
 
     // Layout paths within the temp dir (both macOS and Linux)
@@ -96,16 +92,16 @@ pub fn setup_live_test() -> Option<TempDir> {
     fs::create_dir_all(&linux_data_dir).expect("Failed to create Linux data directory");
     fs::create_dir_all(&linux_config_dir).expect("Failed to create Linux config directory");
 
-    // Write wallet.toml into both layouts
-    fs::write(macos_dir.join("wallet.toml"), &wallet_toml).expect("Failed to write macOS wallet");
-    fs::write(linux_data_dir.join("wallet.toml"), &wallet_toml)
+    // Write keys.toml into both layouts
+    fs::write(macos_dir.join("keys.toml"), &wallet_toml).expect("Failed to write macOS wallet");
+    fs::write(linux_data_dir.join("keys.toml"), &wallet_toml)
         .expect("Failed to write Linux wallet");
 
     // Write empty config
     fs::write(macos_dir.join("config.toml"), "").expect("Failed to write macOS config");
     fs::write(linux_config_dir.join("config.toml"), "").expect("Failed to write Linux config");
 
-    Some(temp_dir)
+    temp_dir
 }
 
 /// Delete the sessions database (and WAL/SHM) from the temp dir.

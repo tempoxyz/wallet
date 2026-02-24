@@ -10,14 +10,21 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 fn is_telemetry_disabled() -> bool {
-    std::env::var("PRESTO_NO_TELEMETRY").is_ok()
+    if std::env::var("PRESTO_NO_TELEMETRY").is_ok() {
+        return true;
+    }
+    // Also honor config flag if present
+    if let Ok(cfg) = crate::config::load_config_with_overrides(None) {
+        return !cfg.telemetry.enabled;
+    }
+    false
 }
 
 fn get_wallet_address() -> Option<String> {
     use crate::wallet::credentials::WalletCredentials;
 
     let creds = WalletCredentials::load().ok()?;
-    let addr = creds.account_address();
+    let addr = creds.wallet_address();
     if addr.is_empty() {
         None
     } else {

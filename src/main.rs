@@ -21,7 +21,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{AccountCommands, Cli, ColorMode, Commands, SessionCommands, Shell};
+use cli::{Cli, ColorMode, Commands, SessionCommands, Shell, WalletCommands};
 use colored::control;
 
 use analytics::Analytics;
@@ -84,6 +84,14 @@ fn parse_cli() -> Cli {
     match Cli::try_parse() {
         Ok(cli) => cli,
         Err(original_err) => {
+            // Help/version requests should pass through immediately
+            if matches!(
+                original_err.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            ) {
+                original_err.exit()
+            }
+
             // If normal parsing failed, try again with "query" inserted.
             // This handles cases like `presto https://example.com` or
             // `presto -X POST --json '{}' https://example.com`.
@@ -133,13 +141,12 @@ fn validate_network_flag(network: &str) -> Result<()> {
 
 /// Handle CLI subcommands
 async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
-    if let Some(ref profile) = cli.profile {
-        wallet::credentials::set_profile_override(profile.clone());
+    if let Some(ref key) = cli.key {
+        wallet::credentials::set_key_name_override(key.clone());
     }
 
     if let Some(ref pk) = cli.private_key {
-        let creds = wallet::credentials::WalletCredentials::from_private_key(pk)?;
-        wallet::credentials::set_credentials_override(creds);
+        wallet::credentials::set_credentials_override(pk.clone());
     }
 
     if let Some(ref network) = cli.network {
@@ -160,8 +167,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
-            Commands::Account { .. } => "account",
-            Commands::Switch { .. } => "switch",
+            Commands::Wallet { .. } => "wallet",
             Commands::Session { .. } => "session",
             Commands::Whoami | Commands::Balance => "whoami",
         };
@@ -266,23 +272,41 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Account { command } => {
+        Commands::Wallet { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
-                    AccountCommands::List => cli::account::list_accounts(),
-                    AccountCommands::Rename { old, new } => {
-                        cli::account::rename_account(&old, &new)
+                    WalletCommands::Create { name, passkey } => {
+                        if passkey {
+                            let network = cli.network.as_deref();
+                            cli::auth::run_login(network, analytics.clone()).await
+                        } else {
+                            let name = name.as_deref().unwrap_or("default");
+                            cli::wallet::create_local_wallet(name)
+                        }
                     }
-                    AccountCommands::Delete { profile, yes } => {
-                        cli::account::delete_account(&profile, yes)
+                    WalletCommands::Import {
+                        name,
+                        private_key,
+                        stdin_key,
+                    } => {
+                        let name = name.as_deref().unwrap_or("default");
+                        cli::wallet::import_wallet(name, private_key, stdin_key)
+                    }
+                    WalletCommands::Delete { name, passkey, yes } => {
+                        if passkey {
+                            cli::auth::run_logout(yes).await
+                        } else if let Some(name) = name {
+                            cli::wallet::delete_wallet(&name, yes)
+                        } else {
+                            anyhow::bail!("Specify a wallet name or use --passkey");
+                        }
                     }
                 }
             } else {
-                cli::account::list_accounts()
+                Cli::command().print_help()?;
+                Ok(())
             }
         }
-
-        Commands::Switch { profile } => cli::account::switch_account(&profile),
 
         Commands::Whoami | Commands::Balance => {
             let config = load_config_with_overrides(cli.config.as_ref())?;
