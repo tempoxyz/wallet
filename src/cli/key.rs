@@ -2,6 +2,7 @@
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
+use zeroize::Zeroizing;
 
 use crate::wallet::credentials::{self, keychain, WalletCredentials};
 
@@ -115,7 +116,7 @@ pub fn create_key(profile: &str, force: bool) -> Result<()> {
     }
 
     let signer = PrivateKeySigner::random();
-    let private_key_hex = format!("0x{}", hex::encode(signer.to_bytes()));
+    let private_key_hex = Zeroizing::new(format!("0x{}", hex::encode(signer.to_bytes())));
     let address = format!("{}", signer.address());
 
     // Store wallet EOA key in OS keychain
@@ -163,8 +164,8 @@ pub fn import_key(
         );
     }
 
-    let key_hex = if let Some(pk) = private_key_arg {
-        pk
+    let key_hex: Zeroizing<String> = if let Some(pk) = private_key_arg {
+        Zeroizing::new(pk)
     } else if stdin_key {
         read_private_key_noninteractive()? // single-line from stdin
     } else {
@@ -175,7 +176,7 @@ pub fn import_key(
     let signer: PrivateKeySigner = crate::wallet::credentials::parse_private_key_signer(&key_hex)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-    let private_key_hex = format!("0x{}", hex::encode(signer.to_bytes()));
+    let private_key_hex = Zeroizing::new(format!("0x{}", hex::encode(signer.to_bytes())));
     let address = format!("{}", signer.address());
 
     // Store wallet EOA key in OS keychain
@@ -205,7 +206,7 @@ pub fn import_key(
 ///
 /// Disables terminal echo on Unix to avoid leaking the key,
 /// or reads silently from a pipe.
-fn read_private_key() -> Result<String> {
+fn read_private_key() -> Result<Zeroizing<String>> {
     use std::io::{self, BufRead, IsTerminal, Write};
     use zeroize::Zeroize;
 
@@ -229,7 +230,7 @@ fn read_private_key() -> Result<String> {
         let mut input = String::new();
         io::stdin().lock().read_line(&mut input)?;
 
-        let key = input.trim().to_string();
+        let key = Zeroizing::new(input.trim().to_string());
         input.zeroize();
         if key.is_empty() {
             anyhow::bail!("No private key provided");
@@ -239,7 +240,7 @@ fn read_private_key() -> Result<String> {
         // Reading from pipe
         let mut input = String::new();
         io::stdin().lock().read_line(&mut input)?;
-        let key = input.trim().to_string();
+        let key = Zeroizing::new(input.trim().to_string());
         input.zeroize();
         if key.is_empty() {
             anyhow::bail!("No private key provided on stdin");
@@ -249,11 +250,13 @@ fn read_private_key() -> Result<String> {
 }
 
 /// Read a private key from stdin non-interactively (one line, no prompts).
-fn read_private_key_noninteractive() -> Result<String> {
+fn read_private_key_noninteractive() -> Result<Zeroizing<String>> {
     use std::io::{self, BufRead};
+    use zeroize::Zeroize;
     let mut input = String::new();
     io::stdin().lock().read_line(&mut input)?;
-    let key = input.trim().to_string();
+    let key = Zeroizing::new(input.trim().to_string());
+    input.zeroize();
     if key.is_empty() {
         anyhow::bail!("No private key provided on stdin");
     }
