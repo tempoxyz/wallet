@@ -1,7 +1,7 @@
 //! Tempo wallet credentials stored in keys.toml
 //!
 //! Separate from config.toml to keep wallet credentials isolated.
-//! Supports multiple named keys with an `active` pointer.
+//! Supports multiple named keys with deterministic key selection.
 
 use alloy::signers::local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
@@ -242,7 +242,7 @@ impl WalletCredentials {
 
     /// Check if a wallet is configured.
     ///
-    /// Returns `true` when the active key has a wallet address AND
+    /// Returns `true` when the primary key has a wallet address AND
     /// an inline `access_key`.
     pub fn has_wallet(&self) -> bool {
         self.primary_key().is_some_and(|a| {
@@ -250,7 +250,7 @@ impl WalletCredentials {
         })
     }
 
-    /// Get the wallet address of the active key.
+    /// Get the wallet address of the primary key.
     pub fn wallet_address(&self) -> &str {
         self.primary_key()
             .map(|a| a.wallet_address.as_str())
@@ -265,7 +265,7 @@ impl WalletCredentials {
     pub fn signer(&self) -> Result<PrivateKeySigner> {
         let key_entry = self
             .primary_key()
-            .ok_or_else(|| PrestoError::ConfigMissing("No active key.".to_string()))?;
+            .ok_or_else(|| PrestoError::ConfigMissing("No key configured.".to_string()))?;
 
         let pk = key_entry
             .access_key
@@ -337,7 +337,7 @@ impl WalletCredentials {
 
     /// Resolve which key name to use for a given wallet address.
     ///
-    /// Prefers the active key if it matches the address, then searches
+    /// Prefers the primary key if it matches the address, then searches
     /// other keys, and finally falls back to the `--key` override
     /// or the default passkey name.
     pub fn resolve_key_name(&self, wallet_address: &str) -> String {
@@ -414,7 +414,7 @@ impl WalletCredentials {
             .unwrap_or_else(|| DEFAULT_PASSKEY_NAME.to_string())
     }
 
-    /// Set or update the active passkey from a login result.
+    /// Set or update the passkey from a login result.
     ///
     /// Stores the access key inline in keys.toml (NOT in the OS keychain).
     /// Always sets `wallet_type = Passkey`.
@@ -449,9 +449,7 @@ impl WalletCredentials {
     /// Delete a key.
     ///
     /// Removes the keychain entry (if local wallet, best-effort) and
-    /// keys.toml metadata.  If the deleted key was active,
-    /// auto-switches to another.
-    /// Returns an error if the key doesn't exist.
+    /// keys.toml metadata. Returns an error if the key doesn't exist.
     pub fn delete_key(&mut self, profile: &str) -> Result<()> {
         if !self.keys.contains_key(profile) {
             return Err(PrestoError::ConfigMissing(format!(

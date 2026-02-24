@@ -126,10 +126,7 @@ pub fn delete_wallet(name: &str, yes: bool) -> Result<()> {
     if creds.keys.is_empty() {
         println!("Deleted wallet '{name}'. No wallets configured.");
     } else {
-        println!(
-            "Deleted wallet '{name}'. Switched active key to '{}'.",
-            creds.primary_key_name().unwrap_or_default()
-        );
+        println!("Deleted wallet '{name}'.");
     }
     Ok(())
 }

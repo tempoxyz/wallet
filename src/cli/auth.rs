@@ -159,8 +159,6 @@ pub(crate) struct KeyInfo {
     /// Key expiry as an ISO-8601 UTC timestamp (JSON) or countdown (text).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub active: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -243,7 +241,6 @@ pub async fn show_whoami(
                 balance,
                 spending_limit,
                 expires_at,
-                active: true,
             });
         } else {
             response.ready = false;
@@ -276,8 +273,7 @@ pub async fn show_whoami(
         }
         _ => {
             if let Some(key) = &response.active_key {
-                let active_marker = if response.ready { " (active)" } else { "" };
-                println!("{}{}", key.label, active_marker);
+                println!("{}", key.label);
                 if let Some(wallet) = &response.wallet {
                     let wt = response.wallet_type.as_deref().unwrap_or("unknown");
                     println!("{:>10}: {} ({})", "Wallet", wallet, wt);
@@ -519,7 +515,6 @@ pub async fn show_keys(
 
     let mut keys = Vec::new();
 
-    let primary_name = creds.primary_key_name();
     for (name, entry) in &creds.keys {
         let address = entry
             .access_key_address
@@ -560,7 +555,6 @@ pub async fn show_keys(
             balance,
             spending_limit,
             expires_at,
-            active: primary_name.as_deref() == Some(name.as_str()),
         });
     }
 
@@ -576,8 +570,7 @@ pub async fn show_keys(
                 return Ok(());
             }
             for key in &response.keys {
-                let active_marker = if key.active { " (active)" } else { "" };
-                println!("{}{}", key.label, active_marker);
+                println!("{}", key.label);
                 if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
                     println!("{:>10}: {} ({})", "Wallet", wallet, wt);
                 }

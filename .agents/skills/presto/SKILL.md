@@ -70,8 +70,7 @@ If `ready` is `false`, run `presto login` and retry.
       "remaining": "89.50",
       "spent": "10.50"
     },
-    "expires_at": "2026-03-26T00:00:00Z",
-    "active": true
+    "expires_at": "2026-03-26T00:00:00Z"
   }
 }
 ```
@@ -95,8 +94,7 @@ If `ready` is `false`, run `presto login` and retry.
         "remaining": "89.50",
         "spent": "10.50"
       },
-      "expires_at": "2026-03-26T00:00:00Z",
-      "active": true
+      "expires_at": "2026-03-26T00:00:00Z"
     }
   ]
 }
