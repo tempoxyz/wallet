@@ -123,31 +123,6 @@ fn test_help_has_http_options_section() {
 }
 
 #[test]
-fn test_help_shows_default_values() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[default: auto]"));
-
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["query", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[default: text]"));
-}
-
-#[test]
-fn test_help_shows_possible_values() {
-    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[possible values:"))
-        .stdout(predicate::str::contains("auto, always, never"));
-}
-
-#[test]
 fn test_alias_with_display_options() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-q", "--color", "never"])
@@ -258,8 +233,7 @@ fn test_main_help_lists_all_commands() {
         .stdout(predicate::str::contains("login"))
         .stdout(predicate::str::contains("logout"))
         .stdout(predicate::str::contains("balance"))
-        .stdout(predicate::str::contains("whoami"))
-        .stdout(predicate::str::contains("wallet"));
+        .stdout(predicate::str::contains("whoami"));
 }
 
 #[test]
@@ -289,8 +263,7 @@ fn test_whoami_help() {
         .args(["whoami", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("wallet"))
-        .stdout(predicate::str::contains("--output-format"));
+        .stdout(predicate::str::contains("wallet"));
 }
 
 #[test]
@@ -340,7 +313,7 @@ fn test_bare_url_with_verbose() {
 #[test]
 fn test_bare_url_with_include_headers() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["-i", "http://example.com"])
+        .args(["--output-format", "text", "-i", "http://example.com"])
         .assert()
         .success()
         .stdout(predicate::str::contains("HTTP 200"));

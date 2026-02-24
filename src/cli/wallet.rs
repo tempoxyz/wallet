@@ -4,7 +4,10 @@ use alloy::rlp::Encodable;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
 use anyhow::Result;
-use tempo_primitives::transaction::{KeyAuthorization, PrimitiveSignature, SignatureType};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tempo_primitives::transaction::{
+    KeyAuthorization, PrimitiveSignature, SignatureType, TokenLimit,
+};
 use zeroize::Zeroizing;
 
 use crate::wallet::credentials::{self, keychain, KeyEntry, WalletCredentials, WalletType};
@@ -41,12 +44,24 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
     let access_key_address = format!("{}", access_signer.address());
 
     // Sign key_authorization with chain_id=0 (all chains)
+    // Default: $100 USDC limit, 30-day expiry
+    let expiry_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 30 * 24 * 60 * 60;
+    let usdc_address: alloy::primitives::Address =
+        crate::network::tempo_tokens::USDCE.parse().unwrap();
+    let usdc_limit = alloy::primitives::U256::from(100_000_000u64); // $100 with 6 decimals
     let auth = KeyAuthorization {
         chain_id: 0,
         key_type: SignatureType::Secp256k1,
         key_id: access_signer.address(),
-        expiry: None,
-        limits: None,
+        expiry: Some(expiry_secs),
+        limits: Some(vec![TokenLimit {
+            token: usdc_address,
+            limit: usdc_limit,
+        }]),
     };
     let sig = wallet_signer
         .sign_hash_sync(&auth.signature_hash())
@@ -71,9 +86,6 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
         return Err(e.into());
     }
 
-    println!("Created wallet '{name}'.");
-    println!("  Address: {wallet_address}");
-    println!("\nFund this address to start making payments.");
     Ok(())
 }
 

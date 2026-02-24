@@ -22,7 +22,7 @@ const KEYS_FILE_NAME: &str = "keys.toml";
 const DEFAULT_KEY_NAME: &str = "default";
 
 /// Default key name for passkey wallets.
-const DEFAULT_PASSKEY_NAME: &str = "passkey";
+const DEFAULT_PASSKEY_NAME: &str = "passkey-default";
 
 /// Global key name override set by `--key` flag.
 static KEY_NAME_OVERRIDE: OnceLock<String> = OnceLock::new();
@@ -719,7 +719,7 @@ wallet_address = "0xtest"
             "0xaccesskey1".to_string(),
             Some("auth".to_string()),
         );
-        assert_eq!(creds.active, "passkey");
+        assert_eq!(creds.active, "passkey-default");
         assert_eq!(creds.wallet_address(), "0xABC");
         assert!(creds.has_wallet());
         let key_entry = creds.active_key().unwrap();
@@ -994,7 +994,7 @@ provisioned_chain_ids = [4217, 42431]
         creds.active = "work".to_string();
 
         let name = creds.resolve_key_name_for_login("0xNEW", "0xNEW2");
-        assert_eq!(name, "passkey");
+        assert_eq!(name, "passkey-default");
     }
 
     #[test]
@@ -1050,8 +1050,12 @@ provisioned_chain_ids = [4217, 42431]
             "0xaccesskey1".to_string(),
             Some("auth".to_string()),
         );
-        // Add provisioned_chain_ids to the existing key (set_passkey defaults to "passkey" name)
-        creds.keys.get_mut("passkey").unwrap().provisioned_chain_ids = vec![4217, 42431];
+        // Add provisioned_chain_ids to the existing key (set_passkey defaults to "passkey-default" name)
+        creds
+            .keys
+            .get_mut("passkey-default")
+            .unwrap()
+            .provisioned_chain_ids = vec![4217, 42431];
 
         // Re-login with same address
         creds.set_passkey(

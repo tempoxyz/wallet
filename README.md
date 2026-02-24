@@ -110,14 +110,14 @@ Run `presto <command> --help` for detailed usage on any command.
 
 ```bash
 # Create a new local wallet (EOA stored in macOS Keychain)
-presto wallet create --name default
+presto wallet create
 
 # Import an existing private key as a local wallet
-presto wallet import --name default --stdin-key   # read from stdin
-presto wallet import --name default --private-key 0x...
+presto wallet import --stdin-key   # read from stdin
+presto wallet import --private-key 0x...
 
 # Delete a wallet
-presto wallet delete --name default --yes
+presto wallet delete --yes
 ```
 
 ## Configuration

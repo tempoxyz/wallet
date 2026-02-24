@@ -12,6 +12,96 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
 
+## Agent Usage
+
+Set JSON as the default output format in config so you don't need `--output-format json` on every call:
+
+```bash
+# One-time setup: set default output format to JSON
+# Add to ~/Library/Application Support/presto/config.toml (macOS)
+# or ~/.config/presto/config.toml (Linux):
+output_format = "json"
+```
+
+Then use `-q` (quiet) to suppress log messages:
+
+```bash
+# Preferred pattern: quiet, pipe through jq
+presto -q -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+
+# Check wallet readiness before making requests
+presto -q whoami | jq '.ready'
+```
+
+### Preflight Check
+
+Before making paid requests, verify the wallet is ready:
+
+```bash
+presto -q --output-format json whoami
+```
+
+Check these fields in the response:
+- `ready` — `true` means the wallet is connected, provisioned, and has an access key
+- `active_key.balance` — check that the token balance is sufficient
+
+If `ready` is `false`, run `presto login` and retry.
+
+### whoami JSON Response Schema
+
+```json
+{
+  "ready": true,
+  "wallet": "0x1234...abcd",
+  "wallet_type": "passkey",
+  "network": "tempo",
+  "chain_id": 4217,
+  "active_key": {
+    "label": "passkey-default",
+    "address": "0xabcd...1234",
+    "symbol": "USDC",
+    "currency": "0x...",
+    "balance": "10.50",
+    "spending_limit": {
+      "unlimited": false,
+      "limit": "100.00",
+      "remaining": "89.50",
+      "spent": "10.50"
+    },
+    "expires_at": "2026-03-26T00:00:00Z",
+    "active": true
+  }
+}
+```
+
+### keys JSON Response Schema
+
+```json
+{
+  "keys": [
+    {
+      "label": "passkey-default",
+      "address": "0xabcd...1234",
+      "wallet_address": "0x1234...abcd",
+      "wallet_type": "passkey",
+      "symbol": "USDC",
+      "currency": "0x...",
+      "balance": "10.50",
+      "spending_limit": {
+        "unlimited": false,
+        "limit": "100.00",
+        "remaining": "89.50",
+        "spent": "10.50"
+      },
+      "expires_at": "2026-03-26T00:00:00Z",
+      "active": true
+    }
+  ]
+}
+```
+
 ## Available Services
 
 To see the current list of available services and their endpoints, fetch the live directory:
@@ -69,8 +159,8 @@ These options are available on all commands:
 |--------|-------------|
 | `-n, --network <NETWORKS>` | Filter to specific networks (e.g., `tempo`, `tempo-moderato`) |
 | `-v` | Verbose output (use `-vv` for debug) |
-| `-q, --quiet` | Suppress log messages |
-| `--output-format json` | JSON output format |
+| `-q, --quiet` | Suppress log messages (recommended for agents) |
+| `--output-format json` | JSON output (recommended for agents) |
 | `--color never` | Disable colored output |
 
 ## Query Options
@@ -169,9 +259,35 @@ presto whoami
 
 ## Error Recovery
 
-If presto fails with "No wallet configured" or "Run 'presto login'", **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
+Errors are printed to stderr in the format `Error: <message>` with specific exit codes.
 
-If presto fails with a 401 RPC error, set `PRESTO_RPC_URL` to an authenticated RPC endpoint.
+### Exit Codes
+
+| Code | Meaning | Agent Action |
+|------|---------|--------------|
+| 0 | Success | — |
+| 1 | General error | Retry or report |
+| 3 | Config error | Run `presto login` |
+| 4 | Network error | Check connectivity, retry |
+| 5 | Payment failed | Check error message, retry |
+| 6 | Insufficient funds | Report to user — wallet needs funding |
+| 8 | Auth/signing error | Run `presto login` |
+| 10 | Timeout | Retry with longer `--timeout` |
+
+### Common Errors and Fixes
+
+| Error message contains | Action |
+|------------------------|--------|
+| `No wallet configured` | Run `presto login`, then retry |
+| `Run 'presto login'` | Run `presto login`, then retry |
+| `Spending limit exceeded` | Report to user — key spending limit reached |
+| `Insufficient balance` | Report to user — wallet needs more funds |
+| `Access key is not provisioned` | Run `presto login`, then retry |
+| `Unknown network` | Check `-n` flag value |
+| `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
+| `timeout` | Retry with `-m <seconds>` |
+
+When presto fails with a login-fixable error, **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
 
 ## How Payment Works
 

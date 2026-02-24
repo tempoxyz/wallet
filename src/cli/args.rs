@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
     Text,
     Json,
@@ -24,7 +25,7 @@ pub enum ColorMode {
     override_usage = "presto [OPTIONS] <URL> [-- HTTP_OPTIONS]\n  presto [OPTIONS] <COMMAND>"
 )]
 #[command(after_help = "\
-\x1b[1;4mHTTP Options\x1b[0m (for presto <URL>):
+\x1b[1;4mHTTP Options\x1b[0m (after presto <URL>):
   -X, --request <METHOD>        Custom request method (GET, POST, PUT, DELETE, ...)
   -H, --header <HEADER>         Add custom header (e.g. -H 'Accept: text/plain')
   -d, --data <DATA>             POST data (use @filename or @- for stdin)
@@ -33,31 +34,19 @@ pub enum ColorMode {
       --no-redirect             Disable following redirects
   -i, --include                 Include HTTP response headers in output
   -o, --output <FILE>           Write output to file
-
-\x1b[1;4mPayment Options:\x1b[0m
-      --dry-run                 Show what would be paid without executing
-
-\x1b[1;4mKey Input Modes\x1b[0m: see 'presto wallet import --help' for import options (stdin, interactive, scripts)\n
-\x1b[1;4mExamples:\x1b[0m
-  # Query Ethereum via Alchemy — no API key needed
-  presto https://alchemy.mpp.tempo.xyz/eth-mainnet/v2 \\
-    -X POST --json '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | jq .result
-
-  # Use GPT-4o — no API key, no signup, just pay and go
-  presto https://openrouter.mpp.tempo.xyz/v1/chat/completions \\
-    -X POST --json '{\"model\":\"openai/gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a fun fact\"}]}' \\
-    | jq -r '.choices[0].message.content'
-
-  # Search the web — find anything, instantly
-  presto https://exa.mpp.tempo.xyz/search \\
-    -X POST --json '{\"query\":\"best new developer tools\",\"numResults\":5}' \\
-    | jq -r '.results[] | \"\\(.title)\\n  \\(.url)\\n\"'")]
+      --dry-run                 Show what would be paid without executing")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
     /// Configuration file path
-    #[arg(short = 'c', long = "config", value_name = "PATH", global = true)]
+    #[arg(
+        short = 'c',
+        long = "config",
+        value_name = "PATH",
+        global = true,
+        hide = true
+    )]
     pub config: Option<String>,
 
     /// Use a specific access key
@@ -89,7 +78,7 @@ pub struct Cli {
         value_name = "MODE",
         default_value = "auto",
         global = true,
-        help_heading = "Display Options"
+        hide = true
     )]
     pub color: ColorMode,
 
@@ -106,11 +95,10 @@ pub struct Cli {
     #[arg(
         long,
         value_name = "FORMAT",
-        default_value = "text",
         global = true,
         help_heading = "Display Options"
     )]
-    pub output_format: OutputFormat,
+    pub output_format: Option<OutputFormat>,
 }
 
 /// Make an HTTP request with optional payment
@@ -214,6 +202,9 @@ pub enum Commands {
     /// Alias for whoami
     #[command(hide = true, name = "balance")]
     Balance,
+    /// List all access keys and their spending limits
+    #[command(display_order = 5, name = "keys", hide = true)]
+    Keys,
     /// Manage payment sessions
     #[command(display_order = 6)]
     #[command(args_conflicts_with_subcommands = true)]
@@ -222,7 +213,7 @@ pub enum Commands {
         command: Option<SessionCommands>,
     },
     /// Manage wallets
-    #[command(display_order = 5)]
+    #[command(display_order = 5, hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
     Wallet {
         #[command(subcommand)]
@@ -292,8 +283,12 @@ pub enum WalletCommands {
     },
     /// Delete a wallet
     Delete {
-        /// Wallet name to delete
+        /// Wallet name to delete (positional)
+        #[arg(value_name = "NAME", conflicts_with = "name_flag")]
         name: Option<String>,
+        /// Wallet name to delete (--name)
+        #[arg(long = "name", value_name = "NAME", id = "name_flag")]
+        name_flag: Option<String>,
         /// Delete the passkey wallet
         #[arg(long)]
         passkey: bool,
@@ -316,5 +311,12 @@ impl Cli {
 
     pub fn should_show_output(&self) -> bool {
         !self.quiet
+    }
+
+    /// Resolve the effective output format: CLI flag > config > default (text).
+    pub fn resolve_output_format(&self, config: &crate::config::Config) -> OutputFormat {
+        self.output_format
+            .or(config.output_format)
+            .unwrap_or(OutputFormat::Text)
     }
 }
