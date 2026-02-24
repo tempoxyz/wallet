@@ -405,14 +405,15 @@ impl WalletCredentials {
             .unwrap_or_else(|| DEFAULT_PASSKEY_NAME.to_string())
     }
 
-    /// Set or update the active key from a login result.
+    /// Set or update the active passkey from a login result.
     ///
     /// Stores the access key inline in keys.toml (NOT in the OS keychain).
+    /// Always sets `wallet_type = Passkey`.
     ///
     /// If a key with the same address already exists under a different
     /// key name, it updates that one. Otherwise, uses the `--key` override
     /// (if set) or falls back to the default passkey name.
-    pub fn set_key(
+    pub fn set_passkey(
         &mut self,
         wallet_address: String,
         access_key_address: String,
@@ -712,7 +713,7 @@ wallet_address = "0xtest"
     #[test]
     fn test_set_key() {
         let mut creds = WalletCredentials::default();
-        creds.set_key(
+        creds.set_passkey(
             "0xABC".to_string(),
             "0xsigner1".to_string(),
             "0xaccesskey1".to_string(),
@@ -729,7 +730,7 @@ wallet_address = "0xtest"
         );
 
         // Re-login with same address updates same profile
-        creds.set_key(
+        creds.set_passkey(
             "0xABC".to_string(),
             "0xsigner2".to_string(),
             "0xaccesskey2".to_string(),
@@ -1043,17 +1044,17 @@ provisioned_chain_ids = [4217, 42431]
     #[test]
     fn test_set_key_preserves_provisioned_chain_ids() {
         let mut creds = WalletCredentials::default();
-        creds.set_key(
+        creds.set_passkey(
             "0xABC".to_string(),
             "0xsigner1".to_string(),
             "0xaccesskey1".to_string(),
             Some("auth".to_string()),
         );
-        // Add provisioned_chain_ids to the existing key (set_key defaults to "passkey" name)
+        // Add provisioned_chain_ids to the existing key (set_passkey defaults to "passkey" name)
         creds.keys.get_mut("passkey").unwrap().provisioned_chain_ids = vec![4217, 42431];
 
         // Re-login with same address
-        creds.set_key(
+        creds.set_passkey(
             "0xABC".to_string(),
             "0xsigner2".to_string(),
             "0xaccesskey2".to_string(),

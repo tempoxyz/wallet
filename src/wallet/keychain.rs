@@ -16,10 +16,11 @@ use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::Mutex;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use zeroize::Zeroizing;
 
 /// Service name used for all keychain entries.
+#[cfg(target_os = "macos")]
 const SERVICE: &str = "xyz.tempo.presto";
 
 /// Trait for keychain backends.
@@ -114,6 +115,7 @@ impl KeychainBackend for OsKeychain {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
+    use anyhow::Context;
     use security_framework::passwords::{self, PasswordOptions};
 
     /// errSecItemNotFound

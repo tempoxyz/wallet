@@ -222,7 +222,7 @@ impl WalletManager {
                 creds.active = profile;
             }
         } else {
-            creds.set_key(
+            creds.set_passkey(
                 callback.account_address,
                 access_key_address,
                 access_key_hex,
