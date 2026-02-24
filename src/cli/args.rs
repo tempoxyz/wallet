@@ -59,9 +59,9 @@ pub struct Cli {
     #[arg(short = 'c', long = "config", value_name = "PATH", global = true)]
     pub config: Option<String>,
 
-    /// Use a specific account profile
-    #[arg(long = "profile", value_name = "NAME", global = true, hide = true)]
-    pub profile: Option<String>,
+    /// Use a specific access key
+    #[arg(long = "key", value_name = "NAME", global = true, hide = true)]
+    pub key: Option<String>,
 
     /// Use a private key directly for payment (bypasses wallet login)
     #[arg(
@@ -220,19 +220,14 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
-    /// Manage account profiles
+    /// Manage access keys
     #[command(display_order = 5, hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
-    Account {
+    Key {
         #[command(subcommand)]
-        command: Option<AccountCommands>,
+        command: Option<KeyCommands>,
     },
-    /// Switch the active account profile
-    #[command(hide = true)]
-    Switch {
-        /// Profile name to switch to
-        profile: String,
-    },
+
     /// Generate shell completions script
     #[command(hide = true)]
     Completions {
@@ -272,23 +267,52 @@ pub enum SessionCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum AccountCommands {
-    /// List all account profiles
+pub enum KeyCommands {
+    /// List all access keys
     List,
-    /// Rename a profile
+    /// Create a new access key with a generated wallet
+    Create {
+        /// Name for the new key
+        #[arg(long, value_name = "NAME", default_value = "default")]
+        name: String,
+        /// Overwrite existing key if it already exists
+        #[arg(long)]
+        force: bool,
+    },
+    /// Import an existing private key
+    Import {
+        /// Name for the imported key
+        #[arg(long, value_name = "NAME", default_value = "default")]
+        name: String,
+        /// Overwrite existing key if it already exists
+        #[arg(long)]
+        force: bool,
+        /// Provide the private key directly as hex (use with caution; may appear in shell history)
+        #[arg(long = "private-key", value_name = "HEX", conflicts_with = "stdin_key")]
+        private_key: Option<String>,
+        /// Read the private key from stdin without prompts (non-interactive)
+        #[arg(long = "stdin-key", conflicts_with = "private_key")]
+        stdin_key: bool,
+    },
+    /// Rename a key
     Rename {
-        /// Current profile name
+        /// Current key name
         old: String,
-        /// New profile name
+        /// New key name
         new: String,
     },
-    /// Delete a profile
+    /// Delete a key
     Delete {
-        /// Profile name to delete
-        profile: String,
+        /// Key name to delete
+        name: String,
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
+    },
+    /// Switch the active key
+    Switch {
+        /// Key name to switch to
+        name: String,
     },
 }
 

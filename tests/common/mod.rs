@@ -64,27 +64,23 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 /// This is the mpp-proxy client wallet, funded with pathUSD on Moderato.
 /// Since it's a direct EOA (account_address == derived address), presto
 /// will automatically use Direct signing mode.
-const TEST_WALLET_PRIVATE_KEY: &str =
+pub const TEST_WALLET_PRIVATE_KEY: &str =
     "0xbb53fe0be41a5da041ea0c9d2612914cec26bb6c39d747154b519b51feb9ae49";
 const TEST_WALLET_ADDRESS: &str = "0xF0A9071a096674D408F2324c1e0e5eC5ceEDE99F";
 
 /// Set up a temp dir for live e2e tests with a hardcoded Moderato wallet.
 ///
-/// Returns `None` if `PRESTO_LIVE_TESTS` env var is not set,
-/// allowing tests to skip gracefully.
-pub fn setup_live_test() -> Option<TempDir> {
-    if std::env::var("PRESTO_LIVE_TESTS").is_err() {
-        return None;
-    }
-
+/// Live tests are gated by `#[ignore]` — run with `cargo test --test live -- --ignored`.
+pub fn setup_live_test() -> TempDir {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
 
     let wallet_toml = format!(
         "active = \"default\"\n\
          \n\
-         [accounts.default]\n\
+         [keys.default]\n\
          account_address = \"{TEST_WALLET_ADDRESS}\"\n\
-         private_key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
+         access_key_address = \"{TEST_WALLET_ADDRESS}\"\n\
+         access_key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
     );
 
     // Layout paths within the temp dir (both macOS and Linux)
@@ -105,7 +101,7 @@ pub fn setup_live_test() -> Option<TempDir> {
     fs::write(macos_dir.join("config.toml"), "").expect("Failed to write macOS config");
     fs::write(linux_config_dir.join("config.toml"), "").expect("Failed to write Linux config");
 
-    Some(temp_dir)
+    temp_dir
 }
 
 /// Delete the sessions database (and WAL/SHM) from the temp dir.

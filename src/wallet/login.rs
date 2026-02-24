@@ -188,6 +188,8 @@ impl WalletManager {
     }
 
     /// Save authentication credentials.
+    ///
+    /// Stores the access key inline in wallet.toml (NOT in the OS keychain).
     async fn save_credentials(
         &self,
         callback: AuthCallback,
@@ -197,23 +199,35 @@ impl WalletManager {
             callback.key_authorization.as_deref(),
             local_signer.address(),
         )?;
+        let key_auth_hex = validated.as_ref().map(|v| v.hex.clone());
 
-        let private_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
+        let access_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
+        let access_key_address = format!("{}", local_signer.address());
 
         // Load existing credentials to preserve other accounts.
         // If the file is corrupt, surface the error instead of silently resetting.
         let mut creds = WalletCredentials::load()?;
-        let chain_id = self
-            .network
-            .parse::<crate::network::Network>()
-            .map(|n| n.chain_id())
-            .unwrap_or(0);
-        creds.set_account(
-            callback.account_address,
-            private_key_hex,
-            validated.map(|v| v.hex),
-            chain_id,
-        );
+
+        // Resolve which key name to update using both wallet and signer addresses
+        let profile =
+            creds.resolve_key_name_for_login(&callback.account_address, &access_key_address);
+        if let Some(_existing) = creds.keys.get(&profile) {
+            if let Some(key) = creds.keys.get_mut(&profile) {
+                key.account_address = callback.account_address.clone();
+                key.access_key_address = Some(access_key_address.clone());
+                key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
+                key.key_authorization = key_auth_hex.clone();
+                // provisioning is tracked after the first successful payment
+                creds.active = profile;
+            }
+        } else {
+            creds.set_key(
+                callback.account_address,
+                access_key_address,
+                access_key_hex,
+                key_auth_hex,
+            );
+        }
         creds.save()?;
 
         if let Some(ref a) = self.analytics {

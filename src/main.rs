@@ -21,7 +21,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{AccountCommands, Cli, ColorMode, Commands, SessionCommands, Shell};
+use cli::{Cli, ColorMode, Commands, KeyCommands, SessionCommands, Shell};
 use colored::control;
 
 use analytics::Analytics;
@@ -133,8 +133,8 @@ fn validate_network_flag(network: &str) -> Result<()> {
 
 /// Handle CLI subcommands
 async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
-    if let Some(ref profile) = cli.profile {
-        wallet::credentials::set_profile_override(profile.clone());
+    if let Some(ref key) = cli.key {
+        wallet::credentials::set_key_name_override(key.clone());
     }
 
     if let Some(ref pk) = cli.private_key {
@@ -160,8 +160,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
-            Commands::Account { .. } => "account",
-            Commands::Switch { .. } => "switch",
+            Commands::Key { .. } => "key",
             Commands::Session { .. } => "session",
             Commands::Whoami | Commands::Balance => "whoami",
         };
@@ -266,23 +265,25 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Account { command } => {
+        Commands::Key { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
-                    AccountCommands::List => cli::account::list_accounts(),
-                    AccountCommands::Rename { old, new } => {
-                        cli::account::rename_account(&old, &new)
-                    }
-                    AccountCommands::Delete { profile, yes } => {
-                        cli::account::delete_account(&profile, yes)
-                    }
+                    KeyCommands::List => cli::key::list_keys(),
+                    KeyCommands::Create { name, force } => cli::key::create_key(&name, force),
+                    KeyCommands::Import {
+                        name,
+                        force,
+                        private_key,
+                        stdin_key,
+                    } => cli::key::import_key(&name, force, private_key, stdin_key),
+                    KeyCommands::Rename { old, new } => cli::key::rename_key(&old, &new),
+                    KeyCommands::Delete { name, yes } => cli::key::delete_key(&name, yes),
+                    KeyCommands::Switch { name } => cli::key::switch_key(&name),
                 }
             } else {
-                cli::account::list_accounts()
+                cli::key::list_keys()
             }
         }
-
-        Commands::Switch { profile } => cli::account::switch_account(&profile),
 
         Commands::Whoami | Commands::Balance => {
             let config = load_config_with_overrides(cli.config.as_ref())?;

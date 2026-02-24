@@ -15,7 +15,7 @@ Single binary crate with source organized by module directories:
   - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
   - `query.rs` - Query command (request → 402 → payment → response)
   - `auth.rs` - Login, logout, whoami commands
-  - `account.rs` - Account profile management (list, rename, delete, switch)
+  - `account.rs` - Key profile management (list, rename, delete, switch)
   - `session.rs` - Session list/close/recover commands
   - `output.rs` - Response display, `OutputOptions`
   - `exit_codes.rs` - Process exit codes
@@ -24,6 +24,7 @@ Single binary crate with source organized by module directories:
 - `src/network.rs` - Network definitions, explorer config, RPC
 - `src/payment/` - Payment protocol implementations (charge + session)
 - `src/wallet/` - Wallet management and signing
+  - `keychain.rs` - Platform-native secret storage (macOS Keychain / Linux Secret Service)
 - `src/analytics/` - Opt-out telemetry (PostHog)
 - `src/util.rs` - Shared utilities (atomic writes, terminal hyperlinks)
 - `src/error.rs` - Error types
@@ -191,16 +192,19 @@ new-crate = "1.0"
 | `PRESTO_RPC_URL` | Override RPC endpoint |
 | `PRESTO_AUTH_URL` | Override auth server URL |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
+| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
 
 ## Data Locations
 
 **macOS:**
 - Config: `~/Library/Application Support/presto/config.toml`
-- Wallet: `~/Library/Application Support/presto/wallet.toml`
+- Wallet metadata: `~/Library/Application Support/presto/wallet.toml`
+- Private keys: macOS Keychain
 
 **Linux:**
 - Config: `~/.config/presto/config.toml`
-- Wallet: `~/.local/share/presto/wallet.toml`
+- Wallet metadata: `~/.local/share/presto/wallet.toml`
+- Private keys: Secret Service (e.g., GNOME Keyring)
 
 ## Configuration Structure
 
@@ -211,6 +215,14 @@ struct Config {
     rpc: HashMap<String, String>, // General RPC overrides by network id
 }
 ```
+
+**Wallet Fields (`wallet.toml`):**
+- `account_address` — On-chain account address
+- `access_key_address` — Address of the access key (payment signing key)
+- `access_key` — Access key stored inline; file is written with mode 0600
+- `wallet_key_address` — Address of the wallet EOA key stored in the OS keychain
+- `key_authorization` — On-chain authorization proof
+- `provisioned_chain_ids` — Chains this key is provisioned on
 
 **Network Resolution Priority:**
 1. `PRESTO_RPC_URL` env var (overrides everything)

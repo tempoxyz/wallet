@@ -1,6 +1,6 @@
 //! Live end-to-end tests against real MPP endpoints on Moderato (testnet).
 //!
-//! All tests are `#[ignore]` — they require `PRESTO_LIVE_TESTS=1`.
+//! All tests are `#[ignore]` so `cargo test` skips them by default.
 //! Uses a hardcoded testnet wallet (see `common::setup_live_test`).
 //! Run with: `cargo test --test live -- --ignored --nocapture`
 
@@ -8,7 +8,10 @@ mod common;
 
 use serial_test::serial;
 
-use crate::common::{delete_sessions_db, get_combined_output, setup_live_test, test_command};
+use crate::common::{
+    delete_sessions_db, get_combined_output, setup_live_test, test_command, TestConfigBuilder,
+    TEST_WALLET_PRIVATE_KEY,
+};
 
 const ENDPOINT: &str = "https://openrouter.mpp.moderato.tempo.xyz/v1/chat/completions";
 const REQUEST_BODY: &str =
@@ -48,9 +51,7 @@ fn cleanup_sessions(temp: &tempfile::TempDir) {
 #[ignore]
 #[serial]
 async fn test_session_one_per_origin() {
-    let Some(temp) = setup_live_test() else {
-        return;
-    };
+    let temp = setup_live_test();
 
     // First request
     let output = test_command(&temp)
@@ -93,9 +94,7 @@ async fn test_session_one_per_origin() {
 #[ignore]
 #[serial]
 async fn test_session_close() {
-    let Some(temp) = setup_live_test() else {
-        return;
-    };
+    let temp = setup_live_test();
 
     // Open a channel
     let output = test_command(&temp)
@@ -141,9 +140,7 @@ async fn test_session_close() {
 #[ignore]
 #[serial]
 async fn test_session_recover() {
-    let Some(temp) = setup_live_test() else {
-        return;
-    };
+    let temp = setup_live_test();
 
     // Open a channel
     let output = test_command(&temp)
@@ -215,9 +212,7 @@ async fn test_session_recover() {
 #[ignore]
 #[serial]
 async fn test_session_auto_recover() {
-    let Some(temp) = setup_live_test() else {
-        return;
-    };
+    let temp = setup_live_test();
 
     // Open a channel
     let output = test_command(&temp)
@@ -280,4 +275,38 @@ async fn test_session_auto_recover() {
     );
 
     cleanup_sessions(&temp);
+}
+
+/// --private-key flag works for a real charge flow (no wallet.toml needed).
+#[tokio::test]
+#[ignore]
+#[serial]
+async fn test_private_key_charge_flow() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([
+            "-v",
+            "--private-key",
+            TEST_WALLET_PRIVATE_KEY,
+            "-X",
+            "POST",
+            "--json",
+            REQUEST_BODY,
+            ENDPOINT,
+        ])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected --private-key charge flow to succeed: {combined}"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("choices"),
+        "expected LLM response with 'choices': {stdout}"
+    );
 }

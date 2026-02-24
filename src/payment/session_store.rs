@@ -151,11 +151,11 @@ fn open_db_at(path: &Path, dir: &Path) -> Result<rusqlite::Connection> {
          PRAGMA foreign_keys = ON;",
     )
     .context("Failed to set database pragmas")?;
-    migrate(&conn, dir)?;
+    init_schema(&conn, dir)?;
     Ok(conn)
 }
 
-fn migrate(conn: &rusqlite::Connection, dir: &Path) -> Result<()> {
+fn init_schema(conn: &rusqlite::Connection, _dir: &Path) -> Result<()> {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .context("Failed to read database version")?;
@@ -191,64 +191,6 @@ fn migrate(conn: &rusqlite::Connection, dir: &Path) -> Result<()> {
 
         conn.pragma_update(None, "user_version", 1)
             .context("Failed to update database version")?;
-
-        migrate_toml_files(conn, dir)?;
-    }
-
-    Ok(())
-}
-
-fn migrate_toml_files(conn: &rusqlite::Connection, dir: &Path) -> Result<()> {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(()),
-    };
-
-    for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "toml") {
-            match fs::read_to_string(&path) {
-                Ok(contents) => match toml::from_str::<SessionRecord>(&contents) {
-                    Ok(record) => {
-                        if let Err(e) = save_session_conn(conn, &record) {
-                            tracing::warn!(
-                                path = %path.display(),
-                                error = %e,
-                                "failed to migrate session file to SQLite"
-                            );
-                            continue;
-                        }
-                        let mut backup = path.clone();
-                        backup.set_extension("toml.bak");
-                        if let Err(e) = fs::rename(&path, &backup) {
-                            tracing::warn!(
-                                path = %path.display(),
-                                error = %e,
-                                "failed to rename migrated session file"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            path = %path.display(),
-                            error = %e,
-                            "skipping corrupt session file during migration"
-                        );
-                    }
-                },
-                Err(e) => {
-                    tracing::warn!(
-                        path = %path.display(),
-                        error = %e,
-                        "skipping unreadable session file during migration"
-                    );
-                }
-            }
-        }
     }
 
     Ok(())

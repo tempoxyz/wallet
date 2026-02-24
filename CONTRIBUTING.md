@@ -80,6 +80,7 @@ src/
 │   └── exit_codes.rs
 ├── payment/         # Payment protocol logic (MPP - https://mpp.sh)
 ├── wallet/          # Wallet management, signing, and auth server
+│   └── keychain.rs  # Platform-native secret storage (macOS Keychain / Linux Secret Service)
 └── analytics/       # Opt-out telemetry
 tests/               # Integration tests (black-box CLI testing via assert_cmd)
 examples/            # Runnable example scripts
@@ -119,3 +120,5 @@ use crate::config::Config;
 | `PRESTO_AUTH_URL` | Override auth server URL |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
 | `RUST_LOG` | Override tracing filter (e.g., `debug`, `info`) |
+
+> **Note:** Unit tests use an in-memory keychain backend automatically (`InMemoryKeychain` via `#[cfg(test)]`), so they never touch the real OS keychain.

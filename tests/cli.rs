@@ -501,19 +501,21 @@ fn test_private_key_env_value_hidden_in_help() {
     );
 }
 
-// ==================== Account Management Tests ====================
+// ==================== Key Management Tests ====================
 
-/// Helper: write a multi-account wallet.toml into both macOS and Linux paths.
-fn setup_multi_account(temp: &tempfile::TempDir) {
+/// Helper: write a multi-key wallet.toml into both macOS and Linux paths.
+fn setup_multi_key(temp: &tempfile::TempDir) {
     let wallet_toml = r#"active = "default"
 
-[accounts.default]
+[keys.default]
 account_address = "0xAAA"
-private_key = "0xkey1"
+access_key_address = "0xAAA"
+access_key = "0xkey1"
 
-[accounts.work]
+[keys.work]
 account_address = "0xBBB"
-private_key = "0xkey2"
+access_key_address = "0xBBB"
+access_key = "0xkey2"
 "#;
     let config_toml = "";
 
@@ -531,14 +533,11 @@ private_key = "0xkey2"
 }
 
 #[test]
-fn test_account_list() {
+fn test_key_list() {
     let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_account(&temp);
+    setup_multi_key(&temp);
 
-    let output = test_command(&temp)
-        .args(["account", "list"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -548,56 +547,47 @@ fn test_account_list() {
 }
 
 #[test]
-fn test_account_bare_lists() {
+fn test_key_bare_lists() {
     let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_account(&temp);
+    setup_multi_key(&temp);
 
-    let output = test_command(&temp).args(["account"]).output().unwrap();
+    let output = test_command(&temp).args(["key"]).output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("0xAAA"), "bare 'account' should list");
+    assert!(stdout.contains("0xAAA"), "bare 'key' should list");
 }
 
 #[test]
-fn test_account_list_empty() {
+fn test_key_list_empty() {
     let temp = TestConfigBuilder::new().build();
 
-    let output = test_command(&temp)
-        .args(["account", "list"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("No accounts"),
-        "should say no accounts: {stdout}"
-    );
+    assert!(stdout.contains("No keys"), "should say no keys: {stdout}");
 }
 
 #[test]
-fn test_switch_account() {
+fn test_switch_key() {
     let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_account(&temp);
+    setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["switch", "work"])
+        .args(["key", "switch", "work"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Switched to profile 'work'"),
+        stdout.contains("Switched to key 'work'"),
         "should confirm switch: {stdout}"
     );
 
     // Verify switch persisted
-    let output = test_command(&temp)
-        .args(["account", "list"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("work") && stdout.contains("*"),
@@ -608,10 +598,10 @@ fn test_switch_account() {
 #[test]
 fn test_switch_nonexistent() {
     let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_account(&temp);
+    setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["switch", "nonexistent"])
+        .args(["key", "switch", "nonexistent"])
         .output()
         .unwrap();
 
@@ -624,12 +614,12 @@ fn test_switch_nonexistent() {
 }
 
 #[test]
-fn test_account_rename() {
+fn test_key_rename() {
     let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_account(&temp);
+    setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["account", "rename", "work", "job"])
+        .args(["key", "rename", "work", "job"])
         .output()
         .unwrap();
 
@@ -641,10 +631,7 @@ fn test_account_rename() {
     );
 
     // Verify renamed
-    let output = test_command(&temp)
-        .args(["account", "list"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("job"), "should show new name: {stdout}");
     assert!(
@@ -654,12 +641,12 @@ fn test_account_rename() {
 }
 
 #[test]
-fn test_account_delete_with_yes() {
+fn test_key_delete_with_yes() {
     let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_account(&temp);
+    setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["account", "delete", "work", "--yes"])
+        .args(["key", "delete", "work", "--yes"])
         .output()
         .unwrap();
 
@@ -671,24 +658,21 @@ fn test_account_delete_with_yes() {
     );
 
     // Verify deleted
-    let output = test_command(&temp)
-        .args(["account", "list"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stdout.contains("0xBBB"),
-        "should not show deleted account: {stdout}"
+        "should not show deleted key: {stdout}"
     );
 }
 
 #[test]
-fn test_account_delete_nonexistent() {
+fn test_key_delete_nonexistent() {
     let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_account(&temp);
+    setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["account", "delete", "nonexistent", "--yes"])
+        .args(["key", "delete", "nonexistent", "--yes"])
         .output()
         .unwrap();
 
@@ -698,16 +682,115 @@ fn test_account_delete_nonexistent() {
 }
 
 #[test]
-fn test_account_hidden_from_help() {
+fn test_key_hidden_from_help() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp).args(["--help"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !stdout.contains("account"),
-        "account command should be hidden: {stdout}"
+        !stdout.contains("\n  key "),
+        "key command should be hidden: {stdout}"
     );
     assert!(
         !stdout.contains("switch"),
         "switch command should be hidden: {stdout}"
+    );
+}
+
+#[test]
+fn test_key_delete_without_yes_noninteractive() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_key(&temp);
+
+    let output = test_command(&temp)
+        .args(["key", "delete", "work"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Use --yes"),
+        "should require --yes in non-interactive mode: {combined}"
+    );
+}
+
+#[test]
+fn test_key_rename_to_existing_name() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_key(&temp);
+
+    let output = test_command(&temp)
+        .args(["key", "rename", "default", "work"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("already exists"),
+        "should reject rename to existing name: {combined}"
+    );
+}
+
+#[test]
+fn test_key_rename_nonexistent() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_key(&temp);
+
+    let output = test_command(&temp)
+        .args(["key", "rename", "nonexistent", "newname"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("not found"),
+        "should error on nonexistent key: {combined}"
+    );
+}
+
+// Removed NO_KEYCHAIN tests: presto now attempts to use the OS keychain automatically on Linux/macOS
+
+#[test]
+fn test_key_delete_active_switches() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_key(&temp);
+
+    // Delete the active key "default"
+    let output = test_command(&temp)
+        .args(["key", "delete", "default", "--yes"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    // Verify "work" is now the active key
+    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("work") && stdout.contains("*"),
+        "work should be active after deleting default: {stdout}"
+    );
+    assert!(
+        !stdout.contains("0xAAA"),
+        "deleted key should not appear: {stdout}"
+    );
+}
+
+#[test]
+fn test_key_global_flag_selects_key() {
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_multi_key(&temp);
+
+    let output = test_command(&temp)
+        .args(["--key", "work", "whoami"])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("0xBBB"),
+        "should use work key's address 0xBBB: {combined}"
     );
 }

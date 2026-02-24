@@ -114,7 +114,7 @@ Run `presto <command> --help` for detailed usage on any command.
 presto login    # Sign up or log in via browser
 ```
 
-This creates a wallet credential file with your account address and access key.
+This creates a wallet credential file with your account address, stores your wallet EOA key securely in the OS keychain (macOS Keychain / Linux Secret Service), and writes the access key inline to `wallet.toml` after login.
 
 ### File Locations
 
@@ -124,6 +124,8 @@ presto uses platform-native directories:
 |----------|--------|--------|
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/wallet.toml` |
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/wallet.toml` |
+
+The wallet EOA private key is stored in the OS keychain. The access key used for payments is stored inline in `wallet.toml` with permissions 0600 alongside account metadata. On Linux, presto uses Secret Service (e.g., GNOME Keyring) automatically when available; in headless CI, ensure a keyring is running (for example, start `gnome-keyring-daemon --start`).
 
 You can override the config path with `-c <PATH>` or `--config <PATH>`.
 

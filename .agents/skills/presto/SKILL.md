@@ -185,4 +185,5 @@ If presto fails with a 401 RPC error, set `PRESTO_RPC_URL` to an authenticated R
 | `PRESTO_RPC_URL` | Override RPC endpoint (required for mainnet — see above) |
 | `PRESTO_AUTH_URL` | Override auth server URL for login |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
+| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
 | `NO_COLOR` | Disable colored output |
