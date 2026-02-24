@@ -25,8 +25,9 @@ const DEFAULT_KEY_NAME: &str = "default";
 static KEY_NAME_OVERRIDE: OnceLock<String> = OnceLock::new();
 
 /// Global credentials override set by `--private-key` flag.
-/// When set, `load()` returns this instead of reading from disk.
-static CREDENTIALS_OVERRIDE: OnceLock<WalletCredentials> = OnceLock::new();
+/// Stores just the raw private key hex so `Zeroizing<String>` inside
+/// the constructed `WalletCredentials` gets dropped when the caller drops it.
+static CREDENTIALS_OVERRIDE: OnceLock<String> = OnceLock::new();
 
 /// Global keychain backend.  Initialised lazily via [`keychain()`].
 static KEYCHAIN_BACKEND: OnceLock<Box<dyn KeychainBackend>> = OnceLock::new();
@@ -37,8 +38,8 @@ pub fn set_key_name_override(profile: String) {
 }
 
 /// Set a global credentials override (called once from main for `--private-key`).
-pub fn set_credentials_override(creds: WalletCredentials) {
-    let _ = CREDENTIALS_OVERRIDE.set(creds);
+pub fn set_credentials_override(private_key: String) {
+    let _ = CREDENTIALS_OVERRIDE.set(private_key);
 }
 
 /// Check if a credentials override is active (e.g., `--private-key` was used).
@@ -136,7 +137,7 @@ impl WalletCredentials {
     /// credential set with an inline access key. Not written to disk.
     pub fn from_private_key(key: &str) -> Result<Self> {
         let signer = parse_private_key_signer(key)?;
-        let address = format!("{:#x}", signer.address());
+        let address = format!("{}", signer.address());
         let key_entry = Key {
             account_address: address,
             access_key_address: Some(format!("{}", signer.address())),
@@ -155,9 +156,10 @@ impl WalletCredentials {
     /// Otherwise reads from disk, returning default (empty) credentials if
     /// the file doesn't exist.
     pub fn load() -> Result<Self> {
-        // Return override if set (--private-key)
-        if let Some(creds) = CREDENTIALS_OVERRIDE.get() {
-            return Ok(creds.clone());
+        // Return override if set (--private-key), constructing on-demand
+        // so the Zeroizing<String> is dropped when the caller drops.
+        if let Some(pk) = CREDENTIALS_OVERRIDE.get() {
+            return Self::from_private_key(pk);
         }
 
         let path = Self::wallet_path()?;
@@ -516,7 +518,7 @@ impl WalletCredentials {
                 .is_some_and(|a| a.wallet_key_address.is_some());
             if has_wallet_key {
                 keychain().rename(old, new).map_err(|e| {
-                    PrestoError::InvalidConfig(format!(
+                    PrestoError::Keychain(format!(
                         "Failed to rename keychain entry from '{old}' to '{new}': {e}"
                     ))
                 })?;

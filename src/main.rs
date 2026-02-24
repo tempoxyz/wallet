@@ -84,6 +84,14 @@ fn parse_cli() -> Cli {
     match Cli::try_parse() {
         Ok(cli) => cli,
         Err(original_err) => {
+            // Help/version requests should pass through immediately
+            if matches!(
+                original_err.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            ) {
+                original_err.exit()
+            }
+
             // If normal parsing failed, try again with "query" inserted.
             // This handles cases like `presto https://example.com` or
             // `presto -X POST --json '{}' https://example.com`.
@@ -138,8 +146,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
     }
 
     if let Some(ref pk) = cli.private_key {
-        let creds = wallet::credentials::WalletCredentials::from_private_key(pk)?;
-        wallet::credentials::set_credentials_override(creds);
+        wallet::credentials::set_credentials_override(pk.clone());
     }
 
     if let Some(ref network) = cli.network {

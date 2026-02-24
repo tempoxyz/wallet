@@ -121,7 +121,7 @@ pub fn create_key(profile: &str, force: bool) -> Result<()> {
     // Store wallet EOA key in OS keychain
     keychain()
         .set(profile, &private_key_hex)
-        .map_err(|e| anyhow::anyhow!("Failed to store key in keychain: {e}"))?;
+        .map_err(|e| crate::error::PrestoError::Keychain(format!("Failed to store key: {e}")))?;
 
     let key = crate::wallet::credentials::Key {
         account_address: address.clone(),
@@ -181,7 +181,7 @@ pub fn import_key(
     // Store wallet EOA key in OS keychain
     keychain()
         .set(profile, &private_key_hex)
-        .map_err(|e| anyhow::anyhow!("Failed to store key in keychain: {e}"))?;
+        .map_err(|e| crate::error::PrestoError::Keychain(format!("Failed to store key: {e}")))?;
 
     let key = crate::wallet::credentials::Key {
         account_address: address.clone(),
