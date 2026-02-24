@@ -277,7 +277,7 @@ async fn test_session_auto_recover() {
     cleanup_sessions(&temp);
 }
 
-/// --private-key flag works for a real charge flow (no wallet.toml needed).
+/// --private-key flag works for a real charge flow (no keys.toml needed).
 #[tokio::test]
 #[ignore]
 #[serial]

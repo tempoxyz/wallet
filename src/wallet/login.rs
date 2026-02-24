@@ -189,7 +189,7 @@ impl WalletManager {
 
     /// Save authentication credentials.
     ///
-    /// Stores the access key inline in wallet.toml (NOT in the OS keychain).
+    /// Stores the access key inline in keys.toml (NOT in the OS keychain).
     async fn save_credentials(
         &self,
         callback: AuthCallback,
@@ -213,7 +213,8 @@ impl WalletManager {
             creds.resolve_key_name_for_login(&callback.account_address, &access_key_address);
         if let Some(_existing) = creds.keys.get(&profile) {
             if let Some(key) = creds.keys.get_mut(&profile) {
-                key.account_address = callback.account_address.clone();
+                key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
+                key.wallet_address = callback.account_address.clone();
                 key.access_key_address = Some(access_key_address.clone());
                 key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
                 key.key_authorization = key_auth_hex.clone();

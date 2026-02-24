@@ -94,7 +94,7 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
     // Propagate exact signer error (invalid key, missing key, etc.)
     let signer = creds.signer()?;
 
-    let wallet_address = Address::from_str(creds.account_address())
+    let wallet_address = Address::from_str(creds.wallet_address())
         .map_err(|e| PrestoError::InvalidConfig(format!("Invalid wallet address: {}", e)))?;
 
     let signing_mode = resolve_signing_mode(
@@ -144,7 +144,7 @@ mod tests {
         let creds = WalletCredentials::from_private_key(pk).unwrap();
         assert!(creds.has_wallet());
         assert_eq!(
-            creds.account_address().to_lowercase(),
+            creds.wallet_address().to_lowercase(),
             "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
         );
     }
@@ -156,7 +156,7 @@ mod tests {
         let creds = WalletCredentials::from_private_key(pk).unwrap();
         assert!(creds.has_wallet());
         assert_eq!(
-            creds.account_address().to_lowercase(),
+            creds.wallet_address().to_lowercase(),
             "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
         );
     }

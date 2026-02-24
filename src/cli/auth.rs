@@ -43,10 +43,13 @@ pub async fn run_login(network: Option<&str>, analytics: Option<Analytics>) -> a
 pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
     let mut creds = WalletCredentials::load()?;
 
-    if !creds.has_wallet() {
-        println!("No wallet connected.");
-        return Ok(());
-    }
+    let passkey_name = match creds.find_passkey_name() {
+        Some(name) => name,
+        None => {
+            println!("Not logged in.");
+            return Ok(());
+        }
+    };
 
     if !yes {
         use std::io::IsTerminal;
@@ -66,7 +69,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
         }
     }
 
-    creds.clear();
+    creds.delete_key(&passkey_name)?;
     creds.save()?;
     println!("Wallet disconnected.");
     Ok(())
@@ -148,7 +151,7 @@ pub async fn show_whoami(
     };
 
     if creds.has_wallet() {
-        response.wallet = Some(creds.account_address().to_string());
+        response.wallet = Some(creds.wallet_address().to_string());
 
         // Include resolved network info for machine-readability
         if let Ok(info) = config.resolve_network(network) {
@@ -164,12 +167,12 @@ pub async fn show_whoami(
             response.ready = false;
         }
 
-        response.balances = query_all_balances(config, network, creds.account_address()).await;
+        response.balances = query_all_balances(config, network, creds.wallet_address()).await;
 
         response.spending_limit = query_spending_limit(config, network, &creds).await;
 
         // Readiness requires: access key present, wallet connected, and provisioned on this network
-        let has_wallet_addr = !creds.account_address().is_empty();
+        let has_wallet_addr = !creds.wallet_address().is_empty();
         let is_provisioned = creds.is_provisioned(network);
         response.connected = has_wallet_addr;
         response.provisioned = is_provisioned;
@@ -203,7 +206,7 @@ pub async fn show_whoami(
             if let Some(key) = &response.access_key {
                 println!("\n  Access Key: {}", key);
                 // Explain readiness status when not ready
-                let has_wallet_addr = creds.has_wallet() && !creds.account_address().is_empty();
+                let has_wallet_addr = creds.has_wallet() && !creds.wallet_address().is_empty();
                 let is_provisioned = creds.is_provisioned(network);
                 if !has_wallet_addr {
                     println!("    Not connected. Run 'presto login' to connect this key.");
@@ -241,7 +244,7 @@ async fn query_spending_limit(
 ) -> Option<SpendingLimitInfo> {
     let network_info = config.resolve_network(network).ok()?;
 
-    let wallet_address: Address = creds.account_address().parse().ok()?;
+    let wallet_address: Address = creds.wallet_address().parse().ok()?;
     let key_address: Address = creds.access_key_address()?.parse().ok()?;
     let rpc_url = network_info.rpc_url.parse().ok()?;
 
@@ -364,7 +367,7 @@ async fn query_token_balance(
 async fn query_all_balances(
     config: &Config,
     network: &str,
-    account_address: &str,
+    wallet_address: &str,
 ) -> Vec<TokenBalance> {
     let network_info = match config.resolve_network(network) {
         Ok(info) => info,
@@ -378,7 +381,7 @@ async fn query_all_balances(
 
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
-    let account: Address = match account_address.parse() {
+    let account: Address = match wallet_address.parse() {
         Ok(a) => a,
         Err(_) => return Vec::new(),
     };

@@ -15,7 +15,7 @@ Single binary crate with source organized by module directories:
   - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
   - `query.rs` - Query command (request → 402 → payment → response)
   - `auth.rs` - Login, logout, whoami commands
-  - `account.rs` - Key profile management (list, rename, delete, switch)
+  - `wallet.rs` - Wallet management (create/import/delete)
   - `session.rs` - Session list/close/recover commands
   - `output.rs` - Response display, `OutputOptions`
   - `exit_codes.rs` - Process exit codes
@@ -24,7 +24,7 @@ Single binary crate with source organized by module directories:
 - `src/network.rs` - Network definitions, explorer config, RPC
 - `src/payment/` - Payment protocol implementations (charge + session)
 - `src/wallet/` - Wallet management and signing
-  - `keychain.rs` - Platform-native secret storage (macOS Keychain / Linux Secret Service)
+  - `keychain.rs` - Platform-native secret storage (macOS Keychain)
 - `src/analytics/` - Opt-out telemetry (PostHog)
 - `src/util.rs` - Shared utilities (atomic writes, terminal hyperlinks)
 - `src/error.rs` - Error types
@@ -198,13 +198,13 @@ new-crate = "1.0"
 
 **macOS:**
 - Config: `~/Library/Application Support/presto/config.toml`
-- Wallet metadata: `~/Library/Application Support/presto/wallet.toml`
+- Wallet credentials: `~/Library/Application Support/presto/keys.toml`
 - Private keys: macOS Keychain
 
 **Linux:**
 - Config: `~/.config/presto/config.toml`
-- Wallet metadata: `~/.local/share/presto/wallet.toml`
-- Private keys: Secret Service (e.g., GNOME Keyring)
+- Wallet credentials: `~/.local/share/presto/keys.toml`
+- Private keys: not yet supported via OS keychain (unit tests use in-memory keychain)
 
 ## Configuration Structure
 
@@ -216,7 +216,7 @@ struct Config {
 }
 ```
 
-**Wallet Fields (`wallet.toml`):**
+**Wallet Fields (`keys.toml`):**
 - `account_address` — On-chain account address
 - `access_key_address` — Address of the access key (payment signing key)
 - `access_key` — Access key stored inline; file is written with mode 0600

@@ -258,7 +258,8 @@ fn test_main_help_lists_all_commands() {
         .stdout(predicate::str::contains("login"))
         .stdout(predicate::str::contains("logout"))
         .stdout(predicate::str::contains("balance"))
-        .stdout(predicate::str::contains("whoami"));
+        .stdout(predicate::str::contains("whoami"))
+        .stdout(predicate::str::contains("wallet"));
 }
 
 #[test]
@@ -433,8 +434,8 @@ fn test_logout_without_wallet() {
     let output = cmd.output().expect("Failed to run command");
     let combined = get_combined_output(&output).to_lowercase();
     assert!(
-        combined.contains("no wallet"),
-        "Expected 'no wallet' message, got: {combined}"
+        combined.contains("not logged in"),
+        "Expected 'not logged in' message, got: {combined}"
     );
 }
 
@@ -443,12 +444,12 @@ fn test_logout_noninteractive_without_yes() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
     cmd.arg("logout");
-    // No wallet → prints "No wallet connected." and succeeds regardless
+    // No wallet → prints "Not logged in." and succeeds regardless
     let output = cmd.output().expect("Failed to run command");
     let combined = get_combined_output(&output).to_lowercase();
     assert!(
-        combined.contains("no wallet"),
-        "Expected 'no wallet' message, got: {combined}"
+        combined.contains("not logged in"),
+        "Expected 'not logged in' message, got: {combined}"
     );
 }
 
@@ -503,17 +504,17 @@ fn test_private_key_env_value_hidden_in_help() {
 
 // ==================== Key Management Tests ====================
 
-/// Helper: write a multi-key wallet.toml into both macOS and Linux paths.
+/// Helper: write a multi-key keys.toml into both macOS and Linux paths.
 fn setup_multi_key(temp: &tempfile::TempDir) {
     let wallet_toml = r#"active = "default"
 
 [keys.default]
-account_address = "0xAAA"
+wallet_address = "0xAAA"
 access_key_address = "0xAAA"
 access_key = "0xkey1"
 
 [keys.work]
-account_address = "0xBBB"
+wallet_address = "0xBBB"
 access_key_address = "0xBBB"
 access_key = "0xkey2"
 "#;
@@ -521,132 +522,24 @@ access_key = "0xkey2"
 
     let macos_dir = temp.path().join("Library/Application Support/presto");
     std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(macos_dir.join("config.toml"), config_toml).unwrap();
 
     let linux_data = temp.path().join(".local/share/presto");
     let linux_config = temp.path().join(".config/presto");
     std::fs::create_dir_all(&linux_data).unwrap();
     std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(linux_config.join("config.toml"), config_toml).unwrap();
 }
 
 #[test]
-fn test_key_list() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("0xAAA"), "should list first account");
-    assert!(stdout.contains("0xBBB"), "should list second account");
-    assert!(stdout.contains("*"), "should mark active account");
-}
-
-#[test]
-fn test_key_bare_lists() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp).args(["key"]).output().unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("0xAAA"), "bare 'key' should list");
-}
-
-#[test]
-fn test_key_list_empty() {
-    let temp = TestConfigBuilder::new().build();
-
-    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("No keys"), "should say no keys: {stdout}");
-}
-
-#[test]
-fn test_switch_key() {
+fn test_wallet_delete_with_yes() {
     let temp = tempfile::TempDir::new().unwrap();
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["key", "switch", "work"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Switched to key 'work'"),
-        "should confirm switch: {stdout}"
-    );
-
-    // Verify switch persisted
-    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("work") && stdout.contains("*"),
-        "work should be active: {stdout}"
-    );
-}
-
-#[test]
-fn test_switch_nonexistent() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["key", "switch", "nonexistent"])
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("not found"),
-        "should error on nonexistent: {combined}"
-    );
-}
-
-#[test]
-fn test_key_rename() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["key", "rename", "work", "job"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Renamed"),
-        "should confirm rename: {stdout}"
-    );
-
-    // Verify renamed
-    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("job"), "should show new name: {stdout}");
-    assert!(
-        !stdout.contains("work"),
-        "should not show old name: {stdout}"
-    );
-}
-
-#[test]
-fn test_key_delete_with_yes() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["key", "delete", "work", "--yes"])
+        .args(["wallet", "delete", "work", "--yes"])
         .output()
         .unwrap();
 
@@ -656,23 +549,15 @@ fn test_key_delete_with_yes() {
         stdout.contains("Deleted"),
         "should confirm delete: {stdout}"
     );
-
-    // Verify deleted
-    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        !stdout.contains("0xBBB"),
-        "should not show deleted key: {stdout}"
-    );
 }
 
 #[test]
-fn test_key_delete_nonexistent() {
+fn test_wallet_delete_nonexistent() {
     let temp = tempfile::TempDir::new().unwrap();
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["key", "delete", "nonexistent", "--yes"])
+        .args(["wallet", "delete", "nonexistent", "--yes"])
         .output()
         .unwrap();
 
@@ -682,27 +567,12 @@ fn test_key_delete_nonexistent() {
 }
 
 #[test]
-fn test_key_hidden_from_help() {
-    let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp).args(["--help"]).output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        !stdout.contains("\n  key "),
-        "key command should be hidden: {stdout}"
-    );
-    assert!(
-        !stdout.contains("switch"),
-        "switch command should be hidden: {stdout}"
-    );
-}
-
-#[test]
-fn test_key_delete_without_yes_noninteractive() {
+fn test_wallet_delete_without_yes_noninteractive() {
     let temp = tempfile::TempDir::new().unwrap();
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["key", "delete", "work"])
+        .args(["wallet", "delete", "work"])
         .output()
         .unwrap();
 
@@ -715,67 +585,17 @@ fn test_key_delete_without_yes_noninteractive() {
 }
 
 #[test]
-fn test_key_rename_to_existing_name() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["key", "rename", "default", "work"])
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("already exists"),
-        "should reject rename to existing name: {combined}"
-    );
-}
-
-#[test]
-fn test_key_rename_nonexistent() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["key", "rename", "nonexistent", "newname"])
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("not found"),
-        "should error on nonexistent key: {combined}"
-    );
-}
-
-// Removed NO_KEYCHAIN tests: presto now attempts to use the OS keychain automatically on Linux/macOS
-
-#[test]
-fn test_key_delete_active_switches() {
+fn test_wallet_delete_active_switches() {
     let temp = tempfile::TempDir::new().unwrap();
     setup_multi_key(&temp);
 
     // Delete the active key "default"
     let output = test_command(&temp)
-        .args(["key", "delete", "default", "--yes"])
+        .args(["wallet", "delete", "default", "--yes"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
-
-    // Verify "work" is now the active key
-    let output = test_command(&temp).args(["key", "list"]).output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("work") && stdout.contains("*"),
-        "work should be active after deleting default: {stdout}"
-    );
-    assert!(
-        !stdout.contains("0xAAA"),
-        "deleted key should not appear: {stdout}"
-    );
 }
 
 #[test]

@@ -21,7 +21,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, KeyCommands, SessionCommands, Shell};
+use cli::{Cli, ColorMode, Commands, SessionCommands, Shell, WalletCommands};
 use colored::control;
 
 use analytics::Analytics;
@@ -167,7 +167,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
-            Commands::Key { .. } => "key",
+            Commands::Wallet { .. } => "wallet",
             Commands::Session { .. } => "session",
             Commands::Whoami | Commands::Balance => "whoami",
         };
@@ -272,23 +272,39 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Key { command } => {
+        Commands::Wallet { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
-                    KeyCommands::List => cli::key::list_keys(),
-                    KeyCommands::Create { name, force } => cli::key::create_key(&name, force),
-                    KeyCommands::Import {
+                    WalletCommands::Create { name, passkey } => {
+                        if passkey {
+                            let network = cli.network.as_deref();
+                            cli::auth::run_login(network, analytics.clone()).await
+                        } else {
+                            let name = name.as_deref().unwrap_or("default");
+                            cli::wallet::create_local_wallet(name)
+                        }
+                    }
+                    WalletCommands::Import {
                         name,
-                        force,
                         private_key,
                         stdin_key,
-                    } => cli::key::import_key(&name, force, private_key, stdin_key),
-                    KeyCommands::Rename { old, new } => cli::key::rename_key(&old, &new),
-                    KeyCommands::Delete { name, yes } => cli::key::delete_key(&name, yes),
-                    KeyCommands::Switch { name } => cli::key::switch_key(&name),
+                    } => {
+                        let name = name.as_deref().unwrap_or("default");
+                        cli::wallet::import_wallet(name, private_key, stdin_key)
+                    }
+                    WalletCommands::Delete { name, passkey, yes } => {
+                        if passkey {
+                            cli::auth::run_logout(yes).await
+                        } else if let Some(name) = name {
+                            cli::wallet::delete_wallet(&name, yes)
+                        } else {
+                            anyhow::bail!("Specify a wallet name or use --passkey");
+                        }
+                    }
                 }
             } else {
-                cli::key::list_keys()
+                Cli::command().print_help()?;
+                Ok(())
             }
         }
 

@@ -47,6 +47,7 @@ pub trait KeychainBackend: Send + Sync {
     /// If the write fails, the old entry is left intact.
     /// If the delete fails after a successful write, the new entry exists
     /// and we warn but don't fail.
+    #[allow(dead_code)]
     fn rename(&self, old_profile: &str, new_profile: &str) -> Result<()> {
         let secret = self
             .get(old_profile)?

@@ -57,6 +57,9 @@ presto --dry-run https://api.example.com/data
 | `presto session list` | List active payment sessions |
 | `presto session close [URL]` | Close a payment session (use `--all` to close all) |
 | `presto session recover <URL>` | Recover a session from on-chain state |
+| `presto wallet create [--name]` | Create a local wallet (EOA stored in macOS Keychain) |
+| `presto wallet import [--name] [--stdin-key|--private-key]` | Import an existing private key as a local wallet |
+| `presto wallet delete --name <NAME> [--yes]` | Delete a local wallet |
 
 ## Global Options
 

@@ -62,7 +62,7 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 /// Hardcoded test wallet for Moderato (testnet).
 ///
 /// This is the mpp-proxy client wallet, funded with pathUSD on Moderato.
-/// Since it's a direct EOA (account_address == derived address), presto
+/// Since it's a direct EOA (wallet_address == derived address), presto
 /// will automatically use Direct signing mode.
 pub const TEST_WALLET_PRIVATE_KEY: &str =
     "0xbb53fe0be41a5da041ea0c9d2612914cec26bb6c39d747154b519b51feb9ae49";
@@ -78,7 +78,7 @@ pub fn setup_live_test() -> TempDir {
         "active = \"default\"\n\
          \n\
          [keys.default]\n\
-         account_address = \"{TEST_WALLET_ADDRESS}\"\n\
+         wallet_address = \"{TEST_WALLET_ADDRESS}\"\n\
          access_key_address = \"{TEST_WALLET_ADDRESS}\"\n\
          access_key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
     );
@@ -92,9 +92,9 @@ pub fn setup_live_test() -> TempDir {
     fs::create_dir_all(&linux_data_dir).expect("Failed to create Linux data directory");
     fs::create_dir_all(&linux_config_dir).expect("Failed to create Linux config directory");
 
-    // Write wallet.toml into both layouts
-    fs::write(macos_dir.join("wallet.toml"), &wallet_toml).expect("Failed to write macOS wallet");
-    fs::write(linux_data_dir.join("wallet.toml"), &wallet_toml)
+    // Write keys.toml into both layouts
+    fs::write(macos_dir.join("keys.toml"), &wallet_toml).expect("Failed to write macOS wallet");
+    fs::write(linux_data_dir.join("keys.toml"), &wallet_toml)
         .expect("Failed to write Linux wallet");
 
     // Write empty config

@@ -74,13 +74,13 @@ src/
 │   ├── args.rs      # CLI argument definitions
 │   ├── query.rs     # Query command (request → 402 → payment → response)
 │   ├── auth.rs      # Login, logout, whoami
-│   ├── account.rs   # Account profile management
+│   ├── wallet.rs    # Wallet management (create/import/delete)
 │   ├── session.rs   # Session list/close/recover
 │   ├── output.rs    # Response display
 │   └── exit_codes.rs
 ├── payment/         # Payment protocol logic (MPP - https://mpp.sh)
 ├── wallet/          # Wallet management, signing, and auth server
-│   └── keychain.rs  # Platform-native secret storage (macOS Keychain / Linux Secret Service)
+│   └── keychain.rs  # Platform-native secret storage (macOS Keychain)
 └── analytics/       # Opt-out telemetry
 tests/               # Integration tests (black-box CLI testing via assert_cmd)
 examples/            # Runnable example scripts

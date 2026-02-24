@@ -703,7 +703,7 @@ async fn test_402_charge_flow() {
     let wallet_toml = r#"active = "default"
 
 [keys.default]
-account_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 "#;
@@ -713,7 +713,7 @@ access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
     // macOS layout
     let macos_dir = temp.path().join("Library/Application Support/presto");
     std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
 
     // Linux layout
@@ -721,7 +721,7 @@ access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
     let linux_config = temp.path().join(".config/presto");
     std::fs::create_dir_all(&linux_data).unwrap();
     std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
 
     let output = test_command(&temp)
@@ -743,7 +743,7 @@ access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 /// Test the 402 → payment → 200 charge flow with Keychain signing mode.
 ///
-/// Uses a different `account_address` than the derived address of the private
+/// Uses a different `wallet_address` than the derived address of the private
 /// key, which triggers `TempoSigningMode::Keychain` instead of `Direct`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_keychain() {
@@ -758,12 +758,12 @@ async fn test_402_charge_flow_keychain() {
 
     let temp = tempfile::TempDir::new().unwrap();
 
-    // account_address (0x7099...) differs from the private key's derived
+    // wallet_address (0x7099...) differs from the private key's derived
     // address (0xf39F...), triggering Keychain signing mode.
     let wallet_toml = r#"active = "default"
 
 [keys.default]
-account_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 provisioned_chain_ids = [42431]
@@ -773,14 +773,14 @@ provisioned_chain_ids = [42431]
 
     let macos_dir = temp.path().join("Library/Application Support/presto");
     std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
 
     let linux_data = temp.path().join(".local/share/presto");
     let linux_config = temp.path().join(".config/presto");
     std::fs::create_dir_all(&linux_data).unwrap();
     std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
 
     let output = test_command(&temp)
@@ -804,7 +804,7 @@ provisioned_chain_ids = [42431]
 
 const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-/// Helper: set up a temp dir with config (pointing RPC to mock) but NO wallet.toml.
+/// Helper: set up a temp dir with config (pointing RPC to mock) but NO keys.toml.
 fn setup_config_only(temp: &tempfile::TempDir, rpc_base_url: &str) {
     let config_toml = format!("moderato_rpc = \"{rpc_base_url}\"\n");
 
@@ -817,7 +817,7 @@ fn setup_config_only(temp: &tempfile::TempDir, rpc_base_url: &str) {
     std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
 }
 
-/// The 402 charge flow works with --private-key (no wallet.toml needed).
+/// The 402 charge flow works with --private-key (no keys.toml needed).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_flag() {
     let rpc = MockRpcServer::start(42431).await;
@@ -979,7 +979,7 @@ async fn test_private_key_wrong_length_fails() {
     );
 }
 
-/// --private-key takes precedence over wallet.toml (wallet.toml is ignored).
+/// --private-key takes precedence over keys.toml (keys.toml is ignored).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_flag_overrides_wallet() {
     let rpc = MockRpcServer::start(42431).await;
@@ -994,30 +994,30 @@ async fn test_private_key_flag_overrides_wallet() {
     let temp = tempfile::TempDir::new().unwrap();
     let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
 
-    // Set up wallet.toml with a DIFFERENT key (Hardhat #1) that points to a
+    // Set up keys.toml with a DIFFERENT key (Hardhat #1) that points to a
     // different address. The --private-key flag should be used instead.
     let wallet_toml = r#"active = "default"
 
 [keys.default]
-account_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 access_key_address = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 access_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 "#;
 
     let macos_dir = temp.path().join("Library/Application Support/presto");
     std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
 
     let linux_data = temp.path().join(".local/share/presto");
     let linux_config = temp.path().join(".config/presto");
     std::fs::create_dir_all(&linux_data).unwrap();
     std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("wallet.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
     std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
 
-    // Snapshot wallet.toml content before the run
-    let wallet_before = std::fs::read_to_string(macos_dir.join("wallet.toml")).unwrap();
+    // Snapshot keys.toml content before the run
+    let wallet_before = std::fs::read_to_string(macos_dir.join("keys.toml")).unwrap();
 
     // Use Hardhat #0 via --private-key flag
     let output = test_command(&temp)
@@ -1028,7 +1028,7 @@ access_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
     let combined = get_combined_output(&output);
     assert!(
         output.status.success(),
-        "expected --private-key to override wallet.toml: {combined}"
+        "expected --private-key to override keys.toml: {combined}"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -1036,11 +1036,11 @@ access_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
         "stdout should contain success body: {combined}"
     );
 
-    // wallet.toml must not have been modified by --private-key usage
-    let wallet_after = std::fs::read_to_string(macos_dir.join("wallet.toml")).unwrap();
+    // keys.toml must not have been modified by --private-key usage
+    let wallet_after = std::fs::read_to_string(macos_dir.join("keys.toml")).unwrap();
     assert_eq!(
         wallet_before, wallet_after,
-        "wallet.toml should not be modified when --private-key is used"
+        "keys.toml should not be modified when --private-key is used"
     );
 }
 

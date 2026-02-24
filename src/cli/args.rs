@@ -37,6 +37,7 @@ pub enum ColorMode {
 \x1b[1;4mPayment Options:\x1b[0m
       --dry-run                 Show what would be paid without executing
 
+\x1b[1;4mKey Input Modes\x1b[0m: see 'presto wallet import --help' for import options (stdin, interactive, scripts)\n
 \x1b[1;4mExamples:\x1b[0m
   # Query Ethereum via Alchemy — no API key needed
   presto https://alchemy.mpp.tempo.xyz/eth-mainnet/v2 \\
@@ -220,12 +221,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
-    /// Manage access keys
-    #[command(display_order = 5, hide = true)]
+    /// Manage wallets
+    #[command(display_order = 5)]
     #[command(args_conflicts_with_subcommands = true)]
-    Key {
+    Wallet {
         #[command(subcommand)]
-        command: Option<KeyCommands>,
+        command: Option<WalletCommands>,
     },
 
     /// Generate shell completions script
@@ -267,52 +268,38 @@ pub enum SessionCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum KeyCommands {
-    /// List all access keys
-    List,
-    /// Create a new access key with a generated wallet
+pub enum WalletCommands {
+    /// Create a new wallet
     Create {
-        /// Name for the new key
-        #[arg(long, value_name = "NAME", default_value = "default")]
-        name: String,
-        /// Overwrite existing key if it already exists
+        /// Name for the wallet
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// Create a passkey-based wallet via browser auth
         #[arg(long)]
-        force: bool,
+        passkey: bool,
     },
-    /// Import an existing private key
+    /// Import an existing private key as a local wallet (stores key in OS keychain)
     Import {
-        /// Name for the imported key
-        #[arg(long, value_name = "NAME", default_value = "default")]
-        name: String,
-        /// Overwrite existing key if it already exists
-        #[arg(long)]
-        force: bool,
+        /// Name for the wallet
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
         /// Provide the private key directly as hex (use with caution; may appear in shell history)
-        #[arg(long = "private-key", value_name = "HEX", conflicts_with = "stdin_key")]
+        #[arg(long = "private-key", value_name = "HEX")]
         private_key: Option<String>,
         /// Read the private key from stdin without prompts (non-interactive)
-        #[arg(long = "stdin-key", conflicts_with = "private_key")]
+        #[arg(long = "stdin-key")]
         stdin_key: bool,
     },
-    /// Rename a key
-    Rename {
-        /// Current key name
-        old: String,
-        /// New key name
-        new: String,
-    },
-    /// Delete a key
+    /// Delete a wallet
     Delete {
-        /// Key name to delete
-        name: String,
+        /// Wallet name to delete
+        name: Option<String>,
+        /// Delete the passkey wallet
+        #[arg(long)]
+        passkey: bool,
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
-    },
-    /// Switch the active key
-    Switch {
-        /// Key name to switch to
-        name: String,
     },
 }
 
