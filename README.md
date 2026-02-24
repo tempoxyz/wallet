@@ -106,6 +106,20 @@ Just pass a URL directly to  tempo-wallet— it works like `curl`:
 
 Run ` tempo-wallet<command> --help` for detailed usage on any command.
 
+### Wallet Commands
+
+```bash
+# Create a new local wallet (EOA stored in macOS Keychain)
+ tempo-walletwallet create --name default
+
+# Import an existing private key as a local wallet
+ tempo-walletwallet import --name default --stdin-key   # read from stdin
+ tempo-walletwallet import --name default --private-key 0x...
+
+# Delete a wallet
+ tempo-walletwallet delete --name default --yes
+```
+
 ## Configuration
 
 ### Setup
@@ -114,16 +128,18 @@ Run ` tempo-wallet<command> --help` for detailed usage on any command.
  tempo-walletlogin    # Sign up or log in via browser
 ```
 
-This creates a wallet credential file with your account address and access key.
+This creates a wallet credential file with your account address, stores your wallet EOA key securely in the OS keychain (macOS Keychain), and writes the access key inline to `keys.toml` after login.
 
 ### File Locations
 
  tempo-walletuses platform-native directories:
 
-| Platform | Config | Wallet |
+| Platform | Config | Keys |
 |----------|--------|--------|
-| **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/wallet.toml` |
-| **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/wallet.toml` |
+| **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
+| **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
+
+The wallet EOA private key is stored in the OS keychain on macOS. The access key used for payments is stored inline in `keys.toml` with permissions 0600 alongside account metadata.
 
 You can override the config path with `-c <PATH>` or `--config <PATH>`.
 
@@ -138,6 +154,10 @@ moderato_rpc = "https://my-custom-moderato-rpc.com"
 [rpc]
 tempo = "https://alternate-tempo-rpc.com"
 "tempo-moderato" = "https://alternate-moderato-rpc.com"
+
+# Telemetry (optional)
+[telemetry]
+enabled = true
 ```
 
 Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence over the `[rpc]` table. The `PRESTO_RPC_URL` env var overrides everything.

@@ -1,6 +1,7 @@
-//! Wallet management: signers and Tempo passkey wallets.
+//! Wallet management: signers, keychain, and Tempo passkey wallets.
 
 pub mod credentials;
+pub mod keychain;
 mod login;
 pub mod signer;
 

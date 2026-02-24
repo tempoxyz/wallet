@@ -267,7 +267,7 @@ fn is_login_fixable(err: &anyhow::Error) -> bool {
     })
 }
 
-/// Mark a network as provisioned in wallet.toml after a successful payment.
+/// Mark a network as provisioned in keys.toml after a successful payment.
 fn mark_network_provisioned(network: &str) {
     crate::wallet::credentials::WalletCredentials::mark_provisioned(network);
 }

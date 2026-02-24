@@ -32,4 +32,4 @@ fix:
 
 # Run e2e tests against live mpp-proxy (requires funded wallet)
 e2e: build
-	PRESTO_LIVE_TESTS=1 cargo test --test live -- --ignored --nocapture
+	cargo test --test live -- --ignored --nocapture

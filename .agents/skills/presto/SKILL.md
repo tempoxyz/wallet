@@ -57,6 +57,9 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | ` tempo-walletsession list` | List active payment sessions |
 | ` tempo-walletsession close [URL]` | Close a payment session (use `--all` to close all) |
 | ` tempo-walletsession recover <URL>` | Recover a session from on-chain state |
+| ` tempo-walletwallet create [--name]` | Create a local wallet (EOA stored in macOS Keychain) |
+| ` tempo-walletwallet import [--name] [--stdin-key|--private-key]` | Import an existing private key as a local wallet |
+| ` tempo-walletwallet delete --name <NAME> [--yes]` | Delete a local wallet |
 
 ## Global Options
 
@@ -185,4 +188,5 @@ If  tempo-walletfails with a 401 RPC error, set `PRESTO_RPC_URL` to an authentic
 | `PRESTO_RPC_URL` | Override RPC endpoint (required for mainnet — see above) |
 | `PRESTO_AUTH_URL` | Override auth server URL for login |
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
+| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
 | `NO_COLOR` | Disable colored output |

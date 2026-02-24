@@ -39,9 +39,9 @@ pub fn validate_path(
 // Config struct + impl
 // ---------------------------------------------------------------------------
 
-/// Application configuration (optional RPC overrides).
+/// Application configuration (optional RPC overrides, telemetry).
 ///
-/// Wallet credentials are stored separately in `wallet.toml`.
+/// Wallet credentials are stored separately in `keys.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     /// RPC URL override for Tempo mainnet
@@ -53,6 +53,32 @@ pub struct Config {
     /// RPC URL overrides for any network (by network id)
     #[serde(default)]
     pub rpc: HashMap<String, String>,
+    /// Telemetry configuration
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
+}
+
+// Default is derived
+
+/// Telemetry configuration options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    /// Enable anonymous telemetry and usage analytics.
+    /// Can be disabled here or via `PRESTO_NO_TELEMETRY=1` env var.
+    #[serde(default = "TelemetryConfig::default_enabled")]
+    pub enabled: bool,
+}
+
+impl TelemetryConfig {
+    fn default_enabled() -> bool {
+        true
+    }
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 impl Config {
@@ -102,14 +128,17 @@ impl Config {
         let body = toml::to_string_pretty(self)?;
         let content = format!(
             "#  tempo-walletconfiguration — optional RPC overrides\n\
-             # Wallet credentials are in wallet.toml (managed by ` tempo-walletlogin`)\n\
+             # Wallet credentials are in keys.toml (managed by ` tempo-walletlogin`)\n\
              #\n\
              # tempo_rpc = \"https://...\"\n\
              # moderato_rpc = \"https://...\"\n\
              #\n\
              # [rpc]\n\
              # tempo = \"https://...\"\n\
-             # \"tempo-moderato\" = \"https://...\"\n\n\
+             # \"tempo-moderato\" = \"https://...\"\n\
+             #\n\
+             # [telemetry]\n\
+             # enabled = true\n\n\
              {body}"
         );
         crate::util::atomic_write(&config_path, &content, 0o600)?;
@@ -292,6 +321,7 @@ mod tests {
                 tempo_rpc: self.tempo_rpc,
                 moderato_rpc: self.moderato_rpc,
                 rpc: self.rpc_overrides,
+                telemetry: Default::default(),
             }
         }
     }
@@ -308,6 +338,7 @@ mod tests {
             tempo_rpc: Some("https://custom-tempo-rpc.com".to_string()),
             moderato_rpc: Some("https://custom-moderato-rpc.com".to_string()),
             rpc: Default::default(),
+            telemetry: Default::default(),
         };
 
         assert_eq!(
@@ -465,6 +496,7 @@ mod tests {
                 "custom".to_string(),
                 "https://custom.example.com".to_string(),
             )]),
+            telemetry: Default::default(),
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");

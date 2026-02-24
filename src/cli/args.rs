@@ -37,6 +37,7 @@ pub enum ColorMode {
 \x1b[1;4mPayment Options:\x1b[0m
       --dry-run                 Show what would be paid without executing
 
+\x1b[1;4mKey Input Modes\x1b[0m: see ' tempo-walletwallet import --help' for import options (stdin, interactive, scripts)\n
 \x1b[1;4mExamples:\x1b[0m
   # Query Ethereum via Alchemy — no API key needed
    tempo-wallethttps://alchemy.mpp.tempo.xyz/eth-mainnet/v2 \\
@@ -59,9 +60,9 @@ pub struct Cli {
     #[arg(short = 'c', long = "config", value_name = "PATH", global = true)]
     pub config: Option<String>,
 
-    /// Use a specific account profile
-    #[arg(long = "profile", value_name = "NAME", global = true, hide = true)]
-    pub profile: Option<String>,
+    /// Use a specific access key
+    #[arg(long = "key", value_name = "NAME", global = true, hide = true)]
+    pub key: Option<String>,
 
     /// Use a private key directly for payment (bypasses wallet login)
     #[arg(
@@ -220,19 +221,14 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
-    /// Manage account profiles
-    #[command(display_order = 5, hide = true)]
+    /// Manage wallets
+    #[command(display_order = 5)]
     #[command(args_conflicts_with_subcommands = true)]
-    Account {
+    Wallet {
         #[command(subcommand)]
-        command: Option<AccountCommands>,
+        command: Option<WalletCommands>,
     },
-    /// Switch the active account profile
-    #[command(hide = true)]
-    Switch {
-        /// Profile name to switch to
-        profile: String,
-    },
+
     /// Generate shell completions script
     #[command(hide = true)]
     Completions {
@@ -272,20 +268,35 @@ pub enum SessionCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum AccountCommands {
-    /// List all account profiles
-    List,
-    /// Rename a profile
-    Rename {
-        /// Current profile name
-        old: String,
-        /// New profile name
-        new: String,
+pub enum WalletCommands {
+    /// Create a new wallet
+    Create {
+        /// Name for the wallet
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// Create a passkey-based wallet via browser auth
+        #[arg(long)]
+        passkey: bool,
     },
-    /// Delete a profile
+    /// Import an existing private key as a local wallet (stores key in OS keychain)
+    Import {
+        /// Name for the wallet
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// Provide the private key directly as hex (use with caution; may appear in shell history)
+        #[arg(long = "private-key", value_name = "HEX")]
+        private_key: Option<String>,
+        /// Read the private key from stdin without prompts (non-interactive)
+        #[arg(long = "stdin-key")]
+        stdin_key: bool,
+    },
+    /// Delete a wallet
     Delete {
-        /// Profile name to delete
-        profile: String,
+        /// Wallet name to delete
+        name: Option<String>,
+        /// Delete the passkey wallet
+        #[arg(long)]
+        passkey: bool,
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
