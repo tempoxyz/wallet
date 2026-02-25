@@ -21,7 +21,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, SessionCommands, Shell, WalletCommands};
+use cli::{Cli, ColorMode, Commands, KeyCommands, SessionCommands, Shell, WalletCommands};
 use colored::control;
 
 use analytics::Analytics;
@@ -170,7 +170,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Wallet { .. } => "wallet",
             Commands::Session { .. } => "session",
             Commands::Whoami | Commands::Balance => "whoami",
-            Commands::Keys => "keys",
+            Commands::Key { .. } => "key",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -354,13 +354,25 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 .map_err(Into::into)
         }
 
-        Commands::Keys => {
+        Commands::Key { command } => {
             let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
             let output_format = cli.resolve_output_format(&config);
-            cli::auth::show_keys(&config, output_format, network)
-                .await
-                .map_err(Into::into)
+            match command {
+                Some(KeyCommands::List) => cli::auth::show_keys(&config, output_format, network)
+                    .await
+                    .map_err(Into::into),
+                Some(KeyCommands::Create { name }) => {
+                    let name = name.as_deref().unwrap_or("local-default");
+                    cli::wallet::renew_local_wallet(name)?;
+                    cli::auth::show_whoami(&config, output_format, network)
+                        .await
+                        .map_err(Into::into)
+                }
+                None => cli::auth::show_whoami(&config, output_format, network)
+                    .await
+                    .map_err(Into::into),
+            }
         }
     };
 

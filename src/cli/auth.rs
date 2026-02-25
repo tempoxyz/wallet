@@ -173,7 +173,7 @@ pub struct StatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) active_key: Option<KeyInfo>,
+    pub(crate) key: Option<KeyInfo>,
 }
 
 pub async fn show_whoami(
@@ -190,7 +190,7 @@ pub async fn show_whoami(
         wallet_type: None,
         network: None,
         chain_id: None,
-        active_key: None,
+        key: None,
     };
 
     if creds.has_wallet() {
@@ -231,7 +231,7 @@ pub async fn show_whoami(
             let expires_at = active_entry
                 .and_then(key_expiry_timestamp)
                 .map(format_expiry_iso);
-            response.active_key = Some(KeyInfo {
+            response.key = Some(KeyInfo {
                 label: creds.primary_key_name().unwrap_or_default(),
                 address: addr,
                 wallet_address: None,
@@ -262,7 +262,7 @@ pub async fn show_whoami(
             println!("{}", serde_json::to_string(&response)?);
         }
         _ => {
-            if let Some(key) = &response.active_key {
+            if let Some(key) = &response.key {
                 println!("{}", key.label);
                 if let Some(wallet) = &response.wallet {
                     let wt = response.wallet_type.as_deref().unwrap_or("unknown");
@@ -318,8 +318,9 @@ fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
 
 /// Format an expiry timestamp as an ISO-8601 UTC string for JSON output.
 fn format_expiry_iso(timestamp: u64) -> String {
-    let dt = time::OffsetDateTime::from_unix_timestamp(timestamp as i64)
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+    let secs = i64::try_from(timestamp).unwrap_or(i64::MAX);
+    let dt =
+        time::OffsetDateTime::from_unix_timestamp(secs).unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         dt.year(),

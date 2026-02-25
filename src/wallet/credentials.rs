@@ -1028,7 +1028,7 @@ provisioned_chain_ids = [4217, 42431]
     }
 
     #[test]
-    fn test_set_key_preserves_provisioned_chain_ids() {
+    fn test_set_passkey_new_entry_preserves_provisioned_chain_ids() {
         let mut creds = WalletCredentials::default();
         creds.set_passkey(
             "0xABC".to_string(),
@@ -1053,5 +1053,36 @@ provisioned_chain_ids = [4217, 42431]
 
         let key_entry = creds.primary_key().unwrap();
         assert_eq!(key_entry.provisioned_chain_ids, vec![4217, 42431]);
+    }
+
+    #[test]
+    fn test_relogin_existing_entry_clears_provisioned_chain_ids() {
+        // Simulates the login.rs re-login code path where an existing entry
+        // is updated in-place with a new access key — provisioned_chain_ids
+        // must be cleared because the new key hasn't been provisioned yet.
+        let mut creds = WalletCredentials::default();
+        creds.set_passkey(
+            "0xABC".to_string(),
+            "0xsigner1".to_string(),
+            "0xaccesskey1".to_string(),
+            Some("auth".to_string()),
+        );
+        creds
+            .keys
+            .get_mut("passkey-default")
+            .unwrap()
+            .provisioned_chain_ids = vec![4217, 42431];
+
+        // Simulate the login.rs re-login path: update existing entry in-place
+        let profile = creds.resolve_key_name_for_login("0xABC", "0xsigner2");
+        let key = creds.keys.get_mut(&profile).unwrap();
+        key.access_key_address = Some("0xsigner2".to_string());
+        key.access_key = Some(Zeroizing::new("0xaccesskey2".to_string()));
+        key.key_authorization = None;
+        key.provisioned_chain_ids.clear();
+
+        let key_entry = creds.primary_key().unwrap();
+        assert!(key_entry.provisioned_chain_ids.is_empty());
+        assert_eq!(key_entry.access_key_address, Some("0xsigner2".to_string()));
     }
 }

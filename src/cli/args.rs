@@ -202,9 +202,13 @@ pub enum Commands {
     /// Alias for whoami
     #[command(hide = true, name = "balance")]
     Balance,
-    /// List all access keys and their spending limits
-    #[command(display_order = 5, name = "keys", hide = true)]
-    Keys,
+    /// Manage access keys
+    #[command(display_order = 5, name = "key")]
+    #[command(args_conflicts_with_subcommands = true)]
+    Key {
+        #[command(subcommand)]
+        command: Option<KeyCommands>,
+    },
     /// Manage payment sessions
     #[command(display_order = 6)]
     #[command(args_conflicts_with_subcommands = true)]
@@ -295,6 +299,18 @@ pub enum WalletCommands {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum KeyCommands {
+    /// List all access keys and their spending limits
+    List,
+    /// Create a new access key for a local wallet (generates fresh 30-day key)
+    Create {
+        /// Wallet name
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
     },
 }
 
