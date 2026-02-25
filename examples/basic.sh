@@ -13,7 +13,7 @@
 # No payment channels, no sessions — just a single transaction per request.
 #
 # Prerequisites:
-#   - presto installed (`make install` or `cargo install --path .`)
+#   - presto installed (`make install`)
 #   - Run `presto login` to connect your Tempo wallet
 #
 # Usage:

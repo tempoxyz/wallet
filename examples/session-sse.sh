@@ -11,7 +11,7 @@
 #   4. At the end: close the session and settle on-chain
 #
 # Prerequisites:
-#   - presto installed (`make install` or `cargo install --path .`)
+#   - presto installed (`make install`)
 #   - Run `presto login` to connect your Tempo wallet
 #
 # Usage:
