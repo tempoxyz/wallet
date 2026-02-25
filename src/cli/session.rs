@@ -135,7 +135,7 @@ pub async fn list_sessions(
         session_store::list_all_pending_closes()
             .unwrap_or_default()
             .into_iter()
-            .map(|p| (p.channel_id, p.ready_at.saturating_sub(now)))
+            .map(|p| (p.channel_id.to_lowercase(), p.ready_at.saturating_sub(now)))
             .collect();
 
     match output_format {
@@ -254,15 +254,17 @@ async fn list_all_channels(
 
     // Phase 1: local active sessions
     let sessions = session_store::list_sessions()?;
-    let local_ids: std::collections::HashSet<String> =
-        sessions.iter().map(|s| s.channel_id.clone()).collect();
+    let local_ids: std::collections::HashSet<String> = sessions
+        .iter()
+        .map(|s| s.channel_id.to_lowercase())
+        .collect();
 
     // Cross-reference pending closes to mark sessions as "closed"
     let pending_map: std::collections::HashMap<String, u64> =
         session_store::list_all_pending_closes()
             .unwrap_or_default()
             .into_iter()
-            .map(|p| (p.channel_id, p.ready_at.saturating_sub(now)))
+            .map(|p| (p.channel_id.to_lowercase(), p.ready_at.saturating_sub(now)))
             .collect();
 
     for session in &sessions {
@@ -390,30 +392,40 @@ async fn list_all_channels(
                 continue;
             }
         }
-        let (symbol, deposit, spent, remaining) =
-            match query_channel_state(config, &p.channel_id, &p.network).await {
-                Some((token, dep, set, net)) => {
-                    let token_config = net
-                        .parse::<Network>()
-                        .ok()
-                        .and_then(|n| n.token_config_by_address(&token));
-                    let sym = token_config.map(|t| t.symbol).unwrap_or("tokens");
-                    let dec = token_config.map(|t| t.decimals).unwrap_or(6);
-                    let rem = dep.saturating_sub(set);
-                    (
-                        sym,
-                        format_u256_with_decimals(alloy::primitives::U256::from(dep), dec),
-                        format_u256_with_decimals(alloy::primitives::U256::from(set), dec),
-                        format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
-                    )
-                }
-                None => {
-                    // Channel no longer exists on-chain (finalized) — clean up stale record
-                    let _ = session_store::delete_pending_close(&p.channel_id);
-                    let _ = session_store::delete_session_by_channel_id(&p.channel_id);
-                    continue;
-                }
-            };
+        let (symbol, deposit, spent, remaining) = match query_channel_state(
+            config,
+            &p.channel_id,
+            &p.network,
+        )
+        .await
+        {
+            Ok(Some((token, dep, set, net))) => {
+                let token_config = net
+                    .parse::<Network>()
+                    .ok()
+                    .and_then(|n| n.token_config_by_address(&token));
+                let sym = token_config.map(|t| t.symbol).unwrap_or("tokens");
+                let dec = token_config.map(|t| t.decimals).unwrap_or(6);
+                let rem = dep.saturating_sub(set);
+                (
+                    sym,
+                    format_u256_with_decimals(alloy::primitives::U256::from(dep), dec),
+                    format_u256_with_decimals(alloy::primitives::U256::from(set), dec),
+                    format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
+                )
+            }
+            Ok(None) => {
+                // Channel confirmed not on-chain (finalized) — clean up stale record
+                let _ = session_store::delete_pending_close(&p.channel_id);
+                let _ = session_store::delete_session_by_channel_id(&p.channel_id);
+                continue;
+            }
+            Err(e) => {
+                // RPC/config error — skip but don't delete (may be transient)
+                tracing::warn!(%e, channel_id = %p.channel_id, "failed to query channel state, skipping");
+                continue;
+            }
+        };
         views.push(UnifiedView {
             channel_id: p.channel_id.clone(),
             network: p.network.clone(),
@@ -518,15 +530,15 @@ async fn list_orphaned_channels(
         .context("Invalid wallet address")?;
 
     let local_sessions = session_store::list_sessions()?;
-    let local_ids: std::collections::HashSet<&str> = local_sessions
+    let local_ids: std::collections::HashSet<String> = local_sessions
         .iter()
-        .map(|s| s.channel_id.as_str())
+        .map(|s| s.channel_id.to_lowercase())
         .collect();
 
     let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
     let orphaned: Vec<_> = channels
         .iter()
-        .filter(|ch| !local_ids.contains(ch.channel_id.as_str()))
+        .filter(|ch| !local_ids.contains(&ch.channel_id.to_lowercase()))
         .collect();
 
     // Resolve token symbols and format amounts
@@ -665,30 +677,40 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
         };
 
         // Try to get on-chain state for richer display
-        let (symbol, deposit, settled, remaining) =
-            match query_channel_state(config, &p.channel_id, &p.network).await {
-                Some((token, dep, set, net)) => {
-                    let token_config = net
-                        .parse::<Network>()
-                        .ok()
-                        .and_then(|n| n.token_config_by_address(&token));
-                    let sym = token_config.map(|t| t.symbol).unwrap_or("tokens");
-                    let dec = token_config.map(|t| t.decimals).unwrap_or(6);
-                    let rem = dep.saturating_sub(set);
-                    (
-                        sym,
-                        format_u256_with_decimals(alloy::primitives::U256::from(dep), dec),
-                        format_u256_with_decimals(alloy::primitives::U256::from(set), dec),
-                        format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
-                    )
-                }
-                None => {
-                    // Channel no longer exists on-chain (finalized) — clean up stale record
-                    let _ = session_store::delete_pending_close(&p.channel_id);
-                    let _ = session_store::delete_session_by_channel_id(&p.channel_id);
-                    continue;
-                }
-            };
+        let (symbol, deposit, settled, remaining) = match query_channel_state(
+            config,
+            &p.channel_id,
+            &p.network,
+        )
+        .await
+        {
+            Ok(Some((token, dep, set, net))) => {
+                let token_config = net
+                    .parse::<Network>()
+                    .ok()
+                    .and_then(|n| n.token_config_by_address(&token));
+                let sym = token_config.map(|t| t.symbol).unwrap_or("tokens");
+                let dec = token_config.map(|t| t.decimals).unwrap_or(6);
+                let rem = dep.saturating_sub(set);
+                (
+                    sym,
+                    format_u256_with_decimals(alloy::primitives::U256::from(dep), dec),
+                    format_u256_with_decimals(alloy::primitives::U256::from(set), dec),
+                    format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
+                )
+            }
+            Ok(None) => {
+                // Channel confirmed not on-chain (finalized) — clean up stale record
+                let _ = session_store::delete_pending_close(&p.channel_id);
+                let _ = session_store::delete_session_by_channel_id(&p.channel_id);
+                continue;
+            }
+            Err(e) => {
+                // RPC/config error — skip but don't delete (may be transient)
+                tracing::warn!(%e, channel_id = %p.channel_id, "failed to query channel state, skipping");
+                continue;
+            }
+        };
 
         views.push(PendingView {
             channel_id: p.channel_id.clone(),
@@ -775,9 +797,9 @@ async fn close_orphaned_channels(
         .context("Invalid wallet address")?;
 
     let local_sessions = session_store::list_sessions()?;
-    let local_ids: std::collections::HashSet<&str> = local_sessions
+    let local_ids: std::collections::HashSet<String> = local_sessions
         .iter()
-        .map(|s| s.channel_id.as_str())
+        .map(|s| s.channel_id.to_lowercase())
         .collect();
 
     if show_output {
@@ -787,7 +809,7 @@ async fn close_orphaned_channels(
     let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
     let orphaned: Vec<_> = channels
         .iter()
-        .filter(|ch| !local_ids.contains(ch.channel_id.as_str()))
+        .filter(|ch| !local_ids.contains(&ch.channel_id.to_lowercase()))
         .collect();
 
     if orphaned.is_empty() {
@@ -1048,7 +1070,7 @@ pub async fn close_sessions(
             if show_output {
                 eprintln!("Closing {target}...");
             }
-            match close_channel_by_id(config, target, network).await {
+            match close_channel_by_id(config, target, network, None).await {
                 Ok(CloseOutcome::Closed) => {
                     let _ = session_store::delete_pending_close(target);
                     let _ = session_store::delete_session_by_channel_id(target);
@@ -1201,11 +1223,38 @@ async fn finalize_closed_channels(
     let mut failed = 0u32;
     let mut results: Vec<serde_json::Value> = Vec::new();
 
+    // Cache wallet signers per network to avoid redundant disk I/O
+    let mut signer_cache: std::collections::HashMap<String, crate::wallet::signer::WalletSigner> =
+        std::collections::HashMap::new();
+
     for record in &pending {
         if show_output {
             eprintln!("Finalizing {}...", record.channel_id);
         }
-        match close_channel_by_id(config, &record.channel_id, Some(&record.network)).await {
+
+        // Load signer once per network
+        if !signer_cache.contains_key(&record.network) {
+            match crate::wallet::signer::load_wallet_signer(&record.network) {
+                Ok(w) => {
+                    signer_cache.insert(record.network.clone(), w);
+                }
+                Err(e) => {
+                    if show_output {
+                        eprintln!("  Error loading wallet for {}: {e}", record.network);
+                    }
+                    failed += 1;
+                    results.push(serde_json::json!({
+                        "channel_id": record.channel_id,
+                        "status": "error",
+                        "error": e.to_string(),
+                    }));
+                    continue;
+                }
+            }
+        }
+        let wallet = signer_cache.get(&record.network);
+
+        match close_channel_by_id(config, &record.channel_id, Some(&record.network), wallet).await {
             Ok(CloseOutcome::Closed) => {
                 if let Err(e) = session_store::delete_pending_close(&record.channel_id) {
                     tracing::warn!(%e, "failed to delete pending close record");
@@ -1231,15 +1280,27 @@ async fn finalize_closed_channels(
                 }));
             }
             Err(e) => {
-                if show_output {
-                    eprintln!("  Error: {e}");
+                let err_msg = e.to_string();
+                if err_msg.contains("not found on any network") {
+                    // Channel already finalized externally — clean up stale record
+                    let _ = session_store::delete_pending_close(&record.channel_id);
+                    let _ = session_store::delete_session_by_channel_id(&record.channel_id);
+                    closed += 1;
+                    results.push(serde_json::json!({
+                        "channel_id": record.channel_id,
+                        "status": "closed",
+                    }));
+                } else {
+                    if show_output {
+                        eprintln!("  Error: {e}");
+                    }
+                    failed += 1;
+                    results.push(serde_json::json!({
+                        "channel_id": record.channel_id,
+                        "status": "error",
+                        "error": err_msg,
+                    }));
                 }
-                failed += 1;
-                results.push(serde_json::json!({
-                    "channel_id": record.channel_id,
-                    "status": "error",
-                    "error": e.to_string(),
-                }));
             }
         }
     }

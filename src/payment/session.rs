@@ -1929,6 +1929,7 @@ pub async fn close_channel_by_id(
     config: &Config,
     channel_id_hex: &str,
     network_filter: Option<&str>,
+    wallet_override: Option<&crate::wallet::signer::WalletSigner>,
 ) -> Result<CloseOutcome> {
     let channel_id: B256 = channel_id_hex
         .parse()
@@ -1939,6 +1940,8 @@ pub async fn close_channel_by_id(
     } else {
         Network::all().to_vec()
     };
+
+    let mut had_rpc_errors = false;
 
     for network in &networks {
         let network_info = match config.resolve_network(network.as_str()) {
@@ -1962,6 +1965,7 @@ pub async fn close_channel_by_id(
             Ok(None) => continue,
             Err(e) => {
                 tracing::debug!(network = network.as_str(), %e, "failed to query channel");
+                had_rpc_errors = true;
                 continue;
             }
         };
@@ -1993,39 +1997,60 @@ pub async fn close_channel_by_id(
             expires_at: 0,
         };
 
-        let wallet = load_wallet_signer(network.as_str())?;
-        return close_on_chain(config, &record_stub, &wallet, channel_id, escrow).await;
+        let owned_wallet;
+        let wallet = match wallet_override {
+            Some(w) => w,
+            None => {
+                owned_wallet = load_wallet_signer(network.as_str())?;
+                &owned_wallet
+            }
+        };
+        return close_on_chain(config, &record_stub, wallet, channel_id, escrow).await;
     }
 
-    anyhow::bail!("Channel {} not found on any network", channel_id_hex)
+    if had_rpc_errors {
+        anyhow::bail!(
+            "Channel {} could not be verified — RPC errors prevented checking all networks",
+            channel_id_hex
+        )
+    } else {
+        anyhow::bail!("Channel {} not found on any network", channel_id_hex)
+    }
 }
 
 /// Query on-chain state for a channel by its hex ID and network name.
 ///
-/// Returns `Some((token_address, deposit, settled, network_name))` if the channel
-/// exists on-chain, or `None` if not found or on RPC error.
+/// Returns `Ok(Some((token_address, deposit, settled, network_name)))` if the channel
+/// exists on-chain, `Ok(None)` if confirmed not found (deposit == 0 or finalized),
+/// or `Err` on RPC/config errors (callers should NOT treat errors as "missing").
 pub async fn query_channel_state(
     config: &Config,
     channel_id_hex: &str,
     network_name: &str,
-) -> Option<(String, u128, u128, String)> {
-    let channel_id: B256 = channel_id_hex.parse().ok()?;
-    let network: Network = network_name.parse().ok()?;
-    let network_info = config.resolve_network(network.as_str()).ok()?;
-    let rpc_url: url::Url = network_info.rpc_url.parse().ok()?;
+) -> Result<Option<(String, u128, u128, String)>> {
+    let channel_id: B256 = channel_id_hex.parse().context("Invalid channel ID")?;
+    let network: Network = network_name
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Unknown network: {}", network_name))?;
+    let network_info = config.resolve_network(network.as_str())?;
+    let rpc_url: url::Url = network_info.rpc_url.parse().context("Invalid RPC URL")?;
     let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
-    let escrow: Address = network.escrow_contract().parse().ok()?;
+    let escrow: Address = network
+        .escrow_contract()
+        .parse()
+        .context("Invalid escrow address")?;
 
-    let on_chain = get_channel_on_chain(&provider, escrow, channel_id, B256::ZERO)
-        .await
-        .ok()??;
+    let on_chain = match get_channel_on_chain(&provider, escrow, channel_id, B256::ZERO).await? {
+        Some(ch) => ch,
+        None => return Ok(None),
+    };
 
-    Some((
+    Ok(Some((
         format!("{:#x}", on_chain.token),
         on_chain.deposit,
         on_chain.settled,
         network_name.to_string(),
-    ))
+    )))
 }
 
 /// Derive the network from a session request's chain ID.
