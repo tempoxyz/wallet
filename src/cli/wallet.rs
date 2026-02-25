@@ -69,7 +69,7 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
 /// 2. Generate a new random access key → store inline in keys.toml
 /// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
 /// 4. Clear provisioned_chain_ids (new key must re-provision)
-pub fn renew_local_wallet(name: &str) -> Result<()> {
+pub fn create_access_key(name: &str) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot renew wallets with --private-key flag");
     }

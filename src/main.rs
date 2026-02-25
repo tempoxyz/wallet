@@ -364,7 +364,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     .map_err(Into::into),
                 Some(KeyCommands::Create { name }) => {
                     let name = name.as_deref().unwrap_or("local-default");
-                    cli::wallet::renew_local_wallet(name)?;
+                    cli::wallet::create_access_key(name)?;
                     cli::auth::show_whoami(&config, output_format, network)
                         .await
                         .map_err(Into::into)

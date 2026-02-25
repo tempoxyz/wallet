@@ -815,7 +815,7 @@ provisioned_chain_ids = [4217, 42431]
     }
 
     #[test]
-    fn test_delete_active_key_switches() {
+    fn test_delete_primary_key_switches() {
         let mut creds = make_creds("0xAAA", Some(TEST_PRIVATE_KEY));
         creds.keys.insert(
             "work".to_string(),
@@ -898,7 +898,7 @@ provisioned_chain_ids = [4217, 42431]
     }
 
     #[test]
-    fn test_delete_active_key_switches_deterministic() {
+    fn test_delete_primary_key_switches_deterministic() {
         let mut creds = WalletCredentials::default();
         for name in ["zebra", "alpha", "middle"] {
             creds.keys.insert(
