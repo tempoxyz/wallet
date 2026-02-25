@@ -632,6 +632,7 @@ async fn send_session_request(
                 status_code,
                 headers,
                 body,
+                final_url: None,
             },
             channel_id: format!("{:#x}", state.channel_id),
         })
@@ -847,12 +848,19 @@ async fn stream_sse_response(
                     }
                     SseEvent::PaymentNeedVoucher(nv) => {
                         let required: u128 = nv.required_cumulative.parse().unwrap_or(0);
-                        let deposit: u128 = nv.deposit.parse().unwrap_or(0);
+                        let server_deposit: u128 = nv.deposit.parse().unwrap_or(0);
 
                         // Authorize up to the full deposit so the server can
                         // stream multiple tokens before needing another voucher,
                         // instead of a network round-trip per token.
-                        let voucher_amount = if deposit > 0 { deposit } else { required };
+                        // Clamp to our known channel deposit to prevent a
+                        // malicious server from coercing an overly large voucher.
+                        let voucher_amount = if server_deposit > 0 {
+                            server_deposit
+                        } else {
+                            required
+                        }
+                        .min(ctx.deposit);
 
                         if runtime.debug_enabled() {
                             eprintln!(
@@ -1059,6 +1067,17 @@ pub async fn handle_session_request(
         .context("Failed to resolve network from session request")?;
     let network_name = network.as_str();
 
+    // Validate --network constraint if set (matches charge.rs enforcement)
+    if let Some(ref networks) = request_ctx.runtime.network {
+        let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
+        anyhow::ensure!(
+            allowed.contains(&network_name),
+            "Network '{}' not in allowed networks: {:?}",
+            network_name,
+            allowed
+        );
+    }
+
     let tick_cost: u128 = session_req
         .amount
         .parse()
@@ -1156,6 +1175,7 @@ pub async fn handle_session_request(
                 status_code: 200,
                 headers: std::collections::HashMap::new(),
                 body: Vec::new(),
+                final_url: None,
             },
             channel_id: String::new(),
         });

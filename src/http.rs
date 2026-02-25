@@ -20,6 +20,8 @@ pub struct HttpResponse {
     pub status_code: u32,
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
+    /// The final URL after following any redirects.
+    pub final_url: Option<String>,
 }
 
 impl HttpResponse {
@@ -192,6 +194,7 @@ impl HttpClient {
     /// Convert a reqwest response to our HttpResponse type
     async fn convert_response(response: reqwest::Response) -> error::Result<HttpResponse> {
         let status_code = response.status().as_u16() as u32;
+        let final_url = Some(response.url().to_string());
 
         // Convert headers to HashMap with lowercase keys
         let mut headers = HashMap::new();
@@ -207,6 +210,7 @@ impl HttpClient {
             status_code,
             headers,
             body,
+            final_url,
         })
     }
 }

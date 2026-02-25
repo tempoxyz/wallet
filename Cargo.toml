@@ -52,8 +52,6 @@ predicates = "3.1"
 serde_json = "1.0"
 serial_test = "3.2"
 
-[workspace]
-
 [patch.crates-io]
 tempo-alloy = { git = "https://github.com/tempoxyz/tempo" }
 tempo-primitives = { git = "https://github.com/tempoxyz/tempo" }
