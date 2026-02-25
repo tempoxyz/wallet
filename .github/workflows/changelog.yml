@@ -15,8 +15,8 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.head_ref }}
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Configure git for private repos
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Install changelogs
         run: curl -sSL https://changelogs.sh | sh
       - name: Install Claude CLI
@@ -32,9 +32,6 @@ jobs:
             echo "No code changes requiring changelog, skipping"
             exit 0
           fi
-          timeout 30 cargo metadata --format-version 1 2>&1 > /dev/null && echo "FULL METADATA OK" || echo "FULL METADATA FAILED (exit $?)"
-          cargo metadata --format-version 1 --no-deps 2>&1 > /dev/null && echo "NO-DEPS METADATA OK" || echo "NO-DEPS METADATA FAILED"
-          CARGO_NET_OFFLINE=true cargo metadata --format-version 1 2>&1 > /dev/null && echo "OFFLINE METADATA OK" || echo "OFFLINE METADATA FAILED"
           ~/.local/bin/changelogs add --ai "claude -p" --ref origin/${{ github.base_ref }}
       - name: Commit changelog
         run: |
