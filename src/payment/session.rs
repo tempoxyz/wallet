@@ -1737,6 +1737,14 @@ async fn close_on_chain(
     let ready_at = on_chain.close_requested_at as u64 + grace_period;
     if now < ready_at {
         let remaining = ready_at - now;
+
+        // Ensure pending close is persisted so `session list` can show the countdown
+        if let Err(e) =
+            session_store::save_pending_close(&record.channel_id, &record.network_name, ready_at)
+        {
+            tracing::warn!(%e, "failed to persist pending close");
+        }
+
         return Ok(CloseOutcome::Pending {
             remaining_secs: remaining,
         });
@@ -1770,7 +1778,7 @@ async fn close_on_chain(
 }
 
 /// Read CLOSE_GRACE_PERIOD from the escrow contract. Returns None on error.
-async fn read_grace_period(
+pub async fn read_grace_period(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
 ) -> Option<u64> {
@@ -1926,15 +1934,6 @@ pub async fn close_channel_by_id(
         .parse()
         .context("Invalid channel ID (expected 0x-prefixed bytes32 hex)")?;
 
-    let wallet = load_wallet_signer(
-        network_filter.unwrap_or(
-            Network::all()
-                .first()
-                .map(|n| n.as_str())
-                .unwrap_or("tempo"),
-        ),
-    )?;
-
     let networks: Vec<Network> = if let Some(name) = network_filter {
         name.parse::<Network>().ok().into_iter().collect()
     } else {
@@ -1994,6 +1993,7 @@ pub async fn close_channel_by_id(
             expires_at: 0,
         };
 
+        let wallet = load_wallet_signer(network.as_str())?;
         return close_on_chain(config, &record_stub, &wallet, channel_id, escrow).await;
     }
 

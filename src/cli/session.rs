@@ -71,6 +71,26 @@ fn format_duration(secs: u64) -> String {
     }
 }
 
+/// Resolve the grace period for an escrow contract, falling back to 900s.
+async fn resolve_grace_period(config: &Config, network_name: &str, escrow_hex: &str) -> u64 {
+    use crate::payment::session::read_grace_period;
+
+    let network_info = match config.resolve_network(network_name) {
+        Ok(info) => info,
+        Err(_) => return 900,
+    };
+    let rpc_url: url::Url = match network_info.rpc_url.parse() {
+        Ok(u) => u,
+        Err(_) => return 900,
+    };
+    let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+    let escrow: alloy::primitives::Address = match escrow_hex.parse() {
+        Ok(a) => a,
+        Err(_) => return 900,
+    };
+    read_grace_period(&provider, escrow).await.unwrap_or(900)
+}
+
 /// List payment sessions.
 ///
 /// By default lists local active sessions. With `--all`, shows a unified view
@@ -106,6 +126,18 @@ pub async fn list_sessions(
     };
     let views: Vec<SessionView> = filtered.iter().map(SessionView::from_record).collect();
 
+    // Cross-reference pending closes so we can show "closed" instead of "active"
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let pending_map: std::collections::HashMap<String, u64> =
+        session_store::list_all_pending_closes()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| (p.channel_id, p.ready_at.saturating_sub(now)))
+            .collect();
+
     match output_format {
         OutputFormat::Json => {
             #[derive(Serialize)]
@@ -117,20 +149,31 @@ pub async fn list_sessions(
                 deposit: &'a str,
                 spent: &'a str,
                 remaining: &'a str,
-                status: &'static str,
+                status: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                remaining_secs: Option<u64>,
             }
 
             let items: Vec<Item> = views
                 .iter()
-                .map(|v| Item {
-                    channel_id: v.channel_id,
-                    network: v.network,
-                    origin: v.origin,
-                    symbol: v.symbol,
-                    deposit: &v.limit,
-                    spent: &v.spent,
-                    remaining: &v.remaining,
-                    status: "active",
+                .map(|v| {
+                    let (status, remaining_secs) =
+                        if let Some(&secs) = pending_map.get(v.channel_id) {
+                            ("closed", Some(secs))
+                        } else {
+                            ("active", None)
+                        };
+                    Item {
+                        channel_id: v.channel_id,
+                        network: v.network,
+                        origin: v.origin,
+                        symbol: v.symbol,
+                        deposit: &v.limit,
+                        spent: &v.spent,
+                        remaining: &v.remaining,
+                        status,
+                        remaining_secs,
+                    }
                 })
                 .collect();
             println!(
@@ -148,6 +191,15 @@ pub async fn list_sessions(
             }
 
             for v in &views {
+                let status = if let Some(&secs) = pending_map.get(v.channel_id) {
+                    if secs == 0 {
+                        "closed — ready to finalize".to_string()
+                    } else {
+                        format!("closed — {} remaining", format_duration(secs))
+                    }
+                } else {
+                    "active".to_string()
+                };
                 println!("{}", v.origin);
                 println!("{:>10}: {}", "Network", v.network);
                 println!("{:>10}: {}", "Channel", v.channel_id);
@@ -162,7 +214,7 @@ pub async fn list_sessions(
                     println!("{:>10}: {:>w$} {}", "Spent", v.spent, v.symbol);
                     println!("{:>10}: {:>w$} {}", "Remaining", v.remaining, v.symbol);
                 }
-                println!("{:>10}: active", "Status");
+                println!("{:>10}: {}", "Status", status);
                 println!();
             }
 
@@ -182,9 +234,11 @@ struct UnifiedView {
     spent: String,
     remaining: String,
     status: &'static str,
+    /// Seconds until the channel is withdrawable (0 = ready now, None = not closing).
+    remaining_secs: Option<u64>,
 }
 
-/// List all channels in a unified view: active, orphaned, and closing.
+/// List all channels in a unified view: active, orphaned, and closed.
 async fn list_all_channels(
     config: &Config,
     output_format: OutputFormat,
@@ -192,12 +246,24 @@ async fn list_all_channels(
 ) -> Result<()> {
     use crate::payment::session::query_channel_state;
 
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let mut views: Vec<UnifiedView> = Vec::new();
 
     // Phase 1: local active sessions
     let sessions = session_store::list_sessions()?;
     let local_ids: std::collections::HashSet<String> =
         sessions.iter().map(|s| s.channel_id.clone()).collect();
+
+    // Cross-reference pending closes to mark sessions as "closed"
+    let pending_map: std::collections::HashMap<String, u64> =
+        session_store::list_all_pending_closes()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| (p.channel_id, p.ready_at.saturating_sub(now)))
+            .collect();
 
     for session in &sessions {
         if let Some(net) = network {
@@ -216,6 +282,13 @@ async fn list_all_channels(
         let limit_u = session.deposit_u128().unwrap_or(0);
         let remaining_u = limit_u.saturating_sub(spent_u);
 
+        let (status, close_remaining_secs) =
+            if let Some(&secs) = pending_map.get(&session.channel_id) {
+                ("closed", Some(secs))
+            } else {
+                ("active", None)
+            };
+
         views.push(UnifiedView {
             channel_id: session.channel_id.clone(),
             network: session.network_name.clone(),
@@ -227,7 +300,8 @@ async fn list_all_channels(
                 alloy::primitives::U256::from(remaining_u),
                 decimals,
             ),
-            status: "active",
+            status,
+            remaining_secs: close_remaining_secs,
         });
     }
 
@@ -236,6 +310,11 @@ async fn list_all_channels(
         if creds.has_wallet() {
             if let Ok(wallet_addr) = creds.wallet_address().parse() {
                 let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
+
+                // Cache grace period per escrow contract to avoid redundant RPC calls
+                let mut grace_cache: std::collections::HashMap<String, u64> =
+                    std::collections::HashMap::new();
+
                 for ch in &channels {
                     if local_ids.contains(&ch.channel_id) {
                         continue;
@@ -248,10 +327,32 @@ async fn list_all_channels(
                     let symbol = token_config.map(|t| t.symbol).unwrap_or("tokens");
                     let decimals = token_config.map(|t| t.decimals).unwrap_or(6);
                     let remaining_u = ch.deposit.saturating_sub(ch.settled);
-                    let status = if ch.close_requested_at > 0 {
-                        "closing"
+                    let (status, close_remaining_secs) = if ch.close_requested_at > 0 {
+                        // Use pending_map if available; otherwise compute from on-chain data
+                        let secs = match pending_map.get(&ch.channel_id).copied() {
+                            Some(s) => Some(s),
+                            None => {
+                                // Look up the grace period (cached per escrow contract)
+                                let grace = match grace_cache.get(&ch.escrow_contract) {
+                                    Some(&g) => g,
+                                    None => {
+                                        let g = resolve_grace_period(
+                                            config,
+                                            &ch.network,
+                                            &ch.escrow_contract,
+                                        )
+                                        .await;
+                                        grace_cache.insert(ch.escrow_contract.clone(), g);
+                                        g
+                                    }
+                                };
+                                let ready_at = ch.close_requested_at + grace;
+                                Some(ready_at.saturating_sub(now))
+                            }
+                        };
+                        ("closed", secs)
                     } else {
-                        "orphaned"
+                        ("orphaned", None)
                     };
                     views.push(UnifiedView {
                         channel_id: ch.channel_id.clone(),
@@ -271,6 +372,7 @@ async fn list_all_channels(
                             decimals,
                         ),
                         status,
+                        remaining_secs: close_remaining_secs,
                     });
                 }
             }
@@ -305,7 +407,12 @@ async fn list_all_channels(
                         format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
                     )
                 }
-                None => ("tokens", "?".into(), "?".into(), "?".into()),
+                None => {
+                    // Channel no longer exists on-chain (finalized) — clean up stale record
+                    let _ = session_store::delete_pending_close(&p.channel_id);
+                    let _ = session_store::delete_session_by_channel_id(&p.channel_id);
+                    continue;
+                }
             };
         views.push(UnifiedView {
             channel_id: p.channel_id.clone(),
@@ -315,7 +422,8 @@ async fn list_all_channels(
             deposit,
             spent,
             remaining,
-            status: "closing",
+            status: "closed",
+            remaining_secs: Some(p.ready_at.saturating_sub(now)),
         });
     }
 
@@ -331,6 +439,8 @@ async fn list_all_channels(
                 spent: &'a str,
                 remaining: &'a str,
                 status: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                remaining_secs: Option<u64>,
             }
             let items: Vec<Item> = views
                 .iter()
@@ -347,6 +457,7 @@ async fn list_all_channels(
                     spent: &v.spent,
                     remaining: &v.remaining,
                     status: v.status,
+                    remaining_secs: v.remaining_secs,
                 })
                 .collect();
             println!(
@@ -377,7 +488,14 @@ async fn list_all_channels(
                 println!("{:>10}: {:>w$} {}", "Deposit", v.deposit, v.symbol);
                 println!("{:>10}: {:>w$} {}", "Spent", v.spent, v.symbol);
                 println!("{:>10}: {:>w$} {}", "Remaining", v.remaining, v.symbol);
-                println!("{:>10}: {}", "Status", v.status);
+                let status = match v.remaining_secs {
+                    Some(0) => format!("{} — ready to finalize", v.status),
+                    Some(secs) => {
+                        format!("{} — {} remaining", v.status, format_duration(secs))
+                    }
+                    None => v.status.to_string(),
+                };
+                println!("{:>10}: {}", "Status", status);
                 println!();
             }
             println!("{} session(s) total.", views.len());
@@ -433,9 +551,9 @@ async fn list_orphaned_channels(
             let decimals = token_config.map(|t| t.decimals).unwrap_or(6);
             let remaining_u = ch.deposit.saturating_sub(ch.settled);
             let status = if ch.close_requested_at > 0 {
-                "closing"
+                "closed"
             } else {
-                "open"
+                "orphaned"
             };
             OrphanedView {
                 ch,
@@ -564,7 +682,12 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
                         format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
                     )
                 }
-                None => ("tokens", "?".into(), "?".into(), "?".into()),
+                None => {
+                    // Channel no longer exists on-chain (finalized) — clean up stale record
+                    let _ = session_store::delete_pending_close(&p.channel_id);
+                    let _ = session_store::delete_session_by_channel_id(&p.channel_id);
+                    continue;
+                }
             };
 
         views.push(PendingView {
@@ -601,7 +724,7 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
                     deposit: &v.deposit,
                     spent: &v.settled,
                     remaining: &v.remaining,
-                    status: "closing",
+                    status: "closed",
                     remaining_secs: v.remaining_secs,
                 })
                 .collect();
@@ -690,6 +813,9 @@ async fn close_orphaned_channels(
         match close_discovered_channel(ch, config).await {
             Ok(CloseOutcome::Closed) => {
                 closed += 1;
+                // Clean up any pending close and session records
+                let _ = session_store::delete_pending_close(&ch.channel_id);
+                let _ = session_store::delete_session_by_channel_id(&ch.channel_id);
                 results.push(serde_json::json!({
                     "channel_id": ch.channel_id,
                     "status": "closed",
@@ -792,6 +918,7 @@ pub async fn close_sessions(
                             eprintln!("  Failed to remove local session: {e}");
                         }
                     }
+                    let _ = session_store::delete_pending_close(&session.channel_id);
                     results.push(serde_json::json!({
                         "origin": session.origin,
                         "channel_id": session.channel_id,
@@ -851,6 +978,7 @@ pub async fn close_sessions(
                         match close_discovered_channel(ch, config).await {
                             Ok(CloseOutcome::Closed) => {
                                 closed += 1;
+                                let _ = session_store::delete_pending_close(&ch.channel_id);
                                 results.push(serde_json::json!({
                                     "channel_id": ch.channel_id,
                                     "status": "closed",
@@ -922,6 +1050,8 @@ pub async fn close_sessions(
             }
             match close_channel_by_id(config, target, network).await {
                 Ok(CloseOutcome::Closed) => {
+                    let _ = session_store::delete_pending_close(target);
+                    let _ = session_store::delete_session_by_channel_id(target);
                     if output_format == OutputFormat::Json {
                         println!(
                             "{}",
@@ -945,10 +1075,24 @@ pub async fn close_sessions(
                     }
                 }
                 Err(e) => {
-                    if output_format == OutputFormat::Json {
+                    // "not found on any network" means the channel is already
+                    // fully closed on-chain. Clean up stale local records.
+                    let err_msg = e.to_string();
+                    if err_msg.contains("not found on any network") {
+                        let _ = session_store::delete_pending_close(target);
+                        let _ = session_store::delete_session_by_channel_id(target);
+                        if output_format == OutputFormat::Json {
+                            println!(
+                                "{}",
+                                serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]})
+                            );
+                        } else {
+                            println!("Channel {target} already closed.");
+                        }
+                    } else if output_format == OutputFormat::Json {
                         println!(
                             "{}",
-                            serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"channel_id": target, "status": "error", "error": e.to_string()}]})
+                            serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"channel_id": target, "status": "error", "error": err_msg}]})
                         );
                     } else {
                         anyhow::bail!("{e}");
@@ -973,6 +1117,7 @@ pub async fn close_sessions(
                             eprintln!("  Failed to remove local session: {e}");
                         }
                     }
+                    let _ = session_store::delete_pending_close(&record.channel_id);
                     if output_format == OutputFormat::Json {
                         println!(
                             "{}",
@@ -1064,6 +1209,9 @@ async fn finalize_closed_channels(
             Ok(CloseOutcome::Closed) => {
                 if let Err(e) = session_store::delete_pending_close(&record.channel_id) {
                     tracing::warn!(%e, "failed to delete pending close record");
+                }
+                if let Err(e) = session_store::delete_session_by_channel_id(&record.channel_id) {
+                    tracing::warn!(%e, "failed to delete session record");
                 }
                 closed += 1;
                 results.push(serde_json::json!({

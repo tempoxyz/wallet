@@ -318,6 +318,15 @@ fn delete_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<()> {
     Ok(())
 }
 
+fn delete_session_by_channel_id_conn(conn: &rusqlite::Connection, channel_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM sessions WHERE channel_id = ?1",
+        params![channel_id],
+    )
+    .context("Failed to delete session by channel_id")?;
+    Ok(())
+}
+
 fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>> {
     let mut stmt = conn
         .prepare(
@@ -360,6 +369,12 @@ pub fn save_session(record: &SessionRecord) -> Result<()> {
 pub fn delete_session(key: &str) -> Result<()> {
     let conn = open_db()?;
     delete_session_conn(&conn, key)
+}
+
+/// Delete a session record by channel ID.
+pub fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
+    let conn = open_db()?;
+    delete_session_by_channel_id_conn(&conn, channel_id)
 }
 
 /// List all session records, ordered by last_used_at descending.
@@ -435,7 +450,8 @@ fn delete_pending_close_conn(conn: &rusqlite::Connection, channel_id: &str) -> R
 /// Save a pending close record.
 pub fn save_pending_close(channel_id: &str, network: &str, ready_at: u64) -> Result<()> {
     let conn = open_db()?;
-    save_pending_close_conn(&conn, channel_id, network, ready_at)
+    let network = network.to_lowercase();
+    save_pending_close_conn(&conn, channel_id, &network, ready_at)
 }
 
 /// List all pending closes regardless of maturity.
