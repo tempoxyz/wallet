@@ -21,7 +21,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, SessionCommands, Shell, WalletCommands};
+use cli::{Cli, ColorMode, Commands, KeyCommands, SessionCommands, Shell, WalletCommands};
 use colored::control;
 
 use analytics::Analytics;
@@ -170,6 +170,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Wallet { .. } => "wallet",
             Commands::Session { .. } => "session",
             Commands::Whoami | Commands::Balance => "whoami",
+            Commands::Key { .. } => "key",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -199,7 +200,9 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     },
                 );
             }
-            let result = cli::auth::run_login(network, analytics.clone()).await;
+            let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+            let output_format = cli.resolve_output_format(&config);
+            let result = cli::auth::run_login(network, analytics.clone(), output_format).await;
             if let Some(ref a) = analytics {
                 let net = network.unwrap_or_default().to_string();
                 match &result {
@@ -278,10 +281,20 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     WalletCommands::Create { name, passkey } => {
                         if passkey {
                             let network = cli.network.as_deref();
-                            cli::auth::run_login(network, analytics.clone()).await
+                            let config =
+                                load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+                            let output_format = cli.resolve_output_format(&config);
+                            cli::auth::run_login(network, analytics.clone(), output_format).await
                         } else {
-                            let name = name.as_deref().unwrap_or("default");
-                            cli::wallet::create_local_wallet(name)
+                            let name = name.as_deref().unwrap_or("local-default");
+                            cli::wallet::create_local_wallet(name)?;
+                            let config =
+                                load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+                            let output_format = cli.resolve_output_format(&config);
+                            let network = cli.network.as_deref();
+                            cli::auth::show_whoami(&config, output_format, network)
+                                .await
+                                .map_err(Into::into)
                         }
                     }
                     WalletCommands::Import {
@@ -289,21 +302,30 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         private_key,
                         stdin_key,
                     } => {
-                        let name = name.as_deref().unwrap_or("default");
+                        let name = name.as_deref().unwrap_or("local-default");
                         cli::wallet::import_wallet(name, private_key, stdin_key)
                     }
-                    WalletCommands::Delete { name, passkey, yes } => {
+                    WalletCommands::Delete {
+                        name,
+                        name_flag,
+                        passkey,
+                        yes,
+                    } => {
                         if passkey {
                             cli::auth::run_logout(yes).await
-                        } else if let Some(name) = name {
-                            cli::wallet::delete_wallet(&name, yes)
                         } else {
-                            anyhow::bail!("Specify a wallet name or use --passkey");
+                            let name = name
+                                .or(name_flag)
+                                .unwrap_or_else(|| "local-default".to_string());
+                            cli::wallet::delete_wallet(&name, yes)
                         }
                     }
                 }
             } else {
-                Cli::command().print_help()?;
+                Cli::command()
+                    .find_subcommand_mut("wallet")
+                    .expect("wallet subcommand exists")
+                    .print_help()?;
                 Ok(())
             }
         }
@@ -311,12 +333,46 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         Commands::Whoami | Commands::Balance => {
             let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
+            let output_format = cli.resolve_output_format(&config);
+
+            // Auto-login if no wallet is connected
+            let creds = wallet::credentials::WalletCredentials::load()?;
+            if !creds.has_wallet() {
+                eprintln!("No wallet connected. Starting login...\n");
+                if let Some(ref a) = analytics {
+                    a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
+                }
+                // run_login already displays whoami after success
+                return cli::auth::run_login(network, analytics.clone(), output_format).await;
+            }
+
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
             }
-            cli::auth::show_whoami(&config, cli.output_format, network)
+            cli::auth::show_whoami(&config, output_format, network)
                 .await
                 .map_err(Into::into)
+        }
+
+        Commands::Key { command } => {
+            let config = load_config_with_overrides(cli.config.as_ref())?;
+            let network = cli.network.as_deref();
+            let output_format = cli.resolve_output_format(&config);
+            match command {
+                Some(KeyCommands::List) => cli::auth::show_keys(&config, output_format, network)
+                    .await
+                    .map_err(Into::into),
+                Some(KeyCommands::Create { name }) => {
+                    let name = name.as_deref().unwrap_or("local-default");
+                    cli::wallet::create_access_key(name)?;
+                    cli::auth::show_whoami(&config, output_format, network)
+                        .await
+                        .map_err(Into::into)
+                }
+                None => cli::auth::show_whoami(&config, output_format, network)
+                    .await
+                    .map_err(Into::into),
+            }
         }
     };
 

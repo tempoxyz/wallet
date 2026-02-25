@@ -110,14 +110,14 @@ Run ` tempo-wallet<command> --help` for detailed usage on any command.
 
 ```bash
 # Create a new local wallet (EOA stored in macOS Keychain)
- tempo-walletwallet create --name default
+ tempo-walletwallet create
 
 # Import an existing private key as a local wallet
- tempo-walletwallet import --name default --stdin-key   # read from stdin
- tempo-walletwallet import --name default --private-key 0x...
+ tempo-walletwallet import --stdin-key   # read from stdin
+ tempo-walletwallet import --private-key 0x...
 
 # Delete a wallet
- tempo-walletwallet delete --name default --yes
+ tempo-walletwallet delete --yes
 ```
 
 ## Configuration

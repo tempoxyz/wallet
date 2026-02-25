@@ -4,7 +4,10 @@ use alloy::rlp::Encodable;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
 use anyhow::Result;
-use tempo_primitives::transaction::{KeyAuthorization, PrimitiveSignature, SignatureType};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tempo_primitives::transaction::{
+    KeyAuthorization, PrimitiveSignature, SignatureType, TokenLimit,
+};
 use zeroize::Zeroizing;
 
 use crate::wallet::credentials::{self, keychain, KeyEntry, WalletCredentials, WalletType};
@@ -41,20 +44,7 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
     let access_key_address = format!("{}", access_signer.address());
 
     // Sign key_authorization with chain_id=0 (all chains)
-    let auth = KeyAuthorization {
-        chain_id: 0,
-        key_type: SignatureType::Secp256k1,
-        key_id: access_signer.address(),
-        expiry: None,
-        limits: None,
-    };
-    let sig = wallet_signer
-        .sign_hash_sync(&auth.signature_hash())
-        .map_err(|e| anyhow::anyhow!("Failed to sign key authorization: {e}"))?;
-    let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
-    let mut buf = Vec::new();
-    signed.encode(&mut buf);
-    let key_auth_hex = format!("0x{}", hex::encode(&buf));
+    let (key_auth_hex, _) = sign_key_authorization(&wallet_signer, &access_signer)?;
 
     let key_entry = KeyEntry {
         wallet_type: WalletType::Local,
@@ -65,16 +55,107 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
         ..Default::default()
     };
     creds.keys.insert(name.to_string(), key_entry);
-    creds.active = name.to_string();
     if let Err(e) = creds.save() {
         let _ = keychain().delete(name);
         return Err(e.into());
     }
 
-    println!("Created wallet '{name}'.");
-    println!("  Address: {wallet_address}");
-    println!("\nFund this address to start making payments.");
     Ok(())
+}
+
+/// Renew the access key for an existing local wallet.
+///
+/// 1. Load the wallet EOA key from the OS keychain
+/// 2. Generate a new random access key → store inline in keys.toml
+/// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
+/// 4. Clear provisioned_chain_ids (new key must re-provision)
+pub fn create_access_key(name: &str) -> Result<()> {
+    if credentials::has_credentials_override() {
+        anyhow::bail!("Cannot renew wallets with --private-key flag");
+    }
+
+    let mut creds = WalletCredentials::load()?;
+    let key_entry = creds
+        .keys
+        .get(name)
+        .ok_or_else(|| anyhow::anyhow!("Wallet '{name}' not found."))?;
+
+    if key_entry.wallet_type != WalletType::Local {
+        anyhow::bail!("Only local wallets can be renewed. Use ' tempo-walletlogin' for passkey wallets.");
+    }
+
+    // Load wallet EOA key from OS keychain
+    let wallet_key_hex = keychain()
+        .get(name)
+        .map_err(|e| {
+            crate::error::PrestoError::Keychain(format!("Failed to load wallet key: {e}"))
+        })?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+            "Wallet key not found in keychain for '{name}'. The wallet may need to be re-created."
+        )
+        })?;
+    let wallet_signer: PrivateKeySigner =
+        crate::wallet::credentials::parse_private_key_signer(&wallet_key_hex)
+            .map_err(|e| anyhow::anyhow!("Invalid wallet key in keychain: {e}"))?;
+
+    // Generate new access key
+    let access_signer = PrivateKeySigner::random();
+    let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(access_signer.to_bytes())));
+    let access_key_address = format!("{}", access_signer.address());
+
+    // Sign key_authorization with fresh expiry
+    let (key_auth_hex, _) = sign_key_authorization(&wallet_signer, &access_signer)?;
+
+    // Update the key entry in-place
+    let entry = creds.keys.get_mut(name).unwrap();
+    entry.access_key_address = Some(access_key_address);
+    entry.access_key = Some(access_key_hex);
+    entry.key_authorization = Some(key_auth_hex);
+    entry.provisioned_chain_ids.clear();
+
+    creds.save()?;
+    Ok(())
+}
+
+/// Sign a key authorization for an access key using the wallet EOA.
+///
+/// Returns `(key_auth_hex, expiry_secs)`. Uses chain_id=0 (all chains),
+/// $100 USDC limit, and 30-day expiry.
+fn sign_key_authorization(
+    wallet_signer: &PrivateKeySigner,
+    access_signer: &PrivateKeySigner,
+) -> Result<(String, u64)> {
+    let expiry_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 30 * 24 * 60 * 60;
+    let limit = alloy::primitives::U256::from(100_000_000u64); // $100 with 6 decimals
+    let token_limits: Vec<TokenLimit> = [
+        crate::network::tempo_tokens::USDCE,
+        crate::network::tempo_tokens::PATH_USD,
+    ]
+    .iter()
+    .map(|addr| TokenLimit {
+        token: addr.parse().unwrap(),
+        limit,
+    })
+    .collect();
+    let auth = KeyAuthorization {
+        chain_id: 0,
+        key_type: SignatureType::Secp256k1,
+        key_id: access_signer.address(),
+        expiry: Some(expiry_secs),
+        limits: Some(token_limits),
+    };
+    let sig = wallet_signer
+        .sign_hash_sync(&auth.signature_hash())
+        .map_err(|e| anyhow::anyhow!("Failed to sign key authorization: {e}"))?;
+    let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
+    let mut buf = Vec::new();
+    signed.encode(&mut buf);
+    Ok((format!("0x{}", hex::encode(&buf)), expiry_secs))
 }
 
 /// Delete a wallet by name.
@@ -107,13 +188,10 @@ pub fn delete_wallet(name: &str, yes: bool) -> Result<()> {
     creds.delete_key(name)?;
     creds.save()?;
 
-    if creds.active.is_empty() {
+    if creds.keys.is_empty() {
         println!("Deleted wallet '{name}'. No wallets configured.");
     } else {
-        println!(
-            "Deleted wallet '{name}'. Switched active key to '{}'.",
-            creds.active
-        );
+        println!("Deleted wallet '{name}'.");
     }
     Ok(())
 }
@@ -160,7 +238,6 @@ pub fn import_wallet(name: &str, private_key_arg: Option<String>, stdin_key: boo
         ..Default::default()
     };
     creds.keys.insert(name.to_string(), key);
-    creds.active = name.to_string();
     if let Err(e) = creds.save() {
         let _ = keychain().delete(name);
         return Err(e.into());

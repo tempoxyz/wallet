@@ -11,27 +11,58 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::network::Network;
 use crate::util::format_u256_with_decimals;
-use crate::wallet::credentials::WalletCredentials;
+use crate::wallet::credentials::{KeyEntry, WalletCredentials};
 use crate::wallet::WalletManager;
 use anyhow::Context;
 use mpp::client::tempo::keychain::query_key_spending_limit;
 use serde::Serialize;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
 
-pub async fn run_login(network: Option<&str>, analytics: Option<Analytics>) -> anyhow::Result<()> {
+pub async fn run_login(
+    network: Option<&str>,
+    analytics: Option<Analytics>,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    // Skip login if a wallet is already connected with an access key
+    if let Ok(creds) = WalletCredentials::load() {
+        if creds.has_wallet() {
+            let config_path = Config::default_config_path()?;
+            let config = if config_path.exists() {
+                Config::load_from(Some(&config_path)).unwrap_or_default()
+            } else {
+                Config::default()
+            };
+
+            if output_format == OutputFormat::Text {
+                println!("Already logged in.\n");
+            }
+
+            show_whoami(&config, output_format, network).await?;
+            return Ok(());
+        }
+    }
+
     let manager = WalletManager::new(network, analytics);
     manager.setup_wallet().await?;
 
     let config_path = Config::default_config_path()?;
-    if !config_path.exists() {
+    let config = if config_path.exists() {
+        Config::load_from(Some(&config_path)).unwrap_or_default()
+    } else {
         let config = Config::default();
         config.save().context("Failed to save configuration")?;
+        config
+    };
+
+    if output_format == OutputFormat::Text {
+        println!("\nWallet connected!\n");
     }
 
-    println!("\nTempo wallet connected! You can now make HTTP payments.");
+    show_whoami(&config, output_format, network).await?;
 
     Ok(())
 }
@@ -57,7 +88,17 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
             anyhow::bail!("Use --yes for non-interactive logout");
         }
 
-        print!("Disconnect wallet? [y/N] ");
+        let wallet_addr = creds.wallet_address();
+        let short_addr = if wallet_addr.len() > 10 {
+            format!(
+                "{}...{}",
+                &wallet_addr[..6],
+                &wallet_addr[wallet_addr.len() - 4..]
+            )
+        } else {
+            wallet_addr.to_string()
+        };
+        print!("Disconnect wallet {}? [y/N] ", short_addr);
         use std::io::{self, Write};
         io::stdout().flush()?;
 
@@ -81,18 +122,14 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
 
 #[derive(Debug, Serialize)]
 pub struct TokenBalance {
-    pub token: String,
+    pub symbol: String,
+    pub currency: String,
     pub balance: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub balance_atomic: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub balance_raw: Option<u128>,
 }
 
-/// Spending limit info for the token a key is authorized for.
+/// Spending limit for the key's authorized token.
 #[derive(Debug, Serialize)]
 pub(crate) struct SpendingLimitInfo {
-    token: String,
     unlimited: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     limit: Option<String>,
@@ -102,24 +139,41 @@ pub(crate) struct SpendingLimitInfo {
     spent: Option<String>,
 }
 
+/// Key details for JSON output.
+#[derive(Debug, Serialize)]
+pub(crate) struct KeyInfo {
+    pub label: String,
+    pub address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallet_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallet_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub balance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spending_limit: Option<SpendingLimitInfo>,
+    /// Key expiry as an ISO-8601 UTC timestamp (JSON) or countdown (text).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub ready: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallet_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rpc_url: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub balances: Vec<TokenBalance>,
+    pub chain_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_key: Option<String>,
-    // Extra machine-friendly readiness signals
-    pub connected: bool,
-    pub provisioned: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) spending_limit: Option<SpendingLimitInfo>,
+    pub(crate) key: Option<KeyInfo>,
 }
 
 pub async fn show_whoami(
@@ -127,56 +181,78 @@ pub async fn show_whoami(
     output_format: OutputFormat,
     network: Option<&str>,
 ) -> Result<()> {
-    let mut creds = WalletCredentials::load()?;
+    let creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
-
-    if !creds.has_wallet() {
-        eprintln!("No wallet connected. Starting login...\n");
-        run_login(Some(network), None)
-            .await
-            .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
-        creds = WalletCredentials::load()?;
-    }
 
     let mut response = StatusResponse {
         ready: true,
         wallet: None,
+        wallet_type: None,
         network: None,
-        rpc_url: None,
-        balances: vec![],
-        access_key: None,
-        connected: false,
-        provisioned: false,
-        spending_limit: None,
+        chain_id: None,
+        key: None,
     };
 
     if creds.has_wallet() {
         response.wallet = Some(creds.wallet_address().to_string());
 
-        // Include resolved network info for machine-readability
-        if let Ok(info) = config.resolve_network(network) {
-            response.network = Some(network.to_string());
-            response.rpc_url = Some(info.rpc_url.clone());
-        } else {
-            response.network = Some(network.to_string());
+        if let Some(key_entry) = creds.primary_key() {
+            let wt = match key_entry.wallet_type {
+                crate::wallet::credentials::WalletType::Passkey => "passkey",
+                crate::wallet::credentials::WalletType::Local => "local",
+            };
+            response.wallet_type = Some(wt.to_string());
         }
 
+        // Include resolved network info for machine-readability
+        response.network = Some(network.to_string());
+        response.chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
+
+        let all_balances = query_all_balances(config, network, creds.wallet_address()).await;
+
+        let active_entry = creds.primary_key();
+        let key_token_info = if let Some(entry) = active_entry {
+            query_spending_limit(config, network, entry).await
+        } else {
+            None
+        };
+
         if let Some(addr) = creds.access_key_address() {
-            response.access_key = Some(addr);
+            let (symbol, currency, spending_limit) = match key_token_info {
+                Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
+                None => (None, None, None),
+            };
+            let balance = currency.as_ref().and_then(|cur| {
+                all_balances
+                    .iter()
+                    .find(|tb| tb.currency == *cur)
+                    .map(|tb| tb.balance.clone())
+            });
+            let expires_at = active_entry
+                .and_then(key_expiry_timestamp)
+                .map(format_expiry_iso);
+            response.key = Some(KeyInfo {
+                label: creds.primary_key_name().unwrap_or_default(),
+                address: addr,
+                wallet_address: None,
+                wallet_type: None,
+                symbol,
+                currency,
+                balance,
+                spending_limit,
+                expires_at,
+            });
         } else {
             response.ready = false;
         }
 
-        response.balances = query_all_balances(config, network, creds.wallet_address()).await;
-
-        response.spending_limit = query_spending_limit(config, network, &creds).await;
-
-        // Readiness requires: access key present, wallet connected, and provisioned on this network
+        // Readiness requires: access key present, wallet connected, and either
+        // already provisioned or has a key_authorization (will auto-provision on first use).
         let has_wallet_addr = !creds.wallet_address().is_empty();
         let is_provisioned = creds.is_provisioned(network);
-        response.connected = has_wallet_addr;
-        response.provisioned = is_provisioned;
-        response.ready = response.ready && has_wallet_addr && is_provisioned;
+        let has_key_auth = creds.key_authorization().is_some();
+
+        response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
     } else {
         response.ready = false;
     }
@@ -186,49 +262,96 @@ pub async fn show_whoami(
             println!("{}", serde_json::to_string(&response)?);
         }
         _ => {
-            if let Some(wallet) = &response.wallet {
-                println!("  Wallet: {}", wallet);
-            }
-
-            // Minimal status line for quick human scanning
-            println!(
-                "  Status: connected={}, provisioned={}, ready={}",
-                response.connected, response.provisioned, response.ready
-            );
-
-            if !response.balances.is_empty() {
-                println!("\n  Balances:");
-                for tb in &response.balances {
-                    println!("    {:>12} {}", tb.balance, tb.token);
+            if let Some(key) = &response.key {
+                println!("{}", key.label);
+                if let Some(wallet) = &response.wallet {
+                    let wt = response.wallet_type.as_deref().unwrap_or("unknown");
+                    println!("{:>10}: {} ({})", "Wallet", wallet, wt);
                 }
-            }
-
-            if let Some(key) = &response.access_key {
-                println!("\n  Access Key: {}", key);
-                // Explain readiness status when not ready
-                let has_wallet_addr = creds.has_wallet() && !creds.wallet_address().is_empty();
-                let is_provisioned = creds.is_provisioned(network);
-                if !has_wallet_addr {
-                    println!("    Not connected. Run ' tempo-walletlogin' to connect this key.");
-                } else if !is_provisioned {
-                    println!("    Not provisioned on this network. Make a payment to provision automatically.");
+                println!("{:>10}: {}", "Access Key", key.address);
+                if let Some(cur) = &key.currency {
+                    println!("{:>10}: {}", "Currency", cur);
                 }
-                if let Some(sl) = &response.spending_limit {
-                    if sl.unlimited {
-                        println!("    Token: {} (unlimited)", sl.token);
-                    } else if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
-                        let spent = sl.spent.as_deref().unwrap_or("0");
-                        println!("    Token: {}", sl.token);
-                        println!("    Limit: {}", limit);
-                        println!("    Spent: {}", spent);
-                        println!("    Remaining: {}", remaining);
+                if let Some(sym) = &key.symbol {
+                    if let Some(sl) = &key.spending_limit {
+                        if sl.unlimited {
+                            println!("{:>10}: {} (unlimited)", "Symbol", sym);
+                        } else {
+                            println!("{:>10}: {}", "Symbol", sym);
+                        }
                     }
                 }
+                if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
+                    println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
+                }
+                if let Some(bal) = &key.balance {
+                    println!("{:>10}: {}", "Balance", bal);
+                }
+                if let Some(sl) = &key.spending_limit {
+                    if !sl.unlimited {
+                        if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
+                            let spent = sl.spent.as_deref().unwrap_or("0");
+                            println!("{:>10}: {}", "Limit", limit);
+                            println!("{:>10}: {}", "Spent", spent);
+                            println!("{:>10}: {}", "Remaining", remaining);
+                        }
+                    }
+                }
+            } else {
+                println!("  Status: not ready — run ' tempo-walletlogin'");
             }
         }
     }
 
     Ok(())
+}
+
+/// Extract the expiry timestamp from a key entry's authorization, if present.
+/// Returns `None` for keys without an authorization or without an expiry (unlimited).
+fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
+    let auth = key_entry
+        .key_authorization
+        .as_deref()
+        .and_then(crate::wallet::signer::decode_key_authorization)?;
+    auth.authorization.expiry
+}
+
+/// Format an expiry timestamp as an ISO-8601 UTC string for JSON output.
+fn format_expiry_iso(timestamp: u64) -> String {
+    let secs = i64::try_from(timestamp).unwrap_or(i64::MAX);
+    let dt =
+        time::OffsetDateTime::from_unix_timestamp(secs).unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        dt.year(),
+        dt.month() as u8,
+        dt.day(),
+        dt.hour(),
+        dt.minute(),
+        dt.second()
+    )
+}
+
+/// Format an expiry timestamp as a human-readable countdown for text output.
+fn format_expiry_countdown(timestamp: u64) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if timestamp <= now {
+        return "expired".to_string();
+    }
+    let remaining = timestamp - now;
+    let days = remaining / 86400;
+    let hours = (remaining % 86400) / 3600;
+    let minutes = (remaining % 3600) / 60;
+    if days > 0 {
+        format!("{}d {}h", days, hours)
+    } else if hours > 0 {
+        format!("{}h {}m", hours, minutes)
+    } else {
+        format!("{}m", minutes)
+    }
 }
 
 /// Query the spending limit for the key's authorized token on this network.
@@ -240,16 +363,17 @@ pub async fn show_whoami(
 async fn query_spending_limit(
     config: &Config,
     network: &str,
-    creds: &WalletCredentials,
-) -> Option<SpendingLimitInfo> {
+    key_entry: &KeyEntry,
+) -> Option<(String, String, SpendingLimitInfo)> {
     let network_info = config.resolve_network(network).ok()?;
 
-    let wallet_address: Address = creds.wallet_address().parse().ok()?;
-    let key_address: Address = creds.access_key_address()?.parse().ok()?;
+    let wallet_address: Address = key_entry.wallet_address.parse().ok()?;
+    let key_address: Address = key_entry.access_key_address.as_ref()?.parse().ok()?;
     let rpc_url = network_info.rpc_url.parse().ok()?;
 
-    let local_auth = creds
-        .key_authorization()
+    let local_auth = key_entry
+        .key_authorization
+        .as_deref()
         .and_then(crate::wallet::signer::decode_key_authorization);
 
     let provider = ProviderBuilder::new().connect_http(rpc_url);
@@ -283,27 +407,36 @@ async fn query_spending_limit(
                     let remaining_val = remaining.unwrap_or(total_limit);
                     let spent = total_limit.saturating_sub(remaining_val);
 
-                    return Some(SpendingLimitInfo {
-                        token: tc.symbol.to_string(),
-                        unlimited: false,
-                        limit: Some(format_u256_with_decimals(total_limit, decimals)),
-                        remaining: Some(format_u256_with_decimals(remaining_val, decimals)),
-                        spent: Some(format_u256_with_decimals(spent, decimals)),
-                    });
+                    return Some((
+                        tc.symbol.to_string(),
+                        tc.address.to_string(),
+                        SpendingLimitInfo {
+                            unlimited: false,
+                            limit: Some(format_u256_with_decimals(total_limit, decimals)),
+                            remaining: Some(format_u256_with_decimals(remaining_val, decimals)),
+                            spent: Some(format_u256_with_decimals(spent, decimals)),
+                        },
+                    ));
                 }
             }
         } else {
-            let symbol = tokens
-                .first()
+            let first_token = tokens.first();
+            let symbol = first_token
                 .map(|t| t.symbol.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
-            return Some(SpendingLimitInfo {
-                token: symbol,
-                unlimited: true,
-                limit: None,
-                remaining: None,
-                spent: None,
-            });
+            let currency = first_token
+                .map(|t| t.address.to_string())
+                .unwrap_or_default();
+            return Some((
+                symbol,
+                currency,
+                SpendingLimitInfo {
+                    unlimited: true,
+                    limit: None,
+                    remaining: None,
+                    spent: None,
+                },
+            ));
         }
     }
 
@@ -317,22 +450,31 @@ async fn query_spending_limit(
         match query_key_spending_limit(&provider, wallet_address, key_address, token_address).await
         {
             Ok(None) => {
-                return Some(SpendingLimitInfo {
-                    token: token_config.symbol.to_string(),
-                    unlimited: true,
-                    limit: None,
-                    remaining: None,
-                    spent: None,
-                });
+                return Some((
+                    token_config.symbol.to_string(),
+                    token_config.address.to_string(),
+                    SpendingLimitInfo {
+                        unlimited: true,
+                        limit: None,
+                        remaining: None,
+                        spent: None,
+                    },
+                ));
             }
             Ok(Some(remaining)) if remaining > U256::ZERO => {
-                return Some(SpendingLimitInfo {
-                    token: token_config.symbol.to_string(),
-                    unlimited: false,
-                    limit: None,
-                    remaining: Some(format_u256_with_decimals(remaining, token_config.decimals)),
-                    spent: None,
-                });
+                return Some((
+                    token_config.symbol.to_string(),
+                    token_config.address.to_string(),
+                    SpendingLimitInfo {
+                        unlimited: false,
+                        limit: None,
+                        remaining: Some(format_u256_with_decimals(
+                            remaining,
+                            token_config.decimals,
+                        )),
+                        spent: None,
+                    },
+                ));
             }
             Ok(Some(_)) => continue,
             Err(e) => {
@@ -343,6 +485,123 @@ async fn query_spending_limit(
     }
 
     None
+}
+
+// ---------------------------------------------------------------------------
+// Keys
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct KeysResponse {
+    pub keys: Vec<KeyInfo>,
+}
+
+pub async fn show_keys(
+    config: &Config,
+    output_format: OutputFormat,
+    network: Option<&str>,
+) -> Result<()> {
+    let creds = WalletCredentials::load()?;
+    let network = network.unwrap_or("tempo");
+
+    let mut keys = Vec::new();
+
+    for (name, entry) in &creds.keys {
+        let address = entry
+            .access_key_address
+            .clone()
+            .unwrap_or_else(|| "none".to_string());
+
+        let wt = match entry.wallet_type {
+            crate::wallet::credentials::WalletType::Passkey => "passkey",
+            crate::wallet::credentials::WalletType::Local => "local",
+        };
+
+        let key_token_info = query_spending_limit(config, network, entry).await;
+        let (symbol, currency, spending_limit) = match key_token_info {
+            Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
+            None => (None, None, None),
+        };
+
+        let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
+            (None, None)
+        } else {
+            let all = query_all_balances(config, network, &entry.wallet_address).await;
+            let bal = currency
+                .as_ref()
+                .and_then(|cur| all.into_iter().find(|tb| tb.currency == *cur))
+                .map(|tb| tb.balance);
+            (Some(entry.wallet_address.clone()), bal)
+        };
+
+        let expires_at = key_expiry_timestamp(entry).map(format_expiry_iso);
+
+        keys.push(KeyInfo {
+            label: name.clone(),
+            address,
+            wallet_address: wallet_addr,
+            wallet_type: Some(wt.to_string()),
+            symbol,
+            currency,
+            balance,
+            spending_limit,
+            expires_at,
+        });
+    }
+
+    let response = KeysResponse { keys };
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string(&response)?);
+        }
+        _ => {
+            if response.keys.is_empty() {
+                println!("No keys configured. Run ' tempo-walletlogin' to get started.");
+                return Ok(());
+            }
+            for key in &response.keys {
+                println!("{}", key.label);
+                if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
+                    println!("{:>10}: {} ({})", "Wallet", wallet, wt);
+                }
+                println!("{:>10}: {}", "Access Key", key.address);
+                if let Some(cur) = &key.currency {
+                    println!("{:>10}: {}", "Currency", cur);
+                }
+                if let Some(sym) = &key.symbol {
+                    if let Some(sl) = &key.spending_limit {
+                        if sl.unlimited {
+                            println!("{:>10}: {} (unlimited)", "Symbol", sym);
+                        } else {
+                            println!("{:>10}: {}", "Symbol", sym);
+                        }
+                    }
+                }
+                if let Some(entry) = creds.keys.get(&key.label) {
+                    if let Some(expiry_ts) = key_expiry_timestamp(entry) {
+                        println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
+                    }
+                }
+                if let Some(bal) = &key.balance {
+                    println!("{:>10}: {}", "Balance", bal);
+                }
+                if let Some(sl) = &key.spending_limit {
+                    if !sl.unlimited {
+                        if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
+                            let spent = sl.spent.as_deref().unwrap_or("0");
+                            println!("{:>10}: {}", "Limit", limit);
+                            println!("{:>10}: {}", "Spent", spent);
+                            println!("{:>10}: {}", "Remaining", remaining);
+                        }
+                    }
+                }
+                println!();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn query_token_balance(
@@ -407,14 +666,12 @@ async fn query_all_balances(
             }
         };
 
-        let balance_raw_u128: Option<u128> = balance.try_into().ok();
         let balance_human = format_u256_with_decimals(balance, token_config.decimals);
 
         balances.push(TokenBalance {
-            token: token_config.symbol.to_string(),
+            symbol: token_config.symbol.to_string(),
+            currency: token_config.address.to_string(),
             balance: balance_human,
-            balance_atomic: Some(balance.to_string()),
-            balance_raw: balance_raw_u128,
         });
     }
 
