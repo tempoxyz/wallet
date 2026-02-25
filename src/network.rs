@@ -232,6 +232,16 @@ impl Network {
         GasConfig::DEFAULT
     }
 
+    /// Get the default escrow contract address for this network.
+    ///
+    /// These match the addresses in `mpp::client::channel_ops::default_escrow_contract`.
+    pub const fn escrow_contract(&self) -> &'static str {
+        match self {
+            Network::Tempo => "0x0901aED692C755b870F9605E56BAA66c35BEfF69",
+            Network::TempoModerato => "0x542831e3E4Ace07559b7C8787395f4Fb99F70787",
+        }
+    }
+
     /// Get all supported token configurations for this network.
     pub fn supported_tokens(&self) -> Vec<TokenConfig> {
         match self {

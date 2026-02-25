@@ -237,19 +237,33 @@ pub enum Shell {
 #[derive(Subcommand, Debug)]
 pub enum SessionCommands {
     /// List active payment sessions
-    List,
-    /// Close a payment session and remove it locally
-    Close {
-        /// URL or origin to close session for
-        url: Option<String>,
-        /// Close all active sessions
+    List {
+        /// Show all channels: active, orphaned, and closing
         #[arg(long)]
         all: bool,
+        /// Scan on-chain for orphaned channels (no local session)
+        #[arg(long)]
+        orphaned: bool,
+        /// Show channels pending finalization (requestClose submitted)
+        #[arg(long)]
+        closed: bool,
+        /// Filter by network (e.g., tempo, tempo-moderato)
+        #[arg(long)]
+        network: Option<String>,
     },
-    /// Recover a session from on-chain state
-    Recover {
-        /// URL to recover session for
-        url: String,
+    /// Close a payment session and remove it locally
+    Close {
+        /// URL, origin, or channel ID (0x...) to close
+        url: Option<String>,
+        /// Close all active sessions and on-chain channels
+        #[arg(long)]
+        all: bool,
+        /// Close only orphaned on-chain channels (no local session)
+        #[arg(long)]
+        orphaned: bool,
+        /// Finalize channels pending close (grace period elapsed)
+        #[arg(long)]
+        closed: bool,
     },
 }
 
