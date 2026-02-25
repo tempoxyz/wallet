@@ -284,19 +284,7 @@ pub async fn show_whoami(
                 if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
                     println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                 }
-                if let Some(bal) = &key.balance {
-                    println!("{:>10}: {}", "Balance", bal);
-                }
-                if let Some(sl) = &key.spending_limit {
-                    if !sl.unlimited {
-                        if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
-                            let spent = sl.spent.as_deref().unwrap_or("0");
-                            println!("{:>10}: {}", "Limit", limit);
-                            println!("{:>10}: {}", "Spent", spent);
-                            println!("{:>10}: {}", "Remaining", remaining);
-                        }
-                    }
-                }
+                print_key_amounts(key);
             } else {
                 println!("  Status: not ready — run 'presto login'");
             }
@@ -304,6 +292,45 @@ pub async fn show_whoami(
     }
 
     Ok(())
+}
+
+/// Print balance and spending-limit rows for a key with decimal alignment.
+fn print_key_amounts(key: &KeyInfo) {
+    let sym = key.symbol.as_deref().unwrap_or("tokens");
+
+    // Collect all numeric values to determine alignment width
+    let mut amounts: Vec<&str> = Vec::new();
+    if let Some(bal) = &key.balance {
+        amounts.push(bal);
+    }
+    if let Some(sl) = &key.spending_limit {
+        if !sl.unlimited {
+            if let Some(l) = &sl.limit {
+                amounts.push(l);
+            }
+            if let Some(r) = &sl.remaining {
+                amounts.push(r);
+            }
+            if let Some(s) = &sl.spent {
+                amounts.push(s);
+            }
+        }
+    }
+    let w = amounts.iter().map(|a| a.len()).max().unwrap_or(0);
+
+    if let Some(bal) = &key.balance {
+        println!("{:>10}: {:>w$} {}", "Balance", bal, sym);
+    }
+    if let Some(sl) = &key.spending_limit {
+        if !sl.unlimited {
+            if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
+                let spent = sl.spent.as_deref().unwrap_or("0");
+                println!("{:>10}: {:>w$} {}", "Limit", limit, sym);
+                println!("{:>10}: {:>w$} {}", "Spent", spent, sym);
+                println!("{:>10}: {:>w$} {}", "Remaining", remaining, sym);
+            }
+        }
+    }
 }
 
 /// Extract the expiry timestamp from a key entry's authorization, if present.
@@ -494,6 +521,7 @@ async fn query_spending_limit(
 #[derive(Debug, Serialize)]
 pub struct KeysResponse {
     pub keys: Vec<KeyInfo>,
+    pub total: usize,
 }
 
 pub async fn show_keys(
@@ -575,7 +603,8 @@ pub async fn show_keys(
         });
     }
 
-    let response = KeysResponse { keys };
+    let total = keys.len();
+    let response = KeysResponse { keys, total };
 
     match output_format {
         OutputFormat::Json => {
@@ -609,21 +638,10 @@ pub async fn show_keys(
                         println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                     }
                 }
-                if let Some(bal) = &key.balance {
-                    println!("{:>10}: {}", "Balance", bal);
-                }
-                if let Some(sl) = &key.spending_limit {
-                    if !sl.unlimited {
-                        if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
-                            let spent = sl.spent.as_deref().unwrap_or("0");
-                            println!("{:>10}: {}", "Limit", limit);
-                            println!("{:>10}: {}", "Spent", spent);
-                            println!("{:>10}: {}", "Remaining", remaining);
-                        }
-                    }
-                }
+                print_key_amounts(key);
                 println!();
             }
+            println!("{} key(s) total.", response.total);
         }
     }
 

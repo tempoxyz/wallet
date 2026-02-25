@@ -12,6 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::PrestoError;
 
+/// A pending channel close waiting for the grace period to elapse.
+#[allow(dead_code)]
+pub struct PendingClose {
+    pub channel_id: String,
+    pub network: String,
+    pub ready_at: u64,
+}
+
 /// Session TTL: 24 hours.
 pub const SESSION_TTL_SECS: u64 = 24 * 60 * 60;
 
@@ -193,6 +201,20 @@ fn init_schema(conn: &rusqlite::Connection, _dir: &Path) -> Result<()> {
             .context("Failed to update database version")?;
     }
 
+    if version < 2 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS pending_closes (
+                channel_id TEXT PRIMARY KEY,
+                network    TEXT NOT NULL,
+                ready_at   INTEGER NOT NULL
+            );",
+        )
+        .context("Failed to create pending_closes table")?;
+
+        conn.pragma_update(None, "user_version", 2)
+            .context("Failed to update database version to 2")?;
+    }
+
     Ok(())
 }
 
@@ -344,6 +366,107 @@ pub fn delete_session(key: &str) -> Result<()> {
 pub fn list_sessions() -> Result<Vec<SessionRecord>> {
     let conn = open_db()?;
     list_sessions_conn(&conn)
+}
+
+// ---------------------------------------------------------------------------
+// Pending closes – internal helpers
+// ---------------------------------------------------------------------------
+
+fn save_pending_close_conn(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    network: &str,
+    ready_at: u64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO pending_closes (channel_id, network, ready_at)
+         VALUES (?1, ?2, ?3)",
+        params![channel_id, network, ready_at as i64],
+    )
+    .context("Failed to save pending close")?;
+    Ok(())
+}
+
+#[cfg(test)]
+fn list_pending_closes_conn(conn: &rusqlite::Connection) -> Result<Vec<PendingClose>> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT channel_id, network, ready_at
+             FROM pending_closes WHERE ready_at <= ?1",
+        )
+        .context("Failed to prepare list pending closes query")?;
+
+    let rows = stmt
+        .query_map(params![now as i64], |row| {
+            let ready_at_i64 = row.get::<_, i64>(2)?;
+            Ok(PendingClose {
+                channel_id: row.get(0)?,
+                network: row.get(1)?,
+                ready_at: u64::try_from(ready_at_i64).unwrap_or(0),
+            })
+        })
+        .context("Failed to list pending closes")?;
+
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.context("Failed to read pending close row")?);
+    }
+    Ok(records)
+}
+
+fn delete_pending_close_conn(conn: &rusqlite::Connection, channel_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM pending_closes WHERE channel_id = ?1",
+        params![channel_id],
+    )
+    .context("Failed to delete pending close")?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Pending closes – public API
+// ---------------------------------------------------------------------------
+
+/// Save a pending close record.
+pub fn save_pending_close(channel_id: &str, network: &str, ready_at: u64) -> Result<()> {
+    let conn = open_db()?;
+    save_pending_close_conn(&conn, channel_id, network, ready_at)
+}
+
+/// List all pending closes regardless of maturity.
+pub fn list_all_pending_closes() -> Result<Vec<PendingClose>> {
+    let conn = open_db()?;
+    let mut stmt = conn
+        .prepare("SELECT channel_id, network, ready_at FROM pending_closes ORDER BY ready_at")
+        .context("Failed to prepare list all pending closes query")?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let ready_at_i64 = row.get::<_, i64>(2)?;
+            Ok(PendingClose {
+                channel_id: row.get(0)?,
+                network: row.get(1)?,
+                ready_at: u64::try_from(ready_at_i64).unwrap_or(0),
+            })
+        })
+        .context("Failed to list all pending closes")?;
+
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.context("Failed to read pending close row")?);
+    }
+    Ok(records)
+}
+
+/// Delete a pending close record by channel ID.
+pub fn delete_pending_close(channel_id: &str) -> Result<()> {
+    let conn = open_db()?;
+    delete_pending_close_conn(&conn, channel_id)
 }
 
 #[cfg(test)]
@@ -510,5 +633,54 @@ mod tests {
         record.touch();
         assert!(record.last_used_at > 1000);
         assert_eq!(record.expires_at, record.last_used_at + SESSION_TTL_SECS);
+    }
+
+    #[test]
+    fn test_save_and_list_pending_close() {
+        let (_tmp, conn) = test_db();
+        // ready_at in the past so it shows up in list
+        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
+        save_pending_close_conn(&conn, "0xdef", "tempo-moderato", 1001).unwrap();
+
+        let list = list_pending_closes_conn(&conn).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].channel_id, "0xabc");
+        assert_eq!(list[0].network, "tempo");
+        assert_eq!(list[0].ready_at, 1000);
+        assert_eq!(list[1].channel_id, "0xdef");
+        assert_eq!(list[1].network, "tempo-moderato");
+    }
+
+    #[test]
+    fn test_list_pending_closes_filters_by_time() {
+        let (_tmp, conn) = test_db();
+        // One in the past, one far in the future
+        save_pending_close_conn(&conn, "0xpast", "tempo", 1000).unwrap();
+        save_pending_close_conn(&conn, "0xfuture", "tempo", i64::MAX as u64).unwrap();
+
+        let list = list_pending_closes_conn(&conn).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].channel_id, "0xpast");
+    }
+
+    #[test]
+    fn test_delete_pending_close() {
+        let (_tmp, conn) = test_db();
+        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
+        delete_pending_close_conn(&conn, "0xabc").unwrap();
+
+        let list = list_pending_closes_conn(&conn).unwrap();
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn test_save_pending_close_upsert() {
+        let (_tmp, conn) = test_db();
+        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
+        save_pending_close_conn(&conn, "0xabc", "tempo", 2000).unwrap();
+
+        let list = list_pending_closes_conn(&conn).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].ready_at, 2000);
     }
 }

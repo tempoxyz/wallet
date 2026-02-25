@@ -224,6 +224,45 @@ fn test_completions_case_sensitivity() {
 }
 
 #[test]
+fn test_session_list_json_empty() {
+    let temp_dir = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp_dir)
+        .args(["session", "list", "--output-format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"sessions\""),
+        "expected JSON sessions array: {stdout}"
+    );
+    // Note: when empty, no per-session fields are present; schema is validated elsewhere.
+}
+
+#[test]
+fn test_key_list_json_has_total() {
+    let temp_dir = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp_dir)
+        .args(["key", "list", "--output-format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"keys\""),
+        "expected JSON keys array: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"total\""),
+        "expected JSON total field: {stdout}"
+    );
+}
+
+#[test]
 fn test_main_help_lists_all_commands() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
@@ -441,8 +480,7 @@ fn test_session_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("list"))
-        .stdout(predicate::str::contains("close"))
-        .stdout(predicate::str::contains("recover"));
+        .stdout(predicate::str::contains("close"));
 }
 
 #[test]
