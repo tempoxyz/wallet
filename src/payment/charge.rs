@@ -35,16 +35,6 @@ pub async fn prepare_charge(
         .context("Failed to parse charge request from challenge")?;
     let network_enum = network_from_charge_request(&charge_req)?;
 
-    if runtime.log_enabled() {
-        let token_config = network_enum.token_config_by_address(&charge_req.currency);
-        let symbol = token_config.map(|t| t.symbol).unwrap_or("tokens");
-        let decimals = token_config.map(|t| t.decimals).unwrap_or(6);
-        let amount: u128 = charge_req.amount.parse().unwrap_or(0);
-        let amount_display = crate::cli::query::format_token_amount(amount, symbol, decimals);
-        eprintln!("Network: {}", network_enum.as_str());
-        eprintln!("Amount: {}", amount_display);
-    }
-
     challenge
         .validate_for_charge("tempo")
         .map_err(|e| map_mpp_validation_error(e, &challenge))?;
@@ -61,7 +51,7 @@ pub async fn prepare_charge(
         );
     }
 
-    if runtime.log_enabled() {
+    if runtime.debug_enabled() {
         eprintln!("Creating payment credential...");
     }
 
@@ -86,7 +76,7 @@ pub async fn prepare_charge(
     let auth_header =
         mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
 
-    if runtime.log_enabled() {
+    if runtime.debug_enabled() {
         eprintln!("Authorization header length: {} bytes", auth_header.len());
     }
 

@@ -38,9 +38,12 @@ use crate::wallet::signer::load_wallet_signer;
 /// Result of a session request — either streamed (already printed) or a buffered response.
 pub enum SessionResult {
     /// SSE tokens were streamed directly to stdout.
-    Streamed,
+    Streamed { channel_id: String },
     /// A normal (non-SSE) response that should be handled by the regular output path.
-    Response(HttpResponse),
+    Response {
+        response: HttpResponse,
+        channel_id: String,
+    },
 }
 
 /// State for an active session channel.
@@ -368,7 +371,9 @@ async fn send_session_request(
 
     if is_sse {
         stream_sse_response(ctx, state, response).await?;
-        Ok(SessionResult::Streamed)
+        Ok(SessionResult::Streamed {
+            channel_id: format!("{:#x}", state.channel_id),
+        })
     } else {
         let status_code = status.as_u16() as u32;
         let mut headers = std::collections::HashMap::new();
@@ -379,11 +384,14 @@ async fn send_session_request(
         }
         let body = response.bytes().await?.to_vec();
 
-        Ok(SessionResult::Response(HttpResponse {
-            status_code,
-            headers,
-            body,
-        }))
+        Ok(SessionResult::Response {
+            response: HttpResponse {
+                status_code,
+                headers,
+                body,
+            },
+            channel_id: format!("{:#x}", state.channel_id),
+        })
     }
 }
 
@@ -523,7 +531,7 @@ async fn stream_sse_response(
                 if let Some(ref auth) = pending_voucher_auth {
                     voucher_retry_count += 1;
                     if voucher_retry_count > MAX_VOUCHER_RETRIES {
-                        if runtime.log_enabled() {
+                        if runtime.debug_enabled() {
                             eprintln!(
                                 "[stream stall — voucher not accepted after {} retries]",
                                 MAX_VOUCHER_RETRIES
@@ -531,20 +539,20 @@ async fn stream_sse_response(
                         }
                         break;
                     }
-                    if runtime.log_enabled() {
+                    if runtime.debug_enabled() {
                         eprintln!(
                             "[re-posting voucher (retry {}/{})]",
                             voucher_retry_count, MAX_VOUCHER_RETRIES
                         );
                     }
-                    let verbose = runtime.log_enabled();
+                    let verbose = runtime.debug_enabled();
                     post_voucher(&voucher_client, ctx.url, auth, verbose);
                     // Backoff the stall timeout for the next retry, up to the normal timeout
                     current_stall_timeout =
                         std::cmp::min(current_stall_timeout.saturating_mul(2), normal_timeout);
                     continue;
                 }
-                if runtime.log_enabled() {
+                if runtime.debug_enabled() {
                     eprintln!(
                         "[stream timeout — no data for {}s]",
                         normal_timeout.as_secs()
@@ -603,7 +611,7 @@ async fn stream_sse_response(
                         // instead of a network round-trip per token.
                         let voucher_amount = if deposit > 0 { deposit } else { required };
 
-                        if runtime.log_enabled() {
+                        if runtime.debug_enabled() {
                             eprintln!(
                                 "[voucher top-up: required={} authorizing={}]",
                                 required, voucher_amount
@@ -620,7 +628,7 @@ async fn stream_sse_response(
                         let auth = mpp::format_authorization(&voucher)
                             .context("Failed to format voucher")?;
 
-                        let verbose = runtime.log_enabled();
+                        let verbose = runtime.debug_enabled();
                         post_voucher(&voucher_client, ctx.url, &auth, verbose);
 
                         // Track this voucher for retry if the server stalls
@@ -851,7 +859,6 @@ pub async fn handle_session_request(
             token_config.symbol,
             token_config.decimals,
         );
-        eprintln!("Network: {}", network_name);
         eprintln!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),
@@ -901,11 +908,14 @@ pub async fn handle_session_request(
             println!("Suggested deposit: {}", deposit_display);
         }
 
-        return Ok(SessionResult::Response(crate::http::HttpResponse {
-            status_code: 200,
-            headers: std::collections::HashMap::new(),
-            body: Vec::new(),
-        }));
+        return Ok(SessionResult::Response {
+            response: crate::http::HttpResponse {
+                status_code: 200,
+                headers: std::collections::HashMap::new(),
+                body: Vec::new(),
+            },
+            channel_id: String::new(),
+        });
     }
 
     // Load signer and resolve signing mode (direct or keychain)

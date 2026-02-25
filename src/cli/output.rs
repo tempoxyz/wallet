@@ -20,13 +20,19 @@ pub struct OutputOptions {
     pub output_format: OutputFormat,
     pub include_headers: bool,
     pub output_file: Option<String>,
-    pub verbose: bool,
+    pub verbosity: u8,
     pub show_output: bool,
 }
 
 impl OutputOptions {
+    /// Whether agent-level log messages should be printed (`-v`).
     pub fn log_enabled(&self) -> bool {
-        self.verbose && self.show_output
+        self.verbosity >= 1 && self.show_output
+    }
+
+    /// Whether payment summaries should be printed (always, unless `--quiet`).
+    pub fn payment_log_enabled(&self) -> bool {
+        self.show_output
     }
 }
 

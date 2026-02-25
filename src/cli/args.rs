@@ -68,9 +68,9 @@ pub struct Cli {
     #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
     pub network: Option<String>,
 
-    /// Verbosity level (can be used multiple times: -v, -vv, -vvv)
-    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, global = true, help_heading = "Display Options")]
-    pub verbosity: u8,
+    /// Logging verbosity (-v info, -vv debug, -vvv trace; -q silences all logs and overrides RUST_LOG)
+    #[command(flatten)]
+    pub verbose: clap_verbosity_flag::Verbosity<clap_verbosity_flag::WarnLevel>,
 
     /// Control color output
     #[arg(
@@ -81,15 +81,6 @@ pub struct Cli {
         hide = true
     )]
     pub color: ColorMode,
-
-    /// Do not print log messages
-    #[arg(
-        short = 'q',
-        long = "quiet",
-        global = true,
-        help_heading = "Display Options"
-    )]
-    pub quiet: bool,
 
     /// Output format
     #[arg(
@@ -321,12 +312,28 @@ impl QueryArgs {
 }
 
 impl Cli {
-    pub fn is_verbose(&self) -> bool {
-        self.verbosity >= 1
+    /// Verbosity count (0 = default/warn, 1 = info/-v, 2 = debug/-vv, etc.)
+    /// Returns 0 when quiet.
+    pub fn verbosity(&self) -> u8 {
+        use clap_verbosity_flag::VerbosityFilter;
+        match self.verbose.filter() {
+            VerbosityFilter::Off | VerbosityFilter::Error | VerbosityFilter::Warn => 0,
+            VerbosityFilter::Info => 1,
+            VerbosityFilter::Debug => 2,
+            VerbosityFilter::Trace => 3,
+        }
     }
 
+    /// Whether output should be shown (false when `-q` is used).
+    ///
+    /// Note: with `WarnLevel`, `-q` maps to `Error` (not `Off`). Treat both
+    /// `Off` and `Error` as silent for CLI user-facing logs.
     pub fn should_show_output(&self) -> bool {
-        !self.quiet
+        use clap_verbosity_flag::VerbosityFilter;
+        !matches!(
+            self.verbose.filter(),
+            VerbosityFilter::Off | VerbosityFilter::Error
+        )
     }
 
     /// Resolve the effective output format: CLI flag > config > default (text).
