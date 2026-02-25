@@ -53,11 +53,13 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     let output_opts = build_output_options(&cli, &query, &config);
     let method_str = request_ctx.plan.method.to_string();
 
+    let sanitized_url = analytics::sanitize_url(&url);
+
     if let Some(ref a) = analytics {
         a.track(
             analytics::Event::QueryStarted,
             analytics::QueryStartedPayload {
-                url: url.clone(),
+                url: sanitized_url.clone(),
                 method: method_str.clone(),
             },
         );
@@ -74,9 +76,9 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 a.track(
                     analytics::Event::QueryFailure,
                     analytics::QueryFailurePayload {
-                        url: url.clone(),
+                        url: sanitized_url,
                         method: method_str,
-                        error: e.to_string(),
+                        error: analytics::sanitize_error(&e.to_string()),
                     },
                 );
             }
@@ -89,7 +91,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
             a.track(
                 analytics::Event::QuerySuccess,
                 analytics::QuerySuccessPayload {
-                    url: url.clone(),
+                    url: sanitized_url,
                     method: method_str,
                     status_code: response.status_code,
                 },
@@ -174,7 +176,13 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     match result {
         Ok(result) => {
             mark_network_provisioned(&challenge_ctx.network);
-            pay_analytics.track_success(result.tx_hash, &url, &method_str, result.status_code);
+            pay_analytics.track_success(
+                result.tx_hash,
+                result.session_id.clone(),
+                &url,
+                &method_str,
+                result.status_code,
+            );
             if let Some(resp) = result.response {
                 finalize_response(&output_opts, resp)?;
             }
@@ -190,6 +198,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 /// Result of a successful payment dispatch.
 struct PaymentResult {
     tx_hash: String,
+    session_id: Option<String>,
     status_code: u32,
     response: Option<HttpResponse>,
 }
@@ -206,13 +215,18 @@ async fn dispatch_payment(
     if challenge_ctx.is_session {
         let result = handle_session_request(config, request_ctx, url, response).await?;
         match result {
-            SessionResult::Streamed => Ok(PaymentResult {
+            SessionResult::Streamed { channel_id } => Ok(PaymentResult {
                 tx_hash: String::new(),
+                session_id: Some(channel_id),
                 status_code: 200,
                 response: None,
             }),
-            SessionResult::Response(resp) => Ok(PaymentResult {
+            SessionResult::Response {
+                response: resp,
+                channel_id,
+            } => Ok(PaymentResult {
                 tx_hash: String::new(),
+                session_id: Some(channel_id),
                 status_code: resp.status_code,
                 response: Some(resp),
             }),
@@ -224,6 +238,7 @@ async fn dispatch_payment(
             eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
             return Ok(PaymentResult {
                 tx_hash: String::new(),
+                session_id: None,
                 status_code: 200,
                 response: None,
             });
@@ -258,13 +273,18 @@ async fn dispatch_payment(
             decimals,
         );
 
+        // Extract a raw transaction reference (hex hash) for analytics if present
         let tx_hash = resp
             .get_header("payment-receipt")
-            .cloned()
+            .and_then(|h| {
+                mpp::protocol::core::extract_tx_hash(h)
+                    .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
+            })
             .unwrap_or_default();
         let status_code = resp.status_code;
         Ok(PaymentResult {
             tx_hash,
+            session_id: None,
             status_code,
             response: Some(resp),
         })
@@ -417,7 +437,14 @@ impl PaymentAnalytics {
         }
     }
 
-    fn track_success(&self, tx_hash: String, url: &str, method: &str, status_code: u32) {
+    fn track_success(
+        &self,
+        tx_hash: String,
+        session_id: Option<String>,
+        url: &str,
+        method: &str,
+        status_code: u32,
+    ) {
         if let Some(ref a) = self.analytics {
             a.track(
                 analytics::Event::PaymentSuccess,
@@ -426,12 +453,13 @@ impl PaymentAnalytics {
                     amount: self.amount.clone(),
                     currency: self.currency.clone(),
                     tx_hash,
+                    session_id,
                 },
             );
             a.track(
                 analytics::Event::QuerySuccess,
                 analytics::QuerySuccessPayload {
-                    url: url.to_string(),
+                    url: analytics::sanitize_url(url),
                     method: method.to_string(),
                     status_code,
                 },
@@ -447,7 +475,7 @@ impl PaymentAnalytics {
                     network: self.network.clone(),
                     amount: self.amount.clone(),
                     currency: self.currency.clone(),
-                    error: err.to_string(),
+                    error: analytics::sanitize_error(&err.to_string()),
                 },
             );
         }
@@ -522,39 +550,54 @@ fn display_receipt(
     symbol: &str,
     decimals: u8,
 ) {
-    let Some(receipt_header) = response.get_header("payment-receipt") else {
+    // Always show payment summary when money moved (unless --quiet)
+    if !output_opts.payment_log_enabled() {
         return;
-    };
-    let Ok(receipt) = mpp::parse_receipt(receipt_header) else {
-        return;
-    };
+    }
 
-    let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
-
+    // Format amount regardless of whether a receipt header is present
     let amount_display = amount
         .parse::<u128>()
         .ok()
         .map(|a| format_token_amount(a, symbol, decimals))
         .unwrap_or_else(|| format!("{} {}", amount, symbol));
 
-    let link = if let Some(exp) = explorer {
-        let url = exp.tx_url(&tx_ref);
-        hyperlink(&tx_ref, &url)
-    } else {
-        tx_ref
-    };
+    // Try to extract a transaction reference/link if the server provided a receipt header
+    let mut link: Option<String> = None;
+    let mut parsed_receipt: Option<mpp::Receipt> = None;
+    if let Some(receipt_header) = response.get_header("payment-receipt") {
+        // Prefer explicit tx hash; fall back to parsed reference
+        let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header).or_else(|| {
+            mpp::parse_receipt(receipt_header).ok().map(|r| {
+                parsed_receipt = Some(r.clone());
+                r.reference
+            })
+        });
 
-    // Always show payment summary when money moved (unless --quiet)
-    if !output_opts.payment_log_enabled() {
-        return;
+        if let Some(tx) = tx_ref {
+            let tx_link = if let Some(exp) = explorer {
+                let url = exp.tx_url(&tx);
+                hyperlink(&tx, &url)
+            } else {
+                tx
+            };
+            link = Some(tx_link);
+        }
     }
-    eprintln!("Paid {amount_display} · {link}");
 
-    // Extended receipt details at -v
+    if let Some(l) = link {
+        eprintln!("Paid {amount_display} · {l}");
+    } else {
+        eprintln!("Paid {amount_display}");
+    }
+
+    // Extended receipt details at -v (only if we successfully parsed the receipt)
     if output_opts.log_enabled() {
-        eprintln!("  Status: {}", receipt.status);
-        eprintln!("  Method: {}", receipt.method);
-        eprintln!("  Timestamp: {}", receipt.timestamp);
+        if let Some(receipt) = parsed_receipt {
+            eprintln!("  Status: {}", receipt.status);
+            eprintln!("  Method: {}", receipt.method);
+            eprintln!("  Timestamp: {}", receipt.timestamp);
+        }
     }
 }
 

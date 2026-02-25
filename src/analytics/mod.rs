@@ -9,12 +9,14 @@ use serde_json::{json, Value};
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
-fn is_telemetry_disabled() -> bool {
+use crate::config::Config;
+
+fn is_telemetry_disabled(config: Option<&Config>) -> bool {
     if std::env::var("PRESTO_NO_TELEMETRY").is_ok() {
         return true;
     }
-    // Also honor config flag if present
-    if let Ok(cfg) = crate::config::load_config_with_overrides(None) {
+    // Honor the config that was already loaded by the caller (respects --config)
+    if let Some(cfg) = config {
         return !cfg.telemetry.enabled;
     }
     false
@@ -32,6 +34,7 @@ fn get_wallet_address() -> Option<String> {
     }
 }
 
+/// Generate a stable anonymous ID unique to the OS user on this machine.
 fn anonymous_id() -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -39,6 +42,10 @@ fn anonymous_id() -> String {
     let mut hasher = DefaultHasher::new();
     if let Ok(name) = hostname::get() {
         name.hash(&mut hasher);
+    }
+    // Include the OS username so different users on the same host get distinct IDs
+    if let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
+        user.hash(&mut hasher);
     }
     format!("anon-{:016x}", hasher.finish())
 }
@@ -52,8 +59,8 @@ pub struct Analytics {
 }
 
 impl Analytics {
-    pub async fn new(network: Option<&str>) -> Option<Self> {
-        if is_telemetry_disabled() {
+    pub async fn new(network: Option<&str>, config: Option<&Config>) -> Option<Self> {
+        if is_telemetry_disabled(config) {
             return None;
         }
 
@@ -80,6 +87,9 @@ impl Analytics {
                 map.entry("network".to_string()).or_insert(json!(net));
             }
         }
+
+        // Test hook: if PRESTO_TEST_EVENTS is set, append events to the file for assertions
+        test_tap_event(&event_name, &props);
 
         let handle = tokio::spawn(async move {
             posthog::capture(&client, &distinct_id, &event_name, props).await;
@@ -126,8 +136,23 @@ impl Analytics {
             std::mem::take(&mut *pending)
         };
 
-        for handle in handles {
-            let _ = timeout(Duration::from_secs(1), handle).await;
+        let _ = timeout(Duration::from_secs(2), futures::future::join_all(handles)).await;
+    }
+}
+
+fn test_tap_event(name: &str, props: &Value) {
+    if let Ok(path) = std::env::var("PRESTO_TEST_EVENTS") {
+        if path.is_empty() {
+            return;
+        }
+        let line = format!("{}|{}\n", name, props);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            use std::io::Write;
+            let _ = f.write_all(line.as_bytes());
         }
     }
 }

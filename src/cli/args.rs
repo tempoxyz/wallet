@@ -68,7 +68,7 @@ pub struct Cli {
     #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
     pub network: Option<String>,
 
-    /// Logging verbosity (-v info, -vv debug, -vvv trace; -q to silence)
+    /// Logging verbosity (-v info, -vv debug, -vvv trace; -q silences all logs and overrides RUST_LOG)
     #[command(flatten)]
     pub verbose: clap_verbosity_flag::Verbosity<clap_verbosity_flag::WarnLevel>,
 
@@ -325,8 +325,15 @@ impl Cli {
     }
 
     /// Whether output should be shown (false when `-q` is used).
+    ///
+    /// Note: with `WarnLevel`, `-q` maps to `Error` (not `Off`). Treat both
+    /// `Off` and `Error` as silent for CLI user-facing logs.
     pub fn should_show_output(&self) -> bool {
-        !self.verbose.is_silent()
+        use clap_verbosity_flag::VerbosityFilter;
+        !matches!(
+            self.verbose.filter(),
+            VerbosityFilter::Off | VerbosityFilter::Error
+        )
     }
 
     /// Resolve the effective output format: CLI flag > config > default (text).

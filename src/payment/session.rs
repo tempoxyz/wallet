@@ -38,9 +38,12 @@ use crate::wallet::signer::load_wallet_signer;
 /// Result of a session request — either streamed (already printed) or a buffered response.
 pub enum SessionResult {
     /// SSE tokens were streamed directly to stdout.
-    Streamed,
+    Streamed { channel_id: String },
     /// A normal (non-SSE) response that should be handled by the regular output path.
-    Response(HttpResponse),
+    Response {
+        response: HttpResponse,
+        channel_id: String,
+    },
 }
 
 /// State for an active session channel.
@@ -368,7 +371,9 @@ async fn send_session_request(
 
     if is_sse {
         stream_sse_response(ctx, state, response).await?;
-        Ok(SessionResult::Streamed)
+        Ok(SessionResult::Streamed {
+            channel_id: format!("{:#x}", state.channel_id),
+        })
     } else {
         let status_code = status.as_u16() as u32;
         let mut headers = std::collections::HashMap::new();
@@ -379,11 +384,14 @@ async fn send_session_request(
         }
         let body = response.bytes().await?.to_vec();
 
-        Ok(SessionResult::Response(HttpResponse {
-            status_code,
-            headers,
-            body,
-        }))
+        Ok(SessionResult::Response {
+            response: HttpResponse {
+                status_code,
+                headers,
+                body,
+            },
+            channel_id: format!("{:#x}", state.channel_id),
+        })
     }
 }
 
@@ -900,11 +908,14 @@ pub async fn handle_session_request(
             println!("Suggested deposit: {}", deposit_display);
         }
 
-        return Ok(SessionResult::Response(crate::http::HttpResponse {
-            status_code: 200,
-            headers: std::collections::HashMap::new(),
-            body: Vec::new(),
-        }));
+        return Ok(SessionResult::Response {
+            response: crate::http::HttpResponse {
+                status_code: 200,
+                headers: std::collections::HashMap::new(),
+                body: Vec::new(),
+            },
+            channel_id: String::new(),
+        });
     }
 
     // Load signer and resolve signing mode (direct or keychain)

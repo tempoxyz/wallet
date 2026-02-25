@@ -516,11 +516,15 @@ pub async fn show_keys(
         .collect();
     let mut balance_cache: std::collections::HashMap<String, Vec<TokenBalance>> =
         std::collections::HashMap::new();
-    for addr in &unique_wallets {
-        balance_cache.insert(
+    use futures::future::join_all;
+    let tasks = unique_wallets.iter().map(|addr| async move {
+        (
             addr.clone(),
             query_all_balances(config, network, addr).await,
-        );
+        )
+    });
+    for (addr, balances) in join_all(tasks).await {
+        balance_cache.insert(addr, balances);
     }
 
     let mut keys = Vec::new();

@@ -79,7 +79,7 @@ presto -n tempo https://api.example.com/data
 ```bash
 presto -v <URL>          # Payment flow narration (intent, network, amount, completion)
 presto -vv <URL>         # Debug internals (voucher retries, auth header size)
-presto -q <URL>          # Quiet — suppress all stderr logs
+presto -q <URL>          # Quiet — suppress all stderr logs (overrides RUST_LOG)
 presto --color never <URL>          # Disable colors
 presto --output-format json <URL>   # JSON output format
 ```

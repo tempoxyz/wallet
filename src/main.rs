@@ -153,7 +153,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         validate_network_flag(network)?;
     }
 
-    let analytics = Analytics::new(cli.network.as_deref()).await;
+    let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+    let analytics = Analytics::new(cli.network.as_deref(), Some(&config)).await;
 
     if let Some(ref a) = analytics {
         a.identify();
@@ -229,7 +230,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                                 analytics::Event::LoginFailure,
                                 analytics::LoginFailurePayload {
                                     network: net,
-                                    error: err_str,
+                                    error: analytics::sanitize_error(&err_str),
                                 },
                             );
                         }
@@ -406,12 +407,19 @@ fn generate_completions(shell: Shell) -> Result<()> {
 }
 
 fn init_tracing(verbose: &clap_verbosity_flag::Verbosity<clap_verbosity_flag::WarnLevel>) {
+    use clap_verbosity_flag::VerbosityFilter;
     use tracing_subscriber::EnvFilter;
 
-    let filter = if let Ok(env) = std::env::var("RUST_LOG") {
-        EnvFilter::new(env)
-    } else {
-        EnvFilter::new(verbose.tracing_level_filter().to_string())
+    // Quiet mode (-q) is absolute: override any RUST_LOG with "off"
+    let filter = match verbose.filter() {
+        VerbosityFilter::Off | VerbosityFilter::Error => EnvFilter::new("off"),
+        _ => {
+            if let Ok(env) = std::env::var("RUST_LOG") {
+                EnvFilter::new(env)
+            } else {
+                EnvFilter::new(verbose.tracing_level_filter().to_string())
+            }
+        }
     };
 
     tracing_subscriber::fmt()
