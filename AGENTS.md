@@ -14,7 +14,7 @@ Single binary crate with source organized by module directories:
 - `src/cli/` - CLI argument parsing and all command implementations
   - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
   - `query.rs` - Query command (request → 402 → payment → response)
-  - `auth.rs` - Login, logout, whoami commands
+  - `auth.rs` - Login, logout, whoami, key list commands
   - `wallet.rs` - Wallet management (create/import/delete)
   - `session.rs` - Session list/close/recover commands
   - `output.rs` - Response display, `OutputOptions`
@@ -40,7 +40,9 @@ make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
 make check              # Run fmt check, clippy, tests, and build (linting handled in CI)
 make fix                # Auto-fix formatting and clippy warnings
-make install            # Install CLI to ~/.cargo/bin
+make install            # Install CLI to /usr/local/bin
+make uninstall          # Uninstall CLI
+make reinstall          # Rebuild and reinstall CLI
 make run ARGS="<url>"   # Run CLI with arguments
 ```
 
@@ -146,8 +148,8 @@ fn test_something() {
 ```rust
 #[derive(Parser, Debug)]
 pub struct Cli {
-    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
-    pub verbosity: u8,
+    #[command(flatten)]
+    pub verbose: clap_verbosity_flag::Verbosity<clap_verbosity_flag::WarnLevel>,
 }
 ```
 
@@ -175,6 +177,7 @@ pub struct Cli {
 | `serde` / `serde_json` / `toml` | Serialization |
 | `tokio` | Async runtime (minimal features) |
 | `mpp` | [Machine Payments Protocol](https://mpp.sh) SDK |
+| `clap-verbosity-flag` | CLI verbosity levels |
 
 ### Adding Dependencies
 
@@ -223,6 +226,8 @@ struct Config {
 - `access_key` — Access key private key stored inline; file is written with mode 0600
 - `key_authorization` — On-chain authorization proof
 - `provisioned_chain_ids` — Chains this key is provisioned on
+
+**Key Selection:** Deterministic: passkey > first key with `access_key` > first key (lexicographically). The old `active` field was removed.
 
 **Network Resolution Priority:**
 1. `PRESTO_RPC_URL` env var (overrides everything)

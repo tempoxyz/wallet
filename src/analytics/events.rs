@@ -2,6 +2,31 @@
 
 use serde::Serialize;
 
+/// Strip query parameters and fragments from a URL before sending to analytics.
+///
+/// Query strings often contain secrets (`?api_key=...`, `?token=...`), so we
+/// only keep the scheme + host + path.
+pub fn sanitize_url(raw: &str) -> String {
+    match url::Url::parse(raw) {
+        Ok(mut parsed) => {
+            parsed.set_query(None);
+            parsed.set_fragment(None);
+            parsed.to_string()
+        }
+        Err(_) => raw.to_string(),
+    }
+}
+
+/// Truncate an error message to avoid leaking sensitive server responses.
+pub fn sanitize_error(err: &str) -> String {
+    const MAX_LEN: usize = 200;
+    if err.len() <= MAX_LEN {
+        err.to_string()
+    } else {
+        format!("{}…", &err[..MAX_LEN])
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     LoginStarted,
@@ -109,6 +134,8 @@ pub struct PaymentSuccessPayload {
     pub amount: String,
     pub currency: String,
     pub tx_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 impl EventPayload for PaymentSuccessPayload {}
 

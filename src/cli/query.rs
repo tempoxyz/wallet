@@ -53,11 +53,13 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     let output_opts = build_output_options(&cli, &query, &config);
     let method_str = request_ctx.plan.method.to_string();
 
+    let sanitized_url = analytics::sanitize_url(&url);
+
     if let Some(ref a) = analytics {
         a.track(
             analytics::Event::QueryStarted,
             analytics::QueryStartedPayload {
-                url: url.clone(),
+                url: sanitized_url.clone(),
                 method: method_str.clone(),
             },
         );
@@ -74,9 +76,9 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 a.track(
                     analytics::Event::QueryFailure,
                     analytics::QueryFailurePayload {
-                        url: url.clone(),
+                        url: sanitized_url,
                         method: method_str,
-                        error: e.to_string(),
+                        error: analytics::sanitize_error(&e.to_string()),
                     },
                 );
             }
@@ -89,7 +91,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
             a.track(
                 analytics::Event::QuerySuccess,
                 analytics::QuerySuccessPayload {
-                    url: url.clone(),
+                    url: sanitized_url,
                     method: method_str,
                     status_code: response.status_code,
                 },
@@ -99,11 +101,29 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         return Ok(());
     }
 
-    if request_ctx.log_enabled() {
-        eprintln!("402 status: payment required");
-    }
-
     let challenge_ctx = parse_payment_challenge(&response)?;
+
+    if request_ctx.log_enabled() {
+        let intent = if challenge_ctx.is_session {
+            "session"
+        } else {
+            "charge"
+        };
+        let network_enum: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
+        let token = network_enum.and_then(|n| n.token_config_by_address(&challenge_ctx.currency));
+        let symbol = token.map(|t| t.symbol).unwrap_or("tokens");
+        let decimals = token.map(|t| t.decimals).unwrap_or(6);
+        let amount_display = challenge_ctx
+            .amount
+            .parse::<u128>()
+            .ok()
+            .map(|a| format_token_amount(a, symbol, decimals))
+            .unwrap_or_else(|| challenge_ctx.amount.clone());
+        eprintln!(
+            "Payment required: intent={intent} network={} amount={amount_display}",
+            challenge_ctx.network
+        );
+    }
 
     // Skip wallet login for dry-run or when a private key is provided directly
     if !request_ctx.runtime.dry_run && !crate::wallet::credentials::has_credentials_override() {
@@ -156,7 +176,13 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     match result {
         Ok(result) => {
             mark_network_provisioned(&challenge_ctx.network);
-            pay_analytics.track_success(result.tx_hash, &url, &method_str, result.status_code);
+            pay_analytics.track_success(
+                result.tx_hash,
+                result.session_id.clone(),
+                &url,
+                &method_str,
+                result.status_code,
+            );
             if let Some(resp) = result.response {
                 finalize_response(&output_opts, resp)?;
             }
@@ -172,6 +198,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 /// Result of a successful payment dispatch.
 struct PaymentResult {
     tx_hash: String,
+    session_id: Option<String>,
     status_code: u32,
     response: Option<HttpResponse>,
 }
@@ -188,13 +215,18 @@ async fn dispatch_payment(
     if challenge_ctx.is_session {
         let result = handle_session_request(config, request_ctx, url, response).await?;
         match result {
-            SessionResult::Streamed => Ok(PaymentResult {
+            SessionResult::Streamed { channel_id } => Ok(PaymentResult {
                 tx_hash: String::new(),
+                session_id: Some(channel_id),
                 status_code: 200,
                 response: None,
             }),
-            SessionResult::Response(resp) => Ok(PaymentResult {
+            SessionResult::Response {
+                response: resp,
+                channel_id,
+            } => Ok(PaymentResult {
                 tx_hash: String::new(),
+                session_id: Some(channel_id),
                 status_code: resp.status_code,
                 response: Some(resp),
             }),
@@ -206,13 +238,14 @@ async fn dispatch_payment(
             eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
             return Ok(PaymentResult {
                 tx_hash: String::new(),
+                session_id: None,
                 status_code: 200,
                 response: None,
             });
         }
 
         if request_ctx.log_enabled() {
-            eprintln!("Submitting payment to server...");
+            eprintln!("Submitting payment...");
         }
 
         let headers = vec![("Authorization".to_string(), auth_header)];
@@ -220,6 +253,10 @@ async fn dispatch_payment(
 
         if resp.status_code >= 400 {
             return Err(parse_payment_rejection(&resp).into());
+        }
+
+        if request_ctx.log_enabled() {
+            eprintln!("Payment accepted: HTTP {}", resp.status_code);
         }
 
         let network: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
@@ -236,13 +273,18 @@ async fn dispatch_payment(
             decimals,
         );
 
+        // Extract a raw transaction reference (hex hash) for analytics if present
         let tx_hash = resp
             .get_header("payment-receipt")
-            .cloned()
+            .and_then(|h| {
+                mpp::protocol::core::extract_tx_hash(h)
+                    .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
+            })
             .unwrap_or_default();
         let status_code = resp.status_code;
         Ok(PaymentResult {
             tx_hash,
+            session_id: None,
             status_code,
             response: Some(resp),
         })
@@ -395,7 +437,14 @@ impl PaymentAnalytics {
         }
     }
 
-    fn track_success(&self, tx_hash: String, url: &str, method: &str, status_code: u32) {
+    fn track_success(
+        &self,
+        tx_hash: String,
+        session_id: Option<String>,
+        url: &str,
+        method: &str,
+        status_code: u32,
+    ) {
         if let Some(ref a) = self.analytics {
             a.track(
                 analytics::Event::PaymentSuccess,
@@ -404,12 +453,13 @@ impl PaymentAnalytics {
                     amount: self.amount.clone(),
                     currency: self.currency.clone(),
                     tx_hash,
+                    session_id,
                 },
             );
             a.track(
                 analytics::Event::QuerySuccess,
                 analytics::QuerySuccessPayload {
-                    url: url.to_string(),
+                    url: analytics::sanitize_url(url),
                     method: method.to_string(),
                     status_code,
                 },
@@ -425,7 +475,7 @@ impl PaymentAnalytics {
                     network: self.network.clone(),
                     amount: self.amount.clone(),
                     currency: self.currency.clone(),
-                    error: err.to_string(),
+                    error: analytics::sanitize_error(&err.to_string()),
                 },
             );
         }
@@ -500,34 +550,55 @@ fn display_receipt(
     symbol: &str,
     decimals: u8,
 ) {
-    let Some(receipt_header) = response.get_header("payment-receipt") else {
-        return;
-    };
-    let Ok(receipt) = mpp::parse_receipt(receipt_header) else {
-        return;
-    };
-    if !output_opts.verbose {
+    // Always show payment summary when money moved (unless --quiet)
+    if !output_opts.payment_log_enabled() {
         return;
     }
 
-    let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
-
+    // Format amount regardless of whether a receipt header is present
     let amount_display = amount
         .parse::<u128>()
         .ok()
         .map(|a| format_token_amount(a, symbol, decimals))
         .unwrap_or_else(|| format!("{} {}", amount, symbol));
 
-    let link = if let Some(exp) = explorer {
-        let url = exp.tx_url(&tx_ref);
-        hyperlink(&tx_ref, &url)
+    // Try to extract a transaction reference/link if the server provided a receipt header
+    let mut link: Option<String> = None;
+    let mut parsed_receipt: Option<mpp::Receipt> = None;
+    if let Some(receipt_header) = response.get_header("payment-receipt") {
+        // Prefer explicit tx hash; fall back to parsed reference
+        let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header).or_else(|| {
+            mpp::parse_receipt(receipt_header).ok().map(|r| {
+                parsed_receipt = Some(r.clone());
+                r.reference
+            })
+        });
+
+        if let Some(tx) = tx_ref {
+            let tx_link = if let Some(exp) = explorer {
+                let url = exp.tx_url(&tx);
+                hyperlink(&tx, &url)
+            } else {
+                tx
+            };
+            link = Some(tx_link);
+        }
+    }
+
+    if let Some(l) = link {
+        eprintln!("Paid {amount_display} · {l}");
     } else {
-        tx_ref
-    };
-    eprintln!("Paid {amount_display} · {link}");
-    eprintln!("  Status: {}", receipt.status);
-    eprintln!("  Method: {}", receipt.method);
-    eprintln!("  Timestamp: {}", receipt.timestamp);
+        eprintln!("Paid {amount_display}");
+    }
+
+    // Extended receipt details at -v (only if we successfully parsed the receipt)
+    if output_opts.log_enabled() {
+        if let Some(receipt) = parsed_receipt {
+            eprintln!("  Status: {}", receipt.status);
+            eprintln!("  Method: {}", receipt.method);
+            eprintln!("  Timestamp: {}", receipt.timestamp);
+        }
+    }
 }
 
 // ==================== CLI → Domain Conversion ====================
@@ -542,7 +613,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     }
 
     let runtime = RequestRuntime {
-        verbose: cli.is_verbose(),
+        verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
         network: cli.network.clone(),
         dry_run: query.dry_run,
@@ -563,7 +634,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         timeout_secs: query.get_timeout(),
         follow_redirects: !query.no_redirect,
         user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
-        verbose_connection: runtime.verbose,
+        verbose_connection: runtime.debug_enabled(),
     };
 
     Ok(RequestContext::new(runtime, plan))
@@ -575,7 +646,7 @@ fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> Output
         output_format: cli.resolve_output_format(config),
         include_headers: query.include_headers,
         output_file: query.output.clone(),
-        verbose: cli.is_verbose(),
+        verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
     }
 }

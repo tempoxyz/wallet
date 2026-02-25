@@ -33,13 +33,7 @@ Requires [Rust](https://rustup.rs/).
 ```bash
 git clone https://github.com/tempoxyz/presto.git
 cd presto
-cargo install --path .
-```
-
-Make sure `~/.cargo/bin` is on your `PATH`:
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
+make install
 ```
 
 ## Usage
@@ -83,9 +77,9 @@ Just pass a URL directly to  tempo-wallet— it works like `curl`:
 ### Output Control
 
 ```bash
- tempo-wallet-v <URL>          # Verbose output
- tempo-wallet-vv <URL>         # Debug output
- tempo-wallet-q <URL>          # Quiet — suppress logs
+ tempo-wallet-v <URL>          # Payment flow narration (intent, network, amount, completion)
+ tempo-wallet-vv <URL>         # Debug internals (voucher retries, auth header size)
+ tempo-wallet-q <URL>          # Quiet — suppress all stderr logs (overrides RUST_LOG)
  tempo-wallet--color never <URL>          # Disable colors
  tempo-wallet--output-format json <URL>   # JSON output format
 ```
@@ -103,6 +97,8 @@ Just pass a URL directly to  tempo-wallet— it works like `curl`:
 | `session list` | List active payment sessions |
 | `session close` | Close a payment session |
 | `session recover` | Recover a session from on-chain state |
+| `key` or `key list` | List all access keys and their spending limits |
+| `key create` | Create a new access key for a local wallet |
 
 Run ` tempo-wallet<command> --help` for detailed usage on any command.
 

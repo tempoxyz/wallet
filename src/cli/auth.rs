@@ -120,7 +120,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
 // Whoami / Status
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TokenBalance {
     pub symbol: String,
     pub currency: String,
@@ -504,6 +504,29 @@ pub async fn show_keys(
     let creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
 
+    // Pre-fetch balances for each unique wallet address to avoid redundant RPC calls.
+    let unique_wallets: Vec<String> = creds
+        .keys
+        .values()
+        .map(|e| &e.wallet_address)
+        .filter(|a| !a.is_empty())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .cloned()
+        .collect();
+    let mut balance_cache: std::collections::HashMap<String, Vec<TokenBalance>> =
+        std::collections::HashMap::new();
+    use futures::future::join_all;
+    let tasks = unique_wallets.iter().map(|addr| async move {
+        (
+            addr.clone(),
+            query_all_balances(config, network, addr).await,
+        )
+    });
+    for (addr, balances) in join_all(tasks).await {
+        balance_cache.insert(addr, balances);
+    }
+
     let mut keys = Vec::new();
 
     for (name, entry) in &creds.keys {
@@ -526,7 +549,10 @@ pub async fn show_keys(
         let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
             (None, None)
         } else {
-            let all = query_all_balances(config, network, &entry.wallet_address).await;
+            let all = balance_cache
+                .get(&entry.wallet_address)
+                .cloned()
+                .unwrap_or_default();
             let bal = currency
                 .as_ref()
                 .and_then(|cur| all.into_iter().find(|tb| tb.currency == *cur))

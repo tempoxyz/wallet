@@ -160,7 +160,7 @@ fn test_logout_help() {
 #[test]
 fn test_multiple_global_flags_together() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["completions", "-v", "-q", "--color", "never"])
+        .args(["completions", "-v", "--color", "never"])
         .assert()
         .success();
 }

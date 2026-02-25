@@ -11,7 +11,7 @@
 #   4. At the end: close the session and settle on-chain
 #
 # Prerequisites:
-#   -  tempo-walletinstalled (`make install` or `cargo install --path .`)
+#   -  tempo-walletinstalled (`make install`)
 #   - Run ` tempo-walletlogin` to connect your Tempo wallet
 #
 # Usage:

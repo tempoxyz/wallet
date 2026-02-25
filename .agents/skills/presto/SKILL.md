@@ -45,7 +45,7 @@ Before making paid requests, verify the wallet is ready:
 
 Check these fields in the response:
 - `ready` — `true` means the wallet is connected, provisioned, and has an access key
-- `active_key.balance` — check that the token balance is sufficient
+- `key.balance` — check that the token balance is sufficient
 
 If `ready` is `false`, run ` tempo-walletlogin` and retry.
 
@@ -58,7 +58,7 @@ If `ready` is `false`, run ` tempo-walletlogin` and retry.
   "wallet_type": "passkey",
   "network": "tempo",
   "chain_id": 4217,
-  "active_key": {
+  "key": {
     "label": "passkey-default",
     "address": "0xabcd...1234",
     "symbol": "USDC",
@@ -148,6 +148,8 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | ` tempo-walletwallet create [--name]` | Create a local wallet (EOA stored in macOS Keychain) |
 | ` tempo-walletwallet import [--name] [--stdin-key|--private-key]` | Import an existing private key as a local wallet |
 | ` tempo-walletwallet delete --name <NAME> [--yes]` | Delete a local wallet |
+| ` tempo-walletkey` or ` tempo-walletkey list` | List all access keys and their spending limits |
+| ` tempo-walletkey create [--name]` | Create a new access key for a local wallet (generates fresh 30-day key) |
 
 ## Global Options
 
@@ -156,7 +158,7 @@ These options are available on all commands:
 | Option | Description |
 |--------|-------------|
 | `-n, --network <NETWORKS>` | Filter to specific networks (e.g., `tempo`, `tempo-moderato`) |
-| `-v` | Verbose output (use `-vv` for debug) |
+| `-v` | Verbose output — shows payment flow details (intent, network, amount) (use `-vv` for debug) |
 | `-q, --quiet` | Suppress log messages (recommended for agents) |
 | `--output-format json` | JSON output (recommended for agents) |
 | `--color never` | Disable colored output |

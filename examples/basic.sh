@@ -13,7 +13,7 @@
 # No payment channels, no sessions — just a single transaction per request.
 #
 # Prerequisites:
-#   -  tempo-walletinstalled (`make install` or `cargo install --path .`)
+#   -  tempo-walletinstalled (`make install`)
 #   - Run ` tempo-walletlogin` to connect your Tempo wallet
 #
 # Usage:

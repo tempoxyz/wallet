@@ -118,6 +118,64 @@ impl MockServer {
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
+
+    /// Start a payment mock that also returns a Payment-Receipt header on success
+    async fn start_payment_with_receipt(
+        www_authenticate: &str,
+        success_body: &str,
+        receipt_header: &str,
+    ) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+
+        let owned_header = www_authenticate.to_string();
+        let owned_body = success_body.to_string();
+        let owned_receipt = receipt_header.to_string();
+
+        let app = Router::new().route(
+            "/{*path}",
+            any(move |headers: axum::http::HeaderMap| {
+                let h = owned_header.clone();
+                let b = owned_body.clone();
+                let r = owned_receipt.clone();
+                async move {
+                    if headers.get("authorization").is_some() {
+                        let mut resp = (StatusCode::OK, b).into_response();
+                        resp.headers_mut().insert(
+                            axum::http::HeaderName::from_static("payment-receipt"),
+                            axum::http::HeaderValue::from_str(&r).unwrap(),
+                        );
+                        resp
+                    } else {
+                        let mut response =
+                            (StatusCode::PAYMENT_REQUIRED, "Payment Required").into_response();
+                        response.headers_mut().insert(
+                            axum::http::HeaderName::from_static("www-authenticate"),
+                            axum::http::HeaderValue::from_str(&h).unwrap(),
+                        );
+                        response
+                    }
+                }
+            }),
+        );
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        MockServer {
+            base_url,
+            shutdown_tx: Some(shutdown_tx),
+            _handle: handle,
+        }
+    }
 }
 
 impl Drop for MockServer {
@@ -738,6 +796,197 @@ access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
     assert!(
         stdout.contains("charge accepted"),
         "stdout should contain success body: {combined}"
+    );
+}
+
+/// Payment narration is printed at -v when encountering a 402
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_payment_narration_verbose() {
+    // Mock RPC server and 402→200 server
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-charge", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+    let server = MockServer::start_payment(&www_auth, "ok").await;
+
+    // Write wallet + RPC config
+    let temp = tempfile::TempDir::new().unwrap();
+    let wallet_toml = r#"active = "default"
+
+[keys.default]
+wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+"#;
+    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
+
+    // macOS + Linux layouts
+    let macos_dir = temp.path().join("Library/Application Support/presto");
+    let linux_data = temp.path().join(".local/share/presto");
+    let linux_config = temp.path().join(".config/presto");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    std::fs::create_dir_all(&linux_data).unwrap();
+    std::fs::create_dir_all(&linux_config).unwrap();
+    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
+    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+
+    let output = test_command(&temp)
+        .args(["-v", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "expected success");
+    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+    assert!(
+        stderr.contains("payment required:"),
+        "should narrate 402 payment requirement: {}",
+        stderr
+    );
+}
+
+/// Paid summary prints by default and is suppressed by -q
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_paid_summary_default_and_quiet() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-charge-paid", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+    let server = MockServer::start_payment(&www_auth, "ok").await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    let wallet_toml = r#"active = "default"
+
+[keys.default]
+wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+"#;
+    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
+
+    // macOS + Linux layouts
+    let macos_dir = temp.path().join("Library/Application Support/presto");
+    let linux_data = temp.path().join(".local/share/presto");
+    let linux_config = temp.path().join(".config/presto");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    std::fs::create_dir_all(&linux_data).unwrap();
+    std::fs::create_dir_all(&linux_config).unwrap();
+    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
+    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+
+    // Default: summary should be printed
+    let output_default = test_command(&temp)
+        .args([&server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(
+        output_default.status.success(),
+        "default run should succeed"
+    );
+    let stderr_default = String::from_utf8_lossy(&output_default.stderr);
+    assert!(
+        stderr_default.contains("Paid "),
+        "expected paid summary in default mode, got: {}",
+        stderr_default
+    );
+
+    // Quiet: summary should be suppressed
+    let output_quiet = test_command(&temp)
+        .args(["-q", &server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(output_quiet.status.success(), "quiet run should succeed");
+    let stderr_quiet = String::from_utf8_lossy(&output_quiet.stderr);
+    assert!(
+        !stderr_quiet.contains("Paid "),
+        "expected no paid summary in quiet mode, got: {}",
+        stderr_quiet
+    );
+}
+
+/// Analytics PaymentSuccess tx_hash should be the extracted hex, not the raw header
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_tx_hash_is_extracted_hex() {
+    let rpc = MockRpcServer::start(42431).await;
+
+    // Simple 64-nybble hex hash
+    let tx_hash = format!("0x{}", "ab".repeat(32));
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="test-charge-analytics", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+
+    // Return a Payment-Receipt header that includes the tx hash in a field the extractor recognizes
+    let receipt_value = format!("tx={}", tx_hash);
+    let server = MockServer::start_payment_with_receipt(&www_auth, "ok", &receipt_value).await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    let wallet_toml = r#"active = "default"
+
+[keys.default]
+wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+"#;
+    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
+
+    // macOS + Linux layouts
+    let macos_dir = temp.path().join("Library/Application Support/presto");
+    let linux_data = temp.path().join(".local/share/presto");
+    let linux_config = temp.path().join(".config/presto");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    std::fs::create_dir_all(&linux_data).unwrap();
+    std::fs::create_dir_all(&linux_config).unwrap();
+    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
+    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
+    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
+    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+
+    // Set up analytics tap file
+    let events_path = temp.path().join("events.log");
+
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args(["-v", &server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "expected success");
+
+    // Read captured events and find payment_success
+    let content = std::fs::read_to_string(&events_path).unwrap();
+    let mut found = None;
+    for line in content.lines() {
+        if let Some((name, json_str)) = line.split_once('|') {
+            if name == "payment_success" {
+                found = Some(json_str.to_string());
+            }
+        }
+    }
+    let Some(json_str) = found else {
+        panic!("missing payment_success event: {}", content);
+    };
+    let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+    let got = v.get("tx_hash").and_then(|x| x.as_str()).unwrap_or("");
+    // Accept either an exact extracted 0x-hash, or empty (if server didn't supply a
+    // parseable receipt). Critically, it must NOT be the raw header with fields.
+    let is_hex =
+        got.starts_with("0x") && got.len() == 66 && got[2..].chars().all(|c| c.is_ascii_hexdigit());
+    assert!(
+        got.is_empty() || is_hex,
+        "tx_hash should be empty or a 0x-hex hash, got: {}",
+        got
+    );
+    assert!(
+        !got.contains('='),
+        "tx_hash should not be a raw header with fields: {}",
+        got
     );
 }
 

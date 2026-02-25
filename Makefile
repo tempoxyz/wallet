@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install e2e
+.PHONY: build release clean check test fix install uninstall reinstall e2e
 
 build:
 	cargo build
@@ -11,7 +11,13 @@ release:
 	cargo build --release
 
 install:
-	cargo install --path .
+	./install.sh --local
+
+uninstall:
+	./install.sh --uninstall
+
+reinstall:
+	./install.sh --reinstall
 
 clean:
 	cargo clean

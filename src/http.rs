@@ -276,16 +276,21 @@ pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
 /// HTTP and payment modules depend on this instead of raw CLI types.
 #[derive(Clone, Debug)]
 pub struct RequestRuntime {
-    pub verbose: bool,
+    pub verbosity: u8,
     pub show_output: bool,
     pub network: Option<String>,
     pub dry_run: bool,
 }
 
 impl RequestRuntime {
-    /// Whether verbose log messages should be printed.
+    /// Whether agent-level log messages should be printed (`-v`).
     pub fn log_enabled(&self) -> bool {
-        self.verbose && self.show_output
+        self.verbosity >= 1 && self.show_output
+    }
+
+    /// Whether debug-level log messages should be printed (`-vv`).
+    pub fn debug_enabled(&self) -> bool {
+        self.verbosity >= 2 && self.show_output
     }
 }
 
