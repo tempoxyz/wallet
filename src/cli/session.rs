@@ -19,7 +19,6 @@ struct SessionView<'a> {
     origin: &'a str,
     network: &'a str,
     channel_id: &'a str,
-    currency: &'a str,
     symbol: &'a str,
     unlimited: bool,
     limit: String,
@@ -45,7 +44,6 @@ impl<'a> SessionView<'a> {
             origin: &session.origin,
             network: &session.network_name,
             channel_id: &session.channel_id,
-            currency: &session.currency,
             symbol,
             unlimited: limit_u == 0,
             limit: format_u256_with_decimals(alloy::primitives::U256::from(limit_u), decimals),
@@ -111,49 +109,36 @@ pub async fn list_sessions(
     match output_format {
         OutputFormat::Json => {
             #[derive(Serialize)]
-            struct SessionItem<'a> {
-                origin: &'a str,
-                network: &'a str,
+            struct Item<'a> {
                 channel_id: &'a str,
-                currency: &'a str,
+                network: &'a str,
+                origin: &'a str,
                 symbol: &'a str,
-                spending_limit: SpendingLimitItem<'a>,
-            }
-            #[derive(Serialize)]
-            struct SpendingLimitItem<'a> {
-                unlimited: bool,
-                limit: &'a str,
-                remaining: &'a str,
+                deposit: &'a str,
                 spent: &'a str,
-            }
-            #[derive(Serialize)]
-            struct Response<'a> {
-                sessions: Vec<SessionItem<'a>>,
-                total: usize,
+                remaining: &'a str,
+                status: &'static str,
             }
 
-            let items: Vec<SessionItem> = views
+            let items: Vec<Item> = views
                 .iter()
-                .map(|v| SessionItem {
-                    origin: v.origin,
-                    network: v.network,
+                .map(|v| Item {
                     channel_id: v.channel_id,
-                    currency: v.currency,
+                    network: v.network,
+                    origin: v.origin,
                     symbol: v.symbol,
-                    spending_limit: SpendingLimitItem {
-                        unlimited: v.unlimited,
-                        limit: &v.limit,
-                        remaining: &v.remaining,
-                        spent: &v.spent,
-                    },
+                    deposit: &v.limit,
+                    spent: &v.spent,
+                    remaining: &v.remaining,
+                    status: "active",
                 })
                 .collect();
             println!(
                 "{}",
-                serde_json::to_string(&Response {
-                    sessions: items,
-                    total: views.len(),
-                })?
+                serde_json::to_string(&serde_json::json!({
+                    "sessions": items,
+                    "total": items.len(),
+                }))?
             );
         }
         OutputFormat::Text => {
@@ -166,19 +151,18 @@ pub async fn list_sessions(
                 println!("{}", v.origin);
                 println!("{:>10}: {}", "Network", v.network);
                 println!("{:>10}: {}", "Channel", v.channel_id);
-                println!("{:>10}: {}", "Currency", v.currency);
                 if v.unlimited {
-                    println!("{:>10}: {} (unlimited)", "Symbol", v.symbol);
+                    println!("{:>10}: unlimited", "Deposit");
                 } else {
                     let w = [v.limit.len(), v.spent.len(), v.remaining.len()]
                         .into_iter()
                         .max()
                         .unwrap_or(0);
-                    println!("{:>10}: {}", "Symbol", v.symbol);
-                    println!("{:>10}: {:>w$} {}", "Limit", v.limit, v.symbol);
+                    println!("{:>10}: {:>w$} {}", "Deposit", v.limit, v.symbol);
                     println!("{:>10}: {:>w$} {}", "Spent", v.spent, v.symbol);
                     println!("{:>10}: {:>w$} {}", "Remaining", v.remaining, v.symbol);
                 }
+                println!("{:>10}: active", "Status");
                 println!();
             }
 
@@ -341,8 +325,7 @@ async fn list_all_channels(
             struct Item<'a> {
                 channel_id: &'a str,
                 network: &'a str,
-                #[serde(skip_serializing_if = "str::is_empty")]
-                origin: &'a str,
+                origin: Option<&'a str>,
                 symbol: &'a str,
                 deposit: &'a str,
                 spent: &'a str,
@@ -354,7 +337,11 @@ async fn list_all_channels(
                 .map(|v| Item {
                     channel_id: &v.channel_id,
                     network: &v.network,
-                    origin: &v.origin,
+                    origin: if v.origin.is_empty() {
+                        None
+                    } else {
+                        Some(&v.origin)
+                    },
                     symbol: v.symbol,
                     deposit: &v.deposit,
                     spent: &v.spent,
@@ -365,14 +352,14 @@ async fn list_all_channels(
             println!(
                 "{}",
                 serde_json::to_string(&serde_json::json!({
-                    "channels": items,
+                    "sessions": items,
                     "total": items.len(),
                 }))?
             );
         }
         OutputFormat::Text => {
             if views.is_empty() {
-                println!("No channels found.");
+                println!("No sessions found.");
                 return Ok(());
             }
             for v in &views {
@@ -393,7 +380,7 @@ async fn list_all_channels(
                 println!("{:>10}: {}", "Status", v.status);
                 println!();
             }
-            println!("{} channel(s) total.", views.len());
+            println!("{} session(s) total.", views.len());
         }
     }
     Ok(())
@@ -476,11 +463,9 @@ async fn list_orphaned_channels(
             struct Item<'a> {
                 channel_id: &'a str,
                 network: &'a str,
-                payee: &'a str,
-                currency: &'a str,
                 symbol: &'a str,
                 deposit: &'a str,
-                settled: &'a str,
+                spent: &'a str,
                 remaining: &'a str,
                 status: &'a str,
             }
@@ -489,11 +474,9 @@ async fn list_orphaned_channels(
                 .map(|v| Item {
                     channel_id: &v.ch.channel_id,
                     network: &v.ch.network,
-                    payee: &v.ch.payee,
-                    currency: &v.ch.token,
                     symbol: v.symbol,
                     deposit: &v.deposit,
-                    settled: &v.settled,
+                    spent: &v.settled,
                     remaining: &v.remaining,
                     status: v.status,
                 })
@@ -501,33 +484,30 @@ async fn list_orphaned_channels(
             println!(
                 "{}",
                 serde_json::to_string(&serde_json::json!({
-                    "orphaned": items,
+                    "sessions": items,
                     "total": items.len(),
                 }))?
             );
         }
         OutputFormat::Text => {
             if views.is_empty() {
-                println!("No orphaned channels found.");
+                println!("No orphaned sessions found.");
                 return Ok(());
             }
             for v in &views {
                 println!("{}", v.ch.channel_id);
                 println!("{:>10}: {}", "Network", v.ch.network);
-                println!("{:>10}: {}", "Channel", v.ch.channel_id);
-                println!("{:>10}: {}", "Currency", v.ch.token);
-                println!("{:>10}: {}", "Symbol", v.symbol);
                 let w = [v.deposit.len(), v.settled.len(), v.remaining.len()]
                     .into_iter()
                     .max()
                     .unwrap_or(0);
                 println!("{:>10}: {:>w$} {}", "Deposit", v.deposit, v.symbol);
-                println!("{:>10}: {:>w$} {}", "Settled", v.settled, v.symbol);
+                println!("{:>10}: {:>w$} {}", "Spent", v.settled, v.symbol);
                 println!("{:>10}: {:>w$} {}", "Remaining", v.remaining, v.symbol);
                 println!("{:>10}: {}", "Status", v.status);
                 println!();
             }
-            println!("{} orphaned channel(s).", views.len());
+            println!("{} orphaned session(s).", views.len());
         }
     }
     Ok(())
@@ -555,7 +535,6 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
         remaining: String,
         status: String,
         remaining_secs: u64,
-        ready_at: u64,
     }
 
     let mut views = Vec::new();
@@ -597,7 +576,6 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
             remaining,
             status,
             remaining_secs,
-            ready_at: p.ready_at,
         });
     }
 
@@ -609,9 +587,9 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
                 network: &'a str,
                 symbol: &'a str,
                 deposit: &'a str,
-                settled: &'a str,
+                spent: &'a str,
                 remaining: &'a str,
-                ready_at: u64,
+                status: &'a str,
                 remaining_secs: u64,
             }
             let items: Vec<Item> = views
@@ -621,40 +599,39 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
                     network: &v.network_name,
                     symbol: v.symbol,
                     deposit: &v.deposit,
-                    settled: &v.settled,
+                    spent: &v.settled,
                     remaining: &v.remaining,
-                    ready_at: v.ready_at,
+                    status: "closing",
                     remaining_secs: v.remaining_secs,
                 })
                 .collect();
             println!(
                 "{}",
                 serde_json::to_string(&serde_json::json!({
-                    "closing": items,
+                    "sessions": items,
                     "total": items.len(),
                 }))?
             );
         }
         OutputFormat::Text => {
             if views.is_empty() {
-                println!("No channels pending finalization.");
+                println!("No sessions pending finalization.");
                 return Ok(());
             }
             for v in &views {
                 println!("{}", v.channel_id);
                 println!("{:>10}: {}", "Network", v.network_name);
-                println!("{:>10}: {}", "Symbol", v.symbol);
                 let w = [v.deposit.len(), v.settled.len(), v.remaining.len()]
                     .into_iter()
                     .max()
                     .unwrap_or(0);
                 println!("{:>10}: {:>w$} {}", "Deposit", v.deposit, v.symbol);
-                println!("{:>10}: {:>w$} {}", "Settled", v.settled, v.symbol);
+                println!("{:>10}: {:>w$} {}", "Spent", v.settled, v.symbol);
                 println!("{:>10}: {:>w$} {}", "Remaining", v.remaining, v.symbol);
                 println!("{:>10}: {}", "Status", v.status);
                 println!();
             }
-            println!("{} channel(s) pending.", views.len());
+            println!("{} session(s) pending.", views.len());
         }
     }
     Ok(())
@@ -754,7 +731,7 @@ async fn close_orphaned_channels(
         OutputFormat::Text => {
             let total = closed + pending + failed;
             if total == 0 {
-                println!("No orphaned channels found.");
+                println!("No orphaned sessions found.");
             } else {
                 let mut parts = Vec::new();
                 if closed > 0 {
@@ -918,7 +895,7 @@ pub async fn close_sessions(
             OutputFormat::Text => {
                 let total = closed + pending + failed;
                 if total == 0 {
-                    println!("No active sessions or on-chain channels to close.");
+                    println!("No active sessions to close.");
                 } else {
                     let mut parts = Vec::new();
                     if closed > 0 {
@@ -951,7 +928,7 @@ pub async fn close_sessions(
                             serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]})
                         );
                     } else {
-                        println!("Channel closed.");
+                        println!("Channel {target} closed.");
                     }
                 }
                 Ok(CloseOutcome::Pending { remaining_secs }) => {
@@ -962,7 +939,7 @@ pub async fn close_sessions(
                         );
                     } else {
                         println!(
-                            "Close requested — {} remaining, run `presto session close --closed` to finalize.",
+                            "Channel {target}: close requested — {} remaining, run `presto session close --closed` to finalize.",
                             format_duration(remaining_secs)
                         );
                     }
@@ -1002,7 +979,7 @@ pub async fn close_sessions(
                             serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"origin": target, "channel_id": record.channel_id, "status": "closed"}]})
                         );
                     } else {
-                        println!("Session closed.");
+                        println!("Session for {target} closed.");
                     }
                 }
                 Ok(CloseOutcome::Pending { remaining_secs }) => {
@@ -1013,7 +990,7 @@ pub async fn close_sessions(
                         );
                     } else {
                         println!(
-                            "Close requested — {} remaining, run `presto session close --closed` to finalize.",
+                            "Session for {target}: close requested — {} remaining, run `presto session close --closed` to finalize.",
                             format_duration(remaining_secs)
                         );
                     }
@@ -1041,7 +1018,9 @@ pub async fn close_sessions(
         return Ok(());
     }
 
-    anyhow::bail!("Specify a URL, channel ID (0x...), or use --all/--closed to close sessions");
+    anyhow::bail!(
+        "Specify a URL, channel ID (0x...), or use --all/--orphaned/--closed to close sessions"
+    );
 }
 
 /// Finalize channels that have had requestClose() submitted and whose grace period has elapsed.
@@ -1125,7 +1104,7 @@ async fn finalize_closed_channels(
         OutputFormat::Text => {
             let total = closed + still_pending + failed;
             if total == 0 {
-                println!("No channels pending finalization.");
+                println!("No sessions pending finalization.");
             } else {
                 let mut parts = Vec::new();
                 if closed > 0 {

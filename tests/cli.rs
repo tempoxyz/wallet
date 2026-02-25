@@ -238,7 +238,6 @@ fn test_session_list_json_empty() {
         stdout.contains("\"sessions\""),
         "expected JSON sessions array: {stdout}"
     );
-    // Note: when empty, no per-session fields are present; schema is validated elsewhere.
 }
 
 #[test]
