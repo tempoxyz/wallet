@@ -101,6 +101,11 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         return Ok(());
     }
 
+    // Use the final URL after redirects for payment retry, not the original URL.
+    // This prevents a malicious redirector from capturing payment credentials:
+    // attacker.example → 307 → paid.example (402) → retry must go to paid.example.
+    let effective_url = response.final_url.as_deref().unwrap_or(&url).to_string();
+
     let challenge_ctx = parse_payment_challenge(&response)?;
 
     if request_ctx.log_enabled() {
@@ -138,7 +143,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         &request_ctx,
         &output_opts,
         &challenge_ctx,
-        &url,
+        &effective_url,
         &response,
     )
     .await;
@@ -165,7 +170,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 &request_ctx,
                 &output_opts,
                 &challenge_ctx,
-                &url,
+                &effective_url,
                 &response,
             )
             .await
