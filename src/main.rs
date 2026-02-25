@@ -260,19 +260,58 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Session { command } => {
+            let config = load_config_with_overrides(cli.config.as_ref())?;
+            let output_format = cli.resolve_output_format(&config);
+
             if let Some(subcommand) = command {
+                let show_output = cli.should_show_output();
                 match subcommand {
-                    SessionCommands::List => cli::session::list_sessions(),
-                    SessionCommands::Close { url, all } => {
-                        cli::session::close_sessions(url, all).await
+                    SessionCommands::List {
+                        all,
+                        orphaned,
+                        closed,
+                        network,
+                    } => {
+                        let net = network.as_deref().or(cli.network.as_deref());
+                        cli::session::list_sessions(
+                            &config,
+                            output_format,
+                            all,
+                            orphaned,
+                            closed,
+                            net,
+                        )
+                        .await
                     }
-                    SessionCommands::Recover { url } => {
-                        let config = load_config_with_overrides(cli.config.as_ref())?;
-                        cli::session::recover_session_cmd(&config, &url).await
+                    SessionCommands::Close {
+                        url,
+                        all,
+                        orphaned,
+                        closed,
+                    } => {
+                        cli::session::close_sessions(
+                            &config,
+                            url,
+                            all,
+                            orphaned,
+                            closed,
+                            output_format,
+                            show_output,
+                            cli.network.as_deref(),
+                        )
+                        .await
                     }
                 }
             } else {
-                cli::session::list_sessions()
+                cli::session::list_sessions(
+                    &config,
+                    output_format,
+                    false,
+                    false,
+                    false,
+                    cli.network.as_deref(),
+                )
+                .await
             }
         }
 
