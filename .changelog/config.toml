@@ -1,3 +1,5 @@
+ecosystem = "rust"
+
 # How to bump packages that depend on changed packages
 # "patch" | "minor" | "none"
 dependent_bump = "patch"
