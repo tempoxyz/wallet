@@ -1619,7 +1619,7 @@ pub async fn close_session_from_record(
     }
 
     // Fallback: payer-initiated close (requestClose → withdraw)
-    close_on_chain(config, record, &wallet, channel_id, escrow_contract).await
+    close_on_chain(config, record, &wallet, channel_id, escrow_contract, 0).await
 }
 
 /// Try cooperative close via the server.
@@ -1774,6 +1774,7 @@ async fn close_on_chain(
     wallet: &crate::wallet::signer::WalletSigner,
     channel_id: B256,
     escrow_contract: Address,
+    nonce_offset: u64,
 ) -> Result<CloseOutcome> {
     use alloy::primitives::{Bytes, TxKind, U256};
     use alloy::sol;
@@ -1827,8 +1828,16 @@ async fn close_on_chain(
             input: request_close_data,
         }];
 
-        let tx_hash =
-            submit_tempo_tx(&provider, wallet, record.chain_id, fee_token, from, calls).await?;
+        let tx_hash = submit_tempo_tx(
+            &provider,
+            wallet,
+            record.chain_id,
+            fee_token,
+            from,
+            calls,
+            nonce_offset,
+        )
+        .await?;
 
         let explorer = network.info().explorer;
         let tx_url = explorer
@@ -1895,8 +1904,16 @@ async fn close_on_chain(
         input: withdraw_data,
     }];
 
-    let tx_hash =
-        submit_tempo_tx(&provider, wallet, record.chain_id, fee_token, from, calls).await?;
+    let tx_hash = submit_tempo_tx(
+        &provider,
+        wallet,
+        record.chain_id,
+        fee_token,
+        from,
+        calls,
+        nonce_offset,
+    )
+    .await?;
 
     let explorer = network.info().explorer;
     let tx_url = explorer
@@ -2100,6 +2117,9 @@ async fn get_nonce_for_key(
 }
 
 /// Submit a Tempo type-0x76 transaction and return the tx hash.
+///
+/// `nonce_offset` is added to the on-chain nonce to allow callers to sequence
+/// multiple transactions without waiting for each to confirm.
 async fn submit_tempo_tx(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     wallet: &crate::wallet::signer::WalletSigner,
@@ -2107,6 +2127,7 @@ async fn submit_tempo_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
+    nonce_offset: u64,
 ) -> Result<String> {
     use alloy::primitives::U256;
     use alloy::providers::Provider;
@@ -2118,9 +2139,13 @@ async fn submit_tempo_tx(
             .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
 
     // Query the correct nonce for our nonceKey space via the NONCE precompile.
-    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await?;
+    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
 
-    let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
+    // Try gas estimation with key_authorization first; if the key is already
+    // registered on-chain the precompile returns KeyAlreadyExists — retry
+    // without the authorization to let the tx through.
+    let mut key_auth = wallet.signing_mode.key_authorization();
+    let gas_limit = match mpp::client::tempo::tx_builder::estimate_gas(
         provider,
         from,
         chain_id,
@@ -2129,10 +2154,32 @@ async fn submit_tempo_tx(
         &calls,
         resolved.max_fee_per_gas,
         resolved.max_priority_fee_per_gas,
-        wallet.signing_mode.key_authorization(),
+        key_auth,
     )
     .await
-    .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
+    {
+        Ok(gas) => gas,
+        Err(e) if key_auth.is_some() && e.to_string().contains("KeyAlreadyExists") => {
+            tracing::debug!("Key already provisioned on-chain, retrying without key_authorization");
+            key_auth = None;
+            mpp::client::tempo::tx_builder::estimate_gas(
+                provider,
+                from,
+                chain_id,
+                nonce,
+                fee_token,
+                &calls,
+                resolved.max_fee_per_gas,
+                resolved.max_priority_fee_per_gas,
+                None,
+            )
+            .await
+            .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?
+        }
+        Err(e) => {
+            return Err(crate::error::PrestoError::SigningSimple(e.to_string()).into());
+        }
+    };
 
     let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
         mpp::client::tempo::tx_builder::TempoTxOptions {
@@ -2146,7 +2193,7 @@ async fn submit_tempo_tx(
             max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
             fee_payer: false,
             valid_before: None,
-            key_authorization: wallet.signing_mode.key_authorization().cloned(),
+            key_authorization: key_auth.cloned(),
         },
     );
 
@@ -2175,6 +2222,7 @@ async fn submit_tempo_tx(
 pub async fn close_discovered_channel(
     channel: &DiscoveredChannel,
     config: &Config,
+    nonce_offset: u64,
 ) -> Result<CloseOutcome> {
     let network: Network = channel
         .network
@@ -2214,7 +2262,15 @@ pub async fn close_discovered_channel(
         expires_at: 0,
     };
 
-    close_on_chain(config, &record_stub, &wallet, channel_id, escrow_contract).await
+    close_on_chain(
+        config,
+        &record_stub,
+        &wallet,
+        channel_id,
+        escrow_contract,
+        nonce_offset,
+    )
+    .await
 }
 
 /// Close a channel by its on-chain ID, scanning all networks to find it.
@@ -2302,7 +2358,7 @@ pub async fn close_channel_by_id(
                 &owned_wallet
             }
         };
-        return close_on_chain(config, &record_stub, wallet, channel_id, escrow).await;
+        return close_on_chain(config, &record_stub, wallet, channel_id, escrow, 0).await;
     }
 
     if had_rpc_errors {
