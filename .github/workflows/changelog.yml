@@ -30,15 +30,7 @@ jobs:
             echo "No code changes requiring changelog, skipping"
             exit 0
           fi
-          echo "=== Cargo.toml workspace check ==="
-          grep -c '\[workspace\]' Cargo.toml || echo "no [workspace] found"
-          head -4 Cargo.lock
-          echo "=== changelogs version ==="
-          ~/.local/bin/changelogs --version || true
-          echo "=== changelogs init ==="
-          ~/.local/bin/changelogs --ecosystem rust init || true
-          echo "=== changelogs add ==="
-          ~/.local/bin/changelogs --ecosystem rust add --ai "claude -p" --ref origin/${{ github.base_ref }}
+          ~/.local/bin/changelogs add --ai "claude -p" --ref origin/${{ github.base_ref }}
       - name: Commit changelog
         run: |
           if [ -n "$(git status --porcelain .changelog/)" ]; then
