@@ -33,13 +33,7 @@ Requires [Rust](https://rustup.rs/).
 ```bash
 git clone https://github.com/tempoxyz/presto.git
 cd presto
-cargo install --path .
-```
-
-Make sure `~/.cargo/bin` is on your `PATH`:
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
+make install
 ```
 
 ## Usage
@@ -83,9 +77,9 @@ presto -n tempo https://api.example.com/data
 ### Output Control
 
 ```bash
-presto -v <URL>          # Verbose output
-presto -vv <URL>         # Debug output
-presto -q <URL>          # Quiet — suppress logs
+presto -v <URL>          # Payment flow narration (intent, network, amount, completion)
+presto -vv <URL>         # Debug internals (voucher retries, auth header size)
+presto -q <URL>          # Quiet — suppress all stderr logs
 presto --color never <URL>          # Disable colors
 presto --output-format json <URL>   # JSON output format
 ```
@@ -103,6 +97,8 @@ presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 | `session list` | List active payment sessions |
 | `session close` | Close a payment session |
 | `session recover` | Recover a session from on-chain state |
+| `key` or `key list` | List all access keys and their spending limits |
+| `key create` | Create a new access key for a local wallet |
 
 Run `presto <command> --help` for detailed usage on any command.
 

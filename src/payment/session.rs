@@ -523,7 +523,7 @@ async fn stream_sse_response(
                 if let Some(ref auth) = pending_voucher_auth {
                     voucher_retry_count += 1;
                     if voucher_retry_count > MAX_VOUCHER_RETRIES {
-                        if runtime.log_enabled() {
+                        if runtime.debug_enabled() {
                             eprintln!(
                                 "[stream stall — voucher not accepted after {} retries]",
                                 MAX_VOUCHER_RETRIES
@@ -531,20 +531,20 @@ async fn stream_sse_response(
                         }
                         break;
                     }
-                    if runtime.log_enabled() {
+                    if runtime.debug_enabled() {
                         eprintln!(
                             "[re-posting voucher (retry {}/{})]",
                             voucher_retry_count, MAX_VOUCHER_RETRIES
                         );
                     }
-                    let verbose = runtime.log_enabled();
+                    let verbose = runtime.debug_enabled();
                     post_voucher(&voucher_client, ctx.url, auth, verbose);
                     // Backoff the stall timeout for the next retry, up to the normal timeout
                     current_stall_timeout =
                         std::cmp::min(current_stall_timeout.saturating_mul(2), normal_timeout);
                     continue;
                 }
-                if runtime.log_enabled() {
+                if runtime.debug_enabled() {
                     eprintln!(
                         "[stream timeout — no data for {}s]",
                         normal_timeout.as_secs()
@@ -603,7 +603,7 @@ async fn stream_sse_response(
                         // instead of a network round-trip per token.
                         let voucher_amount = if deposit > 0 { deposit } else { required };
 
-                        if runtime.log_enabled() {
+                        if runtime.debug_enabled() {
                             eprintln!(
                                 "[voucher top-up: required={} authorizing={}]",
                                 required, voucher_amount
@@ -620,7 +620,7 @@ async fn stream_sse_response(
                         let auth = mpp::format_authorization(&voucher)
                             .context("Failed to format voucher")?;
 
-                        let verbose = runtime.log_enabled();
+                        let verbose = runtime.debug_enabled();
                         post_voucher(&voucher_client, ctx.url, &auth, verbose);
 
                         // Track this voucher for retry if the server stalls
@@ -851,7 +851,6 @@ pub async fn handle_session_request(
             token_config.symbol,
             token_config.decimals,
         );
-        eprintln!("Network: {}", network_name);
         eprintln!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),

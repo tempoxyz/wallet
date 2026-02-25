@@ -7,7 +7,6 @@ Thanks for your interest in contributing to presto! This guide covers everything
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (edition 2021)
-- [Node.js](https://nodejs.org/) (for linting only)
 
 ### Setup
 
@@ -28,7 +27,9 @@ make release        # Optimized release build
 make test           # Run all tests (uses mocks, no network required)
 make check          # fmt + clippy + test + build
 make fix            # Auto-fix formatting and clippy warnings
-make install        # Install to ~/.cargo/bin
+make install        # Install to /usr/local/bin
+make uninstall      # Uninstall CLI
+make reinstall      # Rebuild and reinstall CLI
 make run ARGS="<url>"  # Run with arguments
 ```
 

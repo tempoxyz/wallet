@@ -99,11 +99,29 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         return Ok(());
     }
 
-    if request_ctx.log_enabled() {
-        eprintln!("402 status: payment required");
-    }
-
     let challenge_ctx = parse_payment_challenge(&response)?;
+
+    if request_ctx.log_enabled() {
+        let intent = if challenge_ctx.is_session {
+            "session"
+        } else {
+            "charge"
+        };
+        let network_enum: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
+        let token = network_enum.and_then(|n| n.token_config_by_address(&challenge_ctx.currency));
+        let symbol = token.map(|t| t.symbol).unwrap_or("tokens");
+        let decimals = token.map(|t| t.decimals).unwrap_or(6);
+        let amount_display = challenge_ctx
+            .amount
+            .parse::<u128>()
+            .ok()
+            .map(|a| format_token_amount(a, symbol, decimals))
+            .unwrap_or_else(|| challenge_ctx.amount.clone());
+        eprintln!(
+            "Payment required: intent={intent} network={} amount={amount_display}",
+            challenge_ctx.network
+        );
+    }
 
     // Skip wallet login for dry-run or when a private key is provided directly
     if !request_ctx.runtime.dry_run && !crate::wallet::credentials::has_credentials_override() {
@@ -212,7 +230,7 @@ async fn dispatch_payment(
         }
 
         if request_ctx.log_enabled() {
-            eprintln!("Submitting payment to server...");
+            eprintln!("Submitting payment...");
         }
 
         let headers = vec![("Authorization".to_string(), auth_header)];
@@ -220,6 +238,10 @@ async fn dispatch_payment(
 
         if resp.status_code >= 400 {
             return Err(parse_payment_rejection(&resp).into());
+        }
+
+        if request_ctx.log_enabled() {
+            eprintln!("Payment accepted: HTTP {}", resp.status_code);
         }
 
         let network: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
@@ -506,9 +528,6 @@ fn display_receipt(
     let Ok(receipt) = mpp::parse_receipt(receipt_header) else {
         return;
     };
-    if !output_opts.verbose {
-        return;
-    }
 
     let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header).unwrap_or(receipt.reference);
 
@@ -524,10 +543,19 @@ fn display_receipt(
     } else {
         tx_ref
     };
+
+    // Always show payment summary when money moved (unless --quiet)
+    if !output_opts.payment_log_enabled() {
+        return;
+    }
     eprintln!("Paid {amount_display} · {link}");
-    eprintln!("  Status: {}", receipt.status);
-    eprintln!("  Method: {}", receipt.method);
-    eprintln!("  Timestamp: {}", receipt.timestamp);
+
+    // Extended receipt details at -v
+    if output_opts.log_enabled() {
+        eprintln!("  Status: {}", receipt.status);
+        eprintln!("  Method: {}", receipt.method);
+        eprintln!("  Timestamp: {}", receipt.timestamp);
+    }
 }
 
 // ==================== CLI → Domain Conversion ====================
@@ -542,7 +570,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     }
 
     let runtime = RequestRuntime {
-        verbose: cli.is_verbose(),
+        verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
         network: cli.network.clone(),
         dry_run: query.dry_run,
@@ -563,7 +591,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         timeout_secs: query.get_timeout(),
         follow_redirects: !query.no_redirect,
         user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
-        verbose_connection: runtime.verbose,
+        verbose_connection: runtime.debug_enabled(),
     };
 
     Ok(RequestContext::new(runtime, plan))
@@ -575,7 +603,7 @@ fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> Output
         output_format: cli.resolve_output_format(config),
         include_headers: query.include_headers,
         output_file: query.output.clone(),
-        verbose: cli.is_verbose(),
+        verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
     }
 }
