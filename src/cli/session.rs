@@ -353,6 +353,9 @@ async fn list_all_channels(
                             }
                         };
                         ("closed", secs)
+                    } else if let Some(secs) = pending_map.get(&ch.channel_id).copied() {
+                        // requestClose tx was submitted but not yet mined
+                        ("closed", Some(secs))
                     } else {
                         ("orphaned", None)
                     };
