@@ -57,6 +57,24 @@ pub fn atomic_write(
     Ok(())
 }
 
+// ── Terminal output sanitization ─────────────────────────────────────
+
+/// Strip control characters from a string to prevent terminal escape injection.
+///
+/// Removes all C0 control characters (0x00–0x1F) and DEL (0x7F) except for
+/// common whitespace (tab, newline, carriage return). This prevents:
+/// - ANSI escape sequence injection (CSI, OSC, etc.)
+/// - OSC 8 breakout via BEL (\x07)
+/// - Cursor manipulation and line erasure
+pub fn sanitize_for_terminal(s: &str) -> String {
+    s.chars()
+        .filter(|c| {
+            // Keep printable characters and safe whitespace (tab, newline)
+            !c.is_control() || matches!(*c, '\t' | '\n')
+        })
+        .collect()
+}
+
 // ── Terminal hyperlinks (OSC 8) ──────────────────────────────────────
 
 /// Format text as a clickable hyperlink using the OSC 8 protocol.
@@ -64,11 +82,16 @@ pub fn atomic_write(
 /// In terminals that support OSC 8 hyperlinks (iTerm2, WezTerm, VSCode, Ghostty, etc.),
 /// the text will be clickable and open the URL when clicked.
 /// In terminals that don't support hyperlinks, the text is returned unchanged.
+///
+/// Both `text` and `url` are sanitized to strip control characters, preventing
+/// terminal escape injection from server-controlled data.
 pub fn hyperlink(text: &str, url: &str) -> String {
+    let clean_text = sanitize_for_terminal(text);
     if supports_hyperlinks() {
-        format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text)
+        let clean_url = sanitize_for_terminal(url);
+        format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", clean_url, clean_text)
     } else {
-        text.to_string()
+        clean_text
     }
 }
 
@@ -376,6 +399,87 @@ mod tests {
         let result = format_u256_with_decimals(U256::MAX, 18);
         assert!(result.contains('.'));
         assert!(!result.is_empty());
+    }
+
+    // ── Terminal escape injection tests ────────────────────────────────
+
+    #[test]
+    fn test_hyperlink_sanitizes_escape_sequences_in_text() {
+        // A malicious server could return a payment-receipt header with ANSI escape
+        // sequences in the tx hash / reference field. These get passed to hyperlink()
+        // as the text parameter. The output must not contain raw escape sequences,
+        // even in the non-hyperlink (plain text) fallback path.
+        let malicious_text = "0xabc\x1b[31mPHISHING\x1b[0m";
+        let url = "https://explorer.tempo.xyz/tx/0xabc";
+
+        let result = hyperlink(malicious_text, url);
+
+        assert!(
+            !result.contains('\x1b'),
+            "hyperlink() must strip escape sequences from text, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_hyperlink_sanitizes_bel_in_text() {
+        // BEL (\x07) is the OSC 8 terminator. If a malicious reference contains it,
+        // the attacker can break out of the OSC 8 sequence and inject a phishing URL.
+        // After sanitization, the output must contain no control characters — the
+        // literal "evil.com" text is harmless without ESC/BEL to form an OSC 8 link.
+        let malicious_text = "0xabc\x07\x1b]8;;https://evil.com\x07click here\x1b]8;;\x07";
+        let url = "https://explorer.tempo.xyz/tx/0xabc";
+
+        let result = hyperlink(malicious_text, url);
+
+        assert!(
+            !result.contains('\x07') && !result.contains('\x1b'),
+            "hyperlink() must strip BEL/ESC from text to prevent OSC 8 breakout, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_hyperlink_sanitizes_escape_sequences_in_url() {
+        // The URL parameter is derived from server-controlled data (via tx_url()).
+        // In a real terminal, hyperlink() produces OSC 8: \x1b]8;;{url}\x07{text}\x1b]8;;\x07
+        // A malicious URL containing BEL (\x07) breaks out of the OSC 8 sequence
+        // and lets the attacker inject a phishing hyperlink.
+        //
+        // Verify sanitize_for_terminal strips the control characters that enable
+        // the OSC 8 breakout, so the formatted output is safe.
+        let malicious_url =
+            "https://explorer.tempo.xyz/tx/0xabc\x07\x1b]8;;https://evil.com\x07fake";
+
+        let clean_url = sanitize_for_terminal(malicious_url);
+
+        // After sanitization, the URL must not contain BEL or ESC — those are what
+        // enable the attacker to break OSC 8 framing and inject a phishing link.
+        assert!(
+            !clean_url.contains('\x07') && !clean_url.contains('\x1b'),
+            "sanitized URL must not contain BEL/ESC control characters: {:?}",
+            clean_url
+        );
+    }
+
+    #[test]
+    fn test_hyperlink_strips_cursor_manipulation() {
+        // Escape sequences like "cursor up" + "erase line" can forge success messages.
+        let malicious_text = "0xabc\x1b[A\x1b[2KPayment successful: 0.00 USDC";
+        let url = "https://explorer.tempo.xyz/tx/0xabc";
+
+        let result = hyperlink(malicious_text, url);
+
+        assert!(
+            !result.contains("\x1b[A"),
+            "hyperlink() must strip cursor manipulation sequences, got: {:?}",
+            result
+        );
+        assert!(
+            !result.contains("\x1b[2K"),
+            "hyperlink() must strip erase-line sequences, got: {:?}",
+            result
+        );
     }
 
     #[cfg(unix)]
