@@ -124,14 +124,15 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 # Connect your Tempo wallet
 presto login
 
-# Make a paid request (payment handled automatically on 402)
-presto https://api.example.com/data
+# Make a paid LLM request (payment handled automatically on 402)
+presto -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions
 
-# POST with JSON body
-presto -X POST --json '{"key": "value"}' https://api.example.com/endpoint
-
-# Preview payment without executing
-presto --dry-run https://api.example.com/data
+# Preview cost without paying
+presto --dry-run -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions
 ```
 
 ## Commands
@@ -143,8 +144,13 @@ presto --dry-run https://api.example.com/data
 | `presto logout` | Log out and disconnect your wallet |
 | `presto whoami` | Show wallet address, balances, access keys, and readiness |
 | `presto session list` | List active payment sessions |
-| `presto session close [URL]` | Close a payment session (use `--all` to close all) |
-| `presto session recover <URL>` | Recover a session from on-chain state |
+| `presto session list --all` | Show all channels: active, orphaned, and closing |
+| `presto session list --orphaned` | Scan on-chain for orphaned channels (no local session) |
+| `presto session list --closed` | Show channels pending finalization |
+| `presto session close [URL]` | Close a payment session by URL or channel ID |
+| `presto session close --all` | Close all active sessions and on-chain channels |
+| `presto session close --orphaned` | Close only orphaned on-chain channels |
+| `presto session close --closed` | Finalize channels pending close (grace period elapsed) |
 | `presto wallet create [--name]` | Create a local wallet (EOA stored in macOS Keychain) |
 | `presto wallet import [--name] [--stdin-key|--private-key]` | Import an existing private key as a local wallet |
 | `presto wallet delete --name <NAME> [--yes]` | Delete a local wallet |
@@ -157,7 +163,7 @@ These options are available on all commands:
 
 | Option | Description |
 |--------|-------------|
-| `-n, --network <NETWORKS>` | Filter to specific networks (e.g., `tempo`, `tempo-moderato`) |
+| `-n, --network <NETWORKS>` | Filter to specific networks (default: `tempo`) |
 | `-v` | Verbose output — shows payment flow details (intent, network, amount) (use `-vv` for debug) |
 | `-q, --quiet` | Suppress log messages (recommended for agents) |
 | `--output-format json` | JSON output (recommended for agents) |
