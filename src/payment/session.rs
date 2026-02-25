@@ -1184,6 +1184,11 @@ pub async fn handle_session_request(
     // Load signer and resolve signing mode (direct or keychain)
     let signing = load_wallet_signer(network_name)?;
 
+    let is_keychain = matches!(
+        &signing.signing_mode,
+        mpp::client::tempo::signing::TempoSigningMode::Keychain { .. }
+    );
+
     let key_address = signing.signer.address();
     let from = signing.from;
 
@@ -1379,15 +1384,110 @@ pub async fn handle_session_request(
     .await
     .context("Failed to sign initial voucher")?;
 
-    let open_credential = create_tempo_payment_from_calls(
+    let payment = create_tempo_payment_from_calls(
         config, &signing, &challenge, open_calls, currency, chain_id,
     )
     .await?;
 
-    let open_tx = open_credential
+    // For keychain (smart wallet) mode, pre-broadcast the open transaction
+    // from the client. The server's `eth_sendRawTransactionSync` may reject
+    // type-0x76 keychain transactions, so we broadcast directly via the
+    // standard RPC and wait for confirmation before proceeding.
+    if is_keychain {
+        if request_ctx.log_enabled() {
+            eprintln!("Broadcasting channel open tx (keychain mode)...");
+        }
+
+        let network_info = config.resolve_network(network_name)?;
+        let rpc_url: url::Url = network_info
+            .rpc_url
+            .parse()
+            .context("Invalid RPC URL for pre-broadcast")?;
+        let provider =
+            alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+
+        use alloy::providers::Provider;
+        let pending = provider
+            .send_raw_transaction(&payment.tx_bytes)
+            .await
+            .context("Failed to broadcast channel open transaction")?;
+        let tx_hash = pending.tx_hash();
+
+        let explorer = Network::from_str(network_name)
+            .ok()
+            .and_then(|n| n.info().explorer);
+        if request_ctx.log_enabled() {
+            if let Some(exp) = explorer.as_ref() {
+                eprintln!(
+                    "Channel open tx: {}",
+                    exp.tx_url(&format!("{:#x}", tx_hash))
+                );
+            } else {
+                eprintln!("Channel open tx: {:#x}", tx_hash);
+            }
+        }
+
+        // Wait for the receipt to confirm the channel is funded on-chain.
+        // Alloy's deserializer doesn't know type-0x76, so we poll manually
+        // and parse the raw JSON receipt to check status.
+        wait_for_tempo_receipt(&provider, *tx_hash).await?;
+
+        if request_ctx.log_enabled() {
+            eprintln!("Channel open confirmed on-chain");
+        }
+
+        // Send the Open credential to the server so it registers the channel.
+        // The tx is already confirmed on-chain, so the server just needs to
+        // look it up.
+        let open_payload = SessionCredentialPayload::Open {
+            payload_type: "transaction".to_string(),
+            channel_id: format!("{}", channel_id),
+            transaction: format!("0x{}", hex::encode(&payment.tx_bytes)),
+            authorized_signer: Some(format!("{:#x}", authorized_signer)),
+            cumulative_amount: initial_cumulative.to_string(),
+            signature: format!("0x{}", hex::encode(&voucher_sig)),
+        };
+
+        let session_credential =
+            mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
+        let auth_header = mpp::format_authorization(&session_credential)
+            .context("Failed to format open credential")?;
+
+        let delays = [2000_u64, 3000, 5000];
+        let _ = send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
+
+        let mut state = SessionState {
+            channel_id,
+            escrow_contract,
+            chain_id,
+            cumulative_amount: initial_cumulative,
+        };
+
+        let ctx = SessionContext {
+            signer: &signing.signer,
+            echo: &echo,
+            did: &did,
+            request_ctx,
+            url,
+            network_name,
+            origin: &origin,
+            tick_cost,
+            deposit,
+            salt: format!("{}", salt),
+            recipient: format!("{:#x}", recipient),
+            currency: format!("{:#x}", currency),
+        };
+
+        let result = send_session_request(&ctx, &mut state).await?;
+        persist_session(&ctx, &state)?;
+        return Ok(result);
+    }
+
+    // Direct signing mode: send the raw transaction to the server for broadcast.
+    let open_tx = payment
+        .credential
         .payload
-        .get("signature")
-        .or_else(|| open_credential.payload.get("transaction"))
+        .get("transaction")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing transaction in open credential"))?
         .to_string();
@@ -1407,57 +1507,8 @@ pub async fn handle_session_request(
     let auth_header = mpp::format_authorization(&session_credential)
         .context("Failed to format open credential")?;
 
-    let open_headers = vec![("Authorization".to_string(), auth_header)];
-    let open_response = request_ctx.execute(url, Some(&open_headers)).await?;
-
-    // Retry on 410 "channel not funded" — the on-chain tx may still be confirming.
-    let open_response = if open_response.status_code == 410 {
-        let body = open_response.body_string().unwrap_or_default();
-        if body.contains("channel not funded") || body.contains("Channel Not Found") {
-            if request_ctx.log_enabled() {
-                eprintln!("Channel tx still confirming, waiting to retry...");
-            }
-            let delays = [2000, 3000, 5000];
-            let mut final_response = None;
-            for delay_ms in delays {
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                let retry_headers = vec![("Authorization".to_string(), open_headers[0].1.clone())];
-                let resp = request_ctx.execute(url, Some(&retry_headers)).await?;
-                if resp.status_code < 400 {
-                    final_response = Some(resp);
-                    break;
-                }
-                let retry_body = resp.body_string().unwrap_or_default();
-                if resp.status_code != 410 {
-                    anyhow::bail!(
-                        "Session open failed: HTTP {} — {}",
-                        resp.status_code,
-                        retry_body.chars().take(500).collect::<String>()
-                    );
-                }
-            }
-            match final_response {
-                Some(resp) => resp,
-                None => anyhow::bail!(
-                    "Session open failed after retries: channel not funded on-chain. TX may have failed."
-                ),
-            }
-        } else {
-            anyhow::bail!(
-                "Session open failed: HTTP 410 — {}",
-                body.chars().take(500).collect::<String>()
-            );
-        }
-    } else if open_response.status_code >= 400 {
-        let body = open_response.body_string().unwrap_or_default();
-        anyhow::bail!(
-            "Session open failed: HTTP {} — {}",
-            open_response.status_code,
-            body.chars().take(500).collect::<String>()
-        );
-    } else {
-        open_response
-    };
+    let delays = [2000_u64, 3000, 5000];
+    let open_response = send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
 
     if let Some(receipt_str) = open_response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_str) {
@@ -1506,14 +1557,26 @@ pub async fn handle_session_request(
 /// Close a session from a persisted record.
 ///
 /// Used by `presto session close` to send a close credential to the server.
+/// Tries cooperative (server-side) close first, then falls back to on-chain close.
 pub async fn close_session_from_record(
     record: &session_store::SessionRecord,
     config: &Config,
 ) -> Result<CloseOutcome> {
+    tracing::info!(
+        origin = %record.origin,
+        channel_id = %record.channel_id,
+        network = %record.network_name,
+        chain_id = record.chain_id,
+        escrow = %record.escrow_contract,
+        cumulative_amount = %record.cumulative_amount,
+        "starting session close"
+    );
+
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
 
     let wallet = load_wallet_signer(&record.network_name)?;
+    tracing::debug!(wallet_address = %wallet.from, "loaded wallet signer");
 
     let channel_id: B256 = record.channel_id_b256()?;
 
@@ -1523,6 +1586,12 @@ pub async fn close_session_from_record(
         .context("Invalid escrow_contract in session record")?;
 
     let cumulative_amount: u128 = record.cumulative_amount_u128()?;
+
+    tracing::debug!(
+        %cumulative_amount,
+        signer = %wallet.signer.address(),
+        "signing close voucher"
+    );
 
     let sig = sign_voucher(
         &wallet.signer,
@@ -1534,13 +1603,18 @@ pub async fn close_session_from_record(
     .await
     .context("Failed to sign close voucher")?;
 
+    tracing::debug!("close voucher signed, attempting cooperative close");
+
     // Try cooperative close via the server first
     let server_result = try_server_close(record, &echo, channel_id, cumulative_amount, &sig).await;
 
     match server_result {
-        Ok(()) => return Ok(CloseOutcome::Closed),
+        Ok(()) => {
+            tracing::info!(channel_id = %record.channel_id, "cooperative close succeeded");
+            return Ok(CloseOutcome::Closed);
+        }
         Err(e) => {
-            tracing::debug!(%e, "server close failed, falling back to on-chain close");
+            tracing::warn!(%e, "cooperative close failed, falling back to on-chain close");
         }
     }
 
@@ -1562,11 +1636,23 @@ async fn try_server_close(
         signature: format!("0x{}", hex::encode(sig)),
     };
 
+    tracing::debug!(
+        channel_id = %channel_id,
+        cumulative_amount = %cumulative_amount,
+        did = %record.did,
+        "building close credential"
+    );
+
     let credential =
         mpp::PaymentCredential::with_source(echo.clone(), record.did.clone(), close_payload);
 
     let auth =
         mpp::format_authorization(&credential).context("Failed to format close credential")?;
+
+    tracing::debug!(
+        auth_header_len = auth.len(),
+        "formatted close authorization header"
+    );
 
     let client = reqwest::Client::builder()
         .build()
@@ -1586,6 +1672,12 @@ async fn try_server_close(
         record.request_url.clone()
     };
 
+    tracing::info!(
+        url = %close_url,
+        method = "POST",
+        "sending cooperative close request to server"
+    );
+
     let response = client
         .post(&close_url)
         .header("Authorization", &auth)
@@ -1594,10 +1686,22 @@ async fn try_server_close(
         .context("Channel close request failed")?;
 
     let status = response.status();
+    tracing::info!(
+        status = status.as_u16(),
+        "received cooperative close response"
+    );
+
+    // Log all response headers at debug level for diagnostics
+    for (name, value) in response.headers().iter() {
+        if let Ok(v) = value.to_str() {
+            tracing::debug!(header = %name, value = %v, "response header");
+        }
+    }
 
     // HTTP 410 Gone means the channel is already finalized on-chain.
     // Treat this as a successful close — the local record just needs cleanup.
     if status == reqwest::StatusCode::GONE {
+        tracing::info!("server returned 410 Gone — channel already finalized");
         return Ok(());
     }
 
@@ -1606,6 +1710,11 @@ async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
+        tracing::warn!(
+            status = status.as_u16(),
+            body = %body,
+            "cooperative close rejected by server"
+        );
         let reason = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|v| {
@@ -1624,6 +1733,7 @@ async fn try_server_close(
 
     if let Some(receipt_str) = response.headers().get("payment-receipt") {
         if let Ok(receipt_str) = receipt_str.to_str() {
+            tracing::debug!(receipt = %receipt_str, "received payment-receipt header");
             if let Ok(receipt) = parse_receipt(receipt_str) {
                 let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
                 let explorer = Network::from_str(&record.network_name)
@@ -1638,6 +1748,7 @@ async fn try_server_close(
             }
         }
     } else {
+        tracing::warn!("server returned success but no payment-receipt header");
         eprintln!("Channel close sent (no receipt)");
     }
 
@@ -1822,6 +1933,172 @@ pub async fn read_grace_period(
     Some(decoded)
 }
 
+/// Wait for a Tempo type-0x76 transaction receipt by polling `eth_getTransactionReceipt`.
+///
+/// Alloy's built-in `get_receipt()` can't deserialize type-0x76 receipts, so we
+/// poll the raw JSON and check the `status` field directly.
+async fn wait_for_tempo_receipt(
+    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
+    tx_hash: B256,
+) -> Result<()> {
+    use alloy::providers::Provider;
+
+    let poll_interval = std::time::Duration::from_secs(2);
+    let timeout = std::time::Duration::from_secs(120);
+    let start = std::time::Instant::now();
+
+    loop {
+        let raw: serde_json::Value = provider
+            .raw_request(
+                "eth_getTransactionReceipt".into(),
+                [format!("{:#x}", tx_hash)],
+            )
+            .await
+            .context("Failed to query transaction receipt")?;
+
+        if !raw.is_null() {
+            let status = raw.get("status").and_then(|s| s.as_str()).unwrap_or("0x0");
+            if status == "0x1" {
+                return Ok(());
+            } else {
+                anyhow::bail!("Channel open transaction reverted on-chain (status={status})");
+            }
+        }
+
+        if start.elapsed() > timeout {
+            anyhow::bail!(
+                "Timed out waiting for channel open tx {:#x} after {}s",
+                tx_hash,
+                timeout.as_secs()
+            );
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
+/// Send the Open credential to the server and retry on HTTP 410 while the node indexes.
+async fn send_open_with_retry(
+    request_ctx: &RequestContext,
+    url: &str,
+    auth_header: &str,
+    delays_ms: &[u64],
+) -> Result<HttpResponse> {
+    let mut headers = vec![("Authorization".to_string(), auth_header.to_string())];
+    let resp = request_ctx.execute(url, Some(&headers)).await?;
+
+    if resp.status_code < 400 {
+        return Ok(resp);
+    }
+
+    if resp.status_code == 410 {
+        let body = resp.body_string().unwrap_or_default();
+        if body.contains("channel not funded") || body.contains("Channel Not Found") {
+            if request_ctx.log_enabled() {
+                eprintln!("Server hasn't indexed channel yet, retrying...");
+            }
+            for delay in delays_ms {
+                tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
+                headers[0].1 = auth_header.to_string();
+                let next = request_ctx.execute(url, Some(&headers)).await?;
+                if next.status_code < 400 {
+                    return Ok(next);
+                }
+                if next.status_code != 410 {
+                    let nb = next.body_string().unwrap_or_default();
+                    anyhow::bail!(
+                        "Session open failed: HTTP {} — {}",
+                        next.status_code,
+                        nb.chars().take(500).collect::<String>()
+                    );
+                }
+                // else: keep retrying 410s
+            }
+            anyhow::bail!("Server could not find channel after retries");
+        } else {
+            anyhow::bail!(
+                "Session open failed: HTTP 410 — {}",
+                body.chars().take(500).collect::<String>()
+            );
+        }
+    }
+
+    let body = resp.body_string().unwrap_or_default();
+    anyhow::bail!(
+        "Session open failed: HTTP {} — {}",
+        resp.status_code,
+        body.chars().take(500).collect::<String>()
+    );
+}
+
+/// The nonceKey used for client-side session transactions.
+const SESSION_NONCE_KEY: u64 = 0;
+
+/// NONCE precompile address for querying 2D nonce spaces.
+const NONCE_PRECOMPILE: &str = "0x4e4f4e4345000000000000000000000000000000";
+
+/// Query the on-chain nonce for a specific nonceKey via the NONCE precompile.
+///
+/// Calls `getNonce(address, uint256)` on the NONCE precompile to get the
+/// current nonce for the given account in the specified nonceKey space.
+async fn get_nonce_for_key(
+    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
+    account: Address,
+    nonce_key: u64,
+) -> Result<u64> {
+    // For nonceKey=0, use the standard account transaction count.
+    if nonce_key == 0 {
+        use alloy::providers::Provider;
+        // Prefer a raw request to avoid type coupling; returns hex string like "0x..."
+        let count_hex: String = provider
+            .raw_request(
+                "eth_getTransactionCount".into(),
+                [format!("{:#x}", account), "latest".to_string()],
+            )
+            .await
+            .context("Failed to query transaction count")?;
+        let trimmed = count_hex.trim_start_matches("0x");
+        let nonce = u64::from_str_radix(trimmed, 16).unwrap_or(0);
+        return Ok(nonce);
+    }
+    use alloy::primitives::{Bytes, U256};
+    use alloy::providers::Provider;
+    use alloy::sol;
+    use alloy::sol_types::SolCall;
+
+    sol! {
+        interface INonce {
+            function getNonce(address account, uint256 nonceKey) external view returns (uint256);
+        }
+    }
+
+    let call_data = INonce::getNonceCall {
+        account,
+        nonceKey: U256::from(nonce_key),
+    }
+    .abi_encode();
+
+    let nonce_precompile: Address = NONCE_PRECOMPILE
+        .parse()
+        .context("invalid NONCE precompile address")?;
+
+    let tx = alloy::rpc::types::TransactionRequest::default()
+        .to(nonce_precompile)
+        .input(Bytes::from(call_data).into());
+
+    let result = provider
+        .call(tx)
+        .await
+        .context("Failed to query nonce precompile")?;
+    // Response is a single ABI-encoded uint256
+    if result.len() < 32 {
+        anyhow::bail!("Nonce precompile returned too few bytes: {}", result.len());
+    }
+    let nonce_u256 = alloy::primitives::U256::from_be_slice(&result[result.len() - 32..]);
+
+    Ok(nonce_u256.to::<u64>())
+}
+
 /// Submit a Tempo type-0x76 transaction and return the tx hash.
 async fn submit_tempo_tx(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
@@ -1834,20 +2111,20 @@ async fn submit_tempo_tx(
     use alloy::primitives::U256;
     use alloy::providers::Provider;
 
-    let resolved = mpp::client::tempo::gas::resolve_gas_with_stuck_detection(
-        provider,
-        from,
-        1_000_000_000,
-        1_000_000_000,
-    )
-    .await
-    .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
+    // Use simple gas resolution for gas prices only.
+    let resolved =
+        mpp::client::tempo::gas::resolve_gas(provider, from, 1_000_000_000, 1_000_000_000)
+            .await
+            .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
+
+    // Query the correct nonce for our nonceKey space via the NONCE precompile.
+    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await?;
 
     let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
         provider,
         from,
         chain_id,
-        resolved.nonce,
+        nonce,
         fee_token,
         &calls,
         resolved.max_fee_per_gas,
@@ -1862,8 +2139,8 @@ async fn submit_tempo_tx(
             calls,
             chain_id,
             fee_token,
-            nonce: resolved.nonce,
-            nonce_key: U256::ZERO,
+            nonce,
+            nonce_key: U256::from(SESSION_NONCE_KEY),
             gas_limit,
             max_fee_per_gas: resolved.max_fee_per_gas,
             max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
@@ -2084,11 +2361,20 @@ fn network_from_session_request(req: &mpp::SessionRequest) -> crate::error::Resu
     })
 }
 
+/// Result of building a Tempo payment from calls.
+struct TempoPaymentResult {
+    credential: mpp::PaymentCredential,
+    tx_bytes: Vec<u8>,
+}
+
 /// Create a Tempo payment credential from pre-built calls.
 ///
 /// Used by session payments where the calls (e.g., approve + escrow.open)
 /// are built externally. Resolves nonce/gas at signing time inside mpp-rs
 /// (including stuck-tx detection) and signs with keychain-aware signing mode.
+///
+/// Returns both the credential (for sending to the server) and the raw
+/// signed transaction bytes (for optional client-side pre-broadcast).
 async fn create_tempo_payment_from_calls(
     config: &Config,
     signing: &crate::wallet::signer::WalletSigner,
@@ -2096,7 +2382,7 @@ async fn create_tempo_payment_from_calls(
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
     chain_id: u64,
-) -> Result<mpp::PaymentCredential> {
+) -> Result<TempoPaymentResult> {
     let network = Network::from_chain_id(chain_id).ok_or_else(|| {
         crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
     })?;
@@ -2110,8 +2396,8 @@ async fn create_tempo_payment_from_calls(
 
     let from = signing.from;
 
-    // Resolve nonce and gas with stuck-tx detection
-    let resolved = mpp::client::tempo::gas::resolve_gas_with_stuck_detection(
+    // Resolve gas prices (not nonce — resolve_gas queries nonceKey=0).
+    let resolved = mpp::client::tempo::gas::resolve_gas(
         &provider,
         from,
         1_000_000_000, // 1 gwei default max fee
@@ -2120,12 +2406,15 @@ async fn create_tempo_payment_from_calls(
     .await
     .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
 
+    // Query the correct nonce for our nonceKey space via the NONCE precompile.
+    let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
+
     // Estimate gas
     let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
         &provider,
         from,
         chain_id,
-        resolved.nonce,
+        nonce,
         fee_token,
         &calls,
         resolved.max_fee_per_gas,
@@ -2141,8 +2430,8 @@ async fn create_tempo_payment_from_calls(
             calls,
             chain_id,
             fee_token,
-            nonce: resolved.nonce,
-            nonce_key: alloy::primitives::U256::ZERO,
+            nonce,
+            nonce_key: alloy::primitives::U256::from(SESSION_NONCE_KEY),
             gas_limit,
             max_fee_per_gas: resolved.max_fee_per_gas,
             max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
@@ -2160,7 +2449,12 @@ async fn create_tempo_payment_from_calls(
     .await
     .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
 
-    Ok(mpp::client::tempo::tx_builder::build_charge_credential(
+    let credential = mpp::client::tempo::tx_builder::build_charge_credential(
         challenge, &tx_bytes, chain_id, from,
-    ))
+    );
+
+    Ok(TempoPaymentResult {
+        credential,
+        tx_bytes,
+    })
 }

@@ -28,21 +28,26 @@ pub async fn run_login(
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     // Skip login if a wallet is already connected with an access key
+    // AND the key is provisioned on the target network (or no specific network requested).
     if let Ok(creds) = WalletCredentials::load() {
         if creds.has_wallet() {
-            let config_path = Config::default_config_path()?;
-            let config = if config_path.exists() {
-                Config::load_from(Some(&config_path)).unwrap_or_default()
-            } else {
-                Config::default()
-            };
+            let provisioned = network.map(|n| creds.is_provisioned(n)).unwrap_or(true);
 
-            if output_format == OutputFormat::Text {
-                println!("Already logged in.\n");
+            if provisioned {
+                let config_path = Config::default_config_path()?;
+                let config = if config_path.exists() {
+                    Config::load_from(Some(&config_path)).unwrap_or_default()
+                } else {
+                    Config::default()
+                };
+
+                if output_format == OutputFormat::Text {
+                    println!("Already logged in.\n");
+                }
+
+                show_whoami(&config, output_format, network).await?;
+                return Ok(());
             }
-
-            show_whoami(&config, output_format, network).await?;
-            return Ok(());
         }
     }
 
@@ -179,65 +184,89 @@ pub async fn show_whoami(
     };
 
     if creds.has_wallet() {
-        response.wallet = Some(creds.wallet_address().to_string());
-
-        if let Some(key_entry) = creds.primary_key() {
-            let wt = match key_entry.wallet_type {
-                crate::wallet::credentials::WalletType::Passkey => "passkey",
-                crate::wallet::credentials::WalletType::Local => "local",
-            };
-            response.wallet_type = Some(wt.to_string());
-        }
+        // Keys are scoped to currencies — no cross-network fallback
+        let active_entry = creds.key_for_network(network);
 
         // Include resolved network info for machine-readability
         response.network = Some(network.to_string());
         response.chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
 
-        let all_balances = query_all_balances(config, network, creds.wallet_address()).await;
+        if let Some(key_entry) = active_entry {
+            // Show the wallet only if a key exists for this network
+            if !key_entry.wallet_address.is_empty() {
+                response.wallet = Some(key_entry.wallet_address.clone());
+            }
 
-        let active_entry = creds.primary_key();
-        let key_token_info = if let Some(entry) = active_entry {
-            query_spending_limit(config, network, entry).await
-        } else {
-            None
-        };
-
-        if let Some(addr) = creds.access_key_address() {
-            let (symbol, currency, spending_limit) = match key_token_info {
-                Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
-                None => (None, None, None),
+            let wt = match key_entry.wallet_type {
+                crate::wallet::credentials::WalletType::Passkey => "passkey",
+                crate::wallet::credentials::WalletType::Local => "local",
             };
-            let balance = currency.as_ref().and_then(|cur| {
-                all_balances
-                    .iter()
-                    .find(|tb| tb.currency == *cur)
-                    .map(|tb| tb.balance.clone())
-            });
-            let expires_at = active_entry
-                .and_then(key_expiry_timestamp)
-                .map(format_expiry_iso);
-            response.key = Some(KeyInfo {
-                label: creds.primary_key_name().unwrap_or_default(),
-                address: addr,
-                wallet_address: None,
-                wallet_type: None,
-                symbol,
-                currency,
-                balance,
-                spending_limit,
-                expires_at,
-            });
+            response.wallet_type = Some(wt.to_string());
+
+            let wallet_addr = response.wallet.as_deref().unwrap_or("");
+            let all_balances = query_all_balances(config, network, wallet_addr).await;
+
+            let key_token_info = query_spending_limit(config, network, key_entry).await;
+
+            // Resolve the key label for the active entry (best-effort until we return the actual name)
+            let key_label = {
+                let suffix = network.strip_prefix("tempo-").unwrap_or(network);
+                let network_key_name = format!("passkey-{suffix}");
+                if creds.keys.contains_key(&network_key_name) {
+                    network_key_name
+                } else {
+                    creds.primary_key_name().unwrap_or_default()
+                }
+            };
+
+            let key_addr = key_entry
+                .access_key_address
+                .clone()
+                .or_else(|| creds.access_key_address());
+
+            if let Some(addr) = key_addr {
+                let (symbol, currency, spending_limit) = match key_token_info {
+                    Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
+                    None => (None, None, None),
+                };
+                let balance = currency.as_ref().and_then(|cur| {
+                    all_balances
+                        .iter()
+                        .find(|tb| tb.currency == *cur)
+                        .map(|tb| tb.balance.clone())
+                });
+                let expires_at = key_expiry_timestamp(key_entry).map(format_expiry_iso);
+                response.key = Some(KeyInfo {
+                    label: key_label,
+                    address: addr,
+                    wallet_address: None,
+                    wallet_type: None,
+                    symbol,
+                    currency,
+                    balance,
+                    spending_limit,
+                    expires_at,
+                });
+            } else {
+                response.ready = false;
+            }
+
+            // Readiness requires: access key present, wallet connected, and either
+            // already provisioned or has a key_authorization (will auto-provision on first use).
+            let has_wallet_addr = response
+                .wallet
+                .as_deref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            let is_provisioned = creds.is_provisioned(network);
+            let has_key_auth = key_entry.key_authorization.as_deref().is_some();
+            response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
         } else {
+            // No key for this network: do not show a wallet; clearly not ready
+            response.wallet = None;
+            response.wallet_type = None;
             response.ready = false;
         }
-
-        // Readiness requires: access key present, wallet connected, and either
-        // already provisioned or has a key_authorization (will auto-provision on first use).
-        let has_wallet_addr = !creds.wallet_address().is_empty();
-        let is_provisioned = creds.is_provisioned(network);
-        let has_key_auth = creds.key_authorization().is_some();
-
-        response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
     } else {
         response.ready = false;
     }
