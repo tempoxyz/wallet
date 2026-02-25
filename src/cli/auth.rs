@@ -131,11 +131,8 @@ pub struct TokenBalance {
 #[derive(Debug, Serialize)]
 pub(crate) struct SpendingLimitInfo {
     unlimited: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     limit: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     remaining: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     spent: Option<String>,
 }
 
@@ -144,35 +141,23 @@ pub(crate) struct SpendingLimitInfo {
 pub(crate) struct KeyInfo {
     pub label: String,
     pub address: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub balance: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub spending_limit: Option<SpendingLimitInfo>,
-    /// Key expiry as an ISO-8601 UTC timestamp (JSON) or countdown (text).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Key expiry as an ISO-8601 UTC timestamp (JSON).
     pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub ready: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_id: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) key: Option<KeyInfo>,
 }
 
@@ -272,21 +257,14 @@ pub async fn show_whoami(
                 if let Some(cur) = &key.currency {
                     println!("{:>10}: {}", "Currency", cur);
                 }
-                if let Some(sym) = &key.symbol {
-                    if let Some(sl) = &key.spending_limit {
-                        if sl.unlimited {
-                            println!("{:>10}: {} (unlimited)", "Symbol", sym);
-                        } else {
-                            println!("{:>10}: {}", "Symbol", sym);
-                        }
-                    }
-                }
                 if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
                     println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                 }
                 print_key_amounts(key);
+                let status = if response.ready { "ready" } else { "not ready" };
+                println!("{:>10}: {}", "Status", status);
             } else {
-                println!("  Status: not ready — run 'presto login'");
+                println!("    Status: not ready — run 'presto login'");
             }
         }
     }
@@ -322,13 +300,13 @@ fn print_key_amounts(key: &KeyInfo) {
         println!("{:>10}: {:>w$} {}", "Balance", bal, sym);
     }
     if let Some(sl) = &key.spending_limit {
-        if !sl.unlimited {
-            if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
-                let spent = sl.spent.as_deref().unwrap_or("0");
-                println!("{:>10}: {:>w$} {}", "Limit", limit, sym);
-                println!("{:>10}: {:>w$} {}", "Spent", spent, sym);
-                println!("{:>10}: {:>w$} {}", "Remaining", remaining, sym);
-            }
+        if sl.unlimited {
+            println!("{:>10}: unlimited", "Limit");
+        } else if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
+            let spent = sl.spent.as_deref().unwrap_or("0");
+            println!("{:>10}: {:>w$} {}", "Limit", limit, sym);
+            println!("{:>10}: {:>w$} {}", "Spent", spent, sym);
+            println!("{:>10}: {:>w$} {}", "Remaining", remaining, sym);
         }
     }
 }
@@ -623,15 +601,6 @@ pub async fn show_keys(
                 println!("{:>10}: {}", "Access Key", key.address);
                 if let Some(cur) = &key.currency {
                     println!("{:>10}: {}", "Currency", cur);
-                }
-                if let Some(sym) = &key.symbol {
-                    if let Some(sl) = &key.spending_limit {
-                        if sl.unlimited {
-                            println!("{:>10}: {} (unlimited)", "Symbol", sym);
-                        } else {
-                            println!("{:>10}: {}", "Symbol", sym);
-                        }
-                    }
                 }
                 if let Some(entry) = creds.keys.get(&key.label) {
                     if let Some(expiry_ts) = key_expiry_timestamp(entry) {
