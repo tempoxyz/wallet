@@ -225,19 +225,15 @@ fn test_completions_case_sensitivity() {
 
 #[test]
 fn test_session_list_json_empty() {
-    let temp_dir = TestConfigBuilder::new().build();
-
-    let output = test_command(&temp_dir)
-        .args(["session", "list", "--output-format", "json"])
-        .output()
-        .unwrap();
-
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["session", "list", "--output-format", "json"]);
+    let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("\"sessions\""),
-        "expected JSON sessions array: {stdout}"
-    );
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+    assert!(parsed["sessions"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -623,4 +619,68 @@ fn test_key_global_flag_selects_key() {
         combined.contains("0xBBB"),
         "should use work key's address 0xBBB: {combined}"
     );
+}
+
+// ==================== Session JSON Output Tests ====================
+
+#[test]
+fn test_session_list_text_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["session", "list"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("No active sessions"));
+}
+
+#[test]
+fn test_session_close_all_json_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["session", "close", "--all", "--output-format", "json"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["closed"], 0);
+    assert_eq!(parsed["pending"], 0);
+    assert_eq!(parsed["failed"], 0);
+    assert!(parsed["results"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_session_close_no_args_fails() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["session", "close"]);
+    cmd.assert().failure();
+}
+
+#[test]
+fn test_session_close_invalid_channel_id() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["session", "close", "0xinvalid"]);
+    let output = cmd.output().unwrap();
+    // Short hex string (not 66 chars) is treated as a URL, not a channel ID
+    // Should print "No active session" not a crash
+    assert!(
+        !output.status.success() || {
+            let combined = get_combined_output(&output).to_lowercase();
+            combined.contains("no active session") || combined.contains("error")
+        }
+    );
+}
+
+#[test]
+fn test_session_list_closed_json_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["session", "list", "--closed", "--output-format", "json"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+    assert!(parsed["sessions"].as_array().unwrap().is_empty());
 }

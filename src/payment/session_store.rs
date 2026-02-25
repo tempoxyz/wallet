@@ -319,8 +319,9 @@ fn delete_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<()> {
 }
 
 fn delete_session_by_channel_id_conn(conn: &rusqlite::Connection, channel_id: &str) -> Result<()> {
+    let channel_id = channel_id.to_lowercase();
     conn.execute(
-        "DELETE FROM sessions WHERE channel_id = ?1",
+        "DELETE FROM sessions WHERE LOWER(channel_id) = ?1",
         params![channel_id],
     )
     .context("Failed to delete session by channel_id")?;
@@ -374,8 +375,7 @@ pub fn delete_session(key: &str) -> Result<()> {
 /// Delete a session record by channel ID.
 pub fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
     let conn = open_db()?;
-    let channel_id = channel_id.to_lowercase();
-    delete_session_by_channel_id_conn(&conn, &channel_id)
+    delete_session_by_channel_id_conn(&conn, channel_id)
 }
 
 /// List all session records, ordered by last_used_at descending.
@@ -394,6 +394,8 @@ fn save_pending_close_conn(
     network: &str,
     ready_at: u64,
 ) -> Result<()> {
+    let channel_id = channel_id.to_lowercase();
+    let network = network.to_lowercase();
     conn.execute(
         "INSERT OR REPLACE INTO pending_closes (channel_id, network, ready_at)
          VALUES (?1, ?2, ?3)",
@@ -436,6 +438,7 @@ fn list_pending_closes_conn(conn: &rusqlite::Connection) -> Result<Vec<PendingCl
 }
 
 fn delete_pending_close_conn(conn: &rusqlite::Connection, channel_id: &str) -> Result<()> {
+    let channel_id = channel_id.to_lowercase();
     conn.execute(
         "DELETE FROM pending_closes WHERE channel_id = ?1",
         params![channel_id],
@@ -451,9 +454,7 @@ fn delete_pending_close_conn(conn: &rusqlite::Connection, channel_id: &str) -> R
 /// Save a pending close record.
 pub fn save_pending_close(channel_id: &str, network: &str, ready_at: u64) -> Result<()> {
     let conn = open_db()?;
-    let channel_id = channel_id.to_lowercase();
-    let network = network.to_lowercase();
-    save_pending_close_conn(&conn, &channel_id, &network, ready_at)
+    save_pending_close_conn(&conn, channel_id, network, ready_at)
 }
 
 /// List all pending closes regardless of maturity.
@@ -484,8 +485,7 @@ pub fn list_all_pending_closes() -> Result<Vec<PendingClose>> {
 /// Delete a pending close record by channel ID.
 pub fn delete_pending_close(channel_id: &str) -> Result<()> {
     let conn = open_db()?;
-    let channel_id = channel_id.to_lowercase();
-    delete_pending_close_conn(&conn, &channel_id)
+    delete_pending_close_conn(&conn, channel_id)
 }
 
 #[cfg(test)]
@@ -701,5 +701,102 @@ mod tests {
         let list = list_pending_closes_conn(&conn).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].ready_at, 2000);
+    }
+
+    #[test]
+    fn test_save_pending_close_normalizes_channel_id() {
+        let (_tmp, conn) = test_db();
+        save_pending_close_conn(&conn, "0xABCDEF", "TEMPO", 1000).unwrap();
+
+        // Query raw DB to verify normalization
+        let stored: String = conn
+            .query_row("SELECT channel_id FROM pending_closes", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, "0xabcdef", "channel_id should be stored lowercase");
+
+        let network: String = conn
+            .query_row("SELECT network FROM pending_closes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(network, "tempo", "network should be stored lowercase");
+    }
+
+    #[test]
+    fn test_delete_pending_close_case_insensitive() {
+        let (_tmp, conn) = test_db();
+        save_pending_close_conn(&conn, "0xabc123", "tempo", 1000).unwrap();
+
+        // Delete with different casing
+        delete_pending_close_conn(&conn, "0xABC123").unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pending_closes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "delete should match regardless of case");
+    }
+
+    #[test]
+    fn test_save_pending_close_upsert_case_insensitive() {
+        let (_tmp, conn) = test_db();
+        // Save with lowercase
+        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
+        // Update with uppercase — should upsert (same record after normalization)
+        save_pending_close_conn(&conn, "0xABC", "tempo", 2000).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pending_closes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            count, 1,
+            "should have 1 record after upsert with different case"
+        );
+
+        let ready_at: i64 = conn
+            .query_row("SELECT ready_at FROM pending_closes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(ready_at, 2000, "should have updated ready_at");
+    }
+
+    #[test]
+    fn test_delete_session_by_channel_id_case_insensitive() {
+        let (_tmp, conn) = test_db();
+        let mut record = test_record("https://example.com", "salt_1");
+        record.channel_id = "0xabc123".to_string();
+        save_session_conn(&conn, &record).unwrap();
+
+        // Delete with different casing
+        delete_session_by_channel_id_conn(&conn, "0xABC123").unwrap();
+
+        let all = list_sessions_conn(&conn).unwrap();
+        assert!(
+            all.is_empty(),
+            "session should be deleted regardless of case"
+        );
+    }
+
+    #[test]
+    fn test_cross_case_cleanup_scenario() {
+        // Simulates the stale record cleanup scenario:
+        // pending_close saved by on-chain scanner (lowercase), session saved by session flow (could be mixed)
+        let (_tmp, conn) = test_db();
+
+        let mut record = test_record("https://example.com", "salt_1");
+        record.channel_id = "0xAbCdEf".to_string();
+        save_session_conn(&conn, &record).unwrap();
+        save_pending_close_conn(&conn, "0xabcdef", "tempo", 1000).unwrap();
+
+        // Cleanup with the channel_id from the pending_close record (lowercase)
+        delete_pending_close_conn(&conn, "0xabcdef").unwrap();
+        delete_session_by_channel_id_conn(&conn, "0xabcdef").unwrap();
+
+        let pending_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pending_closes", [], |row| row.get(0))
+            .unwrap();
+        let session_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(pending_count, 0, "pending close should be cleaned up");
+        assert_eq!(session_count, 0, "session should be cleaned up");
     }
 }

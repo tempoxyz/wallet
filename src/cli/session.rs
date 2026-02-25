@@ -1331,3 +1331,39 @@ async fn finalize_closed_channels(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_duration_zero() {
+        assert_eq!(format_duration(0), "0s");
+    }
+
+    #[test]
+    fn test_format_duration_seconds() {
+        assert_eq!(format_duration(1), "1s");
+        assert_eq!(format_duration(59), "59s");
+    }
+
+    #[test]
+    fn test_format_duration_exact_minutes() {
+        assert_eq!(format_duration(60), "1m");
+        assert_eq!(format_duration(120), "2m");
+        assert_eq!(format_duration(900), "15m");
+    }
+
+    #[test]
+    fn test_format_duration_minutes_and_seconds() {
+        assert_eq!(format_duration(61), "1m 1s");
+        assert_eq!(format_duration(90), "1m 30s");
+        assert_eq!(format_duration(125), "2m 5s");
+    }
+
+    #[test]
+    fn test_format_duration_large() {
+        assert_eq!(format_duration(3600), "60m");
+        assert_eq!(format_duration(3661), "61m 1s");
+    }
+}
