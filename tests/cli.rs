@@ -348,6 +348,17 @@ fn test_typo_subcommand_not_swallowed() {
 }
 
 #[test]
+fn test_unknown_command_shows_clean_error() {
+    // `presto foo` should show a clean "not a command" error, not a URL parse error
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["foo"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not a presto command"))
+        .stderr(predicate::str::contains("presto --help"));
+}
+
+#[test]
 fn test_bare_url_with_dry_run() {
     // `--dry-run` with a bare URL should succeed without making a payment
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))

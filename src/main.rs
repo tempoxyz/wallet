@@ -120,7 +120,23 @@ fn parse_cli() -> Cli {
 
             let mut with_query = vec![args[0].clone(), "query".to_string()];
             with_query.extend(args[1..].iter().cloned());
-            Cli::try_parse_from(with_query).unwrap_or_else(|_| original_err.exit())
+            match Cli::try_parse_from(with_query) {
+                Ok(cli) => {
+                    // Re-parse succeeded. Check if the URL looks like a
+                    // mistyped command (no scheme, no dots, no localhost).
+                    // This catches `presto foo` and gives a clean error.
+                    if let Some(Commands::Query(ref q)) = cli.command {
+                        let url = &q.url;
+                        if !url.contains("://") && !url.contains("localhost") && !url.contains('.')
+                        {
+                            eprintln!("error: '{url}' is not a presto command. See 'presto --help' for a list of available commands.");
+                            ExitCode::InvalidUsage.exit();
+                        }
+                    }
+                    cli
+                }
+                Err(_) => original_err.exit(),
+            }
         }
     }
 }
