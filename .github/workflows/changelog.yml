@@ -32,8 +32,7 @@ jobs:
             echo "No code changes requiring changelog, skipping"
             exit 0
           fi
-          cargo --version || echo "NO CARGO"
-          cargo metadata --format-version 1 --no-deps 2>&1 | python3 -c "import json,sys; d=json.load(sys.stdin); print('root:', d.get('workspace_root','')); print('packages:', [p['name'] for p in d.get('packages',[])]); print('members:', d.get('workspace_members',[]))" || echo "METADATA FAILED: $?"
+          cargo metadata --format-version 1 2>&1 | tail -1 || echo "FULL METADATA FAILED"
           ~/.local/bin/changelogs add --ai "claude -p" --ref origin/${{ github.base_ref }}
       - name: Commit changelog
         run: |
