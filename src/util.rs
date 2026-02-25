@@ -69,8 +69,8 @@ pub fn atomic_write(
 pub fn sanitize_for_terminal(s: &str) -> String {
     s.chars()
         .filter(|c| {
-            // Keep printable characters and safe whitespace (tab, newline, CR)
-            !c.is_control() || matches!(*c, '\t' | '\n' | '\r')
+            // Keep printable characters and safe whitespace (tab, newline)
+            !c.is_control() || matches!(*c, '\t' | '\n')
         })
         .collect()
 }
