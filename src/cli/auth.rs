@@ -246,23 +246,13 @@ pub async fn show_whoami(
             response.ready = false;
         }
 
-        // Readiness requires: access key present, wallet connected, and provisioned on this network
+        // Readiness requires: access key present, wallet connected, and either
+        // already provisioned or has a key_authorization (will auto-provision on first use).
         let has_wallet_addr = !creds.wallet_address().is_empty();
-        let mut is_provisioned = creds.is_provisioned(network);
+        let is_provisioned = creds.is_provisioned(network);
+        let has_key_auth = creds.key_authorization().is_some();
 
-        // If spending limit query succeeded, the key is authorized on-chain —
-        // treat as provisioned even if the local flag hasn't been set yet.
-        if !is_provisioned
-            && response
-                .active_key
-                .as_ref()
-                .is_some_and(|k| k.spending_limit.is_some())
-        {
-            is_provisioned = true;
-            WalletCredentials::mark_provisioned(network);
-        }
-
-        response.ready = response.ready && has_wallet_addr && is_provisioned;
+        response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
     } else {
         response.ready = false;
     }
