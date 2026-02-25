@@ -50,7 +50,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     }
 
     let request_ctx = build_request_context(&cli, &query)?;
-    let output_opts = build_output_options(&cli, &query);
+    let output_opts = build_output_options(&cli, &query, &config);
     let method_str = request_ctx.plan.method.to_string();
 
     if let Some(ref a) = analytics {
@@ -136,7 +136,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 .network
                 .as_deref()
                 .or(Some(challenge_ctx.network.as_str()));
-            super::auth::run_login(network, analytics.clone()).await?;
+            super::auth::run_login(network, analytics.clone(), super::OutputFormat::Text).await?;
             eprintln!("\nRetrying payment...");
 
             let config = load_config_with_overrides(cli.config.as_ref())?;
@@ -348,7 +348,7 @@ async fn ensure_wallet_or_prompt_login(
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");
             let network = request_ctx.runtime.network.as_deref();
-            super::auth::run_login(network, analytics.clone()).await?;
+            super::auth::run_login(network, analytics.clone(), super::OutputFormat::Text).await?;
             eprintln!("\nRetrying request...");
             *config = load_config_with_overrides(cli.config.as_ref())?;
         } else {
@@ -569,10 +569,10 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     Ok(RequestContext::new(runtime, plan))
 }
 
-/// Build `OutputOptions` from CLI arguments.
-fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
+/// Build `OutputOptions` from CLI arguments + config.
+fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> OutputOptions {
     OutputOptions {
-        output_format: cli.output_format,
+        output_format: cli.resolve_output_format(config),
         include_headers: query.include_headers,
         output_file: query.output.clone(),
         verbose: cli.is_verbose(),

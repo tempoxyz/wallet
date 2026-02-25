@@ -217,10 +217,10 @@ struct Config {
 ```
 
 **Wallet Fields (`keys.toml`):**
-- `account_address` — On-chain account address
+- `wallet_type` — `"local"` or `"passkey"`
+- `wallet_address` — On-chain wallet address (the fundable address)
 - `access_key_address` — Address of the access key (payment signing key)
-- `access_key` — Access key stored inline; file is written with mode 0600
-- `wallet_key_address` — Address of the wallet EOA key stored in the OS keychain
+- `access_key` — Access key private key stored inline; file is written with mode 0600
 - `key_authorization` — On-chain authorization proof
 - `provisioned_chain_ids` — Chains this key is provisioned on
 

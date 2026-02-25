@@ -3983,6 +3983,7 @@ dependencies = [
  "tempfile",
  "tempo-primitives",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "toml",
  "tracing",
