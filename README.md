@@ -8,7 +8,6 @@ Like `curl`, but when a server requires payment, presto handles it automatically
 - **curl-like syntax** — familiar flags (`-X`, `-H`, `--json`, `-o`, `-i`, `-L`, …)
 - **Automatic payments** — detects `402 Payment Required`, pays via [Tempo](https://tempo.xyz), retries
 - **Payment sessions** — open a channel once, then pay per-request with off-chain vouchers
-- **Streaming** — SSE pass-through and NDJSON output (`--sse`, `--sse-json`)
 - **Dry-run** — preview what you'd pay before committing (`--dry-run`)
 - **JSON output** — structured errors and responses for scripting (`-j`)
 
@@ -84,15 +83,6 @@ Credentials are stored in `keys.toml` (signing key inline, permissions `0600`).
 |----------|--------|------|
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
-
-Optional RPC overrides in `config.toml`:
-
-```toml
-tempo_rpc = "https://my-custom-tempo-rpc.com"
-moderato_rpc = "https://my-custom-moderato-rpc.com"
-```
-
-The `PRESTO_RPC_URL` env var overrides all config. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full environment variable reference.
 
 ## Contributing
 
