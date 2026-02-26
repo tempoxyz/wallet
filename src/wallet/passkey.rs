@@ -114,12 +114,9 @@ impl WalletManager {
             );
             std::io::Write::flush(&mut std::io::stderr()).ok();
             let browser_url = url_str.clone();
-            tokio::spawn(async move {
-                tokio::task::spawn_blocking(|| {
-                    let _ = std::io::stdin().read_line(&mut String::new());
-                })
-                .await
-                .ok();
+            // Using a plain thread so it won't prevent process exit after auth completes.
+            std::thread::spawn(move || {
+                let _ = std::io::stdin().read_line(&mut String::new());
                 if let Err(e) = webbrowser::open(&browser_url) {
                     eprintln!("Failed to open browser: {}", e);
                     eprintln!("Please open this URL manually: {}", browser_url);
