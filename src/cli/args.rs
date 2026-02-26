@@ -341,11 +341,16 @@ impl Cli {
     /// Resolve the effective output format: CLI flag > config > default (text).
     pub fn resolve_output_format(&self, config: &Config) -> OutputFormat {
         if self.json_output {
-            return OutputFormat::Json;
+            OutputFormat::Json
+        } else {
+            config.output_format.unwrap_or(OutputFormat::Text)
         }
+<<<<<<< HEAD
         self.output_format
             .or(config.output_format)
             .unwrap_or(OutputFormat::Text)
 >>>>>>> 52e6964 (feat(cli): add -j/--json-output alias for JSON output; add tests for alias and network-error JSON rendering)
+=======
+>>>>>>> 7e849e3 (refactor(cli): remove --output-format flag; use -j/--json-output for JSON; update tests; keep config.output_format support)
     }
 }
