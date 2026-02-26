@@ -231,6 +231,9 @@ impl WalletManager {
                 .key_address
                 .as_deref()
                 .is_none_or(|a| a != access_key_address);
+            let chain_changed = validated
+                .as_ref()
+                .is_some_and(|v| v.chain_id != key.chain_id);
             key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
             key.wallet_address = callback.account_address.clone();
             key.key_address = Some(access_key_address.clone());
@@ -242,7 +245,7 @@ impl WalletManager {
                 key.expiry = Some(v.expiry);
                 key.token_limits = v.token_limits.clone();
             }
-            if key_changed {
+            if key_changed || chain_changed {
                 key.provisioned = false;
             }
         } else {

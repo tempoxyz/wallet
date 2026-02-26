@@ -10,7 +10,6 @@ use tempo_primitives::transaction::{
 };
 use zeroize::Zeroizing;
 
-use crate::network::evm_chain_ids;
 use crate::wallet::credentials::{
     self, keychain, KeyEntry, StoredTokenLimit, WalletCredentials, WalletType,
 };
@@ -47,11 +46,13 @@ pub fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
     let access_key_address = format!("{}", access_signer.address());
 
     // Sign key_authorization for the target chain
-    let chain_id = network
-        .unwrap_or("tempo")
+    let network_str = network.unwrap_or("tempo");
+    let chain_id = network_str
         .parse::<crate::network::Network>()
         .map(|n| n.chain_id())
-        .unwrap_or(evm_chain_ids::TEMPO);
+        .map_err(|_| {
+            anyhow::anyhow!("Unknown network '{network_str}'. Use 'tempo' or 'tempo-moderato'.")
+        })?;
     let (key_auth_hex, expiry_secs, token_limits) =
         sign_key_authorization(&wallet_signer, &access_signer, chain_id)?;
 

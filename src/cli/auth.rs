@@ -640,6 +640,8 @@ pub async fn show_keys(
         balance_cache.insert(addr, balances);
     }
 
+    let current_chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
+
     let mut keys = Vec::new();
 
     for (name, entry) in &creds.keys {
@@ -653,7 +655,14 @@ pub async fn show_keys(
             crate::wallet::credentials::WalletType::Local => "local",
         };
 
-        let key_token_info = query_spending_limit(config, network, entry).await;
+        // Only query on-chain spending limits for keys on the current network
+        let on_current_chain =
+            entry.chain_id == 0 || current_chain_id.is_some_and(|cid| cid == entry.chain_id);
+        let key_token_info = if on_current_chain {
+            query_spending_limit(config, network, entry).await
+        } else {
+            None
+        };
         let (symbol, currency, spending_limit) = match key_token_info {
             Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
             None => (None, None, None),
