@@ -29,6 +29,37 @@ use crate::wallet::credentials::{has_credentials_override, WalletCredentials};
 use super::output::{handle_regular_response, write_meta_if_requested, OutputOptions};
 use super::{Cli, QueryArgs};
 
+/// Parse --data-urlencode items into (name, value) tuples with URL-encoding applied.
+fn parse_data_urlencode(items: &[String]) -> Vec<(Option<String>, String)> {
+    let mut pairs = Vec::new();
+    for it in items {
+        if let Some(rest) = it.strip_prefix('@') {
+            // @filename — read file contents
+            if let Ok(content) = std::fs::read(rest) {
+                let enc = urlencoding::encode_binary(&content).to_string();
+                pairs.push((None, enc));
+            }
+            continue;
+        }
+        if let Some(pos) = it.find("=@") {
+            // name@filename pattern (curl-style)
+            let (name, file) = it.split_at(pos);
+            let file = &file[2..];
+            if let Ok(content) = std::fs::read(file) {
+                let enc = urlencoding::encode_binary(&content).to_string();
+                pairs.push((Some(name.to_string()), enc));
+            }
+            continue;
+        }
+        if let Some((name, val)) = it.split_once('=') {
+            pairs.push((Some(name.to_string()), urlencoding::encode(val).to_string()));
+        } else {
+            // raw value; encode as a nameless component
+            pairs.push((None, urlencoding::encode(it).to_string()));
+        }
+    }
+    pairs
+}
 /// Execute an HTTP request with automatic payment handling.
 ///
 /// This is the main request flow for the `query` command:
@@ -66,22 +97,43 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         }
     }
 
-    // Support -G/--get: append -d to query string and force GET if no explicit -X
-    if query.get && !query.data.is_empty() {
-        let mut combined: Vec<u8> = Vec::new();
-        for item in &query.data {
-            let bytes = resolve_data(item)?;
-            if !combined.is_empty() {
-                combined.push(b'&');
+    // Support -G/--get: append -d and --data-urlencode to query string and force GET if no explicit -X
+    if query.get && (!query.data.is_empty() || !query.data_urlencode.is_empty()) {
+        // Raw -d data (verbatim, joined by '&')
+        let mut raw = String::new();
+        if !query.data.is_empty() {
+            let mut combined: Vec<u8> = Vec::new();
+            for item in &query.data {
+                let bytes = resolve_data(item)?;
+                if !combined.is_empty() {
+                    combined.push(b'&');
+                }
+                combined.extend(bytes);
             }
-            combined.extend(bytes);
+            raw = String::from_utf8(combined).context("data is not valid UTF-8 for --get")?;
         }
-        let params = String::from_utf8(combined).context("data is not valid UTF-8 for --get")?;
+        // Encoded data from --data-urlencode
+        let enc_pairs = parse_data_urlencode(&query.data_urlencode);
+        let mut enc_joined: Vec<String> = Vec::new();
+        for (name, val) in enc_pairs {
+            if let Some(n) = name {
+                enc_joined.push(format!("{}={}", n, val));
+            } else {
+                enc_joined.push(val);
+            }
+        }
+        let appended = if raw.is_empty() {
+            enc_joined.join("&")
+        } else if enc_joined.is_empty() {
+            raw
+        } else {
+            format!("{}&{}", raw, enc_joined.join("&"))
+        };
         let mut parsed =
             url::Url::parse(&url).context("invalid URL when applying --get query parameters")?;
         let new_query = match parsed.query() {
-            Some(q) if !q.is_empty() => format!("{q}&{params}"),
-            _ => params,
+            Some(q) if !q.is_empty() => format!("{q}&{appended}"),
+            _ => appended,
         };
         parsed.set_query(Some(&new_query));
         url = parsed.to_string();
@@ -939,11 +991,45 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     if query.compressed && !crate::http::has_header(&query.headers, "accept-encoding") {
         headers.push(("accept-encoding".to_string(), "gzip, br".to_string()));
     }
-    if !query.head
-        && should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data)
-    {
-        headers.push(("content-type".to_string(), "application/json".to_string()));
+    if !query.head {
+        if should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data) {
+            headers.push(("content-type".to_string(), "application/json".to_string()));
+        } else if !query.data_urlencode.is_empty()
+            && !crate::http::has_header(&query.headers, "content-type")
+        {
+            headers.push((
+                "content-type".to_string(),
+                "application/x-www-form-urlencoded".to_string(),
+            ));
+        }
     }
+
+    // If not using -G, merge --data-urlencode into body (form-encoded)
+    let body = if !query.get && !query.data_urlencode.is_empty() {
+        // Start with existing body bytes, then append &encoded
+        let mut base = body.unwrap_or_default();
+        let enc_pairs = parse_data_urlencode(&query.data_urlencode);
+        let mut form = String::new();
+        for (i, (name, val)) in enc_pairs.into_iter().enumerate() {
+            if i > 0 {
+                form.push('&');
+            }
+            if let Some(n) = name {
+                form.push_str(&n);
+                form.push('=');
+                form.push_str(&val);
+            } else {
+                form.push_str(&val);
+            }
+        }
+        if !base.is_empty() {
+            base.push(b'&');
+        }
+        base.extend_from_slice(form.as_bytes());
+        Some(base)
+    } else {
+        body
+    };
 
     let plan = HttpRequestPlan {
         method,

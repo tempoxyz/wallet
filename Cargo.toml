@@ -39,6 +39,7 @@ sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
+urlencoding = "2.1"
 webbrowser = "1"
 tempfile = "3.24"
 time = "0.3"
