@@ -21,7 +21,7 @@ use crate::wallet::key_authorization;
 /// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
 /// 5. Print the fundable wallet address
-pub fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
+pub(crate) fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot create wallets with --private-key flag");
     }
@@ -82,7 +82,7 @@ pub fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
 /// 2. Generate a new random key → store inline in keys.toml
 /// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
 /// 4. Clear provisioned flag (new key must re-provision)
-pub fn create_access_key(name: &str) -> Result<()> {
+pub(crate) fn create_access_key(name: &str) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot renew wallets with --private-key flag");
     }
@@ -132,7 +132,7 @@ pub fn create_access_key(name: &str) -> Result<()> {
 }
 
 /// Delete a wallet by name.
-pub fn delete_wallet(name: &str, yes: bool) -> Result<()> {
+pub(crate) fn delete_wallet(name: &str, yes: bool) -> Result<()> {
     let creds = WalletCredentials::load()?;
 
     if !creds.keys.contains_key(name) {
@@ -173,7 +173,11 @@ pub fn delete_wallet(name: &str, yes: bool) -> Result<()> {
 /// (masked) on a TTY. Stores the key in the OS keychain and records the wallet
 /// address in keys.toml. Does not create a key; run `presto login` to connect
 /// and provision when ready.
-pub fn import_wallet(name: &str, private_key_arg: Option<String>, stdin_key: bool) -> Result<()> {
+pub(crate) fn import_wallet(
+    name: &str,
+    private_key_arg: Option<String>,
+    stdin_key: bool,
+) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot import wallets with --private-key flag");
     }

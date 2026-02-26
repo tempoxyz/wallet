@@ -14,7 +14,7 @@ use std::path::{Component, Path, PathBuf};
 /// Output format for CLI commands and config default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum OutputFormat {
+pub(crate) enum OutputFormat {
     Text,
     Json,
 }
@@ -51,7 +51,7 @@ pub(crate) fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf,
 ///
 /// Wallet credentials are stored separately in `keys.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     /// RPC URL override for Tempo mainnet
     #[serde(default)]
     pub tempo_rpc: Option<String>,
@@ -71,7 +71,7 @@ pub struct Config {
 
 /// Telemetry configuration options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryConfig {
+pub(crate) struct TelemetryConfig {
     /// Enable anonymous telemetry and usage analytics.
     /// Can be disabled here or via `PRESTO_NO_TELEMETRY=1` env var.
     #[serde(default = "TelemetryConfig::default_enabled")]

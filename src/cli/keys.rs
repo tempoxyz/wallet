@@ -22,7 +22,7 @@ use mpp::client::tempo::keychain::query_key_spending_limit;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TokenBalance {
+pub(crate) struct TokenBalance {
     pub symbol: String,
     pub currency: String,
     pub balance: String,
@@ -53,7 +53,7 @@ pub(crate) struct KeyInfo {
 }
 
 #[derive(Debug, Serialize)]
-pub struct KeysResponse {
+pub(crate) struct KeysResponse {
     pub keys: Vec<KeyInfo>,
     pub total: usize,
 }
@@ -62,7 +62,7 @@ pub struct KeysResponse {
 // Commands
 // ---------------------------------------------------------------------------
 
-pub fn run_key_clean(yes: bool) -> anyhow::Result<()> {
+pub(crate) fn run_key_clean(yes: bool) -> anyhow::Result<()> {
     let path = WalletCredentials::keys_path()?;
 
     if !path.exists() {

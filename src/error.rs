@@ -3,7 +3,8 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum PrestoError {
+#[allow(dead_code)]
+pub(crate) enum PrestoError {
     /// Missing required payment field
     #[error("Missing payment requirement: {0}")]
     MissingRequirement(String),
@@ -137,7 +138,7 @@ pub enum PrestoError {
 }
 
 /// Map mpp validation errors to presto error types.
-pub fn map_mpp_validation_error(
+pub(crate) fn map_mpp_validation_error(
     e: mpp::MppError,
     challenge: &mpp::PaymentChallenge,
 ) -> PrestoError {
@@ -154,7 +155,7 @@ pub fn map_mpp_validation_error(
 }
 
 /// Classify an mpp provider error into a PrestoError with actionable context.
-pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
+pub(crate) fn classify_payment_error(err: mpp::MppError) -> PrestoError {
     use mpp::client::TempoClientError;
 
     match err {

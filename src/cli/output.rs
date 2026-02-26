@@ -13,7 +13,7 @@ use super::OutputFormat;
 /// `RequestRuntime` to avoid coupling HTTP/payment layers to
 /// presentation concerns.
 #[derive(Clone, Debug)]
-pub struct OutputOptions {
+pub(crate) struct OutputOptions {
     pub output_format: OutputFormat,
     pub include_headers: bool,
     pub output_file: Option<String>,
@@ -38,7 +38,7 @@ impl OutputOptions {
 // ---------------------------------------------------------------------------
 
 /// Handle a regular (non-402) HTTP response
-pub fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     match opts.output_format {
         OutputFormat::Json => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {

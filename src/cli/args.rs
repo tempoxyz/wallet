@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::VerbosityFilter;
 
 use crate::config::Config;
-pub use crate::config::OutputFormat;
+pub(crate) use crate::config::OutputFormat;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ColorMode {

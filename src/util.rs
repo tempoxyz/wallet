@@ -8,7 +8,7 @@ use crate::error::PrestoError;
 
 // ── Atomic file writes ──────────────────────────────────────────────
 
-pub fn atomic_write(
+pub(crate) fn atomic_write(
     path: &Path,
     contents: &str,
     #[allow(unused_variables)] unix_mode: u32,
@@ -48,7 +48,7 @@ pub fn atomic_write(
 /// - ANSI escape sequence injection (CSI, OSC, etc.)
 /// - OSC 8 breakout via BEL (\x07)
 /// - Cursor manipulation and line erasure
-pub fn sanitize_for_terminal(s: &str) -> String {
+pub(crate) fn sanitize_for_terminal(s: &str) -> String {
     s.chars()
         .filter(|c| {
             // Keep printable characters and safe whitespace (tab, newline)
@@ -67,7 +67,7 @@ pub fn sanitize_for_terminal(s: &str) -> String {
 ///
 /// Both `text` and `url` are sanitized to strip control characters, preventing
 /// terminal escape injection from server-controlled data.
-pub fn hyperlink(text: &str, url: &str) -> String {
+pub(crate) fn hyperlink(text: &str, url: &str) -> String {
     let clean_text = sanitize_for_terminal(text);
     if supports_hyperlinks() {
         let clean_url = sanitize_for_terminal(url);
@@ -78,7 +78,7 @@ pub fn hyperlink(text: &str, url: &str) -> String {
 }
 
 /// Check if the current terminal supports OSC 8 hyperlinks.
-pub fn supports_hyperlinks() -> bool {
+pub(crate) fn supports_hyperlinks() -> bool {
     use std::sync::OnceLock;
     static SUPPORTS: OnceLock<bool> = OnceLock::new();
     *SUPPORTS.get_or_init(detect_hyperlink_support)
@@ -141,7 +141,7 @@ fn detect_hyperlink_support() -> bool {
 ///
 /// Converts atomic units to a human-readable decimal string.
 /// For example, `1000000` with 6 decimals becomes `"1.000000"`.
-pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
+pub(crate) fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
     use alloy::primitives::U256;
 
     if decimals == 0 {
@@ -159,7 +159,7 @@ pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -
 }
 
 /// Format atomic token units as a human-readable string with trimmed trailing zeros.
-pub fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
+pub(crate) fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
     let divisor = 10u128.pow(decimals as u32);
     let whole = atomic / divisor;
     let remainder = atomic % divisor;

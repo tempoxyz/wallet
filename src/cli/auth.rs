@@ -124,7 +124,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-pub struct StatusResponse {
+pub(crate) struct StatusResponse {
     pub ready: bool,
     pub wallet: Option<String>,
     pub wallet_type: Option<String>,

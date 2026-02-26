@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::PrestoError;
 
 /// A pending channel close waiting for the grace period to elapse.
-pub struct PendingClose {
+pub(crate) struct PendingClose {
     pub channel_id: String,
     pub network: String,
     pub ready_at: u64,
@@ -24,7 +24,7 @@ pub const SESSION_TTL_SECS: u64 = 24 * 60 * 60;
 
 /// A persisted payment channel session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SessionRecord {
+pub(crate) struct SessionRecord {
     #[serde(default = "default_version")]
     pub version: u32,
     pub origin: String,
@@ -114,7 +114,7 @@ fn sessions_dir() -> Result<PathBuf> {
 /// Compute a session key from the origin URL (extract `scheme://host[:port]`).
 ///
 /// Non-alphanumeric chars (except `-` and `.`) are replaced with `_`.
-pub fn session_key(origin: &str) -> String {
+pub(crate) fn session_key(origin: &str) -> String {
     let normalized = url::Url::parse(origin)
         .map(|u| u.origin().ascii_serialization())
         .unwrap_or_else(|_| origin.to_string());
@@ -337,31 +337,31 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
 // ---------------------------------------------------------------------------
 
 /// Load a session record by key. Returns `None` if not found.
-pub fn load_session(key: &str) -> Result<Option<SessionRecord>> {
+pub(crate) fn load_session(key: &str) -> Result<Option<SessionRecord>> {
     let conn = open_db()?;
     load_session_conn(&conn, key)
 }
 
 /// Save a session record to the database.
-pub fn save_session(record: &SessionRecord) -> Result<()> {
+pub(crate) fn save_session(record: &SessionRecord) -> Result<()> {
     let conn = open_db()?;
     save_session_conn(&conn, record)
 }
 
 /// Delete a session record by key.
-pub fn delete_session(key: &str) -> Result<()> {
+pub(crate) fn delete_session(key: &str) -> Result<()> {
     let conn = open_db()?;
     delete_session_conn(&conn, key)
 }
 
 /// Delete a session record by channel ID.
-pub fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
+pub(crate) fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
     let conn = open_db()?;
     delete_session_by_channel_id_conn(&conn, channel_id)
 }
 
 /// List all session records, ordered by last_used_at descending.
-pub fn list_sessions() -> Result<Vec<SessionRecord>> {
+pub(crate) fn list_sessions() -> Result<Vec<SessionRecord>> {
     let conn = open_db()?;
     list_sessions_conn(&conn)
 }
@@ -426,13 +426,13 @@ fn delete_pending_close_conn(conn: &rusqlite::Connection, channel_id: &str) -> R
 // ---------------------------------------------------------------------------
 
 /// Save a pending close record.
-pub fn save_pending_close(channel_id: &str, network: &str, ready_at: u64) -> Result<()> {
+pub(crate) fn save_pending_close(channel_id: &str, network: &str, ready_at: u64) -> Result<()> {
     let conn = open_db()?;
     save_pending_close_conn(&conn, channel_id, network, ready_at)
 }
 
 /// List all pending closes regardless of maturity.
-pub fn list_all_pending_closes() -> Result<Vec<PendingClose>> {
+pub(crate) fn list_all_pending_closes() -> Result<Vec<PendingClose>> {
     let conn = open_db()?;
     let mut stmt = conn
         .prepare("SELECT channel_id, network, ready_at FROM pending_closes ORDER BY ready_at")
@@ -446,7 +446,7 @@ pub fn list_all_pending_closes() -> Result<Vec<PendingClose>> {
 }
 
 /// Delete a pending close record by channel ID.
-pub fn delete_pending_close(channel_id: &str) -> Result<()> {
+pub(crate) fn delete_pending_close(channel_id: &str) -> Result<()> {
     let conn = open_db()?;
     delete_pending_close_conn(&conn, channel_id)
 }

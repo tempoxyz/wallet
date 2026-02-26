@@ -56,7 +56,7 @@ pub(super) struct OnChainChannel {
 }
 
 /// Discovered on-chain channel with decoded metadata.
-pub struct DiscoveredChannel {
+pub(crate) struct DiscoveredChannel {
     pub network: String,
     pub channel_id: String,
     pub escrow_contract: String,

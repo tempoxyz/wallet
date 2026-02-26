@@ -12,7 +12,8 @@
 /// - 130: Script terminated by Ctrl+C (128 + SIGINT)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
-pub enum ExitCode {
+#[allow(dead_code)]
+pub(crate) enum ExitCode {
     /// Successful execution
     Success = 0,
 

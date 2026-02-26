@@ -10,7 +10,7 @@ use crate::error::PrestoError;
 
 /// URL path patterns for different resource types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExplorerConfig {
+pub(crate) struct ExplorerConfig {
     /// Base URL (e.g., `https://explore.mainnet.tempo.xyz`)
     pub base_url: String,
     /// Path template for transactions (default: "/receipt/{hash}")
@@ -105,7 +105,7 @@ pub mod tempo_tokens {
 
 /// Runtime network information
 #[derive(Debug, Clone)]
-pub struct NetworkInfo {
+pub(crate) struct NetworkInfo {
     /// RPC endpoint URL for blockchain interactions
     pub rpc_url: String,
     /// Block explorer configuration
@@ -114,7 +114,7 @@ pub struct NetworkInfo {
 
 /// Token configuration for a network.
 #[derive(Debug, Clone, Copy)]
-pub struct TokenConfig {
+pub(crate) struct TokenConfig {
     /// Token symbol (e.g., "USDC", "pathUSD")
     pub symbol: &'static str,
     /// Number of decimal places
@@ -128,7 +128,7 @@ pub struct TokenConfig {
 /// This enum provides compile-time guarantees for network names and
 /// direct access to all network metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Network {
+pub(crate) enum Network {
     Tempo,
     TempoModerato,
 }
