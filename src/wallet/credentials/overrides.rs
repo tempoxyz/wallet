@@ -2,14 +2,15 @@
 
 use std::sync::OnceLock;
 
+use zeroize::Zeroizing;
+
 /// Global credentials override set by `--private-key` flag.
-/// Stores just the raw private key hex so `Zeroizing<String>` inside
-/// the constructed `WalletCredentials` gets dropped when the caller drops it.
-pub(crate) static CREDENTIALS_OVERRIDE: OnceLock<String> = OnceLock::new();
+/// Wrapped in [`Zeroizing`] so the secret is scrubbed from memory on process exit.
+pub(crate) static CREDENTIALS_OVERRIDE: OnceLock<Zeroizing<String>> = OnceLock::new();
 
 /// Set a global credentials override (called once from main for `--private-key`).
 pub fn set_credentials_override(private_key: String) {
-    let _ = CREDENTIALS_OVERRIDE.set(private_key);
+    let _ = CREDENTIALS_OVERRIDE.set(Zeroizing::new(private_key));
 }
 
 /// Check if a credentials override is active (e.g., `--private-key` was used).

@@ -230,7 +230,8 @@ impl HttpClient {
                 let header_value = match reqwest::header::HeaderValue::from_str(value) {
                     Ok(v) => v,
                     Err(e) => {
-                        warn!(header_name = %name, header_value = %value, error = %e, "dropping header with invalid value");
+                        let safe = crate::util::redact_header_value(name, value);
+                        warn!(header_name = %name, header_value = %safe, error = %e, "dropping header with invalid value");
                         continue;
                     }
                 };
