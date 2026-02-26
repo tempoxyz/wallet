@@ -79,7 +79,7 @@ pub(super) async fn stream_sse_response(
     let voucher_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
-        .expect("reqwest client");
+        .context("failed to build HTTP client for voucher POSTs")?;
 
     // Track pending voucher for retry on stall. When we send a voucher but
     // the server's notify is lost, we need to re-send to wake it up.
