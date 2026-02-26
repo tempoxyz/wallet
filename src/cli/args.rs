@@ -17,16 +17,19 @@ pub enum ColorMode {
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version)]
 #[command(
-    // Match curl-style usage: HTTP options before URL
-    override_usage = "presto [HTTP OPTIONS] <URL>\n  presto <COMMAND> [OPTIONS]"
+    // Match curl-style usage: put both forms on their own lines under "Usage:"
+    override_usage = "\n  presto [HTTP OPTIONS] <URL>\n  presto <COMMAND> [OPTIONS]"
 )]
 #[command(after_help = "\
-\x1b[1;4mHTTP Options\x1b[0m (after presto <URL>):
+\x1b[1;4mHTTP Options\x1b[0m (before <URL>):
   -X, --request <METHOD>        Custom request method (GET, POST, PUT, DELETE, ...)
   -H, --header <HEADER>         Add custom header (e.g. -H 'Accept: text/plain')
   -d, --data <DATA>             POST data (use @filename or @- for stdin)
       --json <JSON>             Send JSON data with Content-Type header
   -m, --timeout <SECONDS>       Maximum time for the request
+      --connect-timeout <SECONDS>  Maximum time to establish the TCP connection
+      --retries <N>             Retry transient network errors N times
+      --retry-backoff <MILLIS>  Initial retry backoff in milliseconds (exponential)
       --no-redirect             Disable following redirects
   -i, --include                 Include HTTP response headers in output
   -o, --output <FILE>           Write output to file
@@ -64,7 +67,7 @@ pub struct Cli {
     #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true, help_heading = "Display Options")]
     pub verbose: u8,
 
-    /// Silent mode: suppress non-essential output (like curl -s)
+    /// Silent mode: suppress non-essential output
     #[arg(
         short = 's',
         long = "silent",
