@@ -428,7 +428,7 @@ async fn test_quiet_suppresses_logs() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["-q", &server.url("/test")])
+        .args(["-s", &server.url("/test")])
         .output()
         .unwrap();
 
@@ -893,7 +893,7 @@ key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
     // Quiet: summary should be suppressed
     let output_quiet = test_command(&temp)
-        .args(["-q", &server.url("/api")])
+        .args(["-s", &server.url("/api")])
         .output()
         .unwrap();
     assert!(output_quiet.status.success(), "quiet run should succeed");

@@ -1,7 +1,6 @@
 //! CLI argument definitions and parsing.
 
-use clap::{Parser, Subcommand, ValueEnum};
-use clap_verbosity_flag::VerbosityFilter;
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
 use crate::config::Config;
 pub(crate) use crate::config::OutputFormat;
@@ -18,7 +17,8 @@ pub enum ColorMode {
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version)]
 #[command(
-    override_usage = "presto [OPTIONS] <URL> [-- HTTP_OPTIONS]\n  presto [OPTIONS] <COMMAND>"
+    // Match curl-style usage: HTTP options before URL
+    override_usage = "presto [HTTP OPTIONS] <URL>\n  presto <COMMAND> [OPTIONS]"
 )]
 #[command(after_help = "\
 \x1b[1;4mHTTP Options\x1b[0m (after presto <URL>):
@@ -60,9 +60,18 @@ pub struct Cli {
     #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
     pub network: Option<String>,
 
-    /// Logging verbosity (-v info, -vv debug, -vvv trace; -q silences all logs and overrides RUST_LOG)
-    #[command(flatten)]
-    pub verbose: clap_verbosity_flag::Verbosity<clap_verbosity_flag::WarnLevel>,
+    /// Verbosity: repeat -v to increase (info, debug, trace)
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true, help_heading = "Display Options")]
+    pub verbose: u8,
+
+    /// Silent mode: suppress non-essential output (like curl -s)
+    #[arg(
+        short = 's',
+        long = "silent",
+        global = true,
+        help_heading = "Display Options"
+    )]
+    pub silent: bool,
 
     /// Control color output
     #[arg(
@@ -327,14 +336,16 @@ pub enum KeyCommands {
 }
 
 impl Cli {
-    /// Verbosity count (0 = default/warn, 1 = info/-v, 2 = debug/-vv, etc.)
-    /// Returns 0 when quiet.
+    /// Verbosity level (0=warn, 1=info, 2=debug, 3+=trace). Returns 0 when silent.
     pub fn verbosity(&self) -> u8 {
-        match self.verbose.filter() {
-            VerbosityFilter::Off | VerbosityFilter::Error | VerbosityFilter::Warn => 0,
-            VerbosityFilter::Info => 1,
-            VerbosityFilter::Debug => 2,
-            VerbosityFilter::Trace => 3,
+        if self.silent || self.verbose == 0 {
+            0
+        } else if self.verbose == 1 {
+            1
+        } else if self.verbose == 2 {
+            2
+        } else {
+            3
         }
     }
 
@@ -343,10 +354,7 @@ impl Cli {
     /// Note: with `WarnLevel`, `-q` maps to `Error` (not `Off`). Treat both
     /// `Off` and `Error` as silent for CLI user-facing logs.
     pub fn should_show_output(&self) -> bool {
-        !matches!(
-            self.verbose.filter(),
-            VerbosityFilter::Off | VerbosityFilter::Error
-        )
+        !self.silent
     }
 
     /// Resolve the effective output format: CLI flag > default (text).

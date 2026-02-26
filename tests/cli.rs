@@ -51,7 +51,7 @@ fn test_completions_powershell() {
 #[test]
 fn test_quiet_flag() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["completions", "-q"])
+        .args(["completions", "-s"])
         .assert()
         .success();
 }
@@ -125,7 +125,7 @@ fn test_help_has_http_options_section() {
 #[test]
 fn test_alias_with_display_options() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["completions", "-q", "--color", "never"])
+        .args(["completions", "-s", "--color", "never"])
         .assert()
         .success();
 }

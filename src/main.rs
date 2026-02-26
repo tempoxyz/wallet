@@ -93,7 +93,7 @@ async fn main() {
 async fn run() -> Result<()> {
     let mut cli = parse_cli();
 
-    init_tracing(&cli.verbose);
+    init_tracing(&cli);
 
     // Initialize color support based on user preference and NO_COLOR env var
     init_color_support(&cli);
@@ -478,20 +478,23 @@ fn generate_completions(shell: Shell) -> Result<()> {
     Ok(())
 }
 
-fn init_tracing(verbose: &clap_verbosity_flag::Verbosity<clap_verbosity_flag::WarnLevel>) {
-    use clap_verbosity_flag::VerbosityFilter;
+fn init_tracing(cli: &Cli) {
     use tracing_subscriber::EnvFilter;
 
     // Quiet mode (-q) is absolute: override any RUST_LOG with "off"
-    let filter = match verbose.filter() {
-        VerbosityFilter::Off | VerbosityFilter::Error => EnvFilter::new("off"),
-        _ => {
-            if let Ok(env) = std::env::var("RUST_LOG") {
-                EnvFilter::new(env)
-            } else {
-                EnvFilter::new(verbose.tracing_level_filter().to_string())
-            }
-        }
+    let filter = if cli.silent {
+        EnvFilter::new("off")
+    } else if let Ok(env) = std::env::var("RUST_LOG") {
+        EnvFilter::new(env)
+    } else {
+        // Map verbosity count to tracing level
+        let level = match cli.verbose {
+            0 => "warn",
+            1 => "info",
+            2 => "debug",
+            _ => "trace",
+        };
+        EnvFilter::new(level)
     };
 
     tracing_subscriber::fmt()
