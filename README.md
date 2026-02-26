@@ -1,8 +1,16 @@
 # presto
 
-A command-line HTTP client with built-in [MPP](https://mpp.dev) payment support. Like `curl` or `wget`, but when a server requires payment, presto handles it automatically.
+A command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
+Like `curl`, but when a server requires payment, presto handles it automatically.
 
-When a server responds with `402 Payment Required`, presto detects the [Machine Payments Protocol (MPP)](https://mpp.dev) challenge, signs a transaction on the [Tempo](https://tempo.xyz) blockchain, and retries the request — all in one step.
+## Features
+
+- **curl-like syntax** — familiar flags (`-X`, `-H`, `--json`, `-o`, `-i`, `-L`, …)
+- **Automatic payments** — detects `402 Payment Required`, pays via [Tempo](https://tempo.xyz), retries
+- **Payment sessions** — open a channel once, then pay per-request with off-chain vouchers
+- **Streaming** — SSE pass-through and NDJSON output (`--sse`, `--sse-json`)
+- **Dry-run** — preview what you'd pay before committing (`--dry-run`)
+- **JSON output** — structured errors and responses for scripting (`-j`)
 
 ## Quick Start
 
@@ -13,196 +21,85 @@ curl -fsSL https://raw.githubusercontent.com/tempoxyz/presto/main/install.sh | b
 # Connect your wallet
 presto login
 
-# Make a paid request
+# Make a paid API request
 presto https://openai.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
-## Installation
-
-### Quick Install (macOS / Linux)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tempoxyz/presto/main/install.sh | bash
-```
-
 ### From Source
-
-Requires [Rust](https://rustup.rs/).
 
 ```bash
 git clone https://github.com/tempoxyz/presto.git
-cd presto
-make install
+cd presto && make install
 ```
 
-## Usage
+## Examples
 
-```
-presto [HTTP OPTIONS] <URL>
-presto <COMMAND> [OPTIONS]
-```
-
-### Making Requests
-
-Just pass a URL directly to presto — it works like `curl`:
+Chat with an LLM:
 
 ```bash
-# Simple GET
-presto https://api.example.com/data
-
-# POST with JSON body
-presto -X POST --json '{"key":"value"}' https://api.example.com/data
-
-# Custom headers
-presto -H "Accept: application/json" https://api.example.com/data
-
-# Save response to file
-presto -o response.json https://api.example.com/data
-
-# Include response headers in output
-presto -i https://api.example.com/data
+presto https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
-> **Note:** Redirects are not followed by default. Use `-L`/`--location` to follow redirects.
-
-### Payment Options
+Generate an image:
 
 ```bash
-# Preview payment without executing
-presto --dry-run https://api.example.com/data
+presto https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
+  -X POST --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3"}'
 ```
 
-### Offline Mode
+Preview cost without paying:
 
 ```bash
-# Fail immediately without making any network requests
-presto --offline https://api.example.com/data
-
-# Useful in CI to assert that a script path never reaches the network
-presto -j --offline https://api.example.com/data
-# → {"code":"E_NETWORK","message":"Network access is disabled (--offline mode)"}
+presto --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
-### Output Control
-
-```bash
-presto -v <URL>          # Payment flow narration (intent, network, amount, completion)
-presto -vv <URL>         # Debug internals (voucher retries, auth header size)
-presto -s <URL>          # Silent — suppress all stderr logs (overrides RUST_LOG)
-presto -j <URL>          # JSON output format
-```
-
-presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
-
-For the complete flag list, run `presto --help`.
-
-### Streaming / SSE
-
-```bash
-presto --sse https://api.example.com/stream       # Pass-through SSE events
-presto --sse-json https://api.example.com/stream   # NDJSON output (one JSON object per event)
-```
-
-`--sse-json` wraps each SSE `data:` line into an NDJSON object:
-
-```jsonl
-{"event":"data","data":{"msg":"hello"},"ts":"2024-01-15T12:00:00Z"}
-{"event":"data","data":"world","ts":"2024-01-15T12:00:01Z"}
-```
-
-On HTTP errors, an error event is emitted:
-
-```json
-{"event":"error","message":"500 Internal Server Error","ts":"2024-01-15T12:00:02Z"}
-```
+Ready-to-run scripts in [`examples/`](examples/):
+[`basic.sh`](examples/basic.sh) · [`session-multi-fetch.sh`](examples/session-multi-fetch.sh) · [`session-sse.sh`](examples/session-sse.sh)
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `<URL>` | Make an HTTP request with automatic payment |
-| `login` | Sign up or log in to your Tempo wallet |
-| `logout` | Log out and disconnect your wallet |
-| `whoami` | Show wallet address, balances, and keys |
-| `session list` | List active payment sessions |
-| `session close` | Close a payment session |
-| `key` or `key list` | List all keys and their spending limits |
+| `presto <URL>` | Make an HTTP request with automatic payment |
+| `presto login` | Connect your Tempo wallet |
+| `presto logout` | Disconnect your wallet |
+| `presto whoami` | Show wallet, balances, and keys |
+| `presto session list` | List active payment sessions |
+| `presto session close` | Close a payment session |
 
-Run `presto <command> --help` for detailed usage on any command.
-
-### Version Info
-
-`presto --version` prints version, git commit, build date, and build profile:
-
-```
-presto 0.4.1 (abc1234 2024-01-15T12:00:00Z release)
-```
-
-Use `-j --version` for structured JSON output with fields: `version`, `git_commit`, `build_date`, `profile`.
+Run `presto --help` or `presto <command> --help` for full flag reference.
 
 ## Configuration
 
-### Setup
-
 ```bash
-presto login    # Sign up or log in via browser
+presto login    # Opens browser to create or connect a passkey wallet
 ```
 
-This opens a browser to create or connect a passkey wallet. Presto stores your wallet credentials in `keys.toml` and the signing key inline with permissions `0600`.
-
-### File Locations
-
-presto uses platform-native directories:
+Credentials are stored in `keys.toml` (signing key inline, permissions `0600`).
 
 | Platform | Config | Keys |
-|----------|--------|--------|
+|----------|--------|------|
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
 
-### Config File Reference
+Optional RPC overrides in `config.toml`:
 
 ```toml
-# RPC overrides for built-in networks
 tempo_rpc = "https://my-custom-tempo-rpc.com"
 moderato_rpc = "https://my-custom-moderato-rpc.com"
-
-# General RPC overrides (by network id)
-[rpc]
-tempo = "https://alternate-tempo-rpc.com"
-"tempo-moderato" = "https://alternate-moderato-rpc.com"
-
-# Telemetry (optional)
-[telemetry]
-enabled = true
 ```
 
-Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence over the `[rpc]` table. The `PRESTO_RPC_URL` env var overrides everything.
-
-## Examples
-
-Ready-to-run scripts are in the [`examples/`](examples/) directory:
-
-| Script | Description |
-|--------|-------------|
-| [`basic.sh`](examples/basic.sh) | Single paid request using the charge intent (one on-chain tx per request) |
-| [`session-multi-fetch.sh`](examples/session-multi-fetch.sh) | Multiple requests over a single payment channel (one on-chain tx, then off-chain vouchers) |
-| [`session-sse.sh`](examples/session-sse.sh) | Streaming SSE responses with per-token vouchers over a payment channel |
-
-```bash
-# Run the basic example
-./examples/basic.sh
-
-# Run with a custom prompt
-./examples/basic.sh "What is the meaning of life?"
-```
+The `PRESTO_RPC_URL` env var overrides all config. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full environment variable reference.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, project structure, and guidelines.
 
 ```bash
-make build          # Debug build
-make test           # Run all tests
-make check          # fmt + clippy + test + build
+make build    # Debug build
+make test     # Run all tests
+make check    # fmt + clippy + test + build
 ```
