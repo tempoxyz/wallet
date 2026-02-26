@@ -310,7 +310,7 @@ pub enum KeyCommands {
     /// Create a new key for a local wallet (generates fresh 30-day key)
     Create {
         /// Wallet name
-        #[arg(long, value_name = "NAME")]
+        #[arg(long, value_name = "NAME", hide = true)]
         name: Option<String>,
     },
     /// Delete keys.toml and reset all local key state
