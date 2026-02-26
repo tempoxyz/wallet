@@ -200,7 +200,7 @@ impl WalletManager {
         )?;
         let key_auth_hex = validated.as_ref().map(|v| v.hex.clone());
 
-        let access_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
+        let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(local_signer.to_bytes())));
         let access_key_address = local_signer.address().to_string();
 
         // Load existing credentials to preserve other accounts.
@@ -249,7 +249,7 @@ impl WalletManager {
         entry.chain_id = chain_id;
         entry.key_type = key_type;
         entry.key_address = Some(access_key_address);
-        entry.key = Some(Zeroizing::new(access_key_hex));
+        entry.key = Some(access_key_hex);
         entry.key_authorization = key_auth_hex;
         entry.expiry = expiry;
         entry.limits = token_limits;

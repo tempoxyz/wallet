@@ -612,7 +612,7 @@ async fn dispatch_payment(
             eprintln!("Submitting payment...");
         }
 
-        let headers = vec![("Authorization".to_string(), auth_header)];
+        let headers = vec![("Authorization".to_string(), (*auth_header).clone())];
         let resp = request_ctx.execute(url, Some(&headers)).await?;
 
         if resp.status_code >= 400 {

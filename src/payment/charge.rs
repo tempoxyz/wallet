@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use mpp::client::PaymentProvider;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::{parse_www_authenticate, ChargeRequest};
+use zeroize::Zeroizing;
 
 use crate::config::Config;
 use crate::error::{classify_payment_error, map_mpp_validation_error, PrestoError};
@@ -23,7 +24,7 @@ pub async fn prepare_charge(
     config: &Config,
     runtime: &RequestRuntime,
     initial_response: &HttpResponse,
-) -> Result<String> {
+) -> Result<Zeroizing<String>> {
     let www_auth = initial_response
         .get_header("www-authenticate")
         .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
@@ -73,8 +74,9 @@ pub async fn prepare_charge(
         .await
         .map_err(classify_payment_error)?;
 
-    let auth_header =
-        mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
+    let auth_header = Zeroizing::new(
+        mpp::format_authorization(&credential).context("Failed to format Authorization header")?,
+    );
 
     if runtime.debug_enabled() {
         eprintln!("Authorization header length: {} bytes", auth_header.len());
