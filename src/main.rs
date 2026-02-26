@@ -1,4 +1,6 @@
 //! presto — a command-line HTTP client with automatic payment support.
+#![forbid(unsafe_code)]
+#![deny(warnings)]
 //!
 //! Presto works like curl/wget but handles HTTP 402 (Payment Required)
 //! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.sh).
@@ -384,10 +386,12 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     }
                 }
             } else {
-                Cli::command()
-                    .find_subcommand_mut("wallet")
-                    .expect("wallet subcommand exists")
-                    .print_help()?;
+                if let Some(wallet_cmd) = Cli::command().find_subcommand_mut("wallet") {
+                    wallet_cmd.print_help()?;
+                } else {
+                    // Fallback: print top-level help if the subcommand is unexpectedly missing
+                    Cli::command().print_help()?;
+                }
                 Ok(())
             }
         }

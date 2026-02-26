@@ -303,7 +303,9 @@ impl WalletCredentials {
                     wallet_address: wallet_address.to_string(),
                     ..Default::default()
                 });
-                self.keys.last_mut().unwrap()
+                // Safe: we just pushed one element
+                let last = self.keys.len() - 1;
+                &mut self.keys[last]
             }
         }
     }

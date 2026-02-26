@@ -7,7 +7,7 @@ use alloy::primitives::Address;
 use alloy::rlp::{Decodable, Encodable};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempo_primitives::transaction::{
     KeyAuthorization, PrimitiveSignature, SignatureType, SignedKeyAuthorization, TokenLimit,
 };
@@ -112,23 +112,23 @@ pub(crate) fn sign(
     access_signer: &PrivateKeySigner,
     chain_id: u64,
 ) -> Result<ValidatedKeyAuth, PrestoError> {
-    let expiry_secs = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + DEFAULT_EXPIRY_SECS;
+        .unwrap_or(Duration::from_secs(0))
+        .as_secs();
+    let expiry_secs = now + DEFAULT_EXPIRY_SECS;
     let limit = alloy::primitives::U256::from(DEFAULT_LIMIT);
     let token_addrs = [
         crate::network::tempo_tokens::USDCE,
         crate::network::tempo_tokens::PATH_USD,
     ];
-    let token_limits: Vec<TokenLimit> = token_addrs
-        .iter()
-        .map(|addr| TokenLimit {
-            token: addr.parse().unwrap(),
-            limit,
-        })
-        .collect();
+    let mut token_limits: Vec<TokenLimit> = Vec::with_capacity(token_addrs.len());
+    for addr in token_addrs.iter() {
+        let token = addr.parse().map_err(|_| {
+            PrestoError::InvalidAddress(format!("Invalid token address constant: {}", addr))
+        })?;
+        token_limits.push(TokenLimit { token, limit });
+    }
     let stored_limits: Vec<StoredTokenLimit> = token_addrs
         .iter()
         .map(|addr| StoredTokenLimit {
