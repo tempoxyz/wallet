@@ -39,3 +39,7 @@ fix:
 # Run e2e tests against live mpp-proxy (requires funded wallet)
 e2e: build
 	cargo test --test live -- --ignored --nocapture
+# Generate coverage locally (requires cargo-llvm-cov and llvm-tools-preview)
+# Install once: `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
+coverage:
+        cargo llvm-cov --all-features --workspace --fail-under-lines 85 --lcov --output-path lcov.info
