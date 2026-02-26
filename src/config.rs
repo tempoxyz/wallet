@@ -61,9 +61,6 @@ pub(crate) struct Config {
     /// RPC URL overrides for any network (by network id)
     #[serde(default)]
     pub rpc: HashMap<String, String>,
-    /// Default output format ("text" or "json")
-    #[serde(default)]
-    pub output_format: Option<OutputFormat>,
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
@@ -148,7 +145,7 @@ impl Config {
              # tempo = \"https://...\"\n\
              # \"tempo-moderato\" = \"https://...\"\n\
              #\n\
-             # output_format = \"json\"  # default: text\n\
+             # (JSON output: use ` tempo-wallet-j ...`)\n\
              #\n\
              # [telemetry]\n\
              # enabled = true\n\n\
@@ -305,7 +302,6 @@ mod tests {
                 tempo_rpc: self.tempo_rpc,
                 moderato_rpc: self.moderato_rpc,
                 rpc: self.rpc_overrides,
-                output_format: None,
                 telemetry: Default::default(),
             }
         }
@@ -323,7 +319,6 @@ mod tests {
             tempo_rpc: Some("https://custom-tempo-rpc.com".to_string()),
             moderato_rpc: Some("https://custom-moderato-rpc.com".to_string()),
             rpc: Default::default(),
-            output_format: None,
             telemetry: Default::default(),
         };
 
@@ -482,7 +477,6 @@ mod tests {
                 "custom".to_string(),
                 "https://custom.example.com".to_string(),
             )]),
-            output_format: None,
             telemetry: Default::default(),
         };
 

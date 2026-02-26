@@ -555,13 +555,13 @@ async fn test_output_format_json() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["--output-format", "json", &server.url("/test")])
+        .args(["-j", &server.url("/test")])
         .output()
         .unwrap();
 
     assert!(
         output.status.success(),
-        "expected success with --output-format json"
+        "expected success with -j json output"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(

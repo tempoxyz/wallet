@@ -74,14 +74,14 @@ pub struct Cli {
     )]
     pub color: ColorMode,
 
-    /// Output format
+    /// Quick switch for JSON output format
     #[arg(
-        long,
-        value_name = "FORMAT",
-        global = true,
-        help_heading = "Display Options"
+        short = 'j',
+        long = "json-output",
+        help_heading = "Display Options",
+        global = true
     )]
-    pub output_format: Option<OutputFormat>,
+    pub json_output: bool,
 }
 
 /// Make an HTTP request with optional payment
@@ -329,10 +329,12 @@ impl Cli {
         )
     }
 
-    /// Resolve the effective output format: CLI flag > config > default (text).
-    pub fn resolve_output_format(&self, config: &Config) -> OutputFormat {
-        self.output_format
-            .or(config.output_format)
-            .unwrap_or(OutputFormat::Text)
+    /// Resolve the effective output format: CLI flag > default (text).
+    pub fn resolve_output_format(&self, _config: &Config) -> OutputFormat {
+        if self.json_output {
+            OutputFormat::Json
+        } else {
+            OutputFormat::Text
+        }
     }
 }
