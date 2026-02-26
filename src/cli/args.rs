@@ -329,12 +329,12 @@ impl Cli {
         )
     }
 
-    /// Resolve the effective output format: CLI flag > config > default (text).
-    pub fn resolve_output_format(&self, config: &Config) -> OutputFormat {
+    /// Resolve the effective output format: CLI flag > default (text).
+    pub fn resolve_output_format(&self, _config: &Config) -> OutputFormat {
         if self.json_output {
             OutputFormat::Json
         } else {
-            config.output_format.unwrap_or(OutputFormat::Text)
+            OutputFormat::Text
         }
     }
 }
