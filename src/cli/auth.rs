@@ -570,6 +570,17 @@ pub struct KeysResponse {
     pub total: usize,
 }
 
+pub fn run_key_clean() -> anyhow::Result<()> {
+    let path = WalletCredentials::keys_path()?;
+    if path.exists() {
+        std::fs::remove_file(&path)?;
+        eprintln!("Removed {}", path.display());
+    } else {
+        eprintln!("Nothing to clean (no keys.toml found).");
+    }
+    Ok(())
+}
+
 pub async fn show_keys(
     config: &Config,
     output_format: OutputFormat,
