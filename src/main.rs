@@ -118,11 +118,18 @@ fn parse_cli() -> Cli {
     match Cli::try_parse() {
         Ok(cli) => cli,
         Err(original_err) => {
-            // Help/version requests should pass through immediately
-            if matches!(
-                original_err.kind(),
-                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
-            ) {
+            // Help requests pass through immediately
+            if matches!(original_err.kind(), clap::error::ErrorKind::DisplayHelp) {
+                original_err.exit()
+            }
+
+            // Version: check for JSON flag in raw args before exiting
+            if matches!(original_err.kind(), clap::error::ErrorKind::DisplayVersion) {
+                let args: Vec<String> = std::env::args().collect();
+                if args.iter().any(|a| a == "-j" || a == "--json-output") {
+                    print_version_json();
+                    std::process::exit(0);
+                }
                 original_err.exit()
             }
 
@@ -173,6 +180,17 @@ fn parse_cli() -> Cli {
             }
         }
     }
+}
+
+/// Print version information as structured JSON and exit.
+fn print_version_json() {
+    let json = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "git_commit": env!("PRESTO_GIT_SHA"),
+        "build_date": env!("PRESTO_BUILD_DATE"),
+        "profile": env!("PRESTO_BUILD_PROFILE"),
+    });
+    println!("{}", serde_json::to_string_pretty(&json).unwrap());
 }
 
 /// Validate the --network flag value against known built-in networks.

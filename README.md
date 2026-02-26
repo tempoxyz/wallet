@@ -96,6 +96,16 @@ presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 
 Run `presto <command> --help` for detailed usage on any command.
 
+### Version Info
+
+`presto --version` prints version, git commit, build date, and build profile:
+
+```
+presto 0.4.1 (abc1234 2024-01-15T12:00:00Z release)
+```
+
+Use `-j --version` for structured JSON output with fields: `version`, `git_commit`, `build_date`, `profile`.
+
 ## Configuration
 
 ### Setup
