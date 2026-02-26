@@ -155,7 +155,13 @@ pub async fn find_all_channels_for_payer(
         Network::all().to_vec()
     };
 
-    let event_topic: B256 = CHANNEL_OPENED_TOPIC.parse().expect("valid topic constant");
+    let event_topic: B256 = match CHANNEL_OPENED_TOPIC.parse() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(%e, "Invalid CHANNEL_OPENED_TOPIC constant");
+            return Vec::new();
+        }
+    };
     let payer_topic = B256::left_padding_from(&payer.0 .0);
 
     let mut results = Vec::new();
@@ -320,7 +326,13 @@ pub(super) async fn find_channel_on_chain(
     let rpc_url: url::Url = network_info.rpc_url.parse().ok()?;
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
-    let event_topic: B256 = CHANNEL_OPENED_TOPIC.parse().expect("valid topic constant");
+    let event_topic: B256 = match CHANNEL_OPENED_TOPIC.parse() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(%e, "Invalid CHANNEL_OPENED_TOPIC constant");
+            return None;
+        }
+    };
     let payer_topic = B256::left_padding_from(&payer.0 .0);
     let payee_topic = B256::left_padding_from(&payee.0 .0);
 
