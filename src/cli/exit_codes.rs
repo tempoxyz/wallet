@@ -144,9 +144,10 @@ impl From<&crate::error::PrestoError> for ExitCode {
             | PrestoError::Mpp(_) => ExitCode::PaymentFailed,
 
             // Network/provider errors
-            PrestoError::UnknownNetwork(_) | PrestoError::Http(_) | PrestoError::Reqwest(_) => {
-                ExitCode::NetworkError
-            }
+            PrestoError::UnknownNetwork(_)
+            | PrestoError::Http(_)
+            | PrestoError::Reqwest(_)
+            | PrestoError::OfflineMode => ExitCode::NetworkError,
 
             // Auth/signing errors
             PrestoError::InvalidKey(_)

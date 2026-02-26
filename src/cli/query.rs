@@ -139,6 +139,11 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         url = parsed.to_string();
     }
 
+    // Offline mode: fail fast before any network I/O
+    if query.offline {
+        anyhow::bail!(PrestoError::OfflineMode);
+    }
+
     let request_ctx = build_request_context(&cli, &query)?;
     let output_opts = build_output_options(&cli, &query, &config);
     let method_str = request_ctx.plan.method.to_string();
