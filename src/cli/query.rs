@@ -8,20 +8,25 @@
 use std::io::IsTerminal;
 
 use anyhow::{Context, Result};
+use mpp::protocol::methods::tempo::session::TempoSessionExt;
+use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::PaymentProtocol;
 
 use crate::analytics::{self, Analytics};
 use crate::config::{load_config_with_overrides, Config};
-
-use super::output::{handle_regular_response, hyperlink, OutputOptions};
-use super::{Cli, QueryArgs};
+use crate::error::PrestoError;
 use crate::http::{
-    get_request_method_and_body, should_auto_add_json_content_type, validate_header_size,
-    HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
+    get_request_method_and_body, parse_headers, should_auto_add_json_content_type,
+    validate_header_size, HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
 };
-use crate::network::ExplorerConfig;
+use crate::network::{resolve_token_meta, ExplorerConfig, Network};
 use crate::payment::charge::prepare_charge;
 use crate::payment::session::{handle_session_request, SessionResult};
+use crate::util::{format_token_amount, hyperlink};
+use crate::wallet::credentials::{has_credentials_override, WalletCredentials};
+
+use super::output::{handle_regular_response, OutputOptions};
+use super::{Cli, QueryArgs};
 
 /// Execute an HTTP request with automatic payment handling.
 ///
@@ -114,10 +119,8 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         } else {
             "charge"
         };
-        let network_enum: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
-        let token = network_enum.and_then(|n| n.token_config_by_address(&challenge_ctx.currency));
-        let symbol = token.map(|t| t.symbol).unwrap_or("tokens");
-        let decimals = token.map(|t| t.decimals).unwrap_or(6);
+        let (symbol, decimals) =
+            resolve_token_meta(&challenge_ctx.network, &challenge_ctx.currency);
         let amount_display = challenge_ctx
             .amount
             .parse::<u128>()
@@ -131,7 +134,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     }
 
     // Skip wallet login for dry-run or when a private key is provided directly
-    if !request_ctx.runtime.dry_run && !crate::wallet::credentials::has_credentials_override() {
+    if !request_ctx.runtime.dry_run && !has_credentials_override() {
         ensure_wallet_or_prompt_login(
             &request_ctx,
             &cli,
@@ -160,7 +163,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         Err(e)
             if is_login_fixable(&e)
                 && std::io::stdin().is_terminal()
-                && !crate::wallet::credentials::has_credentials_override() =>
+                && !has_credentials_override() =>
         {
             eprintln!("Setting up wallet for this network...\n");
             let network = request_ctx
@@ -187,7 +190,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 
     match result {
         Ok(result) => {
-            mark_network_provisioned(&challenge_ctx.network);
+            WalletCredentials::mark_provisioned(&challenge_ctx.network);
             pay_analytics.track_success(
                 result.tx_hash,
                 result.session_id.clone(),
@@ -211,7 +214,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 struct PaymentResult {
     tx_hash: String,
     session_id: Option<String>,
-    status_code: u32,
+    status_code: u16,
     response: Option<HttpResponse>,
 }
 
@@ -271,11 +274,10 @@ async fn dispatch_payment(
             eprintln!("Payment accepted: HTTP {}", resp.status_code);
         }
 
-        let network: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
+        let network: Option<Network> = challenge_ctx.network.parse().ok();
         let explorer = network.and_then(|n| n.info().explorer);
-        let token = network.and_then(|n| n.token_config_by_address(&challenge_ctx.currency));
-        let symbol = token.map(|t| t.symbol).unwrap_or("USDC");
-        let decimals = token.map(|t| t.decimals).unwrap_or(6);
+        let (symbol, decimals) =
+            resolve_token_meta(&challenge_ctx.network, &challenge_ctx.currency);
         display_receipt(
             output_opts,
             &resp,
@@ -303,27 +305,21 @@ async fn dispatch_payment(
     }
 }
 
-/// Check if an error is due to missing config or an unprovisioned access key —
+/// Check if an error is due to missing config or an unprovisioned key —
 /// i.e., something that ` tempo-walletlogin` would fix.
 fn is_login_fixable(err: &anyhow::Error) -> bool {
     err.chain().any(|e| {
-        if let Some(pe) = e.downcast_ref::<crate::error::PrestoError>() {
+        if let Some(pe) = e.downcast_ref::<PrestoError>() {
             matches!(
                 pe,
-                crate::error::PrestoError::AccessKeyNotProvisioned
-                    | crate::error::PrestoError::ConfigMissing(_)
-            ) || matches!(pe, crate::error::PrestoError::PaymentRejected { reason, .. }
+                PrestoError::AccessKeyNotProvisioned | PrestoError::ConfigMissing(_)
+            ) || matches!(pe, PrestoError::PaymentRejected { reason, .. }
                     if reason.contains("access key does not exist")
                        || reason.contains("access key is not provisioned"))
         } else {
             false
         }
     })
-}
-
-/// Mark a network as provisioned in keys.toml after a successful payment.
-fn mark_network_provisioned(network: &str) {
-    crate::wallet::credentials::WalletCredentials::mark_provisioned(network);
 }
 
 /// Parsed payment challenge context extracted from a 402 response.
@@ -339,42 +335,41 @@ struct ChallengeContext {
 fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> {
     let www_auth = response
         .get_header("www-authenticate")
-        .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
-    let _protocol = PaymentProtocol::detect(Some(www_auth.as_str())).ok_or_else(|| {
-        crate::error::PrestoError::MissingHeader("WWW-Authenticate: Payment".to_string())
-    })?;
+    let _protocol = PaymentProtocol::detect(Some(www_auth))
+        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate: Payment".to_string()))?;
 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // Enforce supported payment protocol (tempo only for now)
     if !challenge.method.eq_ignore_ascii_case("tempo") {
-        return Err(crate::error::PrestoError::UnsupportedPaymentMethod(
-            challenge.method.to_string(),
-        )
-        .into());
+        return Err(PrestoError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
     }
 
     let is_session = challenge.intent.is_session();
 
+    let network_name = |chain_id: Option<u64>| -> String {
+        chain_id
+            .and_then(Network::from_chain_id)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    };
+
     let (network, amount, currency) =
         if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
-            use mpp::protocol::methods::tempo::TempoChargeExt;
-            let name = charge
-                .chain_id()
-                .and_then(crate::network::Network::from_chain_id)
-                .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            (name, charge.amount, charge.currency)
+            (
+                network_name(charge.chain_id()),
+                charge.amount,
+                charge.currency,
+            )
         } else if let Ok(session) = challenge.request.decode::<mpp::SessionRequest>() {
-            use mpp::protocol::methods::tempo::session::TempoSessionExt;
-            let name = session
-                .chain_id()
-                .and_then(crate::network::Network::from_chain_id)
-                .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            (name, session.amount, session.currency)
+            (
+                network_name(session.chain_id()),
+                session.amount,
+                session.currency,
+            )
         } else {
             ("unknown".to_string(), String::new(), String::new())
         };
@@ -395,7 +390,7 @@ async fn ensure_wallet_or_prompt_login(
     analytics: &Option<Analytics>,
     challenge_network: &str,
 ) -> Result<()> {
-    let has_wallet = crate::wallet::credentials::WalletCredentials::load()
+    let has_wallet = WalletCredentials::load()
         .ok()
         .is_some_and(|c| c.has_wallet());
 
@@ -411,7 +406,7 @@ async fn ensure_wallet_or_prompt_login(
             eprintln!("\nRetrying request...");
             *config = load_config_with_overrides(cli.config.as_ref())?;
         } else {
-            anyhow::bail!(crate::error::PrestoError::ConfigMissing(
+            anyhow::bail!(PrestoError::ConfigMissing(
                 "No wallet configured.".to_string()
             ));
         }
@@ -460,7 +455,7 @@ impl PaymentAnalytics {
         session_id: Option<String>,
         url: &str,
         method: &str,
-        status_code: u32,
+        status_code: u16,
     ) {
         if let Some(ref a) = self.analytics {
             a.track(
@@ -504,7 +499,7 @@ pub(crate) fn finalize_response(output_opts: &OutputOptions, response: HttpRespo
     let status = response.status_code;
     handle_regular_response(output_opts, response)?;
     if status >= 400 {
-        anyhow::bail!(crate::error::PrestoError::Http(format!(
+        anyhow::bail!(PrestoError::Http(format!(
             "{} {}",
             status,
             http_status_text(status)
@@ -513,7 +508,7 @@ pub(crate) fn finalize_response(output_opts: &OutputOptions, response: HttpRespo
     Ok(())
 }
 
-fn http_status_text(code: u32) -> &'static str {
+fn http_status_text(code: u16) -> &'static str {
     match code {
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -531,7 +526,7 @@ fn http_status_text(code: u32) -> &'static str {
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
-fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError {
+fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
     let reason = if let Ok(body) = response.body_string() {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
             if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
@@ -552,7 +547,7 @@ fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError
         format!("HTTP {}", response.status_code)
     };
 
-    crate::error::PrestoError::PaymentRejected {
+    PrestoError::PaymentRejected {
         reason,
         status_code: response.status_code,
     }
@@ -639,7 +634,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     let (method, body) =
         get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?;
 
-    let mut headers = crate::http::parse_headers(&query.headers);
+    let mut headers = parse_headers(&query.headers);
     if should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data) {
         headers.push(("content-type".to_string(), "application/json".to_string()));
     }
@@ -648,7 +643,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         method,
         headers,
         body,
-        timeout_secs: query.get_timeout(),
+        timeout_secs: query.max_time,
         follow_redirects: !query.no_redirect,
         user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
         verbose_connection: runtime.debug_enabled(),
@@ -665,20 +660,5 @@ fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> Output
         output_file: query.output.clone(),
         verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
-    }
-}
-
-/// Format atomic token units as a human-readable string with trimmed trailing zeros.
-pub fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
-    let divisor = 10u128.pow(decimals as u32);
-    let whole = atomic / divisor;
-    let remainder = atomic % divisor;
-
-    if remainder == 0 {
-        format!("{whole} {symbol}")
-    } else {
-        let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
-        let trimmed = frac_str.trim_end_matches('0');
-        format!("{whole}.{trimmed} {symbol}")
     }
 }

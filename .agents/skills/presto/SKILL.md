@@ -44,7 +44,7 @@ Before making paid requests, verify the wallet is ready:
 ```
 
 Check these fields in the response:
-- `ready` — `true` means the wallet is connected, provisioned, and has an access key
+- `ready` — `true` means the wallet is connected, provisioned, and has a key
 - `key.balance` — check that the token balance is sufficient
 
 If `ready` is `false`, run ` tempo-walletlogin` and retry.
@@ -96,7 +96,8 @@ If `ready` is `false`, run ` tempo-walletlogin` and retry.
       },
       "expires_at": "2026-03-26T00:00:00Z"
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
@@ -142,7 +143,7 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | ` tempo-wallet<URL>` | Make an HTTP request with automatic payment |
 | ` tempo-walletlogin` | Sign up or log in to your Tempo wallet |
 | ` tempo-walletlogout` | Log out and disconnect your wallet |
-| ` tempo-walletwhoami` | Show wallet address, balances, access keys, and readiness |
+| ` tempo-walletwhoami` | Show wallet address, balances, keys, and readiness |
 | ` tempo-walletsession list` | List active payment sessions |
 | ` tempo-walletsession list --all` | Show all channels: active, orphaned, and closing |
 | ` tempo-walletsession list --orphaned` | Scan on-chain for orphaned channels (no local session) |
@@ -151,11 +152,7 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | ` tempo-walletsession close --all` | Close all active sessions and on-chain channels |
 | ` tempo-walletsession close --orphaned` | Close only orphaned on-chain channels |
 | ` tempo-walletsession close --closed` | Finalize channels pending close (grace period elapsed) |
-| ` tempo-walletwallet create [--name]` | Create a local wallet (EOA stored in macOS Keychain) |
-| ` tempo-walletwallet import [--name] [--stdin-key|--private-key]` | Import an existing private key as a local wallet |
-| ` tempo-walletwallet delete --name <NAME> [--yes]` | Delete a local wallet |
-| ` tempo-walletkey` or ` tempo-walletkey list` | List all access keys and their spending limits |
-| ` tempo-walletkey create [--name]` | Create a new access key for a local wallet (generates fresh 30-day key) |
+| ` tempo-walletkey` or ` tempo-walletkey list` | List all keys and their spending limits |
 
 ## Global Options
 
@@ -163,11 +160,9 @@ These options are available on all commands:
 
 | Option | Description |
 |--------|-------------|
-| `-n, --network <NETWORKS>` | Filter to specific networks (default: `tempo`) |
 | `-v` | Verbose output — shows payment flow details (intent, network, amount) (use `-vv` for debug) |
 | `-q, --quiet` | Suppress log messages (recommended for agents) |
 | `--output-format json` | JSON output (recommended for agents) |
-| `--color never` | Disable colored output |
 
 ## Query Options
 
@@ -189,12 +184,6 @@ These options apply when making HTTP requests (` tempo-wallet<URL>`):
 | `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
 | `--no-redirect` | Disable following redirects |
 | `-m, --timeout <SECONDS>` | Maximum time for the request |
-
-### RPC Options
-
-| Option | Description |
-|--------|-------------|
-| `-r, --rpc <URL>` | Override RPC URL for blockchain operations |
 
 ### Display Options
 
@@ -259,7 +248,7 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 ### Check Wallet Status
 
 ```bash
-# Full wallet status with balances and access keys
+# Full wallet status with balances and keys
  tempo-walletwhoami
 ```
 
@@ -288,7 +277,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `Run ' tempo-walletlogin'` | Run ` tempo-walletlogin`, then retry |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
 | `Insufficient balance` | Report to user — wallet needs more funds |
-| `Access key is not provisioned` | Run ` tempo-walletlogin`, then retry |
+| `Key is not provisioned` | Run ` tempo-walletlogin`, then retry |
 | `Unknown network` | Check `-n` flag value |
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |

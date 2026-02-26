@@ -1,11 +1,30 @@
-//!  tempo-walletCLI - A command-line HTTP client with automatic payment support.
+//!  tempo-wallet— a command-line HTTP client with automatic payment support.
 //!
-//! Works like curl/wget but handles HTTP 402 (Payment Required) responses
-//! automatically using the Machine Payment Protocol (MPP). When a server
-//! demands payment,  tempo-walletdetects the payment protocol from the
-//! WWW-Authenticate header, constructs a transaction via the user's
-//! configured wallet, and retries the request with a payment receipt —
-//! supporting both one-shot charges and persistent sessions.
+//!  Tempo Walletworks like curl/wget but handles HTTP 402 (Payment Required)
+//! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.sh).
+//!
+//! # Payment flow
+//!
+//! 1. Send the initial HTTP request
+//! 2. If the server responds with 402, parse the `WWW-Authenticate` header
+//! 3. Construct and submit a payment via the user's configured wallet
+//! 4. Retry the request with a payment credential
+//!
+//! # Payment intents
+//!
+//! - **Charge** — one-shot payment settled on-chain per request
+//! - **Session** — opens a payment channel on-chain, then exchanges
+//!   off-chain vouchers for each subsequent request or SSE token,
+//!   settling when the session is closed
+//!
+//! # Security
+//!
+//! - Server-controlled text is sanitized before terminal output to
+//!   prevent ANSI escape injection (OSC 8 breakout, cursor manipulation)
+//! - Redirect targets are validated against an allow-list to prevent
+//!   payment credential leakage to unintended hosts
+//! - Private keys are stored in the OS keychain (macOS Keychain) or
+//!   in a mode-0600 file, and wrapped in [`zeroize::Zeroizing`] in memory
 
 mod analytics;
 mod cli;
@@ -150,17 +169,13 @@ fn validate_network_flag(network: &str) -> Result<()> {
     // Support comma-separated network lists (e.g. "tempo, tempo-moderato")
     for name in network.split(',').map(|s| s.trim()) {
         network::validate_network_name(name)
-            .map_err(|msg| anyhow::anyhow!(error::PrestoError::UnknownNetwork(msg)))?;
+            .map_err(|_| anyhow::anyhow!(error::PrestoError::UnknownNetwork(name.to_string())))?;
     }
     Ok(())
 }
 
 /// Handle CLI subcommands
 async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
-    if let Some(ref key) = cli.key {
-        wallet::credentials::set_key_name_override(key.clone());
-    }
-
     if let Some(ref pk) = cli.private_key {
         wallet::credentials::set_credentials_override(pk.clone());
     }
@@ -334,7 +349,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         Commands::Wallet { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
-                    WalletCommands::Create { name, passkey } => {
+                    WalletCommands::Create { passkey } => {
                         if passkey {
                             let network = cli.network.as_deref();
                             let config =
@@ -342,38 +357,29 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             let output_format = cli.resolve_output_format(&config);
                             cli::auth::run_login(network, analytics.clone(), output_format).await
                         } else {
-                            let name = name.as_deref().unwrap_or("local-default");
-                            cli::wallet::create_local_wallet(name)?;
+                            cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
                             let config =
                                 load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
                             let output_format = cli.resolve_output_format(&config);
                             let network = cli.network.as_deref();
-                            cli::auth::show_whoami(&config, output_format, network)
-                                .await
-                                .map_err(Into::into)
+                            cli::auth::show_whoami(&config, output_format, network).await
                         }
                     }
                     WalletCommands::Import {
-                        name,
                         private_key,
                         stdin_key,
-                    } => {
-                        let name = name.as_deref().unwrap_or("local-default");
-                        cli::wallet::import_wallet(name, private_key, stdin_key)
-                    }
+                    } => cli::local_wallet::import_wallet(private_key, stdin_key),
                     WalletCommands::Delete {
-                        name,
-                        name_flag,
+                        address,
                         passkey,
                         yes,
                     } => {
                         if passkey {
                             cli::auth::run_logout(yes).await
+                        } else if let Some(addr) = address {
+                            cli::local_wallet::delete_wallet(&addr, yes)
                         } else {
-                            let name = name
-                                .or(name_flag)
-                                .unwrap_or_else(|| "local-default".to_string());
-                            cli::wallet::delete_wallet(&name, yes)
+                            anyhow::bail!("Specify a wallet address or use --passkey")
                         }
                     }
                 }
@@ -393,7 +399,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 
             // Auto-login if no wallet is connected
             let creds = wallet::credentials::WalletCredentials::load()?;
-            if !creds.has_wallet() {
+            if !creds.has_wallet() && std::env::var("PRESTO_NO_AUTO_LOGIN").is_err() {
                 eprintln!("No wallet connected. Starting login...\n");
                 if let Some(ref a) = analytics {
                     a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
@@ -405,9 +411,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
             }
-            cli::auth::show_whoami(&config, output_format, network)
-                .await
-                .map_err(Into::into)
+            cli::auth::show_whoami(&config, output_format, network).await
         }
 
         Commands::Key { command } => {
@@ -415,20 +419,15 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             let network = cli.network.as_deref();
             let output_format = cli.resolve_output_format(&config);
             match command {
-                Some(KeyCommands::List) => cli::auth::show_keys(&config, output_format, network)
-                    .await
-                    .map_err(Into::into),
-                Some(KeyCommands::Create { name }) => {
-                    let name = name.as_deref().unwrap_or("local-default");
-                    cli::wallet::create_access_key(name)?;
-                    cli::auth::show_whoami(&config, output_format, network)
-                        .await
-                        .map_err(Into::into)
+                Some(KeyCommands::List) => {
+                    cli::keys::show_keys(&config, output_format, network).await
                 }
-                Some(KeyCommands::Clean { yes }) => cli::auth::run_key_clean(yes),
-                None => cli::auth::show_whoami(&config, output_format, network)
-                    .await
-                    .map_err(Into::into),
+                Some(KeyCommands::Create) => {
+                    cli::local_wallet::create_access_key()?;
+                    cli::auth::show_whoami(&config, output_format, network).await
+                }
+                Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),
+                None => cli::auth::show_whoami(&config, output_format, network).await,
             }
         }
     };

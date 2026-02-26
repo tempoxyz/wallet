@@ -12,7 +12,8 @@
 /// - 130: Script terminated by Ctrl+C (128 + SIGINT)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
-pub enum ExitCode {
+#[allow(dead_code)]
+pub(crate) enum ExitCode {
     /// Successful execution
     Success = 0,
 
@@ -115,9 +116,6 @@ impl From<&crate::error::PrestoError> for ExitCode {
                 ExitCode::InsufficientFunds
             }
 
-            // Invalid usage errors
-            PrestoError::InvalidAmount(_) => ExitCode::InvalidUsage,
-
             // Payment protocol errors
             PrestoError::PaymentRejected { .. }
             | PrestoError::InvalidChallenge(_)
@@ -134,8 +132,7 @@ impl From<&crate::error::PrestoError> for ExitCode {
 
             // Auth/signing errors
             PrestoError::InvalidKey(_)
-            | PrestoError::Signing { .. }
-            | PrestoError::SigningSimple(_)
+            | PrestoError::Signing(_)
             | PrestoError::InvalidAddress(_) => ExitCode::AuthError,
 
             // General errors
@@ -166,15 +163,6 @@ mod tests {
         assert_eq!(
             ExitCode::from(&PrestoError::UnknownNetwork("test".into())),
             ExitCode::NetworkError
-        );
-    }
-
-    #[test]
-    fn test_invalid_amount_exit_code() {
-        use crate::error::PrestoError;
-        assert_eq!(
-            ExitCode::from(&PrestoError::InvalidAmount("abc".into())),
-            ExitCode::InvalidUsage
         );
     }
 

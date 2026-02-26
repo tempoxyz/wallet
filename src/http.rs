@@ -11,13 +11,15 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::warn;
 
-use crate::error;
-
 // ==================== HTTP Response ====================
 
 #[derive(Debug)]
-pub struct HttpResponse {
-    pub status_code: u32,
+pub(crate) struct HttpResponse {
+    pub status_code: u16,
+    /// Response headers with **lowercased** keys.
+    ///
+    /// Header names are normalized to lowercase during conversion.
+    /// Use [`get_header`](Self::get_header) for case-insensitive lookup.
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
     /// The final URL after following any redirects.
@@ -29,8 +31,8 @@ impl HttpResponse {
     ///
     /// # Errors
     /// Returns an error if the body is not valid UTF-8.
-    pub fn body_string(&self) -> error::Result<String> {
-        Ok(String::from_utf8(self.body.clone())?)
+    pub fn body_string(&self) -> Result<String> {
+        Ok(std::str::from_utf8(&self.body)?.to_string())
     }
 
     /// Check if this response indicates payment is required (HTTP 402).
@@ -38,9 +40,11 @@ impl HttpResponse {
         self.status_code == 402
     }
 
-    /// Get a header value by name (case-insensitive).
-    pub fn get_header(&self, name: &str) -> Option<&String> {
-        self.headers.get(&name.to_lowercase())
+    /// Get a header value by name.
+    ///
+    /// Header names are stored lowercase; pass a lowercase key.
+    pub fn get_header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).map(|s| s.as_str())
     }
 }
 
@@ -58,7 +62,7 @@ struct HttpClientConfig {
 
 /// Builder for configuring HTTP clients.
 #[must_use]
-pub struct HttpClientBuilder {
+pub(crate) struct HttpClientBuilder {
     config: HttpClientConfig,
 }
 
@@ -101,7 +105,7 @@ impl HttpClientBuilder {
     }
 
     /// Build the configured async HTTP client.
-    pub fn build(self) -> error::Result<HttpClient> {
+    pub fn build(self) -> Result<HttpClient> {
         HttpClient::from_config(self.config)
     }
 }
@@ -113,18 +117,18 @@ impl Default for HttpClientBuilder {
 }
 
 /// Async HTTP client for making HTTP requests.
-pub struct HttpClient {
+pub(crate) struct HttpClient {
     client: reqwest::Client,
 }
 
 impl HttpClient {
     /// Create a new async HTTP client with default settings.
-    pub fn new() -> error::Result<Self> {
+    pub fn new() -> Result<Self> {
         HttpClientBuilder::new().build()
     }
 
     /// Create an async HTTP client from configuration.
-    fn from_config(config: HttpClientConfig) -> error::Result<Self> {
+    fn from_config(config: HttpClientConfig) -> Result<Self> {
         let mut builder = reqwest::Client::builder().connection_verbose(config.verbose);
 
         if let Some(timeout) = config.timeout {
@@ -173,7 +177,7 @@ impl HttpClient {
         method: reqwest::Method,
         url: &str,
         body: Option<&[u8]>,
-    ) -> error::Result<HttpResponse> {
+    ) -> Result<HttpResponse> {
         let mut request = self.client.request(method, url);
 
         if let Some(data) = body {
@@ -192,8 +196,8 @@ impl HttpClient {
     }
 
     /// Convert a reqwest response to our HttpResponse type
-    async fn convert_response(response: reqwest::Response) -> error::Result<HttpResponse> {
-        let status_code = response.status().as_u16() as u32;
+    async fn convert_response(response: reqwest::Response) -> Result<HttpResponse> {
+        let status_code = response.status().as_u16();
         let final_url = Some(response.url().to_string());
 
         // Convert headers to HashMap with lowercase keys
@@ -226,19 +230,7 @@ impl Default for HttpClient {
 // ==================== Header Utilities ====================
 
 /// Utility function to check if a header exists in the response (case-insensitive).
-///
-/// # Example
-/// ```
-/// use presto::http::has_header;
-/// let headers = vec![
-///     "Content-Type: application/json".to_string(),
-///     "Content-Length: 123".to_string(),
-/// ];
-/// assert!(has_header(&headers, "content-type"));
-/// assert!(has_header(&headers, "Content-Type"));
-/// assert!(!has_header(&headers, "Authorization"));
-/// ```
-pub fn has_header(headers: &[String], name: &str) -> bool {
+pub(crate) fn has_header(headers: &[String], name: &str) -> bool {
     let name_lower = name.to_lowercase();
     headers.iter().any(|h| {
         h.split_once(':')
@@ -250,19 +242,7 @@ pub fn has_header(headers: &[String], name: &str) -> bool {
 ///
 /// Preserves duplicate headers (important for HTTP headers like Set-Cookie).
 /// Header names are lowercased for consistency. Malformed entries are skipped.
-///
-/// # Example
-/// ```
-/// use presto::http::parse_headers;
-/// let headers = vec![
-///     "Content-Type: application/json".to_string(),
-///     "X-Custom: a".to_string(),
-///     "X-Custom: b".to_string(),
-/// ];
-/// let parsed = parse_headers(&headers);
-/// assert_eq!(parsed.len(), 3);
-/// ```
-pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
+pub(crate) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
     headers
         .iter()
         .filter_map(|header| {
@@ -279,7 +259,7 @@ pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
 /// Derived from CLI arguments at the boundary layer (`request.rs`);
 /// HTTP and payment modules depend on this instead of raw CLI types.
 #[derive(Clone, Debug)]
-pub struct RequestRuntime {
+pub(crate) struct RequestRuntime {
     pub verbosity: u8,
     pub show_output: bool,
     pub network: Option<String>,
@@ -300,7 +280,7 @@ impl RequestRuntime {
 
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Clone, Debug)]
-pub struct HttpRequestPlan {
+pub(crate) struct HttpRequestPlan {
     pub method: reqwest::Method,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
@@ -319,7 +299,7 @@ const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 const MAX_HEADER_SIZE: usize = 8 * 1024;
 
 #[derive(Error, Debug)]
-pub enum RequestError {
+pub(crate) enum RequestError {
     #[error("Request body exceeds maximum size of {max} bytes")]
     BodyTooLarge { max: usize },
 
@@ -336,7 +316,7 @@ pub enum RequestError {
     },
 }
 
-pub fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
+pub(crate) fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
     if len > MAX_BODY_SIZE {
         return Err(RequestError::BodyTooLarge { max: MAX_BODY_SIZE });
     }
@@ -349,7 +329,7 @@ pub fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
 /// - `@filename` — read the file as binary
 /// - `@-` — read stdin as binary
 /// - anything else — treat as a literal UTF-8 string
-pub fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
+pub(crate) fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
     if let Some(path) = data.strip_prefix('@') {
         if path == "-" {
             let mut buf = Vec::new();
@@ -373,7 +353,7 @@ pub fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
     }
 }
 
-pub fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
+pub(crate) fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
     if header.len() > MAX_HEADER_SIZE {
         return Err(RequestError::HeaderTooLarge {
             max: MAX_HEADER_SIZE,
@@ -386,7 +366,7 @@ pub fn validate_header_size(header: &str) -> std::result::Result<(), RequestErro
 ///
 /// Built from `RequestRuntime` + `HttpRequestPlan` at the CLI boundary;
 /// HTTP and payment modules use this without depending on CLI types.
-pub struct RequestContext {
+pub(crate) struct RequestContext {
     pub runtime: RequestRuntime,
     pub plan: HttpRequestPlan,
 }
@@ -420,7 +400,7 @@ impl RequestContext {
             builder = builder.timeout(timeout);
         }
 
-        Ok(builder.build()?)
+        builder.build()
     }
 
     /// Build a reqwest::Client with the same configuration as the normal HTTP client.
@@ -461,14 +441,14 @@ impl RequestContext {
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<HttpResponse> {
         let client = self.build_client(extra_headers)?;
-        Ok(client
+        client
             .request(self.plan.method.clone(), url, self.plan.body.as_deref())
-            .await?)
+            .await
     }
 }
 
 /// Determine the HTTP method and body from raw query inputs.
-pub fn get_request_method_and_body(
+pub(crate) fn get_request_method_and_body(
     method: Option<&str>,
     data: &[String],
     json: Option<&str>,
@@ -517,7 +497,7 @@ fn is_json_data(data: &str) -> bool {
 /// Returns true if:
 /// - The provided headers don't already contain a Content-Type header, AND
 /// - Either json data is provided, OR the first data value looks like JSON
-pub fn should_auto_add_json_content_type(
+pub(crate) fn should_auto_add_json_content_type(
     headers: &[String],
     json: Option<&str>,
     data: &[String],

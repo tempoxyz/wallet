@@ -1,16 +1,12 @@
 //! CLI argument definitions and parsing.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use serde::{Deserialize, Serialize};
+use clap_verbosity_flag::VerbosityFilter;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OutputFormat {
-    Text,
-    Json,
-}
+use crate::config::Config;
+pub(crate) use crate::config::OutputFormat;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ColorMode {
     Auto,
     Always,
@@ -48,10 +44,6 @@ pub struct Cli {
         hide = true
     )]
     pub config: Option<String>,
-
-    /// Use a specific access key
-    #[arg(long = "key", value_name = "NAME", global = true, hide = true)]
-    pub key: Option<String>,
 
     /// Use a private key directly for payment (bypasses wallet login)
     #[arg(
@@ -187,14 +179,14 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
-    /// Show who you are: wallet, balances, access keys
+    /// Show who you are: wallet, balances, keys
     #[command(display_order = 4)]
     Whoami,
     /// Alias for whoami
     #[command(hide = true, name = "balance")]
     Balance,
-    /// Manage access keys
-    #[command(display_order = 5, name = "key")]
+    /// Manage keys
+    #[command(display_order = 5, name = "key", hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
     Key {
         #[command(subcommand)]
@@ -271,18 +263,12 @@ pub enum SessionCommands {
 pub enum WalletCommands {
     /// Create a new wallet
     Create {
-        /// Name for the wallet
-        #[arg(long, value_name = "NAME")]
-        name: Option<String>,
         /// Create a passkey-based wallet via browser auth
         #[arg(long)]
         passkey: bool,
     },
     /// Import an existing private key as a local wallet (stores key in OS keychain)
     Import {
-        /// Name for the wallet
-        #[arg(long, value_name = "NAME")]
-        name: Option<String>,
         /// Provide the private key directly as hex (use with caution; may appear in shell history)
         #[arg(long = "private-key", value_name = "HEX")]
         private_key: Option<String>,
@@ -292,12 +278,9 @@ pub enum WalletCommands {
     },
     /// Delete a wallet
     Delete {
-        /// Wallet name to delete (positional)
-        #[arg(value_name = "NAME", conflicts_with = "name_flag")]
-        name: Option<String>,
-        /// Wallet name to delete (--name)
-        #[arg(long = "name", value_name = "NAME", id = "name_flag")]
-        name_flag: Option<String>,
+        /// Wallet address to delete
+        #[arg(value_name = "ADDRESS")]
+        address: Option<String>,
         /// Delete the passkey wallet
         #[arg(long)]
         passkey: bool,
@@ -309,14 +292,11 @@ pub enum WalletCommands {
 
 #[derive(Subcommand, Debug)]
 pub enum KeyCommands {
-    /// List all access keys and their spending limits
+    /// List all keys and their spending limits
     List,
-    /// Create a new access key for a local wallet (generates fresh 30-day key)
-    Create {
-        /// Wallet name
-        #[arg(long, value_name = "NAME")]
-        name: Option<String>,
-    },
+    /// Create a new key for a local wallet (generates fresh 30-day key)
+    #[command(hide = true)]
+    Create,
     /// Delete keys.toml and reset all local key state
     #[command(hide = true)]
     Clean {
@@ -326,17 +306,10 @@ pub enum KeyCommands {
     },
 }
 
-impl QueryArgs {
-    pub fn get_timeout(&self) -> Option<u64> {
-        self.max_time
-    }
-}
-
 impl Cli {
     /// Verbosity count (0 = default/warn, 1 = info/-v, 2 = debug/-vv, etc.)
     /// Returns 0 when quiet.
     pub fn verbosity(&self) -> u8 {
-        use clap_verbosity_flag::VerbosityFilter;
         match self.verbose.filter() {
             VerbosityFilter::Off | VerbosityFilter::Error | VerbosityFilter::Warn => 0,
             VerbosityFilter::Info => 1,
@@ -350,7 +323,6 @@ impl Cli {
     /// Note: with `WarnLevel`, `-q` maps to `Error` (not `Off`). Treat both
     /// `Off` and `Error` as silent for CLI user-facing logs.
     pub fn should_show_output(&self) -> bool {
-        use clap_verbosity_flag::VerbosityFilter;
         !matches!(
             self.verbose.filter(),
             VerbosityFilter::Off | VerbosityFilter::Error
@@ -358,7 +330,7 @@ impl Cli {
     }
 
     /// Resolve the effective output format: CLI flag > config > default (text).
-    pub fn resolve_output_format(&self, config: &crate::config::Config) -> OutputFormat {
+    pub fn resolve_output_format(&self, config: &Config) -> OutputFormat {
         self.output_format
             .or(config.output_format)
             .unwrap_or(OutputFormat::Text)

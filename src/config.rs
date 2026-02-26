@@ -1,10 +1,23 @@
 //! Configuration management for presto.
 
-use crate::error::{PrestoError, Result};
+use crate::error::PrestoError;
 use anyhow::Context;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+
+// ---------------------------------------------------------------------------
+// Output format
+// ---------------------------------------------------------------------------
+
+/// Output format for CLI commands and config default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum OutputFormat {
+    Text,
+    Json,
+}
 
 // ---------------------------------------------------------------------------
 // Path validation
@@ -12,22 +25,17 @@ use std::path::{Component, Path, PathBuf};
 
 /// Validates that a path doesn't contain directory traversal sequences.
 /// Returns the validated path or an error if traversal is detected.
-pub fn validate_path(
-    path: &str,
-    allow_absolute: bool,
-) -> std::result::Result<PathBuf, PrestoError> {
+pub(crate) fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PrestoError> {
     let path = PathBuf::from(path);
 
-    // Check for parent directory components (..)
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(PrestoError::ConfigMissing(
+        return Err(PrestoError::InvalidConfig(
             "Path traversal (..) not allowed".to_string(),
         ));
     }
 
-    // Optionally reject absolute paths
     if !allow_absolute && path.is_absolute() {
-        return Err(PrestoError::ConfigMissing(
+        return Err(PrestoError::InvalidConfig(
             "Absolute paths not allowed for this option".to_string(),
         ));
     }
@@ -43,7 +51,7 @@ pub fn validate_path(
 ///
 /// Wallet credentials are stored separately in `keys.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     /// RPC URL override for Tempo mainnet
     #[serde(default)]
     pub tempo_rpc: Option<String>,
@@ -55,17 +63,15 @@ pub struct Config {
     pub rpc: HashMap<String, String>,
     /// Default output format ("text" or "json")
     #[serde(default)]
-    pub output_format: Option<crate::cli::OutputFormat>,
+    pub output_format: Option<OutputFormat>,
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
 }
 
-// Default is derived
-
 /// Telemetry configuration options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryConfig {
+pub(crate) struct TelemetryConfig {
     /// Enable anonymous telemetry and usage analytics.
     /// Can be disabled here or via `PRESTO_NO_TELEMETRY=1` env var.
     #[serde(default = "TelemetryConfig::default_enabled")]
@@ -86,7 +92,7 @@ impl Default for TelemetryConfig {
 
 impl Config {
     /// Load config from the specified path or default location
-    pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
+    pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self, PrestoError> {
         let (config_path, explicit) = if let Some(path) = config_path {
             (PathBuf::from(path.as_ref()), true)
         } else {
@@ -121,12 +127,14 @@ impl Config {
     }
 
     /// Get the default config file path (~/.config/presto/config.toml)
-    pub fn default_config_path() -> Result<PathBuf> {
-        crate::util::default_config_path().ok_or(PrestoError::NoConfigDir)
+    pub fn default_config_path() -> Result<PathBuf, PrestoError> {
+        dirs::config_dir()
+            .map(|c| c.join("presto").join("config.toml"))
+            .ok_or(PrestoError::NoConfigDir)
     }
 
     /// Save config to the default location.
-    pub fn save(&self) -> Result<()> {
+    pub fn save(&self) -> Result<(), PrestoError> {
         let config_path = Self::default_config_path()?;
         let body = toml::to_string_pretty(self)?;
         let content = format!(
@@ -162,36 +170,13 @@ impl Config {
 
     /// Resolve network information with config overrides applied.
     ///
-    /// RPC overrides are resolved in order:
-    /// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
-    /// 2. General `[rpc]` table overrides (for any network by id)
-    ///
-    /// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
-    /// via `set_rpc_override()` in `load_config_with_overrides` / `cli::query::make_request`,
-    /// which sets `tempo_rpc` and `moderato_rpc` so they flow through this logic.
-    pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
-        use crate::network::{get_network, networks};
-
-        let mut network_info = get_network(network_id).ok_or_else(|| {
-            PrestoError::UnknownNetwork(format!(
-                "Network '{}' not found. Supported: tempo, tempo-moderato",
-                network_id
-            ))
-        })?;
-
-        // Apply RPC override if configured (typed overrides take precedence)
-        let rpc_override = match network_id {
-            networks::TEMPO => self.tempo_rpc.as_ref(),
-            networks::TEMPO_MODERATO => self.moderato_rpc.as_ref(),
-            _ => None,
-        }
-        .or_else(|| self.rpc.get(network_id));
-
-        if let Some(url) = rpc_override {
-            network_info.rpc_url = url.clone();
-        }
-
-        Ok(network_info)
+    /// Delegates to [`crate::network::resolve`] — see that function for
+    /// override resolution order.
+    pub fn resolve_network(
+        &self,
+        network_id: &str,
+    ) -> Result<crate::network::NetworkInfo, PrestoError> {
+        crate::network::resolve(network_id, self)
     }
 }
 
@@ -199,17 +184,11 @@ impl Config {
 // Load functions
 // ---------------------------------------------------------------------------
 
-/// Load configuration from a path or the default location.
-pub fn load_config(config_path: Option<impl AsRef<Path>>) -> anyhow::Result<Config> {
-    if let Some(ref path) = config_path {
-        let path_str = path.as_ref().to_string_lossy();
-        validate_path(&path_str, true).context("Invalid config path")?;
+pub(crate) fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
+    if let Some(path) = config_path {
+        validate_path(path, true).context("Invalid config path")?;
     }
-    Config::load_from(config_path).context("Failed to load configuration")
-}
-
-pub fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
-    let mut config = load_config(config_path)?;
+    let mut config = Config::load_from(config_path).context("Failed to load configuration")?;
 
     // Apply  TEMPO_RPC_URLenv var as a global RPC override.
     // This is separate from clap's env handling on QueryArgs because it
@@ -447,7 +426,7 @@ mod tests {
         let result = config.resolve_network("unknown-network");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("not found"));
+        assert!(err.contains("Unknown network"));
     }
 
     #[test]
