@@ -161,7 +161,11 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     }
 
     if request_ctx.log_enabled() {
-        eprintln!("Making {} request to: {url}", request_ctx.plan.method);
+        eprintln!(
+            "Making {} request to: {}",
+            request_ctx.plan.method,
+            crate::util::redact_url(&url)
+        );
     }
 
     // Streaming/SSE mode: perform a streaming request and return.
@@ -608,7 +612,7 @@ async fn dispatch_payment(
             eprintln!("Submitting payment...");
         }
 
-        let headers = vec![("Authorization".to_string(), auth_header)];
+        let headers = vec![("Authorization".to_string(), (*auth_header).clone())];
         let resp = request_ctx.execute(url, Some(&headers)).await?;
 
         if resp.status_code >= 400 {

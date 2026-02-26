@@ -2112,3 +2112,73 @@ async fn test_analytics_private_key_env_not_leaked() {
         "private key leaked into analytics: {raw}"
     );
 }
+
+// ==================== Verbose Log Redaction ====================
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_verbose_log_redacts_url_query_params() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let url_with_secret = format!(
+        "{}/api?api_key=sk_live_XYZZY&token=t0p_secret",
+        server.base_url
+    );
+
+    let output = test_command(&temp)
+        .args(["-v", &url_with_secret])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("sk_live_XYZZY"),
+        "api_key leaked in verbose log: {stderr}"
+    );
+    assert!(
+        !stderr.contains("t0p_secret"),
+        "token leaked in verbose log: {stderr}"
+    );
+    // The path should still be present
+    assert!(
+        stderr.contains("/api"),
+        "verbose log should show the path: {stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_verbose_log_redacts_bearer_in_stderr() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-v", "--bearer", "my_super_secret_jwt", &server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("my_super_secret_jwt"),
+        "bearer token leaked in verbose stderr: {stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_verbose_log_redacts_basic_auth_in_stderr() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-v", "-u", "admin:hunter2", &server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("hunter2"),
+        "basic auth password leaked in verbose stderr: {stderr}"
+    );
+}
