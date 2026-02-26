@@ -176,10 +176,6 @@ pub struct QueryArgs {
     #[arg(long = "json", value_name = "JSON", help_heading = "HTTP Options")]
     pub json: Option<String>,
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 77e91b8 (feat(cli): agent-friendly flags: --stream, --sse/--sse-json, --retry-http/--retry-after/--retry-jitter, --bearer, --write-meta, --fail-with-body; plus curl parity: --proxy/--no-proxy, --max-redirs, --http2/--http1.1, -e/--referer, --compressed, -O/--remote-name; price caps and receipt save)
     /// Number of retries on transient network errors (timeouts/connect failures)
     #[arg(long = "retries", value_name = "N", help_heading = "HTTP Options")]
     pub retries: Option<u32>,
@@ -191,11 +187,6 @@ pub struct QueryArgs {
         help_heading = "HTTP Options"
     )]
     pub retry_backoff_ms: Option<u64>,
-<<<<<<< HEAD
-=======
-=======
-
->>>>>>> 77e91b8 (feat(cli): agent-friendly flags: --stream, --sse/--sse-json, --retry-http/--retry-after/--retry-jitter, --bearer, --write-meta, --fail-with-body; plus curl parity: --proxy/--no-proxy, --max-redirs, --http2/--http1.1, -e/--referer, --compressed, -O/--remote-name; price caps and receipt save)
     /// Allow insecure TLS (skip certificate validation)
     #[arg(short = 'k', long = "insecure", help_heading = "HTTP Options")]
     pub insecure: bool,
@@ -203,7 +194,6 @@ pub struct QueryArgs {
     /// Fail on HTTP errors (do not output body)
     #[arg(short = 'f', long = "fail", help_heading = "HTTP Options")]
     pub fail_silently: bool,
->>>>>>> bbd8340 (feat(cli): add -k/--insecure, -f/--fail, -u/--user, -D/--dump-header, -G/--get; help/usage; tests for -f and -D)
 
     /// Override RPC URL for the request
     #[arg(
