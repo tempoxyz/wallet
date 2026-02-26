@@ -74,7 +74,7 @@ pub struct Cli {
     )]
     pub color: ColorMode,
 
-    /// Quick switch for JSON output format (alias for `--output-format json`)
+    /// Quick switch for JSON output format
     #[arg(
         short = 'j',
         long = "json-output",
