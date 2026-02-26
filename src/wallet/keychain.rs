@@ -45,8 +45,10 @@ pub trait KeychainBackend: Send + Sync {
 /// OS keychain backend using platform-native secret storage.
 ///
 /// Currently supports macOS only (via `security-framework`).
+#[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 pub struct OsKeychain;
 
+#[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 impl KeychainBackend for OsKeychain {
     fn get(&self, profile: &str) -> Result<Option<Zeroizing<String>>> {
         #[cfg(target_os = "macos")]
