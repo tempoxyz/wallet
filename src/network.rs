@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
+use crate::error::PrestoError;
+
 // ==================== Explorer Configuration ====================
 
 /// URL path patterns for different resource types.
@@ -23,12 +25,9 @@ use std::str::FromStr;
 pub struct ExplorerConfig {
     /// Base URL (e.g., `https://explore.mainnet.tempo.xyz`)
     pub base_url: String,
-    /// Path template for transactions (default: "/tx/{hash}")
+    /// Path template for transactions (default: "/receipt/{hash}")
     #[serde(default = "default_tx_path")]
     pub tx_path: String,
-    /// Path template for blocks (default: "/block/{num}")
-    #[serde(default = "default_block_path")]
-    pub block_path: String,
     /// Path template for addresses (default: "/address/{addr}")
     #[serde(default = "default_address_path")]
     pub address_path: String,
@@ -36,10 +35,6 @@ pub struct ExplorerConfig {
 
 fn default_tx_path() -> String {
     "/receipt/{hash}".to_string()
-}
-
-fn default_block_path() -> String {
-    "/block/{num}".to_string()
 }
 
 fn default_address_path() -> String {
@@ -54,7 +49,6 @@ impl ExplorerConfig {
         Self {
             base_url: base_url.into(),
             tx_path: default_tx_path(),
-            block_path: default_block_path(),
             address_path: default_address_path(),
         }
     }
@@ -133,25 +127,6 @@ pub struct TokenConfig {
     pub address: &'static str,
 }
 
-/// Gas configuration for EVM networks.
-#[cfg(test)]
-#[derive(Debug, Clone, Copy)]
-pub struct GasConfig {
-    /// Maximum priority fee per gas in wei (1 gwei).
-    pub max_priority_fee_per_gas: u64,
-    /// Maximum total fee per gas in wei (20 gwei).
-    pub max_fee_per_gas: u64,
-}
-
-#[cfg(test)]
-impl GasConfig {
-    /// Default gas configuration for Tempo networks.
-    pub const DEFAULT: Self = Self {
-        max_priority_fee_per_gas: 1_000_000_000, // 1 gwei
-        max_fee_per_gas: 20_000_000_000,         // 20 gwei
-    };
-}
-
 /// Tempo blockchain network.
 ///
 /// This enum provides compile-time guarantees for network names and
@@ -194,17 +169,16 @@ impl Network {
     }
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
-    pub fn require_chain_id(chain_id: u64) -> Result<Self, crate::error::PrestoError> {
-        Self::from_chain_id(chain_id).ok_or_else(|| {
-            crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
-        })
+    pub fn require_chain_id(chain_id: u64) -> Result<Self, PrestoError> {
+        Self::from_chain_id(chain_id)
+            .ok_or_else(|| PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id)))
     }
 
     /// Parse an RPC URL string into a `url::Url`, returning a config error on failure.
-    pub fn parse_rpc_url(rpc_url: &str) -> Result<url::Url, crate::error::PrestoError> {
-        rpc_url.parse().map_err(|e| {
-            crate::error::PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e))
-        })
+    pub fn parse_rpc_url(rpc_url: &str) -> Result<url::Url, PrestoError> {
+        rpc_url
+            .parse()
+            .map_err(|e| PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))
     }
 
     /// Check if this is a mainnet.
@@ -224,26 +198,18 @@ impl Network {
         }
     }
 
-    /// Get the explorer base URL for this network.
-    pub const fn explorer_url(&self) -> Option<&'static str> {
-        match self {
-            Network::Tempo => Some("https://explore.mainnet.tempo.xyz"),
-            Network::TempoModerato => Some("https://explore.moderato.tempo.xyz"),
-        }
-    }
-
     /// Get full network info (with explorer config).
     pub fn info(&self) -> NetworkInfo {
+        let explorer = match self {
+            Network::Tempo => Some(ExplorerConfig::tempo("https://explore.mainnet.tempo.xyz")),
+            Network::TempoModerato => {
+                Some(ExplorerConfig::tempo("https://explore.moderato.tempo.xyz"))
+            }
+        };
         NetworkInfo {
             rpc_url: self.rpc_url().to_string(),
-            explorer: self.explorer_url().map(ExplorerConfig::tempo),
+            explorer,
         }
-    }
-
-    /// Get gas configuration for this network.
-    #[cfg(test)]
-    pub const fn gas_config(&self) -> GasConfig {
-        GasConfig::DEFAULT
     }
 
     /// Get the default escrow contract address for this network.
@@ -257,25 +223,27 @@ impl Network {
     }
 
     /// Get all supported token configurations for this network.
-    pub fn supported_tokens(&self) -> Vec<TokenConfig> {
-        match self {
-            Network::Tempo => vec![
-                TokenConfig {
-                    symbol: "USDC",
-                    decimals: 6,
-                    address: tempo_tokens::USDCE,
-                },
-                TokenConfig {
-                    symbol: "pathUSD",
-                    decimals: 6,
-                    address: tempo_tokens::PATH_USD,
-                },
-            ],
-            Network::TempoModerato => vec![TokenConfig {
+    pub fn supported_tokens(&self) -> &'static [TokenConfig] {
+        static TEMPO_TOKENS: &[TokenConfig] = &[
+            TokenConfig {
+                symbol: "USDC",
+                decimals: 6,
+                address: tempo_tokens::USDCE,
+            },
+            TokenConfig {
                 symbol: "pathUSD",
                 decimals: 6,
                 address: tempo_tokens::PATH_USD,
-            }],
+            },
+        ];
+        static MODERATO_TOKENS: &[TokenConfig] = &[TokenConfig {
+            symbol: "pathUSD",
+            decimals: 6,
+            address: tempo_tokens::PATH_USD,
+        }];
+        match self {
+            Network::Tempo => TEMPO_TOKENS,
+            Network::TempoModerato => MODERATO_TOKENS,
         }
     }
 
@@ -283,8 +251,9 @@ impl Network {
     pub fn token_config_by_address(&self, address: &str) -> Option<TokenConfig> {
         let addr_lower = address.to_lowercase();
         self.supported_tokens()
-            .into_iter()
-            .find(|t| t.address.to_lowercase() == addr_lower)
+            .iter()
+            .find(|t| t.address == addr_lower)
+            .copied()
     }
 }
 
@@ -325,24 +294,8 @@ pub fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, 
 ///
 /// Returns `Ok(())` if the name matches a built-in network,
 /// or an error with a suggestion message if not.
-pub fn validate_network_name(name: &str) -> std::result::Result<(), String> {
-    match Network::from_str(name) {
-        Ok(_) => Ok(()),
-        Err(_) => {
-            let all_names: Vec<&str> = Network::all().iter().map(|n| n.as_str()).collect();
-            Err(format!(
-                "Unknown network '{}'. Available networks: {}",
-                name,
-                all_names.join(", ")
-            ))
-        }
-    }
-}
-
-/// Look up network info by name.
-#[must_use]
-pub fn get_network(name: &str) -> Option<NetworkInfo> {
-    Network::from_str(name).ok().map(|n| n.info())
+pub fn validate_network_name(name: &str) -> Result<(), String> {
+    Network::from_str(name).map(|_| ())
 }
 
 #[cfg(test)]
@@ -373,14 +326,7 @@ mod tests {
             serde_json::from_str(json).expect("should deserialize explorer config");
         assert_eq!(explorer.base_url, "https://explore.mainnet.tempo.xyz");
         assert_eq!(explorer.tx_path, "/receipt/{hash}");
-        assert_eq!(explorer.block_path, "/block/{num}");
         assert_eq!(explorer.address_path, "/address/{addr}");
-    }
-
-    #[test]
-    fn test_network_lookup() {
-        let tempo = get_network("tempo").expect("tempo network should exist");
-        assert!(!tempo.rpc_url.is_empty());
     }
 
     #[test]
@@ -424,13 +370,6 @@ mod tests {
             assert_eq!(network.as_str(), *network_str);
             assert_eq!(network.to_string(), *network_str);
         }
-    }
-
-    #[test]
-    fn test_gas_config() {
-        let gas = Network::Tempo.gas_config();
-        assert_eq!(gas.max_priority_fee_per_gas, 1_000_000_000);
-        assert_eq!(gas.max_fee_per_gas, 20_000_000_000);
     }
 
     #[test]
@@ -493,9 +432,8 @@ mod tests {
         let result = validate_network_name("not-a-network");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("Unknown network 'not-a-network'"));
-        assert!(err.contains("tempo"));
-        assert!(err.contains("tempo-moderato"));
+        assert!(err.contains("Unknown network"));
+        assert!(err.contains("not-a-network"));
     }
 
     #[test]

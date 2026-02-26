@@ -380,14 +380,14 @@ pub(super) async fn query_all_balances(
         Err(_) => return Vec::new(),
     };
 
-    let tokens = network
+    let tokens: &[_] = network
         .parse::<Network>()
         .map(|n| n.supported_tokens())
-        .unwrap_or_default();
+        .unwrap_or(&[]);
 
     let mut balances = Vec::new();
 
-    for token_config in &tokens {
+    for token_config in tokens {
         let token_address: Address = match Address::from_str(token_config.address) {
             Ok(a) => a,
             Err(_) => continue,
@@ -437,10 +437,10 @@ async fn query_spending_limit(
 
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
-    let tokens = network
+    let tokens: &[_] = network
         .parse::<Network>()
         .map(|n| n.supported_tokens())
-        .unwrap_or_default();
+        .unwrap_or(&[]);
 
     // If we have a local key authorization, use it to find the authorized token
     // and its original limit so we can compute spent = limit - remaining.
@@ -500,7 +500,7 @@ async fn query_spending_limit(
     }
 
     // Fallback: no local auth, query each supported token on-chain
-    for token_config in &tokens {
+    for token_config in tokens {
         let token_address: Address = match token_config.address.parse() {
             Ok(a) => a,
             Err(_) => continue,

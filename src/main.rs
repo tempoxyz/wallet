@@ -150,7 +150,7 @@ fn validate_network_flag(network: &str) -> Result<()> {
     // Support comma-separated network lists (e.g. "tempo, tempo-moderato")
     for name in network.split(',').map(|s| s.trim()) {
         network::validate_network_name(name)
-            .map_err(|msg| anyhow::anyhow!(error::PrestoError::UnknownNetwork(msg)))?;
+            .map_err(|_| anyhow::anyhow!(error::PrestoError::UnknownNetwork(name.to_string())))?;
     }
     Ok(())
 }

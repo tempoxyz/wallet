@@ -28,19 +28,17 @@ pub enum OutputFormat {
 pub fn validate_path(
     path: &str,
     allow_absolute: bool,
-) -> std::result::Result<PathBuf, PrestoError> {
+) -> Result<PathBuf, PrestoError> {
     let path = PathBuf::from(path);
 
-    // Check for parent directory components (..)
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(PrestoError::ConfigMissing(
+        return Err(PrestoError::InvalidConfig(
             "Path traversal (..) not allowed".to_string(),
         ));
     }
 
-    // Optionally reject absolute paths
     if !allow_absolute && path.is_absolute() {
-        return Err(PrestoError::ConfigMissing(
+        return Err(PrestoError::InvalidConfig(
             "Absolute paths not allowed for this option".to_string(),
         ));
     }
@@ -73,8 +71,6 @@ pub struct Config {
     #[serde(default)]
     pub telemetry: TelemetryConfig,
 }
-
-// Default is derived
 
 /// Telemetry configuration options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +131,9 @@ impl Config {
 
     /// Get the default config file path (~/.config/presto/config.toml)
     pub fn default_config_path() -> Result<PathBuf, PrestoError> {
-        crate::util::default_config_path().ok_or(PrestoError::NoConfigDir)
+        dirs::config_dir()
+            .map(|c| c.join("presto").join("config.toml"))
+            .ok_or(PrestoError::NoConfigDir)
     }
 
     /// Save config to the default location.
@@ -186,14 +184,12 @@ impl Config {
         &self,
         network_id: &str,
     ) -> Result<crate::network::NetworkInfo, PrestoError> {
-        use crate::network::{get_network, networks};
+        use crate::network::{networks, Network};
 
-        let mut network_info = get_network(network_id).ok_or_else(|| {
-            PrestoError::UnknownNetwork(format!(
-                "Network '{}' not found. Supported: tempo, tempo-moderato",
-                network_id
-            ))
-        })?;
+        let network: Network = network_id
+            .parse()
+            .map_err(|_| PrestoError::UnknownNetwork(network_id.to_string()))?;
+        let mut network_info = network.info();
 
         // Apply RPC override if configured (typed overrides take precedence)
         let rpc_override = match network_id {
@@ -215,17 +211,11 @@ impl Config {
 // Load functions
 // ---------------------------------------------------------------------------
 
-/// Load configuration from a path or the default location.
-pub fn load_config(config_path: Option<impl AsRef<Path>>) -> anyhow::Result<Config> {
-    if let Some(ref path) = config_path {
-        let path_str = path.as_ref().to_string_lossy();
-        validate_path(&path_str, true).context("Invalid config path")?;
-    }
-    Config::load_from(config_path).context("Failed to load configuration")
-}
-
 pub fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
-    let mut config = load_config(config_path)?;
+    if let Some(path) = config_path {
+        validate_path(path, true).context("Invalid config path")?;
+    }
+    let mut config = Config::load_from(config_path).context("Failed to load configuration")?;
 
     // Apply PRESTO_RPC_URL env var as a global RPC override.
     // This is separate from clap's env handling on QueryArgs because it
@@ -463,7 +453,7 @@ mod tests {
         let result = config.resolve_network("unknown-network");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("not found"));
+        assert!(err.contains("Unknown network"));
     }
 
     #[test]
