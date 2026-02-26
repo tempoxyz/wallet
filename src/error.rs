@@ -74,6 +74,10 @@ pub(crate) enum PrestoError {
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
 
+    /// Offline mode — no network access allowed
+    #[error("Network access is disabled (--offline mode)")]
+    OfflineMode,
+
     /// Invalid URL provided
     #[error("Invalid URL: {0}")]
     InvalidUrl(String),

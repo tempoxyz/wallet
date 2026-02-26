@@ -1815,6 +1815,70 @@ async fn test_error_json_for_connection_refused() {
     assert!(parsed["message"].is_string());
 }
 
+// ==================== Offline Mode ====================
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_offline_flag_fails_fast() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--offline", "http://127.0.0.1:1/should-not-connect"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("--offline"),
+        "should mention --offline mode: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_offline_flag_json_error() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", "--offline", "http://example.com/api"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["code"], "E_NETWORK");
+    assert!(parsed["message"].as_str().unwrap().contains("--offline"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_offline_flag_no_socket_opened() {
+    // Start a real server, then use --offline — it should never be contacted
+    let server = MockServer::start(200, vec![], "should not see this").await;
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_offline.log");
+
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args(["--offline", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should NOT contain the server's response body
+    assert!(
+        !stdout.contains("should not see this"),
+        "offline mode should not contact the server"
+    );
+
+    // No query_started event should be emitted (offline bails before tracking)
+    let raw = std::fs::read_to_string(&events_path).unwrap_or_default();
+    assert!(
+        !raw.contains("query_started"),
+        "no query_started event should fire in offline mode: {raw}"
+    );
+}
+
 // ==================== Analytics Events Sequencing & Redaction ====================
 
 /// Helper to parse the PRESTO_TEST_EVENTS file into a list of (event_name, props_json).

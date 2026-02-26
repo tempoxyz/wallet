@@ -71,6 +71,17 @@ Just pass a URL directly to  tempo-wallet— it works like `curl`:
  tempo-wallet--dry-run https://api.example.com/data
 ```
 
+### Offline Mode
+
+```bash
+# Fail immediately without making any network requests
+ tempo-wallet--offline https://api.example.com/data
+
+# Useful in CI to assert that a script path never reaches the network
+ tempo-wallet-j --offline https://api.example.com/data
+# → {"code":"E_NETWORK","message":"Network access is disabled (--offline mode)"}
+```
+
 ### Output Control
 
 ```bash
