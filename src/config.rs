@@ -2,9 +2,22 @@
 
 use crate::error::{PrestoError, Result};
 use anyhow::Context;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+
+// ---------------------------------------------------------------------------
+// Output format
+// ---------------------------------------------------------------------------
+
+/// Output format for CLI commands and config default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    Text,
+    Json,
+}
 
 // ---------------------------------------------------------------------------
 // Path validation
@@ -55,7 +68,7 @@ pub struct Config {
     pub rpc: HashMap<String, String>,
     /// Default output format ("text" or "json")
     #[serde(default)]
-    pub output_format: Option<crate::cli::OutputFormat>,
+    pub output_format: Option<OutputFormat>,
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
