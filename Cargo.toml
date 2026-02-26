@@ -1,6 +1,6 @@
 [package]
 name = "presto"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "A command-line HTTP client with built-in MPP payment support"
 license = "MIT OR Apache-2.0"
