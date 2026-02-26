@@ -71,6 +71,17 @@ presto -i https://api.example.com/data
 presto --dry-run https://api.example.com/data
 ```
 
+### Offline Mode
+
+```bash
+# Fail immediately without making any network requests
+presto --offline https://api.example.com/data
+
+# Useful in CI to assert that a script path never reaches the network
+presto -j --offline https://api.example.com/data
+# → {"code":"E_NETWORK","message":"Network access is disabled (--offline mode)"}
+```
+
 ### Output Control
 
 ```bash
