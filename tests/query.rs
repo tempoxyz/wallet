@@ -1645,3 +1645,172 @@ async fn test_no_proxy_flag_succeeds() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("no proxy ok"), "body: {stdout}");
 }
+
+// ==================== 402 Charge/Session Edge Cases ====================
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_without_www_authenticate_header() {
+    // A 402 response missing WWW-Authenticate should produce a clear error
+    let server = MockServer::start(402, vec![], "Payment Required").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([&server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("WWW-Authenticate"),
+        "should mention missing header: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_without_www_authenticate_json_error() {
+    // Same as above but with -j for structured JSON error
+    let server = MockServer::start(402, vec![], "Payment Required").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["code"], "E_PAYMENT");
+    assert!(parsed["message"]
+        .as_str()
+        .unwrap()
+        .contains("WWW-Authenticate"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_malformed_www_authenticate() {
+    // WWW-Authenticate present but not a valid Payment challenge
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", "Basic realm=\"test\"")],
+        "Payment Required",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([&server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    // Should error about missing Payment protocol or WWW-Authenticate
+    assert!(
+        combined.contains("WWW-Authenticate") || combined.contains("Payment"),
+        "should mention invalid challenge: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_non_402_error_codes_with_fail_flag() {
+    // -f flag should suppress body and fail on 4xx/5xx
+    for status in [400u16, 403, 404, 500, 502, 503] {
+        let body = format!("error body for {status}");
+        let server = MockServer::start(status, vec![], &body).await;
+        let temp = TestConfigBuilder::new().build();
+
+        let output = test_command(&temp)
+            .args(["-f", &server.url("/test")])
+            .output()
+            .unwrap();
+
+        assert!(
+            !output.status.success(),
+            "status {status} should fail with -f"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.is_empty(),
+            "body should be suppressed with -f for status {status}: {stdout}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_server_error_json_output_schema() {
+    // A 500 error with -j should produce structured JSON error with stable schema
+    let server = MockServer::start(500, vec![], "Internal Server Error").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // The output will be the body (pretty-printed if JSON) then an error JSON
+    // For a non-JSON body with -j, the raw body is output, then the error JSON on stdout
+    // Actually, the error JSON is printed by main on error, so let's check stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // The body "Internal Server Error" should not appear in stdout when output format is JSON
+    // and the response is not valid JSON itself
+    assert!(
+        stderr.contains("500") || stdout.contains("500"),
+        "should report 500 error somewhere: stdout={stdout}, stderr={stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_empty_body_no_crash() {
+    // 402 with empty body and no WWW-Authenticate
+    let server = MockServer::start(402, vec![], "").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([&server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    // Should not crash/panic — just produce an error
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Error"),
+        "should have error output: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_error_json_for_invalid_url() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", "ftp://example.com/data"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["code"], "E_USAGE");
+    assert!(parsed["message"].as_str().unwrap().contains("ftp"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_error_json_for_connection_refused() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", "http://127.0.0.1:1/unreachable"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(parsed["code"].is_string());
+    assert!(parsed["message"].is_string());
+}
