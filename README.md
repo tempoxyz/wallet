@@ -1,15 +1,12 @@
 # presto
 
-A command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
-Like `curl`, but when a server requires payment, presto handles it automatically.
+presto is a command-line HTTP client that pays for API calls automatically. Call services without signing up or managing API keys — presto handles payment on the [Tempo](https://tempo.xyz) blockchain using the [Machine Payments Protocol](https://mpp.dev).
 
-## Features
-
-- **curl-like syntax** — familiar flags (`-X`, `-H`, `--json`, `-o`, `-i`, `-L`, …)
-- **Automatic payments** — detects `402 Payment Required`, pays via [Tempo](https://tempo.xyz), retries
-- **Payment sessions** — open a channel once, then pay per-request with off-chain vouchers
-- **Dry-run** — preview what you'd pay before committing (`--dry-run`)
-- **JSON output** — structured errors and responses for scripting (`-j`)
+- **No API keys** — pay per request, skip signups and billing dashboards
+- **No minimums** — pay only for what you use, down to fractions of a cent
+- **curl-compatible** — familiar flags (`-X`, `-H`, `--json`, `-o`, `-L`, …)
+- **Payment sessions** — open a channel once, then pay per-request off-chain
+- **Dry-run** — preview cost before committing (`--dry-run`)
 
 ## Quick Start
 
