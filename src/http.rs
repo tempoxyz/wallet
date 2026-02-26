@@ -58,6 +58,7 @@ struct HttpClientConfig {
     connect_timeout: Option<u64>,
     follow_redirects: bool,
     user_agent: Option<String>,
+    insecure: bool,
     headers: Vec<(String, String)>,
 }
 
@@ -111,6 +112,12 @@ impl HttpClientBuilder {
         self
     }
 
+    /// Allow invalid TLS certificates (insecure)
+    pub fn insecure(mut self, insecure: bool) -> Self {
+        self.config.insecure = insecure;
+        self
+    }
+
     /// Build the configured async HTTP client.
     pub fn build(self) -> Result<HttpClient> {
         HttpClient::from_config(self.config)
@@ -154,6 +161,10 @@ impl HttpClient {
 
         if let Some(ref ua) = config.user_agent {
             builder = builder.user_agent(ua);
+        }
+
+        if config.insecure {
+            builder = builder.danger_accept_invalid_certs(true);
         }
 
         if !config.headers.is_empty() {
@@ -301,6 +312,7 @@ pub(crate) struct HttpRequestPlan {
     pub retry_backoff_ms: u64,
     pub follow_redirects: bool,
     pub user_agent: String,
+    pub insecure: bool,
     pub verbose_connection: bool,
 }
 
@@ -408,6 +420,7 @@ impl RequestContext {
             .verbose(self.plan.verbose_connection)
             .follow_redirects(self.plan.follow_redirects)
             .user_agent(&self.plan.user_agent)
+            .insecure(self.plan.insecure)
             .headers(&headers);
 
         if let Some(timeout) = self.plan.timeout_secs {

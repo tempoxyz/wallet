@@ -625,6 +625,45 @@ async fn test_no_redirect() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_fail_flag_suppresses_body() {
+    let server = MockServer::start(404, vec![], "not found body").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-f", &server.url("/missing")])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "-f should make HTTP >= 400 exit with error"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("not found body"),
+        "-f should suppress error response body: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_dump_header_writes_file() {
+    let server = MockServer::start(200, vec![("x-test", "1")], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let hdr_path = temp.path().join("headers.out");
+    let hdr_str = hdr_path.to_string_lossy().to_string();
+    let output = test_command(&temp)
+        .args(["-D", &hdr_str, &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "request should succeed");
+    let dumped = std::fs::read_to_string(&hdr_path).expect("headers file exists");
+    assert!(dumped.contains("HTTP 200"));
+    assert!(dumped.to_lowercase().contains("x-test: 1"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_timeout_flag() {
     let server = MockServer::start(200, vec![], "fast").await;
     let temp = TestConfigBuilder::new().build();

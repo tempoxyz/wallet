@@ -20,6 +20,8 @@ pub(crate) struct OutputOptions {
     pub output_file: Option<String>,
     pub verbosity: u8,
     pub show_output: bool,
+    pub fail_silently: bool,
+    pub dump_headers: Option<String>,
 }
 
 impl OutputOptions {
@@ -40,6 +42,14 @@ impl OutputOptions {
 
 /// Handle a regular (non-402) HTTP response
 pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+    // If -f/--fail is set and the response is an error, suppress body output.
+    // Still honor -D/--dump-header if requested.
+    if opts.fail_silently && response.status_code >= 400 {
+        if let Some(ref path) = opts.dump_headers {
+            write_headers_file(opts, path, &response)?;
+        }
+        return Ok(());
+    }
     match opts.output_format {
         OutputFormat::Json => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
@@ -60,6 +70,10 @@ pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpRespon
 
             output_response_body(opts, &response.body)?;
         }
+    }
+
+    if let Some(ref path) = opts.dump_headers {
+        write_headers_file(opts, path, &response)?;
     }
 
     Ok(())
@@ -137,4 +151,15 @@ fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result
         }
     }
     Ok(())
+}
+
+/// Write response headers to a file (HTTP status line followed by headers, blank line terminator)
+fn write_headers_file(opts: &OutputOptions, path: &str, response: &HttpResponse) -> Result<()> {
+    let mut content = String::new();
+    content.push_str(&format!("HTTP {}\n", response.status_code));
+    for (name, value) in &response.headers {
+        content.push_str(&format!("{}: {}\n", name, value));
+    }
+    content.push('\n');
+    write_to_file(opts, path, content.as_bytes())
 }

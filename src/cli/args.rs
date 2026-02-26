@@ -142,6 +142,10 @@ pub struct QueryArgs {
     #[arg(short = 'L', long = "location", help_heading = "HTTP Options")]
     pub location: bool,
 
+    /// Send data as query parameters with GET
+    #[arg(short = 'G', long = "get", help_heading = "HTTP Options")]
+    pub get: bool,
+
     /// Maximum time for the request in seconds
     #[arg(
         short = 'm',
@@ -172,6 +176,7 @@ pub struct QueryArgs {
     #[arg(long = "json", value_name = "JSON", help_heading = "HTTP Options")]
     pub json: Option<String>,
 
+<<<<<<< HEAD
     /// Number of retries on transient network errors (timeouts/connect failures)
     #[arg(long = "retries", value_name = "N", help_heading = "HTTP Options")]
     pub retries: Option<u32>,
@@ -183,6 +188,15 @@ pub struct QueryArgs {
         help_heading = "HTTP Options"
     )]
     pub retry_backoff_ms: Option<u64>,
+=======
+    /// Allow insecure TLS (skip certificate validation)
+    #[arg(short = 'k', long = "insecure", help_heading = "HTTP Options")]
+    pub insecure: bool,
+
+    /// Fail on HTTP errors (do not output body)
+    #[arg(short = 'f', long = "fail", help_heading = "HTTP Options")]
+    pub fail_silently: bool,
+>>>>>>> bbd8340 (feat(cli): add -k/--insecure, -f/--fail, -u/--user, -D/--dump-header, -G/--get; help/usage; tests for -f and -D)
 
     /// Override RPC URL for the request
     #[arg(
@@ -203,6 +217,24 @@ pub struct QueryArgs {
         help_heading = "HTTP Options"
     )]
     pub user_agent: Option<String>,
+
+    /// Write response headers to a file
+    #[arg(
+        short = 'D',
+        long = "dump-header",
+        value_name = "FILE",
+        help_heading = "HTTP Options"
+    )]
+    pub dump_header: Option<String>,
+
+    /// Provide HTTP Basic auth credentials (user:pass)
+    #[arg(
+        short = 'u',
+        long = "user",
+        value_name = "USER:PASS",
+        help_heading = "HTTP Options"
+    )]
+    pub user: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]

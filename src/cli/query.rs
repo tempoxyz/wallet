@@ -8,6 +8,7 @@
 use std::io::IsTerminal;
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::PaymentProtocol;
@@ -16,7 +17,7 @@ use crate::analytics::{self, Analytics};
 use crate::config::{load_config_with_overrides, Config};
 use crate::error::PrestoError;
 use crate::http::{
-    get_request_method_and_body, parse_headers, should_auto_add_json_content_type,
+    get_request_method_and_body, parse_headers, resolve_data, should_auto_add_json_content_type,
     validate_header_size, HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
 };
 use crate::network::{resolve_token_meta, ExplorerConfig, Network};
@@ -47,7 +48,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         config.set_rpc_override(rpc_url.clone());
     }
 
-    let url = query.url.clone();
+    let mut url = query.url.clone();
 
     // Validate the URL early to give a clear error instead of a cryptic reqwest message.
     match url::Url::parse(&url) {
@@ -63,6 +64,27 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         Err(e) => {
             anyhow::bail!(PrestoError::InvalidUrl(e.to_string()));
         }
+    }
+
+    // Support -G/--get: append -d to query string and force GET if no explicit -X
+    if query.get && !query.data.is_empty() {
+        let mut combined: Vec<u8> = Vec::new();
+        for item in &query.data {
+            let bytes = resolve_data(item)?;
+            if !combined.is_empty() {
+                combined.push(b'&');
+            }
+            combined.extend(bytes);
+        }
+        let params = String::from_utf8(combined).context("data is not valid UTF-8 for --get")?;
+        let mut parsed =
+            url::Url::parse(&url).context("invalid URL when applying --get query parameters")?;
+        let new_query = match parsed.query() {
+            Some(q) if !q.is_empty() => format!("{q}&{params}"),
+            _ => params,
+        };
+        parsed.set_query(Some(&new_query));
+        url = parsed.to_string();
     }
 
     let request_ctx = build_request_context(&cli, &query)?;
@@ -650,11 +672,32 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     // Determine method/body. If -I (HEAD) is provided, override method and ignore body inputs.
     let (method, body) = if query.head {
         get_request_method_and_body(Some("HEAD"), &[], None)?
+    } else if query.method.is_some() {
+        // Respect explicit -X even with -G; body still follows normal rules unless -G set
+        if query.get {
+            get_request_method_and_body(query.method.as_deref(), &[], None)?
+        } else {
+            get_request_method_and_body(
+                query.method.as_deref(),
+                &query.data,
+                query.json.as_deref(),
+            )?
+        }
+    } else if query.get {
+        // Force GET with no body when -G is used without -X
+        get_request_method_and_body(Some("GET"), &[], None)?
     } else {
         get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?
     };
 
     let mut headers = parse_headers(&query.headers);
+    // Add Authorization: Basic ... if -u/--user provided and not explicitly overriden by -H
+    if let Some(ref user) = query.user {
+        if !crate::http::has_header(&query.headers, "authorization") {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(user);
+            headers.push(("authorization".to_string(), format!("Basic {}", encoded)));
+        }
+    }
     if !query.head
         && should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data)
     {
@@ -674,6 +717,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
             .user_agent
             .clone()
             .unwrap_or_else(|| format!("presto/{}", env!("CARGO_PKG_VERSION"))),
+        insecure: query.insecure,
         verbose_connection: runtime.debug_enabled(),
     };
 
@@ -689,5 +733,7 @@ fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> Output
         output_file: query.output.clone(),
         verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
+        fail_silently: query.fail_silently,
+        dump_headers: query.dump_header.clone(),
     }
 }
