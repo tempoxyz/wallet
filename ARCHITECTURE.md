@@ -11,8 +11,8 @@ main.rs          — entry point; dispatches to cli
   cli/           — user-facing commands; depends on all lower layers
   payment/       — payment flows (charge + session); depends on wallet, config, network
   wallet/        — wallet credentials, signing, keychain; depends on config, network
-  config/        — configuration file handling; depends on error
-  network/       — chain definitions, explorer config, RPC; depends on error
+  config.rs      — configuration file handling; depends on error
+  network.rs     — chain definitions, explorer config, RPC; depends on error
   http.rs        — HTTP client wrapper; depends on config
   analytics/     — opt-out telemetry; no internal dependencies
   error.rs       — error types; foundational

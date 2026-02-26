@@ -287,12 +287,7 @@ pub struct QueryArgs {
     pub retry_jitter: Option<u32>,
 
     /// Authorization bearer token (alternative to -u Basic auth)
-    #[arg(
-        long = "bearer",
-        env = "PRESTO_BEARER",
-        hide_env_values = true,
-        help_heading = "HTTP Options"
-    )]
+    #[arg(long = "bearer", hide_env_values = true, help_heading = "HTTP Options")]
     pub bearer: Option<String>,
 
     /// Write response metadata (JSON) to file
