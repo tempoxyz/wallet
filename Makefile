@@ -42,4 +42,4 @@ e2e: build
 # Generate coverage locally (requires cargo-llvm-cov and llvm-tools-preview)
 # Install once: `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
 coverage:
-        cargo llvm-cov --all-features --workspace --fail-under-lines 85 --lcov --output-path lcov.info
+	cargo llvm-cov --all-features --workspace --fail-under-lines 85 --lcov --output-path lcov.info
