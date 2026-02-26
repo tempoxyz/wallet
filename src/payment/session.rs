@@ -2049,7 +2049,7 @@ async fn send_open_with_retry(
 }
 
 /// The nonceKey used for client-side session transactions.
-const SESSION_NONCE_KEY: u64 = 0;
+const SESSION_NONCE_KEY: u64 = 1;
 
 /// NONCE precompile address for querying 2D nonce spaces.
 const NONCE_PRECOMPILE: &str = "0x4e4f4e4345000000000000000000000000000000";
@@ -2465,8 +2465,9 @@ async fn create_tempo_payment_from_calls(
     // Query the correct nonce for our nonceKey space via the NONCE precompile.
     let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
 
-    // Estimate gas
-    let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
+    // Estimate gas — retry without key_authorization if already provisioned on-chain
+    let mut key_auth = signing.signing_mode.key_authorization();
+    let gas_limit = match mpp::client::tempo::tx_builder::estimate_gas(
         &provider,
         from,
         chain_id,
@@ -2475,10 +2476,32 @@ async fn create_tempo_payment_from_calls(
         &calls,
         resolved.max_fee_per_gas,
         resolved.max_priority_fee_per_gas,
-        signing.signing_mode.key_authorization(),
+        key_auth,
     )
     .await
-    .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
+    {
+        Ok(gas) => gas,
+        Err(e) if key_auth.is_some() && e.to_string().contains("KeyAlreadyExists") => {
+            tracing::debug!("Key already provisioned on-chain, retrying without key_authorization");
+            key_auth = None;
+            mpp::client::tempo::tx_builder::estimate_gas(
+                &provider,
+                from,
+                chain_id,
+                nonce,
+                fee_token,
+                &calls,
+                resolved.max_fee_per_gas,
+                resolved.max_priority_fee_per_gas,
+                None,
+            )
+            .await
+            .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?
+        }
+        Err(e) => {
+            return Err(crate::error::PrestoError::SigningSimple(e.to_string()).into());
+        }
+    };
 
     // Build and sign the transaction
     let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
@@ -2493,7 +2516,7 @@ async fn create_tempo_payment_from_calls(
             max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
             fee_payer: false,
             valid_before: None,
-            key_authorization: signing.signing_mode.key_authorization().cloned(),
+            key_authorization: key_auth.cloned(),
         },
     );
 

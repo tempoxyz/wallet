@@ -64,10 +64,10 @@ pub async fn run_login(
     };
 
     if output_format == OutputFormat::Text {
-        println!("\nWallet connected!\n");
+        eprintln!("\nWallet connected!\n");
     }
 
-    show_whoami(&config, output_format, network).await?;
+    show_whoami_stderr(&config, network).await?;
 
     Ok(())
 }
@@ -173,7 +173,25 @@ pub async fn show_whoami(
 ) -> Result<()> {
     let creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
+    let response = build_whoami_response(config, &creds, network).await;
 
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string(&response)?);
+        }
+        _ => {
+            print_whoami_text(&response, &creds, &mut std::io::stdout())?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn build_whoami_response(
+    config: &Config,
+    creds: &WalletCredentials,
+    network: &str,
+) -> StatusResponse {
     let mut response = StatusResponse {
         ready: true,
         wallet: None,
@@ -271,38 +289,57 @@ pub async fn show_whoami(
         response.ready = false;
     }
 
-    match output_format {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string(&response)?);
-        }
-        _ => {
-            if let Some(key) = &response.key {
-                println!("{}", key.label);
-                if let Some(wallet) = &response.wallet {
-                    let wt = response.wallet_type.as_deref().unwrap_or("unknown");
-                    println!("{:>10}: {} ({})", "Wallet", wallet, wt);
-                }
-                println!("{:>10}: {}", "Access Key", key.address);
-                if let Some(cur) = &key.currency {
-                    println!("{:>10}: {}", "Currency", cur);
-                }
-                if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
-                    println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
-                }
-                print_key_amounts(key);
-                let status = if response.ready { "ready" } else { "not ready" };
-                println!("{:>10}: {}", "Status", status);
-            } else {
-                println!("    Status: not ready — run 'presto login'");
-            }
-        }
-    }
+    response
+}
 
+/// Show whoami output on stderr (for use during interactive login when stdout may be piped).
+async fn show_whoami_stderr(config: &Config, network: Option<&str>) -> Result<()> {
+    let creds = WalletCredentials::load()?;
+    let network = network.unwrap_or("tempo");
+    let response = build_whoami_response(config, &creds, network).await;
+    print_whoami_text(&response, &creds, &mut std::io::stderr())?;
+    Ok(())
+}
+
+fn print_whoami_text(
+    response: &StatusResponse,
+    creds: &WalletCredentials,
+    w: &mut dyn std::io::Write,
+) -> Result<()> {
+    if let Some(key) = &response.key {
+        writeln!(w, "{}", key.label)?;
+        if let Some(wallet) = &response.wallet {
+            let wt = response.wallet_type.as_deref().unwrap_or("unknown");
+            writeln!(w, "{:>10}: {} ({})", "Wallet", wallet, wt)?;
+        }
+        writeln!(w, "{:>10}: {}", "Access Key", key.address)?;
+        if let Some(cur) = &key.currency {
+            writeln!(w, "{:>10}: {}", "Currency", cur)?;
+        }
+        if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
+            writeln!(
+                w,
+                "{:>10}: {}",
+                "Expires",
+                format_expiry_countdown(expiry_ts)
+            )?;
+        }
+        print_key_amounts_to(key, w)?;
+        let status = if response.ready { "ready" } else { "not ready" };
+        writeln!(w, "{:>10}: {}", "Status", status)?;
+    } else {
+        writeln!(w, "    Status: not ready — run 'presto login'")?;
+    }
     Ok(())
 }
 
 /// Print balance and spending-limit rows for a key with decimal alignment.
 fn print_key_amounts(key: &KeyInfo) {
+    // Ignore errors — stdout failures are handled by the caller.
+    let _ = print_key_amounts_to(key, &mut std::io::stdout());
+}
+
+fn print_key_amounts_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> Result<()> {
     let sym = key.symbol.as_deref().unwrap_or("tokens");
 
     // Collect all numeric values to determine alignment width
@@ -323,21 +360,22 @@ fn print_key_amounts(key: &KeyInfo) {
             }
         }
     }
-    let w = amounts.iter().map(|a| a.len()).max().unwrap_or(0);
+    let aw = amounts.iter().map(|a| a.len()).max().unwrap_or(0);
 
     if let Some(bal) = &key.balance {
-        println!("{:>10}: {:>w$} {}", "Balance", bal, sym);
+        writeln!(w, "{:>10}: {:>aw$} {}", "Balance", bal, sym)?;
     }
     if let Some(sl) = &key.spending_limit {
         if sl.unlimited {
-            println!("{:>10}: unlimited", "Limit");
+            writeln!(w, "{:>10}: unlimited", "Limit")?;
         } else if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
             let spent = sl.spent.as_deref().unwrap_or("0");
-            println!("{:>10}: {:>w$} {}", "Limit", limit, sym);
-            println!("{:>10}: {:>w$} {}", "Spent", spent, sym);
-            println!("{:>10}: {:>w$} {}", "Remaining", remaining, sym);
+            writeln!(w, "{:>10}: {:>aw$} {}", "Limit", limit, sym)?;
+            writeln!(w, "{:>10}: {:>aw$} {}", "Spent", spent, sym)?;
+            writeln!(w, "{:>10}: {:>aw$} {}", "Remaining", remaining, sym)?;
         }
     }
+    Ok(())
 }
 
 /// Extract the expiry timestamp from a key entry's authorization, if present.

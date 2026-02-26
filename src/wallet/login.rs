@@ -225,12 +225,20 @@ impl WalletManager {
         }
 
         if let Some(key) = creds.keys.get_mut(&profile) {
+            // Only clear provisioned state when the access key actually changed;
+            // re-authorizing the same key doesn't re-register it on-chain.
+            let key_changed = key
+                .access_key_address
+                .as_deref()
+                .is_none_or(|a| a != access_key_address);
             key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
             key.wallet_address = callback.account_address.clone();
             key.access_key_address = Some(access_key_address.clone());
             key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
             key.key_authorization = key_auth_hex.clone();
-            key.provisioned_chain_ids.clear();
+            if key_changed {
+                key.provisioned_chain_ids.clear();
+            }
         } else {
             creds.keys.insert(
                 profile,
