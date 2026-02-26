@@ -1,11 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
-    branches:
-      - main
   workflow_call:
     inputs:
       version:
@@ -16,7 +11,7 @@ on:
     inputs:
       version:
         description: 'Version to release (e.g., 1.2.3)'
-        required: false
+        required: true
         type: string
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
@@ -29,26 +24,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  version:
-    name: Version
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') && !inputs.version
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Configure git for private repos
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Changelogs
-        uses: wevm/changelogs-rs@master
-        with:
-          conventional-commit: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -82,44 +57,9 @@ jobs:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
 
-  # Always upload to R2 as "latest" on main
-  upload-latest:
-    name: Upload Latest to R2
-    needs: build
-    if: github.ref == 'refs/heads/main' && !inputs.version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-      - name: Upload binaries as latest
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
-        run: |
-          # Disable multipart uploads (R2 may reject CreateMultipartUpload)
-          aws configure set default.s3.multipart_threshold 200MB
-
-          for f in artifacts/*; do
-            aws s3 cp "$f" "s3://presto-binaries/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
-          done
-
-          # Upload install script
-          aws s3 cp install.sh "s3://presto-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
-
-          # Upload AI skill
-          aws s3 cp .agents/skills/presto/SKILL.md "s3://presto-binaries/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-
-          echo "Uploaded latest binaries to R2"
-
-  # On tag or workflow_call: create GitHub release, upload versioned to R2, publish to crates.io
   release:
     name: Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -130,12 +70,7 @@ jobs:
 
       - name: Determine version
         id: version
-        run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=v${{ inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
+        run: echo "version=v${{ inputs.version }}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -144,7 +79,7 @@ jobs:
           files: artifacts/*
           generate_release_notes: true
 
-      - name: Upload versioned binaries to R2
+      - name: Upload binaries to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -155,11 +90,17 @@ jobs:
 
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Upload with version prefix
           for f in artifacts/*; do
             BASENAME=$(basename "$f")
+            # Upload as latest
+            aws s3 cp "$f" "s3://presto-binaries/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            # Upload with version prefix
             aws s3 cp "$f" "s3://presto-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
+
+          # Upload install script and AI skill
+          aws s3 cp install.sh "s3://presto-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp .agents/skills/presto/SKILL.md "s3://presto-binaries/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
 
           echo "Uploaded ${VERSION} binaries to R2"
 
