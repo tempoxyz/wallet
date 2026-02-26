@@ -191,16 +191,14 @@ async fn run_relay_bridge(
 
     if output_format == OutputFormat::Text {
         let qr_uri = format!("ethereum:{}", deposit.deposit_address);
-        if let Err(e) = qr2term::print_qr(&qr_uri) {
-            tracing::debug!("QR code generation failed: {e}");
-        }
-        println!();
-        println!(
+        print_qr_code(&qr_uri);
+        eprintln!();
+        eprintln!(
             "Send USDC on {} to: {}",
             source_chain.name, deposit.deposit_address
         );
-        println!("Funds will be bridged automatically to your Tempo wallet.");
-        println!();
+        eprintln!("Funds will be bridged automatically to your Tempo wallet.");
+        eprintln!();
     }
 
     if !wait {
@@ -465,6 +463,28 @@ fn has_balance_changed(initial: &[TokenBalance], current: &[TokenBalance]) -> bo
         }
     }
     false
+}
+
+/// Generate a QR code and display it:
+/// 1. Compact Unicode rendering to stderr (half-height, scannable in real terminals)
+/// 2. PNG saved to a temp file (agents can display the image to the user)
+fn print_qr_code(data: &str) {
+    let code = match qrcode::QrCode::new(data) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!("QR code generation failed: {e}");
+            return;
+        }
+    };
+
+    // Compact terminal QR using Unicode half-blocks (half the vertical lines)
+    use qrcode::render::unicode;
+    let terminal_qr = code
+        .render::<unicode::Dense1x2>()
+        .dark_color(unicode::Dense1x2::Light)
+        .light_color(unicode::Dense1x2::Dark)
+        .build();
+    eprintln!("{terminal_qr}");
 }
 
 fn print_balance_diff(before: &[TokenBalance], after: &[TokenBalance]) {

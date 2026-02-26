@@ -37,7 +37,7 @@ The wallet address printed by `presto whoami` is the **fundable address**.
 presto wallet fund
 ```
 
-The command prints a deposit address and a **QR code** that the user must scan or copy to send USDC on Base. It then polls until the funds are bridged to Tempo (up to 10 minutes). **Do NOT use `--no-wait`** — let the command block so you know when funding is complete. **Show the full command output to the user immediately** — they need to see the QR code and deposit address to send funds.
+The command prints a QR code and deposit address, then polls until funds are bridged to Tempo (up to 10 minutes). **Do NOT use `--no-wait`** — let the command block so you know when funding is complete. **Show the full command output to the user immediately** — they need to see the QR code and deposit address to send funds (they can expand collapsed output with ctrl+o).
 
 ### Alternative: Import an Existing Key
 
