@@ -14,25 +14,16 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 
 ## Agent Usage
 
-Set JSON as the default output format in config so you don't need `--output-format json` on every call:
+Use `-j` to get JSON output:
 
 ```bash
-# One-time setup: set default output format to JSON
-# Add to ~/Library/Application Support/presto/config.toml (macOS)
-# or ~/.config/presto/config.toml (Linux):
-output_format = "json"
-```
-
-Then use `-q` (quiet) to suppress log messages:
-
-```bash
-# Preferred pattern: quiet, pipe through jq
-presto -q -X POST \
+# Preferred pattern: JSON output, pipe through jq
+presto -j -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 
 # Check wallet readiness before making requests
-presto -q whoami | jq '.ready'
+presto -j whoami | jq '.ready'
 ```
 
 ### Preflight Check
@@ -40,7 +31,7 @@ presto -q whoami | jq '.ready'
 Before making paid requests, verify the wallet is ready:
 
 ```bash
-presto -q --output-format json whoami
+presto -j whoami
 ```
 
 Check these fields in the response:
@@ -160,9 +151,9 @@ These options are available on all commands:
 
 | Option | Description |
 |--------|-------------|
-| `-v` | Verbose output — shows payment flow details (intent, network, amount) (use `-vv` for debug) |
-| `-q, --quiet` | Suppress log messages (recommended for agents) |
-| `--output-format json` | JSON output (recommended for agents) |
+| `-v` | Verbose output — shows payment flow details (intent, network, amount) (`-vv` debug, `-vvv` trace) |
+| `-s, --silent` | Suppress non-essential stderr output |
+| `-j, --json-output` | JSON output (recommended for agents) |
 
 ## Query Options
 
@@ -173,17 +164,30 @@ These options apply when making HTTP requests (`presto <URL>`):
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Show what would be paid without executing |
+| `--max-pay <AMOUNT>` | Hard cap on the maximum amount to pay |
+| `--currency <ADDR\|SYMBOL>` | Currency for `--max-pay` |
 
 ### HTTP Options
 
 | Option | Description |
 |--------|-------------|
-| `-X, --request <METHOD>` | Custom request method (GET, POST, etc.) |
+| `-X, --request <METHOD>` | Custom request method (GET, POST, PUT, DELETE, ...) |
 | `-H, --header <HEADER>` | Add custom header (can be repeated) |
 | `--json <JSON>` | Send JSON data with Content-Type header |
 | `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
-| `--no-redirect` | Disable following redirects |
+| `-L, --location` | Follow redirects (off by default) |
+| `--max-redirs <N>` | Maximum number of redirects when `-L` is used |
 | `-m, --timeout <SECONDS>` | Maximum time for the request |
+| `--connect-timeout <SECONDS>` | Maximum time to establish TCP connection |
+| `--offline` | Fail immediately without making any network requests |
+| `-f, --fail` | Fail on HTTP errors (do not output body) |
+| `--fail-with-body` | Fail on HTTP errors but still output the response body |
+| `-k, --insecure` | Skip TLS certificate validation |
+| `--compressed` | Request a compressed response |
+| `--stream` | Stream response body as it arrives |
+| `--sse` | Treat response as Server-Sent Events pass-through |
+| `--sse-json` | Output SSE events as NDJSON |
+| `--retries <N>` | Number of retries on transient network errors |
 
 ### Display Options
 
@@ -291,13 +295,3 @@ When presto fails with a login-fixable error, **automatically run `presto login`
 3. For **charge** intent: signs an on-chain payment transaction and retries with an `Authorization: Payment` credential
 4. For **session** intent: opens a payment channel on-chain (first request), then uses off-chain vouchers for subsequent requests to the same origin
 5. The server validates the credential and returns the response
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `PRESTO_RPC_URL` | Override RPC endpoint (required for mainnet — see above) |
-| `PRESTO_AUTH_URL` | Override auth server URL for login |
-| `PRESTO_NO_TELEMETRY` | Disable telemetry |
-| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
-| `NO_COLOR` | Disable colored output |
