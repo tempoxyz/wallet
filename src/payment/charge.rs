@@ -66,7 +66,8 @@ pub async fn prepare_charge(
     let provider = mpp::client::TempoProvider::new(signing.signer.clone(), &network_info.rpc_url)
         .map_err(|e| PrestoError::InvalidConfig(e.to_string()))?
         .with_signing_mode(signing.signing_mode)
-        .with_replace_stuck_transactions(true);
+        .with_replace_stuck_transactions(true)
+        .with_expiring_nonces(true);
 
     let credential = provider
         .pay(&challenge)
