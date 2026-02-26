@@ -1,7 +1,6 @@
 //! CLI argument definitions and parsing.
 
-use clap::{Parser, Subcommand, ValueEnum};
-use clap_verbosity_flag::VerbosityFilter;
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
 use crate::config::Config;
 pub(crate) use crate::config::OutputFormat;
@@ -18,15 +17,19 @@ pub enum ColorMode {
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version)]
 #[command(
-    override_usage = "presto [OPTIONS] <URL> [-- HTTP_OPTIONS]\n  presto [OPTIONS] <COMMAND>"
+    // Match curl-style usage: put both forms on their own lines under "Usage:"
+    override_usage = "\n  presto [HTTP OPTIONS] <URL>\n  presto <COMMAND> [OPTIONS]"
 )]
 #[command(after_help = "\
-\x1b[1;4mHTTP Options\x1b[0m (after presto <URL>):
+\x1b[1;4mHTTP Options\x1b[0m (before <URL>):
   -X, --request <METHOD>        Custom request method (GET, POST, PUT, DELETE, ...)
   -H, --header <HEADER>         Add custom header (e.g. -H 'Accept: text/plain')
   -d, --data <DATA>             POST data (use @filename or @- for stdin)
       --json <JSON>             Send JSON data with Content-Type header
   -m, --timeout <SECONDS>       Maximum time for the request
+      --connect-timeout <SECONDS>  Maximum time to establish the TCP connection
+      --retries <N>             Retry transient network errors N times
+      --retry-backoff <MILLIS>  Initial retry backoff in milliseconds (exponential)
       --no-redirect             Disable following redirects
   -i, --include                 Include HTTP response headers in output
   -o, --output <FILE>           Write output to file
@@ -60,9 +63,18 @@ pub struct Cli {
     #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
     pub network: Option<String>,
 
-    /// Logging verbosity (-v info, -vv debug, -vvv trace; -q silences all logs and overrides RUST_LOG)
-    #[command(flatten)]
-    pub verbose: clap_verbosity_flag::Verbosity<clap_verbosity_flag::WarnLevel>,
+    /// Verbosity: repeat -v to increase (info, debug, trace)
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true, help_heading = "Display Options")]
+    pub verbose: u8,
+
+    /// Silent mode: suppress non-essential output
+    #[arg(
+        short = 's',
+        long = "silent",
+        global = true,
+        help_heading = "Display Options"
+    )]
+    pub silent: bool,
 
     /// Control color output
     #[arg(
@@ -139,6 +151,14 @@ pub struct QueryArgs {
     )]
     pub max_time: Option<u64>,
 
+    /// Maximum time to establish the TCP connection in seconds
+    #[arg(
+        long = "connect-timeout",
+        value_name = "SECONDS",
+        help_heading = "HTTP Options"
+    )]
+    pub connect_timeout: Option<u64>,
+
     /// POST data (use @filename to read from file, @- to read from stdin)
     #[arg(
         short = 'd',
@@ -151,6 +171,18 @@ pub struct QueryArgs {
     /// Send JSON data with Content-Type header
     #[arg(long = "json", value_name = "JSON", help_heading = "HTTP Options")]
     pub json: Option<String>,
+
+    /// Number of retries on transient network errors (timeouts/connect failures)
+    #[arg(long = "retries", value_name = "N", help_heading = "HTTP Options")]
+    pub retries: Option<u32>,
+
+    /// Initial retry backoff in milliseconds (doubles each retry, capped)
+    #[arg(
+        long = "retry-backoff",
+        value_name = "MILLIS",
+        help_heading = "HTTP Options"
+    )]
+    pub retry_backoff_ms: Option<u64>,
 
     /// Override RPC URL for the request
     #[arg(
@@ -307,14 +339,16 @@ pub enum KeyCommands {
 }
 
 impl Cli {
-    /// Verbosity count (0 = default/warn, 1 = info/-v, 2 = debug/-vv, etc.)
-    /// Returns 0 when quiet.
+    /// Verbosity level (0=warn, 1=info, 2=debug, 3+=trace). Returns 0 when silent.
     pub fn verbosity(&self) -> u8 {
-        match self.verbose.filter() {
-            VerbosityFilter::Off | VerbosityFilter::Error | VerbosityFilter::Warn => 0,
-            VerbosityFilter::Info => 1,
-            VerbosityFilter::Debug => 2,
-            VerbosityFilter::Trace => 3,
+        if self.silent || self.verbose == 0 {
+            0
+        } else if self.verbose == 1 {
+            1
+        } else if self.verbose == 2 {
+            2
+        } else {
+            3
         }
     }
 
@@ -323,10 +357,7 @@ impl Cli {
     /// Note: with `WarnLevel`, `-q` maps to `Error` (not `Off`). Treat both
     /// `Off` and `Error` as silent for CLI user-facing logs.
     pub fn should_show_output(&self) -> bool {
-        !matches!(
-            self.verbose.filter(),
-            VerbosityFilter::Off | VerbosityFilter::Error
-        )
+        !self.silent
     }
 
     /// Resolve the effective output format: CLI flag > default (text).

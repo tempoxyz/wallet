@@ -428,7 +428,7 @@ async fn test_quiet_suppresses_logs() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["-q", &server.url("/test")])
+        .args(["-s", &server.url("/test")])
         .output()
         .unwrap();
 
@@ -542,6 +542,34 @@ async fn test_multiple_data_flags() {
         stdout.contains("multi-posted"),
         "stdout should contain body: {stdout}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_retries_and_backoff_on_unreachable_host() {
+    // Port 9 is "discard" and typically closed locally; triggers a connect error quickly.
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([
+            "-j",
+            "--retries",
+            "1",
+            "--retry-backoff",
+            "10",
+            "--timeout",
+            "1",
+            "http://127.0.0.1:9",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected failure on unreachable host"
+    );
+    // Should emit JSON error to stdout
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -865,7 +893,7 @@ key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
     // Quiet: summary should be suppressed
     let output_quiet = test_command(&temp)
-        .args(["-q", &server.url("/api")])
+        .args(["-s", &server.url("/api")])
         .output()
         .unwrap();
     assert!(output_quiet.status.success(), "quiet run should succeed");

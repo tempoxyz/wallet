@@ -55,6 +55,7 @@ impl HttpResponse {
 struct HttpClientConfig {
     verbose: bool,
     timeout: Option<u64>,
+    connect_timeout: Option<u64>,
     follow_redirects: bool,
     user_agent: Option<String>,
     headers: Vec<(String, String)>,
@@ -83,6 +84,12 @@ impl HttpClientBuilder {
     /// Set request timeout in seconds.
     pub fn timeout(mut self, seconds: u64) -> Self {
         self.config.timeout = Some(seconds);
+        self
+    }
+
+    /// Set connect timeout in seconds.
+    pub fn connect_timeout(mut self, seconds: u64) -> Self {
+        self.config.connect_timeout = Some(seconds);
         self
     }
 
@@ -133,6 +140,10 @@ impl HttpClient {
 
         if let Some(timeout) = config.timeout {
             builder = builder.timeout(Duration::from_secs(timeout));
+        }
+
+        if let Some(connect_timeout) = config.connect_timeout {
+            builder = builder.connect_timeout(Duration::from_secs(connect_timeout));
         }
 
         if config.follow_redirects {
@@ -285,6 +296,9 @@ pub(crate) struct HttpRequestPlan {
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
     pub timeout_secs: Option<u64>,
+    pub connect_timeout_secs: Option<u64>,
+    pub retries: u32,
+    pub retry_backoff_ms: u64,
     pub follow_redirects: bool,
     pub user_agent: String,
     pub verbose_connection: bool,
@@ -400,6 +414,10 @@ impl RequestContext {
             builder = builder.timeout(timeout);
         }
 
+        if let Some(connect_timeout) = self.plan.connect_timeout_secs {
+            builder = builder.connect_timeout(connect_timeout);
+        }
+
         builder.build()
     }
 
@@ -441,9 +459,40 @@ impl RequestContext {
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<HttpResponse> {
         let client = self.build_client(extra_headers)?;
-        client
-            .request(self.plan.method.clone(), url, self.plan.body.as_deref())
-            .await
+        let mut attempt: u32 = 0;
+        let max_retries = self.plan.retries;
+        let mut backoff = self.plan.retry_backoff_ms;
+        loop {
+            match client
+                .request(self.plan.method.clone(), url, self.plan.body.as_deref())
+                .await
+            {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    let is_transient = {
+                        if let Some(re) = e.downcast_ref::<reqwest::Error>() {
+                            re.is_connect() || re.is_timeout()
+                        } else {
+                            false
+                        }
+                    };
+                    if is_transient && attempt < max_retries {
+                        attempt += 1;
+                        if self.runtime.debug_enabled() {
+                            eprintln!(
+                                "[retry {} of {} after {}ms: {}]",
+                                attempt, max_retries, backoff, e
+                            );
+                        }
+                        tokio::time::sleep(Duration::from_millis(backoff)).await;
+                        // Exponential backoff capped at 10s
+                        backoff = (backoff.saturating_mul(2)).min(10_000);
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        }
     }
 }
 
