@@ -398,6 +398,18 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             cli::auth::show_whoami(&config, output_format, network).await
                         }
                     }
+                    WalletCommands::Fund { address, no_wait } => {
+                        let config = load_config_with_overrides(cli.config.as_ref())?;
+                        let output_format = cli.resolve_output_format(&config);
+                        cli::fund::run_fund(
+                            &config,
+                            output_format,
+                            cli.network.as_deref(),
+                            address,
+                            no_wait,
+                        )
+                        .await
+                    }
                     WalletCommands::Import {
                         private_key,
                         stdin_key,
@@ -420,7 +432,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 if let Some(wallet_cmd) = Cli::command().find_subcommand_mut("wallet") {
                     wallet_cmd.print_help()?;
                 } else {
-                    // Fallback: print top-level help if the subcommand is unexpectedly missing
                     Cli::command().print_help()?;
                 }
                 Ok(())
@@ -431,17 +442,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
             let output_format = cli.resolve_output_format(&config);
-
-            // Auto-login if no wallet is connected
-            let creds = wallet::credentials::WalletCredentials::load()?;
-            if !creds.has_wallet() && std::env::var("PRESTO_NO_AUTO_LOGIN").is_err() {
-                eprintln!("No wallet connected. Starting login...\n");
-                if let Some(ref a) = analytics {
-                    a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
-                }
-                // run_login already displays whoami after success
-                return cli::auth::run_login(network, analytics.clone(), output_format).await;
-            }
 
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);

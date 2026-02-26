@@ -171,8 +171,8 @@ pub(crate) fn delete_wallet(address: &str, yes: bool) -> Result<()> {
 ///
 /// Reads the private key from `--private-key`, `--stdin-key`, or prompts interactively
 /// (masked) on a TTY. Stores the key in the OS keychain and records the wallet
-/// address in keys.toml. Does not create a key; run `presto login` to connect
-/// and provision when ready.
+/// address in keys.toml. Does not create a key; use `presto key create` to
+/// generate one when ready.
 pub(crate) fn import_wallet(private_key_arg: Option<String>, stdin_key: bool) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot import wallets with --private-key flag");
@@ -220,7 +220,7 @@ pub(crate) fn import_wallet(private_key_arg: Option<String>, stdin_key: bool) ->
     }
 
     println!("Imported wallet '{address}'.");
-    println!("\nRun 'presto login' to connect and authorize payments.");
+    println!("\nWallet imported. Fund it with USDC on Tempo to start making requests.");
     Ok(())
 }
 

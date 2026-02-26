@@ -489,6 +489,15 @@ pub enum WalletCommands {
         #[arg(long)]
         passkey: bool,
     },
+    /// Fund your wallet (testnet faucet or mainnet bridge)
+    Fund {
+        /// Wallet address to fund (defaults to current wallet)
+        #[arg(long)]
+        address: Option<String>,
+        /// Skip waiting for balance confirmation
+        #[arg(long)]
+        no_wait: bool,
+    },
     /// Import an existing private key as a local wallet (stores key in OS keychain)
     Import {
         /// Provide the private key directly as hex (use with caution; may appear in shell history)

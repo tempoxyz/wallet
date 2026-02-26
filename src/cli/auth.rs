@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 use super::keys::{
-    build_key_info, format_expiry_countdown, key_expiry_timestamp, print_key_amounts_to,
+    build_key_info, format_expiry_countdown, key_expiry_timestamp, print_key_limits_to,
     query_all_balances, KeyInfo,
 };
 use super::OutputFormat;
@@ -128,6 +128,10 @@ pub(crate) struct StatusResponse {
     pub ready: bool,
     pub wallet: Option<String>,
     pub wallet_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub balance: Option<String>,
     pub network: Option<String>,
     pub chain_id: Option<u64>,
     pub(crate) key: Option<KeyInfo>,
@@ -163,6 +167,8 @@ async fn build_whoami_response(
         ready: true,
         wallet: None,
         wallet_type: None,
+        symbol: None,
+        balance: None,
         network: None,
         chain_id: None,
         key: None,
@@ -208,9 +214,11 @@ async fn build_whoami_response(
                 &balance_cache,
             )
             .await;
-            // whoami shows wallet/type at the top level, not per-key
+            // whoami shows wallet/type/balance at the top level, not per-key
             key_info.wallet_address = None;
             key_info.wallet_type = None;
+            response.symbol = key_info.symbol.clone();
+            response.balance = key_info.balance.take();
 
             if key_info.address == "none" {
                 response.ready = false;
@@ -249,16 +257,20 @@ fn print_whoami_text(
     creds: &WalletCredentials,
     w: &mut dyn std::io::Write,
 ) -> anyhow::Result<()> {
+    if let Some(wallet) = &response.wallet {
+        let wt = response.wallet_type.as_deref().unwrap_or("unknown");
+        writeln!(w, "{:>10}: {} ({})", "Wallet", wallet, wt)?;
+    }
+
+    // Wallet balance
+    if let Some(bal) = &response.balance {
+        let sym = response.symbol.as_deref().unwrap_or("tokens");
+        writeln!(w, "{:>10}: {} {}", "Balance", bal, sym)?;
+    }
+
     if let Some(key) = &response.key {
-        if let Some(wallet) = &response.wallet {
-            let wt = response.wallet_type.as_deref().unwrap_or("unknown");
-            writeln!(w, "{:>10}: {} ({})", "Wallet", wallet, wt)?;
-        }
-        // Intentionally labeled "Key" throughout the CLI
+        writeln!(w)?;
         writeln!(w, "{:>10}: {}", "Key", key.address)?;
-        if let Some(cur) = &key.currency {
-            writeln!(w, "{:>10}: {}", "Currency", cur)?;
-        }
         if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
             writeln!(
                 w,
@@ -267,11 +279,8 @@ fn print_whoami_text(
                 format_expiry_countdown(expiry_ts)
             )?;
         }
-        print_key_amounts_to(key, w)?;
-        let status = if response.ready { "ready" } else { "not ready" };
-        writeln!(w, "{:>10}: {}", "Status", status)?;
-    } else {
-        writeln!(w, "    Status: not ready — run 'presto login'")?;
+        print_key_limits_to(key, w)?;
     }
+
     Ok(())
 }

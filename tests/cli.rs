@@ -139,12 +139,12 @@ fn test_top_level_help_compact_no_hidden_commands() {
         "hidden 'balance' command leaked: {stdout}"
     );
     assert!(
-        !stdout.contains("wallet ") && !stdout.contains("  wallet"),
-        "hidden 'wallet' command leaked: {stdout}"
-    );
-    assert!(
         !stdout.contains("completions"),
         "hidden 'completions' command leaked: {stdout}"
+    );
+    assert!(
+        !stdout.contains("wallet ") && !stdout.contains("  wallet"),
+        "hidden 'wallet' command leaked: {stdout}"
     );
     // Visible commands must appear
     assert!(stdout.contains("login"), "missing 'login' command");
@@ -499,7 +499,7 @@ fn test_bare_url_with_method() {
 }
 
 #[test]
-fn test_I_alias_for_head() {
+fn test_i_alias_for_head() {
     // `-I` should act as HEAD
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["-I", "http://example.com"])

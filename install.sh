@@ -136,16 +136,17 @@ verify_installation() {
 }
 
 install_ai_skill() {
+    local skill_variant="${1:-local}"
     local skill_dir="${HOME}/.claude/skills/presto"
     local skill_file="${skill_dir}/SKILL.md"
-    local local_skill="${SCRIPT_DIR}/.agents/skills/presto/SKILL.md"
+    local local_skill="${SCRIPT_DIR}/.agents/skills/presto-${skill_variant}/SKILL.md"
 
     mkdir -p "${skill_dir}" 2>/dev/null || return 0
 
     if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
         cp "${local_skill}" "${skill_file}"
     else
-        local skill_url="${R2_BASE_URL}/SKILL.md"
+        local skill_url="${R2_BASE_URL}/SKILL-${skill_variant}.md"
         curl -fsSL "${skill_url}" -o "${skill_file}" 2>/dev/null || return 0
     fi
 }
@@ -180,6 +181,8 @@ uninstall_presto() {
     fi
 
     remove_file "${HOME}/.claude/skills/presto" "AI skill"
+    remove_file "${HOME}/.claude/skills/presto-local" "AI skill (local)"
+    remove_file "${HOME}/.claude/skills/presto-passkey" "AI skill (passkey)"
 
     echo ""
     ok "Done"
@@ -228,17 +231,37 @@ banner() {
 }
 
 main() {
-    if [[ "${1:-}" == "--uninstall" ]]; then
+    local wallet_type="passkey"
+    local mode=""
+    local args=()
+
+    for arg in "$@"; do
+        case "${arg}" in
+            --wallet=*)   wallet_type="${arg#--wallet=}" ;;
+            --passkey)    wallet_type="passkey" ;;
+            --uninstall)  mode="uninstall" ;;
+            --reinstall)  mode="reinstall" ;;
+            --local)      mode="local" ;;
+            *)            args+=("${arg}") ;;
+        esac
+    done
+
+    if [[ "${wallet_type}" != "local" && "${wallet_type}" != "passkey" ]]; then
+        fail "Unknown wallet type '${wallet_type}'. Use 'local' or 'passkey'."
+        exit 1
+    fi
+
+    if [[ "${mode}" == "uninstall" ]]; then
         uninstall_presto
         exit 0
     fi
 
-    if [[ "${1:-}" == "--reinstall" ]]; then
+    if [[ "${mode}" == "reinstall" ]]; then
         banner
         remove_file "${INSTALL_DIR}/${BINARY_NAME}" "binary"
         install_local
         verify_installation
-        install_ai_skill
+        install_ai_skill "${wallet_type}"
         echo ""
         ok "Done"
         exit 0
@@ -246,7 +269,7 @@ main() {
 
     banner
 
-    if [[ "${1:-}" == "--local" ]]; then
+    if [[ "${mode}" == "local" ]]; then
         install_local
     else
         check_dependencies
@@ -256,11 +279,15 @@ main() {
     fi
 
     verify_installation
-    install_ai_skill
+    install_ai_skill "${wallet_type}"
 
     echo ""
     echo -e "  ${BOLD}Get started:${RESET}"
-    echo -e "    ${DIM}\$${RESET} presto login"
+    if [[ "${wallet_type}" == "local" ]]; then
+        echo -e "    ${DIM}\$${RESET} presto wallet create"
+    else
+        echo -e "    ${DIM}\$${RESET} presto login"
+    fi
     echo -e "    ${DIM}\$${RESET} presto --help"
     echo ""
 }

@@ -11,13 +11,13 @@ release:
 	cargo build --release
 
 install:
-	./install.sh --local
+	./install.sh --local $(if $(WALLET),--wallet=$(WALLET))
 
 uninstall:
 	./install.sh --uninstall
 
 reinstall:
-	./install.sh --reinstall
+	./install.sh --reinstall $(if $(WALLET),--wallet=$(WALLET))
 
 clean:
 	cargo clean

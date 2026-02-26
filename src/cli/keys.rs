@@ -153,7 +153,7 @@ pub async fn show_keys(
         }
         _ => {
             if response.keys.is_empty() {
-                println!("No keys configured. Run 'presto login' to get started.");
+                println!("No keys configured.");
                 return Ok(());
             }
             for key in &response.keys {
@@ -161,9 +161,6 @@ pub async fn show_keys(
                     println!("{:>10}: {} ({})", "Wallet", wallet, wt);
                 }
                 println!("{:>10}: {}", "Key", key.address);
-                if let Some(cur) = &key.currency {
-                    println!("{:>10}: {}", "Currency", cur);
-                }
                 if let Some(entry) = creds
                     .keys
                     .iter()
@@ -173,7 +170,7 @@ pub async fn show_keys(
                         println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                     }
                 }
-                print_key_amounts(key);
+                print_key_limits(key);
                 println!();
             }
             println!("{} key(s) total.", response.total);
@@ -248,49 +245,39 @@ pub(super) async fn build_key_info(
 // Display helpers
 // ---------------------------------------------------------------------------
 
-/// Print balance and spending-limit rows for a key with decimal alignment.
-pub(super) fn print_key_amounts(key: &KeyInfo) {
-    // Ignore errors — stdout failures are handled by the caller.
-    let _ = print_key_amounts_to(key, &mut std::io::stdout());
-}
-
-pub(super) fn print_key_amounts_to(
-    key: &KeyInfo,
-    w: &mut dyn std::io::Write,
-) -> anyhow::Result<()> {
+/// Print spending limits in compact format:
+///   `  Limits:`
+///   `      0x20c0...8b50: 0.000 / 100.00 USDC`
+fn print_key_limits(key: &KeyInfo) {
     let sym = key.symbol.as_deref().unwrap_or("tokens");
-
-    // Collect all numeric values to determine alignment width
-    let mut amounts: Vec<&str> = Vec::new();
-    if let Some(bal) = &key.balance {
-        amounts.push(bal);
-    }
-    if let Some(sl) = &key.spending_limit {
-        if !sl.unlimited {
-            if let Some(l) = &sl.limit {
-                amounts.push(l);
-            }
-            if let Some(r) = &sl.remaining {
-                amounts.push(r);
-            }
-            if let Some(s) = &sl.spent {
-                amounts.push(s);
-            }
-        }
-    }
-    let aw = amounts.iter().map(|a| a.len()).max().unwrap_or(0);
-
-    if let Some(bal) = &key.balance {
-        writeln!(w, "{:>10}: {:>aw$} {}", "Balance", bal, sym)?;
-    }
     if let Some(sl) = &key.spending_limit {
         if sl.unlimited {
-            writeln!(w, "{:>10}: unlimited", "Limit")?;
-        } else if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
+            println!("{:>10}: unlimited {sym}", "Limit");
+        } else if let Some(remaining) = &sl.remaining {
+            let limit = sl.limit.as_deref().unwrap_or("?");
             let spent = sl.spent.as_deref().unwrap_or("0");
-            writeln!(w, "{:>10}: {:>aw$} {}", "Limit", limit, sym)?;
-            writeln!(w, "{:>10}: {:>aw$} {}", "Spent", spent, sym)?;
-            writeln!(w, "{:>10}: {:>aw$} {}", "Remaining", remaining, sym)?;
+            println!(
+                "{:>10}: {spent} / {limit} {sym} ({remaining} remaining)",
+                "Limit"
+            );
+        }
+    }
+}
+
+/// Print spending limits to a writer (for whoami output).
+pub(super) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+    let sym = key.symbol.as_deref().unwrap_or("tokens");
+    if let Some(sl) = &key.spending_limit {
+        if sl.unlimited {
+            writeln!(w, "{:>10}: unlimited {sym}", "Limit")?;
+        } else if let Some(remaining) = &sl.remaining {
+            let limit = sl.limit.as_deref().unwrap_or("?");
+            let spent = sl.spent.as_deref().unwrap_or("0");
+            writeln!(
+                w,
+                "{:>10}: {spent} / {limit} {sym} ({remaining} remaining)",
+                "Limit"
+            )?;
         }
     }
     Ok(())

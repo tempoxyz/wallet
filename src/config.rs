@@ -101,7 +101,7 @@ impl Config {
                 return Ok(Self::default());
             }
             return Err(PrestoError::ConfigMissing(format!(
-                "Config file not found at {}. Run 'presto login' to create one.",
+                "Config file not found at {}.",
                 config_path.display()
             )));
         }

@@ -5,8 +5,6 @@
 //! dispatches to the charge or session payment path, handles wallet login
 //! prompting, and displays the final response.
 
-use std::io::IsTerminal;
-
 use anyhow::{Context, Result};
 use base64::Engine;
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
@@ -337,7 +335,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 
     // Skip wallet login for dry-run or when a private key is provided directly
     if !request_ctx.runtime.dry_run && !has_credentials_override() {
-        ensure_wallet_or_prompt_login(
+        ensure_wallet_configured(
             &request_ctx,
             &cli,
             &mut config,
@@ -359,36 +357,6 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         &response,
     )
     .await;
-
-    // Auto-login retry: if the error is fixable by login and we're interactive, do it automatically
-    let result = match result {
-        Err(e)
-            if is_login_fixable(&e)
-                && std::io::stdin().is_terminal()
-                && !has_credentials_override() =>
-        {
-            eprintln!("Setting up wallet for this network...\n");
-            let network = request_ctx
-                .runtime
-                .network
-                .as_deref()
-                .or(Some(challenge_ctx.network.as_str()));
-            super::auth::run_login(network, analytics.clone(), super::OutputFormat::Text).await?;
-            eprintln!("\nRetrying payment...");
-
-            let config = load_config_with_overrides(cli.config.as_ref())?;
-            dispatch_payment(
-                &config,
-                &request_ctx,
-                &output_opts,
-                &challenge_ctx,
-                &effective_url,
-                &response,
-            )
-            .await
-        }
-        other => other,
-    };
 
     match result {
         Ok(result) => {
@@ -654,23 +622,6 @@ async fn dispatch_payment(
     }
 }
 
-/// Check if an error is due to missing config or an unprovisioned key —
-/// i.e., something that `presto login` would fix.
-fn is_login_fixable(err: &anyhow::Error) -> bool {
-    err.chain().any(|e| {
-        if let Some(pe) = e.downcast_ref::<PrestoError>() {
-            matches!(
-                pe,
-                PrestoError::AccessKeyNotProvisioned | PrestoError::ConfigMissing(_)
-            ) || matches!(pe, PrestoError::PaymentRejected { reason, .. }
-                    if reason.contains("access key does not exist")
-                       || reason.contains("access key is not provisioned"))
-        } else {
-            false
-        }
-    })
-}
-
 /// Parsed payment challenge context extracted from a 402 response.
 struct ChallengeContext {
     is_session: bool,
@@ -731,34 +682,22 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
     })
 }
 
-/// Ensure a wallet is available, prompting interactive login if needed.
-async fn ensure_wallet_or_prompt_login(
-    request_ctx: &RequestContext,
-    cli: &Cli,
-    config: &mut Config,
-    analytics: &Option<Analytics>,
-    challenge_network: &str,
+/// Ensure a wallet is available, failing with a clear error if not.
+async fn ensure_wallet_configured(
+    _request_ctx: &RequestContext,
+    _cli: &Cli,
+    _config: &mut Config,
+    _analytics: &Option<Analytics>,
+    _challenge_network: &str,
 ) -> Result<()> {
     let has_wallet = WalletCredentials::load()
         .ok()
         .is_some_and(|c| c.has_wallet());
 
     if !has_wallet {
-        if std::io::stdin().is_terminal() {
-            eprintln!("This request requires payment. Let's connect your wallet first.\n");
-            let network = request_ctx
-                .runtime
-                .network
-                .as_deref()
-                .or(Some(challenge_network));
-            super::auth::run_login(network, analytics.clone(), super::OutputFormat::Text).await?;
-            eprintln!("\nRetrying request...");
-            *config = load_config_with_overrides(cli.config.as_ref())?;
-        } else {
-            anyhow::bail!(PrestoError::ConfigMissing(
-                "No wallet configured.".to_string()
-            ));
-        }
+        anyhow::bail!(PrestoError::ConfigMissing(
+            "No wallet configured. Create one with 'presto wallet create'.".to_string()
+        ));
     }
 
     Ok(())
@@ -1349,56 +1288,6 @@ mod tests {
         let resp = make_response(500, b"internal error");
         let err = finalize_response(&opts, resp).unwrap_err();
         assert!(err.to_string().contains("Internal Server Error"));
-    }
-
-    // ==================== is_login_fixable ====================
-
-    #[test]
-    fn test_is_login_fixable_config_missing() {
-        let err: anyhow::Error = PrestoError::ConfigMissing("no wallet".into()).into();
-        assert!(is_login_fixable(&err));
-    }
-
-    #[test]
-    fn test_is_login_fixable_key_not_provisioned() {
-        let err: anyhow::Error = PrestoError::AccessKeyNotProvisioned.into();
-        assert!(is_login_fixable(&err));
-    }
-
-    #[test]
-    fn test_is_login_fixable_payment_rejected_key_not_exist() {
-        let err: anyhow::Error = PrestoError::PaymentRejected {
-            reason: "access key does not exist".into(),
-            status_code: 402,
-        }
-        .into();
-        assert!(is_login_fixable(&err));
-    }
-
-    #[test]
-    fn test_is_login_fixable_payment_rejected_not_provisioned() {
-        let err: anyhow::Error = PrestoError::PaymentRejected {
-            reason: "access key is not provisioned".into(),
-            status_code: 402,
-        }
-        .into();
-        assert!(is_login_fixable(&err));
-    }
-
-    #[test]
-    fn test_is_login_fixable_unrelated_error() {
-        let err: anyhow::Error = PrestoError::Http("timeout".into()).into();
-        assert!(!is_login_fixable(&err));
-    }
-
-    #[test]
-    fn test_is_login_fixable_generic_payment_rejected() {
-        let err: anyhow::Error = PrestoError::PaymentRejected {
-            reason: "insufficient balance".into(),
-            status_code: 402,
-        }
-        .into();
-        assert!(!is_login_fixable(&err));
     }
 
     // ==================== display_receipt (silent mode) ====================

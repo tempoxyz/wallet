@@ -34,7 +34,7 @@ pub(crate) enum PrestoError {
     UnknownNetwork(String),
 
     /// Key is not provisioned on-chain
-    #[error("Key is not provisioned on-chain. Run 'presto login' to set up your key.")]
+    #[error("Key is not provisioned on-chain. Retry the request to auto-provision, or run 'presto wallet create'.")]
     AccessKeyNotProvisioned,
 
     /// Browser-based login expired (device code expired or callback window timed out)
@@ -50,7 +50,7 @@ pub(crate) enum PrestoError {
     },
 
     /// Insufficient token balance for payment
-    #[error("Insufficient {token} balance: have {available}, need {required}")]
+    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'presto wallet fund'.")]
     InsufficientBalance {
         token: String,
         available: String,

@@ -188,11 +188,7 @@ impl WalletCredentials {
             .key
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                PrestoError::ConfigMissing(
-                    "No key configured. Run 'presto login' or 'presto wallet create'.".to_string(),
-                )
-            })?;
+            .ok_or_else(|| PrestoError::ConfigMissing("No key configured.".to_string()))?;
         parse_private_key_signer(pk)
     }
 

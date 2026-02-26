@@ -325,8 +325,12 @@ async fn close_orphaned_channels(
     show_output: bool,
     network: Option<&str>,
 ) -> Result<()> {
-    let creds = WalletCredentials::load().context("No wallet configured")?;
-    anyhow::ensure!(creds.has_wallet(), "No wallet configured");
+    let creds = WalletCredentials::load()
+        .context("No wallet configured. Create one with 'presto wallet create'.")?;
+    anyhow::ensure!(
+        creds.has_wallet(),
+        "No wallet configured. Create one with 'presto wallet create'."
+    );
     let wallet_addr = creds
         .wallet_address()
         .parse()
