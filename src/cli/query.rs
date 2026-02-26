@@ -8,6 +8,7 @@
 use std::io::IsTerminal;
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::PaymentProtocol;
@@ -16,7 +17,7 @@ use crate::analytics::{self, Analytics};
 use crate::config::{load_config_with_overrides, Config};
 use crate::error::PrestoError;
 use crate::http::{
-    get_request_method_and_body, parse_headers, should_auto_add_json_content_type,
+    get_request_method_and_body, parse_headers, resolve_data, should_auto_add_json_content_type,
     validate_header_size, HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
 };
 use crate::network::{resolve_token_meta, ExplorerConfig, Network};
@@ -25,7 +26,7 @@ use crate::payment::session::{handle_session_request, SessionResult};
 use crate::util::{format_token_amount, hyperlink};
 use crate::wallet::credentials::{has_credentials_override, WalletCredentials};
 
-use super::output::{handle_regular_response, OutputOptions};
+use super::output::{handle_regular_response, write_meta_if_requested, OutputOptions};
 use super::{Cli, QueryArgs};
 
 /// Execute an HTTP request with automatic payment handling.
@@ -47,7 +48,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         config.set_rpc_override(rpc_url.clone());
     }
 
-    let url = query.url.clone();
+    let mut url = query.url.clone();
 
     // Validate the URL early to give a clear error instead of a cryptic reqwest message.
     match url::Url::parse(&url) {
@@ -63,6 +64,27 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         Err(e) => {
             anyhow::bail!(PrestoError::InvalidUrl(e.to_string()));
         }
+    }
+
+    // Support -G/--get: append -d to query string and force GET if no explicit -X
+    if query.get && !query.data.is_empty() {
+        let mut combined: Vec<u8> = Vec::new();
+        for item in &query.data {
+            let bytes = resolve_data(item)?;
+            if !combined.is_empty() {
+                combined.push(b'&');
+            }
+            combined.extend(bytes);
+        }
+        let params = String::from_utf8(combined).context("data is not valid UTF-8 for --get")?;
+        let mut parsed =
+            url::Url::parse(&url).context("invalid URL when applying --get query parameters")?;
+        let new_query = match parsed.query() {
+            Some(q) if !q.is_empty() => format!("{q}&{params}"),
+            _ => params,
+        };
+        parsed.set_query(Some(&new_query));
+        url = parsed.to_string();
     }
 
     let request_ctx = build_request_context(&cli, &query)?;
@@ -85,20 +107,93 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         eprintln!("Making {} request to: {url}", request_ctx.plan.method);
     }
 
-    let response = match request_ctx.execute(&url, None).await {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(ref a) = analytics {
-                a.track(
-                    analytics::Event::QueryFailure,
-                    analytics::QueryFailurePayload {
-                        url: sanitized_url,
-                        method: method_str,
-                        error: analytics::sanitize_error(&e.to_string()),
-                    },
+    // Streaming/SSE mode: perform a streaming request and return.
+    if query.stream || query.sse || query.sse_json {
+        return execute_streaming(&request_ctx, &url, &output_opts, query.sse_json).await;
+    }
+
+    // Execute with optional HTTP status retries
+    let mut attempts_left = query.retries.unwrap_or(0);
+    let retry_codes: Vec<u16> = query
+        .retry_http
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .filter_map(|s| s.trim().parse::<u16>().ok())
+        .collect();
+    let mut backoff_ms = query.retry_backoff_ms.unwrap_or(250);
+    let response = loop {
+        let start = std::time::Instant::now();
+        let resp_res = request_ctx.execute(&url, None).await;
+        match resp_res {
+            Ok(r) => {
+                // Honor Retry-After and backoff for configured HTTP statuses
+                if !retry_codes.is_empty()
+                    && retry_codes.contains(&r.status_code)
+                    && attempts_left > 0
+                {
+                    let delay_ms = if query.retry_after {
+                        if let Some(ra) = r.get_header("retry-after") {
+                            if let Ok(secs) = ra.trim().parse::<u64>() {
+                                secs.saturating_mul(1000)
+                            } else {
+                                backoff_ms
+                            }
+                        } else {
+                            backoff_ms
+                        }
+                    } else {
+                        backoff_ms
+                    };
+                    // Apply jitter if requested
+                    let jittered = if let Some(pct) = query.retry_jitter {
+                        let jitter = ((delay_ms as f64) * (pct as f64 / 100.0)) as u64;
+                        let rand = (std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .subsec_nanos()
+                            % (jitter as u32)) as u64;
+                        delay_ms.saturating_add(rand)
+                    } else {
+                        delay_ms
+                    };
+
+                    tokio::time::sleep(std::time::Duration::from_millis(jittered)).await;
+                    attempts_left -= 1;
+                    // Exponential backoff with cap
+                    backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
+                    continue;
+                }
+
+                // Write meta for immediate response (non-402) if requested
+                let _ = write_meta_if_requested(
+                    &output_opts,
+                    &r,
+                    start.elapsed().as_millis(),
+                    r.body.len(),
+                    r.final_url.as_deref().unwrap_or(&url),
                 );
+                break r;
             }
-            return Err(e);
+            Err(e) => {
+                if let Some(ref a) = analytics {
+                    a.track(
+                        analytics::Event::QueryFailure,
+                        analytics::QueryFailurePayload {
+                            url: sanitized_url.clone(),
+                            method: method_str.clone(),
+                            error: analytics::sanitize_error(&e.to_string()),
+                        },
+                    );
+                }
+                if attempts_left > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                    attempts_left -= 1;
+                    backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
+                    continue;
+                }
+                return Err(e);
+            }
         }
     };
 
@@ -124,6 +219,18 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 
     let challenge_ctx = parse_payment_challenge(&response)?;
 
+    // Dry-run price output for agents
+    if request_ctx.runtime.dry_run && query.price_json {
+        let obj = serde_json::json!({
+            "intent": if challenge_ctx.is_session { "session" } else { "charge" },
+            "network": challenge_ctx.network,
+            "amount": challenge_ctx.amount,
+            "currency": challenge_ctx.currency,
+        });
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+        return Ok(());
+    }
+
     if request_ctx.log_enabled() {
         let intent = if challenge_ctx.is_session {
             "session"
@@ -142,6 +249,29 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
             "Payment required: intent={intent} network={} amount={amount_display}",
             challenge_ctx.network
         );
+    }
+
+    // Enforce client-side price cap if configured
+    if let Some(max) = &query.max_pay {
+        if let Ok(max_val) = max.parse::<u128>() {
+            if let Ok(req_val) = challenge_ctx.amount.parse::<u128>() {
+                // Optional currency match if provided
+                let mut currency_ok = true;
+                if let Some(ref cur) = query.max_pay_currency {
+                    let (symbol, _dec) =
+                        resolve_token_meta(&challenge_ctx.network, &challenge_ctx.currency);
+                    let cur_lower = cur.to_lowercase();
+                    currency_ok = cur_lower == challenge_ctx.currency.to_lowercase()
+                        || cur_lower == symbol.to_lowercase();
+                }
+                if currency_ok && req_val > max_val {
+                    anyhow::bail!(PrestoError::PaymentRejected {
+                        reason: "price exceeds client max".to_string(),
+                        status_code: 402,
+                    });
+                }
+            }
+        }
     }
 
     // Skip wallet login for dry-run or when a private key is provided directly
@@ -210,7 +340,16 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
                 result.status_code,
             );
             if let Some(resp) = result.response {
+                // Capture receipt header before consuming response for output
+                let receipt_hdr = resp.get_header("payment-receipt").map(|s| s.to_string());
                 finalize_response(&output_opts, resp)?;
+                // Optionally save receipt JSON if present
+                if let (Some(path), Some(h)) = (query.save_receipt.as_ref(), receipt_hdr.as_ref()) {
+                    if let Ok(receipt) = mpp::parse_receipt(h) {
+                        let s = serde_json::to_string_pretty(&receipt)?;
+                        std::fs::write(path, s)?;
+                    }
+                }
             }
             Ok(())
         }
@@ -219,6 +358,114 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
             Err(e)
         }
     }
+}
+
+/// Execute a streaming request and write the body to stdout incrementally.
+async fn execute_streaming(
+    request_ctx: &RequestContext,
+    url: &str,
+    output_opts: &OutputOptions,
+    sse_json: bool,
+) -> Result<()> {
+    use futures::StreamExt;
+    use std::io::Write;
+
+    let start = std::time::Instant::now();
+    let client = request_ctx.build_reqwest_client(None)?;
+    let mut req = client.request(request_ctx.plan.method.clone(), url);
+    if let Some(ref body) = request_ctx.plan.body {
+        req = req.body(body.clone());
+    }
+    let resp = req.send().await?;
+    let status = resp.status().as_u16();
+    let final_url_string = resp.url().to_string();
+    let header_map_for_meta: std::collections::HashMap<String, String> = resp
+        .headers()
+        .iter()
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|s| (k.as_str().to_lowercase(), s.to_string()))
+        })
+        .collect();
+
+    if output_opts.include_headers {
+        println!("HTTP {}", status);
+        for (k, v) in resp.headers() {
+            if let Ok(s) = v.to_str() {
+                println!("{}: {}", k.as_str().to_lowercase(), s);
+            }
+        }
+        println!();
+    }
+
+    // Handle fail modes
+    if status >= 400 && output_opts.fail_silently {
+        anyhow::bail!(PrestoError::Http(format!(
+            "{} {}",
+            status,
+            http_status_text(status)
+        )));
+    }
+
+    let mut bytes_written: usize = 0;
+    if sse_json {
+        // Convert SSE to NDJSON objects with a simple parser
+        let mut buf: Vec<u8> = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await.transpose()? {
+            buf.extend_from_slice(&chunk);
+            // Process complete lines
+            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                let line = buf.drain(..=pos).collect::<Vec<u8>>();
+                let s = String::from_utf8_lossy(&line);
+                let st = s.trim_end_matches(['\r', '\n']);
+                if st.is_empty() {
+                    continue;
+                }
+                if let Some(rest) = st.strip_prefix("data:") {
+                    let obj = serde_json::json!({"data": rest.trim_start()});
+                    let out = serde_json::to_string(&obj)?;
+                    std::io::stdout().write_all(out.as_bytes())?;
+                    std::io::stdout().write_all(b"\n")?;
+                    bytes_written = bytes_written.saturating_add(out.len() + 1);
+                }
+            }
+            std::io::stdout().flush().ok();
+        }
+    } else {
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await.transpose()? {
+            bytes_written = bytes_written.saturating_add(chunk.len());
+            std::io::stdout().write_all(&chunk)?;
+            std::io::stdout().flush().ok();
+        }
+    }
+
+    // Write meta if requested
+    let meta_resp = HttpResponse {
+        status_code: status,
+        headers: header_map_for_meta,
+        body: Vec::new(),
+        final_url: Some(final_url_string.clone()),
+    };
+    let _ = write_meta_if_requested(
+        output_opts,
+        &meta_resp,
+        start.elapsed().as_millis(),
+        bytes_written,
+        &final_url_string,
+    );
+
+    if status >= 400 {
+        anyhow::bail!(PrestoError::Http(format!(
+            "{} {}",
+            status,
+            http_status_text(status)
+        )));
+    }
+
+    Ok(())
 }
 
 /// Result of a successful payment dispatch.
@@ -647,11 +894,54 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         dry_run: query.dry_run,
     };
 
-    let (method, body) =
-        get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?;
+    // Determine method/body. If -I (HEAD) is provided, override method and ignore body inputs.
+    let (method, body) = if query.head {
+        get_request_method_and_body(Some("HEAD"), &[], None)?
+    } else if query.method.is_some() {
+        // Respect explicit -X even with -G; body still follows normal rules unless -G set
+        if query.get {
+            get_request_method_and_body(query.method.as_deref(), &[], None)?
+        } else {
+            get_request_method_and_body(
+                query.method.as_deref(),
+                &query.data,
+                query.json.as_deref(),
+            )?
+        }
+    } else if query.get {
+        // Force GET with no body when -G is used without -X
+        get_request_method_and_body(Some("GET"), &[], None)?
+    } else {
+        get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?
+    };
 
     let mut headers = parse_headers(&query.headers);
-    if should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data) {
+    // Add Authorization: Basic ... if -u/--user provided and not explicitly overriden by -H
+    if let Some(ref user) = query.user {
+        if !crate::http::has_header(&query.headers, "authorization") {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(user);
+            headers.push(("authorization".to_string(), format!("Basic {}", encoded)));
+        }
+    }
+    // Add Authorization: Bearer if provided and not explicitly overridden
+    if let Some(ref token) = query.bearer {
+        if !crate::http::has_header(&query.headers, "authorization") && query.user.is_none() {
+            headers.push(("authorization".to_string(), format!("Bearer {}", token)));
+        }
+    }
+    // Add Referer header if provided and not overridden via -H
+    if let Some(ref referer) = query.referer {
+        if !crate::http::has_header(&query.headers, "referer") {
+            headers.push(("referer".to_string(), referer.clone()));
+        }
+    }
+    // Add Accept-Encoding on --compressed (reqwest negotiates automatically; header makes intent explicit)
+    if query.compressed && !crate::http::has_header(&query.headers, "accept-encoding") {
+        headers.push(("accept-encoding".to_string(), "gzip, br".to_string()));
+    }
+    if !query.head
+        && should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data)
+    {
         headers.push(("content-type".to_string(), "application/json".to_string()));
     }
 
@@ -663,8 +953,17 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         connect_timeout_secs: query.connect_timeout,
         retries: query.retries.unwrap_or(0),
         retry_backoff_ms: query.retry_backoff_ms.unwrap_or(250),
-        follow_redirects: !query.no_redirect,
-        user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
+        follow_redirects: query.location,
+        follow_redirects_limit: query.max_redirs.map(|v| v as usize),
+        user_agent: query
+            .user_agent
+            .clone()
+            .unwrap_or_else(|| format!("presto/{}", env!("CARGO_PKG_VERSION"))),
+        insecure: query.insecure,
+        proxy: query.proxy.clone(),
+        no_proxy: query.no_proxy,
+        http2: query.http2,
+        http1_only: query.http1_1,
         verbose_connection: runtime.debug_enabled(),
     };
 
@@ -675,9 +974,28 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
 fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> OutputOptions {
     OutputOptions {
         output_format: cli.resolve_output_format(config),
-        include_headers: query.include_headers,
-        output_file: query.output.clone(),
+        // -I (HEAD) implies showing headers, even if -i wasn't explicitly set
+        include_headers: query.include_headers || query.head,
+        output_file: if query.output.is_none() && query.remote_name {
+            // Derive a filename from the URL's last path segment; fallback to 'index.html'
+            let url = &query.url;
+            if let Ok(u) = url::Url::parse(url) {
+                let seg = u
+                    .path_segments()
+                    .and_then(|mut s| s.next_back())
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or("index.html");
+                Some(seg.to_string())
+            } else {
+                None
+            }
+        } else {
+            query.output.clone()
+        },
         verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
+        fail_silently: query.fail_silently && !query.fail_with_body,
+        dump_headers: query.dump_header.clone(),
+        write_meta: query.write_meta.clone(),
     }
 }
