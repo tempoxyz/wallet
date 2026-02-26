@@ -387,6 +387,15 @@ fn test_bare_url_with_method() {
 }
 
 #[test]
+fn test_I_alias_for_head() {
+    // `-I` should act as HEAD
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["-I", "http://example.com"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_explicit_query_still_works() {
     // Explicit `query` subcommand should still work
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
