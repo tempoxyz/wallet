@@ -123,6 +123,70 @@ fn test_help_has_http_options_section() {
 }
 
 #[test]
+fn test_top_level_help_compact_no_hidden_commands() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Hidden commands must not appear in top-level help
+    assert!(
+        !stdout.contains("query ") && !stdout.contains("  query"),
+        "hidden 'query' command leaked: {stdout}"
+    );
+    assert!(
+        !stdout.contains("balance ") && !stdout.contains("  balance"),
+        "hidden 'balance' command leaked: {stdout}"
+    );
+    assert!(
+        !stdout.contains("wallet ") && !stdout.contains("  wallet"),
+        "hidden 'wallet' command leaked: {stdout}"
+    );
+    assert!(
+        !stdout.contains("completions"),
+        "hidden 'completions' command leaked: {stdout}"
+    );
+    // Visible commands must appear
+    assert!(stdout.contains("login"), "missing 'login' command");
+    assert!(stdout.contains("logout"), "missing 'logout' command");
+    assert!(stdout.contains("whoami"), "missing 'whoami' command");
+    assert!(stdout.contains("session"), "missing 'session' command");
+}
+
+#[test]
+fn test_query_help_has_key_flags() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["query", "--help"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Key HTTP flags
+    for flag in [
+        "-X", "-H", "-d,", "--json", "-L", "-i,", "-I", "-m,", "-f,", "-o,",
+    ] {
+        assert!(stdout.contains(flag), "missing flag {flag} in query help");
+    }
+    // Examples section
+    assert!(
+        stdout.contains("Examples"),
+        "missing Examples section in query help"
+    );
+    // Hidden flags must not appear
+    assert!(
+        !stdout.contains("--write-meta"),
+        "hidden --write-meta leaked in query help"
+    );
+    assert!(
+        !stdout.contains("--price-json"),
+        "hidden --price-json leaked in query help"
+    );
+    assert!(
+        !stdout.contains("--rpc"),
+        "hidden --rpc leaked in query help"
+    );
+}
+
+#[test]
 fn test_alias_with_display_options() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-s", "--color", "never"])
@@ -135,7 +199,55 @@ fn test_version_flag() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--version")
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("presto"))
+        .stdout(predicate::str::is_match(r"[0-9a-f]{7}").unwrap());
+}
+
+#[test]
+fn test_version_includes_build_info() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should contain version, 7-char commit, date, and profile
+    assert!(
+        stdout.contains(env!("CARGO_PKG_VERSION")),
+        "missing version in: {stdout}"
+    );
+    assert!(
+        stdout.contains('(') && stdout.contains(')'),
+        "missing build info parens in: {stdout}"
+    );
+}
+
+#[test]
+fn test_version_json() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["-j", "--version"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(parsed.get("version").is_some(), "missing 'version' field");
+    assert!(
+        parsed.get("git_commit").is_some(),
+        "missing 'git_commit' field"
+    );
+    assert!(
+        parsed.get("build_date").is_some(),
+        "missing 'build_date' field"
+    );
+    assert!(parsed.get("profile").is_some(), "missing 'profile' field");
+    // git_commit should be a 7-char hex string (or "unknown" in unusual builds)
+    let commit = parsed["git_commit"].as_str().unwrap();
+    assert!(
+        commit == "unknown" || (commit.len() == 7 && commit.chars().all(|c| c.is_ascii_hexdigit())),
+        "unexpected git_commit format: {commit}"
+    );
 }
 
 #[test]

@@ -96,6 +96,16 @@ Just pass a URL directly to  tempo-wallet— it works like `curl`:
 
 Run ` tempo-wallet<command> --help` for detailed usage on any command.
 
+### Version Info
+
+` tempo-wallet--version` prints version, git commit, build date, and build profile:
+
+```
+ tempo-wallet0.4.1 (abc1234 2024-01-15T12:00:00Z release)
+```
+
+Use `-j --version` for structured JSON output with fields: `version`, `git_commit`, `build_date`, `profile`.
+
 ## Configuration
 
 ### Setup
