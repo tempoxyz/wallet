@@ -80,7 +80,7 @@ src/
 │   ├── session/     # Session management commands
 │   ├── output.rs    # Response display
 │   └── exit_codes.rs
-├── payment/         # Payment protocol logic (MPP - https://mpp.sh)
+├── payment/         # Payment protocol logic (MPP - https://mpp.dev)
 │   ├── charge.rs    # One-shot on-chain charge payment
 │   └── session/     # Session-based payment channels
 ├── wallet/          # Wallet management, signing, and credentials
