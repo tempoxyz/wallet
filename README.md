@@ -69,9 +69,6 @@ presto -i https://api.example.com/data
 ```bash
 # Preview payment without executing
 presto --dry-run https://api.example.com/data
-
-# Restrict to a specific network
-presto -n tempo https://api.example.com/data
 ```
 
 ### Output Control
@@ -80,7 +77,6 @@ presto -n tempo https://api.example.com/data
 presto -v <URL>          # Payment flow narration (intent, network, amount, completion)
 presto -vv <URL>         # Debug internals (voucher retries, auth header size)
 presto -q <URL>          # Quiet — suppress all stderr logs (overrides RUST_LOG)
-presto --color never <URL>          # Disable colors
 presto --output-format json <URL>   # JSON output format
 ```
 
@@ -96,25 +92,9 @@ presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 | `whoami` | Show wallet address, balances, and keys |
 | `session list` | List active payment sessions |
 | `session close` | Close a payment session |
-| `session recover` | Recover a session from on-chain state |
 | `key` or `key list` | List all keys and their spending limits |
-| `key create` | Create a new key for a local wallet |
 
 Run `presto <command> --help` for detailed usage on any command.
-
-### Wallet Commands
-
-```bash
-# Create a new local wallet (EOA stored in macOS Keychain)
-presto wallet create
-
-# Import an existing private key as a local wallet
-presto wallet import --stdin-key   # read from stdin
-presto wallet import --private-key 0x...
-
-# Delete a wallet
-presto wallet delete --yes
-```
 
 ## Configuration
 
@@ -136,8 +116,6 @@ presto uses platform-native directories:
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
 
 The wallet EOA private key is stored in the OS keychain on macOS. The signing key used for payments is stored inline in `keys.toml` with permissions 0600 alongside account metadata.
-
-You can override the config path with `-c <PATH>` or `--config <PATH>`.
 
 ### Config File Reference
 

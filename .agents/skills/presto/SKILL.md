@@ -96,7 +96,8 @@ If `ready` is `false`, run `presto login` and retry.
       },
       "expires_at": "2026-03-26T00:00:00Z"
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
@@ -151,11 +152,7 @@ presto --dry-run -X POST \
 | `presto session close --all` | Close all active sessions and on-chain channels |
 | `presto session close --orphaned` | Close only orphaned on-chain channels |
 | `presto session close --closed` | Finalize channels pending close (grace period elapsed) |
-| `presto wallet create [--name]` | Create a local wallet (EOA stored in macOS Keychain) |
-| `presto wallet import [--name] [--stdin-key|--private-key]` | Import an existing private key as a local wallet |
-| `presto wallet delete --name <NAME> [--yes]` | Delete a local wallet |
 | `presto key` or `presto key list` | List all keys and their spending limits |
-| `presto key create [--name]` | Create a new key for a local wallet (generates fresh 30-day key) |
 
 ## Global Options
 
@@ -163,11 +160,9 @@ These options are available on all commands:
 
 | Option | Description |
 |--------|-------------|
-| `-n, --network <NETWORKS>` | Filter to specific networks (default: `tempo`) |
 | `-v` | Verbose output — shows payment flow details (intent, network, amount) (use `-vv` for debug) |
 | `-q, --quiet` | Suppress log messages (recommended for agents) |
 | `--output-format json` | JSON output (recommended for agents) |
-| `--color never` | Disable colored output |
 
 ## Query Options
 
@@ -189,12 +184,6 @@ These options apply when making HTTP requests (`presto <URL>`):
 | `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
 | `--no-redirect` | Disable following redirects |
 | `-m, --timeout <SECONDS>` | Maximum time for the request |
-
-### RPC Options
-
-| Option | Description |
-|--------|-------------|
-| `-r, --rpc <URL>` | Override RPC URL for blockchain operations |
 
 ### Display Options
 

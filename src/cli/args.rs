@@ -308,9 +308,10 @@ pub enum KeyCommands {
     /// List all keys and their spending limits
     List,
     /// Create a new key for a local wallet (generates fresh 30-day key)
+    #[command(hide = true)]
     Create {
         /// Wallet name
-        #[arg(long, value_name = "NAME", hide = true)]
+        #[arg(long, value_name = "NAME")]
         name: Option<String>,
     },
     /// Delete keys.toml and reset all local key state

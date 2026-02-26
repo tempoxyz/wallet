@@ -14,17 +14,24 @@ Single binary crate with source organized by module directories:
 - `src/cli/` - CLI argument parsing and all command implementations
   - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
   - `query.rs` - Query command (request → 402 → payment → response)
-  - `auth.rs` - Login, logout, whoami, key list commands
-  - `wallet.rs` - Wallet management (create/import/delete)
-  - `session.rs` - Session list/close/recover commands
+  - `auth.rs` - Login, logout, whoami commands
+  - `keys.rs` - Key listing, balance and spending limit queries
+  - `local_wallet.rs` - Local wallet management (create/import/delete)
+  - `session/` - Session list/close commands (directory module with list.rs, close.rs, render.rs)
   - `output.rs` - Response display, `OutputOptions`
   - `exit_codes.rs` - Process exit codes
 - `src/http.rs` - HTTP client, `RequestContext`, `RequestRuntime`
 - `src/config.rs` - Configuration file handling
 - `src/network.rs` - Network definitions, explorer config, RPC
-- `src/payment/` - Payment protocol implementations (charge + session)
+- `src/payment/` - Payment protocol implementations
+  - `charge.rs` - One-shot on-chain charge payment
+  - `session/` - Session-based payment channels (directory module with channel.rs, close.rs, store.rs, streaming.rs, tx.rs)
 - `src/wallet/` - Wallet management and signing
+  - `credentials/` - Credential storage and key management (directory module with model.rs, io.rs, overrides.rs)
+  - `key_authorization.rs` - Key authorization decode/validate/sign
   - `keychain.rs` - Platform-native secret storage (macOS Keychain)
+  - `passkey.rs` - Browser-based passkey wallet flow
+  - `signer.rs` - Signing mode resolution
 - `src/analytics/` - Opt-out telemetry (PostHog)
 - `src/util.rs` - Shared utilities (atomic writes, terminal hyperlinks)
 - `src/error.rs` - Error types
@@ -119,7 +126,7 @@ pub enum MyError {
 
 - Each module should have a clear single responsibility
 - Use `mod.rs` for modules with submodules
-- CLI commands go in `src/cli/` (e.g., `query.rs`, `auth.rs`, `session.rs`)
+- CLI commands go in `src/cli/` (e.g., `query.rs`, `auth.rs`, `session/`)
 
 ### Testing
 
