@@ -237,6 +237,30 @@ fn test_session_list_json_empty() {
 }
 
 #[test]
+fn test_session_list_json_via_alias_short_j() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-j", "session", "list"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+}
+
+#[test]
+fn test_session_list_json_via_alias_long() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["--json-output", "session", "list"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+}
+
+#[test]
 fn test_key_list_json_has_total() {
     let temp_dir = TestConfigBuilder::new().build();
 
@@ -537,6 +561,20 @@ fn test_json_error_output_when_output_format_json() {
         val.get("message").is_some(),
         "missing message in json error"
     );
+}
+
+#[test]
+fn test_json_error_output_for_network_error() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    // Use an unroutable local port to trigger a connection error quickly
+    cmd.args(["--output-format", "json", "query", "http://127.0.0.1:9"]);
+    let output = cmd.output().expect("failed to run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+    assert!(val.get("code").is_some());
+    assert!(val.get("message").is_some());
 }
 
 // ==================== Key Management Tests ====================
