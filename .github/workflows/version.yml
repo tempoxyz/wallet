@@ -1,0 +1,61 @@
+name: Version
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git for private repos
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Changelogs
+        uses: wevm/changelogs-rs@master
+        with:
+          conventional-commit: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+
+      # Check if the version in Cargo.toml has been released yet.
+      # On normal merges: tag already exists (no output). On version bump PR merges: no tag → output version.
+      - name: Check for unreleased version
+        id: check
+        run: |
+          # Reset to origin/main in case changelogs-rs pushed commits during this run
+          git fetch origin main --tags
+          git reset --hard origin/main
+
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG="v${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, no release needed"
+          else
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "New version $VERSION detected, triggering release"
+          fi
+
+  release:
+    name: Release
+    needs: version
+    if: needs.version.outputs.new_version != ''
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.version.outputs.new_version }}
+    secrets: inherit
