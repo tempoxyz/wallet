@@ -417,7 +417,7 @@ pub async fn handle_session_request(
         let cost_display = format_token_amount(tick_cost, token_symbol, token_decimals);
 
         println!("[DRY RUN] Session payment would be made:");
-        println!("Protocol: MPP (https://mpp.sh)");
+        println!("Protocol: MPP (https://mpp.dev)");
         println!("Method: {}", challenge.method);
         println!("Intent: session");
         println!("Network: {}", network_name);

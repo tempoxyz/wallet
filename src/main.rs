@@ -3,7 +3,7 @@
 #![deny(warnings)]
 //!
 //!  Tempo Walletworks like curl/wget but handles HTTP 402 (Payment Required)
-//! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.sh).
+//! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.dev).
 //!
 //! # Payment flow
 //!

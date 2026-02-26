@@ -1,6 +1,6 @@
 # Architecture
 
-`presto` is a CLI HTTP client with built-in [MPP](https://mpp.sh) payment support. It sends HTTP requests and, when a server responds with `402 Payment Required`, automatically negotiates and executes payment before retrying.
+`presto` is a CLI HTTP client with built-in [MPP](https://mpp.dev) payment support. It sends HTTP requests and, when a server responds with `402 Payment Required`, automatically negotiates and executes payment before retrying.
 
 ## Module Layering
 

@@ -2,10 +2,10 @@
 
 ## Repository Overview
 
-This is `presto` - a pure binary crate providing a command-line HTTP client with built-in [MPP](https://mpp.sh) payment support.
+This is `presto` - a pure binary crate providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
 
 **Supported Payment Protocols:**
-- [Machine Payments Protocol (MPP)](https://mpp.sh) - Open protocol for HTTP-native machine-to-machine payments
+- [Machine Payments Protocol (MPP)](https://mpp.dev) - Open protocol for HTTP-native machine-to-machine payments
 
 ### Crate Structure
 
@@ -183,7 +183,7 @@ pub struct Cli {
 | `reqwest` | HTTP client |
 | `serde` / `serde_json` / `toml` | Serialization |
 | `tokio` | Async runtime (minimal features) |
-| `mpp` | [Machine Payments Protocol](https://mpp.sh) SDK |
+| `mpp` | [Machine Payments Protocol](https://mpp.dev) SDK |
 | `clap-verbosity-flag` | CLI verbosity levels |
 
 ### Adding Dependencies
