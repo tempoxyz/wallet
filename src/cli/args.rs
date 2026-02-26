@@ -319,7 +319,11 @@ pub enum KeyCommands {
     },
     /// Delete keys.toml and reset all local key state
     #[command(hide = true)]
-    Clean,
+    Clean {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 impl QueryArgs {

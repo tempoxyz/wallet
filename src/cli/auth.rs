@@ -570,8 +570,25 @@ pub struct KeysResponse {
     pub total: usize,
 }
 
-pub fn run_key_clean() -> anyhow::Result<()> {
+pub fn run_key_clean(yes: bool) -> anyhow::Result<()> {
     let path = WalletCredentials::keys_path()?;
+
+    if !yes {
+        eprintln!(
+            "This will permanently delete all local key state at {}.\nType 'yes' to confirm: ",
+            path.display()
+        );
+        use std::io::{stdin, Read};
+        let mut buf = String::new();
+        // Read a small amount; tolerate both full-line and piped single word
+        stdin().read_to_string(&mut buf).ok();
+        let resp = buf.trim().to_ascii_lowercase();
+        if resp != "yes" && resp != "y" {
+            eprintln!("Aborted.");
+            return Ok(());
+        }
+    }
+
     if path.exists() {
         std::fs::remove_file(&path)?;
         eprintln!("Removed {}", path.display());
