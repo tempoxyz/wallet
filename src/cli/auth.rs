@@ -65,9 +65,10 @@ pub async fn run_login(
 
     if output_format == OutputFormat::Text {
         eprintln!("\nWallet connected!\n");
+        show_whoami_stderr(&config, network).await?;
+    } else {
+        show_whoami(&config, output_format, network).await?;
     }
-
-    show_whoami_stderr(&config, network).await?;
 
     Ok(())
 }

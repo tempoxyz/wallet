@@ -1432,6 +1432,9 @@ pub async fn handle_session_request(
         // and parse the raw JSON receipt to check status.
         wait_for_tempo_receipt(&provider, *tx_hash).await?;
 
+        // Key is now provisioned on-chain — persist so future txs skip key_authorization.
+        crate::wallet::credentials::WalletCredentials::mark_provisioned(network_name);
+
         if request_ctx.log_enabled() {
             eprintln!("Channel open confirmed on-chain");
         }
@@ -1509,6 +1512,9 @@ pub async fn handle_session_request(
 
     let delays = [2000_u64, 3000, 5000];
     let open_response = send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
+
+    // Key is now provisioned on-chain — persist so future txs skip key_authorization.
+    crate::wallet::credentials::WalletCredentials::mark_provisioned(network_name);
 
     if let Some(receipt_str) = open_response.get_header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_str) {
@@ -2141,11 +2147,8 @@ async fn submit_tempo_tx(
     // Query the correct nonce for our nonceKey space via the NONCE precompile.
     let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
 
-    // Try gas estimation with key_authorization first; if the key is already
-    // registered on-chain the precompile returns KeyAlreadyExists — retry
-    // without the authorization to let the tx through.
-    let mut key_auth = wallet.signing_mode.key_authorization();
-    let gas_limit = match mpp::client::tempo::tx_builder::estimate_gas(
+    let key_auth = wallet.signing_mode.key_authorization();
+    let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
         provider,
         from,
         chain_id,
@@ -2157,29 +2160,7 @@ async fn submit_tempo_tx(
         key_auth,
     )
     .await
-    {
-        Ok(gas) => gas,
-        Err(e) if key_auth.is_some() && e.to_string().contains("KeyAlreadyExists") => {
-            tracing::debug!("Key already provisioned on-chain, retrying without key_authorization");
-            key_auth = None;
-            mpp::client::tempo::tx_builder::estimate_gas(
-                provider,
-                from,
-                chain_id,
-                nonce,
-                fee_token,
-                &calls,
-                resolved.max_fee_per_gas,
-                resolved.max_priority_fee_per_gas,
-                None,
-            )
-            .await
-            .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?
-        }
-        Err(e) => {
-            return Err(crate::error::PrestoError::SigningSimple(e.to_string()).into());
-        }
-    };
+    .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
 
     let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
         mpp::client::tempo::tx_builder::TempoTxOptions {
@@ -2465,9 +2446,8 @@ async fn create_tempo_payment_from_calls(
     // Query the correct nonce for our nonceKey space via the NONCE precompile.
     let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
 
-    // Estimate gas — retry without key_authorization if already provisioned on-chain
-    let mut key_auth = signing.signing_mode.key_authorization();
-    let gas_limit = match mpp::client::tempo::tx_builder::estimate_gas(
+    let key_auth = signing.signing_mode.key_authorization();
+    let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
         &provider,
         from,
         chain_id,
@@ -2479,29 +2459,7 @@ async fn create_tempo_payment_from_calls(
         key_auth,
     )
     .await
-    {
-        Ok(gas) => gas,
-        Err(e) if key_auth.is_some() && e.to_string().contains("KeyAlreadyExists") => {
-            tracing::debug!("Key already provisioned on-chain, retrying without key_authorization");
-            key_auth = None;
-            mpp::client::tempo::tx_builder::estimate_gas(
-                &provider,
-                from,
-                chain_id,
-                nonce,
-                fee_token,
-                &calls,
-                resolved.max_fee_per_gas,
-                resolved.max_priority_fee_per_gas,
-                None,
-            )
-            .await
-            .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?
-        }
-        Err(e) => {
-            return Err(crate::error::PrestoError::SigningSimple(e.to_string()).into());
-        }
-    };
+    .map_err(|e| crate::error::PrestoError::SigningSimple(e.to_string()))?;
 
     // Build and sign the transaction
     let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
