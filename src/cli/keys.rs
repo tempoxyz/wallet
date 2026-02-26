@@ -550,3 +550,108 @@ async fn query_spending_limit(
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== key_expiry_timestamp ====================
+
+    #[test]
+    fn test_key_expiry_timestamp_with_value() {
+        let entry = KeyEntry {
+            expiry: Some(1750000000),
+            ..Default::default()
+        };
+        assert_eq!(key_expiry_timestamp(&entry), Some(1750000000));
+    }
+
+    #[test]
+    fn test_key_expiry_timestamp_zero_filtered() {
+        // Zero expiry means "unlimited" → filtered to None.
+        let entry = KeyEntry {
+            expiry: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(key_expiry_timestamp(&entry), None);
+    }
+
+    #[test]
+    fn test_key_expiry_timestamp_none() {
+        let entry = KeyEntry {
+            expiry: None,
+            ..Default::default()
+        };
+        assert_eq!(key_expiry_timestamp(&entry), None);
+    }
+
+    // ==================== format_expiry_iso ====================
+
+    #[test]
+    fn test_format_expiry_iso_known_date() {
+        // 1750032000 == 2025-06-16T00:00:00Z
+        let result = format_expiry_iso(1750032000);
+        assert_eq!(result, "2025-06-16T00:00:00Z");
+    }
+
+    #[test]
+    fn test_format_expiry_iso_epoch() {
+        let result = format_expiry_iso(0);
+        assert_eq!(result, "1970-01-01T00:00:00Z");
+    }
+
+    // ==================== format_expiry_countdown ====================
+
+    #[test]
+    fn test_format_expiry_countdown_expired() {
+        // Timestamp in the past
+        let result = format_expiry_countdown(1000);
+        assert_eq!(result, "expired");
+    }
+
+    #[test]
+    fn test_format_expiry_countdown_far_future() {
+        // Very far future timestamp → shows days
+        let result = format_expiry_countdown(u64::MAX / 2);
+        assert!(result.contains('d'));
+    }
+
+    #[test]
+    fn test_format_expiry_countdown_format_days() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // 3 days and 5 hours from now
+        let future = now + 3 * 86400 + 5 * 3600;
+        let result = format_expiry_countdown(future);
+        assert!(result.starts_with("3d"));
+    }
+
+    #[test]
+    fn test_format_expiry_countdown_format_hours() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // 5 hours and 30 minutes from now
+        let future = now + 5 * 3600 + 30 * 60;
+        let result = format_expiry_countdown(future);
+        assert!(result.starts_with("5h"));
+    }
+
+    #[test]
+    fn test_format_expiry_countdown_format_minutes() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // 42 minutes from now
+        let future = now + 42 * 60;
+        let result = format_expiry_countdown(future);
+        // Should show ~42m (may be 41m due to timing)
+        assert!(result.ends_with('m'));
+        assert!(!result.contains('d'));
+        assert!(!result.contains('h'));
+    }
+}

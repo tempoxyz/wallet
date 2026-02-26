@@ -502,4 +502,368 @@ provisioned = true
         // No chain_id match, but passkey fallback kicks in
         assert!(creds.key_for_network("tempo-moderato").is_some());
     }
+
+    // ==================== Multi-key selection rules ====================
+
+    #[test]
+    fn test_primary_key_passkey_beats_local_with_key() {
+        // Passkey entry should win even when a local entry has an inline key.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xLocal".to_string(),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            ..Default::default()
+        });
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Passkey,
+            wallet_address: "0xPasskey".to_string(),
+            key: Some(Zeroizing::new("0xpasskey_key".to_string())),
+            ..Default::default()
+        });
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xPasskey");
+    }
+
+    #[test]
+    fn test_primary_key_passkey_without_key_still_wins() {
+        // Passkey entry wins priority even without an inline key.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xLocal".to_string(),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            ..Default::default()
+        });
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Passkey,
+            wallet_address: "0xPasskey".to_string(),
+            ..Default::default()
+        });
+        // Passkey takes priority even without a key
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xPasskey");
+        // But has_wallet() is false because passkey has no inline key
+        assert!(!creds.has_wallet());
+    }
+
+    #[test]
+    fn test_primary_key_inline_key_over_no_key() {
+        // Among local entries, one with an inline key wins over one without.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xNoKey".to_string(),
+            ..Default::default()
+        });
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xHasKey".to_string(),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            ..Default::default()
+        });
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xHasKey");
+    }
+
+    #[test]
+    fn test_primary_key_empty_key_treated_as_no_key() {
+        // An empty key string is treated the same as no key.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xEmpty".to_string(),
+            key: Some(Zeroizing::new(String::new())),
+            ..Default::default()
+        });
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xReal".to_string(),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            ..Default::default()
+        });
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xReal");
+    }
+
+    #[test]
+    fn test_primary_key_first_entry_fallback_no_keys() {
+        // When no entries have passkey type or inline key, first entry is returned.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xFirst".to_string(),
+            ..Default::default()
+        });
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xSecond".to_string(),
+            ..Default::default()
+        });
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xFirst");
+    }
+
+    #[test]
+    fn test_primary_key_empty_keys_vec() {
+        let creds = WalletCredentials::default();
+        assert!(creds.primary_key().is_none());
+        assert!(!creds.has_wallet());
+        assert_eq!(creds.wallet_address(), "");
+    }
+
+    // ==================== has_wallet edge cases ====================
+
+    #[test]
+    fn test_has_wallet_empty_address_with_key() {
+        // A key entry with a key but empty wallet_address is not a wallet.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_address: String::new(),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            ..Default::default()
+        });
+        assert!(!creds.has_wallet());
+    }
+
+    // ==================== key_for_network selection ====================
+
+    #[test]
+    fn test_key_for_network_chain_id_priority_over_passkey() {
+        // Exact chain_id match should take priority over passkey fallback.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xLocal".to_string(),
+            chain_id: 42431,
+            key: Some(Zeroizing::new("0xlocal_key".to_string())),
+            ..Default::default()
+        });
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Passkey,
+            wallet_address: "0xPasskey".to_string(),
+            chain_id: 4217,
+            key: Some(Zeroizing::new("0xpasskey_key".to_string())),
+            ..Default::default()
+        });
+        // tempo-moderato (42431) → local entry via chain_id match
+        let entry = creds.key_for_network("tempo-moderato").unwrap();
+        assert_eq!(entry.wallet_address, "0xLocal");
+        // tempo (4217) → passkey entry via chain_id match
+        let entry = creds.key_for_network("tempo").unwrap();
+        assert_eq!(entry.wallet_address, "0xPasskey");
+    }
+
+    #[test]
+    fn test_key_for_network_direct_eoa_fallback() {
+        // A local key where wallet_address == key_address works on any network.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: TEST_ADDRESS.to_string(),
+            key_address: Some(TEST_ADDRESS.to_string()),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            chain_id: 0, // no specific chain
+            ..Default::default()
+        });
+        // Direct EOA should match any valid network
+        assert!(creds.key_for_network("tempo").is_some());
+        assert!(creds.key_for_network("tempo-moderato").is_some());
+    }
+
+    #[test]
+    fn test_key_for_network_no_match() {
+        // No keys at all → None
+        let creds = WalletCredentials::default();
+        assert!(creds.key_for_network("tempo").is_none());
+    }
+
+    #[test]
+    fn test_key_for_network_local_wrong_chain_no_fallback() {
+        // A local key (wallet != key_address) on the wrong chain with no
+        // passkey or direct EOA → no match.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xWallet".to_string(),
+            key_address: Some("0xDifferentKey".to_string()),
+            key: Some(Zeroizing::new("0xkey".to_string())),
+            chain_id: 4217,
+            ..Default::default()
+        });
+        // tempo (4217) matches by chain_id
+        assert!(creds.key_for_network("tempo").is_some());
+        // tempo-moderato (42431) has no chain_id match, no passkey, no direct EOA
+        assert!(creds.key_for_network("tempo-moderato").is_none());
+    }
+
+    #[test]
+    fn test_key_for_network_passkey_without_key_no_fallback() {
+        // A passkey entry without an inline key does NOT match as a fallback.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Passkey,
+            wallet_address: "0xPasskey".to_string(),
+            chain_id: 4217,
+            ..Default::default()
+        });
+        // tempo (4217) matches by chain_id
+        assert!(creds.key_for_network("tempo").is_some());
+        // tempo-moderato (42431): passkey without key → no fallback
+        assert!(creds.key_for_network("tempo-moderato").is_none());
+    }
+
+    // ==================== Expiry field ====================
+
+    #[test]
+    fn test_expiry_field_round_trip() {
+        let toml_str = r#"
+[[keys]]
+wallet_address = "0xtest"
+key = "0xaccesskey"
+expiry = 1750000000
+"#;
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        let entry = creds.primary_key().unwrap();
+        assert_eq!(entry.expiry, Some(1750000000));
+
+        // Round-trip: serialize and deserialize
+        let serialized = toml::to_string_pretty(&creds).unwrap();
+        let parsed: WalletCredentials = toml::from_str(&serialized).unwrap();
+        assert_eq!(parsed.primary_key().unwrap().expiry, Some(1750000000));
+    }
+
+    #[test]
+    fn test_expiry_field_absent_defaults_to_none() {
+        let toml_str = r#"
+[[keys]]
+wallet_address = "0xtest"
+key = "0xaccesskey"
+"#;
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        assert_eq!(creds.primary_key().unwrap().expiry, None);
+    }
+
+    #[test]
+    fn test_expiry_field_zero() {
+        let toml_str = r#"
+[[keys]]
+wallet_address = "0xtest"
+key = "0xaccesskey"
+expiry = 0
+"#;
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        assert_eq!(creds.primary_key().unwrap().expiry, Some(0));
+    }
+
+    // ==================== Provisioned marker ====================
+
+    #[test]
+    fn test_provisioned_defaults_to_false() {
+        let toml_str = r#"
+[[keys]]
+wallet_address = "0xtest"
+chain_id = 4217
+"#;
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        assert!(!creds.primary_key().unwrap().provisioned);
+        assert!(!creds.is_provisioned("tempo"));
+    }
+
+    #[test]
+    fn test_provisioned_per_network_isolation() {
+        // Two keys on different networks, only one provisioned.
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_address: "0xAAA".to_string(),
+            chain_id: 4217,
+            provisioned: true,
+            ..Default::default()
+        });
+        creds.keys.push(KeyEntry {
+            wallet_address: "0xBBB".to_string(),
+            chain_id: 42431,
+            provisioned: false,
+            ..Default::default()
+        });
+        assert!(creds.is_provisioned("tempo"));
+        assert!(!creds.is_provisioned("tempo-moderato"));
+    }
+
+    // ==================== Token limits serialization ====================
+
+    #[test]
+    fn test_limits_round_trip() {
+        let toml_str = r#"
+[[keys]]
+wallet_address = "0xtest"
+key = "0xaccesskey"
+
+[[keys.limits]]
+currency = "0xUSDC"
+limit = "100000000"
+
+[[keys.limits]]
+currency = "0xPATH"
+limit = "50000000"
+"#;
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        let entry = creds.primary_key().unwrap();
+        assert_eq!(entry.limits.len(), 2);
+        assert_eq!(entry.limits[0].currency, "0xUSDC");
+        assert_eq!(entry.limits[0].limit, "100000000");
+        assert_eq!(entry.limits[1].currency, "0xPATH");
+        assert_eq!(entry.limits[1].limit, "50000000");
+
+        // Round-trip
+        let serialized = toml::to_string_pretty(&creds).unwrap();
+        let parsed: WalletCredentials = toml::from_str(&serialized).unwrap();
+        assert_eq!(parsed.primary_key().unwrap().limits.len(), 2);
+    }
+
+    #[test]
+    fn test_limits_empty_by_default() {
+        let toml_str = r#"
+[[keys]]
+wallet_address = "0xtest"
+"#;
+        let creds: WalletCredentials = toml::from_str(toml_str).unwrap();
+        assert!(creds.primary_key().unwrap().limits.is_empty());
+    }
+
+    // ==================== Error paths ====================
+
+    #[test]
+    fn test_delete_passkey_when_none_exists() {
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xLocal".to_string(),
+            ..Default::default()
+        });
+        let err = creds.delete_passkey().unwrap_err();
+        assert!(err.to_string().contains("No passkey found"));
+    }
+
+    #[test]
+    fn test_delete_by_address_case_insensitive() {
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0xAbCdEf".to_string(),
+            ..Default::default()
+        });
+        // Delete using different casing
+        creds.delete_by_address("0xABCDEF").unwrap();
+        assert!(creds.keys.is_empty());
+    }
+
+    #[test]
+    fn test_upsert_case_insensitive() {
+        let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_address: "0xAbCd".to_string(),
+            ..Default::default()
+        });
+        // Upsert with different casing should update in place
+        let entry = creds.upsert_by_wallet_address("0xABCD");
+        entry.provisioned = true;
+        assert_eq!(creds.keys.len(), 1);
+        assert!(creds.keys[0].provisioned);
+    }
 }
