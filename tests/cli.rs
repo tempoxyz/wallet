@@ -550,11 +550,7 @@ fn test_json_error_output_when_output_format_json() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
     // Unknown network triggers a config error at the top-level
-<<<<<<< HEAD
     cmd.args(["-j", "-n", "not-a-network", "whoami"]);
-=======
-    cmd.args(["-n", "not-a-network", "--output-format", "json", "whoami"]);
->>>>>>> 255b239 (feat(cli): structured JSON error output when --output-format json; stable error codes; maintain stdout/stderr separation)
     let output = cmd.output().expect("failed to run");
     assert!(!output.status.success());
     // Error should be JSON to stdout; stderr may contain logs
@@ -567,7 +563,6 @@ fn test_json_error_output_when_output_format_json() {
     );
 }
 
-<<<<<<< HEAD
 #[test]
 fn test_json_error_output_for_network_error() {
     let temp = TestConfigBuilder::new().build();
@@ -581,9 +576,6 @@ fn test_json_error_output_for_network_error() {
     assert!(val.get("code").is_some());
     assert!(val.get("message").is_some());
 }
-
-=======
->>>>>>> 255b239 (feat(cli): structured JSON error output when --output-format json; stable error codes; maintain stdout/stderr separation)
 // ==================== Key Management Tests ====================
 
 /// Helper: write a multi-key keys.toml into both macOS and Linux paths.
