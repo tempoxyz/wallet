@@ -153,6 +153,9 @@ impl From<&crate::error::PrestoError> for ExitCode {
             | PrestoError::Signing(_)
             | PrestoError::InvalidAddress(_) => ExitCode::AuthError,
 
+            // Invalid arguments / user input
+            PrestoError::InvalidUrl(_) | PrestoError::InvalidHeader(_) => ExitCode::InvalidUsage,
+
             // General errors
             _ => ExitCode::GeneralError,
         }

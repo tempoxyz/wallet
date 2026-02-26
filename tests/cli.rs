@@ -577,6 +577,46 @@ fn test_json_error_output_for_network_error() {
     assert!(val.get("message").is_some());
 }
 
+// ==================== Input Validation Tests ====================
+
+#[test]
+fn test_rejects_file_url_with_json_error() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-j", "query", "file:///etc/hosts"]);
+    let output = cmd.output().expect("failed to run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+    assert_eq!(val.get("code").and_then(|v| v.as_str()), Some("E_USAGE"));
+}
+
+#[test]
+fn test_rejects_data_url_with_json_error() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-j", "query", "data:text/plain,hi"]);
+    let output = cmd.output().expect("failed to run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+    assert_eq!(val.get("code").and_then(|v| v.as_str()), Some("E_USAGE"));
+}
+
+#[test]
+fn test_rejects_header_with_crlf_injection() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    // Embed a CRLF in a single -H argument to simulate header injection
+    let bad_header = format!("X-Test: good\r\nInjected: bad");
+    cmd.args(["-j", "-H", &bad_header, "http://example.com"]);
+    let output = cmd.output().expect("failed to run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+    assert_eq!(val.get("code").and_then(|v| v.as_str()), Some("E_USAGE"));
+}
+
 // ==================== Key Management Tests ====================
 
 /// Helper: write a multi-key keys.toml into both macOS and Linux paths.

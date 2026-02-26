@@ -523,12 +523,22 @@ fn init_color_support(cli: &Cli) {
 /// Parses CLI and loads config to determine the resolved `OutputFormat`.
 /// Returns `None` if parsing fails; defaults to text in that case.
 fn resolve_output_format_for_error() -> Option<config::OutputFormat> {
-    // Try to parse CLI normally; do not attempt the query fallback here to
-    // avoid ambiguity on parse errors.
+    // Try to parse CLI normally first
     if let Ok(cli) = Cli::try_parse() {
-        // Load config (best-effort) and resolve format
         let cfg = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
         return Some(cli.resolve_output_format(&cfg));
     }
+
+    // If normal parsing failed, try the same fallback as parse_cli(): insert "query"
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        let mut with_query = vec![args[0].clone(), "query".to_string()];
+        with_query.extend(args[1..].iter().cloned());
+        if let Ok(cli) = Cli::try_parse_from(with_query) {
+            let cfg = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+            return Some(cli.resolve_output_format(&cfg));
+        }
+    }
+
     None
 }

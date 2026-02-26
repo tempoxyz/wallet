@@ -50,8 +50,19 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     let url = query.url.clone();
 
     // Validate the URL early to give a clear error instead of a cryptic reqwest message.
-    if let Err(e) = url::Url::parse(&url) {
-        anyhow::bail!("Invalid URL: '{url}' ({e})");
+    match url::Url::parse(&url) {
+        Ok(parsed) => {
+            let scheme = parsed.scheme();
+            if scheme != "http" && scheme != "https" {
+                anyhow::bail!(PrestoError::InvalidUrl(format!(
+                    "unsupported scheme '{}'",
+                    scheme
+                )));
+            }
+        }
+        Err(e) => {
+            anyhow::bail!(PrestoError::InvalidUrl(e.to_string()));
+        }
     }
 
     let request_ctx = build_request_context(&cli, &query)?;
@@ -622,6 +633,11 @@ fn display_receipt(
 fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext> {
     for header in &query.headers {
         validate_header_size(header)?;
+        if header.contains('\r') || header.contains('\n') {
+            anyhow::bail!(PrestoError::InvalidHeader(
+                "header contains CR/LF characters".to_string()
+            ));
+        }
     }
 
     let runtime = RequestRuntime {
