@@ -186,7 +186,7 @@ pub enum Commands {
     #[command(hide = true, name = "balance")]
     Balance,
     /// Manage keys
-    #[command(display_order = 5, name = "key")]
+    #[command(display_order = 5, name = "key", hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
     Key {
         #[command(subcommand)]

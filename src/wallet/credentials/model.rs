@@ -227,17 +227,17 @@ impl WalletCredentials {
                 return Some(entry);
             }
         }
-        // Direct EOA keys (wallet == signer) work on any network
+        // Any passkey with a signing key
         if let Some(entry) = self.keys.iter().find(|k| {
-            k.wallet_type == WalletType::Local
-                && k.key_address.as_deref() == Some(&k.wallet_address)
-                && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
+            k.wallet_type == WalletType::Passkey && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
         }) {
             return Some(entry);
         }
-        // Any passkey with a signing key
+        // Direct EOA keys (wallet == signer) work on any network
         self.keys.iter().find(|k| {
-            k.wallet_type == WalletType::Passkey && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
+            k.wallet_type == WalletType::Local
+                && k.key_address.as_deref() == Some(&k.wallet_address)
+                && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
         })
     }
 
