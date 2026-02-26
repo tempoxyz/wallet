@@ -343,7 +343,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             cli::auth::run_login(network, analytics.clone(), output_format).await
                         } else {
                             let name = name.as_deref().unwrap_or("local-default");
-                            cli::wallet::create_local_wallet(name, cli.network.as_deref())?;
+                            cli::local_wallet::create_local_wallet(name, cli.network.as_deref())?;
                             let config =
                                 load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
                             let output_format = cli.resolve_output_format(&config);
@@ -359,7 +359,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         stdin_key,
                     } => {
                         let name = name.as_deref().unwrap_or("local-default");
-                        cli::wallet::import_wallet(name, private_key, stdin_key)
+                        cli::local_wallet::import_wallet(name, private_key, stdin_key)
                     }
                     WalletCommands::Delete {
                         name,
@@ -373,7 +373,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             let name = name
                                 .or(name_flag)
                                 .unwrap_or_else(|| "local-default".to_string());
-                            cli::wallet::delete_wallet(&name, yes)
+                            cli::local_wallet::delete_wallet(&name, yes)
                         }
                     }
                 }
@@ -420,7 +420,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     .map_err(Into::into),
                 Some(KeyCommands::Create { name }) => {
                     let name = name.as_deref().unwrap_or("local-default");
-                    cli::wallet::create_access_key(name)?;
+                    cli::local_wallet::create_access_key(name)?;
                     cli::auth::show_whoami(&config, output_format, network)
                         .await
                         .map_err(Into::into)

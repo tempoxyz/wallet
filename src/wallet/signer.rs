@@ -7,36 +7,11 @@
 use std::str::FromStr;
 
 use alloy::primitives::Address;
-use alloy::rlp::Decodable;
 use alloy::signers::local::PrivateKeySigner;
-use tempo_primitives::transaction::SignedKeyAuthorization;
 
 use crate::error::{PrestoError, Result};
 use crate::wallet::credentials::WalletCredentials;
 use mpp::client::tempo::signing::TempoSigningMode;
-
-/// Decode a hex-encoded SignedKeyAuthorization.
-///
-/// Accepts hex strings with or without a "0x" prefix.
-/// Logs a warning if the input is present but fails to decode.
-pub fn decode_key_authorization(hex_str: &str) -> Option<SignedKeyAuthorization> {
-    let raw = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = match hex::decode(raw) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::warn!("Invalid key authorization hex: {e}");
-            return None;
-        }
-    };
-    let mut slice = bytes.as_slice();
-    match SignedKeyAuthorization::decode(&mut slice) {
-        Ok(auth) => Some(auth),
-        Err(e) => {
-            tracing::warn!("Invalid key authorization RLP: {e}");
-            None
-        }
-    }
-}
 
 /// A loaded wallet signer ready for transaction signing.
 ///
@@ -61,7 +36,7 @@ fn resolve_signing_mode(
     if wallet_address == signer_address {
         TempoSigningMode::Direct
     } else {
-        let local_auth = key_authorization.and_then(decode_key_authorization);
+        let local_auth = key_authorization.and_then(super::key_authorization::decode);
 
         let key_authorization = if !provisioned {
             local_auth.map(Box::new)
@@ -130,26 +105,6 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_decode_key_authorization_none_on_invalid_hex() {
-        assert!(decode_key_authorization("not-valid-hex").is_none());
-    }
-
-    #[test]
-    fn test_decode_key_authorization_none_on_invalid_rlp() {
-        assert!(decode_key_authorization("deadbeef").is_none());
-    }
-
-    #[test]
-    fn test_decode_key_authorization_none_on_empty() {
-        assert!(decode_key_authorization("").is_none());
-    }
-
-    #[test]
-    fn test_decode_key_authorization_strips_0x_prefix() {
-        assert!(decode_key_authorization("0xdeadbeef").is_none());
-    }
 
     #[test]
     fn test_from_private_key_valid() {

@@ -2,7 +2,6 @@
 
 use std::time::{Duration, Instant};
 
-use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -195,7 +194,7 @@ impl WalletManager {
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
     ) -> Result<()> {
-        let validated = validate_key_authorization(
+        let validated = super::key_authorization::validate(
             callback.key_authorization.as_deref(),
             local_signer.address(),
         )?;
@@ -258,7 +257,7 @@ impl WalletManager {
                     key_type: validated
                         .as_ref()
                         .map(|v| v.key_type.clone())
-                        .unwrap_or_else(|| "secp256k1".to_string()),
+                        .unwrap_or_default(),
                     key_address: Some(access_key_address.clone()),
                     key: Some(zeroize::Zeroizing::new(access_key_hex.clone())),
                     key_authorization: key_auth_hex.clone(),
@@ -291,70 +290,6 @@ impl Default for WalletManager {
     fn default() -> Self {
         Self::new(None, None)
     }
-}
-
-// ==================== Key Authorization Validation ====================
-
-#[derive(Debug, PartialEq)]
-struct ValidatedKeyAuth {
-    hex: String,
-    expiry: u64,
-    chain_id: u64,
-    key_type: String,
-    token_limits: Vec<crate::wallet::credentials::StoredTokenLimit>,
-}
-
-fn validate_key_authorization(
-    hex_str: Option<&str>,
-    expected_key_id: Address,
-) -> Result<Option<ValidatedKeyAuth>> {
-    let hex_str = match hex_str {
-        Some(s) => s,
-        None => return Ok(None),
-    };
-
-    let signed = super::signer::decode_key_authorization(hex_str)
-        .ok_or_else(|| PrestoError::InvalidConfig("Invalid key authorization".to_string()))?;
-
-    if signed.authorization.key_id != expected_key_id {
-        return Err(PrestoError::InvalidConfig(format!(
-            "Key authorization targets {:#x}, expected {:#x}",
-            signed.authorization.key_id, expected_key_id
-        )));
-    }
-
-    let expiry = signed.authorization.expiry.unwrap_or(0);
-    let chain_id = signed.authorization.chain_id;
-
-    let key_type = match signed.authorization.key_type {
-        tempo_primitives::transaction::SignatureType::Secp256k1 => "secp256k1",
-        tempo_primitives::transaction::SignatureType::P256 => "p256",
-        tempo_primitives::transaction::SignatureType::WebAuthn => "webauthn",
-    }
-    .to_string();
-
-    let token_limits = signed
-        .authorization
-        .limits
-        .as_ref()
-        .map(|limits| {
-            limits
-                .iter()
-                .map(|tl| crate::wallet::credentials::StoredTokenLimit {
-                    currency: format!("{:#x}", tl.token),
-                    limit: tl.limit.to_string(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(Some(ValidatedKeyAuth {
-        hex: hex_str.to_string(),
-        expiry,
-        chain_id,
-        key_type,
-        token_limits,
-    }))
 }
 
 // ==================== Device Code ====================
@@ -458,74 +393,6 @@ fn compute_code_challenge(code_verifier: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::rlp::Encodable;
-    use alloy::signers::SignerSync;
-    use tempo_primitives::transaction::{KeyAuthorization, PrimitiveSignature, SignatureType};
-
-    fn make_signed_auth_hex(key_id: Address) -> String {
-        let signer: PrivateKeySigner =
-            "0x1234567890123456789012345678901234567890123456789012345678901234"
-                .parse()
-                .unwrap();
-
-        let auth = KeyAuthorization {
-            chain_id: 42431,
-            key_type: SignatureType::Secp256k1,
-            key_id,
-            expiry: Some(9999999999),
-            limits: None,
-        };
-
-        let sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
-        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
-
-        let mut buf = Vec::new();
-        signed.encode(&mut buf);
-        format!("0x{}", hex::encode(&buf))
-    }
-
-    #[test]
-    fn test_validate_key_authorization_matching_key_id() {
-        let signer = PrivateKeySigner::random();
-        let hex = make_signed_auth_hex(signer.address());
-        let result = validate_key_authorization(Some(&hex), signer.address());
-        assert!(result.is_ok());
-        let validated = result.unwrap().unwrap();
-        assert_eq!(validated.hex, hex);
-        assert_eq!(validated.expiry, 9999999999);
-        assert_eq!(validated.chain_id, 42431);
-        assert_eq!(validated.key_type, "secp256k1");
-    }
-
-    #[test]
-    fn test_validate_key_authorization_mismatched_key_id() {
-        let signer = PrivateKeySigner::random();
-        let wrong_address = Address::repeat_byte(0xFF);
-        let hex = make_signed_auth_hex(wrong_address);
-        let result = validate_key_authorization(Some(&hex), signer.address());
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("Key authorization targets"));
-    }
-
-    #[test]
-    fn test_validate_key_authorization_none() {
-        let result = validate_key_authorization(None, Address::ZERO);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
-    }
-
-    #[test]
-    fn test_validate_key_authorization_invalid_hex() {
-        let result = validate_key_authorization(Some("not-hex"), Address::ZERO);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_validate_key_authorization_invalid_rlp() {
-        let result = validate_key_authorization(Some("0xdeadbeef"), Address::ZERO);
-        assert!(result.is_err());
-    }
 
     #[test]
     fn test_code_challenge_produces_43_char_base64url() {

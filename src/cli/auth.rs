@@ -203,15 +203,13 @@ async fn build_whoami_response(
     };
 
     if creds.has_wallet() {
-        // Keys are scoped to currencies — no cross-network fallback
         let active_entry = creds.key_for_network(network);
 
-        // Include resolved network info for machine-readability
         response.network = Some(network.to_string());
-        response.chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
+        let chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
+        response.chain_id = chain_id;
 
         if let Some(key_entry) = active_entry {
-            // Show the wallet only if a key exists for this network
             if !key_entry.wallet_address.is_empty() {
                 response.wallet = Some(key_entry.wallet_address.clone());
             }
@@ -222,12 +220,7 @@ async fn build_whoami_response(
             };
             response.wallet_type = Some(wt.to_string());
 
-            let wallet_addr = response.wallet.as_deref().unwrap_or("");
-            let all_balances = query_all_balances(config, network, wallet_addr).await;
-
-            let key_token_info = query_spending_limit(config, network, key_entry).await;
-
-            // Resolve the key label from the actual matching entry name when possible
+            // Resolve key label from matching entry name
             let key_label = creds
                 .keys
                 .iter()
@@ -239,37 +232,31 @@ async fn build_whoami_response(
                 .map(|(name, _)| name.clone())
                 .unwrap_or_else(|| creds.primary_key_name().unwrap_or_default());
 
-            let key_addr = key_entry
-                .key_address
-                .clone()
-                .or_else(|| creds.key_address());
+            let wallet_addr = response.wallet.as_deref().unwrap_or("");
+            let balance_cache = vec![(
+                wallet_addr.to_string(),
+                query_all_balances(config, network, wallet_addr).await,
+            )]
+            .into_iter()
+            .collect();
 
-            if let Some(addr) = key_addr {
-                let (symbol, currency, spending_limit) = match key_token_info {
-                    Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
-                    None => (None, None, None),
-                };
-                let balance = currency.as_ref().and_then(|cur| {
-                    all_balances
-                        .iter()
-                        .find(|tb| tb.currency == *cur)
-                        .map(|tb| tb.balance.clone())
-                });
-                let expires_at = key_expiry_timestamp(key_entry).map(format_expiry_iso);
-                response.key = Some(KeyInfo {
-                    label: key_label,
-                    address: addr,
-                    wallet_address: None,
-                    wallet_type: None,
-                    symbol,
-                    currency,
-                    balance,
-                    spending_limit,
-                    expires_at,
-                });
-            } else {
+            let mut key_info = build_key_info(
+                config,
+                network,
+                chain_id,
+                &key_label,
+                key_entry,
+                &balance_cache,
+            )
+            .await;
+            // whoami shows wallet/type at the top level, not per-key
+            key_info.wallet_address = None;
+            key_info.wallet_type = None;
+
+            if key_info.address == "none" {
                 response.ready = false;
             }
+            response.key = Some(key_info);
 
             // Readiness requires: key present, wallet connected, and either
             // already provisioned or has a key_authorization (will auto-provision on first use).
@@ -282,7 +269,6 @@ async fn build_whoami_response(
             let has_key_auth = key_entry.key_authorization.as_deref().is_some();
             response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
         } else {
-            // No key for this network: do not show a wallet; clearly not ready
             response.wallet = None;
             response.wallet_type = None;
             response.ready = false;
@@ -384,17 +370,66 @@ fn print_key_amounts_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> Result<()>
 /// Extract the expiry timestamp from a key entry's authorization, if present.
 /// Returns `None` for keys without an authorization or without an expiry (unlimited).
 fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
-    if let Some(expiry) = key_entry.expiry {
-        if expiry > 0 {
-            return Some(expiry);
-        }
+    key_entry.expiry.filter(|&e| e > 0)
+}
+
+/// Build a `KeyInfo` from a key entry, querying on-chain data if on the current network.
+async fn build_key_info(
+    config: &Config,
+    network: &str,
+    current_chain_id: Option<u64>,
+    label: &str,
+    entry: &KeyEntry,
+    balance_cache: &std::collections::HashMap<String, Vec<TokenBalance>>,
+) -> KeyInfo {
+    let address = entry
+        .key_address
+        .clone()
+        .unwrap_or_else(|| "none".to_string());
+
+    let wt = match entry.wallet_type {
+        crate::wallet::credentials::WalletType::Passkey => "passkey",
+        crate::wallet::credentials::WalletType::Local => "local",
+    };
+
+    let on_current_chain = current_chain_id.is_some_and(|cid| cid == entry.chain_id);
+    let key_token_info = if on_current_chain {
+        query_spending_limit(config, network, entry).await
+    } else {
+        None
+    };
+    let (symbol, currency, spending_limit) = match key_token_info {
+        Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
+        None => (None, None, None),
+    };
+
+    let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
+        (None, None)
+    } else {
+        let all = balance_cache
+            .get(&entry.wallet_address)
+            .cloned()
+            .unwrap_or_default();
+        let bal = currency
+            .as_ref()
+            .and_then(|cur| all.into_iter().find(|tb| tb.currency == *cur))
+            .map(|tb| tb.balance);
+        (Some(entry.wallet_address.clone()), bal)
+    };
+
+    let expires_at = key_expiry_timestamp(entry).map(format_expiry_iso);
+
+    KeyInfo {
+        label: label.to_string(),
+        address,
+        wallet_address: wallet_addr,
+        wallet_type: Some(wt.to_string()),
+        symbol,
+        currency,
+        balance,
+        spending_limit,
+        expires_at,
     }
-    // Fallback: decode from key_authorization for backwards compat during transition
-    let auth = key_entry
-        .key_authorization
-        .as_deref()
-        .and_then(crate::wallet::signer::decode_key_authorization)?;
-    auth.authorization.expiry
 }
 
 /// Format an expiry timestamp as an ISO-8601 UTC string for JSON output.
@@ -455,7 +490,7 @@ async fn query_spending_limit(
     let local_auth = key_entry
         .key_authorization
         .as_deref()
-        .and_then(crate::wallet::signer::decode_key_authorization);
+        .and_then(crate::wallet::key_authorization::decode);
 
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
@@ -645,56 +680,17 @@ pub async fn show_keys(
     let mut keys = Vec::new();
 
     for (name, entry) in &creds.keys {
-        let address = entry
-            .key_address
-            .clone()
-            .unwrap_or_else(|| "none".to_string());
-
-        let wt = match entry.wallet_type {
-            crate::wallet::credentials::WalletType::Passkey => "passkey",
-            crate::wallet::credentials::WalletType::Local => "local",
-        };
-
-        // Only query on-chain spending limits for keys on the current network
-        let on_current_chain =
-            entry.chain_id == 0 || current_chain_id.is_some_and(|cid| cid == entry.chain_id);
-        let key_token_info = if on_current_chain {
-            query_spending_limit(config, network, entry).await
-        } else {
-            None
-        };
-        let (symbol, currency, spending_limit) = match key_token_info {
-            Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
-            None => (None, None, None),
-        };
-
-        let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
-            (None, None)
-        } else {
-            let all = balance_cache
-                .get(&entry.wallet_address)
-                .cloned()
-                .unwrap_or_default();
-            let bal = currency
-                .as_ref()
-                .and_then(|cur| all.into_iter().find(|tb| tb.currency == *cur))
-                .map(|tb| tb.balance);
-            (Some(entry.wallet_address.clone()), bal)
-        };
-
-        let expires_at = key_expiry_timestamp(entry).map(format_expiry_iso);
-
-        keys.push(KeyInfo {
-            label: name.clone(),
-            address,
-            wallet_address: wallet_addr,
-            wallet_type: Some(wt.to_string()),
-            symbol,
-            currency,
-            balance,
-            spending_limit,
-            expires_at,
-        });
+        keys.push(
+            build_key_info(
+                config,
+                network,
+                current_chain_id,
+                name,
+                entry,
+                &balance_cache,
+            )
+            .await,
+        );
     }
 
     let total = keys.len();

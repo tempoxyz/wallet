@@ -71,6 +71,16 @@ pub enum WalletType {
     Passkey,
 }
 
+/// Cryptographic key type for key authorizations.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyType {
+    #[default]
+    Secp256k1,
+    P256,
+    WebAuthn,
+}
+
 /// Token spending limit stored in keys.toml.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StoredTokenLimit {
@@ -92,9 +102,9 @@ pub struct KeyEntry {
     /// Chain ID this key is authorized for.
     #[serde(default)]
     pub chain_id: u64,
-    /// Key type: "secp256k1", "p256", "webauthn".
+    /// Cryptographic key type.
     #[serde(default)]
-    pub key_type: String,
+    pub key_type: KeyType,
     /// Public address of the key (derived from the key private key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_address: Option<String>,
@@ -281,6 +291,7 @@ impl WalletCredentials {
     /// Resolution order:
     /// 1. `--private-key` override → use it directly.
     /// 2. Inline `key` → use it.
+    #[cfg(test)]
     pub fn signer(&self) -> Result<PrivateKeySigner> {
         let key_entry = self
             .primary_key()
@@ -302,6 +313,7 @@ impl WalletCredentials {
     ///
     /// Uses the stored `key_address` field if available, otherwise
     /// derives it from the available signing key.
+    #[cfg(test)]
     pub fn key_address(&self) -> Option<String> {
         if let Some(addr) = self.primary_key().and_then(|a| a.key_address.clone()) {
             return Some(addr);
