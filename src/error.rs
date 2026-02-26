@@ -74,6 +74,14 @@ pub(crate) enum PrestoError {
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
 
+    /// Invalid URL provided
+    #[error("Invalid URL: {0}")]
+    InvalidUrl(String),
+
+    /// Invalid header (potential injection or malformed)
+    #[error("Invalid header: {0}")]
+    InvalidHeader(String),
+
     /// JSON serialization/deserialization error
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
