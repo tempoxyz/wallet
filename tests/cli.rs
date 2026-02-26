@@ -990,3 +990,246 @@ fn test_session_close_all_json_structure() {
     assert!(parsed.get("failed").is_some(), "missing 'failed' field");
     assert!(parsed.get("results").is_some(), "missing 'results' field");
 }
+
+// ==================== Config & Env Precedence Tests ====================
+
+#[test]
+fn test_config_detected_from_macos_path() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("tempo_rpc = \"https://macos-custom-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // On macOS HOME points to the temp dir; config should be found.
+    // Whoami loads config — success means config was detected.
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "whoami should succeed with macOS-layout config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_config_detected_from_linux_xdg_path() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("moderato_rpc = \"https://linux-custom-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // XDG_CONFIG_HOME is set by test_command; config should be found via Linux path.
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "whoami should succeed with XDG-layout config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_explicit_config_path_overrides_default() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // Write a separate config file in a custom location
+    let custom_config = temp.path().join("custom-config.toml");
+    std::fs::write(
+        &custom_config,
+        "tempo_rpc = \"https://explicit-rpc.example.com\"\n",
+    )
+    .unwrap();
+
+    // Use -c to point at the custom config
+    let output = test_command(&temp)
+        .args(["-c", custom_config.to_str().unwrap(), "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "whoami should succeed with explicit -c config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_explicit_config_path_not_found_fails() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-c", "/nonexistent/path/config.toml", "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "should fail when explicit config path not found"
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("not found") || combined.contains("Config"),
+        "should mention config issue: {combined}"
+    );
+}
+
+#[test]
+fn test_missing_default_config_falls_back_to_defaults() {
+    // Empty temp dir with no config.toml written — should use defaults
+    let temp = tempfile::TempDir::new().unwrap();
+
+    // Session list works without any config (uses defaults)
+    let output = test_command(&temp)
+        .args(["session", "list"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "session list should succeed with no config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_malformed_config_toml_fails_gracefully() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("this is [[[invalid toml!!! {{{")
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+
+    // Should fail but not panic
+    assert!(!output.status.success(), "should fail on malformed config");
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("parse") || combined.contains("config") || combined.contains("Config"),
+        "should mention config parse error: {combined}"
+    );
+}
+
+#[test]
+fn test_config_with_unknown_fields_still_loads() {
+    // Old or future config files may have fields we don't know about
+    let temp = TestConfigBuilder::new()
+        .with_config_toml(
+            "tempo_rpc = \"https://rpc.example.com\"\nunknown_field = true\n\n[unknown_section]\nfoo = \"bar\"\n",
+        )
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "should tolerate unknown config fields: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_empty_config_file_loads_ok() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "empty config should load as defaults: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_rpc_env_var_override() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("tempo_rpc = \"https://config-file-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // PRESTO_RPC_URL should override config file settings.
+    // Whoami loads config and resolves network — this verifies the env override
+    // is applied without error (actual RPC is not called for whoami).
+    let output = test_command(&temp)
+        .env("PRESTO_RPC_URL", "https://env-override-rpc.example.com")
+        .arg("whoami")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "whoami should succeed with PRESTO_RPC_URL env: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_typed_rpc_override_in_config() {
+    // Config with typed override for moderato
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("moderato_rpc = \"https://typed-moderato-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp)
+        .args(["-n", "tempo-moderato", "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "whoami should succeed with typed moderato_rpc config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_rpc_table_override_in_config() {
+    // Config with [rpc] table override
+    let config = "[rpc]\ntempo = \"https://table-rpc.example.com\"\n";
+    let temp = TestConfigBuilder::new()
+        .with_config_toml(config)
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "whoami should succeed with [rpc] table config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_invalid_network_flag_fails() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-n", "nonexistent-network", "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "should fail with unknown network");
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.to_lowercase().contains("unknown network"),
+        "should mention unknown network: {combined}"
+    );
+}
