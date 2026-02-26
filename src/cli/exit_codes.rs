@@ -58,6 +58,24 @@ impl ExitCode {
         self as i32
     }
 
+    /// Machine-readable error code label for JSON error objects
+    pub fn label(self) -> &'static str {
+        match self {
+            ExitCode::Success => "OK",
+            ExitCode::GeneralError => "E_GENERAL",
+            ExitCode::InvalidUsage => "E_USAGE",
+            ExitCode::ConfigError => "E_CONFIG",
+            ExitCode::NetworkError => "E_NETWORK",
+            ExitCode::PaymentFailed => "E_PAYMENT",
+            ExitCode::InsufficientFunds => "E_FUNDS",
+            ExitCode::UserCancelled => "E_CANCELLED",
+            ExitCode::AuthError => "E_AUTH",
+            ExitCode::NotFound => "E_NOT_FOUND",
+            ExitCode::Timeout => "E_TIMEOUT",
+            ExitCode::Interrupted => "E_INTERRUPTED",
+        }
+    }
+
     /// Exit the process with this code
     pub fn exit(self) -> ! {
         std::process::exit(self.code())

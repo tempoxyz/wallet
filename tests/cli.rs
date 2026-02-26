@@ -519,6 +519,26 @@ fn test_private_key_env_value_hidden_in_help() {
     );
 }
 
+// ==================== JSON Error Rendering ====================
+
+#[test]
+fn test_json_error_output_when_output_format_json() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    // Unknown network triggers a config error at the top-level
+    cmd.args(["-n", "not-a-network", "--output-format", "json", "whoami"]);
+    let output = cmd.output().expect("failed to run");
+    assert!(!output.status.success());
+    // Error should be JSON to stdout; stderr may contain logs
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+    assert!(val.get("code").is_some(), "missing code in json error");
+    assert!(
+        val.get("message").is_some(),
+        "missing message in json error"
+    );
+}
+
 // ==================== Key Management Tests ====================
 
 /// Helper: write a multi-key keys.toml into both macOS and Linux paths.

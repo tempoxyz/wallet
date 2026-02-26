@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 
+use crate::cli::exit_codes::ExitCode;
 use crate::config::validate_path;
 use crate::http::HttpResponse;
 
@@ -62,6 +63,33 @@ pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpRespon
     }
 
     Ok(())
+}
+
+/// Render a structured JSON error object for agent consumption.
+///
+/// Schema: { code, message, cause? }
+pub(crate) fn render_error_json(err: &anyhow::Error) -> String {
+    let code = ExitCode::from(err).label();
+
+    // Root message and optional immediate cause
+    let message = err.to_string();
+    let cause = err.chain().nth(1).map(|c| c.to_string());
+
+    let mut obj = serde_json::json!({
+        "code": code,
+        "message": message,
+    });
+
+    if let Some(c) = cause {
+        if let serde_json::Value::Object(ref mut map) = obj {
+            map.insert("cause".into(), serde_json::Value::String(c));
+        }
+    }
+
+    serde_json::to_string(&obj).unwrap_or_else(|_| {
+        // As a last resort, emit a minimal JSON
+        format!("{{\"code\":\"{}\",\"message\":\"error\"}}", code)
+    })
 }
 
 /// Write raw bytes to the configured output destination.

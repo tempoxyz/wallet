@@ -70,7 +70,20 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("Error: {e:#}");
+        // Attempt to resolve the desired output format to decide error rendering.
+        let output_format = resolve_output_format_for_error();
+
+        match output_format {
+            Some(config::OutputFormat::Json) => {
+                // Print structured JSON error to stdout only; logs remain on stderr via tracing.
+                let json = cli::output::render_error_json(&e);
+                println!("{}", json);
+            }
+            _ => {
+                eprintln!("Error: {e:#}");
+            }
+        }
+
         ExitCode::from(&e).exit();
     }
 }
@@ -499,4 +512,19 @@ fn init_color_support(cli: &Cli) {
             }
         }
     }
+}
+
+/// Best-effort resolution of output format for error rendering.
+///
+/// Parses CLI and loads config to determine the resolved `OutputFormat`.
+/// Returns `None` if parsing fails; defaults to text in that case.
+fn resolve_output_format_for_error() -> Option<config::OutputFormat> {
+    // Try to parse CLI normally; do not attempt the query fallback here to
+    // avoid ambiguity on parse errors.
+    if let Ok(cli) = Cli::try_parse() {
+        // Load config (best-effort) and resolve format
+        let cfg = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+        return Some(cli.resolve_output_format(&cfg));
+    }
+    None
 }
