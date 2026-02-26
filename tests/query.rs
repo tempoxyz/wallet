@@ -545,6 +545,34 @@ async fn test_multiple_data_flags() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_retries_and_backoff_on_unreachable_host() {
+    // Port 9 is "discard" and typically closed locally; triggers a connect error quickly.
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([
+            "-j",
+            "--retries",
+            "1",
+            "--retry-backoff",
+            "10",
+            "--timeout",
+            "1",
+            "http://127.0.0.1:9",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected failure on unreachable host"
+    );
+    // Should emit JSON error to stdout
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_output_format_json() {
     let server = MockServer::start(
         200,

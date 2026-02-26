@@ -139,6 +139,14 @@ pub struct QueryArgs {
     )]
     pub max_time: Option<u64>,
 
+    /// Maximum time to establish the TCP connection in seconds
+    #[arg(
+        long = "connect-timeout",
+        value_name = "SECONDS",
+        help_heading = "HTTP Options"
+    )]
+    pub connect_timeout: Option<u64>,
+
     /// POST data (use @filename to read from file, @- to read from stdin)
     #[arg(
         short = 'd',
@@ -151,6 +159,18 @@ pub struct QueryArgs {
     /// Send JSON data with Content-Type header
     #[arg(long = "json", value_name = "JSON", help_heading = "HTTP Options")]
     pub json: Option<String>,
+
+    /// Number of retries on transient network errors (timeouts/connect failures)
+    #[arg(long = "retries", value_name = "N", help_heading = "HTTP Options")]
+    pub retries: Option<u32>,
+
+    /// Initial retry backoff in milliseconds (doubles each retry, capped)
+    #[arg(
+        long = "retry-backoff",
+        value_name = "MILLIS",
+        help_heading = "HTTP Options"
+    )]
+    pub retry_backoff_ms: Option<u64>,
 
     /// Override RPC URL for the request
     #[arg(
