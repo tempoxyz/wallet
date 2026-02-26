@@ -82,6 +82,26 @@ presto --output-format json <URL>   # JSON output format
 
 presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 
+### Streaming / SSE
+
+```bash
+presto --sse https://api.example.com/stream       # Pass-through SSE events
+presto --sse-json https://api.example.com/stream   # NDJSON output (one JSON object per event)
+```
+
+`--sse-json` wraps each SSE `data:` line into an NDJSON object:
+
+```jsonl
+{"event":"data","data":{"msg":"hello"},"ts":"2024-01-15T12:00:00Z"}
+{"event":"data","data":"world","ts":"2024-01-15T12:00:01Z"}
+```
+
+On HTTP errors, an error event is emitted:
+
+```json
+{"event":"error","message":"500 Internal Server Error","ts":"2024-01-15T12:00:02Z"}
+```
+
 ## Commands
 
 | Command | Description |

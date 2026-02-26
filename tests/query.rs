@@ -186,6 +186,88 @@ impl Drop for MockServer {
     }
 }
 
+impl MockServer {
+    /// Start a mock that echoes request headers back as a JSON body.
+    async fn start_echo_headers() -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+
+        let app = Router::new().route(
+            "/{*path}",
+            any(move |headers: axum::http::HeaderMap| async move {
+                let mut map = serde_json::Map::new();
+                for (k, v) in headers.iter() {
+                    if let Ok(s) = v.to_str() {
+                        map.insert(
+                            k.as_str().to_string(),
+                            serde_json::Value::String(s.to_string()),
+                        );
+                    }
+                }
+                let body = serde_json::to_string(&map).unwrap();
+                (StatusCode::OK, body).into_response()
+            }),
+        );
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        MockServer {
+            base_url,
+            shutdown_tx: Some(shutdown_tx),
+            _handle: handle,
+        }
+    }
+
+    /// Start a mock that returns an SSE stream with the given raw body.
+    async fn start_sse(body: &str) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+
+        let owned_body = body.to_string();
+
+        let app = Router::new().route(
+            "/{*path}",
+            any(move || {
+                let b = owned_body.clone();
+                async move {
+                    let mut response = (StatusCode::OK, b).into_response();
+                    response.headers_mut().insert(
+                        axum::http::HeaderName::from_static("content-type"),
+                        axum::http::HeaderValue::from_static("text/event-stream"),
+                    );
+                    response
+                }
+            }),
+        );
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        MockServer {
+            base_url,
+            shutdown_tx: Some(shutdown_tx),
+            _handle: handle,
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_non_402_get_request() {
     let server = MockServer::start(200, vec![], "hello world").await;
@@ -1305,4 +1387,261 @@ async fn test_private_key_no_payment_needed() {
         stdout.contains("hello no payment"),
         "stdout should contain body: {stdout}"
     );
+}
+
+// ==================== SSE / NDJSON Streaming Tests ====================
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sse_json_ndjson_schema() {
+    // Two SSE data events: one JSON, one plain text
+    let sse_body = "data: {\"msg\":\"hello\"}\n\ndata: world\n\n";
+    let server = MockServer::start_sse(sse_body).await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--sse-json", &server.url("/stream")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "expected success");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 2, "expected 2 NDJSON lines, got: {stdout}");
+
+    for line in &lines {
+        let parsed: serde_json::Value = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("invalid JSON line: {line} — {e}"));
+        assert_eq!(parsed["event"], "data", "missing event field in: {line}");
+        assert!(
+            parsed.get("data").is_some(),
+            "missing data field in: {line}"
+        );
+        assert!(parsed.get("ts").is_some(), "missing ts field in: {line}");
+        // ts should look like ISO-8601
+        let ts = parsed["ts"].as_str().unwrap();
+        assert!(
+            ts.ends_with('Z') && ts.contains('T'),
+            "ts not ISO-8601: {ts}"
+        );
+    }
+
+    // First event data should be parsed as a JSON object
+    let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert!(
+        first["data"].is_object(),
+        "JSON data should be parsed as object: {}",
+        first["data"]
+    );
+    assert_eq!(first["data"]["msg"], "hello");
+
+    // Second event data is plain text → should be a string
+    let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert!(
+        second["data"].is_string(),
+        "plain text data should be a string: {}",
+        second["data"]
+    );
+    assert_eq!(second["data"], "world");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sse_json_error_event() {
+    // 500 error with SSE content type
+    let server = MockServer::start(500, vec![("content-type", "text/event-stream")], "").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--sse-json", &server.url("/fail")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "expected failure on 500");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "expected 1 error NDJSON line, got: {stdout}"
+    );
+
+    let parsed: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(parsed["event"], "error");
+    assert!(
+        parsed.get("message").is_some(),
+        "missing message field in error event"
+    );
+    assert!(
+        parsed.get("ts").is_some(),
+        "missing ts field in error event"
+    );
+}
+
+// ==================== Curl Parity Smoke Tests ====================
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_dry_run_price_json() {
+    // Valid 402 challenge with method="tempo" intent="charge"
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="price-test", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", &www_auth)],
+        "Payment Required",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--dry-run", "--price-json", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "dry-run --price-json should exit 0: {combined}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("invalid JSON: {stdout} — {e}"));
+    assert!(
+        parsed.get("intent").is_some(),
+        "missing 'intent' in price JSON"
+    );
+    assert!(
+        parsed.get("amount").is_some(),
+        "missing 'amount' in price JSON"
+    );
+    assert!(
+        parsed.get("currency").is_some(),
+        "missing 'currency' in price JSON"
+    );
+    assert!(
+        parsed.get("network").is_some(),
+        "missing 'network' in price JSON"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_referer_header() {
+    let server = MockServer::start_echo_headers().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-e", "https://referrer.example.com", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["referer"], "https://referrer.example.com",
+        "referer header not echoed: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_compressed_sets_accept_encoding() {
+    let server = MockServer::start_echo_headers().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--compressed", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let ae = parsed["accept-encoding"]
+        .as_str()
+        .unwrap_or_default()
+        .to_lowercase();
+    assert!(
+        ae.contains("gzip"),
+        "accept-encoding should contain gzip: {ae}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_http2_flag_no_crash() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--http2", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    // HTTP/2 ALPN negotiation may fail against a plain HTTP mock but
+    // the CLI should not crash — either success or a transport error.
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success() || combined.contains("Error"),
+        "http2 flag should not crash: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_http1_1_flag_no_crash() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--http1.1", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "http1.1 flag should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ok"), "body: {stdout}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_http2_http1_conflict() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--http2", "--http1.1", "http://localhost:1"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "http2 + http1.1 should conflict");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_proxy_flag_no_crash() {
+    // No actual proxy running — request will fail, but the flag should be accepted
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--proxy", "http://127.0.0.1:19999", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    // Connection to proxy will fail, but the CLI should not panic
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success() || combined.contains("Error"),
+        "proxy flag should not crash: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_no_proxy_flag_succeeds() {
+    let server = MockServer::start(200, vec![], "no proxy ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--no-proxy", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "no-proxy flag should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("no proxy ok"), "body: {stdout}");
 }
