@@ -83,7 +83,7 @@ pub struct KeyEntry {
     pub expiry: Option<u64>,
     /// Token spending limits for this key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub token_limits: Vec<StoredTokenLimit>,
+    pub limits: Vec<StoredTokenLimit>,
     /// Whether this key has been provisioned on-chain.
     #[serde(default)]
     pub provisioned: bool,
@@ -100,7 +100,7 @@ impl std::fmt::Debug for KeyEntry {
             .field("key", &self.key.as_ref().map(|_| "<redacted>"))
             .field("key_authorization", &self.key_authorization)
             .field("expiry", &self.expiry)
-            .field("token_limits", &self.token_limits)
+            .field("limits", &self.limits)
             .field("provisioned", &self.provisioned)
             .finish()
     }

@@ -61,7 +61,7 @@ pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
         chain_id,
         key_type: auth.key_type,
         expiry: Some(auth.expiry),
-        token_limits: auth.token_limits,
+        limits: auth.limits,
         provisioned: false,
     };
     creds.keys.push(key_entry);
@@ -122,7 +122,7 @@ pub(crate) fn create_access_key() -> Result<()> {
     entry.key_authorization = Some(auth.hex);
     entry.provisioned = false;
     entry.expiry = Some(auth.expiry);
-    entry.token_limits = auth.token_limits;
+    entry.limits = auth.limits;
 
     creds.save()?;
     Ok(())

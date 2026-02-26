@@ -219,19 +219,25 @@ impl WalletManager {
         };
 
         // When no new authorization was received, preserve existing chain metadata.
+        // chain_id 0 means the server didn't specify — default to Tempo mainnet.
         let (chain_id, key_type, expiry, token_limits) = if let Some(ref v) = validated {
-            (
-                v.chain_id,
-                v.key_type.clone(),
-                Some(v.expiry),
-                v.token_limits.clone(),
-            )
+            let cid = if v.chain_id != 0 {
+                v.chain_id
+            } else {
+                crate::network::evm_chain_ids::TEMPO
+            };
+            (cid, v.key_type.clone(), Some(v.expiry), v.limits.clone())
         } else {
+            let cid = if entry.chain_id != 0 {
+                entry.chain_id
+            } else {
+                crate::network::evm_chain_ids::TEMPO
+            };
             (
-                entry.chain_id,
+                cid,
                 entry.key_type.clone(),
                 entry.expiry,
-                entry.token_limits.clone(),
+                entry.limits.clone(),
             )
         };
 
@@ -243,7 +249,7 @@ impl WalletManager {
         entry.key = Some(Zeroizing::new(access_key_hex));
         entry.key_authorization = key_auth_hex;
         entry.expiry = expiry;
-        entry.token_limits = token_limits;
+        entry.limits = token_limits;
         entry.provisioned = keep_provisioned;
 
         creds.save()?;

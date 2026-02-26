@@ -157,7 +157,6 @@ pub async fn show_keys(
                 return Ok(());
             }
             for key in &response.keys {
-                println!("{}", key.label);
                 if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
                     println!("{:>10}: {} ({})", "Wallet", wallet, wt);
                 }

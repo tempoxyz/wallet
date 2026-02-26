@@ -250,7 +250,6 @@ fn print_whoami_text(
     w: &mut dyn std::io::Write,
 ) -> anyhow::Result<()> {
     if let Some(key) = &response.key {
-        writeln!(w, "{}", key.label)?;
         if let Some(wallet) = &response.wallet {
             let wt = response.wallet_type.as_deref().unwrap_or("unknown");
             writeln!(w, "{:>10}: {} ({})", "Wallet", wallet, wt)?;

@@ -28,7 +28,7 @@ pub(crate) struct ValidatedKeyAuth {
     pub expiry: u64,
     pub chain_id: u64,
     pub key_type: KeyType,
-    pub token_limits: Vec<StoredTokenLimit>,
+    pub limits: Vec<StoredTokenLimit>,
 }
 
 /// Decode a hex-encoded SignedKeyAuthorization.
@@ -83,7 +83,7 @@ pub(crate) fn validate(
         SignatureType::WebAuthn => KeyType::WebAuthn,
     };
 
-    let token_limits = signed
+    let limits = signed
         .authorization
         .limits
         .iter()
@@ -99,7 +99,7 @@ pub(crate) fn validate(
         expiry,
         chain_id,
         key_type,
-        token_limits,
+        limits,
     }))
 }
 
@@ -129,7 +129,7 @@ pub(crate) fn sign(
             limit,
         })
         .collect();
-    let stored_token_limits: Vec<StoredTokenLimit> = token_addrs
+    let stored_limits: Vec<StoredTokenLimit> = token_addrs
         .iter()
         .map(|addr| StoredTokenLimit {
             currency: addr.to_string(),
@@ -154,7 +154,7 @@ pub(crate) fn sign(
         expiry: expiry_secs,
         chain_id,
         key_type: KeyType::Secp256k1,
-        token_limits: stored_token_limits,
+        limits: stored_limits,
     })
 }
 
