@@ -57,8 +57,13 @@ struct HttpClientConfig {
     timeout: Option<u64>,
     connect_timeout: Option<u64>,
     follow_redirects: bool,
+    follow_redirects_limit: Option<usize>,
     user_agent: Option<String>,
     insecure: bool,
+    proxy: Option<String>,
+    no_proxy: bool,
+    http2: bool,
+    http1_only: bool,
     headers: Vec<(String, String)>,
 }
 
@@ -100,6 +105,12 @@ impl HttpClientBuilder {
         self
     }
 
+    /// Set a maximum number of redirects when following redirects.
+    pub fn follow_redirects_limit(mut self, limit: Option<usize>) -> Self {
+        self.config.follow_redirects_limit = limit;
+        self
+    }
+
     /// Set custom User-Agent header.
     pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
         self.config.user_agent = Some(ua.into());
@@ -115,6 +126,30 @@ impl HttpClientBuilder {
     /// Allow invalid TLS certificates (insecure)
     pub fn insecure(mut self, insecure: bool) -> Self {
         self.config.insecure = insecure;
+        self
+    }
+
+    /// Configure a proxy for all requests.
+    pub fn proxy(mut self, url: Option<String>) -> Self {
+        self.config.proxy = url;
+        self
+    }
+
+    /// Disable use of proxies completely.
+    pub fn no_proxy(mut self, no_proxy: bool) -> Self {
+        self.config.no_proxy = no_proxy;
+        self
+    }
+
+    /// Prefer HTTP/2 if available.
+    pub fn http2(mut self, enable: bool) -> Self {
+        self.config.http2 = enable;
+        self
+    }
+
+    /// Force HTTP/1.1 only.
+    pub fn http1_only(mut self, enable: bool) -> Self {
+        self.config.http1_only = enable;
         self
     }
 
@@ -154,7 +189,8 @@ impl HttpClient {
         }
 
         if config.follow_redirects {
-            builder = builder.redirect(reqwest::redirect::Policy::limited(10));
+            let limit = config.follow_redirects_limit.unwrap_or(10);
+            builder = builder.redirect(reqwest::redirect::Policy::limited(limit));
         } else {
             builder = builder.redirect(reqwest::redirect::Policy::none());
         }
@@ -165,6 +201,20 @@ impl HttpClient {
 
         if config.insecure {
             builder = builder.danger_accept_invalid_certs(true);
+        }
+
+        if config.no_proxy {
+            builder = builder.no_proxy();
+        } else if let Some(ref p) = config.proxy {
+            let proxy = reqwest::Proxy::all(p)?;
+            builder = builder.proxy(proxy);
+        }
+
+        if config.http1_only {
+            builder = builder.http1_only();
+        } else if config.http2 {
+            // Enable HTTP/2 features; ALPN will negotiate when available
+            builder = builder.http2_adaptive_window(true);
         }
 
         if !config.headers.is_empty() {
@@ -311,8 +361,13 @@ pub(crate) struct HttpRequestPlan {
     pub retries: u32,
     pub retry_backoff_ms: u64,
     pub follow_redirects: bool,
+    pub follow_redirects_limit: Option<usize>,
     pub user_agent: String,
     pub insecure: bool,
+    pub proxy: Option<String>,
+    pub no_proxy: bool,
+    pub http2: bool,
+    pub http1_only: bool,
     pub verbose_connection: bool,
 }
 
@@ -419,8 +474,13 @@ impl RequestContext {
         let mut builder = HttpClientBuilder::new()
             .verbose(self.plan.verbose_connection)
             .follow_redirects(self.plan.follow_redirects)
+            .follow_redirects_limit(self.plan.follow_redirects_limit)
             .user_agent(&self.plan.user_agent)
             .insecure(self.plan.insecure)
+            .proxy(self.plan.proxy.clone())
+            .no_proxy(self.plan.no_proxy)
+            .http2(self.plan.http2)
+            .http1_only(self.plan.http1_only)
             .headers(&headers);
 
         if let Some(timeout) = self.plan.timeout_secs {

@@ -22,6 +22,7 @@ pub(crate) struct OutputOptions {
     pub show_output: bool,
     pub fail_silently: bool,
     pub dump_headers: Option<String>,
+    pub write_meta: Option<String>,
 }
 
 impl OutputOptions {
@@ -76,6 +77,28 @@ pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpRespon
         write_headers_file(opts, path, &response)?;
     }
 
+    Ok(())
+}
+
+/// Write response metadata (JSON) if requested.
+pub(crate) fn write_meta_if_requested(
+    opts: &OutputOptions,
+    response: &HttpResponse,
+    elapsed_ms: u128,
+    bytes: usize,
+    effective_url: &str,
+) -> Result<()> {
+    if let Some(ref path) = opts.write_meta {
+        let obj = serde_json::json!({
+            "status": response.status_code,
+            "url": effective_url,
+            "elapsed_ms": elapsed_ms,
+            "bytes": bytes,
+            "headers": response.headers,
+        });
+        let s = serde_json::to_string_pretty(&obj)?;
+        write_to_file(opts, path, s.as_bytes())?;
+    }
     Ok(())
 }
 

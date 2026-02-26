@@ -177,6 +177,9 @@ pub struct QueryArgs {
     pub json: Option<String>,
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 77e91b8 (feat(cli): agent-friendly flags: --stream, --sse/--sse-json, --retry-http/--retry-after/--retry-jitter, --bearer, --write-meta, --fail-with-body; plus curl parity: --proxy/--no-proxy, --max-redirs, --http2/--http1.1, -e/--referer, --compressed, -O/--remote-name; price caps and receipt save)
     /// Number of retries on transient network errors (timeouts/connect failures)
     #[arg(long = "retries", value_name = "N", help_heading = "HTTP Options")]
     pub retries: Option<u32>,
@@ -188,7 +191,11 @@ pub struct QueryArgs {
         help_heading = "HTTP Options"
     )]
     pub retry_backoff_ms: Option<u64>,
+<<<<<<< HEAD
 =======
+=======
+
+>>>>>>> 77e91b8 (feat(cli): agent-friendly flags: --stream, --sse/--sse-json, --retry-http/--retry-after/--retry-jitter, --bearer, --write-meta, --fail-with-body; plus curl parity: --proxy/--no-proxy, --max-redirs, --http2/--http1.1, -e/--referer, --compressed, -O/--remote-name; price caps and receipt save)
     /// Allow insecure TLS (skip certificate validation)
     #[arg(short = 'k', long = "insecure", help_heading = "HTTP Options")]
     pub insecure: bool,
@@ -235,6 +242,141 @@ pub struct QueryArgs {
         help_heading = "HTTP Options"
     )]
     pub user: Option<String>,
+
+    /// Stream response body as it arrives
+    #[arg(long = "stream", help_heading = "HTTP Options")]
+    pub stream: bool,
+
+    /// Treat response as Server-Sent Events and pass through
+    #[arg(long = "sse", help_heading = "HTTP Options")]
+    pub sse: bool,
+
+    /// Treat response as SSE and output each event as NDJSON
+    #[arg(long = "sse-json", help_heading = "HTTP Options")]
+    pub sse_json: bool,
+
+    /// Retry on these HTTP status codes (comma-separated list)
+    #[arg(
+        long = "retry-http",
+        value_name = "CODES",
+        help_heading = "HTTP Options"
+    )]
+    pub retry_http: Option<String>,
+
+    /// Respect Retry-After header for retry delays
+    #[arg(long = "retry-after", help_heading = "HTTP Options")]
+    pub retry_after: bool,
+
+    /// Add jitter percentage to retry backoff
+    #[arg(
+        long = "retry-jitter",
+        value_name = "PCT",
+        help_heading = "HTTP Options"
+    )]
+    pub retry_jitter: Option<u32>,
+
+    /// Authorization bearer token (alternative to -u Basic auth)
+    #[arg(
+        long = "bearer",
+        env = "PRESTO_BEARER",
+        hide_env_values = true,
+        help_heading = "HTTP Options"
+    )]
+    pub bearer: Option<String>,
+
+    /// Write response metadata (JSON) to file
+    #[arg(
+        long = "write-meta",
+        value_name = "FILE",
+        help_heading = "HTTP Options"
+    )]
+    pub write_meta: Option<String>,
+
+    /// Fail on HTTP errors but still output the response body
+    #[arg(long = "fail-with-body", help_heading = "HTTP Options")]
+    pub fail_with_body: bool,
+
+    /// Hard cap the maximum amount to pay (integer of minimal units)
+    #[arg(
+        long = "max-pay",
+        value_name = "AMOUNT",
+        help_heading = "Payment Options"
+    )]
+    pub max_pay: Option<String>,
+
+    /// Currency for --max-pay (symbol or address)
+    #[arg(
+        long = "currency",
+        value_name = "ADDR|SYMBOL",
+        help_heading = "Payment Options"
+    )]
+    pub max_pay_currency: Option<String>,
+
+    /// Save parsed payment receipt to a file (JSON) when available
+    #[arg(
+        long = "save-receipt",
+        value_name = "FILE",
+        help_heading = "Payment Options"
+    )]
+    pub save_receipt: Option<String>,
+
+    /// Output machine-readable price JSON on --dry-run for 402 responses
+    #[arg(long = "price-json", help_heading = "Payment Options")]
+    pub price_json: bool,
+
+    /// Use an HTTP/HTTPS proxy
+    #[arg(long = "proxy", value_name = "URL", help_heading = "HTTP Options")]
+    pub proxy: Option<String>,
+
+    /// Disable all proxy use
+    #[arg(long = "no-proxy", help_heading = "HTTP Options")]
+    pub no_proxy: bool,
+
+    /// Maximum redirects when -L is used
+    #[arg(long = "max-redirs", value_name = "N", help_heading = "HTTP Options")]
+    pub max_redirs: Option<u32>,
+
+    /// Enable HTTP/2 (ALPN)
+    #[arg(
+        long = "http2",
+        help_heading = "HTTP Options",
+        conflicts_with = "http1_1"
+    )]
+    pub http2: bool,
+
+    /// Force HTTP/1.1 only
+    #[arg(
+        long = "http1.1",
+        visible_alias = "http1_1",
+        help_heading = "HTTP Options",
+        conflicts_with = "http2"
+    )]
+    pub http1_1: bool,
+
+    /// Set the Referer header
+    #[arg(
+        short = 'e',
+        long = "referer",
+        value_name = "URL",
+        help_heading = "HTTP Options"
+    )]
+    pub referer: Option<String>,
+
+    /// Request a compressed response
+    #[arg(long = "compressed", help_heading = "HTTP Options")]
+    pub compressed: bool,
+
+    /// Save output to a file named after the URL’s last path segment
+    #[arg(short = 'O', long = "remote-name", help_heading = "HTTP Options")]
+    pub remote_name: bool,
+
+    /// URL-encode a data field (repeatable)
+    #[arg(
+        long = "data-urlencode",
+        value_name = "DATA",
+        help_heading = "HTTP Options"
+    )]
+    pub data_urlencode: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
