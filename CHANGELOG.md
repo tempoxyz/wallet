@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 (2026-02-26)
+
+### Patch Changes
+
+- Added multi-network key support so credentials are scoped per network with no cross-network fallback, and introduced client-side pre-broadcast for keychain (smart wallet) channel open transactions with receipt polling. Fixed nonce collisions when closing multiple channels sequentially by tracking per-network nonce offsets, and improved login flow to pass the challenge network through for correct network-aware authentication.
+- Fixed multiple security vulnerabilities: prevented payment credential capture via malicious HTTP redirects by using the final URL after redirects for payment retries, added terminal escape sequence sanitization to prevent ANSI injection from server-controlled data, clamped voucher amounts to the known channel deposit to prevent coercion by malicious servers, and added network constraint validation in session requests.
+
 ## 0.4.0 (2026-02-25)
 
 ### Minor Changes
