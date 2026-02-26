@@ -113,18 +113,21 @@ impl WalletManager {
                 url_str
             );
             std::io::Write::flush(&mut std::io::stderr()).ok();
-            tokio::task::spawn_blocking(|| {
+            let browser_url = url_str.clone();
+            // Using a plain thread so it won't prevent process exit after auth completes.
+            std::thread::spawn(move || {
                 let _ = std::io::stdin().read_line(&mut String::new());
-            })
-            .await
-            .ok();
+                if let Err(e) = webbrowser::open(&browser_url) {
+                    eprintln!("Failed to open browser: {}", e);
+                    eprintln!("Please open this URL manually: {}", browser_url);
+                }
+            });
         } else {
             eprintln!("Opening browser to {}...", url_str);
-        }
-
-        if let Err(e) = webbrowser::open(&url_str) {
-            eprintln!("Failed to open browser: {}", e);
-            eprintln!("Please open this URL manually: {}", url_str);
+            if let Err(e) = webbrowser::open(&url_str) {
+                eprintln!("Failed to open browser: {}", e);
+                eprintln!("Please open this URL manually: {}", url_str);
+            }
         }
 
         if let Some(ref a) = self.analytics {
