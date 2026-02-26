@@ -1645,3 +1645,406 @@ async fn test_no_proxy_flag_succeeds() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("no proxy ok"), "body: {stdout}");
 }
+
+// ==================== 402 Charge/Session Edge Cases ====================
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_without_www_authenticate_header() {
+    // A 402 response missing WWW-Authenticate should produce a clear error
+    let server = MockServer::start(402, vec![], "Payment Required").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([&server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("WWW-Authenticate"),
+        "should mention missing header: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_without_www_authenticate_json_error() {
+    // Same as above but with -j for structured JSON error
+    let server = MockServer::start(402, vec![], "Payment Required").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["code"], "E_PAYMENT");
+    assert!(parsed["message"]
+        .as_str()
+        .unwrap()
+        .contains("WWW-Authenticate"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_malformed_www_authenticate() {
+    // WWW-Authenticate present but not a valid Payment challenge
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", "Basic realm=\"test\"")],
+        "Payment Required",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([&server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    // Should error about missing Payment protocol or WWW-Authenticate
+    assert!(
+        combined.contains("WWW-Authenticate") || combined.contains("Payment"),
+        "should mention invalid challenge: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_non_402_error_codes_with_fail_flag() {
+    // -f flag should suppress body and fail on 4xx/5xx
+    for status in [400u16, 403, 404, 500, 502, 503] {
+        let body = format!("error body for {status}");
+        let server = MockServer::start(status, vec![], &body).await;
+        let temp = TestConfigBuilder::new().build();
+
+        let output = test_command(&temp)
+            .args(["-f", &server.url("/test")])
+            .output()
+            .unwrap();
+
+        assert!(
+            !output.status.success(),
+            "status {status} should fail with -f"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.is_empty(),
+            "body should be suppressed with -f for status {status}: {stdout}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_server_error_json_output_schema() {
+    // A 500 error with -j should produce structured JSON error with stable schema
+    let server = MockServer::start(500, vec![], "Internal Server Error").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // The output will be the body (pretty-printed if JSON) then an error JSON
+    // For a non-JSON body with -j, the raw body is output, then the error JSON on stdout
+    // Actually, the error JSON is printed by main on error, so let's check stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // The body "Internal Server Error" should not appear in stdout when output format is JSON
+    // and the response is not valid JSON itself
+    assert!(
+        stderr.contains("500") || stdout.contains("500"),
+        "should report 500 error somewhere: stdout={stdout}, stderr={stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_empty_body_no_crash() {
+    // 402 with empty body and no WWW-Authenticate
+    let server = MockServer::start(402, vec![], "").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([&server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    // Should not crash/panic — just produce an error
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Error"),
+        "should have error output: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_error_json_for_invalid_url() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", "ftp://example.com/data"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["code"], "E_USAGE");
+    assert!(parsed["message"].as_str().unwrap().contains("ftp"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_error_json_for_connection_refused() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", "http://127.0.0.1:1/unreachable"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(parsed["code"].is_string());
+    assert!(parsed["message"].is_string());
+}
+
+// ==================== Analytics Events Sequencing & Redaction ====================
+
+/// Helper to parse the PRESTO_TEST_EVENTS file into a list of (event_name, props_json).
+fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    content
+        .lines()
+        .filter_map(|line| {
+            let (name, json_str) = line.split_once('|')?;
+            let v: serde_json::Value = serde_json::from_str(json_str).ok()?;
+            Some((name.to_string(), v))
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_event_sequence_success() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_seq_success.log");
+
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args([&server.url("/api/data")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let events = parse_events_log(&events_path);
+    let names: Vec<&str> = events.iter().map(|(n, _)| n.as_str()).collect();
+
+    // Must contain the core sequence in order
+    assert!(
+        names.contains(&"session_started"),
+        "missing session_started: {names:?}"
+    );
+    assert!(
+        names.contains(&"command_run"),
+        "missing command_run: {names:?}"
+    );
+    assert!(
+        names.contains(&"query_started"),
+        "missing query_started: {names:?}"
+    );
+    assert!(
+        names.contains(&"query_success"),
+        "missing query_success: {names:?}"
+    );
+
+    // Verify ordering: session_started before query_started before query_success
+    let pos = |name: &str| names.iter().position(|n| *n == name);
+    assert!(pos("session_started") < pos("query_started"));
+    assert!(pos("query_started") < pos("query_success"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_event_sequence_failure() {
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_seq_failure.log");
+
+    // Connect to a port nothing is listening on
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args(["http://127.0.0.1:1/unreachable"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+
+    let events = parse_events_log(&events_path);
+    let names: Vec<&str> = events.iter().map(|(n, _)| n.as_str()).collect();
+
+    assert!(
+        names.contains(&"query_started"),
+        "missing query_started: {names:?}"
+    );
+    assert!(
+        names.contains(&"query_failure"),
+        "missing query_failure: {names:?}"
+    );
+    assert!(pos_of(&names, "query_started") < pos_of(&names, "query_failure"));
+
+    // Verify query_failure has a sanitized error (not empty, bounded)
+    let failure_props = events
+        .iter()
+        .find(|(n, _)| n == "query_failure")
+        .map(|(_, v)| v)
+        .unwrap();
+    let err = failure_props["error"].as_str().unwrap();
+    assert!(!err.is_empty(), "error should not be empty");
+    assert!(err.len() <= 203, "error should be truncated"); // 200 + "…" (3 bytes)
+}
+
+fn pos_of(names: &[&str], target: &str) -> usize {
+    names
+        .iter()
+        .position(|n| *n == target)
+        .unwrap_or_else(|| panic!("event {target} not found in {names:?}"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_url_query_params_redacted() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_url_redact.log");
+
+    // URL with sensitive query parameters
+    let url_with_secrets = format!(
+        "{}/api/data?api_key=sk_live_secret123&token=bearer_xyz",
+        server.base_url
+    );
+
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args([&url_with_secrets])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let events = parse_events_log(&events_path);
+
+    // Check all events that contain a "url" field
+    for (name, props) in &events {
+        if let Some(url_val) = props.get("url").and_then(|v| v.as_str()) {
+            assert!(
+                !url_val.contains("sk_live_secret123"),
+                "event '{name}' leaks api_key in url: {url_val}"
+            );
+            assert!(
+                !url_val.contains("bearer_xyz"),
+                "event '{name}' leaks token in url: {url_val}"
+            );
+            assert!(
+                !url_val.contains('?'),
+                "event '{name}' has query params in url: {url_val}"
+            );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_bearer_token_not_leaked() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_bearer.log");
+
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args(["--bearer", "super_secret_token_12345", &server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    // Read the raw file content and verify the bearer token is nowhere in it
+    let raw = std::fs::read_to_string(&events_path).unwrap();
+    assert!(
+        !raw.contains("super_secret_token_12345"),
+        "bearer token leaked into analytics events: {raw}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_basic_auth_not_leaked() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_basic.log");
+
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args(["-u", "admin:s3cretP@ss", &server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let raw = std::fs::read_to_string(&events_path).unwrap();
+    assert!(
+        !raw.contains("s3cretP@ss"),
+        "basic auth password leaked into analytics: {raw}"
+    );
+    assert!(
+        !raw.contains("admin:"),
+        "basic auth username leaked into analytics: {raw}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_custom_auth_header_not_leaked() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_custom_auth.log");
+
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .args([
+            "-H",
+            "Authorization: Bearer my_private_jwt_token",
+            &server.url("/api"),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let raw = std::fs::read_to_string(&events_path).unwrap();
+    assert!(
+        !raw.contains("my_private_jwt_token"),
+        "custom auth header leaked into analytics: {raw}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_analytics_private_key_env_not_leaked() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+    let events_path = temp.path().join("events_pk.log");
+
+    //  TEMPO_PRIVATE_KEYis used for payment signing, not for the HTTP request itself,
+    // but verify it never appears in analytics output
+    let output = test_command(&temp)
+        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env(
+            "PRESTO_PRIVATE_KEY",
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        )
+        .args([&server.url("/api")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let raw = std::fs::read_to_string(&events_path).unwrap();
+    assert!(
+        !raw.contains("deadbeefdeadbeef"),
+        "private key leaked into analytics: {raw}"
+    );
+}

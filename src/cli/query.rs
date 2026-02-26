@@ -1115,3 +1115,354 @@ fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> Output
         write_meta: query.write_meta.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::OutputFormat;
+
+    // ==================== parse_payment_rejection ====================
+
+    fn make_response(status: u16, body: &[u8]) -> HttpResponse {
+        HttpResponse {
+            status_code: status,
+            headers: std::collections::HashMap::new(),
+            body: body.to_vec(),
+            final_url: None,
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_json_error_field() {
+        let body = br#"{"error":"insufficient funds"}"#;
+        let resp = make_response(400, body);
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected {
+                reason,
+                status_code,
+            } => {
+                assert_eq!(reason, "insufficient funds");
+                assert_eq!(status_code, 400);
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_json_message_field() {
+        let body = br#"{"message":"bad request"}"#;
+        let resp = make_response(400, body);
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason, "bad request");
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_json_detail_field() {
+        let body = br#"{"detail":"validation failed"}"#;
+        let resp = make_response(422, body);
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected {
+                reason,
+                status_code,
+            } => {
+                assert_eq!(reason, "validation failed");
+                assert_eq!(status_code, 422);
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_json_no_known_field() {
+        let body = br#"{"foo":"bar"}"#;
+        let resp = make_response(500, body);
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason, "HTTP 500");
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_json_error_precedence() {
+        // "error" takes precedence over "message" and "detail"
+        let body = br#"{"error":"e","message":"m","detail":"d"}"#;
+        let resp = make_response(400, body);
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason, "e");
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_plain_text() {
+        let body = b"Transaction reverted";
+        let resp = make_response(500, body);
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason, "Transaction reverted");
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_plain_text_truncated() {
+        // Very long body should be truncated to 200 chars
+        let body = "a".repeat(500);
+        let resp = make_response(500, body.as_bytes());
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason.len(), 200);
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_empty_body() {
+        let resp = make_response(500, b"");
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason, "HTTP 500");
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_whitespace_body() {
+        let resp = make_response(503, b"   \n\t  ");
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason, "HTTP 503");
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payment_rejection_invalid_utf8() {
+        let resp = make_response(500, &[0xff, 0xfe, 0xfd]);
+        let err = parse_payment_rejection(&resp);
+        match err {
+            PrestoError::PaymentRejected { reason, .. } => {
+                assert_eq!(reason, "HTTP 500");
+            }
+            _ => panic!("expected PaymentRejected"),
+        }
+    }
+
+    // ==================== http_status_text ====================
+
+    #[test]
+    fn test_http_status_text_known_codes() {
+        assert_eq!(http_status_text(400), "Bad Request");
+        assert_eq!(http_status_text(401), "Unauthorized");
+        assert_eq!(http_status_text(403), "Forbidden");
+        assert_eq!(http_status_text(404), "Not Found");
+        assert_eq!(http_status_text(429), "Too Many Requests");
+        assert_eq!(http_status_text(500), "Internal Server Error");
+        assert_eq!(http_status_text(502), "Bad Gateway");
+        assert_eq!(http_status_text(503), "Service Unavailable");
+        assert_eq!(http_status_text(504), "Gateway Timeout");
+    }
+
+    #[test]
+    fn test_http_status_text_unknown_code() {
+        assert_eq!(http_status_text(418), "Error");
+        assert_eq!(http_status_text(599), "Error");
+    }
+
+    // ==================== finalize_response ====================
+
+    #[test]
+    fn test_finalize_response_success_status() {
+        let opts = OutputOptions {
+            output_format: OutputFormat::Text,
+            include_headers: false,
+            output_file: None,
+            verbosity: 0,
+            show_output: false,
+            fail_silently: false,
+            dump_headers: None,
+            write_meta: None,
+        };
+        let resp = make_response(200, b"ok");
+        assert!(finalize_response(&opts, resp).is_ok());
+    }
+
+    #[test]
+    fn test_finalize_response_4xx_fails() {
+        let opts = OutputOptions {
+            output_format: OutputFormat::Text,
+            include_headers: false,
+            output_file: None,
+            verbosity: 0,
+            show_output: false,
+            fail_silently: false,
+            dump_headers: None,
+            write_meta: None,
+        };
+        let resp = make_response(404, b"not found");
+        let err = finalize_response(&opts, resp).unwrap_err();
+        assert!(err.to_string().contains("404"));
+    }
+
+    #[test]
+    fn test_finalize_response_5xx_fails() {
+        let opts = OutputOptions {
+            output_format: OutputFormat::Text,
+            include_headers: false,
+            output_file: None,
+            verbosity: 0,
+            show_output: false,
+            fail_silently: false,
+            dump_headers: None,
+            write_meta: None,
+        };
+        let resp = make_response(500, b"internal error");
+        let err = finalize_response(&opts, resp).unwrap_err();
+        assert!(err.to_string().contains("Internal Server Error"));
+    }
+
+    // ==================== is_login_fixable ====================
+
+    #[test]
+    fn test_is_login_fixable_config_missing() {
+        let err: anyhow::Error = PrestoError::ConfigMissing("no wallet".into()).into();
+        assert!(is_login_fixable(&err));
+    }
+
+    #[test]
+    fn test_is_login_fixable_key_not_provisioned() {
+        let err: anyhow::Error = PrestoError::AccessKeyNotProvisioned.into();
+        assert!(is_login_fixable(&err));
+    }
+
+    #[test]
+    fn test_is_login_fixable_payment_rejected_key_not_exist() {
+        let err: anyhow::Error = PrestoError::PaymentRejected {
+            reason: "access key does not exist".into(),
+            status_code: 402,
+        }
+        .into();
+        assert!(is_login_fixable(&err));
+    }
+
+    #[test]
+    fn test_is_login_fixable_payment_rejected_not_provisioned() {
+        let err: anyhow::Error = PrestoError::PaymentRejected {
+            reason: "access key is not provisioned".into(),
+            status_code: 402,
+        }
+        .into();
+        assert!(is_login_fixable(&err));
+    }
+
+    #[test]
+    fn test_is_login_fixable_unrelated_error() {
+        let err: anyhow::Error = PrestoError::Http("timeout".into()).into();
+        assert!(!is_login_fixable(&err));
+    }
+
+    #[test]
+    fn test_is_login_fixable_generic_payment_rejected() {
+        let err: anyhow::Error = PrestoError::PaymentRejected {
+            reason: "insufficient balance".into(),
+            status_code: 402,
+        }
+        .into();
+        assert!(!is_login_fixable(&err));
+    }
+
+    // ==================== display_receipt (silent mode) ====================
+
+    #[test]
+    fn test_display_receipt_silent_mode_no_panic() {
+        let opts = OutputOptions {
+            output_format: OutputFormat::Text,
+            include_headers: false,
+            output_file: None,
+            verbosity: 0,
+            show_output: false, // silent
+            fail_silently: false,
+            dump_headers: None,
+            write_meta: None,
+        };
+        let resp = make_response(200, b"ok");
+        // Should not panic even with missing receipt header
+        display_receipt(&opts, &resp, None, "10000", "USDC", 6);
+    }
+
+    #[test]
+    fn test_display_receipt_no_receipt_header_no_panic() {
+        let opts = OutputOptions {
+            output_format: OutputFormat::Text,
+            include_headers: false,
+            output_file: None,
+            verbosity: 0,
+            show_output: true,
+            fail_silently: false,
+            dump_headers: None,
+            write_meta: None,
+        };
+        let resp = make_response(200, b"ok");
+        // Should print amount without link, no panic
+        display_receipt(&opts, &resp, None, "10000", "USDC", 6);
+    }
+
+    #[test]
+    fn test_display_receipt_malformed_receipt_header_no_panic() {
+        let opts = OutputOptions {
+            output_format: OutputFormat::Text,
+            include_headers: false,
+            output_file: None,
+            verbosity: 0,
+            show_output: true,
+            fail_silently: false,
+            dump_headers: None,
+            write_meta: None,
+        };
+        let mut resp = make_response(200, b"ok");
+        resp.headers.insert(
+            "payment-receipt".to_string(),
+            "garbage-not-a-receipt".to_string(),
+        );
+        // Should not panic on malformed receipt
+        display_receipt(&opts, &resp, None, "10000", "USDC", 6);
+    }
+
+    #[test]
+    fn test_display_receipt_non_numeric_amount_no_panic() {
+        let opts = OutputOptions {
+            output_format: OutputFormat::Text,
+            include_headers: false,
+            output_file: None,
+            verbosity: 0,
+            show_output: true,
+            fail_silently: false,
+            dump_headers: None,
+            write_meta: None,
+        };
+        let resp = make_response(200, b"ok");
+        // Non-numeric amount should fall back to raw display
+        display_receipt(&opts, &resp, None, "not-a-number", "USDC", 6);
+    }
+}
