@@ -27,7 +27,7 @@ pub async fn run_login(
     analytics: Option<Analytics>,
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
-    // Skip login if a wallet is already connected with an access key
+    // Skip login if a wallet is already connected with a key
     // AND the key is provisioned on the target network (or no specific network requested).
     if let Ok(creds) = WalletCredentials::load() {
         if creds.has_wallet() {
@@ -227,16 +227,17 @@ async fn build_whoami_response(
 
             let key_token_info = query_spending_limit(config, network, key_entry).await;
 
-            // Resolve the key label for the active entry (best-effort until we return the actual name)
-            let key_label = {
-                let suffix = network.strip_prefix("tempo-").unwrap_or(network);
-                let network_key_name = format!("passkey-{suffix}");
-                if creds.keys.contains_key(&network_key_name) {
-                    network_key_name
-                } else {
-                    creds.primary_key_name().unwrap_or_default()
-                }
-            };
+            // Resolve the key label from the actual matching entry name when possible
+            let key_label = creds
+                .keys
+                .iter()
+                .find(|(_, e)| {
+                    e.wallet_address == key_entry.wallet_address
+                        && e.key_address == key_entry.key_address
+                        && e.chain_id == key_entry.chain_id
+                })
+                .map(|(name, _)| name.clone())
+                .unwrap_or_else(|| creds.primary_key_name().unwrap_or_default());
 
             let key_addr = key_entry
                 .key_address
@@ -270,7 +271,7 @@ async fn build_whoami_response(
                 response.ready = false;
             }
 
-            // Readiness requires: access key present, wallet connected, and either
+            // Readiness requires: key present, wallet connected, and either
             // already provisioned or has a key_authorization (will auto-provision on first use).
             let has_wallet_addr = response
                 .wallet
@@ -313,7 +314,8 @@ fn print_whoami_text(
             let wt = response.wallet_type.as_deref().unwrap_or("unknown");
             writeln!(w, "{:>10}: {} ({})", "Wallet", wallet, wt)?;
         }
-        writeln!(w, "{:>10}: {}", "Access Key", key.address)?;
+        // Intentionally labeled "Key" throughout the CLI
+        writeln!(w, "{:>10}: {}", "Key", key.address)?;
         if let Some(cur) = &key.currency {
             writeln!(w, "{:>10}: {}", "Currency", cur)?;
         }

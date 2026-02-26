@@ -83,15 +83,15 @@ pub enum PrestoError {
     #[error("Spending limit query failed: {0}")]
     SpendingLimitQuery(String),
 
-    /// Access key is not provisioned on-chain
-    #[error("Access key is not provisioned on-chain. Run 'presto login' to set up your key.")]
+    /// Key is not provisioned on-chain
+    #[error("Key is not provisioned on-chain. Run 'presto login' to set up your key.")]
     AccessKeyNotProvisioned,
 
     /// Browser-based login expired (device code expired or callback window timed out)
     #[error("Login expired. Use presto login to try again.")]
     LoginExpired,
 
-    /// Access key spending limit exceeded on-chain
+    /// Key spending limit exceeded on-chain
     #[error("Spending limit exceeded: limit is {limit} {token}, need {required} {token}")]
     SpendingLimitExceeded {
         token: String,
@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_access_key_not_provisioned() {
+    fn test_classify_key_not_provisioned() {
         let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
         assert!(matches!(
             classify_payment_error(err),

@@ -303,7 +303,7 @@ async fn dispatch_payment(
     }
 }
 
-/// Check if an error is due to missing config or an unprovisioned access key —
+/// Check if an error is due to missing config or an unprovisioned key —
 /// i.e., something that `presto login` would fix.
 fn is_login_fixable(err: &anyhow::Error) -> bool {
     err.chain().any(|e| {

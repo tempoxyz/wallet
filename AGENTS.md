@@ -222,12 +222,16 @@ struct Config {
 **Wallet Fields (`keys.toml`):**
 - `wallet_type` — `"local"` or `"passkey"`
 - `wallet_address` — On-chain wallet address (the fundable address)
-- `access_key_address` — Address of the access key (payment signing key)
-- `access_key` — Access key private key stored inline; file is written with mode 0600
-- `key_authorization` — On-chain authorization proof
-- `provisioned_chain_ids` — Chains this key is provisioned on
+- `chain_id` — Chain ID this key is authorized for
+- `key_type` — Signature type (`"secp256k1"`, `"p256"`, or `"webauthn"`)
+- `key_address` — Address of the signing key
+- `key` — Signing key private key stored inline; file is written with mode 0600
+- `key_authorization` — RLP-encoded on-chain authorization proof for this key
+- `expiry` — Unix timestamp for key authorization expiry
+- `token_limits` — Array of `{ currency: "0x...", limit: "..." }`
+- `provisioned` — Whether this key has been provisioned on-chain
 
-**Key Selection:** Deterministic: passkey > first key with `access_key` > first key (lexicographically). The old `active` field was removed.
+**Key Selection:** Deterministic: passkey > first key with `key` > first key (lexicographically). The old `active` field was removed.
 
 **Network Resolution Priority:**
 1. `PRESTO_RPC_URL` env var (overrides everything)

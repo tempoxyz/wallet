@@ -49,7 +49,7 @@ pub struct Cli {
     )]
     pub config: Option<String>,
 
-    /// Use a specific access key
+    /// Use a specific key
     #[arg(long = "key", value_name = "NAME", global = true, hide = true)]
     pub key: Option<String>,
 
@@ -187,13 +187,13 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
-    /// Show who you are: wallet, balances, access keys
+    /// Show who you are: wallet, balances, keys
     #[command(display_order = 4)]
     Whoami,
     /// Alias for whoami
     #[command(hide = true, name = "balance")]
     Balance,
-    /// Manage access keys
+    /// Manage keys
     #[command(display_order = 5, name = "key")]
     #[command(args_conflicts_with_subcommands = true)]
     Key {
@@ -309,9 +309,9 @@ pub enum WalletCommands {
 
 #[derive(Subcommand, Debug)]
 pub enum KeyCommands {
-    /// List all access keys and their spending limits
+    /// List all keys and their spending limits
     List,
-    /// Create a new access key for a local wallet (generates fresh 30-day key)
+    /// Create a new key for a local wallet (generates fresh 30-day key)
     Create {
         /// Wallet name
         #[arg(long, value_name = "NAME")]

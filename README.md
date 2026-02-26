@@ -93,12 +93,12 @@ presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 | `<URL>` | Make an HTTP request with automatic payment |
 | `login` | Sign up or log in to your Tempo wallet |
 | `logout` | Log out and disconnect your wallet |
-| `whoami` | Show wallet address, balances, and access keys |
+| `whoami` | Show wallet address, balances, and keys |
 | `session list` | List active payment sessions |
 | `session close` | Close a payment session |
 | `session recover` | Recover a session from on-chain state |
-| `key` or `key list` | List all access keys and their spending limits |
-| `key create` | Create a new access key for a local wallet |
+| `key` or `key list` | List all keys and their spending limits |
+| `key create` | Create a new key for a local wallet |
 
 Run `presto <command> --help` for detailed usage on any command.
 
@@ -124,7 +124,7 @@ presto wallet delete --yes
 presto login    # Sign up or log in via browser
 ```
 
-This creates a wallet credential file with your account address, stores your wallet EOA key securely in the OS keychain (macOS Keychain), and writes the access key inline to `keys.toml` after login.
+This creates a wallet credential file with your account address, stores your wallet EOA key securely in the OS keychain (macOS Keychain), and writes the key inline to `keys.toml` after login.
 
 ### File Locations
 
@@ -135,7 +135,7 @@ presto uses platform-native directories:
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
 
-The wallet EOA private key is stored in the OS keychain on macOS. The access key used for payments is stored inline in `keys.toml` with permissions 0600 alongside account metadata.
+The wallet EOA private key is stored in the OS keychain on macOS. The signing key used for payments is stored inline in `keys.toml` with permissions 0600 alongside account metadata.
 
 You can override the config path with `-c <PATH>` or `--config <PATH>`.
 

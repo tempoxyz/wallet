@@ -44,7 +44,7 @@ presto -q --output-format json whoami
 ```
 
 Check these fields in the response:
-- `ready` — `true` means the wallet is connected, provisioned, and has an access key
+- `ready` — `true` means the wallet is connected, provisioned, and has a key
 - `key.balance` — check that the token balance is sufficient
 
 If `ready` is `false`, run `presto login` and retry.
@@ -142,7 +142,7 @@ presto --dry-run -X POST \
 | `presto <URL>` | Make an HTTP request with automatic payment |
 | `presto login` | Sign up or log in to your Tempo wallet |
 | `presto logout` | Log out and disconnect your wallet |
-| `presto whoami` | Show wallet address, balances, access keys, and readiness |
+| `presto whoami` | Show wallet address, balances, keys, and readiness |
 | `presto session list` | List active payment sessions |
 | `presto session list --all` | Show all channels: active, orphaned, and closing |
 | `presto session list --orphaned` | Scan on-chain for orphaned channels (no local session) |
@@ -154,8 +154,8 @@ presto --dry-run -X POST \
 | `presto wallet create [--name]` | Create a local wallet (EOA stored in macOS Keychain) |
 | `presto wallet import [--name] [--stdin-key|--private-key]` | Import an existing private key as a local wallet |
 | `presto wallet delete --name <NAME> [--yes]` | Delete a local wallet |
-| `presto key` or `presto key list` | List all access keys and their spending limits |
-| `presto key create [--name]` | Create a new access key for a local wallet (generates fresh 30-day key) |
+| `presto key` or `presto key list` | List all keys and their spending limits |
+| `presto key create [--name]` | Create a new key for a local wallet (generates fresh 30-day key) |
 
 ## Global Options
 
@@ -259,7 +259,7 @@ presto session close --all
 ### Check Wallet Status
 
 ```bash
-# Full wallet status with balances and access keys
+# Full wallet status with balances and keys
 presto whoami
 ```
 
@@ -288,7 +288,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `Run 'presto login'` | Run `presto login`, then retry |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
 | `Insufficient balance` | Report to user — wallet needs more funds |
-| `Access key is not provisioned` | Run `presto login`, then retry |
+| `Key is not provisioned` | Run `presto login`, then retry |
 | `Unknown network` | Check `-n` flag value |
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |

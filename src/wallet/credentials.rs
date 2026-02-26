@@ -136,7 +136,7 @@ impl std::fmt::Debug for KeyEntry {
 /// Wallet credentials stored in keys.toml.
 ///
 /// Supports multiple named keys via `[keys.<name>]` tables.
-/// Key selection is deterministic: passkey > first key with access_key > first key.
+/// Key selection is deterministic: passkey > first key with key > first key.
 /// The `--key` CLI flag overrides selection at runtime.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WalletCredentials {
@@ -164,7 +164,7 @@ impl WalletCredentials {
     /// Create ephemeral credentials from a raw private key (for `--private-key`).
     ///
     /// Derives the address from the key and creates a single-account
-    /// credential set with an inline access key. Not written to disk.
+    /// credential set with an inline key. Not written to disk.
     pub fn from_private_key(key: &str) -> Result<Self> {
         let signer = parse_private_key_signer(key)?;
         let address = format!("{}", signer.address());
@@ -228,7 +228,7 @@ impl WalletCredentials {
         Ok(())
     }
 
-    /// Deterministic primary key name: passkey > first key with access_key > first key.
+    /// Deterministic primary key name: passkey > first key with key > first key.
     /// The `--key` CLI flag overrides this at runtime.
     pub fn primary_key_name(&self) -> Option<String> {
         if let Some(name) = KEY_NAME_OVERRIDE.get() {
@@ -262,7 +262,7 @@ impl WalletCredentials {
     /// Check if a wallet is configured.
     ///
     /// Returns `true` when the primary key has a wallet address AND
-    /// an inline `access_key`.
+    /// an inline `key`.
     pub fn has_wallet(&self) -> bool {
         self.primary_key().is_some_and(|a| {
             !a.wallet_address.is_empty() && a.key.as_ref().is_some_and(|k| !k.is_empty())
@@ -280,7 +280,7 @@ impl WalletCredentials {
     ///
     /// Resolution order:
     /// 1. `--private-key` override → use it directly.
-    /// 2. Inline `access_key` → use it.
+    /// 2. Inline `key` → use it.
     pub fn signer(&self) -> Result<PrivateKeySigner> {
         let key_entry = self
             .primary_key()
@@ -292,8 +292,7 @@ impl WalletCredentials {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| {
                 PrestoError::ConfigMissing(
-                    "No access key configured. Run 'presto login' or 'presto wallet create'."
-                        .to_string(),
+                    "No key configured. Run 'presto login' or 'presto wallet create'.".to_string(),
                 )
             })?;
         parse_private_key_signer(pk)
@@ -457,7 +456,7 @@ impl WalletCredentials {
 
     /// Set or update the passkey from a login result.
     ///
-    /// Stores the access key inline in keys.toml (NOT in the OS keychain).
+    /// Stores the key inline in keys.toml (NOT in the OS keychain).
     /// Always sets `wallet_type = Passkey`.
     ///
     /// If a key with the same address already exists under a different
@@ -586,11 +585,11 @@ mod tests {
         let creds = make_creds("0xtest", None);
         assert!(!creds.has_wallet());
 
-        // needs wallet_address + access_key
+        // needs wallet_address + key
         let creds = make_creds("0xtest", Some(TEST_PRIVATE_KEY));
         assert!(creds.has_wallet());
 
-        // empty access_key doesn't count
+        // empty key doesn't count
         let creds = make_creds("0xtest", Some(""));
         assert!(!creds.has_wallet());
     }
@@ -660,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_not_ready_when_no_signing_key() {
-        // wallet_address alone (no access_key) → not ready
+        // wallet_address alone (no key) → not ready
         let mut creds = WalletCredentials::default();
         let key_entry = KeyEntry {
             wallet_address: "0xtest".to_string(),
@@ -735,7 +734,7 @@ provisioned = true
 
     #[test]
     fn test_wallet_address_only_not_enough() {
-        // wallet_address alone without access_key is not enough
+        // wallet_address alone without key is not enough
         let toml_str = r#"
 active = "default"
 
@@ -1040,7 +1039,7 @@ provisioned = true
                 ..Default::default()
             },
         );
-        // No passkey type or access_key, but it's the only key so primary_key_name() finds it
+        // No passkey type or key, but it's the only key so primary_key_name() finds it
         assert_eq!(creds.primary_key_name(), Some("somekey".to_string()));
         assert_eq!(creds.primary_key().unwrap().wallet_address, "0xtest");
     }

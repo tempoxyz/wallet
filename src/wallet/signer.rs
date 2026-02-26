@@ -51,7 +51,7 @@ pub(crate) struct WalletSigner {
 /// Resolve the signing mode from wallet address vs signer address.
 ///
 /// If the private key derives the same address as the wallet, sign directly
-/// as the EOA. Otherwise, use keychain mode (access key for a smart wallet).
+/// as the EOA. Otherwise, use keychain mode (key for a smart wallet).
 fn resolve_signing_mode(
     wallet_address: Address,
     signer_address: Address,
@@ -78,7 +78,7 @@ fn resolve_signing_mode(
 
 /// Load wallet credentials for a network and resolve the signing mode.
 ///
-/// Loads the access key from persisted credentials, parses the wallet
+/// Loads the key from persisted credentials, parses the wallet
 /// address, and builds a `TempoSigningMode` (direct EOA or keychain
 /// with optional key authorization).
 pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
@@ -103,7 +103,7 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
         .as_deref()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
-            PrestoError::ConfigMissing("No access key configured. Run 'presto login'.".to_string())
+            PrestoError::ConfigMissing("No key configured. Run 'presto login'.".to_string())
         })?;
     let signer = crate::wallet::credentials::parse_private_key_signer(pk)?;
 

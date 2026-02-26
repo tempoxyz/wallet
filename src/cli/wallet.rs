@@ -15,10 +15,10 @@ use crate::wallet::credentials::{
     self, keychain, KeyEntry, StoredTokenLimit, WalletCredentials, WalletType,
 };
 
-/// Create a local EOA wallet with an access key.
+/// Create a local EOA wallet with a signing key.
 ///
 /// 1. Generate random EOA key → store in OS keychain (wallet owner key)
-/// 2. Generate random access key → store inline in keys.toml
+/// 2. Generate random key → store inline in keys.toml
 /// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
 /// 5. Print the fundable wallet address
@@ -41,7 +41,7 @@ pub fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
         crate::error::PrestoError::Keychain(format!("Failed to store wallet key: {e}"))
     })?;
 
-    // Generate access key
+    // Generate key
     let access_signer = PrivateKeySigner::random();
     let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(access_signer.to_bytes())));
     let access_key_address = format!("{}", access_signer.address());
@@ -76,12 +76,12 @@ pub fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Renew the access key for an existing local wallet.
+/// Renew the key for an existing local wallet.
 ///
 /// 1. Load the wallet EOA key from the OS keychain
-/// 2. Generate a new random access key → store inline in keys.toml
+/// 2. Generate a new random key → store inline in keys.toml
 /// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
-/// 4. Clear provisioned_chain_ids (new key must re-provision)
+/// 4. Clear provisioned flag (new key must re-provision)
 pub fn create_access_key(name: &str) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot renew wallets with --private-key flag");
@@ -112,7 +112,7 @@ pub fn create_access_key(name: &str) -> Result<()> {
         crate::wallet::credentials::parse_private_key_signer(&wallet_key_hex)
             .map_err(|e| anyhow::anyhow!("Invalid wallet key in keychain: {e}"))?;
 
-    // Generate new access key
+    // Generate new key
     let access_signer = PrivateKeySigner::random();
     let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(access_signer.to_bytes())));
     let access_key_address = format!("{}", access_signer.address());
@@ -135,7 +135,7 @@ pub fn create_access_key(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Sign a key authorization for an access key using the wallet EOA.
+/// Sign a key authorization for a key using the wallet EOA.
 ///
 /// Returns `(key_auth_hex, expiry_secs, stored_token_limits)`.
 /// Uses $100 USDC limit and 30-day expiry.
@@ -163,7 +163,7 @@ fn sign_key_authorization(
     let stored_token_limits: Vec<StoredTokenLimit> = token_limits
         .iter()
         .map(|tl| StoredTokenLimit {
-            currency: format!("{}", tl.token),
+            currency: format!("{:#x}", tl.token),
             limit: tl.limit.to_string(),
         })
         .collect();
@@ -229,7 +229,7 @@ pub fn delete_wallet(name: &str, yes: bool) -> Result<()> {
 ///
 /// Reads the private key from `--private-key`, `--stdin-key`, or prompts interactively
 /// (masked) on a TTY. Stores the key in the OS keychain and records the wallet
-/// address in keys.toml. Does not create an access key; run `presto login` to connect
+/// address in keys.toml. Does not create a key; run `presto login` to connect
 /// and provision when ready.
 pub fn import_wallet(name: &str, private_key_arg: Option<String>, stdin_key: bool) -> Result<()> {
     if credentials::has_credentials_override() {

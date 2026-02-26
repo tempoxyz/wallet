@@ -189,7 +189,7 @@ impl WalletManager {
 
     /// Save authentication credentials.
     ///
-    /// Stores the access key inline in keys.toml (NOT in the OS keychain).
+    /// Stores the key inline in keys.toml (NOT in the OS keychain).
     async fn save_credentials(
         &self,
         callback: AuthCallback,
@@ -209,7 +209,7 @@ impl WalletManager {
         let mut creds = WalletCredentials::load()?;
 
         // Resolve which key name to update using both wallet and signer addresses.
-        // If the resolved profile has a different access key for the same wallet
+        // If the resolved profile has a different key for the same wallet
         // (e.g. mainnet key vs testnet key), use a network-specific name to avoid
         // overwriting the existing key.
         let mut profile =
@@ -225,7 +225,7 @@ impl WalletManager {
         }
 
         if let Some(key) = creds.keys.get_mut(&profile) {
-            // Only clear provisioned state when the access key actually changed;
+            // Only clear provisioned state when the key actually changed;
             // re-authorizing the same key doesn't re-register it on-chain.
             let key_changed = key
                 .key_address

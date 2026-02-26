@@ -12,7 +12,7 @@
 //!
 //! Unlike the mpp `TempoSessionProvider` (which only supports direct EOA
 //! signing), this implementation uses presto's transaction builder to
-//! support smart wallet / access key (keychain) signing mode.
+//! support smart wallet / key (keychain) signing mode.
 
 use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
@@ -2156,7 +2156,7 @@ async fn submit_tempo_tx(
 /// Close a discovered on-chain channel directly, without a server.
 ///
 /// Uses the payer-initiated path (`requestClose` → `withdraw`) which works
-/// regardless of whether the current access key matches the channel's
+/// regardless of whether the current key matches the channel's
 /// `authorizedSigner`. This allows closing orphaned channels after key
 /// rotation or expiry.
 pub async fn close_discovered_channel(
@@ -2217,7 +2217,7 @@ pub async fn close_discovered_channel(
 ///
 /// Uses the payer-initiated path (`requestClose` → `withdraw`) which works
 /// regardless of the channel's authorized signer. This allows closing
-/// orphaned channels after access key rotation or expiry.
+/// orphaned channels after key rotation or expiry.
 pub async fn close_channel_by_id(
     config: &Config,
     channel_id_hex: &str,
