@@ -1205,12 +1205,15 @@ pub async fn handle_session_request(
     let origin = extract_origin(url);
     let session_key = session_store::session_key(url);
 
-    // Determine deposit: use suggested_deposit or default to 1 token (1_000_000 atomic units)
+    // Determine deposit: use suggested_deposit or default to 1 token (1_000_000 atomic units).
+    // Cap at 5 tokens (5_000_000 atomic units) to limit exposure to malicious servers.
+    const MAX_DEPOSIT: u128 = 5_000_000;
     let deposit: u128 = session_req
         .suggested_deposit
         .as_ref()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1_000_000);
+        .unwrap_or(1_000_000)
+        .min(MAX_DEPOSIT);
 
     let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
 
