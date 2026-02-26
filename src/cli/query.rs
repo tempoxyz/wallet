@@ -132,7 +132,14 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 
     // Skip wallet login for dry-run or when a private key is provided directly
     if !request_ctx.runtime.dry_run && !crate::wallet::credentials::has_credentials_override() {
-        ensure_wallet_or_prompt_login(&request_ctx, &cli, &mut config, &analytics).await?;
+        ensure_wallet_or_prompt_login(
+            &request_ctx,
+            &cli,
+            &mut config,
+            &analytics,
+            &challenge_ctx.network,
+        )
+        .await?;
     }
 
     let pay_analytics = PaymentAnalytics::from_challenge(&challenge_ctx, &analytics);
@@ -386,6 +393,7 @@ async fn ensure_wallet_or_prompt_login(
     cli: &Cli,
     config: &mut Config,
     analytics: &Option<Analytics>,
+    challenge_network: &str,
 ) -> Result<()> {
     let has_wallet = crate::wallet::credentials::WalletCredentials::load()
         .ok()
@@ -394,7 +402,11 @@ async fn ensure_wallet_or_prompt_login(
     if !has_wallet {
         if std::io::stdin().is_terminal() {
             eprintln!("This request requires payment. Let's connect your wallet first.\n");
-            let network = request_ctx.runtime.network.as_deref();
+            let network = request_ctx
+                .runtime
+                .network
+                .as_deref()
+                .or(Some(challenge_network));
             super::auth::run_login(network, analytics.clone(), super::OutputFormat::Text).await?;
             eprintln!("\nRetrying request...");
             *config = load_config_with_overrides(cli.config.as_ref())?;

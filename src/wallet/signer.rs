@@ -91,17 +91,31 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
         ));
     }
 
-    // Propagate exact signer error (invalid key, missing key, etc.)
-    let signer = creds.signer()?;
+    // Use network-specific key (keys are scoped to currencies, no cross-network fallback)
+    let key_entry = creds.key_for_network(network).ok_or_else(|| {
+        PrestoError::ConfigMissing(format!(
+            "No key configured for network '{network}'. Run ' tempo-walletlogin --network {network}'."
+        ))
+    })?;
 
-    let wallet_address = Address::from_str(creds.wallet_address())
+    let pk = key_entry
+        .access_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            PrestoError::ConfigMissing("No access key configured. Run ' tempo-walletlogin'.".to_string())
+        })?;
+    let signer = crate::wallet::credentials::parse_private_key_signer(pk)?;
+
+    let wallet_address = Address::from_str(&key_entry.wallet_address)
         .map_err(|e| PrestoError::InvalidConfig(format!("Invalid wallet address: {}", e)))?;
 
+    let provisioned = creds.is_provisioned(network);
     let signing_mode = resolve_signing_mode(
         wallet_address,
         signer.address(),
-        creds.key_authorization(),
-        creds.is_provisioned(network),
+        key_entry.key_authorization.as_deref(),
+        provisioned,
     );
 
     let from = signing_mode.from_address(signer.address());

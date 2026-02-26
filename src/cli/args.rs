@@ -317,6 +317,13 @@ pub enum KeyCommands {
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
     },
+    /// Delete keys.toml and reset all local key state
+    #[command(hide = true)]
+    Clean {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 impl QueryArgs {
