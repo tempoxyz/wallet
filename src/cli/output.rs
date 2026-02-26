@@ -68,7 +68,7 @@ pub fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> 
 ///
 /// Writes exact bytes with no trailing newline, matching curl-like semantics.
 /// This preserves binary payloads and strict byte-stream consumers.
-pub fn output_response_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
+fn output_response_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
     if let Some(ref output_file) = opts.output_file {
         write_to_file(opts, output_file, body)?;
     } else {
@@ -84,7 +84,7 @@ pub fn output_response_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
 ///
 /// Adds a trailing newline for stdout (suitable for formatted/JSON output).
 /// File output writes the content as-is without a trailing newline.
-pub fn write_output_to(opts: &OutputOptions, content: impl AsRef<str>) -> Result<()> {
+fn write_output_to(opts: &OutputOptions, content: impl AsRef<str>) -> Result<()> {
     let content = content.as_ref();
     if let Some(ref output_file) = opts.output_file {
         write_to_file(opts, output_file, content.as_bytes())?;
@@ -109,16 +109,4 @@ fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_hyperlink_format() {
-        // Test the raw format (ignoring detection)
-        let url = "https://etherscan.io/tx/0x123";
-        let text = "View transaction";
-        let expected = "\x1b]8;;https://etherscan.io/tx/0x123\x07View transaction\x1b]8;;\x07";
-        assert_eq!(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text), expected);
-    }
 }

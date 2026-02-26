@@ -1,11 +1,12 @@
 //! CLI argument definitions and parsing.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use serde::{Deserialize, Serialize};
+use clap_verbosity_flag::VerbosityFilter;
 
+use crate::config::Config;
 pub use crate::config::OutputFormat;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ColorMode {
     Auto,
     Always,
@@ -325,7 +326,6 @@ impl Cli {
     /// Verbosity count (0 = default/warn, 1 = info/-v, 2 = debug/-vv, etc.)
     /// Returns 0 when quiet.
     pub fn verbosity(&self) -> u8 {
-        use clap_verbosity_flag::VerbosityFilter;
         match self.verbose.filter() {
             VerbosityFilter::Off | VerbosityFilter::Error | VerbosityFilter::Warn => 0,
             VerbosityFilter::Info => 1,
@@ -339,7 +339,6 @@ impl Cli {
     /// Note: with `WarnLevel`, `-q` maps to `Error` (not `Off`). Treat both
     /// `Off` and `Error` as silent for CLI user-facing logs.
     pub fn should_show_output(&self) -> bool {
-        use clap_verbosity_flag::VerbosityFilter;
         !matches!(
             self.verbose.filter(),
             VerbosityFilter::Off | VerbosityFilter::Error
@@ -347,7 +346,7 @@ impl Cli {
     }
 
     /// Resolve the effective output format: CLI flag > config > default (text).
-    pub fn resolve_output_format(&self, config: &crate::config::Config) -> OutputFormat {
+    pub fn resolve_output_format(&self, config: &Config) -> OutputFormat {
         self.output_format
             .or(config.output_format)
             .unwrap_or(OutputFormat::Text)

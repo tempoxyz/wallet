@@ -3,6 +3,9 @@ mod posthog;
 
 pub use events::*;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -10,6 +13,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 use crate::config::Config;
+use crate::wallet::credentials::WalletCredentials;
 
 fn is_telemetry_disabled(config: Option<&Config>) -> bool {
     if std::env::var("PRESTO_NO_TELEMETRY").is_ok() {
@@ -23,8 +27,6 @@ fn is_telemetry_disabled(config: Option<&Config>) -> bool {
 }
 
 fn get_wallet_address() -> Option<String> {
-    use crate::wallet::credentials::WalletCredentials;
-
     let creds = WalletCredentials::load().ok()?;
     let addr = creds.wallet_address();
     if addr.is_empty() {
@@ -36,9 +38,6 @@ fn get_wallet_address() -> Option<String> {
 
 /// Generate a stable anonymous ID unique to the OS user on this machine.
 fn anonymous_id() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
     let mut hasher = DefaultHasher::new();
     if let Ok(name) = hostname::get() {
         name.hash(&mut hasher);
@@ -151,7 +150,6 @@ fn test_tap_event(name: &str, props: &Value) {
             .append(true)
             .open(&path)
         {
-            use std::io::Write;
             let _ = f.write_all(line.as_bytes());
         }
     }

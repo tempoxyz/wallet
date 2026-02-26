@@ -1,10 +1,10 @@
 //! Key management commands — listing, cleanup, balance and spending limit queries.
 
-use alloy::primitives::{Address, U256};
-use alloy::providers::ProviderBuilder;
-use std::str::FromStr;
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use alloy::primitives::{Address, U256};
+use alloy::providers::ProviderBuilder;
 use futures::future::join_all;
 use serde::Serialize;
 use tracing::debug;
@@ -13,7 +13,7 @@ use super::OutputFormat;
 use crate::config::Config;
 use crate::network::Network;
 use crate::util::format_u256_with_decimals;
-use crate::wallet::credentials::{KeyEntry, WalletCredentials};
+use crate::wallet::credentials::{KeyEntry, WalletCredentials, WalletType};
 use mpp::client::tempo::keychain::query_key_spending_limit;
 
 // ---------------------------------------------------------------------------
@@ -110,8 +110,7 @@ pub async fn show_keys(
         .into_iter()
         .cloned()
         .collect();
-    let mut balance_cache: std::collections::HashMap<String, Vec<TokenBalance>> =
-        std::collections::HashMap::new();
+    let mut balance_cache: HashMap<String, Vec<TokenBalance>> = HashMap::new();
     let tasks = unique_wallets.iter().map(|addr| async move {
         (
             addr.clone(),
@@ -187,7 +186,7 @@ pub(super) async fn build_key_info(
     current_chain_id: Option<u64>,
     label: &str,
     entry: &KeyEntry,
-    balance_cache: &std::collections::HashMap<String, Vec<TokenBalance>>,
+    balance_cache: &HashMap<String, Vec<TokenBalance>>,
 ) -> KeyInfo {
     let address = entry
         .key_address
@@ -195,8 +194,8 @@ pub(super) async fn build_key_info(
         .unwrap_or_else(|| "none".to_string());
 
     let wt = match entry.wallet_type {
-        crate::wallet::credentials::WalletType::Passkey => "passkey",
-        crate::wallet::credentials::WalletType::Local => "local",
+        WalletType::Passkey => "passkey",
+        WalletType::Local => "local",
     };
 
     let on_current_chain = current_chain_id.is_some_and(|cid| cid == entry.chain_id);
@@ -213,14 +212,12 @@ pub(super) async fn build_key_info(
     let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
         (None, None)
     } else {
-        let all = balance_cache
-            .get(&entry.wallet_address)
-            .cloned()
-            .unwrap_or_default();
-        let bal = currency
-            .as_ref()
-            .and_then(|cur| all.into_iter().find(|tb| tb.currency == *cur))
-            .map(|tb| tb.balance);
+        let bal = currency.as_ref().and_then(|cur| {
+            balance_cache
+                .get(&entry.wallet_address)
+                .and_then(|all| all.iter().find(|tb| tb.currency == *cur))
+                .map(|tb| tb.balance.clone())
+        });
         (Some(entry.wallet_address.clone()), bal)
     };
 
@@ -388,7 +385,7 @@ pub(super) async fn query_all_balances(
     let mut balances = Vec::new();
 
     for token_config in tokens {
-        let token_address: Address = match Address::from_str(token_config.address) {
+        let token_address: Address = match token_config.address.parse() {
             Ok(a) => a,
             Err(_) => continue,
         };

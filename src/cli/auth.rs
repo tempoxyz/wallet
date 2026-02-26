@@ -10,9 +10,21 @@ use super::OutputFormat;
 use crate::analytics::Analytics;
 use crate::config::Config;
 use crate::network::Network;
-use crate::wallet::credentials::WalletCredentials;
+use crate::wallet::credentials::{WalletCredentials, WalletType};
 use crate::wallet::WalletManager;
 use anyhow::Context;
+
+/// Load the default config, creating and saving a default if the file doesn't exist.
+fn load_or_create_default_config() -> anyhow::Result<Config> {
+    let config_path = Config::default_config_path()?;
+    if config_path.exists() {
+        Ok(Config::load_from(Some(&config_path)).unwrap_or_default())
+    } else {
+        let config = Config::default();
+        config.save().context("Failed to save configuration")?;
+        Ok(config)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Login
@@ -30,12 +42,7 @@ pub async fn run_login(
             let provisioned = network.map(|n| creds.is_provisioned(n)).unwrap_or(true);
 
             if provisioned {
-                let config_path = Config::default_config_path()?;
-                let config = if config_path.exists() {
-                    Config::load_from(Some(&config_path)).unwrap_or_default()
-                } else {
-                    Config::default()
-                };
+                let config = load_or_create_default_config()?;
 
                 if output_format == OutputFormat::Text {
                     println!("Already logged in.\n");
@@ -50,14 +57,7 @@ pub async fn run_login(
     let manager = WalletManager::new(network, analytics);
     manager.setup_wallet().await?;
 
-    let config_path = Config::default_config_path()?;
-    let config = if config_path.exists() {
-        Config::load_from(Some(&config_path)).unwrap_or_default()
-    } else {
-        let config = Config::default();
-        config.save().context("Failed to save configuration")?;
-        config
-    };
+    let config = load_or_create_default_config()?;
 
     if output_format == OutputFormat::Text {
         eprintln!("\nWallet connected!\n");
@@ -180,8 +180,8 @@ async fn build_whoami_response(
             }
 
             let wt = match key_entry.wallet_type {
-                crate::wallet::credentials::WalletType::Passkey => "passkey",
-                crate::wallet::credentials::WalletType::Local => "local",
+                WalletType::Passkey => "passkey",
+                WalletType::Local => "local",
             };
             response.wallet_type = Some(wt.to_string());
 
@@ -225,13 +225,9 @@ async fn build_whoami_response(
 
             // Readiness requires: key present, wallet connected, and either
             // already provisioned or has a key_authorization (will auto-provision on first use).
-            let has_wallet_addr = response
-                .wallet
-                .as_deref()
-                .map(|s| !s.is_empty())
-                .unwrap_or(false);
+            let has_wallet_addr = response.wallet.as_deref().is_some_and(|s| !s.is_empty());
             let is_provisioned = creds.is_provisioned(network);
-            let has_key_auth = key_entry.key_authorization.as_deref().is_some();
+            let has_key_auth = key_entry.key_authorization.is_some();
             response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
         } else {
             response.wallet = None;

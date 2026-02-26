@@ -1,17 +1,22 @@
 //! Session management commands.
 
+use std::collections::{HashMap, HashSet};
+
+use alloy::primitives::{Address, U256};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
 use super::OutputFormat;
 use crate::config::Config;
+use crate::network::resolve_token_meta;
 use crate::payment::session::store as session_store;
 use crate::payment::session::{
     close_channel_by_id, close_discovered_channel, close_session_from_record,
-    find_all_channels_for_payer, CloseOutcome,
+    find_all_channels_for_payer, query_channel_state, read_grace_period, CloseOutcome,
 };
 use crate::util::format_u256_with_decimals;
 use crate::wallet::credentials::WalletCredentials;
+use crate::wallet::signer::{load_wallet_signer, WalletSigner};
 
 // ---------------------------------------------------------------------------
 // Shared display types
@@ -240,10 +245,9 @@ fn format_duration(secs: u64) -> String {
 /// Build a `ChannelView` from a local session record, cross-referencing pending closes.
 fn view_from_session(
     session: &session_store::SessionRecord,
-    pending_map: &std::collections::HashMap<String, u64>,
+    pending_map: &HashMap<String, u64>,
 ) -> ChannelView {
-    let (symbol, decimals) =
-        crate::network::resolve_token_meta(&session.network_name, &session.currency);
+    let (symbol, decimals) = resolve_token_meta(&session.network_name, &session.currency);
 
     let spent_u = session.cumulative_amount_u128().unwrap_or(0);
     let limit_u = session.deposit_u128().unwrap_or(0);
@@ -260,25 +264,17 @@ fn view_from_session(
         network: session.network_name.clone(),
         origin: Some(session.origin.clone()),
         symbol,
-        deposit: format_u256_with_decimals(alloy::primitives::U256::from(limit_u), decimals),
-        spent: format_u256_with_decimals(alloy::primitives::U256::from(spent_u), decimals),
-        remaining: format_u256_with_decimals(alloy::primitives::U256::from(remaining_u), decimals),
+        deposit: format_u256_with_decimals(U256::from(limit_u), decimals),
+        spent: format_u256_with_decimals(U256::from(spent_u), decimals),
+        remaining: format_u256_with_decimals(U256::from(remaining_u), decimals),
         status,
         remaining_secs,
     }
 }
 
-/// Return the current unix timestamp.
-fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
 /// Build a pending-close lookup map: channel_id (lowercase) → seconds remaining.
-fn build_pending_map() -> std::collections::HashMap<String, u64> {
-    let now = now_secs();
+fn build_pending_map() -> HashMap<String, u64> {
+    let now = session_store::now_secs();
     session_store::list_all_pending_closes()
         .unwrap_or_default()
         .into_iter()
@@ -288,8 +284,6 @@ fn build_pending_map() -> std::collections::HashMap<String, u64> {
 
 /// Resolve the grace period for an escrow contract, falling back to 900s.
 async fn resolve_grace_period(config: &Config, network_name: &str, escrow_hex: &str) -> u64 {
-    use crate::payment::session::read_grace_period;
-
     let network_info = match config.resolve_network(network_name) {
         Ok(info) => info,
         Err(_) => return 900,
@@ -299,7 +293,7 @@ async fn resolve_grace_period(config: &Config, network_name: &str, escrow_hex: &
         Err(_) => return 900,
     };
     let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
-    let escrow: alloy::primitives::Address = match escrow_hex.parse() {
+    let escrow: Address = match escrow_hex.parse() {
         Ok(a) => a,
         Err(_) => return 900,
     };
@@ -364,14 +358,12 @@ async fn list_all_channels(
     output_format: OutputFormat,
     network: Option<&str>,
 ) -> Result<()> {
-    use crate::payment::session::query_channel_state;
-
-    let now = now_secs();
+    let now = session_store::now_secs();
     let mut views: Vec<ChannelView> = Vec::new();
 
     // Phase 1: local active sessions
     let sessions = session_store::list_sessions()?;
-    let local_ids: std::collections::HashSet<String> = sessions
+    let local_ids: HashSet<String> = sessions
         .iter()
         .map(|s| s.channel_id.to_lowercase())
         .collect();
@@ -394,15 +386,13 @@ async fn list_all_channels(
                 let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
 
                 // Cache grace period per escrow contract to avoid redundant RPC calls
-                let mut grace_cache: std::collections::HashMap<String, u64> =
-                    std::collections::HashMap::new();
+                let mut grace_cache: HashMap<String, u64> = HashMap::new();
 
                 for ch in &channels {
                     if local_ids.contains(&ch.channel_id) {
                         continue;
                     }
-                    let (symbol, decimals) =
-                        crate::network::resolve_token_meta(&ch.network, &ch.token);
+                    let (symbol, decimals) = resolve_token_meta(&ch.network, &ch.token);
                     let remaining_u = ch.deposit.saturating_sub(ch.settled);
                     let (status, close_remaining_secs) = if ch.close_requested_at > 0 {
                         // Use pending_map if available; otherwise compute from on-chain data
@@ -439,18 +429,9 @@ async fn list_all_channels(
                         network: ch.network.clone(),
                         origin: Some(String::new()),
                         symbol,
-                        deposit: format_u256_with_decimals(
-                            alloy::primitives::U256::from(ch.deposit),
-                            decimals,
-                        ),
-                        spent: format_u256_with_decimals(
-                            alloy::primitives::U256::from(ch.settled),
-                            decimals,
-                        ),
-                        remaining: format_u256_with_decimals(
-                            alloy::primitives::U256::from(remaining_u),
-                            decimals,
-                        ),
+                        deposit: format_u256_with_decimals(U256::from(ch.deposit), decimals),
+                        spent: format_u256_with_decimals(U256::from(ch.settled), decimals),
+                        remaining: format_u256_with_decimals(U256::from(remaining_u), decimals),
                         status: status.to_string(),
                         remaining_secs: close_remaining_secs,
                     });
@@ -478,13 +459,13 @@ async fn list_all_channels(
         .await
         {
             Ok(Some((token, dep, set))) => {
-                let (sym, dec) = crate::network::resolve_token_meta(&p.network, &token);
+                let (sym, dec) = resolve_token_meta(&p.network, &token);
                 let rem = dep.saturating_sub(set);
                 (
                     sym,
-                    format_u256_with_decimals(alloy::primitives::U256::from(dep), dec),
-                    format_u256_with_decimals(alloy::primitives::U256::from(set), dec),
-                    format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
+                    format_u256_with_decimals(U256::from(dep), dec),
+                    format_u256_with_decimals(U256::from(set), dec),
+                    format_u256_with_decimals(U256::from(rem), dec),
                 )
             }
             Ok(None) => {
@@ -534,7 +515,7 @@ async fn list_orphaned_channels(
         .context("Invalid wallet address")?;
 
     let local_sessions = session_store::list_sessions()?;
-    let local_ids: std::collections::HashSet<String> = local_sessions
+    let local_ids: HashSet<String> = local_sessions
         .iter()
         .map(|s| s.channel_id.to_lowercase())
         .collect();
@@ -548,7 +529,7 @@ async fn list_orphaned_channels(
     let views: Vec<ChannelView> = orphaned
         .iter()
         .map(|ch| {
-            let (symbol, decimals) = crate::network::resolve_token_meta(&ch.network, &ch.token);
+            let (symbol, decimals) = resolve_token_meta(&ch.network, &ch.token);
             let remaining_u = ch.deposit.saturating_sub(ch.settled);
             let status = if ch.close_requested_at > 0 {
                 "closed"
@@ -560,18 +541,9 @@ async fn list_orphaned_channels(
                 network: ch.network.clone(),
                 origin: None,
                 symbol,
-                deposit: format_u256_with_decimals(
-                    alloy::primitives::U256::from(ch.deposit),
-                    decimals,
-                ),
-                spent: format_u256_with_decimals(
-                    alloy::primitives::U256::from(ch.settled),
-                    decimals,
-                ),
-                remaining: format_u256_with_decimals(
-                    alloy::primitives::U256::from(remaining_u),
-                    decimals,
-                ),
+                deposit: format_u256_with_decimals(U256::from(ch.deposit), decimals),
+                spent: format_u256_with_decimals(U256::from(ch.settled), decimals),
+                remaining: format_u256_with_decimals(U256::from(remaining_u), decimals),
                 status: status.to_string(),
                 remaining_secs: None,
             }
@@ -590,10 +562,8 @@ async fn list_orphaned_channels(
 ///
 /// Queries on-chain state for each pending channel to show deposit/settled/remaining.
 async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Result<()> {
-    use crate::payment::session::query_channel_state;
-
     let pending = session_store::list_all_pending_closes()?;
-    let now = now_secs();
+    let now = session_store::now_secs();
 
     let mut views = Vec::new();
     for p in &pending {
@@ -608,13 +578,13 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
         .await
         {
             Ok(Some((token, dep, set))) => {
-                let (sym, dec) = crate::network::resolve_token_meta(&p.network, &token);
+                let (sym, dec) = resolve_token_meta(&p.network, &token);
                 let rem = dep.saturating_sub(set);
                 (
                     sym,
-                    format_u256_with_decimals(alloy::primitives::U256::from(dep), dec),
-                    format_u256_with_decimals(alloy::primitives::U256::from(set), dec),
-                    format_u256_with_decimals(alloy::primitives::U256::from(rem), dec),
+                    format_u256_with_decimals(U256::from(dep), dec),
+                    format_u256_with_decimals(U256::from(set), dec),
+                    format_u256_with_decimals(U256::from(rem), dec),
                 )
             }
             Ok(None) => {
@@ -706,8 +676,7 @@ async fn close_all_sessions(
 
     // Phase 1: close local sessions
     let sessions = session_store::list_sessions()?;
-    let mut nonce_offsets: std::collections::HashMap<String, u64> =
-        std::collections::HashMap::new();
+    let mut nonce_offsets: HashMap<String, u64> = HashMap::new();
     for session in &sessions {
         let key = session_store::session_key(&session.origin);
         if show_output {
@@ -766,8 +735,7 @@ async fn close_all_sessions(
     }
 
     // Phase 2: scan on-chain for orphaned channels
-    let local_channel_ids: std::collections::HashSet<&str> =
-        sessions.iter().map(|s| s.channel_id.as_str()).collect();
+    let local_channel_ids: HashSet<&str> = sessions.iter().map(|s| s.channel_id.as_str()).collect();
 
     if let Ok(creds) = WalletCredentials::load() {
         if creds.has_wallet() {
@@ -778,8 +746,7 @@ async fn close_all_sessions(
 
                 let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
 
-                let mut nonce_offsets: std::collections::HashMap<String, u64> =
-                    std::collections::HashMap::new();
+                let mut nonce_offsets: HashMap<String, u64> = HashMap::new();
                 for ch in &channels {
                     if local_channel_ids.contains(ch.channel_id.as_str()) {
                         continue;
@@ -978,7 +945,7 @@ async fn close_orphaned_channels(
         .context("Invalid wallet address")?;
 
     let local_sessions = session_store::list_sessions()?;
-    let local_ids: std::collections::HashSet<String> = local_sessions
+    let local_ids: HashSet<String> = local_sessions
         .iter()
         .map(|s| s.channel_id.to_lowercase())
         .collect();
@@ -1001,8 +968,7 @@ async fn close_orphaned_channels(
 
     let mut summary = CloseSummary::new();
     // Track nonce offsets per network so sequential txs don't collide.
-    let mut nonce_offsets: std::collections::HashMap<String, u64> =
-        std::collections::HashMap::new();
+    let mut nonce_offsets: HashMap<String, u64> = HashMap::new();
 
     for ch in &orphaned {
         if show_output {
@@ -1081,8 +1047,7 @@ async fn finalize_closed_channels(
     let mut summary = CloseSummary::new();
 
     // Cache wallet signers per network to avoid redundant disk I/O
-    let mut signer_cache: std::collections::HashMap<String, crate::wallet::signer::WalletSigner> =
-        std::collections::HashMap::new();
+    let mut signer_cache: HashMap<String, WalletSigner> = HashMap::new();
 
     for record in &pending {
         if show_output {
@@ -1091,7 +1056,7 @@ async fn finalize_closed_channels(
 
         // Load signer once per network
         if !signer_cache.contains_key(&record.network) {
-            match crate::wallet::signer::load_wallet_signer(&record.network) {
+            match load_wallet_signer(&record.network) {
                 Ok(w) => {
                     signer_cache.insert(record.network.clone(), w);
                 }

@@ -32,7 +32,7 @@ impl HttpResponse {
     /// # Errors
     /// Returns an error if the body is not valid UTF-8.
     pub fn body_string(&self) -> Result<String> {
-        Ok(String::from_utf8(self.body.clone())?)
+        Ok(std::str::from_utf8(&self.body)?.to_string())
     }
 
     /// Check if this response indicates payment is required (HTTP 402).
@@ -43,8 +43,8 @@ impl HttpResponse {
     /// Get a header value by name.
     ///
     /// Header names are stored lowercase; pass a lowercase key.
-    pub fn get_header(&self, name: &str) -> Option<&String> {
-        self.headers.get(name)
+    pub fn get_header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).map(|s| s.as_str())
     }
 }
 

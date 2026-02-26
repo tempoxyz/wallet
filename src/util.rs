@@ -473,4 +473,14 @@ mod tests {
         assert_eq!(mode, 0o600);
         assert_eq!(fs::read_to_string(&path).expect("read"), "now restricted");
     }
+
+    // ── Hyperlink tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_hyperlink_format() {
+        let url = "https://etherscan.io/tx/0x123";
+        let text = "View transaction";
+        let expected = "\x1b]8;;https://etherscan.io/tx/0x123\x07View transaction\x1b]8;;\x07";
+        assert_eq!(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text), expected);
+    }
 }
