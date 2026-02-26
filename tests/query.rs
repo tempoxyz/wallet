@@ -613,7 +613,7 @@ async fn test_no_redirect() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["--no-redirect", "-i", &server.url("/test")])
+        .args(["-i", &server.url("/test")])
         .output()
         .unwrap();
 

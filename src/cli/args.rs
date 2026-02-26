@@ -17,7 +17,7 @@ pub enum ColorMode {
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version)]
 #[command(
-    // Match curl-style usage: put both forms on their own lines under "Usage:"
+    // Match curl-style usage: show HTTP options before the URL and list both forms
     override_usage = "\n  presto [HTTP OPTIONS] <URL>\n  presto <COMMAND> [OPTIONS]"
 )]
 #[command(after_help = "\
@@ -27,11 +27,7 @@ pub enum ColorMode {
   -d, --data <DATA>             POST data (use @filename or @- for stdin)
       --json <JSON>             Send JSON data with Content-Type header
   -m, --timeout <SECONDS>       Maximum time for the request
-      --connect-timeout <SECONDS>  Maximum time to establish the TCP connection
-      --retries <N>             Retry transient network errors N times
-      --retry-backoff <MILLIS>  Initial retry backoff in milliseconds (exponential)
-      --no-redirect             Disable following redirects
-  -i, --include                 Include HTTP response headers in output
+  -f, --fail                    Fail on HTTP errors (do not output body)
   -o, --output <FILE>           Write output to file
       --dry-run                 Show what would be paid without executing")]
 pub struct Cli {
@@ -129,6 +125,10 @@ pub struct QueryArgs {
     )]
     pub method: Option<String>,
 
+    /// Shorthand for HEAD request (fetch headers only)
+    #[arg(short = 'I', help_heading = "HTTP Options")]
+    pub head: bool,
+
     /// Add custom header
     #[arg(
         short = 'H',
@@ -138,9 +138,9 @@ pub struct QueryArgs {
     )]
     pub headers: Vec<String>,
 
-    /// Disable following redirects (redirects are followed by default)
-    #[arg(long = "no-redirect", help_heading = "HTTP Options")]
-    pub no_redirect: bool,
+    /// Follow redirects (disabled by default)
+    #[arg(short = 'L', long = "location", help_heading = "HTTP Options")]
+    pub location: bool,
 
     /// Maximum time for the request in seconds
     #[arg(
@@ -194,6 +194,15 @@ pub struct QueryArgs {
         hide = true
     )]
     pub rpc_url: Option<String>,
+
+    /// Override the User-Agent header
+    #[arg(
+        short = 'A',
+        long = "user-agent",
+        value_name = "STRING",
+        help_heading = "HTTP Options"
+    )]
+    pub user_agent: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]

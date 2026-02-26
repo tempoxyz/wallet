@@ -647,11 +647,17 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         dry_run: query.dry_run,
     };
 
-    let (method, body) =
-        get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?;
+    // Determine method/body. If -I (HEAD) is provided, override method and ignore body inputs.
+    let (method, body) = if query.head {
+        get_request_method_and_body(Some("HEAD"), &[], None)?
+    } else {
+        get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?
+    };
 
     let mut headers = parse_headers(&query.headers);
-    if should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data) {
+    if !query.head
+        && should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data)
+    {
         headers.push(("content-type".to_string(), "application/json".to_string()));
     }
 
@@ -663,8 +669,11 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         connect_timeout_secs: query.connect_timeout,
         retries: query.retries.unwrap_or(0),
         retry_backoff_ms: query.retry_backoff_ms.unwrap_or(250),
-        follow_redirects: !query.no_redirect,
-        user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
+        follow_redirects: query.location,
+        user_agent: query
+            .user_agent
+            .clone()
+            .unwrap_or_else(|| format!("presto/{}", env!("CARGO_PKG_VERSION"))),
         verbose_connection: runtime.debug_enabled(),
     };
 
@@ -675,7 +684,8 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
 fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> OutputOptions {
     OutputOptions {
         output_format: cli.resolve_output_format(config),
-        include_headers: query.include_headers,
+        // -I (HEAD) implies showing headers, even if -i wasn't explicitly set
+        include_headers: query.include_headers || query.head,
         output_file: query.output.clone(),
         verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
