@@ -135,7 +135,6 @@ async fn close_all_sessions(
 
                 let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
 
-                let mut nonce_offsets: HashMap<String, u64> = HashMap::new();
                 for ch in &channels {
                     if local_channel_ids.contains(ch.channel_id.as_str()) {
                         continue;
