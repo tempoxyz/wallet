@@ -1567,6 +1567,7 @@ pub async fn handle_session_request(
 pub async fn close_session_from_record(
     record: &session_store::SessionRecord,
     config: &Config,
+    nonce_offset: u64,
 ) -> Result<CloseOutcome> {
     tracing::info!(
         origin = %record.origin,
@@ -1625,7 +1626,15 @@ pub async fn close_session_from_record(
     }
 
     // Fallback: payer-initiated close (requestClose → withdraw)
-    close_on_chain(config, record, &wallet, channel_id, escrow_contract, 0).await
+    close_on_chain(
+        config,
+        record,
+        &wallet,
+        channel_id,
+        escrow_contract,
+        nonce_offset,
+    )
+    .await
 }
 
 /// Try cooperative close via the server.

@@ -936,14 +936,23 @@ pub async fn close_sessions(
 
         // Phase 1: close local sessions
         let sessions = session_store::list_sessions()?;
+        let mut nonce_offsets: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
         for session in &sessions {
             let key = session_store::session_key(&session.origin);
             if show_output {
                 eprintln!("Closing {}...", session.origin);
             }
-            match close_session_from_record(session, config).await {
+            let offset = nonce_offsets
+                .get(&session.network_name)
+                .copied()
+                .unwrap_or(0);
+            match close_session_from_record(session, config, offset).await {
                 Ok(CloseOutcome::Closed) => {
                     closed += 1;
+                    *nonce_offsets
+                        .entry(session.network_name.clone())
+                        .or_default() += 1;
                     if let Err(e) = session_store::delete_session(&key) {
                         if show_output {
                             eprintln!("  Failed to remove local session: {e}");
@@ -958,6 +967,9 @@ pub async fn close_sessions(
                 }
                 Ok(CloseOutcome::Pending { remaining_secs }) => {
                     pending += 1;
+                    *nonce_offsets
+                        .entry(session.network_name.clone())
+                        .or_default() += 1;
                     if show_output {
                         eprintln!(
                             "  Pending — {} remaining, run `presto session close --closed` to finalize.",
@@ -1146,7 +1158,7 @@ pub async fn close_sessions(
             if show_output {
                 eprintln!("Closing {target}...");
             }
-            match close_session_from_record(&record, config).await {
+            match close_session_from_record(&record, config, 0).await {
                 Ok(CloseOutcome::Closed) => {
                     if let Err(e) = session_store::delete_session(&key) {
                         if show_output {
