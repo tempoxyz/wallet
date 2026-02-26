@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use zeroize::Zeroizing;
 
-use crate::error::{PrestoError, Result};
+use crate::error::PrestoError;
 use crate::network::Network;
 use crate::wallet::keychain::{self, KeychainBackend};
 
@@ -156,7 +156,7 @@ pub struct WalletCredentials {
 
 impl WalletCredentials {
     /// Get the data directory path.
-    pub fn data_dir() -> Result<PathBuf> {
+    pub fn data_dir() -> Result<PathBuf, PrestoError> {
         let data_dir = dirs::data_dir()
             .ok_or(PrestoError::NoConfigDir)?
             .join("presto");
@@ -167,7 +167,7 @@ impl WalletCredentials {
     }
 
     /// Get the keys.toml file path.
-    pub fn keys_path() -> Result<PathBuf> {
+    pub fn keys_path() -> Result<PathBuf, PrestoError> {
         Ok(Self::data_dir()?.join(KEYS_FILE_NAME))
     }
 
@@ -175,7 +175,7 @@ impl WalletCredentials {
     ///
     /// Derives the address from the key and creates a single-account
     /// credential set with an inline key. Not written to disk.
-    pub fn from_private_key(key: &str) -> Result<Self> {
+    pub fn from_private_key(key: &str) -> Result<Self, PrestoError> {
         let signer = parse_private_key_signer(key)?;
         let address = format!("{}", signer.address());
         let key_entry = KeyEntry {
@@ -194,7 +194,7 @@ impl WalletCredentials {
     /// Returns the global credentials override if set (e.g., `--private-key`).
     /// Otherwise reads from disk, returning default (empty) credentials if
     /// the file doesn't exist.
-    pub fn load() -> Result<Self> {
+    pub fn load() -> Result<Self, PrestoError> {
         // Return override if set (--private-key), constructing on-demand
         // so the Zeroizing<String> is dropped when the caller drops.
         if let Some(pk) = CREDENTIALS_OVERRIDE.get() {
@@ -223,7 +223,7 @@ impl WalletCredentials {
     ///
     /// No-op when an ephemeral credentials override is active (e.g., `--private-key`),
     /// to avoid overwriting the persistent keys.toml with transient data.
-    pub fn save(&self) -> Result<()> {
+    pub fn save(&self) -> Result<(), PrestoError> {
         if has_credentials_override() {
             return Ok(());
         }
@@ -292,7 +292,7 @@ impl WalletCredentials {
     /// 1. `--private-key` override → use it directly.
     /// 2. Inline `key` → use it.
     #[cfg(test)]
-    pub fn signer(&self) -> Result<PrivateKeySigner> {
+    pub fn signer(&self) -> Result<PrivateKeySigner, PrestoError> {
         let key_entry = self
             .primary_key()
             .ok_or_else(|| PrestoError::ConfigMissing("No key configured.".to_string()))?;
@@ -448,7 +448,7 @@ impl WalletCredentials {
     ///
     /// Removes the keychain entry (if local wallet, best-effort) and
     /// keys.toml metadata. Returns an error if the key doesn't exist.
-    pub fn delete_key(&mut self, profile: &str) -> Result<()> {
+    pub fn delete_key(&mut self, profile: &str) -> Result<(), PrestoError> {
         if !self.keys.contains_key(profile) {
             return Err(PrestoError::ConfigMissing(format!(
                 "Key '{}' not found.",
@@ -472,7 +472,7 @@ impl WalletCredentials {
 }
 
 /// Parse a private key hex string into a PrivateKeySigner.
-pub(crate) fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner> {
+pub(crate) fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, PrestoError> {
     let key = pk_str.trim();
     let key_hex = key.strip_prefix("0x").unwrap_or(key);
     let bytes = hex::decode(key_hex)

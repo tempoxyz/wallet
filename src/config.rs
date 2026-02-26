@@ -1,6 +1,6 @@
 //! Configuration management for presto.
 
-use crate::error::{PrestoError, Result};
+use crate::error::PrestoError;
 use anyhow::Context;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
@@ -99,7 +99,7 @@ impl Default for TelemetryConfig {
 
 impl Config {
     /// Load config from the specified path or default location
-    pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self> {
+    pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self, PrestoError> {
         let (config_path, explicit) = if let Some(path) = config_path {
             (PathBuf::from(path.as_ref()), true)
         } else {
@@ -134,12 +134,12 @@ impl Config {
     }
 
     /// Get the default config file path (~/.config/presto/config.toml)
-    pub fn default_config_path() -> Result<PathBuf> {
+    pub fn default_config_path() -> Result<PathBuf, PrestoError> {
         crate::util::default_config_path().ok_or(PrestoError::NoConfigDir)
     }
 
     /// Save config to the default location.
-    pub fn save(&self) -> Result<()> {
+    pub fn save(&self) -> Result<(), PrestoError> {
         let config_path = Self::default_config_path()?;
         let body = toml::to_string_pretty(self)?;
         let content = format!(
@@ -182,7 +182,10 @@ impl Config {
     /// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
     /// via `set_rpc_override()` in `load_config_with_overrides` / `cli::query::make_request`,
     /// which sets `tempo_rpc` and `moderato_rpc` so they flow through this logic.
-    pub fn resolve_network(&self, network_id: &str) -> Result<crate::network::NetworkInfo> {
+    pub fn resolve_network(
+        &self,
+        network_id: &str,
+    ) -> Result<crate::network::NetworkInfo, PrestoError> {
         use crate::network::{get_network, networks};
 
         let mut network_info = get_network(network_id).ok_or_else(|| {

@@ -2,15 +2,8 @@
 
 use thiserror::Error;
 
-/// Result type alias for presto operations.
-pub type Result<T> = std::result::Result<T, PrestoError>;
-
 #[derive(Error, Debug)]
 pub enum PrestoError {
-    /// Invalid payment amount format
-    #[error("Invalid amount: {0}")]
-    InvalidAmount(String),
-
     /// Missing required payment field
     #[error("Missing payment requirement: {0}")]
     MissingRequirement(String),
@@ -39,18 +32,6 @@ pub enum PrestoError {
     #[error("Unknown network: {0}")]
     UnknownNetwork(String),
 
-    /// Unsupported token type
-    #[error("Unsupported token: {0}")]
-    UnsupportedToken(String),
-
-    /// Balance query failed
-    #[error("Balance query failed: {0}")]
-    BalanceQuery(String),
-
-    /// Spending limit query failed
-    #[error("Spending limit query failed: {0}")]
-    SpendingLimitQuery(String),
-
     /// Key is not provisioned on-chain
     #[error("Key is not provisioned on-chain. Run 'presto login' to set up your key.")]
     AccessKeyNotProvisioned,
@@ -77,7 +58,7 @@ pub enum PrestoError {
 
     /// Server rejected the payment after submission
     #[error("Payment rejected by server: {reason}")]
-    PaymentRejected { reason: String, status_code: u32 },
+    PaymentRejected { reason: String, status_code: u16 },
 
     // ==================== HTTP Errors ====================
     /// HTTP request/response error
@@ -129,17 +110,9 @@ pub enum PrestoError {
     #[error("Missing required header: {0}")]
     MissingHeader(String),
 
-    /// Invalid base64url encoding
-    #[error("Invalid base64url: {0}")]
-    InvalidBase64Url(String),
-
     /// Challenge has expired
     #[error("Challenge expired: {0}")]
     ChallengeExpired(String),
-
-    /// Invalid DID format
-    #[error("Invalid DID: {0}")]
-    InvalidDid(String),
 
     // ==================== External Library Errors ====================
     /// IO error
@@ -161,28 +134,6 @@ pub enum PrestoError {
     /// mpp protocol error
     #[error("{0}")]
     Mpp(#[from] mpp::MppError),
-}
-
-impl PrestoError {
-    /// Create a signing error with a message
-    pub fn signing(msg: impl Into<String>) -> Self {
-        Self::Signing(msg.into())
-    }
-
-    /// Create an invalid address error
-    pub fn invalid_address(msg: impl Into<String>) -> Self {
-        Self::InvalidAddress(msg.into())
-    }
-
-    /// Create a config missing error
-    pub fn config_missing(msg: impl Into<String>) -> Self {
-        Self::ConfigMissing(msg.into())
-    }
-
-    /// Create an unsupported payment method error
-    pub fn unsupported_method(method: &impl std::fmt::Display) -> Self {
-        Self::UnsupportedPaymentMethod(format!("Payment method '{}' is not supported", method))
-    }
 }
 
 /// Map mpp validation errors to presto error types.
@@ -242,12 +193,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_invalid_amount_display() {
-        let err = PrestoError::InvalidAmount("not a number".to_string());
-        assert_eq!(err.to_string(), "Invalid amount: not a number");
-    }
-
-    #[test]
     fn test_missing_requirement_display() {
         let err = PrestoError::MissingRequirement("network".to_string());
         assert_eq!(err.to_string(), "Missing payment requirement: network");
@@ -284,18 +229,6 @@ mod tests {
     fn test_unknown_network_display() {
         let err = PrestoError::UnknownNetwork("custom-chain".to_string());
         assert_eq!(err.to_string(), "Unknown network: custom-chain");
-    }
-
-    #[test]
-    fn test_unsupported_token_display() {
-        let err = PrestoError::UnsupportedToken("UNKNOWN".to_string());
-        assert_eq!(err.to_string(), "Unsupported token: UNKNOWN");
-    }
-
-    #[test]
-    fn test_balance_query_display() {
-        let err = PrestoError::BalanceQuery("RPC timeout".to_string());
-        assert_eq!(err.to_string(), "Balance query failed: RPC timeout");
     }
 
     #[test]
@@ -341,50 +274,9 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_base64_url_display() {
-        let err = PrestoError::InvalidBase64Url("Invalid padding".to_string());
-        assert_eq!(err.to_string(), "Invalid base64url: Invalid padding");
-    }
-
-    #[test]
     fn test_challenge_expired_display() {
         let err = PrestoError::ChallengeExpired("Expired 5 minutes ago".to_string());
         assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
-    }
-
-    #[test]
-    fn test_invalid_did_display() {
-        let err = PrestoError::InvalidDid("Not a valid DID".to_string());
-        assert_eq!(err.to_string(), "Invalid DID: Not a valid DID");
-    }
-
-    #[test]
-    fn test_signing_constructor() {
-        let err = PrestoError::signing("test error");
-        assert!(matches!(err, PrestoError::Signing(_)));
-        assert_eq!(err.to_string(), "Signing error: test error");
-    }
-
-    #[test]
-    fn test_invalid_address_constructor() {
-        let err = PrestoError::invalid_address("test address");
-        assert!(matches!(err, PrestoError::InvalidAddress(_)));
-        assert_eq!(err.to_string(), "Invalid address: test address");
-    }
-
-    #[test]
-    fn test_config_missing_constructor() {
-        let err = PrestoError::config_missing("test config");
-        assert!(matches!(err, PrestoError::ConfigMissing(_)));
-        assert_eq!(err.to_string(), "Configuration missing: test config");
-    }
-
-    #[test]
-    fn test_unsupported_method_constructor() {
-        let err = PrestoError::unsupported_method(&"bitcoin");
-        assert!(matches!(err, PrestoError::UnsupportedPaymentMethod(_)));
-        assert!(err.to_string().contains("bitcoin"));
-        assert!(err.to_string().contains("not supported"));
     }
 
     #[test]

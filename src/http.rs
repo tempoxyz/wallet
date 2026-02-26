@@ -11,13 +11,11 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::warn;
 
-use crate::error;
-
 // ==================== HTTP Response ====================
 
 #[derive(Debug)]
 pub struct HttpResponse {
-    pub status_code: u32,
+    pub status_code: u16,
     /// Response headers with **lowercased** keys.
     ///
     /// Header names are normalized to lowercase during conversion.
@@ -33,7 +31,7 @@ impl HttpResponse {
     ///
     /// # Errors
     /// Returns an error if the body is not valid UTF-8.
-    pub fn body_string(&self) -> error::Result<String> {
+    pub fn body_string(&self) -> Result<String> {
         Ok(String::from_utf8(self.body.clone())?)
     }
 
@@ -42,9 +40,11 @@ impl HttpResponse {
         self.status_code == 402
     }
 
-    /// Get a header value by name (case-insensitive).
+    /// Get a header value by name.
+    ///
+    /// Header names are stored lowercase; pass a lowercase key.
     pub fn get_header(&self, name: &str) -> Option<&String> {
-        self.headers.get(&name.to_lowercase())
+        self.headers.get(name)
     }
 }
 
@@ -105,7 +105,7 @@ impl HttpClientBuilder {
     }
 
     /// Build the configured async HTTP client.
-    pub fn build(self) -> error::Result<HttpClient> {
+    pub fn build(self) -> Result<HttpClient> {
         HttpClient::from_config(self.config)
     }
 }
@@ -123,12 +123,12 @@ pub struct HttpClient {
 
 impl HttpClient {
     /// Create a new async HTTP client with default settings.
-    pub fn new() -> error::Result<Self> {
+    pub fn new() -> Result<Self> {
         HttpClientBuilder::new().build()
     }
 
     /// Create an async HTTP client from configuration.
-    fn from_config(config: HttpClientConfig) -> error::Result<Self> {
+    fn from_config(config: HttpClientConfig) -> Result<Self> {
         let mut builder = reqwest::Client::builder().connection_verbose(config.verbose);
 
         if let Some(timeout) = config.timeout {
@@ -177,7 +177,7 @@ impl HttpClient {
         method: reqwest::Method,
         url: &str,
         body: Option<&[u8]>,
-    ) -> error::Result<HttpResponse> {
+    ) -> Result<HttpResponse> {
         let mut request = self.client.request(method, url);
 
         if let Some(data) = body {
@@ -196,8 +196,8 @@ impl HttpClient {
     }
 
     /// Convert a reqwest response to our HttpResponse type
-    async fn convert_response(response: reqwest::Response) -> error::Result<HttpResponse> {
-        let status_code = response.status().as_u16() as u32;
+    async fn convert_response(response: reqwest::Response) -> Result<HttpResponse> {
+        let status_code = response.status().as_u16();
         let final_url = Some(response.url().to_string());
 
         // Convert headers to HashMap with lowercase keys
@@ -424,7 +424,7 @@ impl RequestContext {
             builder = builder.timeout(timeout);
         }
 
-        Ok(builder.build()?)
+        builder.build()
     }
 
     /// Build a reqwest::Client with the same configuration as the normal HTTP client.
@@ -465,9 +465,9 @@ impl RequestContext {
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<HttpResponse> {
         let client = self.build_client(extra_headers)?;
-        Ok(client
+        client
             .request(self.plan.method.clone(), url, self.plan.body.as_deref())
-            .await?)
+            .await
     }
 }
 

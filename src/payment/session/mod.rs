@@ -38,7 +38,7 @@ use mpp::{parse_receipt, parse_www_authenticate, ChallengeEcho};
 use mpp::protocol::core::extract_tx_hash;
 
 use crate::config::Config;
-use crate::error::map_mpp_validation_error;
+use crate::error::{map_mpp_validation_error, PrestoError};
 use crate::http::{HttpResponse, RequestContext};
 use crate::network::Network;
 use crate::wallet::signer::load_wallet_signer;
@@ -118,14 +118,12 @@ fn extract_origin(url: &str) -> String {
 }
 
 /// Derive the network from a session request's chain ID.
-fn network_from_session_request(req: &mpp::SessionRequest) -> crate::error::Result<Network> {
+fn network_from_session_request(req: &mpp::SessionRequest) -> anyhow::Result<Network> {
     use mpp::protocol::methods::tempo::session::TempoSessionExt;
     let chain_id = req.chain_id().ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig("Missing chainId in session request".to_string())
+        PrestoError::InvalidConfig("Missing chainId in session request".to_string())
     })?;
-    Network::from_chain_id(chain_id).ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
-    })
+    Ok(Network::require_chain_id(chain_id)?)
 }
 
 // ==================== Voucher ====================
@@ -266,7 +264,7 @@ async fn send_session_request(
             channel_id: format!("{:#x}", state.channel_id),
         })
     } else {
-        let status_code = status.as_u16() as u32;
+        let status_code = status.as_u16();
         let mut headers = std::collections::HashMap::new();
         for (key, value) in response.headers() {
             if let Ok(value_str) = value.to_str() {
@@ -307,7 +305,7 @@ pub async fn handle_session_request(
 ) -> Result<SessionResult> {
     let www_auth = initial_response
         .get_header("www-authenticate")
-        .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;

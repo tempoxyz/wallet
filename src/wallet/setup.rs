@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::analytics::Analytics;
-use crate::error::{PrestoError, Result};
+use crate::error::PrestoError;
 use crate::wallet::credentials::WalletCredentials;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
@@ -69,7 +69,7 @@ impl WalletManager {
     }
 
     /// Open browser for wallet authentication.
-    pub async fn setup_wallet(&self) -> Result<()> {
+    pub async fn setup_wallet(&self) -> Result<(), PrestoError> {
         let local_signer = PrivateKeySigner::random();
         let uncompressed = local_signer
             .credential()
@@ -193,7 +193,7 @@ impl WalletManager {
         &self,
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
-    ) -> Result<()> {
+    ) -> Result<(), PrestoError> {
         let validated = super::key_authorization::validate(
             callback.key_authorization.as_deref(),
             local_signer.address(),
@@ -313,7 +313,7 @@ async fn create_device_code(
     pub_key: &str,
     key_type: &str,
     code_challenge: &str,
-) -> Result<DeviceCodeResponse> {
+) -> Result<DeviceCodeResponse, PrestoError> {
     let url = format!("{}/cli-auth/device-code", base_url);
     let resp = client
         .post(&url)
@@ -345,7 +345,7 @@ async fn poll_device_code(
     base_url: &str,
     code: &str,
     code_verifier: &str,
-) -> Result<PollResponse> {
+) -> Result<PollResponse, PrestoError> {
     let url = format!("{}/cli-auth/poll/{}", base_url, code);
     let resp = client
         .post(&url)

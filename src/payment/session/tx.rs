@@ -7,6 +7,7 @@ use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
 
 use crate::config::Config;
+use crate::error::PrestoError;
 use crate::http::{HttpResponse, RequestContext};
 use crate::network::Network;
 
@@ -104,7 +105,7 @@ pub(super) async fn submit_tempo_tx(
     let resolved =
         mpp::client::tempo::gas::resolve_gas(provider, from, 1_000_000_000, 1_000_000_000)
             .await
-            .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
+            .map_err(|e| PrestoError::Http(e.to_string()))?;
 
     // Query the correct nonce for our nonceKey space via the NONCE precompile.
     let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
@@ -122,7 +123,7 @@ pub(super) async fn submit_tempo_tx(
         key_auth,
     )
     .await
-    .map_err(|e| crate::error::PrestoError::Signing(e.to_string()))?;
+    .map_err(|e| PrestoError::Signing(e.to_string()))?;
 
     let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
         mpp::client::tempo::tx_builder::TempoTxOptions {
@@ -146,7 +147,7 @@ pub(super) async fn submit_tempo_tx(
         &wallet.signing_mode,
     )
     .await
-    .map_err(|e| crate::error::PrestoError::Signing(e.to_string()))?;
+    .map_err(|e| PrestoError::Signing(e.to_string()))?;
 
     let pending = provider
         .send_raw_transaction(&tx_bytes)
@@ -216,15 +217,10 @@ pub(super) async fn create_tempo_payment_from_calls(
     fee_token: Address,
     chain_id: u64,
 ) -> Result<TempoPaymentResult> {
-    let network = Network::from_chain_id(chain_id).ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
-    })?;
+    let network = Network::require_chain_id(chain_id)?;
     let network_info = config.resolve_network(network.as_str())?;
 
-    let rpc_url: url::Url = network_info
-        .rpc_url
-        .parse()
-        .map_err(|e| crate::error::PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))?;
+    let rpc_url = Network::parse_rpc_url(&network_info.rpc_url)?;
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
     let from = signing.from;
@@ -237,7 +233,7 @@ pub(super) async fn create_tempo_payment_from_calls(
         1_000_000_000, // 1 gwei default priority fee
     )
     .await
-    .map_err(|e| crate::error::PrestoError::Http(e.to_string()))?;
+    .map_err(|e| PrestoError::Http(e.to_string()))?;
 
     // Query the correct nonce for our nonceKey space via the NONCE precompile.
     let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
@@ -255,7 +251,7 @@ pub(super) async fn create_tempo_payment_from_calls(
         key_auth,
     )
     .await
-    .map_err(|e| crate::error::PrestoError::Signing(e.to_string()))?;
+    .map_err(|e| PrestoError::Signing(e.to_string()))?;
 
     // Build and sign the transaction
     let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
@@ -280,7 +276,7 @@ pub(super) async fn create_tempo_payment_from_calls(
         &signing.signing_mode,
     )
     .await
-    .map_err(|e| crate::error::PrestoError::Signing(e.to_string()))?;
+    .map_err(|e| PrestoError::Signing(e.to_string()))?;
 
     let credential = mpp::client::tempo::tx_builder::build_charge_credential(
         challenge, &tx_bytes, chain_id, from,

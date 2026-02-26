@@ -193,6 +193,20 @@ impl Network {
         }
     }
 
+    /// Look up a network by chain ID, returning an error for unsupported chains.
+    pub fn require_chain_id(chain_id: u64) -> Result<Self, crate::error::PrestoError> {
+        Self::from_chain_id(chain_id).ok_or_else(|| {
+            crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+        })
+    }
+
+    /// Parse an RPC URL string into a `url::Url`, returning a config error on failure.
+    pub fn parse_rpc_url(rpc_url: &str) -> Result<url::Url, crate::error::PrestoError> {
+        rpc_url.parse().map_err(|e| {
+            crate::error::PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e))
+        })
+    }
+
     /// Check if this is a mainnet.
     #[cfg(test)]
     pub const fn is_mainnet(&self) -> bool {

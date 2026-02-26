@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use mpp::{parse_www_authenticate, ChargeRequest};
 
 use crate::config::Config;
-use crate::error::{classify_payment_error, map_mpp_validation_error};
+use crate::error::{classify_payment_error, map_mpp_validation_error, PrestoError};
 use crate::http::{HttpResponse, RequestRuntime};
 use crate::network::Network;
 
@@ -24,7 +24,7 @@ pub async fn prepare_charge(
 ) -> Result<String> {
     let www_auth = initial_response
         .get_header("www-authenticate")
-        .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let challenge =
         parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
@@ -64,7 +64,7 @@ pub async fn prepare_charge(
     let network_info = config.resolve_network(network_name)?;
 
     let provider = mpp::client::TempoProvider::new(signing.signer.clone(), &network_info.rpc_url)
-        .map_err(|e| crate::error::PrestoError::InvalidConfig(e.to_string()))?
+        .map_err(|e| PrestoError::InvalidConfig(e.to_string()))?
         .with_signing_mode(signing.signing_mode)
         .with_replace_stuck_transactions(true);
 
@@ -87,9 +87,7 @@ pub async fn prepare_charge(
 fn network_from_charge_request(req: &ChargeRequest) -> Result<Network> {
     use mpp::protocol::methods::tempo::TempoChargeExt;
     let chain_id = req.chain_id().ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
+        PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
     })?;
-    Ok(Network::from_chain_id(chain_id).ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
-    })?)
+    Ok(Network::require_chain_id(chain_id)?)
 }

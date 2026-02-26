@@ -12,7 +12,7 @@ use tempo_primitives::transaction::{
     KeyAuthorization, PrimitiveSignature, SignatureType, SignedKeyAuthorization, TokenLimit,
 };
 
-use crate::error::{PrestoError, Result};
+use crate::error::PrestoError;
 use crate::wallet::credentials::{KeyType, StoredTokenLimit};
 
 /// Default key authorization expiry: 30 days.
@@ -58,7 +58,7 @@ pub fn decode(hex_str: &str) -> Option<SignedKeyAuthorization> {
 pub(crate) fn validate(
     hex_str: Option<&str>,
     expected_key_id: Address,
-) -> Result<Option<ValidatedKeyAuth>> {
+) -> Result<Option<ValidatedKeyAuth>, PrestoError> {
     let hex_str = match hex_str {
         Some(s) => s,
         None => return Ok(None),
@@ -115,7 +115,7 @@ pub(crate) fn sign(
     wallet_signer: &PrivateKeySigner,
     access_signer: &PrivateKeySigner,
     chain_id: u64,
-) -> Result<ValidatedKeyAuth> {
+) -> Result<ValidatedKeyAuth, PrestoError> {
     let expiry_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

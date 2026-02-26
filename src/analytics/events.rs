@@ -111,7 +111,7 @@ impl EventPayload for QueryStartedPayload {}
 pub struct QuerySuccessPayload {
     pub url: String,
     pub method: String,
-    pub status_code: u32,
+    pub status_code: u16,
 }
 impl EventPayload for QuerySuccessPayload {}
 

@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::error::{PrestoError, Result};
+use crate::error::PrestoError;
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ pub fn atomic_write(
     path: &Path,
     contents: &str,
     #[allow(unused_variables)] unix_mode: u32,
-) -> Result<()> {
+) -> Result<(), PrestoError> {
     let parent = path.parent().ok_or_else(|| {
         PrestoError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

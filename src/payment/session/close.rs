@@ -204,17 +204,9 @@ pub(super) async fn close_on_chain(
         }
     }
 
-    let network = Network::from_chain_id(record.chain_id).ok_or_else(|| {
-        crate::error::PrestoError::InvalidConfig(format!(
-            "Unsupported chainId: {}",
-            record.chain_id
-        ))
-    })?;
+    let network = Network::require_chain_id(record.chain_id)?;
     let network_info = config.resolve_network(network.as_str())?;
-    let rpc_url: url::Url = network_info
-        .rpc_url
-        .parse()
-        .map_err(|e| crate::error::PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))?;
+    let rpc_url = Network::parse_rpc_url(&network_info.rpc_url)?;
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
     // Check current channel state to determine which step we're on

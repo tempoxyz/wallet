@@ -9,7 +9,7 @@ use std::str::FromStr;
 use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 
-use crate::error::{PrestoError, Result};
+use crate::error::PrestoError;
 use crate::wallet::credentials::WalletCredentials;
 use mpp::client::tempo::signing::TempoSigningMode;
 
@@ -56,7 +56,7 @@ fn resolve_signing_mode(
 /// Loads the key from persisted credentials, parses the wallet
 /// address, and builds a `TempoSigningMode` (direct EOA or keychain
 /// with optional key authorization).
-pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
+pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner, PrestoError> {
     // Preserve detailed error context from loader
     let creds = WalletCredentials::load()?;
 

@@ -12,6 +12,7 @@ use mpp::PaymentProtocol;
 
 use crate::analytics::{self, Analytics};
 use crate::config::{load_config_with_overrides, Config};
+use crate::error::PrestoError;
 
 use super::output::{handle_regular_response, OutputOptions};
 use super::{Cli, QueryArgs};
@@ -210,7 +211,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
 struct PaymentResult {
     tx_hash: String,
     session_id: Option<String>,
-    status_code: u32,
+    status_code: u16,
     response: Option<HttpResponse>,
 }
 
@@ -305,12 +306,11 @@ async fn dispatch_payment(
 /// i.e., something that `presto login` would fix.
 fn is_login_fixable(err: &anyhow::Error) -> bool {
     err.chain().any(|e| {
-        if let Some(pe) = e.downcast_ref::<crate::error::PrestoError>() {
+        if let Some(pe) = e.downcast_ref::<PrestoError>() {
             matches!(
                 pe,
-                crate::error::PrestoError::AccessKeyNotProvisioned
-                    | crate::error::PrestoError::ConfigMissing(_)
-            ) || matches!(pe, crate::error::PrestoError::PaymentRejected { reason, .. }
+                PrestoError::AccessKeyNotProvisioned | PrestoError::ConfigMissing(_)
+            ) || matches!(pe, PrestoError::PaymentRejected { reason, .. }
                     if reason.contains("access key does not exist")
                        || reason.contains("access key is not provisioned"))
         } else {
@@ -337,21 +337,17 @@ struct ChallengeContext {
 fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> {
     let www_auth = response
         .get_header("www-authenticate")
-        .ok_or_else(|| crate::error::PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
-    let _protocol = PaymentProtocol::detect(Some(www_auth.as_str())).ok_or_else(|| {
-        crate::error::PrestoError::MissingHeader("WWW-Authenticate: Payment".to_string())
-    })?;
+    let _protocol = PaymentProtocol::detect(Some(www_auth.as_str()))
+        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate: Payment".to_string()))?;
 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // Enforce supported payment protocol (tempo only for now)
     if !challenge.method.eq_ignore_ascii_case("tempo") {
-        return Err(crate::error::PrestoError::UnsupportedPaymentMethod(
-            challenge.method.to_string(),
-        )
-        .into());
+        return Err(PrestoError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
     }
 
     let is_session = challenge.intent.is_session();
@@ -409,7 +405,7 @@ async fn ensure_wallet_or_prompt_login(
             eprintln!("\nRetrying request...");
             *config = load_config_with_overrides(cli.config.as_ref())?;
         } else {
-            anyhow::bail!(crate::error::PrestoError::ConfigMissing(
+            anyhow::bail!(PrestoError::ConfigMissing(
                 "No wallet configured.".to_string()
             ));
         }
@@ -458,7 +454,7 @@ impl PaymentAnalytics {
         session_id: Option<String>,
         url: &str,
         method: &str,
-        status_code: u32,
+        status_code: u16,
     ) {
         if let Some(ref a) = self.analytics {
             a.track(
@@ -502,7 +498,7 @@ pub(crate) fn finalize_response(output_opts: &OutputOptions, response: HttpRespo
     let status = response.status_code;
     handle_regular_response(output_opts, response)?;
     if status >= 400 {
-        anyhow::bail!(crate::error::PrestoError::Http(format!(
+        anyhow::bail!(PrestoError::Http(format!(
             "{} {}",
             status,
             http_status_text(status)
@@ -511,7 +507,7 @@ pub(crate) fn finalize_response(output_opts: &OutputOptions, response: HttpRespo
     Ok(())
 }
 
-fn http_status_text(code: u32) -> &'static str {
+fn http_status_text(code: u16) -> &'static str {
     match code {
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -529,7 +525,7 @@ fn http_status_text(code: u32) -> &'static str {
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
-fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError {
+fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
     let reason = if let Ok(body) = response.body_string() {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
             if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
@@ -550,7 +546,7 @@ fn parse_payment_rejection(response: &HttpResponse) -> crate::error::PrestoError
         format!("HTTP {}", response.status_code)
     };
 
-    crate::error::PrestoError::PaymentRejected {
+    PrestoError::PaymentRejected {
         reason,
         status_code: response.status_code,
     }

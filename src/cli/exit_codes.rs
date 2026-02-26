@@ -115,9 +115,6 @@ impl From<&crate::error::PrestoError> for ExitCode {
                 ExitCode::InsufficientFunds
             }
 
-            // Invalid usage errors
-            PrestoError::InvalidAmount(_) => ExitCode::InvalidUsage,
-
             // Payment protocol errors
             PrestoError::PaymentRejected { .. }
             | PrestoError::InvalidChallenge(_)
@@ -165,15 +162,6 @@ mod tests {
         assert_eq!(
             ExitCode::from(&PrestoError::UnknownNetwork("test".into())),
             ExitCode::NetworkError
-        );
-    }
-
-    #[test]
-    fn test_invalid_amount_exit_code() {
-        use crate::error::PrestoError;
-        assert_eq!(
-            ExitCode::from(&PrestoError::InvalidAmount("abc".into())),
-            ExitCode::InvalidUsage
         );
     }
 
