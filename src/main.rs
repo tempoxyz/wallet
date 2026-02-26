@@ -410,7 +410,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 
             // Auto-login if no wallet is connected
             let creds = wallet::credentials::WalletCredentials::load()?;
-            if !creds.has_wallet() {
+            if !creds.has_wallet() && std::env::var("PRESTO_NO_AUTO_LOGIN").is_err() {
                 eprintln!("No wallet connected. Starting login...\n");
                 if let Some(ref a) = analytics {
                     a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);

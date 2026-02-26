@@ -89,6 +89,9 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
     // Set HOME for both macOS and Linux
     cmd.env("HOME", temp_dir.path());
 
+    // Prevent whoami from auto-triggering browser login in tests
+    cmd.env("PRESTO_NO_AUTO_LOGIN", "1");
+
     // Set XDG variables for Linux (dirs crate v6+ respects these)
     cmd.env("XDG_CONFIG_HOME", temp_dir.path().join(".config"));
     cmd.env("XDG_DATA_HOME", temp_dir.path().join(".local/share"));
