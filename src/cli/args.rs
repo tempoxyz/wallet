@@ -74,22 +74,12 @@ pub struct Cli {
     )]
     pub color: ColorMode,
 
-    /// Output format
-    #[arg(
-        long,
-        value_name = "FORMAT",
-        global = true,
-        help_heading = "Display Options"
-    )]
-    pub output_format: Option<OutputFormat>,
-
     /// Quick switch for JSON output format (alias for `--output-format json`)
     #[arg(
         short = 'j',
         long = "json-output",
         help_heading = "Display Options",
-        global = true,
-        conflicts_with = "output_format"
+        global = true
     )]
     pub json_output: bool,
 }
@@ -342,10 +332,9 @@ impl Cli {
     /// Resolve the effective output format: CLI flag > config > default (text).
     pub fn resolve_output_format(&self, config: &Config) -> OutputFormat {
         if self.json_output {
-            return OutputFormat::Json;
+            OutputFormat::Json
+        } else {
+            config.output_format.unwrap_or(OutputFormat::Text)
         }
-        self.output_format
-            .or(config.output_format)
-            .unwrap_or(OutputFormat::Text)
     }
 }
