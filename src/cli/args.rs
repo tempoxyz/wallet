@@ -106,6 +106,11 @@ pub struct Cli {
 
 /// Make an HTTP request with optional payment
 #[derive(Parser, Debug)]
+#[command(after_help = "\
+\x1b[1;4mExamples\x1b[0m:
+  presto https://api.example.com/data
+  presto -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
+  presto -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
 pub struct QueryArgs {
     /// URL to request
     #[arg(value_name = "URL")]
@@ -290,7 +295,8 @@ pub struct QueryArgs {
     #[arg(
         long = "write-meta",
         value_name = "FILE",
-        help_heading = "HTTP Options"
+        help_heading = "HTTP Options",
+        hide = true
     )]
     pub write_meta: Option<String>,
 
@@ -323,7 +329,7 @@ pub struct QueryArgs {
     pub save_receipt: Option<String>,
 
     /// Output machine-readable price JSON on --dry-run for 402 responses
-    #[arg(long = "price-json", help_heading = "Payment Options")]
+    #[arg(long = "price-json", help_heading = "Payment Options", hide = true)]
     pub price_json: bool,
 
     /// Use an HTTP/HTTPS proxy

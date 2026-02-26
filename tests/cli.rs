@@ -123,6 +123,70 @@ fn test_help_has_http_options_section() {
 }
 
 #[test]
+fn test_top_level_help_compact_no_hidden_commands() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Hidden commands must not appear in top-level help
+    assert!(
+        !stdout.contains("query ") && !stdout.contains("  query"),
+        "hidden 'query' command leaked: {stdout}"
+    );
+    assert!(
+        !stdout.contains("balance ") && !stdout.contains("  balance"),
+        "hidden 'balance' command leaked: {stdout}"
+    );
+    assert!(
+        !stdout.contains("wallet ") && !stdout.contains("  wallet"),
+        "hidden 'wallet' command leaked: {stdout}"
+    );
+    assert!(
+        !stdout.contains("completions"),
+        "hidden 'completions' command leaked: {stdout}"
+    );
+    // Visible commands must appear
+    assert!(stdout.contains("login"), "missing 'login' command");
+    assert!(stdout.contains("logout"), "missing 'logout' command");
+    assert!(stdout.contains("whoami"), "missing 'whoami' command");
+    assert!(stdout.contains("session"), "missing 'session' command");
+}
+
+#[test]
+fn test_query_help_has_key_flags() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["query", "--help"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Key HTTP flags
+    for flag in [
+        "-X", "-H", "-d,", "--json", "-L", "-i,", "-I", "-m,", "-f,", "-o,",
+    ] {
+        assert!(stdout.contains(flag), "missing flag {flag} in query help");
+    }
+    // Examples section
+    assert!(
+        stdout.contains("Examples"),
+        "missing Examples section in query help"
+    );
+    // Hidden flags must not appear
+    assert!(
+        !stdout.contains("--write-meta"),
+        "hidden --write-meta leaked in query help"
+    );
+    assert!(
+        !stdout.contains("--price-json"),
+        "hidden --price-json leaked in query help"
+    );
+    assert!(
+        !stdout.contains("--rpc"),
+        "hidden --rpc leaked in query help"
+    );
+}
+
+#[test]
 fn test_alias_with_display_options() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-s", "--color", "never"])
