@@ -425,6 +425,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         .await
                         .map_err(Into::into)
                 }
+                Some(KeyCommands::Clean { yes }) => cli::auth::run_key_clean(yes),
                 None => cli::auth::show_whoami(&config, output_format, network)
                     .await
                     .map_err(Into::into),

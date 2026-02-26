@@ -208,24 +208,48 @@ impl WalletManager {
         // If the file is corrupt, surface the error instead of silently resetting.
         let mut creds = WalletCredentials::load()?;
 
-        // Resolve which key name to update using both wallet and signer addresses
-        let profile =
+        // Resolve which key name to update using both wallet and signer addresses.
+        // If the resolved profile has a different access key for the same wallet
+        // (e.g. mainnet key vs testnet key), use a network-specific name to avoid
+        // overwriting the existing key.
+        let mut profile =
             creds.resolve_key_name_for_login(&callback.account_address, &access_key_address);
-        if let Some(_existing) = creds.keys.get(&profile) {
-            if let Some(key) = creds.keys.get_mut(&profile) {
-                key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
-                key.wallet_address = callback.account_address.clone();
-                key.access_key_address = Some(access_key_address.clone());
-                key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
-                key.key_authorization = key_auth_hex.clone();
+        if let Some(existing) = creds.keys.get(&profile) {
+            let same_key = existing
+                .access_key_address
+                .as_deref()
+                .is_some_and(|a| a == access_key_address);
+            if !same_key && self.network != "tempo" {
+                profile = format!("passkey-{}", self.network.replace("tempo-", ""));
+            }
+        }
+
+        if let Some(key) = creds.keys.get_mut(&profile) {
+            // Only clear provisioned state when the access key actually changed;
+            // re-authorizing the same key doesn't re-register it on-chain.
+            let key_changed = key
+                .access_key_address
+                .as_deref()
+                .is_none_or(|a| a != access_key_address);
+            key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
+            key.wallet_address = callback.account_address.clone();
+            key.access_key_address = Some(access_key_address.clone());
+            key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
+            key.key_authorization = key_auth_hex.clone();
+            if key_changed {
                 key.provisioned_chain_ids.clear();
             }
         } else {
-            creds.set_passkey(
-                callback.account_address,
-                access_key_address,
-                access_key_hex,
-                key_auth_hex,
+            creds.keys.insert(
+                profile,
+                crate::wallet::credentials::KeyEntry {
+                    wallet_type: crate::wallet::credentials::WalletType::Passkey,
+                    wallet_address: callback.account_address.clone(),
+                    access_key_address: Some(access_key_address.clone()),
+                    access_key: Some(zeroize::Zeroizing::new(access_key_hex.clone())),
+                    key_authorization: key_auth_hex.clone(),
+                    provisioned_chain_ids: Vec::new(),
+                },
             );
         }
         creds.save()?;

@@ -353,6 +353,9 @@ async fn list_all_channels(
                             }
                         };
                         ("closed", secs)
+                    } else if let Some(secs) = pending_map.get(&ch.channel_id).copied() {
+                        // requestClose tx was submitted but not yet mined
+                        ("closed", Some(secs))
                     } else {
                         ("orphaned", None)
                     };
@@ -827,14 +830,19 @@ async fn close_orphaned_channels(
     let mut pending = 0u32;
     let mut failed = 0u32;
     let mut results: Vec<serde_json::Value> = Vec::new();
+    // Track nonce offsets per network so sequential txs don't collide.
+    let mut nonce_offsets: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
 
     for ch in &orphaned {
         if show_output {
             eprintln!("Closing {}...", ch.channel_id);
         }
-        match close_discovered_channel(ch, config).await {
+        let offset = nonce_offsets.get(&ch.network).copied().unwrap_or(0);
+        match close_discovered_channel(ch, config, offset).await {
             Ok(CloseOutcome::Closed) => {
                 closed += 1;
+                *nonce_offsets.entry(ch.network.clone()).or_default() += 1;
                 // Clean up any pending close and session records
                 let _ = session_store::delete_pending_close(&ch.channel_id);
                 let _ = session_store::delete_session_by_channel_id(&ch.channel_id);
@@ -845,6 +853,7 @@ async fn close_orphaned_channels(
             }
             Ok(CloseOutcome::Pending { remaining_secs }) => {
                 pending += 1;
+                *nonce_offsets.entry(ch.network.clone()).or_default() += 1;
                 if show_output {
                     eprintln!(
                         "  Pending — {} remaining, run `presto session close --closed` to finalize.",
@@ -927,14 +936,23 @@ pub async fn close_sessions(
 
         // Phase 1: close local sessions
         let sessions = session_store::list_sessions()?;
+        let mut nonce_offsets: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
         for session in &sessions {
             let key = session_store::session_key(&session.origin);
             if show_output {
                 eprintln!("Closing {}...", session.origin);
             }
-            match close_session_from_record(session, config).await {
+            let offset = nonce_offsets
+                .get(&session.network_name)
+                .copied()
+                .unwrap_or(0);
+            match close_session_from_record(session, config, offset).await {
                 Ok(CloseOutcome::Closed) => {
                     closed += 1;
+                    *nonce_offsets
+                        .entry(session.network_name.clone())
+                        .or_default() += 1;
                     if let Err(e) = session_store::delete_session(&key) {
                         if show_output {
                             eprintln!("  Failed to remove local session: {e}");
@@ -949,6 +967,9 @@ pub async fn close_sessions(
                 }
                 Ok(CloseOutcome::Pending { remaining_secs }) => {
                     pending += 1;
+                    *nonce_offsets
+                        .entry(session.network_name.clone())
+                        .or_default() += 1;
                     if show_output {
                         eprintln!(
                             "  Pending — {} remaining, run `presto session close --closed` to finalize.",
@@ -990,6 +1011,8 @@ pub async fn close_sessions(
 
                     let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
 
+                    let mut nonce_offsets: std::collections::HashMap<String, u64> =
+                        std::collections::HashMap::new();
                     for ch in &channels {
                         if local_channel_ids.contains(ch.channel_id.as_str()) {
                             continue;
@@ -997,9 +1020,11 @@ pub async fn close_sessions(
                         if show_output {
                             eprintln!("Closing {}...", ch.channel_id);
                         }
-                        match close_discovered_channel(ch, config).await {
+                        let offset = nonce_offsets.get(&ch.network).copied().unwrap_or(0);
+                        match close_discovered_channel(ch, config, offset).await {
                             Ok(CloseOutcome::Closed) => {
                                 closed += 1;
+                                *nonce_offsets.entry(ch.network.clone()).or_default() += 1;
                                 let _ = session_store::delete_pending_close(&ch.channel_id);
                                 results.push(serde_json::json!({
                                     "channel_id": ch.channel_id,
@@ -1008,6 +1033,7 @@ pub async fn close_sessions(
                             }
                             Ok(CloseOutcome::Pending { remaining_secs }) => {
                                 pending += 1;
+                                *nonce_offsets.entry(ch.network.clone()).or_default() += 1;
                                 if show_output {
                                     eprintln!(
                                         "  Pending — {} remaining, run `presto session close --closed` to finalize.",
@@ -1132,7 +1158,7 @@ pub async fn close_sessions(
             if show_output {
                 eprintln!("Closing {target}...");
             }
-            match close_session_from_record(&record, config).await {
+            match close_session_from_record(&record, config, 0).await {
                 Ok(CloseOutcome::Closed) => {
                     if let Err(e) = session_store::delete_session(&key) {
                         if show_output {

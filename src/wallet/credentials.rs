@@ -234,12 +234,6 @@ impl WalletCredentials {
         self.keys.get(&name)
     }
 
-    /// Get a mutable reference to the primary key.
-    fn primary_key_mut(&mut self) -> Option<&mut KeyEntry> {
-        let name = self.primary_key_name()?;
-        self.keys.get_mut(&name)
-    }
-
     /// Check if a wallet is configured.
     ///
     /// Returns `true` when the primary key has a wallet address AND
@@ -280,12 +274,6 @@ impl WalletCredentials {
         parse_private_key_signer(pk)
     }
 
-    /// Get the key_authorization hex string from the primary key.
-    pub fn key_authorization(&self) -> Option<&str> {
-        self.primary_key()
-            .and_then(|a| a.key_authorization.as_deref())
-    }
-
     /// Get the access key address for the primary key.
     ///
     /// Uses the stored `access_key_address` field if available, otherwise
@@ -303,7 +291,8 @@ impl WalletCredentials {
 
     /// Check if a network's key is provisioned on-chain.
     pub fn is_provisioned(&self, network: &str) -> bool {
-        let Some(key_entry) = self.primary_key() else {
+        let key_entry = self.key_for_network(network);
+        let Some(key_entry) = key_entry else {
             return false;
         };
         let Some(chain_id) = network.parse::<Network>().ok().map(|n| n.chain_id()) else {
@@ -312,7 +301,44 @@ impl WalletCredentials {
         key_entry.provisioned_chain_ids.contains(&chain_id)
     }
 
+    /// Find the key for a given network.
+    ///
+    /// For mainnet (`tempo`), returns the primary key (`passkey-default` / `default`).
+    /// For other networks (e.g. `tempo-moderato`), looks for a network-specific
+    /// key name (e.g. `passkey-moderato`), then falls back to any key provisioned
+    /// on that chain. Returns `None` if no match found.
+    pub fn key_for_network(&self, network: &str) -> Option<&KeyEntry> {
+        if network == "tempo" {
+            // Mainnet uses the primary key
+            return self.primary_key();
+        }
+        // Try network-specific key name (e.g. "passkey-moderato")
+        let suffix = network.strip_prefix("tempo-").unwrap_or(network);
+        let network_key_name = format!("passkey-{suffix}");
+        if let Some(entry) = self.keys.get(&network_key_name) {
+            return Some(entry);
+        }
+        // Try any key provisioned on this chain
+        let chain_id = network.parse::<Network>().ok().map(|n| n.chain_id())?;
+        if let Some(entry) = self
+            .keys
+            .values()
+            .find(|k| k.provisioned_chain_ids.contains(&chain_id))
+        {
+            return Some(entry);
+        }
+        // Direct EOA keys (wallet == signer) work on any network — no currency-scoped auth
+        self.keys.values().find(|k| {
+            k.wallet_type == WalletType::Local
+                && k.access_key_address.as_deref() == Some(&k.wallet_address)
+                && k.access_key.as_ref().is_some_and(|ak| !ak.is_empty())
+        })
+    }
+
     /// Mark a network's access key as provisioned and persist to disk.
+    ///
+    /// Updates the network-specific key (e.g., `passkey-moderato` for
+    /// `tempo-moderato`) if one exists, otherwise falls back to the primary key.
     ///
     /// No-op if already provisioned, the network is unknown, or an ephemeral
     /// credentials override is active (e.g., `--private-key`).
@@ -324,11 +350,23 @@ impl WalletCredentials {
             return;
         };
         if let Ok(mut creds) = Self::load() {
-            if let Some(key_entry) = creds.primary_key_mut() {
-                if !key_entry.provisioned_chain_ids.contains(&chain_id) {
-                    key_entry.provisioned_chain_ids.push(chain_id);
-                    if let Err(e) = creds.save() {
-                        tracing::warn!("failed to persist provisioned flag: {e}");
+            // Find the right key: network-specific first, then primary.
+            let key_name = {
+                let suffix = network.strip_prefix("tempo-").unwrap_or(network);
+                let network_key_name = format!("passkey-{suffix}");
+                if creds.keys.contains_key(&network_key_name) {
+                    Some(network_key_name)
+                } else {
+                    creds.primary_key_name()
+                }
+            };
+            if let Some(name) = key_name {
+                if let Some(key_entry) = creds.keys.get_mut(&name) {
+                    if !key_entry.provisioned_chain_ids.contains(&chain_id) {
+                        key_entry.provisioned_chain_ids.push(chain_id);
+                        if let Err(e) = creds.save() {
+                            tracing::warn!("failed to persist provisioned flag: {e}");
+                        }
                     }
                 }
             }
@@ -340,6 +378,7 @@ impl WalletCredentials {
     /// Prefers the primary key if it matches the address, then searches
     /// other keys, and finally falls back to the `--key` override
     /// or the default passkey name.
+    #[cfg(test)]
     pub fn resolve_key_name(&self, wallet_address: &str) -> String {
         // Prefer primary key if it matches the address
         if let Some(name) = self.primary_key_name() {
@@ -422,6 +461,7 @@ impl WalletCredentials {
     /// If a key with the same address already exists under a different
     /// key name, it updates that one. Otherwise, uses the `--key` override
     /// (if set) or falls back to the default passkey name.
+    #[cfg(test)]
     pub fn set_passkey(
         &mut self,
         wallet_address: String,
@@ -760,7 +800,8 @@ provisioned_chain_ids = [4217, 42431]
         assert_eq!(creds.primary_key_name().unwrap(), "default");
         assert_eq!(creds.wallet_address(), "0xAAA");
         assert!(creds.is_provisioned("tempo"));
-        assert!(!creds.is_provisioned("tempo-moderato"));
+        // "work" key is provisioned on moderato (42431), found via key_for_network
+        assert!(creds.is_provisioned("tempo-moderato"));
     }
 
     #[test]
