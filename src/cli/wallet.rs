@@ -10,16 +10,19 @@ use tempo_primitives::transaction::{
 };
 use zeroize::Zeroizing;
 
-use crate::wallet::credentials::{self, keychain, KeyEntry, WalletCredentials, WalletType};
+use crate::network::evm_chain_ids;
+use crate::wallet::credentials::{
+    self, keychain, KeyEntry, StoredTokenLimit, WalletCredentials, WalletType,
+};
 
 /// Create a local EOA wallet with an access key.
 ///
 /// 1. Generate random EOA key → store in OS keychain (wallet owner key)
 /// 2. Generate random access key → store inline in keys.toml
-/// 3. Sign key_authorization with chain_id=0 using the local EOA
+/// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
 /// 5. Print the fundable wallet address
-pub fn create_local_wallet(name: &str) -> Result<()> {
+pub fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot create wallets with --private-key flag");
     }
@@ -43,16 +46,26 @@ pub fn create_local_wallet(name: &str) -> Result<()> {
     let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(access_signer.to_bytes())));
     let access_key_address = format!("{}", access_signer.address());
 
-    // Sign key_authorization with chain_id=0 (all chains)
-    let (key_auth_hex, _) = sign_key_authorization(&wallet_signer, &access_signer)?;
+    // Sign key_authorization for the target chain
+    let chain_id = network
+        .unwrap_or("tempo")
+        .parse::<crate::network::Network>()
+        .map(|n| n.chain_id())
+        .unwrap_or(evm_chain_ids::TEMPO);
+    let (key_auth_hex, expiry_secs, token_limits) =
+        sign_key_authorization(&wallet_signer, &access_signer, chain_id)?;
 
     let key_entry = KeyEntry {
         wallet_type: WalletType::Local,
         wallet_address: wallet_address.clone(),
-        access_key_address: Some(access_key_address),
-        access_key: Some(access_key_hex),
+        key_address: Some(access_key_address),
+        key: Some(access_key_hex),
         key_authorization: Some(key_auth_hex),
-        ..Default::default()
+        chain_id,
+        key_type: "secp256k1".to_string(),
+        expiry: Some(expiry_secs),
+        token_limits,
+        provisioned: false,
     };
     creds.keys.insert(name.to_string(), key_entry);
     if let Err(e) = creds.save() {
@@ -105,14 +118,18 @@ pub fn create_access_key(name: &str) -> Result<()> {
     let access_key_address = format!("{}", access_signer.address());
 
     // Sign key_authorization with fresh expiry
-    let (key_auth_hex, _) = sign_key_authorization(&wallet_signer, &access_signer)?;
+    let chain_id = key_entry.chain_id;
+    let (key_auth_hex, expiry_secs, token_limits) =
+        sign_key_authorization(&wallet_signer, &access_signer, chain_id)?;
 
     // Update the key entry in-place
     let entry = creds.keys.get_mut(name).unwrap();
-    entry.access_key_address = Some(access_key_address);
-    entry.access_key = Some(access_key_hex);
+    entry.key_address = Some(access_key_address);
+    entry.key = Some(access_key_hex);
     entry.key_authorization = Some(key_auth_hex);
-    entry.provisioned_chain_ids.clear();
+    entry.provisioned = false;
+    entry.expiry = Some(expiry_secs);
+    entry.token_limits = token_limits;
 
     creds.save()?;
     Ok(())
@@ -120,12 +137,13 @@ pub fn create_access_key(name: &str) -> Result<()> {
 
 /// Sign a key authorization for an access key using the wallet EOA.
 ///
-/// Returns `(key_auth_hex, expiry_secs)`. Uses chain_id=0 (all chains),
-/// $100 USDC limit, and 30-day expiry.
+/// Returns `(key_auth_hex, expiry_secs, stored_token_limits)`.
+/// Uses $100 USDC limit and 30-day expiry.
 fn sign_key_authorization(
     wallet_signer: &PrivateKeySigner,
     access_signer: &PrivateKeySigner,
-) -> Result<(String, u64)> {
+    chain_id: u64,
+) -> Result<(String, u64, Vec<StoredTokenLimit>)> {
     let expiry_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -142,8 +160,15 @@ fn sign_key_authorization(
         limit,
     })
     .collect();
+    let stored_token_limits: Vec<StoredTokenLimit> = token_limits
+        .iter()
+        .map(|tl| StoredTokenLimit {
+            currency: format!("{}", tl.token),
+            limit: tl.limit.to_string(),
+        })
+        .collect();
     let auth = KeyAuthorization {
-        chain_id: 0,
+        chain_id,
         key_type: SignatureType::Secp256k1,
         key_id: access_signer.address(),
         expiry: Some(expiry_secs),
@@ -155,7 +180,11 @@ fn sign_key_authorization(
     let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
     let mut buf = Vec::new();
     signed.encode(&mut buf);
-    Ok((format!("0x{}", hex::encode(&buf)), expiry_secs))
+    Ok((
+        format!("0x{}", hex::encode(&buf)),
+        expiry_secs,
+        stored_token_limits,
+    ))
 }
 
 /// Delete a wallet by name.

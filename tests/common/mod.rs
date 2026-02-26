@@ -75,12 +75,10 @@ pub fn setup_live_test() -> TempDir {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
 
     let wallet_toml = format!(
-        "active = \"default\"\n\
-         \n\
-         [keys.default]\n\
+        "[keys.default]\n\
          wallet_address = \"{TEST_WALLET_ADDRESS}\"\n\
-         access_key_address = \"{TEST_WALLET_ADDRESS}\"\n\
-         access_key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
+         key_address = \"{TEST_WALLET_ADDRESS}\"\n\
+         key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
     );
 
     // Layout paths within the temp dir (both macOS and Linux)

@@ -216,7 +216,7 @@ impl WalletManager {
             creds.resolve_key_name_for_login(&callback.account_address, &access_key_address);
         if let Some(existing) = creds.keys.get(&profile) {
             let same_key = existing
-                .access_key_address
+                .key_address
                 .as_deref()
                 .is_some_and(|a| a == access_key_address);
             if !same_key && self.network != "tempo" {
@@ -228,16 +228,22 @@ impl WalletManager {
             // Only clear provisioned state when the access key actually changed;
             // re-authorizing the same key doesn't re-register it on-chain.
             let key_changed = key
-                .access_key_address
+                .key_address
                 .as_deref()
                 .is_none_or(|a| a != access_key_address);
             key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
             key.wallet_address = callback.account_address.clone();
-            key.access_key_address = Some(access_key_address.clone());
-            key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
+            key.key_address = Some(access_key_address.clone());
+            key.key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
             key.key_authorization = key_auth_hex.clone();
+            if let Some(ref v) = validated {
+                key.chain_id = v.chain_id;
+                key.key_type = v.key_type.clone();
+                key.expiry = Some(v.expiry);
+                key.token_limits = v.token_limits.clone();
+            }
             if key_changed {
-                key.provisioned_chain_ids.clear();
+                key.provisioned = false;
             }
         } else {
             creds.keys.insert(
@@ -245,10 +251,20 @@ impl WalletManager {
                 crate::wallet::credentials::KeyEntry {
                     wallet_type: crate::wallet::credentials::WalletType::Passkey,
                     wallet_address: callback.account_address.clone(),
-                    access_key_address: Some(access_key_address.clone()),
-                    access_key: Some(zeroize::Zeroizing::new(access_key_hex.clone())),
+                    chain_id: validated.as_ref().map(|v| v.chain_id).unwrap_or(0),
+                    key_type: validated
+                        .as_ref()
+                        .map(|v| v.key_type.clone())
+                        .unwrap_or_else(|| "secp256k1".to_string()),
+                    key_address: Some(access_key_address.clone()),
+                    key: Some(zeroize::Zeroizing::new(access_key_hex.clone())),
                     key_authorization: key_auth_hex.clone(),
-                    provisioned_chain_ids: Vec::new(),
+                    expiry: validated.as_ref().map(|v| v.expiry),
+                    token_limits: validated
+                        .as_ref()
+                        .map(|v| v.token_limits.clone())
+                        .unwrap_or_default(),
+                    provisioned: false,
                 },
             );
         }
@@ -280,6 +296,9 @@ impl Default for WalletManager {
 struct ValidatedKeyAuth {
     hex: String,
     expiry: u64,
+    chain_id: u64,
+    key_type: String,
+    token_limits: Vec<crate::wallet::credentials::StoredTokenLimit>,
 }
 
 fn validate_key_authorization(
@@ -302,10 +321,36 @@ fn validate_key_authorization(
     }
 
     let expiry = signed.authorization.expiry.unwrap_or(0);
+    let chain_id = signed.authorization.chain_id;
+
+    let key_type = match signed.authorization.key_type {
+        tempo_primitives::transaction::SignatureType::Secp256k1 => "secp256k1",
+        tempo_primitives::transaction::SignatureType::P256 => "p256",
+        tempo_primitives::transaction::SignatureType::WebAuthn => "webauthn",
+    }
+    .to_string();
+
+    let token_limits = signed
+        .authorization
+        .limits
+        .as_ref()
+        .map(|limits| {
+            limits
+                .iter()
+                .map(|tl| crate::wallet::credentials::StoredTokenLimit {
+                    currency: format!("{:#x}", tl.token),
+                    limit: tl.limit.to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     Ok(Some(ValidatedKeyAuth {
         hex: hex_str.to_string(),
         expiry,
+        chain_id,
+        key_type,
+        token_limits,
     }))
 }
 
@@ -445,6 +490,8 @@ mod tests {
         let validated = result.unwrap().unwrap();
         assert_eq!(validated.hex, hex);
         assert_eq!(validated.expiry, 9999999999);
+        assert_eq!(validated.chain_id, 42431);
+        assert_eq!(validated.key_type, "secp256k1");
     }
 
     #[test]

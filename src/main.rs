@@ -343,7 +343,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             cli::auth::run_login(network, analytics.clone(), output_format).await
                         } else {
                             let name = name.as_deref().unwrap_or("local-default");
-                            cli::wallet::create_local_wallet(name)?;
+                            cli::wallet::create_local_wallet(name, cli.network.as_deref())?;
                             let config =
                                 load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
                             let output_format = cli.resolve_output_format(&config);

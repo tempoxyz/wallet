@@ -239,9 +239,9 @@ async fn build_whoami_response(
             };
 
             let key_addr = key_entry
-                .access_key_address
+                .key_address
                 .clone()
-                .or_else(|| creds.access_key_address());
+                .or_else(|| creds.key_address());
 
             if let Some(addr) = key_addr {
                 let (symbol, currency, spending_limit) = match key_token_info {
@@ -382,6 +382,12 @@ fn print_key_amounts_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> Result<()>
 /// Extract the expiry timestamp from a key entry's authorization, if present.
 /// Returns `None` for keys without an authorization or without an expiry (unlimited).
 fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
+    if let Some(expiry) = key_entry.expiry {
+        if expiry > 0 {
+            return Some(expiry);
+        }
+    }
+    // Fallback: decode from key_authorization for backwards compat during transition
     let auth = key_entry
         .key_authorization
         .as_deref()
@@ -441,7 +447,7 @@ async fn query_spending_limit(
     let network_info = config.resolve_network(network).ok()?;
 
     let wallet_address: Address = key_entry.wallet_address.parse().ok()?;
-    let key_address: Address = key_entry.access_key_address.as_ref()?.parse().ok()?;
+    let key_address: Address = key_entry.key_address.as_ref()?.parse().ok()?;
     let rpc_url = network_info.rpc_url.parse().ok()?;
 
     let local_auth = key_entry
@@ -636,7 +642,7 @@ pub async fn show_keys(
 
     for (name, entry) in &creds.keys {
         let address = entry
-            .access_key_address
+            .key_address
             .clone()
             .unwrap_or_else(|| "none".to_string());
 
@@ -697,7 +703,7 @@ pub async fn show_keys(
                 if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
                     println!("{:>10}: {} ({})", "Wallet", wallet, wt);
                 }
-                println!("{:>10}: {}", "Access Key", key.address);
+                println!("{:>10}: {}", "Key", key.address);
                 if let Some(cur) = &key.currency {
                     println!("{:>10}: {}", "Currency", cur);
                 }

@@ -523,17 +523,16 @@ fn test_private_key_env_value_hidden_in_help() {
 
 /// Helper: write a multi-key keys.toml into both macOS and Linux paths.
 fn setup_multi_key(temp: &tempfile::TempDir) {
-    let wallet_toml = r#"active = "default"
-
+    let wallet_toml = r#"
 [keys.default]
 wallet_address = "0xAAA"
-access_key_address = "0xAAA"
-access_key = "0xkey1"
+key_address = "0xAAA"
+key = "0xkey1"
 
 [keys.work]
 wallet_address = "0xBBB"
-access_key_address = "0xBBB"
-access_key = "0xkey2"
+key_address = "0xBBB"
+key = "0xkey2"
 "#;
     let config_toml = "";
 

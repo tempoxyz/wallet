@@ -758,12 +758,11 @@ async fn test_402_charge_flow() {
     // Set up temp dir with wallet + config pointing RPC to mock
     let temp = tempfile::TempDir::new().unwrap();
 
-    let wallet_toml = r#"active = "default"
-
+    let wallet_toml = r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 "#;
 
     let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
@@ -813,12 +812,11 @@ async fn test_402_payment_narration_verbose() {
 
     // Write wallet + RPC config
     let temp = tempfile::TempDir::new().unwrap();
-    let wallet_toml = r#"active = "default"
-
+    let wallet_toml = r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 "#;
     let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
 
@@ -860,12 +858,11 @@ async fn test_402_paid_summary_default_and_quiet() {
     let server = MockServer::start_payment(&www_auth, "ok").await;
 
     let temp = tempfile::TempDir::new().unwrap();
-    let wallet_toml = r#"active = "default"
-
+    let wallet_toml = r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 "#;
     let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
 
@@ -928,12 +925,11 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
     let server = MockServer::start_payment_with_receipt(&www_auth, "ok", &receipt_value).await;
 
     let temp = tempfile::TempDir::new().unwrap();
-    let wallet_toml = r#"active = "default"
-
+    let wallet_toml = r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 "#;
     let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
 
@@ -1009,13 +1005,13 @@ async fn test_402_charge_flow_keychain() {
 
     // wallet_address (0x7099...) differs from the private key's derived
     // address (0xf39F...), triggering Keychain signing mode.
-    let wallet_toml = r#"active = "default"
-
+    let wallet_toml = r#"
 [keys.default]
 wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-access_key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-access_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-provisioned_chain_ids = [42431]
+chain_id = 42431
+key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+provisioned = true
 "#;
 
     let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
@@ -1245,12 +1241,11 @@ async fn test_private_key_flag_overrides_wallet() {
 
     // Set up keys.toml with a DIFFERENT key (Hardhat #1) that points to a
     // different address. The --private-key flag should be used instead.
-    let wallet_toml = r#"active = "default"
-
+    let wallet_toml = r#"
 [keys.default]
 wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-access_key_address = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-access_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+key_address = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 "#;
 
     let macos_dir = temp.path().join("Library/Application Support/presto");

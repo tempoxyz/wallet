@@ -99,7 +99,7 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner> {
     })?;
 
     let pk = key_entry
-        .access_key
+        .key
         .as_deref()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
