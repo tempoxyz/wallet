@@ -9,9 +9,13 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::analytics::Analytics;
+use zeroize::Zeroizing;
+
+use crate::analytics::{
+    Analytics, CallbackReceivedPayload, CallbackWindowOpenedPayload, Event, KeyCreatedPayload,
+};
 use crate::error::PrestoError;
-use crate::wallet::credentials::WalletCredentials;
+use crate::wallet::credentials::{KeyEntry, KeyType, WalletCredentials, WalletType};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
@@ -53,18 +57,10 @@ impl WalletManager {
         }
     }
 
-    /// Get the base URL from the auth server URL.
+    /// Get the base URL (origin) from the auth server URL.
     fn get_auth_base_url(&self) -> String {
         Url::parse(&self.auth_server_url)
-            .map(|u| {
-                let port = u.port().map(|p| format!(":{}", p)).unwrap_or_default();
-                format!(
-                    "{}://{}{}",
-                    u.scheme(),
-                    u.host_str().unwrap_or("localhost"),
-                    port
-                )
-            })
+            .map(|u| u.origin().ascii_serialization())
             .unwrap_or_else(|_| self.auth_server_url.clone())
     }
 
@@ -132,8 +128,8 @@ impl WalletManager {
 
         if let Some(ref a) = self.analytics {
             a.track(
-                crate::analytics::Event::CallbackWindowOpened,
-                crate::analytics::CallbackWindowOpenedPayload {
+                Event::CallbackWindowOpened,
+                CallbackWindowOpenedPayload {
                     network: self.network.clone(),
                 },
             );
@@ -173,8 +169,8 @@ impl WalletManager {
 
         if let Some(ref a) = self.analytics {
             a.track(
-                crate::analytics::Event::CallbackReceived,
-                crate::analytics::CallbackReceivedPayload {
+                Event::CallbackReceived,
+                CallbackReceivedPayload {
                     network: self.network.clone(),
                     duration_secs: wait_start.elapsed().as_secs(),
                 },
@@ -201,7 +197,7 @@ impl WalletManager {
         let key_auth_hex = validated.as_ref().map(|v| v.hex.clone());
 
         let access_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
-        let access_key_address = format!("{}", local_signer.address());
+        let access_key_address = local_signer.address().to_string();
 
         // Load existing credentials to preserve other accounts.
         // If the file is corrupt, surface the error instead of silently resetting.
@@ -223,59 +219,56 @@ impl WalletManager {
             }
         }
 
-        if let Some(key) = creds.keys.get_mut(&profile) {
-            // Only clear provisioned state when the key actually changed;
-            // re-authorizing the same key doesn't re-register it on-chain.
-            let key_changed = key
+        // Only preserve provisioned state when key and chain are unchanged.
+        let keep_provisioned = creds.keys.get(&profile).is_some_and(|k| {
+            let same_key = k
                 .key_address
                 .as_deref()
-                .is_none_or(|a| a != access_key_address);
-            let chain_changed = validated
-                .as_ref()
-                .is_some_and(|v| v.chain_id != key.chain_id);
-            key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
-            key.wallet_address = callback.account_address.clone();
-            key.key_address = Some(access_key_address.clone());
-            key.key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
-            key.key_authorization = key_auth_hex.clone();
-            if let Some(ref v) = validated {
-                key.chain_id = v.chain_id;
-                key.key_type = v.key_type.clone();
-                key.expiry = Some(v.expiry);
-                key.token_limits = v.token_limits.clone();
-            }
-            if key_changed || chain_changed {
-                key.provisioned = false;
-            }
+                .is_some_and(|a| a == access_key_address);
+            let same_chain = validated.as_ref().is_none_or(|v| v.chain_id == k.chain_id);
+            same_key && same_chain && k.provisioned
+        });
+
+        // When no new authorization was received, preserve existing chain metadata.
+        let (chain_id, key_type, expiry, token_limits) = if let Some(ref v) = validated {
+            (
+                v.chain_id,
+                v.key_type.clone(),
+                Some(v.expiry),
+                v.token_limits.clone(),
+            )
+        } else if let Some(old) = creds.keys.get(&profile) {
+            (
+                old.chain_id,
+                old.key_type.clone(),
+                old.expiry,
+                old.token_limits.clone(),
+            )
         } else {
-            creds.keys.insert(
-                profile,
-                crate::wallet::credentials::KeyEntry {
-                    wallet_type: crate::wallet::credentials::WalletType::Passkey,
-                    wallet_address: callback.account_address.clone(),
-                    chain_id: validated.as_ref().map(|v| v.chain_id).unwrap_or(0),
-                    key_type: validated
-                        .as_ref()
-                        .map(|v| v.key_type.clone())
-                        .unwrap_or_default(),
-                    key_address: Some(access_key_address.clone()),
-                    key: Some(zeroize::Zeroizing::new(access_key_hex.clone())),
-                    key_authorization: key_auth_hex.clone(),
-                    expiry: validated.as_ref().map(|v| v.expiry),
-                    token_limits: validated
-                        .as_ref()
-                        .map(|v| v.token_limits.clone())
-                        .unwrap_or_default(),
-                    provisioned: false,
-                },
-            );
-        }
+            (0, KeyType::default(), None, Vec::new())
+        };
+
+        creds.keys.insert(
+            profile,
+            KeyEntry {
+                wallet_type: WalletType::Passkey,
+                wallet_address: callback.account_address,
+                chain_id,
+                key_type,
+                key_address: Some(access_key_address),
+                key: Some(Zeroizing::new(access_key_hex)),
+                key_authorization: key_auth_hex,
+                expiry,
+                token_limits,
+                provisioned: keep_provisioned,
+            },
+        );
         creds.save()?;
 
         if let Some(ref a) = self.analytics {
             a.track(
-                crate::analytics::Event::KeyCreated,
-                crate::analytics::KeyCreatedPayload {
+                Event::KeyCreated,
+                KeyCreatedPayload {
                     network: self.network.clone(),
                 },
             );
@@ -283,12 +276,6 @@ impl WalletManager {
         }
 
         Ok(())
-    }
-}
-
-impl Default for WalletManager {
-    fn default() -> Self {
-        Self::new(None, None)
     }
 }
 
@@ -379,6 +366,7 @@ async fn poll_device_code(
 fn generate_code_verifier() -> String {
     let mut bytes = [0u8; 32];
     getrandom::getrandom(&mut bytes).expect("failed to generate random bytes");
+    // Truncate to 43 chars: PKCE spec (RFC 7636 §4.1) requires 43–128 unreserved characters.
     hex::encode(bytes)[..43].to_string()
 }
 

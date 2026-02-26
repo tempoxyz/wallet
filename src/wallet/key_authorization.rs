@@ -86,17 +86,13 @@ pub(crate) fn validate(
     let token_limits = signed
         .authorization
         .limits
-        .as_ref()
-        .map(|limits| {
-            limits
-                .iter()
-                .map(|tl| StoredTokenLimit {
-                    currency: format!("{:#x}", tl.token),
-                    limit: tl.limit.to_string(),
-                })
-                .collect()
+        .iter()
+        .flatten()
+        .map(|tl| StoredTokenLimit {
+            currency: format!("{:#x}", tl.token),
+            limit: tl.limit.to_string(),
         })
-        .unwrap_or_default();
+        .collect();
 
     Ok(Some(ValidatedKeyAuth {
         hex: hex_str.to_string(),
@@ -122,21 +118,22 @@ pub(crate) fn sign(
         .as_secs()
         + DEFAULT_EXPIRY_SECS;
     let limit = alloy::primitives::U256::from(DEFAULT_LIMIT);
-    let token_limits: Vec<TokenLimit> = [
+    let token_addrs = [
         crate::network::tempo_tokens::USDCE,
         crate::network::tempo_tokens::PATH_USD,
-    ]
-    .iter()
-    .map(|addr| TokenLimit {
-        token: addr.parse().unwrap(),
-        limit,
-    })
-    .collect();
-    let stored_token_limits: Vec<StoredTokenLimit> = token_limits
+    ];
+    let token_limits: Vec<TokenLimit> = token_addrs
         .iter()
-        .map(|tl| StoredTokenLimit {
-            currency: format!("{:#x}", tl.token),
-            limit: tl.limit.to_string(),
+        .map(|addr| TokenLimit {
+            token: addr.parse().unwrap(),
+            limit,
+        })
+        .collect();
+    let stored_token_limits: Vec<StoredTokenLimit> = token_addrs
+        .iter()
+        .map(|addr| StoredTokenLimit {
+            currency: addr.to_string(),
+            limit: limit.to_string(),
         })
         .collect();
     let auth = KeyAuthorization {
@@ -164,9 +161,6 @@ pub(crate) fn sign(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::rlp::Encodable;
-    use alloy::signers::SignerSync;
-    use tempo_primitives::transaction::{KeyAuthorization, PrimitiveSignature, SignatureType};
 
     // ==================== decode tests ====================
 

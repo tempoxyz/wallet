@@ -56,7 +56,7 @@ pub fn has_credentials_override() -> bool {
 /// (controlled by [`keychain::default_backend`]).
 pub fn keychain() -> &'static dyn KeychainBackend {
     KEYCHAIN_BACKEND
-        .get_or_init(|| keychain::default_backend())
+        .get_or_init(keychain::default_backend)
         .as_ref()
 }
 
@@ -157,13 +157,9 @@ pub struct WalletCredentials {
 impl WalletCredentials {
     /// Get the data directory path.
     pub fn data_dir() -> Result<PathBuf, PrestoError> {
-        let data_dir = dirs::data_dir()
-            .ok_or(PrestoError::NoConfigDir)?
-            .join("presto");
-
-        fs::create_dir_all(&data_dir)?;
-
-        Ok(data_dir)
+        dirs::data_dir()
+            .ok_or(PrestoError::NoConfigDir)
+            .map(|d| d.join("presto"))
     }
 
     /// Get the keys.toml file path.
@@ -179,9 +175,9 @@ impl WalletCredentials {
         let signer = parse_private_key_signer(key)?;
         let address = format!("{}", signer.address());
         let key_entry = KeyEntry {
-            wallet_address: address,
-            key_address: Some(format!("{}", signer.address())),
-            key: Some(Zeroizing::new(key.trim().to_string())),
+            wallet_address: address.clone(),
+            key_address: Some(address),
+            key: Some(Zeroizing::new(key.to_string())),
             ..Default::default()
         };
         let mut creds = Self::default();
@@ -210,7 +206,8 @@ impl WalletCredentials {
         let contents = fs::read_to_string(&path)?;
         let creds: Self = match toml::from_str(&contents) {
             Ok(c) => c,
-            Err(_) => {
+            Err(e) => {
+                tracing::warn!("Corrupt keys.toml removed ({}): {e}", path.display());
                 let _ = fs::remove_file(&path);
                 return Ok(Self::default());
             }
@@ -240,10 +237,10 @@ impl WalletCredentials {
 
     /// Deterministic primary key name: passkey > first key with key > first key.
     /// The `--key` CLI flag overrides this at runtime.
-    pub fn primary_key_name(&self) -> Option<String> {
+    pub fn primary_key_name(&self) -> Option<&str> {
         if let Some(name) = KEY_NAME_OVERRIDE.get() {
             if self.keys.contains_key(name.as_str()) {
-                return Some(name.clone());
+                return Some(name);
             }
         }
         if let Some((name, _)) = self
@@ -251,22 +248,21 @@ impl WalletCredentials {
             .iter()
             .find(|(_, k)| k.wallet_type == WalletType::Passkey)
         {
-            return Some(name.clone());
+            return Some(name);
         }
         if let Some((name, _)) = self
             .keys
             .iter()
             .find(|(_, k)| k.key.as_ref().is_some_and(|ak| !ak.is_empty()))
         {
-            return Some(name.clone());
+            return Some(name);
         }
-        self.keys.keys().next().cloned()
+        self.keys.keys().next().map(String::as_str)
     }
 
     /// Get the primary key entry.
     pub fn primary_key(&self) -> Option<&KeyEntry> {
-        let name = self.primary_key_name()?;
-        self.keys.get(&name)
+        self.keys.get(self.primary_key_name()?)
     }
 
     /// Check if a wallet is configured.
@@ -367,22 +363,16 @@ impl WalletCredentials {
         let Some(chain_id) = network.parse::<Network>().ok().map(|n| n.chain_id()) else {
             return;
         };
-        if let Ok(mut creds) = Self::load() {
-            let key_name = creds
-                .keys
-                .iter()
-                .find(|(_, k)| k.chain_id == chain_id)
-                .map(|(name, _)| name.clone());
-            if let Some(name) = key_name {
-                if let Some(key_entry) = creds.keys.get_mut(&name) {
-                    if !key_entry.provisioned {
-                        key_entry.provisioned = true;
-                        if let Err(e) = creds.save() {
-                            tracing::warn!("failed to persist provisioned flag: {e}");
-                        }
-                    }
-                }
-            }
+        let Ok(mut creds) = Self::load() else { return };
+        let Some(entry) = creds.keys.values_mut().find(|k| k.chain_id == chain_id) else {
+            return;
+        };
+        if entry.provisioned {
+            return;
+        }
+        entry.provisioned = true;
+        if let Err(e) = creds.save() {
+            tracing::warn!("failed to persist provisioned flag: {e}");
         }
     }
 
@@ -396,39 +386,37 @@ impl WalletCredentials {
     /// 5) `--key` override or default passkey name.
     pub fn resolve_key_name_for_login(&self, wallet_address: &str, signer_address: &str) -> String {
         let primary = self.primary_key_name();
-        if let Some(ref name) = primary {
+        if let Some(name) = primary {
             if self
                 .keys
                 .get(name)
                 .is_some_and(|a| a.wallet_address == wallet_address)
             {
-                return name.clone();
+                return name.to_string();
             }
         }
-        if let Some(name) = self
+        if let Some((name, _)) = self
             .keys
             .iter()
             .find(|(_, a)| a.wallet_address == wallet_address)
-            .map(|(name, _)| name.clone())
         {
-            return name;
+            return name.clone();
         }
-        if let Some(ref name) = primary {
+        if let Some(name) = primary {
             if self
                 .keys
                 .get(name)
                 .is_some_and(|a| a.key_address.as_deref() == Some(signer_address))
             {
-                return name.clone();
+                return name.to_string();
             }
         }
-        if let Some(name) = self
+        if let Some((name, _)) = self
             .keys
             .iter()
             .find(|(_, a)| a.key_address.as_deref() == Some(signer_address))
-            .map(|(name, _)| name.clone())
         {
-            return name;
+            return name.clone();
         }
         KEY_NAME_OVERRIDE
             .get()
@@ -449,21 +437,13 @@ impl WalletCredentials {
     /// Removes the keychain entry (if local wallet, best-effort) and
     /// keys.toml metadata. Returns an error if the key doesn't exist.
     pub fn delete_key(&mut self, profile: &str) -> Result<(), PrestoError> {
-        if !self.keys.contains_key(profile) {
-            return Err(PrestoError::ConfigMissing(format!(
-                "Key '{}' not found.",
-                profile
-            )));
-        }
-        if !has_credentials_override() {
-            let is_local = self
-                .keys
-                .get(profile)
-                .is_some_and(|a| a.wallet_type == WalletType::Local);
-            if is_local {
-                if let Err(e) = keychain().delete(profile) {
-                    tracing::warn!("Failed to remove keychain entry for '{profile}': {e}");
-                }
+        let entry = self
+            .keys
+            .get(profile)
+            .ok_or_else(|| PrestoError::ConfigMissing(format!("Key '{}' not found.", profile)))?;
+        if !has_credentials_override() && entry.wallet_type == WalletType::Local {
+            if let Err(e) = keychain().delete(profile) {
+                tracing::warn!("Failed to remove keychain entry for '{profile}': {e}");
             }
         }
         self.keys.remove(profile);
@@ -947,7 +927,7 @@ provisioned = true
             },
         );
         // No passkey type or key, but it's the only key so primary_key_name() finds it
-        assert_eq!(creds.primary_key_name(), Some("somekey".to_string()));
+        assert_eq!(creds.primary_key_name(), Some("somekey"));
         assert_eq!(creds.primary_key().unwrap().wallet_address, "0xtest");
     }
 

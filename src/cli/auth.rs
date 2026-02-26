@@ -195,7 +195,7 @@ async fn build_whoami_response(
                         && e.chain_id == key_entry.chain_id
                 })
                 .map(|(name, _)| name.clone())
-                .unwrap_or_else(|| creds.primary_key_name().unwrap_or_default());
+                .unwrap_or_else(|| creds.primary_key_name().unwrap_or_default().to_string());
 
             let wallet_addr = response.wallet.as_deref().unwrap_or("");
             let balance_cache = vec![(

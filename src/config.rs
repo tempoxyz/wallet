@@ -25,10 +25,7 @@ pub enum OutputFormat {
 
 /// Validates that a path doesn't contain directory traversal sequences.
 /// Returns the validated path or an error if traversal is detected.
-pub fn validate_path(
-    path: &str,
-    allow_absolute: bool,
-) -> Result<PathBuf, PrestoError> {
+pub fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PrestoError> {
     let path = PathBuf::from(path);
 
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
