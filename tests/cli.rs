@@ -227,7 +227,7 @@ fn test_completions_case_sensitivity() {
 fn test_session_list_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["session", "list", "--output-format", "json"]);
+    cmd.args(["-j", "session", "list"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -237,11 +237,35 @@ fn test_session_list_json_empty() {
 }
 
 #[test]
+fn test_session_list_json_via_alias_short_j() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-j", "session", "list"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+}
+
+#[test]
+fn test_session_list_json_via_alias_long() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["--json-output", "session", "list"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+}
+
+#[test]
 fn test_key_list_json_has_total() {
     let temp_dir = TestConfigBuilder::new().build();
 
     let output = test_command(&temp_dir)
-        .args(["key", "list", "--output-format", "json"])
+        .args(["-j", "key", "list"])
         .output()
         .unwrap();
 
@@ -347,7 +371,7 @@ fn test_bare_url_with_verbose() {
 #[test]
 fn test_bare_url_with_include_headers() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["--output-format", "text", "-i", "http://example.com"])
+        .args(["-i", "http://example.com"])
         .assert()
         .success()
         .stdout(predicate::str::contains("HTTP 200"));
@@ -519,6 +543,40 @@ fn test_private_key_env_value_hidden_in_help() {
     );
 }
 
+// ==================== JSON Error Rendering ====================
+
+#[test]
+fn test_json_error_output_when_output_format_json() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    // Unknown network triggers a config error at the top-level
+    cmd.args(["-j", "-n", "not-a-network", "whoami"]);
+    let output = cmd.output().expect("failed to run");
+    assert!(!output.status.success());
+    // Error should be JSON to stdout; stderr may contain logs
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+    assert!(val.get("code").is_some(), "missing code in json error");
+    assert!(
+        val.get("message").is_some(),
+        "missing message in json error"
+    );
+}
+
+#[test]
+fn test_json_error_output_for_network_error() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    // Use an unroutable local port to trigger a connection error quickly
+    cmd.args(["-j", "query", "http://127.0.0.1:9"]);
+    let output = cmd.output().expect("failed to run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
+    assert!(val.get("code").is_some());
+    assert!(val.get("message").is_some());
+}
+
 // ==================== Key Management Tests ====================
 
 /// Helper: write a multi-key keys.toml into both macOS and Linux paths.
@@ -618,7 +676,7 @@ fn test_session_list_text_empty() {
 fn test_session_close_all_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["session", "close", "--all", "--output-format", "json"]);
+    cmd.args(["-j", "session", "close", "--all"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -657,7 +715,7 @@ fn test_session_close_invalid_channel_id() {
 fn test_session_list_closed_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["session", "list", "--closed", "--output-format", "json"]);
+    cmd.args(["-j", "session", "list", "--closed"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -671,10 +729,7 @@ fn test_session_list_closed_json_empty() {
 #[test]
 fn test_whoami_json_structure_no_wallet() {
     let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp)
-        .args(["whoami", "--output-format", "json"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["-j", "whoami"]).output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -691,10 +746,7 @@ fn test_whoami_json_structure_with_wallet() {
         )
         .build();
 
-    let output = test_command(&temp)
-        .args(["whoami", "--output-format", "json"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["-j", "whoami"]).output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -719,7 +771,7 @@ fn test_key_list_json_structure_with_keys() {
         .build();
 
     let output = test_command(&temp)
-        .args(["key", "list", "--output-format", "json"])
+        .args(["-j", "key", "list"])
         .output()
         .unwrap();
 
@@ -744,7 +796,7 @@ fn test_key_list_json_structure_with_keys() {
 fn test_session_list_json_structure() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "list", "--output-format", "json"])
+        .args(["-j", "session", "list"])
         .output()
         .unwrap();
 
@@ -763,7 +815,7 @@ fn test_session_list_json_structure() {
 fn test_session_close_all_json_structure() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "close", "--all", "--output-format", "json"])
+        .args(["-j", "session", "close", "--all"])
         .output()
         .unwrap();
 
