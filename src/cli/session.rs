@@ -477,8 +477,8 @@ async fn list_all_channels(
         )
         .await
         {
-            Ok(Some((token, dep, set, net))) => {
-                let (sym, dec) = crate::network::resolve_token_meta(&net, &token);
+            Ok(Some((token, dep, set))) => {
+                let (sym, dec) = crate::network::resolve_token_meta(&p.network, &token);
                 let rem = dep.saturating_sub(set);
                 (
                     sym,
@@ -607,8 +607,8 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
         )
         .await
         {
-            Ok(Some((token, dep, set, net))) => {
-                let (sym, dec) = crate::network::resolve_token_meta(&net, &token);
+            Ok(Some((token, dep, set))) => {
+                let (sym, dec) = crate::network::resolve_token_meta(&p.network, &token);
                 let rem = dep.saturating_sub(set);
                 (
                     sym,

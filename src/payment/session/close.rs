@@ -4,23 +4,31 @@
 //! payer-initiated on-chain close (requestClose → withdraw), and
 //! direct channel-by-ID close.
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
+use alloy::sol;
+use alloy::sol_types::SolCall;
 use anyhow::{Context, Result};
-use std::str::FromStr;
+use tempo_primitives::transaction::Call;
 
 use mpp::protocol::core::extract_tx_hash;
 use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
 use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::{parse_receipt, ChallengeEcho};
 
-use super::store as session_store;
-use crate::config::Config;
-use crate::network::Network;
-use crate::wallet::signer::load_wallet_signer;
-
 use super::channel::{get_channel_on_chain, read_grace_period};
+use super::store as session_store;
 use super::tx::submit_tempo_tx;
 use super::CloseOutcome;
+use crate::config::Config;
+use crate::network::Network;
+use crate::wallet::signer::{load_wallet_signer, WalletSigner};
+
+sol! {
+    interface IEscrow {
+        function requestClose(bytes32 channelId) external;
+        function withdraw(bytes32 channelId) external;
+    }
+}
 
 /// Close a session from a persisted record.
 ///
@@ -56,20 +64,26 @@ pub async fn close_session_from_record(
     .context("Failed to sign close voucher")?;
 
     // Try cooperative close via the server first
-    let server_result = try_server_close(record, &echo, channel_id, cumulative_amount, &sig).await;
-
-    match server_result {
-        Ok(()) => return Ok(CloseOutcome::Closed),
-        Err(_e) => {}
+    if try_server_close(record, &echo, channel_id, cumulative_amount, &sig)
+        .await
+        .is_ok()
+    {
+        return Ok(CloseOutcome::Closed);
     }
+
+    let fee_token: Address = record
+        .currency
+        .parse()
+        .context("Invalid currency address in session record")?;
 
     // Fallback: payer-initiated close (requestClose → withdraw)
     close_on_chain(
         config,
-        record,
         &wallet,
         channel_id,
         escrow_contract,
+        record.chain_id,
+        fee_token,
         nonce_offset,
     )
     .await
@@ -95,26 +109,14 @@ async fn try_server_close(
     let auth =
         mpp::format_authorization(&credential).context("Failed to format close credential")?;
 
-    let client = reqwest::Client::builder()
-        .build()
-        .context("Failed to build HTTP client")?;
-
     let close_url = if record.request_url.is_empty() {
-        format!(
-            "{}://{}",
-            if record.origin.starts_with("https") {
-                "https"
-            } else {
-                "http"
-            },
-            record.origin.split("://").nth(1).unwrap_or(&record.origin),
-        )
+        &record.origin
     } else {
-        record.request_url.clone()
+        &record.request_url
     };
 
-    let response = client
-        .post(&close_url)
+    let response = reqwest::Client::new()
+        .post(close_url)
         .header("Authorization", &auth)
         .send()
         .await
@@ -153,12 +155,13 @@ async fn try_server_close(
         if let Ok(receipt_str) = receipt_str.to_str() {
             if let Ok(receipt) = parse_receipt(receipt_str) {
                 let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-                let explorer = Network::from_str(&record.network_name)
+                let explorer = record
+                    .network_name
+                    .parse::<Network>()
                     .ok()
                     .and_then(|n| n.info().explorer);
                 if let Some(exp) = explorer.as_ref() {
-                    let tx_url = exp.tx_url(&tx_ref);
-                    eprintln!("Channel settled: {}", tx_url);
+                    eprintln!("Channel settled: {}", exp.tx_url(&tx_ref));
                 } else {
                     eprintln!("Channel settled: {}", tx_ref);
                 }
@@ -186,26 +189,16 @@ async fn try_server_close(
 /// - If non-zero but grace period not elapsed: returns `Pending`
 pub(super) async fn close_on_chain(
     config: &Config,
-    record: &session_store::SessionRecord,
-    wallet: &crate::wallet::signer::WalletSigner,
+    wallet: &WalletSigner,
     channel_id: B256,
     escrow_contract: Address,
+    chain_id: u64,
+    fee_token: Address,
     nonce_offset: u64,
 ) -> Result<CloseOutcome> {
-    use alloy::primitives::{Bytes, TxKind, U256};
-    use alloy::sol;
-    use alloy::sol_types::SolCall;
-    use tempo_primitives::transaction::Call;
-
-    sol! {
-        interface IEscrow {
-            function requestClose(bytes32 channelId) external;
-            function withdraw(bytes32 channelId) external;
-        }
-    }
-
-    let network = Network::require_chain_id(record.chain_id)?;
-    let network_info = config.resolve_network(network.as_str())?;
+    let network = Network::require_chain_id(chain_id)?;
+    let network_name = network.as_str();
+    let network_info = config.resolve_network(network_name)?;
     let rpc_url = Network::parse_rpc_url(&network_info.rpc_url)?;
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
@@ -214,12 +207,8 @@ pub(super) async fn close_on_chain(
         .await?
         .ok_or_else(|| anyhow::anyhow!("Channel no longer exists on-chain"))?;
 
-    let fee_token: Address = record
-        .currency
-        .parse()
-        .context("Invalid currency address in session record")?;
-
     let from = wallet.from;
+    let channel_id_hex = format!("{:#x}", channel_id);
 
     // If closeRequestedAt is 0, we need to call requestClose() first
     if on_chain.close_requested_at == 0 {
@@ -239,7 +228,7 @@ pub(super) async fn close_on_chain(
         let tx_hash = submit_tempo_tx(
             &provider,
             wallet,
-            record.chain_id,
+            chain_id,
             fee_token,
             from,
             calls,
@@ -257,15 +246,10 @@ pub(super) async fn close_on_chain(
         let grace_secs = read_grace_period(&provider, escrow_contract)
             .await
             .unwrap_or(900);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = session_store::now_secs();
         let ready_at = now + grace_secs;
 
-        if let Err(e) =
-            session_store::save_pending_close(&record.channel_id, &record.network_name, ready_at)
-        {
+        if let Err(e) = session_store::save_pending_close(&channel_id_hex, network_name, ready_at) {
             tracing::warn!(%e, "failed to persist pending close for automatic finalization");
         }
 
@@ -278,18 +262,13 @@ pub(super) async fn close_on_chain(
     let grace_period = read_grace_period(&provider, escrow_contract)
         .await
         .unwrap_or(900);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = session_store::now_secs();
     let ready_at = on_chain.close_requested_at as u64 + grace_period;
     if now < ready_at {
         let remaining = ready_at - now;
 
         // Ensure pending close is persisted so `session list` can show the countdown
-        if let Err(e) =
-            session_store::save_pending_close(&record.channel_id, &record.network_name, ready_at)
-        {
+        if let Err(e) = session_store::save_pending_close(&channel_id_hex, network_name, ready_at) {
             tracing::warn!(%e, "failed to persist pending close");
         }
 
@@ -315,7 +294,7 @@ pub(super) async fn close_on_chain(
     let tx_hash = submit_tempo_tx(
         &provider,
         wallet,
-        record.chain_id,
+        chain_id,
         fee_token,
         from,
         calls,
@@ -356,38 +335,15 @@ pub async fn close_discovered_channel(
         .escrow_contract
         .parse()
         .context("Invalid escrow_contract")?;
-    let chain_id = network.chain_id();
-
-    let record_stub = session_store::SessionRecord {
-        version: 1,
-        origin: String::new(),
-        request_url: String::new(),
-        network_name: channel.network.clone(),
-        chain_id,
-        channel_id: channel.channel_id.clone(),
-        escrow_contract: channel.escrow_contract.clone(),
-        currency: channel.token.clone(),
-        cumulative_amount: "0".to_string(),
-        deposit: String::new(),
-        did: String::new(),
-        challenge_echo: String::new(),
-        challenge_id: String::new(),
-        salt: String::new(),
-        recipient: channel.payee.clone(),
-        payer: String::new(),
-        authorized_signer: channel.authorized_signer.clone(),
-        tick_cost: String::new(),
-        created_at: 0,
-        last_used_at: 0,
-        expires_at: 0,
-    };
+    let fee_token: Address = channel.token.parse().context("Invalid token address")?;
 
     close_on_chain(
         config,
-        &record_stub,
         &wallet,
         channel_id,
         escrow_contract,
+        network.chain_id(),
+        fee_token,
         nonce_offset,
     )
     .await
@@ -402,7 +358,7 @@ pub async fn close_channel_by_id(
     config: &Config,
     channel_id_hex: &str,
     network_filter: Option<&str>,
-    wallet_override: Option<&crate::wallet::signer::WalletSigner>,
+    wallet_override: Option<&WalletSigner>,
 ) -> Result<CloseOutcome> {
     let channel_id: B256 = channel_id_hex
         .parse()
@@ -425,8 +381,7 @@ pub async fn close_channel_by_id(
             Ok(u) => u,
             Err(_) => continue,
         };
-        let provider =
-            alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+        let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
         let escrow: Address = match network.escrow_contract().parse() {
             Ok(a) => a,
@@ -443,33 +398,6 @@ pub async fn close_channel_by_id(
             }
         };
 
-        let token = on_chain.token;
-        let chain_id = network.chain_id();
-
-        let record_stub = session_store::SessionRecord {
-            version: 1,
-            origin: String::new(),
-            request_url: String::new(),
-            network_name: network.as_str().to_string(),
-            chain_id,
-            channel_id: channel_id_hex.to_string(),
-            escrow_contract: format!("{:#x}", escrow),
-            currency: format!("{:#x}", token),
-            cumulative_amount: "0".to_string(),
-            deposit: String::new(),
-            did: String::new(),
-            challenge_echo: String::new(),
-            challenge_id: String::new(),
-            salt: String::new(),
-            recipient: String::new(),
-            payer: String::new(),
-            authorized_signer: String::new(),
-            tick_cost: String::new(),
-            created_at: 0,
-            last_used_at: 0,
-            expires_at: 0,
-        };
-
         let owned_wallet;
         let wallet = match wallet_override {
             Some(w) => w,
@@ -478,7 +406,17 @@ pub async fn close_channel_by_id(
                 &owned_wallet
             }
         };
-        return close_on_chain(config, &record_stub, wallet, channel_id, escrow, 0).await;
+
+        return close_on_chain(
+            config,
+            wallet,
+            channel_id,
+            escrow,
+            network.chain_id(),
+            on_chain.token,
+            0,
+        )
+        .await;
     }
 
     if had_rpc_errors {

@@ -3,11 +3,45 @@
 //! Functions for querying channel state from the escrow contract,
 //! scanning `ChannelOpened` events, and building channel-open transactions.
 
-use alloy::primitives::{Address, B256};
+use alloy::eips::BlockNumberOrTag;
+use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
+use alloy::providers::Provider;
+use alloy::rpc::types::{Filter, TransactionRequest};
+use alloy::sol;
+use alloy::sol_types::SolCall;
 use anyhow::{Context, Result};
+use tempo_primitives::transaction::Call;
 
 use crate::config::Config;
 use crate::network::Network;
+
+// ==================== ABI Definitions ====================
+
+sol! {
+    interface ITIP20 {
+        function approve(address spender, uint256 amount) external returns (bool);
+    }
+    interface IEscrow {
+        function getChannel(bytes32 channelId) external view returns (
+            address payer,
+            address payee,
+            address token,
+            address authorizedSigner,
+            uint128 deposit,
+            uint128 settled,
+            uint64 closeRequestedAt,
+            bool finalized
+        );
+        function open(
+            address payee,
+            address token,
+            uint128 deposit,
+            bytes32 salt,
+            address authorizedSigner
+        ) external;
+        function CLOSE_GRACE_PERIOD() external view returns (uint64 period);
+    }
+}
 
 // ==================== Types ====================
 
@@ -16,7 +50,6 @@ pub(super) struct OnChainChannel {
     pub channel_id: B256,
     pub salt: B256,
     pub token: Address,
-    pub authorized_signer: Address,
     pub deposit: u128,
     pub settled: u128,
     pub close_requested_at: u64,
@@ -27,8 +60,6 @@ pub struct DiscoveredChannel {
     pub network: String,
     pub channel_id: String,
     pub escrow_contract: String,
-    pub payee: String,
-    pub authorized_signer: String,
     pub token: String,
     pub deposit: u128,
     pub settled: u128,
@@ -49,6 +80,21 @@ const LOG_SCAN_DEPTH: u64 = 100_000;
 /// indexing lag between the node's block tip and its log index.
 const LOG_HEAD_MARGIN: u64 = 10;
 
+/// keccak256("ChannelOpened(bytes32,address,address,address,address,bytes32,uint256)")
+const CHANNEL_OPENED_TOPIC: &str =
+    "0xcd6e60364f8ee4c2b0d62afc07a1fb04fd267ce94693f93f8f85daaa099b5c94";
+
+// ==================== Helpers ====================
+
+/// Check if an RPC error indicates the block range was too large.
+fn is_rpc_range_error(err: &str) -> bool {
+    err.contains("query returned more than")
+        || err.contains("block range")
+        || err.contains("too many")
+        || err.contains("exceeds max")
+        || err.contains("Log response size exceeded")
+}
+
 // ==================== Channel Queries ====================
 
 /// Query the escrow contract for a specific channel's state.
@@ -62,33 +108,14 @@ pub(super) async fn get_channel_on_chain(
     channel_id: B256,
     salt: B256,
 ) -> Result<Option<OnChainChannel>> {
-    use alloy::providers::Provider;
-    use alloy::sol;
-    use alloy::sol_types::SolCall;
-
-    sol! {
-        interface IEscrow {
-            function getChannel(bytes32 channelId) external view returns (
-                address payer,
-                address payee,
-                address token,
-                address authorizedSigner,
-                uint128 deposit,
-                uint128 settled,
-                uint64 closeRequestedAt,
-                bool finalized
-            );
-        }
-    }
-
     let call_data = IEscrow::getChannelCall {
         channelId: channel_id,
     }
     .abi_encode();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
+    let tx = TransactionRequest::default()
         .to(escrow_contract)
-        .input(alloy::primitives::Bytes::from(call_data).into());
+        .input(Bytes::from(call_data).into());
 
     let result = provider
         .call(tx)
@@ -105,7 +132,6 @@ pub(super) async fn get_channel_on_chain(
         channel_id,
         salt,
         token: decoded.token,
-        authorized_signer: decoded.authorizedSigner,
         deposit: decoded.deposit,
         settled: decoded.settled,
         close_requested_at: decoded.closeRequestedAt,
@@ -123,16 +149,14 @@ pub async fn find_all_channels_for_payer(
     payer: Address,
     network_name: Option<&str>,
 ) -> Vec<DiscoveredChannel> {
-    use alloy::eips::BlockNumberOrTag;
-    use alloy::primitives::FixedBytes;
-    use alloy::providers::Provider;
-    use alloy::rpc::types::Filter;
-
     let networks: Vec<Network> = if let Some(name) = network_name {
         name.parse::<Network>().ok().into_iter().collect()
     } else {
         Network::all().to_vec()
     };
+
+    let event_topic: B256 = CHANNEL_OPENED_TOPIC.parse().expect("valid topic constant");
+    let payer_topic = B256::left_padding_from(&payer.0 .0);
 
     let mut results = Vec::new();
 
@@ -145,21 +169,12 @@ pub async fn find_all_channels_for_payer(
             Ok(u) => u,
             Err(_) => continue,
         };
-        let provider =
-            alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+        let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
         let escrow: Address = match network.escrow_contract().parse() {
             Ok(a) => a,
             Err(_) => continue,
         };
-
-        let event_topic: FixedBytes<32> =
-            match "0xcd6e60364f8ee4c2b0d62afc07a1fb04fd267ce94693f93f8f85daaa099b5c94".parse() {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
-
-        let payer_topic = B256::left_padding_from(&payer.0 .0);
 
         let latest = match provider.get_block_number().await {
             Ok(n) => n.saturating_sub(LOG_HEAD_MARGIN),
@@ -194,13 +209,7 @@ pub async fn find_all_channels_for_payer(
                 Ok(logs) => logs,
                 Err(e) => {
                     let err_str = e.to_string();
-                    let is_range_error = err_str.contains("query returned more than")
-                        || err_str.contains("block range")
-                        || err_str.contains("too many")
-                        || err_str.contains("exceeds max")
-                        || err_str.contains("Log response size exceeded");
-                    if is_range_error && (chunk_end - chunk_start) > 1000 {
-                        // Halve the range and retry from the same chunk_end
+                    if is_rpc_range_error(&err_str) && (chunk_end - chunk_start) > 1000 {
                         let halved = (chunk_end - chunk_start) / 2;
                         tracing::debug!(
                             network = network.as_str(),
@@ -226,64 +235,59 @@ pub async fn find_all_channels_for_payer(
                 }
             };
 
-            {
-                for log in &logs {
-                    let topics = log.topics();
-                    if topics.len() < 4 {
-                        continue;
-                    }
-                    let channel_id = topics[1];
-
-                    // ChannelOpened event non-indexed data layout (ABI-encoded):
-                    //   [0..32]   address token       (left-padded, address at bytes 12..32)
-                    //   [32..64]  uint256 deposit
-                    //   [64..96]  bytes32 salt
-                    let data = log.data().data.as_ref();
-                    if data.len() < 96 {
-                        continue;
-                    }
-                    let log_token = Address::from_slice(&data[12..32]);
-                    let log_salt = B256::from_slice(&data[64..96]);
-
-                    let on_chain =
-                        match get_channel_on_chain(&provider, escrow, channel_id, log_salt).await {
-                            Ok(Some(ch)) => ch,
-                            Ok(None) => continue,
-                            Err(e) => {
-                                tracing::warn!(
-                                    network = network.as_str(),
-                                    %channel_id,
-                                    %e,
-                                    "failed to query channel state, skipping"
-                                );
-                                continue;
-                            }
-                        };
-
-                    let payee_addr = Address::from_slice(&topics[3].as_slice()[12..]);
-                    let token_str = format!("{:#x}", log_token);
-
-                    // Skip if we already found this channel_id
-                    let cid_str = format!("{:#x}", channel_id);
-                    if results
-                        .iter()
-                        .any(|r: &DiscoveredChannel| r.channel_id == cid_str)
-                    {
-                        continue;
-                    }
-
-                    results.push(DiscoveredChannel {
-                        network: network.as_str().to_string(),
-                        channel_id: cid_str,
-                        escrow_contract: format!("{:#x}", escrow),
-                        payee: format!("{:#x}", payee_addr),
-                        authorized_signer: format!("{:#x}", on_chain.authorized_signer),
-                        token: token_str,
-                        deposit: on_chain.deposit,
-                        settled: on_chain.settled,
-                        close_requested_at: on_chain.close_requested_at,
-                    });
+            for log in &logs {
+                let topics = log.topics();
+                if topics.len() < 4 {
+                    continue;
                 }
+                let channel_id = topics[1];
+
+                // ChannelOpened event non-indexed data layout (ABI-encoded):
+                //   [0..32]   address token       (left-padded, address at bytes 12..32)
+                //   [32..64]  uint256 deposit
+                //   [64..96]  bytes32 salt
+                let data = log.data().data.as_ref();
+                if data.len() < 96 {
+                    continue;
+                }
+                let log_token = Address::from_slice(&data[12..32]);
+                let log_salt = B256::from_slice(&data[64..96]);
+
+                let on_chain =
+                    match get_channel_on_chain(&provider, escrow, channel_id, log_salt).await {
+                        Ok(Some(ch)) => ch,
+                        Ok(None) => continue,
+                        Err(e) => {
+                            tracing::warn!(
+                                network = network.as_str(),
+                                %channel_id,
+                                %e,
+                                "failed to query channel state, skipping"
+                            );
+                            continue;
+                        }
+                    };
+
+                let token_str = format!("{:#x}", log_token);
+
+                // Skip if we already found this channel_id
+                let cid_str = format!("{:#x}", channel_id);
+                if results
+                    .iter()
+                    .any(|r: &DiscoveredChannel| r.channel_id == cid_str)
+                {
+                    continue;
+                }
+
+                results.push(DiscoveredChannel {
+                    network: network.as_str().to_string(),
+                    channel_id: cid_str,
+                    escrow_contract: format!("{:#x}", escrow),
+                    token: token_str,
+                    deposit: on_chain.deposit,
+                    settled: on_chain.settled,
+                    close_requested_at: on_chain.close_requested_at,
+                });
             }
 
             if chunk_start == earliest {
@@ -312,22 +316,11 @@ pub(super) async fn find_channel_on_chain(
     network_name: &str,
     config: &Config,
 ) -> Option<OnChainChannel> {
-    use alloy::eips::BlockNumberOrTag;
-    use alloy::primitives::FixedBytes;
-    use alloy::providers::Provider;
-    use alloy::rpc::types::Filter;
-
     let network_info = config.resolve_network(network_name).ok()?;
     let rpc_url: url::Url = network_info.rpc_url.parse().ok()?;
-    let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+    let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
-    // keccak256("ChannelOpened(bytes32,address,address,address,address,bytes32,uint256)")
-    let event_topic: FixedBytes<32> =
-        "0xcd6e60364f8ee4c2b0d62afc07a1fb04fd267ce94693f93f8f85daaa099b5c94"
-            .parse()
-            .ok()?;
-
-    // Event topics: [0]=sig, [1]=channelId, [2]=payer, [3]=payee
+    let event_topic: B256 = CHANNEL_OPENED_TOPIC.parse().expect("valid topic constant");
     let payer_topic = B256::left_padding_from(&payer.0 .0);
     let payee_topic = B256::left_padding_from(&payee.0 .0);
 
@@ -357,12 +350,7 @@ pub(super) async fn find_channel_on_chain(
             Ok(logs) => logs,
             Err(e) => {
                 let err_str = e.to_string();
-                let is_range_error = err_str.contains("query returned more than")
-                    || err_str.contains("block range")
-                    || err_str.contains("too many")
-                    || err_str.contains("exceeds max")
-                    || err_str.contains("Log response size exceeded");
-                if is_range_error && (chunk_end - chunk_start) > 1000 {
+                if is_rpc_range_error(&err_str) && (chunk_end - chunk_start) > 1000 {
                     let halved = (chunk_end - chunk_start) / 2;
                     tracing::debug!(
                         old_range = chunk_end - chunk_start,
@@ -436,27 +424,7 @@ pub(super) fn build_open_calls(
     payee: Address,
     salt: B256,
     authorized_signer: Address,
-) -> Vec<tempo_primitives::transaction::Call> {
-    use alloy::primitives::{Bytes, TxKind, U256};
-    use alloy::sol;
-    use alloy::sol_types::SolCall;
-    use tempo_primitives::transaction::Call;
-
-    sol! {
-        interface ITIP20 {
-            function approve(address spender, uint256 amount) external returns (bool);
-        }
-        interface IEscrow {
-            function open(
-                address payee,
-                address token,
-                uint128 deposit,
-                bytes32 salt,
-                address authorizedSigner
-            ) external;
-        }
-    }
-
+) -> Vec<Call> {
     let approve_data = Bytes::from(
         ITIP20::approveCall {
             spender: escrow_contract,
@@ -487,20 +455,10 @@ pub async fn read_grace_period(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
 ) -> Option<u64> {
-    use alloy::providers::Provider;
-    use alloy::sol;
-    use alloy::sol_types::SolCall;
-
-    sol! {
-        interface IEscrow {
-            function CLOSE_GRACE_PERIOD() external view returns (uint64 period);
-        }
-    }
-
     let call_data = IEscrow::CLOSE_GRACE_PERIODCall {}.abi_encode();
-    let tx = alloy::rpc::types::TransactionRequest::default()
+    let tx = TransactionRequest::default()
         .to(escrow_contract)
-        .input(alloy::primitives::Bytes::from(call_data).into());
+        .input(Bytes::from(call_data).into());
 
     let result = provider.call(tx).await.ok()?;
     let decoded: u64 = IEscrow::CLOSE_GRACE_PERIODCall::abi_decode_returns(&result).ok()?;
@@ -509,21 +467,21 @@ pub async fn read_grace_period(
 
 /// Query on-chain state for a channel by its hex ID and network name.
 ///
-/// Returns `Ok(Some((token_address, deposit, settled, network_name)))` if the channel
+/// Returns `Ok(Some((token_address, deposit, settled)))` if the channel
 /// exists on-chain, `Ok(None)` if confirmed not found (deposit == 0 or finalized),
 /// or `Err` on RPC/config errors (callers should NOT treat errors as "missing").
 pub async fn query_channel_state(
     config: &Config,
     channel_id_hex: &str,
     network_name: &str,
-) -> Result<Option<(String, u128, u128, String)>> {
+) -> Result<Option<(String, u128, u128)>> {
     let channel_id: B256 = channel_id_hex.parse().context("Invalid channel ID")?;
     let network: Network = network_name
         .parse()
         .map_err(|_| anyhow::anyhow!("Unknown network: {}", network_name))?;
     let network_info = config.resolve_network(network.as_str())?;
     let rpc_url: url::Url = network_info.rpc_url.parse().context("Invalid RPC URL")?;
-    let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+    let provider = alloy::providers::RootProvider::new_http(rpc_url);
     let escrow: Address = network
         .escrow_contract()
         .parse()
@@ -538,6 +496,5 @@ pub async fn query_channel_state(
         format!("{:#x}", on_chain.token),
         on_chain.deposit,
         on_chain.settled,
-        network_name.to_string(),
     )))
 }

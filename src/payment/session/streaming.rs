@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use std::io::Write;
+use std::time::Duration;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
@@ -18,11 +19,16 @@ use super::{build_voucher_credential, persist_session, SessionContext, SessionSt
 /// Awaiting would deadlock: the server waits for us to read the SSE
 /// stream, and we wait for the POST response.
 pub(super) fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) {
-    let vc = client.clone();
+    let client = client.clone();
     let url = url.to_string();
     let auth = auth.to_string();
     tokio::spawn(async move {
-        match vc.post(&url).header("Authorization", &auth).send().await {
+        match client
+            .post(&url)
+            .header("Authorization", &auth)
+            .send()
+            .await
+        {
             Ok(resp) => {
                 if verbose {
                     let status = resp.status();
@@ -30,8 +36,7 @@ pub(super) fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verb
                         .headers()
                         .get("content-type")
                         .and_then(|v| v.to_str().ok())
-                        .unwrap_or("none")
-                        .to_string();
+                        .unwrap_or("none");
                     eprintln!("[voucher POST: {} content-type={}]", status, ct);
                 }
             }
@@ -72,9 +77,9 @@ pub(super) async fn stream_sse_response(
     // Reuse a single client for voucher POSTs to maintain connection affinity
     // with the server (important when behind a load balancer).
     let voucher_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(Duration::from_secs(10))
         .build()
-        .unwrap_or_default();
+        .expect("reqwest client");
 
     // Track pending voucher for retry on stall. When we send a voucher but
     // the server's notify is lost, we need to re-send to wake it up.
@@ -87,10 +92,10 @@ pub(super) async fn stream_sse_response(
     const VOUCHER_STALL_TIMEOUT_SECS: u64 = 3;
 
     // Normal timeout for when we're actively receiving tokens.
-    let normal_timeout = std::time::Duration::from_secs(NORMAL_TIMEOUT_SECS);
+    let normal_timeout = Duration::from_secs(NORMAL_TIMEOUT_SECS);
     // Short timeout after sending a voucher — if the server doesn't resume
     // quickly, the notify was likely lost and we should re-post.
-    let base_stall_timeout = std::time::Duration::from_secs(VOUCHER_STALL_TIMEOUT_SECS);
+    let base_stall_timeout = Duration::from_secs(VOUCHER_STALL_TIMEOUT_SECS);
     // Exponential backoff for re-posting the same voucher (caps at normal_timeout)
     let mut current_stall_timeout = base_stall_timeout;
 
@@ -131,7 +136,7 @@ pub(super) async fn stream_sse_response(
                     post_voucher(&voucher_client, ctx.url, auth, verbose);
                     // Backoff the stall timeout for the next retry, up to the normal timeout
                     current_stall_timeout =
-                        std::cmp::min(current_stall_timeout.saturating_mul(2), normal_timeout);
+                        current_stall_timeout.saturating_mul(2).min(normal_timeout);
                     continue;
                 }
                 if runtime.debug_enabled() {
@@ -158,8 +163,7 @@ pub(super) async fn stream_sse_response(
         }
 
         while let Some(pos) = buffer.find("\n\n") {
-            let event_str = buffer[..pos + 2].to_string();
-            buffer = buffer[pos + 2..].to_string();
+            let event_str: String = buffer.drain(..pos + 2).collect();
 
             if let Some(event) = parse_event(&event_str) {
                 match event {
@@ -173,13 +177,13 @@ pub(super) async fn stream_sse_response(
                             stream_done = true;
                             break;
                         }
-                        if let Some(content) = extract_sse_content(&data) {
+                        let (content, finished) = parse_sse_chunk(&data);
+                        if let Some(content) = content {
                             token_count += 1;
                             write!(stdout, "{}", content)?;
                             stdout.flush()?;
                         }
-                        // Detect OpenAI finish_reason to know stream is ending
-                        if is_stream_finished(&data) {
+                        if finished {
                             stream_done = true;
                             break;
                         }
@@ -260,51 +264,28 @@ pub(super) async fn stream_sse_response(
     Ok(())
 }
 
-/// Check if an OpenAI streaming chunk signals completion.
+/// Parse an SSE data chunk, extracting token content and finish status.
 ///
-/// Returns true if the chunk contains `"finish_reason":"stop"` (or any non-null
-/// finish_reason), indicating the model is done generating.
-fn is_stream_finished(raw: &str) -> bool {
+/// Returns `(content, finished)`:
+/// - `content`: The text token from an OpenAI `delta.content` field, or the raw
+///   text for non-JSON SSE. `None` for role-only deltas or empty content.
+/// - `finished`: `true` if `finish_reason` is non-null (model done generating).
+fn parse_sse_chunk(raw: &str) -> (Option<String>, bool) {
     let trimmed = raw.trim();
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
-        if let Some(reason) = v
-            .get("choices")
-            .and_then(|c| c.get(0))
+        let choice = v.get("choices").and_then(|c| c.get(0));
+        let finished = choice
             .and_then(|c| c.get("finish_reason"))
-        {
-            return !reason.is_null();
-        }
-    }
-    false
-}
-
-/// Extract token content from an OpenAI chat completion chunk.
-///
-/// Handles the `data:` payload from SSE streams in OpenAI format:
-/// `{"choices":[{"delta":{"content":"token"}}]}`.
-/// Returns None for `[DONE]`, empty deltas, or unparseable data.
-fn extract_sse_content(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed == "[DONE]" {
-        return None;
-    }
-    // Try to parse as OpenAI chat completion chunk
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
-        if let Some(content) = v
-            .get("choices")
-            .and_then(|c| c.get(0))
+            .is_some_and(|r| !r.is_null());
+        let content = choice
             .and_then(|c| c.get("delta"))
             .and_then(|d| d.get("content"))
             .and_then(|c| c.as_str())
-        {
-            if !content.is_empty() {
-                return Some(content.to_string());
-            }
-            return None;
-        }
-        // No delta.content — could be role-only or finish delta
-        return None;
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+        (content, finished)
+    } else {
+        // Not JSON — return raw content as-is (plain text SSE)
+        (Some(trimmed.to_string()), false)
     }
-    // Not JSON — return raw content as-is (plain text SSE)
-    Some(trimmed.to_string())
 }

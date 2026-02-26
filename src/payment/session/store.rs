@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use crate::error::PrestoError;
 
 /// A pending channel close waiting for the grace period to elapse.
-#[allow(dead_code)]
 pub struct PendingClose {
     pub channel_id: String,
     pub network: String,
@@ -55,6 +54,13 @@ fn default_version() -> u32 {
     1
 }
 
+pub(super) fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 impl SessionRecord {
     /// Parse the cumulative amount.
     pub fn cumulative_amount_u128(&self) -> anyhow::Result<u128> {
@@ -84,26 +90,19 @@ impl SessionRecord {
 
     /// Returns `true` if this session has expired.
     pub fn is_expired(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        now > self.expires_at
+        now_secs() > self.expires_at
     }
 
     /// Update `last_used_at` and extend `expires_at`.
     pub fn touch(&mut self) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = now_secs();
         self.last_used_at = now;
         self.expires_at = now + SESSION_TTL_SECS;
     }
 }
 
 /// Get the sessions directory, creating it if needed.
-pub fn sessions_dir() -> Result<PathBuf> {
+fn sessions_dir() -> Result<PathBuf> {
     let dir = dirs::data_dir()
         .ok_or(PrestoError::NoConfigDir)?
         .join("presto")
@@ -116,17 +115,9 @@ pub fn sessions_dir() -> Result<PathBuf> {
 ///
 /// Non-alphanumeric chars (except `-` and `.`) are replaced with `_`.
 pub fn session_key(origin: &str) -> String {
-    let normalized = match url::Url::parse(origin) {
-        Ok(parsed) => {
-            let scheme = parsed.scheme();
-            let host = parsed.host_str().unwrap_or("unknown");
-            match parsed.port() {
-                Some(port) => format!("{scheme}://{host}:{port}"),
-                None => format!("{scheme}://{host}"),
-            }
-        }
-        Err(_) => origin.to_string(),
-    };
+    let normalized = url::Url::parse(origin)
+        .map(|u| u.origin().ascii_serialization())
+        .unwrap_or_else(|_| origin.to_string());
 
     normalized
         .chars()
@@ -262,17 +253,12 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
 
 /// Map a row (with the standard SELECT column order) to a `SessionRecord`.
 fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
-    let chain_id_i64 = row.get::<_, i64>(4)?;
-    let created_at_i64 = row.get::<_, i64>(18)?;
-    let last_used_at_i64 = row.get::<_, i64>(19)?;
-    let expires_at_i64 = row.get::<_, i64>(20)?;
-
     Ok(SessionRecord {
         version: row.get::<_, u32>(0)?,
         origin: row.get(1)?,
         request_url: row.get(2)?,
         network_name: row.get(3)?,
-        chain_id: u64::try_from(chain_id_i64).unwrap_or(chain_id_i64 as u64),
+        chain_id: row.get::<_, i64>(4)? as u64,
         escrow_contract: row.get(5)?,
         currency: row.get(6)?,
         recipient: row.get(7)?,
@@ -286,9 +272,9 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         did: row.get(15)?,
         challenge_echo: row.get(16)?,
         challenge_id: row.get(17)?,
-        created_at: u64::try_from(created_at_i64).unwrap_or(0),
-        last_used_at: u64::try_from(last_used_at_i64).unwrap_or(0),
-        expires_at: u64::try_from(expires_at_i64).unwrap_or(0),
+        created_at: u64::try_from(row.get::<_, i64>(18)?).unwrap_or(0),
+        last_used_at: u64::try_from(row.get::<_, i64>(19)?).unwrap_or(0),
+        expires_at: u64::try_from(row.get::<_, i64>(20)?).unwrap_or(0),
     })
 }
 
@@ -342,12 +328,8 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
     let rows = stmt
         .query_map([], map_session_row)
         .context("Failed to list sessions")?;
-
-    let mut records = Vec::new();
-    for row in rows {
-        records.push(row.context("Failed to read session row")?);
-    }
-    Ok(records)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("Failed to read session row")
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +370,14 @@ pub fn list_sessions() -> Result<Vec<SessionRecord>> {
 // Pending closes – internal helpers
 // ---------------------------------------------------------------------------
 
+fn map_pending_close_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingClose> {
+    Ok(PendingClose {
+        channel_id: row.get(0)?,
+        network: row.get(1)?,
+        ready_at: row.get::<_, i64>(2)? as u64,
+    })
+}
+
 fn save_pending_close_conn(
     conn: &rusqlite::Connection,
     channel_id: &str,
@@ -407,11 +397,6 @@ fn save_pending_close_conn(
 
 #[cfg(test)]
 fn list_pending_closes_conn(conn: &rusqlite::Connection) -> Result<Vec<PendingClose>> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
     let mut stmt = conn
         .prepare(
             "SELECT channel_id, network, ready_at
@@ -420,21 +405,10 @@ fn list_pending_closes_conn(conn: &rusqlite::Connection) -> Result<Vec<PendingCl
         .context("Failed to prepare list pending closes query")?;
 
     let rows = stmt
-        .query_map(params![now as i64], |row| {
-            let ready_at_i64 = row.get::<_, i64>(2)?;
-            Ok(PendingClose {
-                channel_id: row.get(0)?,
-                network: row.get(1)?,
-                ready_at: u64::try_from(ready_at_i64).unwrap_or(0),
-            })
-        })
+        .query_map(params![now_secs() as i64], map_pending_close_row)
         .context("Failed to list pending closes")?;
-
-    let mut records = Vec::new();
-    for row in rows {
-        records.push(row.context("Failed to read pending close row")?);
-    }
-    Ok(records)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("Failed to read pending close row")
 }
 
 fn delete_pending_close_conn(conn: &rusqlite::Connection, channel_id: &str) -> Result<()> {
@@ -465,21 +439,10 @@ pub fn list_all_pending_closes() -> Result<Vec<PendingClose>> {
         .context("Failed to prepare list all pending closes query")?;
 
     let rows = stmt
-        .query_map([], |row| {
-            let ready_at_i64 = row.get::<_, i64>(2)?;
-            Ok(PendingClose {
-                channel_id: row.get(0)?,
-                network: row.get(1)?,
-                ready_at: u64::try_from(ready_at_i64).unwrap_or(0),
-            })
-        })
+        .query_map([], map_pending_close_row)
         .context("Failed to list all pending closes")?;
-
-    let mut records = Vec::new();
-    for row in rows {
-        records.push(row.context("Failed to read pending close row")?);
-    }
-    Ok(records)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("Failed to read pending close row")
 }
 
 /// Delete a pending close record by channel ID.
@@ -493,10 +456,7 @@ mod tests {
     use super::*;
 
     fn test_record(origin: &str, salt: &str) -> SessionRecord {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = now_secs();
         SessionRecord {
             version: 1,
             origin: origin.into(),

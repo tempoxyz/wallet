@@ -3,16 +3,23 @@
 //! Low-level Tempo type-0x76 transaction construction, nonce management,
 //! and receipt polling.
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::{Address, B256, U256};
+use alloy::providers::Provider;
 use anyhow::{Context, Result};
+
+use mpp::client::tempo::{gas, signing, tx_builder};
 
 use crate::config::Config;
 use crate::error::PrestoError;
 use crate::http::{HttpResponse, RequestContext};
 use crate::network::Network;
+use crate::wallet::signer::WalletSigner;
 
 /// The nonceKey used for client-side session transactions.
 pub(super) const SESSION_NONCE_KEY: u64 = 0;
+
+/// Default gas price: 1 gwei.
+const DEFAULT_GAS_PRICE: u128 = 1_000_000_000;
 
 /// NONCE precompile address for querying 2D nonce spaces.
 const NONCE_PRECOMPILE: &str = "0x4e4f4e4345000000000000000000000000000000";
@@ -34,7 +41,6 @@ pub(super) async fn get_nonce_for_key(
 ) -> Result<u64> {
     // For nonceKey=0, use the standard account transaction count.
     if nonce_key == 0 {
-        use alloy::providers::Provider;
         // Prefer a raw request to avoid type coupling; returns hex string like "0x..."
         let count_hex: String = provider
             .raw_request(
@@ -47,8 +53,7 @@ pub(super) async fn get_nonce_for_key(
         let nonce = u64::from_str_radix(trimmed, 16).unwrap_or(0);
         return Ok(nonce);
     }
-    use alloy::primitives::{Bytes, U256};
-    use alloy::providers::Provider;
+    use alloy::primitives::Bytes;
     use alloy::sol;
     use alloy::sol_types::SolCall;
 
@@ -80,38 +85,27 @@ pub(super) async fn get_nonce_for_key(
     if result.len() < 32 {
         anyhow::bail!("Nonce precompile returned too few bytes: {}", result.len());
     }
-    let nonce_u256 = alloy::primitives::U256::from_be_slice(&result[result.len() - 32..]);
+    let nonce_u256 = U256::from_be_slice(&result[result.len() - 32..]);
 
     Ok(nonce_u256.to::<u64>())
 }
 
-/// Submit a Tempo type-0x76 transaction and return the tx hash.
-///
-/// `nonce_offset` is added to the on-chain nonce to allow callers to sequence
-/// multiple transactions without waiting for each to confirm.
-pub(super) async fn submit_tempo_tx(
+/// Resolve gas, estimate, build and sign a Tempo type-0x76 transaction.
+async fn resolve_and_sign_tx(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
-    wallet: &crate::wallet::signer::WalletSigner,
+    wallet: &WalletSigner,
     chain_id: u64,
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-    nonce_offset: u64,
-) -> Result<String> {
-    use alloy::primitives::U256;
-    use alloy::providers::Provider;
-
-    // Use simple gas resolution for gas prices only.
-    let resolved =
-        mpp::client::tempo::gas::resolve_gas(provider, from, 1_000_000_000, 1_000_000_000)
-            .await
-            .map_err(|e| PrestoError::Http(e.to_string()))?;
-
-    // Query the correct nonce for our nonceKey space via the NONCE precompile.
-    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
+    nonce: u64,
+) -> Result<Vec<u8>> {
+    let resolved = gas::resolve_gas(provider, from, DEFAULT_GAS_PRICE, DEFAULT_GAS_PRICE)
+        .await
+        .map_err(|e| PrestoError::Http(e.to_string()))?;
 
     let key_auth = wallet.signing_mode.key_authorization();
-    let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
+    let gas_limit = tx_builder::estimate_gas(
         provider,
         from,
         chain_id,
@@ -125,29 +119,43 @@ pub(super) async fn submit_tempo_tx(
     .await
     .map_err(|e| PrestoError::Signing(e.to_string()))?;
 
-    let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
-        mpp::client::tempo::tx_builder::TempoTxOptions {
-            calls,
-            chain_id,
-            fee_token,
-            nonce,
-            nonce_key: U256::from(SESSION_NONCE_KEY),
-            gas_limit,
-            max_fee_per_gas: resolved.max_fee_per_gas,
-            max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
-            fee_payer: false,
-            valid_before: None,
-            key_authorization: key_auth.cloned(),
-        },
-    );
+    let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
+        calls,
+        chain_id,
+        fee_token,
+        nonce,
+        nonce_key: U256::from(SESSION_NONCE_KEY),
+        gas_limit,
+        max_fee_per_gas: resolved.max_fee_per_gas,
+        max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
+        fee_payer: false,
+        valid_before: None,
+        key_authorization: key_auth.cloned(),
+    });
 
-    let tx_bytes = mpp::client::tempo::signing::sign_and_encode_async(
-        tx,
-        &wallet.signer,
-        &wallet.signing_mode,
+    Ok(
+        signing::sign_and_encode_async(tx, &wallet.signer, &wallet.signing_mode)
+            .await
+            .map_err(|e| PrestoError::Signing(e.to_string()))?,
     )
-    .await
-    .map_err(|e| PrestoError::Signing(e.to_string()))?;
+}
+
+/// Submit a Tempo type-0x76 transaction and return the tx hash.
+///
+/// `nonce_offset` is added to the on-chain nonce to allow callers to sequence
+/// multiple transactions without waiting for each to confirm.
+pub(super) async fn submit_tempo_tx(
+    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
+    wallet: &WalletSigner,
+    chain_id: u64,
+    fee_token: Address,
+    from: Address,
+    calls: Vec<tempo_primitives::transaction::Call>,
+    nonce_offset: u64,
+) -> Result<String> {
+    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
+    let tx_bytes =
+        resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls, nonce).await?;
 
     let pending = provider
         .send_raw_transaction(&tx_bytes)
@@ -165,8 +173,6 @@ pub(super) async fn wait_for_tempo_receipt(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     tx_hash: B256,
 ) -> Result<()> {
-    use alloy::providers::Provider;
-
     let poll_interval = std::time::Duration::from_secs(2);
     let timeout = std::time::Duration::from_secs(120);
     let start = std::time::Instant::now();
@@ -211,7 +217,7 @@ pub(super) async fn wait_for_tempo_receipt(
 /// signed transaction bytes (for optional client-side pre-broadcast).
 pub(super) async fn create_tempo_payment_from_calls(
     config: &Config,
-    signing: &crate::wallet::signer::WalletSigner,
+    signing: &WalletSigner,
     challenge: &mpp::PaymentChallenge,
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
@@ -224,63 +230,11 @@ pub(super) async fn create_tempo_payment_from_calls(
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
     let from = signing.from;
-
-    // Resolve gas prices (not nonce — resolve_gas queries nonceKey=0).
-    let resolved = mpp::client::tempo::gas::resolve_gas(
-        &provider,
-        from,
-        1_000_000_000, // 1 gwei default max fee
-        1_000_000_000, // 1 gwei default priority fee
-    )
-    .await
-    .map_err(|e| PrestoError::Http(e.to_string()))?;
-
-    // Query the correct nonce for our nonceKey space via the NONCE precompile.
     let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
+    let tx_bytes =
+        resolve_and_sign_tx(&provider, signing, chain_id, fee_token, from, calls, nonce).await?;
 
-    let key_auth = signing.signing_mode.key_authorization();
-    let gas_limit = mpp::client::tempo::tx_builder::estimate_gas(
-        &provider,
-        from,
-        chain_id,
-        nonce,
-        fee_token,
-        &calls,
-        resolved.max_fee_per_gas,
-        resolved.max_priority_fee_per_gas,
-        key_auth,
-    )
-    .await
-    .map_err(|e| PrestoError::Signing(e.to_string()))?;
-
-    // Build and sign the transaction
-    let tx = mpp::client::tempo::tx_builder::build_tempo_tx(
-        mpp::client::tempo::tx_builder::TempoTxOptions {
-            calls,
-            chain_id,
-            fee_token,
-            nonce,
-            nonce_key: alloy::primitives::U256::from(SESSION_NONCE_KEY),
-            gas_limit,
-            max_fee_per_gas: resolved.max_fee_per_gas,
-            max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
-            fee_payer: false,
-            valid_before: None,
-            key_authorization: key_auth.cloned(),
-        },
-    );
-
-    let tx_bytes = mpp::client::tempo::signing::sign_and_encode_async(
-        tx,
-        &signing.signer,
-        &signing.signing_mode,
-    )
-    .await
-    .map_err(|e| PrestoError::Signing(e.to_string()))?;
-
-    let credential = mpp::client::tempo::tx_builder::build_charge_credential(
-        challenge, &tx_bytes, chain_id, from,
-    );
+    let credential = tx_builder::build_charge_credential(challenge, &tx_bytes, chain_id, from);
 
     Ok(TempoPaymentResult {
         credential,
@@ -295,7 +249,9 @@ pub(super) async fn send_open_with_retry(
     auth_header: &str,
     delays_ms: &[u64],
 ) -> Result<HttpResponse> {
-    let mut headers = vec![("Authorization".to_string(), auth_header.to_string())];
+    let truncate = |s: String| -> String { s.chars().take(500).collect() };
+
+    let headers = vec![("Authorization".to_string(), auth_header.to_string())];
     let resp = request_ctx.execute(url, Some(&headers)).await?;
 
     if resp.status_code < 400 {
@@ -310,7 +266,6 @@ pub(super) async fn send_open_with_retry(
             }
             for delay in delays_ms {
                 tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
-                headers[0].1 = auth_header.to_string();
                 let next = request_ctx.execute(url, Some(&headers)).await?;
                 if next.status_code < 400 {
                     return Ok(next);
@@ -320,17 +275,13 @@ pub(super) async fn send_open_with_retry(
                     anyhow::bail!(
                         "Session open failed: HTTP {} — {}",
                         next.status_code,
-                        nb.chars().take(500).collect::<String>()
+                        truncate(nb)
                     );
                 }
-                // else: keep retrying 410s
             }
             anyhow::bail!("Server could not find channel after retries");
         } else {
-            anyhow::bail!(
-                "Session open failed: HTTP 410 — {}",
-                body.chars().take(500).collect::<String>()
-            );
+            anyhow::bail!("Session open failed: HTTP 410 — {}", truncate(body));
         }
     }
 
@@ -338,6 +289,6 @@ pub(super) async fn send_open_with_retry(
     anyhow::bail!(
         "Session open failed: HTTP {} — {}",
         resp.status_code,
-        body.chars().take(500).collect::<String>()
+        truncate(body)
     );
 }

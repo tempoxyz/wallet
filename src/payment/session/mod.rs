@@ -27,20 +27,22 @@ pub mod store;
 mod streaming;
 mod tx;
 
-use alloy::primitives::{Address, B256};
-use anyhow::{Context, Result};
-use std::str::FromStr;
+use std::collections::HashMap;
 
+use alloy::primitives::{Address, B256};
+use alloy::providers::Provider;
+use anyhow::{Context, Result};
+use mpp::protocol::core::extract_tx_hash;
 use mpp::protocol::methods::tempo::session::{SessionCredentialPayload, TempoSessionExt};
 use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
 use mpp::{parse_receipt, parse_www_authenticate, ChallengeEcho};
 
-use mpp::protocol::core::extract_tx_hash;
-
 use crate::config::Config;
 use crate::error::{map_mpp_validation_error, PrestoError};
 use crate::http::{HttpResponse, RequestContext};
-use crate::network::Network;
+use crate::network::{format_address_link, resolve_token_meta, Network};
+use crate::util::format_token_amount;
+use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::signer::load_wallet_signer;
 use store::{SessionRecord, SESSION_TTL_SECS};
 
@@ -93,10 +95,41 @@ pub(crate) struct SessionContext<'a> {
     pub currency: String,
 }
 
-impl SessionContext<'_> {
+impl<'a> SessionContext<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        signer: &'a alloy::signers::local::PrivateKeySigner,
+        echo: &'a ChallengeEcho,
+        did: &'a str,
+        request_ctx: &'a RequestContext,
+        url: &'a str,
+        network_name: &'a str,
+        origin: &'a str,
+        tick_cost: u128,
+        deposit: u128,
+        salt: String,
+        recipient: String,
+        currency: String,
+    ) -> Self {
+        Self {
+            signer,
+            echo,
+            did,
+            request_ctx,
+            url,
+            network_name,
+            origin,
+            tick_cost,
+            deposit,
+            salt,
+            recipient,
+            currency,
+        }
+    }
+
     /// Resolve the token symbol for the current session (e.g., "USDC" or "pathUSD").
     pub(crate) fn token_symbol(&self) -> &'static str {
-        crate::network::resolve_token_meta(self.network_name, &self.currency).0
+        resolve_token_meta(self.network_name, &self.currency).0
     }
 }
 
@@ -104,26 +137,27 @@ impl SessionContext<'_> {
 
 /// Extract the origin (scheme://host\[:port\]) from a URL.
 fn extract_origin(url: &str) -> String {
-    match url::Url::parse(url) {
-        Ok(parsed) => {
-            let scheme = parsed.scheme();
-            let host = parsed.host_str().unwrap_or("unknown");
-            match parsed.port() {
-                Some(port) => format!("{scheme}://{host}:{port}"),
-                None => format!("{scheme}://{host}"),
-            }
-        }
-        Err(_) => url.to_string(),
-    }
+    url::Url::parse(url)
+        .map(|u| u.origin().ascii_serialization())
+        .unwrap_or_else(|_| url.to_string())
 }
 
-/// Derive the network from a session request's chain ID.
-fn network_from_session_request(req: &mpp::SessionRequest) -> anyhow::Result<Network> {
-    use mpp::protocol::methods::tempo::session::TempoSessionExt;
-    let chain_id = req.chain_id().ok_or_else(|| {
-        PrestoError::InvalidConfig("Missing chainId in session request".to_string())
-    })?;
-    Ok(Network::require_chain_id(chain_id)?)
+/// Build a `SessionCredentialPayload::Open` with the given transaction bytes.
+fn build_open_payload(
+    channel_id: B256,
+    transaction: String,
+    authorized_signer: Address,
+    cumulative_amount: u128,
+    voucher_sig: &[u8],
+) -> SessionCredentialPayload {
+    SessionCredentialPayload::Open {
+        payload_type: "transaction".to_string(),
+        channel_id: format!("{:#x}", channel_id),
+        transaction,
+        authorized_signer: Some(format!("{:#x}", authorized_signer)),
+        cumulative_amount: cumulative_amount.to_string(),
+        signature: format!("0x{}", hex::encode(voucher_sig)),
+    }
 }
 
 // ==================== Voucher ====================
@@ -146,7 +180,7 @@ pub(crate) async fn build_voucher_credential(
     .context("Failed to sign voucher")?;
 
     let payload = SessionCredentialPayload::Voucher {
-        channel_id: format!("{}", state.channel_id),
+        channel_id: format!("{:#x}", state.channel_id),
         cumulative_amount: state.cumulative_amount.to_string(),
         signature: format!("0x{}", hex::encode(&sig)),
     };
@@ -162,10 +196,7 @@ pub(crate) async fn build_voucher_credential(
 
 /// Persist or update the session record to disk.
 pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = store::now_secs();
 
     let echo_json =
         serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
@@ -192,7 +223,7 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
             payer: ctx.did.to_string(),
             authorized_signer: format!("{:#x}", ctx.signer.address()),
             salt: ctx.salt.clone(),
-            channel_id: format!("{}", state.channel_id),
+            channel_id: format!("{:#x}", state.channel_id),
             deposit: ctx.deposit.to_string(),
             tick_cost: ctx.tick_cost.to_string(),
             cumulative_amount: state.cumulative_amount.to_string(),
@@ -265,7 +296,7 @@ async fn send_session_request(
         })
     } else {
         let status_code = status.as_u16();
-        let mut headers = std::collections::HashMap::new();
+        let mut headers = HashMap::new();
         for (key, value) in response.headers() {
             if let Ok(value_str) = value.to_str() {
                 headers.insert(key.as_str().to_lowercase(), value_str.to_string());
@@ -301,7 +332,7 @@ pub async fn handle_session_request(
     config: &Config,
     request_ctx: &RequestContext,
     url: &str,
-    initial_response: &crate::http::HttpResponse,
+    initial_response: &HttpResponse,
 ) -> Result<SessionResult> {
     let www_auth = initial_response
         .get_header("www-authenticate")
@@ -319,8 +350,10 @@ pub async fn handle_session_request(
         .decode()
         .context("Failed to parse session request from challenge")?;
 
-    let network = network_from_session_request(&session_req)
-        .context("Failed to resolve network from session request")?;
+    let chain_id = session_req.chain_id().ok_or_else(|| {
+        PrestoError::InvalidConfig("Missing chainId in session request".to_string())
+    })?;
+    let network = Network::require_chain_id(chain_id)?;
     let network_name = network.as_str();
 
     // Validate --network constraint if set (matches charge.rs enforcement)
@@ -354,10 +387,6 @@ pub async fn handle_session_request(
         .parse()
         .context("Invalid escrow contract address")?;
 
-    let chain_id = session_req
-        .chain_id()
-        .context("Missing chain ID in session challenge")?;
-
     let currency: Address = session_req
         .currency
         .parse()
@@ -371,12 +400,10 @@ pub async fn handle_session_request(
         .context("Invalid recipient address")?;
 
     // Resolve token metadata for human-readable amounts
-    let (token_symbol, token_decimals) =
-        crate::network::resolve_token_meta(network_name, &session_req.currency);
+    let (token_symbol, token_decimals) = resolve_token_meta(network_name, &session_req.currency);
 
     if request_ctx.log_enabled() {
-        let cost_display =
-            crate::util::format_token_amount(tick_cost, token_symbol, token_decimals);
+        let cost_display = format_token_amount(tick_cost, token_symbol, token_decimals);
         eprintln!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),
@@ -386,12 +413,8 @@ pub async fn handle_session_request(
 
     // Dry-run: print session parameters and exit without signing or transacting
     if request_ctx.runtime.dry_run {
-        let network_enum = crate::network::Network::from_str(network_name)
-            .unwrap_or(crate::network::Network::Tempo);
-        let explorer = network_enum.info().explorer;
-
-        let cost_display =
-            crate::util::format_token_amount(tick_cost, token_symbol, token_decimals);
+        let explorer = network.info().explorer;
+        let cost_display = format_token_amount(tick_cost, token_symbol, token_decimals);
 
         println!("[DRY RUN] Session payment would be made:");
         println!("Protocol: MPP (https://mpp.sh)");
@@ -405,25 +428,24 @@ pub async fn handle_session_request(
         );
         println!(
             "Currency: {}",
-            crate::network::format_address_link(&session_req.currency, explorer.as_ref())
+            format_address_link(&session_req.currency, explorer.as_ref())
         );
         if let Some(ref recipient) = session_req.recipient {
             println!(
                 "Recipient: {}",
-                crate::network::format_address_link(recipient, explorer.as_ref())
+                format_address_link(recipient, explorer.as_ref())
             );
         }
         if let Some(ref deposit) = session_req.suggested_deposit {
             let deposit_val: u128 = deposit.parse().unwrap_or(0);
-            let deposit_display =
-                crate::util::format_token_amount(deposit_val, token_symbol, token_decimals);
+            let deposit_display = format_token_amount(deposit_val, token_symbol, token_decimals);
             println!("Suggested deposit: {}", deposit_display);
         }
 
         return Ok(SessionResult::Response {
-            response: crate::http::HttpResponse {
+            response: HttpResponse {
                 status_code: 200,
-                headers: std::collections::HashMap::new(),
+                headers: HashMap::new(),
                 body: Vec::new(),
                 final_url: None,
             },
@@ -458,6 +480,8 @@ pub async fn handle_session_request(
         .min(MAX_DEPOSIT);
 
     let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
+    let recipient_hex = format!("{:#x}", recipient);
+    let currency_hex = format!("{:#x}", currency);
 
     // Check for an existing persisted session.
     // Reuse requires matching payer AND challenge parameters (escrow, currency,
@@ -467,8 +491,8 @@ pub async fn handle_session_request(
         !r.is_expired()
             && r.payer == did
             && r.escrow_contract == format!("{:#x}", escrow_contract)
-            && r.currency == format!("{:#x}", currency)
-            && r.recipient == format!("{:#x}", recipient)
+            && r.currency == currency_hex
+            && r.recipient == recipient_hex
             && r.chain_id == chain_id
     });
 
@@ -480,7 +504,6 @@ pub async fn handle_session_request(
         }
 
         let channel_id: B256 = record.channel_id_b256()?;
-
         let prev_cumulative: u128 = record.cumulative_amount_u128()?;
 
         let mut state = SessionState {
@@ -490,20 +513,20 @@ pub async fn handle_session_request(
             cumulative_amount: prev_cumulative + tick_cost,
         };
 
-        let ctx = SessionContext {
-            signer: &signing.signer,
-            echo: &echo,
-            did: &did,
+        let ctx = SessionContext::new(
+            &signing.signer,
+            &echo,
+            &did,
             request_ctx,
             url,
             network_name,
-            origin: &origin,
+            &origin,
             tick_cost,
             deposit,
-            salt: record.salt.clone(),
-            recipient: format!("{:#x}", recipient),
-            currency: format!("{:#x}", currency),
-        };
+            record.salt.clone(),
+            recipient_hex.clone(),
+            currency_hex.clone(),
+        );
 
         match send_session_request(&ctx, &mut state).await {
             Ok(result) => {
@@ -561,20 +584,20 @@ pub async fn handle_session_request(
                 cumulative_amount: cumulative,
             };
 
-            let ctx = SessionContext {
-                signer: &signing.signer,
-                echo: &echo,
-                did: &did,
+            let ctx = SessionContext::new(
+                &signing.signer,
+                &echo,
+                &did,
                 request_ctx,
                 url,
                 network_name,
-                origin: &origin,
+                &origin,
                 tick_cost,
-                deposit: on_chain.deposit,
-                salt: format!("{:#x}", on_chain.salt),
-                recipient: format!("{:#x}", recipient),
-                currency: format!("{:#x}", currency),
-            };
+                on_chain.deposit,
+                format!("{:#x}", on_chain.salt),
+                recipient_hex.clone(),
+                currency_hex.clone(),
+            );
 
             match send_session_request(&ctx, &mut state).await {
                 Ok(result) => {
@@ -607,8 +630,7 @@ pub async fn handle_session_request(
     );
 
     if request_ctx.log_enabled() {
-        let deposit_display =
-            crate::util::format_token_amount(deposit, token_symbol, token_decimals);
+        let deposit_display = format_token_amount(deposit, token_symbol, token_decimals);
         eprintln!("Opening payment channel...");
         eprintln!("  Deposit: {}", deposit_display);
         eprintln!("  Channel: {:#x}", channel_id);
@@ -639,11 +661,11 @@ pub async fn handle_session_request(
     )
     .await?;
 
-    // For keychain (smart wallet) mode, pre-broadcast the open transaction
-    // from the client. The server's `eth_sendRawTransactionSync` may reject
-    // type-0x76 keychain transactions, so we broadcast directly via the
-    // standard RPC and wait for confirmation before proceeding.
     if is_keychain {
+        // For keychain (smart wallet) mode, pre-broadcast the open transaction
+        // from the client. The server's `eth_sendRawTransactionSync` may reject
+        // type-0x76 keychain transactions, so we broadcast directly via the
+        // standard RPC and wait for confirmation before proceeding.
         if request_ctx.log_enabled() {
             eprintln!("Broadcasting channel open tx (keychain mode)...");
         }
@@ -653,20 +675,16 @@ pub async fn handle_session_request(
             .rpc_url
             .parse()
             .context("Invalid RPC URL for pre-broadcast")?;
-        let provider =
-            alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+        let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
-        use alloy::providers::Provider;
         let pending = provider
             .send_raw_transaction(&payment.tx_bytes)
             .await
             .context("Failed to broadcast channel open transaction")?;
         let tx_hash = pending.tx_hash();
 
-        let explorer = Network::from_str(network_name)
-            .ok()
-            .and_then(|n| n.info().explorer);
         if request_ctx.log_enabled() {
+            let explorer = network.info().explorer;
             if let Some(exp) = explorer.as_ref() {
                 eprintln!(
                     "Channel open tx: {}",
@@ -677,13 +695,7 @@ pub async fn handle_session_request(
             }
         }
 
-        // Wait for the receipt to confirm the channel is funded on-chain.
-        // Alloy's deserializer doesn't know type-0x76, so we poll manually
-        // and parse the raw JSON receipt to check status.
         tx::wait_for_tempo_receipt(&provider, *tx_hash).await?;
-
-        // Key is now provisioned on-chain — persist so future txs skip key_authorization.
-        crate::wallet::credentials::WalletCredentials::mark_provisioned(network_name);
 
         if request_ctx.log_enabled() {
             eprintln!("Channel open confirmed on-chain");
@@ -692,14 +704,13 @@ pub async fn handle_session_request(
         // Send the Open credential to the server so it registers the channel.
         // The tx is already confirmed on-chain, so the server just needs to
         // look it up.
-        let open_payload = SessionCredentialPayload::Open {
-            payload_type: "transaction".to_string(),
-            channel_id: format!("{}", channel_id),
-            transaction: format!("0x{}", hex::encode(&payment.tx_bytes)),
-            authorized_signer: Some(format!("{:#x}", authorized_signer)),
-            cumulative_amount: initial_cumulative.to_string(),
-            signature: format!("0x{}", hex::encode(&voucher_sig)),
-        };
+        let open_payload = build_open_payload(
+            channel_id,
+            format!("0x{}", hex::encode(&payment.tx_bytes)),
+            authorized_signer,
+            initial_cumulative,
+            &voucher_sig,
+        );
 
         let session_credential =
             mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
@@ -708,80 +719,49 @@ pub async fn handle_session_request(
 
         let delays = [2000_u64, 3000, 5000];
         let _ = tx::send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
+    } else {
+        // Direct signing mode: send the raw transaction to the server for broadcast.
+        let open_tx = payment
+            .credential
+            .payload
+            .get("transaction")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing transaction in open credential"))?
+            .to_string();
 
-        let mut state = SessionState {
+        let open_payload = build_open_payload(
             channel_id,
-            escrow_contract,
-            chain_id,
-            cumulative_amount: initial_cumulative,
-        };
+            open_tx,
+            authorized_signer,
+            initial_cumulative,
+            &voucher_sig,
+        );
 
-        let ctx = SessionContext {
-            signer: &signing.signer,
-            echo: &echo,
-            did: &did,
-            request_ctx,
-            url,
-            network_name,
-            origin: &origin,
-            tick_cost,
-            deposit,
-            salt: format!("{}", salt),
-            recipient: format!("{:#x}", recipient),
-            currency: format!("{:#x}", currency),
-        };
+        let session_credential =
+            mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
+        let auth_header = mpp::format_authorization(&session_credential)
+            .context("Failed to format open credential")?;
 
-        let result = send_session_request(&ctx, &mut state).await?;
-        persist_session(&ctx, &state)?;
-        return Ok(result);
-    }
+        let delays = [2000_u64, 3000, 5000];
+        let open_response =
+            tx::send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
 
-    // Direct signing mode: send the raw transaction to the server for broadcast.
-    let open_tx = payment
-        .credential
-        .payload
-        .get("transaction")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing transaction in open credential"))?
-        .to_string();
-
-    let open_payload = SessionCredentialPayload::Open {
-        payload_type: "transaction".to_string(),
-        channel_id: format!("{}", channel_id),
-        transaction: open_tx,
-        authorized_signer: Some(format!("{:#x}", authorized_signer)),
-        cumulative_amount: initial_cumulative.to_string(),
-        signature: format!("0x{}", hex::encode(&voucher_sig)),
-    };
-
-    let session_credential =
-        mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
-
-    let auth_header = mpp::format_authorization(&session_credential)
-        .context("Failed to format open credential")?;
-
-    let delays = [2000_u64, 3000, 5000];
-    let open_response = tx::send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
-
-    // Key is now provisioned on-chain — persist so future txs skip key_authorization.
-    crate::wallet::credentials::WalletCredentials::mark_provisioned(network_name);
-
-    if let Some(receipt_str) = open_response.get_header("payment-receipt") {
-        if let Ok(receipt) = parse_receipt(receipt_str) {
-            let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-            let explorer = Network::from_str(network_name)
-                .ok()
-                .and_then(|n| n.info().explorer);
-            if request_ctx.log_enabled() {
-                if let Some(exp) = explorer.as_ref() {
-                    let tx_url = exp.tx_url(&tx_ref);
-                    eprintln!("Channel open tx: {}", tx_url);
-                } else {
-                    eprintln!("Channel open tx: {}", tx_ref);
+        if let Some(receipt_str) = open_response.get_header("payment-receipt") {
+            if let Ok(receipt) = parse_receipt(receipt_str) {
+                let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
+                let explorer = network.info().explorer;
+                if request_ctx.log_enabled() {
+                    if let Some(exp) = explorer.as_ref() {
+                        eprintln!("Channel open tx: {}", exp.tx_url(&tx_ref));
+                    } else {
+                        eprintln!("Channel open tx: {}", tx_ref);
+                    }
                 }
             }
         }
     }
+
+    WalletCredentials::mark_provisioned(network_name);
 
     let mut state = SessionState {
         channel_id,
@@ -790,20 +770,20 @@ pub async fn handle_session_request(
         cumulative_amount: initial_cumulative,
     };
 
-    let ctx = SessionContext {
-        signer: &signing.signer,
-        echo: &echo,
-        did: &did,
+    let ctx = SessionContext::new(
+        &signing.signer,
+        &echo,
+        &did,
         request_ctx,
         url,
         network_name,
-        origin: &origin,
+        &origin,
         tick_cost,
         deposit,
-        salt: format!("{}", salt),
-        recipient: format!("{:#x}", recipient),
-        currency: format!("{:#x}", currency),
-    };
+        format!("{:#x}", salt),
+        recipient_hex,
+        currency_hex,
+    );
 
     let result = send_session_request(&ctx, &mut state).await?;
     persist_session(&ctx, &state)?;

@@ -4,13 +4,15 @@
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
 use anyhow::{Context, Result};
-
+use mpp::client::PaymentProvider;
+use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::{parse_www_authenticate, ChargeRequest};
 
 use crate::config::Config;
 use crate::error::{classify_payment_error, map_mpp_validation_error, PrestoError};
 use crate::http::{HttpResponse, RequestRuntime};
 use crate::network::Network;
+use crate::wallet::signer::load_wallet_signer;
 
 /// Prepare an MPP charge payment from a 402 response.
 ///
@@ -33,7 +35,10 @@ pub async fn prepare_charge(
         .request
         .decode()
         .context("Failed to parse charge request from challenge")?;
-    let network_enum = network_from_charge_request(&charge_req)?;
+    let chain_id = charge_req.chain_id().ok_or_else(|| {
+        PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
+    })?;
+    let network = Network::require_chain_id(chain_id)?;
 
     challenge
         .validate_for_charge("tempo")
@@ -42,11 +47,10 @@ pub async fn prepare_charge(
     // Validate --network constraint if set
     if let Some(ref networks) = runtime.network {
         let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
-        let network_str = network_enum.as_str();
         anyhow::ensure!(
-            allowed.contains(&network_str),
+            allowed.contains(&network.as_str()),
             "Network '{}' not in allowed networks: {:?}",
-            network_str,
+            network.as_str(),
             allowed
         );
     }
@@ -55,11 +59,7 @@ pub async fn prepare_charge(
         eprintln!("Creating payment credential...");
     }
 
-    // Build the mpp-rs payment provider with presto's wallet and RPC config
-    use crate::wallet::signer::load_wallet_signer;
-    use mpp::client::PaymentProvider;
-
-    let network_name = network_enum.as_str();
+    let network_name = network.as_str();
     let signing = load_wallet_signer(network_name)?;
     let network_info = config.resolve_network(network_name)?;
 
@@ -81,13 +81,4 @@ pub async fn prepare_charge(
     }
 
     Ok(auth_header)
-}
-
-/// Derive the network from a charge request's chain ID.
-fn network_from_charge_request(req: &ChargeRequest) -> Result<Network> {
-    use mpp::protocol::methods::tempo::TempoChargeExt;
-    let chain_id = req.chain_id().ok_or_else(|| {
-        PrestoError::InvalidConfig("Missing chainId in charge request".to_string())
-    })?;
-    Ok(Network::require_chain_id(chain_id)?)
 }
