@@ -2,7 +2,6 @@
 
 use std::time::{Duration, Instant};
 
-use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -10,9 +9,14 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::analytics::Analytics;
-use crate::error::{PrestoError, Result};
-use crate::wallet::credentials::WalletCredentials;
+use zeroize::Zeroizing;
+
+use crate::analytics::{
+    Analytics, CallbackReceivedPayload, CallbackWindowOpenedPayload, Event, KeyCreatedPayload,
+};
+use crate::error::PrestoError;
+use crate::network::networks::network_or_default;
+use crate::wallet::credentials::{WalletCredentials, WalletType};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
@@ -33,7 +37,7 @@ pub struct WalletManager {
 impl WalletManager {
     /// Create a new wallet manager for a specific network.
     pub fn new(network: Option<&str>, analytics: Option<Analytics>) -> Self {
-        let network = network.unwrap_or("tempo").to_string();
+        let network = network_or_default(network).to_string();
 
         let auth_server_url = std::env::var("PRESTO_AUTH_URL")
             .ok()
@@ -54,23 +58,15 @@ impl WalletManager {
         }
     }
 
-    /// Get the base URL from the auth server URL.
+    /// Get the base URL (origin) from the auth server URL.
     fn get_auth_base_url(&self) -> String {
         Url::parse(&self.auth_server_url)
-            .map(|u| {
-                let port = u.port().map(|p| format!(":{}", p)).unwrap_or_default();
-                format!(
-                    "{}://{}{}",
-                    u.scheme(),
-                    u.host_str().unwrap_or("localhost"),
-                    port
-                )
-            })
+            .map(|u| u.origin().ascii_serialization())
             .unwrap_or_else(|_| self.auth_server_url.clone())
     }
 
     /// Open browser for wallet authentication.
-    pub async fn setup_wallet(&self) -> Result<()> {
+    pub async fn setup_wallet(&self) -> Result<(), PrestoError> {
         let local_signer = PrivateKeySigner::random();
         let uncompressed = local_signer
             .credential()
@@ -133,8 +129,8 @@ impl WalletManager {
 
         if let Some(ref a) = self.analytics {
             a.track(
-                crate::analytics::Event::CallbackWindowOpened,
-                crate::analytics::CallbackWindowOpenedPayload {
+                Event::CallbackWindowOpened,
+                CallbackWindowOpenedPayload {
                     network: self.network.clone(),
                 },
             );
@@ -174,8 +170,8 @@ impl WalletManager {
 
         if let Some(ref a) = self.analytics {
             a.track(
-                crate::analytics::Event::CallbackReceived,
-                crate::analytics::CallbackReceivedPayload {
+                Event::CallbackReceived,
+                CallbackReceivedPayload {
                     network: self.network.clone(),
                     duration_secs: wait_start.elapsed().as_secs(),
                 },
@@ -189,75 +185,79 @@ impl WalletManager {
 
     /// Save authentication credentials.
     ///
-    /// Stores the access key inline in keys.toml (NOT in the OS keychain).
+    /// Stores the key inline in keys.toml (NOT in the OS keychain).
     async fn save_credentials(
         &self,
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
-    ) -> Result<()> {
-        let validated = validate_key_authorization(
+    ) -> Result<(), PrestoError> {
+        let validated = super::key_authorization::validate(
             callback.key_authorization.as_deref(),
             local_signer.address(),
         )?;
         let key_auth_hex = validated.as_ref().map(|v| v.hex.clone());
 
         let access_key_hex = format!("0x{}", hex::encode(local_signer.to_bytes()));
-        let access_key_address = format!("{}", local_signer.address());
+        let access_key_address = local_signer.address().to_string();
 
         // Load existing credentials to preserve other accounts.
         // If the file is corrupt, surface the error instead of silently resetting.
         let mut creds = WalletCredentials::load()?;
 
-        // Resolve which key name to update using both wallet and signer addresses.
-        // If the resolved profile has a different access key for the same wallet
-        // (e.g. mainnet key vs testnet key), use a network-specific name to avoid
-        // overwriting the existing key.
-        let mut profile =
-            creds.resolve_key_name_for_login(&callback.account_address, &access_key_address);
-        if let Some(existing) = creds.keys.get(&profile) {
-            let same_key = existing
-                .access_key_address
+        let entry = creds.upsert_by_wallet_address(&callback.account_address);
+
+        // Only preserve provisioned state when key and chain are unchanged.
+        let keep_provisioned = {
+            let same_key = entry
+                .key_address
                 .as_deref()
                 .is_some_and(|a| a == access_key_address);
-            if !same_key && self.network != "tempo" {
-                profile = format!("passkey-{}", self.network.replace("tempo-", ""));
-            }
-        }
+            let same_chain = validated
+                .as_ref()
+                .is_none_or(|v| v.chain_id == entry.chain_id);
+            same_key && same_chain && entry.provisioned
+        };
 
-        if let Some(key) = creds.keys.get_mut(&profile) {
-            // Only clear provisioned state when the access key actually changed;
-            // re-authorizing the same key doesn't re-register it on-chain.
-            let key_changed = key
-                .access_key_address
-                .as_deref()
-                .is_none_or(|a| a != access_key_address);
-            key.wallet_type = crate::wallet::credentials::WalletType::Passkey;
-            key.wallet_address = callback.account_address.clone();
-            key.access_key_address = Some(access_key_address.clone());
-            key.access_key = Some(zeroize::Zeroizing::new(access_key_hex.clone()));
-            key.key_authorization = key_auth_hex.clone();
-            if key_changed {
-                key.provisioned_chain_ids.clear();
-            }
+        // When no new authorization was received, preserve existing chain metadata.
+        // chain_id 0 means the server didn't specify — default to Tempo mainnet.
+        let (chain_id, key_type, expiry, token_limits) = if let Some(ref v) = validated {
+            let cid = if v.chain_id != 0 {
+                v.chain_id
+            } else {
+                crate::network::evm_chain_ids::TEMPO
+            };
+            (cid, v.key_type.clone(), Some(v.expiry), v.limits.clone())
         } else {
-            creds.keys.insert(
-                profile,
-                crate::wallet::credentials::KeyEntry {
-                    wallet_type: crate::wallet::credentials::WalletType::Passkey,
-                    wallet_address: callback.account_address.clone(),
-                    access_key_address: Some(access_key_address.clone()),
-                    access_key: Some(zeroize::Zeroizing::new(access_key_hex.clone())),
-                    key_authorization: key_auth_hex.clone(),
-                    provisioned_chain_ids: Vec::new(),
-                },
-            );
-        }
+            let cid = if entry.chain_id != 0 {
+                entry.chain_id
+            } else {
+                crate::network::evm_chain_ids::TEMPO
+            };
+            (
+                cid,
+                entry.key_type.clone(),
+                entry.expiry,
+                entry.limits.clone(),
+            )
+        };
+
+        entry.wallet_type = WalletType::Passkey;
+        entry.wallet_address = callback.account_address;
+        entry.chain_id = chain_id;
+        entry.key_type = key_type;
+        entry.key_address = Some(access_key_address);
+        entry.key = Some(Zeroizing::new(access_key_hex));
+        entry.key_authorization = key_auth_hex;
+        entry.expiry = expiry;
+        entry.limits = token_limits;
+        entry.provisioned = keep_provisioned;
+
         creds.save()?;
 
         if let Some(ref a) = self.analytics {
             a.track(
-                crate::analytics::Event::KeyCreated,
-                crate::analytics::KeyCreatedPayload {
+                Event::KeyCreated,
+                KeyCreatedPayload {
                     network: self.network.clone(),
                 },
             );
@@ -266,47 +266,6 @@ impl WalletManager {
 
         Ok(())
     }
-}
-
-impl Default for WalletManager {
-    fn default() -> Self {
-        Self::new(None, None)
-    }
-}
-
-// ==================== Key Authorization Validation ====================
-
-#[derive(Debug, PartialEq)]
-struct ValidatedKeyAuth {
-    hex: String,
-    expiry: u64,
-}
-
-fn validate_key_authorization(
-    hex_str: Option<&str>,
-    expected_key_id: Address,
-) -> Result<Option<ValidatedKeyAuth>> {
-    let hex_str = match hex_str {
-        Some(s) => s,
-        None => return Ok(None),
-    };
-
-    let signed = super::signer::decode_key_authorization(hex_str)
-        .ok_or_else(|| PrestoError::InvalidConfig("Invalid key authorization".to_string()))?;
-
-    if signed.authorization.key_id != expected_key_id {
-        return Err(PrestoError::InvalidConfig(format!(
-            "Key authorization targets {:#x}, expected {:#x}",
-            signed.authorization.key_id, expected_key_id
-        )));
-    }
-
-    let expiry = signed.authorization.expiry.unwrap_or(0);
-
-    Ok(Some(ValidatedKeyAuth {
-        hex: hex_str.to_string(),
-        expiry,
-    }))
 }
 
 // ==================== Device Code ====================
@@ -330,7 +289,7 @@ async fn create_device_code(
     pub_key: &str,
     key_type: &str,
     code_challenge: &str,
-) -> Result<DeviceCodeResponse> {
+) -> Result<DeviceCodeResponse, PrestoError> {
     let url = format!("{}/cli-auth/device-code", base_url);
     let resp = client
         .post(&url)
@@ -362,7 +321,7 @@ async fn poll_device_code(
     base_url: &str,
     code: &str,
     code_verifier: &str,
-) -> Result<PollResponse> {
+) -> Result<PollResponse, PrestoError> {
     let url = format!("{}/cli-auth/poll/{}", base_url, code);
     let resp = client
         .post(&url)
@@ -396,6 +355,7 @@ async fn poll_device_code(
 fn generate_code_verifier() -> String {
     let mut bytes = [0u8; 32];
     getrandom::getrandom(&mut bytes).expect("failed to generate random bytes");
+    // Truncate to 43 chars: PKCE spec (RFC 7636 §4.1) requires 43–128 unreserved characters.
     hex::encode(bytes)[..43].to_string()
 }
 
@@ -410,72 +370,6 @@ fn compute_code_challenge(code_verifier: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::rlp::Encodable;
-    use alloy::signers::SignerSync;
-    use tempo_primitives::transaction::{KeyAuthorization, PrimitiveSignature, SignatureType};
-
-    fn make_signed_auth_hex(key_id: Address) -> String {
-        let signer: PrivateKeySigner =
-            "0x1234567890123456789012345678901234567890123456789012345678901234"
-                .parse()
-                .unwrap();
-
-        let auth = KeyAuthorization {
-            chain_id: 42431,
-            key_type: SignatureType::Secp256k1,
-            key_id,
-            expiry: Some(9999999999),
-            limits: None,
-        };
-
-        let sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
-        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
-
-        let mut buf = Vec::new();
-        signed.encode(&mut buf);
-        format!("0x{}", hex::encode(&buf))
-    }
-
-    #[test]
-    fn test_validate_key_authorization_matching_key_id() {
-        let signer = PrivateKeySigner::random();
-        let hex = make_signed_auth_hex(signer.address());
-        let result = validate_key_authorization(Some(&hex), signer.address());
-        assert!(result.is_ok());
-        let validated = result.unwrap().unwrap();
-        assert_eq!(validated.hex, hex);
-        assert_eq!(validated.expiry, 9999999999);
-    }
-
-    #[test]
-    fn test_validate_key_authorization_mismatched_key_id() {
-        let signer = PrivateKeySigner::random();
-        let wrong_address = Address::repeat_byte(0xFF);
-        let hex = make_signed_auth_hex(wrong_address);
-        let result = validate_key_authorization(Some(&hex), signer.address());
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("Key authorization targets"));
-    }
-
-    #[test]
-    fn test_validate_key_authorization_none() {
-        let result = validate_key_authorization(None, Address::ZERO);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
-    }
-
-    #[test]
-    fn test_validate_key_authorization_invalid_hex() {
-        let result = validate_key_authorization(Some("not-hex"), Address::ZERO);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_validate_key_authorization_invalid_rlp() {
-        let result = validate_key_authorization(Some("0xdeadbeef"), Address::ZERO);
-        assert!(result.is_err());
-    }
 
     #[test]
     fn test_code_challenge_produces_43_char_base64url() {

@@ -69,9 +69,6 @@ presto -i https://api.example.com/data
 ```bash
 # Preview payment without executing
 presto --dry-run https://api.example.com/data
-
-# Restrict to a specific network
-presto -n tempo https://api.example.com/data
 ```
 
 ### Output Control
@@ -80,7 +77,6 @@ presto -n tempo https://api.example.com/data
 presto -v <URL>          # Payment flow narration (intent, network, amount, completion)
 presto -vv <URL>         # Debug internals (voucher retries, auth header size)
 presto -q <URL>          # Quiet — suppress all stderr logs (overrides RUST_LOG)
-presto --color never <URL>          # Disable colors
 presto --output-format json <URL>   # JSON output format
 ```
 
@@ -93,28 +89,12 @@ presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
 | `<URL>` | Make an HTTP request with automatic payment |
 | `login` | Sign up or log in to your Tempo wallet |
 | `logout` | Log out and disconnect your wallet |
-| `whoami` | Show wallet address, balances, and access keys |
+| `whoami` | Show wallet address, balances, and keys |
 | `session list` | List active payment sessions |
 | `session close` | Close a payment session |
-| `session recover` | Recover a session from on-chain state |
-| `key` or `key list` | List all access keys and their spending limits |
-| `key create` | Create a new access key for a local wallet |
+| `key` or `key list` | List all keys and their spending limits |
 
 Run `presto <command> --help` for detailed usage on any command.
-
-### Wallet Commands
-
-```bash
-# Create a new local wallet (EOA stored in macOS Keychain)
-presto wallet create
-
-# Import an existing private key as a local wallet
-presto wallet import --stdin-key   # read from stdin
-presto wallet import --private-key 0x...
-
-# Delete a wallet
-presto wallet delete --yes
-```
 
 ## Configuration
 
@@ -124,7 +104,7 @@ presto wallet delete --yes
 presto login    # Sign up or log in via browser
 ```
 
-This creates a wallet credential file with your account address, stores your wallet EOA key securely in the OS keychain (macOS Keychain), and writes the access key inline to `keys.toml` after login.
+This creates a wallet credential file with your account address, stores your wallet EOA key securely in the OS keychain (macOS Keychain), and writes the key inline to `keys.toml` after login.
 
 ### File Locations
 
@@ -135,9 +115,7 @@ presto uses platform-native directories:
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
 
-The wallet EOA private key is stored in the OS keychain on macOS. The access key used for payments is stored inline in `keys.toml` with permissions 0600 alongside account metadata.
-
-You can override the config path with `-c <PATH>` or `--config <PATH>`.
+The wallet EOA private key is stored in the OS keychain on macOS. The signing key used for payments is stored inline in `keys.toml` with permissions 0600 alongside account metadata.
 
 ### Config File Reference
 

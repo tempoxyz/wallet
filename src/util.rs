@@ -2,35 +2,17 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::error::{PrestoError, Result};
-
-// ── Constants ────────────────────────────────────────────────────────
-
-/// Application name for XDG directories
-pub const APP_NAME: &str = "presto";
-
-/// Config file name
-pub const CONFIG_FILE: &str = "config.toml";
-
-/// Get the presto config directory (`~/.config/presto/`)
-pub fn presto_config_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|c| c.join(APP_NAME))
-}
-
-/// Get the default config file path (`~/.config/presto/config.toml`)
-pub fn default_config_path() -> Option<PathBuf> {
-    presto_config_dir().map(|p| p.join(CONFIG_FILE))
-}
+use crate::error::PrestoError;
 
 // ── Atomic file writes ──────────────────────────────────────────────
 
-pub fn atomic_write(
+pub(crate) fn atomic_write(
     path: &Path,
     contents: &str,
     #[allow(unused_variables)] unix_mode: u32,
-) -> Result<()> {
+) -> Result<(), PrestoError> {
     let parent = path.parent().ok_or_else(|| {
         PrestoError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -62,11 +44,11 @@ pub fn atomic_write(
 /// Strip control characters from a string to prevent terminal escape injection.
 ///
 /// Removes all C0 control characters (0x00–0x1F) and DEL (0x7F) except for
-/// common whitespace (tab, newline, carriage return). This prevents:
+/// tab and newline. This prevents:
 /// - ANSI escape sequence injection (CSI, OSC, etc.)
 /// - OSC 8 breakout via BEL (\x07)
 /// - Cursor manipulation and line erasure
-pub fn sanitize_for_terminal(s: &str) -> String {
+pub(crate) fn sanitize_for_terminal(s: &str) -> String {
     s.chars()
         .filter(|c| {
             // Keep printable characters and safe whitespace (tab, newline)
@@ -85,7 +67,7 @@ pub fn sanitize_for_terminal(s: &str) -> String {
 ///
 /// Both `text` and `url` are sanitized to strip control characters, preventing
 /// terminal escape injection from server-controlled data.
-pub fn hyperlink(text: &str, url: &str) -> String {
+pub(crate) fn hyperlink(text: &str, url: &str) -> String {
     let clean_text = sanitize_for_terminal(text);
     if supports_hyperlinks() {
         let clean_url = sanitize_for_terminal(url);
@@ -96,7 +78,7 @@ pub fn hyperlink(text: &str, url: &str) -> String {
 }
 
 /// Check if the current terminal supports OSC 8 hyperlinks.
-pub fn supports_hyperlinks() -> bool {
+pub(crate) fn supports_hyperlinks() -> bool {
     use std::sync::OnceLock;
     static SUPPORTS: OnceLock<bool> = OnceLock::new();
     *SUPPORTS.get_or_init(detect_hyperlink_support)
@@ -159,7 +141,7 @@ fn detect_hyperlink_support() -> bool {
 ///
 /// Converts atomic units to a human-readable decimal string.
 /// For example, `1000000` with 6 decimals becomes `"1.000000"`.
-pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
+pub(crate) fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
     use alloy::primitives::U256;
 
     if decimals == 0 {
@@ -176,34 +158,26 @@ pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -
     format!("{}.{}", whole, padded)
 }
 
+/// Format atomic token units as a human-readable string with trimmed trailing zeros.
+pub(crate) fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
+    let divisor = 10u128.pow(decimals as u32);
+    let whole = atomic / divisor;
+    let remainder = atomic % divisor;
+
+    if remainder == 0 {
+        format!("{whole} {symbol}")
+    } else {
+        let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
+        let trimmed = frac_str.trim_end_matches('0');
+        format!("{whole}.{trimmed} {symbol}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use tempfile::tempdir;
-
-    // ── Constants tests ─────────────────────────────────────────────
-
-    #[test]
-    fn test_presto_config_dir_exists() {
-        let dir = presto_config_dir();
-        assert!(dir.is_some());
-        let path = dir.expect("Config dir should exist");
-        assert!(path
-            .to_str()
-            .expect("Path should be valid UTF-8")
-            .contains(APP_NAME));
-    }
-
-    #[test]
-    fn test_default_config_path() {
-        let path = default_config_path();
-        assert!(path.is_some());
-        let p = path.expect("Config path should exist");
-        let path_str = p.to_str().expect("Path should be valid UTF-8");
-        assert!(path_str.contains(CONFIG_FILE));
-        assert!(path_str.contains(APP_NAME));
-    }
 
     // ── Atomic write tests ──────────────────────────────────────────
 
@@ -498,5 +472,15 @@ mod tests {
         let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         assert_eq!(fs::read_to_string(&path).expect("read"), "now restricted");
+    }
+
+    // ── Hyperlink tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_hyperlink_format() {
+        let url = "https://etherscan.io/tx/0x123";
+        let text = "View transaction";
+        let expected = "\x1b]8;;https://etherscan.io/tx/0x123\x07View transaction\x1b]8;;\x07";
+        assert_eq!(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text), expected);
     }
 }

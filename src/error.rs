@@ -1,48 +1,10 @@
 //! Error types for the presto library.
 
-use std::error::Error as StdError;
 use thiserror::Error;
 
-/// Result type alias for presto operations.
-pub type Result<T> = std::result::Result<T, PrestoError>;
-
-/// Context for signing errors
-#[derive(Debug, Clone)]
-pub struct SigningContext {
-    pub network: Option<String>,
-    pub address: Option<String>,
-    pub operation: &'static str,
-}
-
-impl Default for SigningContext {
-    fn default() -> Self {
-        Self {
-            network: None,
-            address: None,
-            operation: "sign",
-        }
-    }
-}
-
-impl std::fmt::Display for SigningContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "operation: {}", self.operation)?;
-        if let Some(ref network) = self.network {
-            write!(f, ", network: {}", network)?;
-        }
-        if let Some(ref address) = self.address {
-            write!(f, ", address: {}", address)?;
-        }
-        Ok(())
-    }
-}
-
 #[derive(Error, Debug)]
-pub enum PrestoError {
-    /// Invalid payment amount format
-    #[error("Invalid amount: {0}")]
-    InvalidAmount(String),
-
+#[allow(dead_code)]
+pub(crate) enum PrestoError {
     /// Missing required payment field
     #[error("Missing payment requirement: {0}")]
     MissingRequirement(String),
@@ -71,27 +33,15 @@ pub enum PrestoError {
     #[error("Unknown network: {0}")]
     UnknownNetwork(String),
 
-    /// Unsupported token type
-    #[error("Unsupported token: {0}")]
-    UnsupportedToken(String),
-
-    /// Balance query failed
-    #[error("Balance query failed: {0}")]
-    BalanceQuery(String),
-
-    /// Spending limit query failed
-    #[error("Spending limit query failed: {0}")]
-    SpendingLimitQuery(String),
-
-    /// Access key is not provisioned on-chain
-    #[error("Access key is not provisioned on-chain. Run 'presto login' to set up your key.")]
+    /// Key is not provisioned on-chain
+    #[error("Key is not provisioned on-chain. Run 'presto login' to set up your key.")]
     AccessKeyNotProvisioned,
 
     /// Browser-based login expired (device code expired or callback window timed out)
     #[error("Login expired. Use presto login to try again.")]
     LoginExpired,
 
-    /// Access key spending limit exceeded on-chain
+    /// Key spending limit exceeded on-chain
     #[error("Spending limit exceeded: limit is {limit} {token}, need {required} {token}")]
     SpendingLimitExceeded {
         token: String,
@@ -109,24 +59,16 @@ pub enum PrestoError {
 
     /// Server rejected the payment after submission
     #[error("Payment rejected by server: {reason}")]
-    PaymentRejected { reason: String, status_code: u32 },
+    PaymentRejected { reason: String, status_code: u16 },
 
     // ==================== HTTP Errors ====================
     /// HTTP request/response error
     #[error("HTTP error: {0}")]
     Http(String),
 
-    /// EVM/Alloy signing error with context and source chain
-    #[error("signing failed ({context})")]
-    Signing {
-        #[source]
-        source: Box<dyn StdError + Send + Sync>,
-        context: SigningContext,
-    },
-
-    /// Simple signing error for backwards compatibility
+    /// Signing error
     #[error("Signing error: {0}")]
-    SigningSimple(String),
+    Signing(String),
 
     /// Address parsing error
     #[error("Invalid address: {0}")]
@@ -169,17 +111,9 @@ pub enum PrestoError {
     #[error("Missing required header: {0}")]
     MissingHeader(String),
 
-    /// Invalid base64url encoding
-    #[error("Invalid base64url: {0}")]
-    InvalidBase64Url(String),
-
     /// Challenge has expired
     #[error("Challenge expired: {0}")]
     ChallengeExpired(String),
-
-    /// Invalid DID format
-    #[error("Invalid DID: {0}")]
-    InvalidDid(String),
 
     // ==================== External Library Errors ====================
     /// IO error
@@ -203,41 +137,8 @@ pub enum PrestoError {
     Mpp(#[from] mpp::MppError),
 }
 
-impl PrestoError {
-    /// Create a signing error with context and source chain
-    pub fn signing_with_context(
-        source: impl StdError + Send + Sync + 'static,
-        context: SigningContext,
-    ) -> Self {
-        Self::Signing {
-            source: Box::new(source),
-            context,
-        }
-    }
-
-    /// Create a signing error with just a message (backwards compat)
-    pub fn signing(msg: impl Into<String>) -> Self {
-        Self::SigningSimple(msg.into())
-    }
-
-    /// Create an invalid address error
-    pub fn invalid_address(msg: impl Into<String>) -> Self {
-        Self::InvalidAddress(msg.into())
-    }
-
-    /// Create a config missing error
-    pub fn config_missing(msg: impl Into<String>) -> Self {
-        Self::ConfigMissing(msg.into())
-    }
-
-    /// Create an unsupported payment method error
-    pub fn unsupported_method(method: &impl std::fmt::Display) -> Self {
-        Self::UnsupportedPaymentMethod(format!("Payment method '{}' is not supported", method))
-    }
-}
-
 /// Map mpp validation errors to presto error types.
-pub fn map_mpp_validation_error(
+pub(crate) fn map_mpp_validation_error(
     e: mpp::MppError,
     challenge: &mpp::PaymentChallenge,
 ) -> PrestoError {
@@ -254,7 +155,7 @@ pub fn map_mpp_validation_error(
 }
 
 /// Classify an mpp provider error into a PrestoError with actionable context.
-pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
+pub(crate) fn classify_payment_error(err: mpp::MppError) -> PrestoError {
     use mpp::client::TempoClientError;
 
     match err {
@@ -291,12 +192,6 @@ pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_invalid_amount_display() {
-        let err = PrestoError::InvalidAmount("not a number".to_string());
-        assert_eq!(err.to_string(), "Invalid amount: not a number");
-    }
 
     #[test]
     fn test_missing_requirement_display() {
@@ -338,18 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn test_unsupported_token_display() {
-        let err = PrestoError::UnsupportedToken("UNKNOWN".to_string());
-        assert_eq!(err.to_string(), "Unsupported token: UNKNOWN");
-    }
-
-    #[test]
-    fn test_balance_query_display() {
-        let err = PrestoError::BalanceQuery("RPC timeout".to_string());
-        assert_eq!(err.to_string(), "Balance query failed: RPC timeout");
-    }
-
-    #[test]
     fn test_http_display() {
         let err = PrestoError::Http("404 Not Found".to_string());
         assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
@@ -357,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_signing_simple_display() {
-        let err = PrestoError::SigningSimple("Failed to sign transaction".to_string());
+        let err = PrestoError::Signing("Failed to sign transaction".to_string());
         assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
     }
 
@@ -392,88 +275,9 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_base64_url_display() {
-        let err = PrestoError::InvalidBase64Url("Invalid padding".to_string());
-        assert_eq!(err.to_string(), "Invalid base64url: Invalid padding");
-    }
-
-    #[test]
     fn test_challenge_expired_display() {
         let err = PrestoError::ChallengeExpired("Expired 5 minutes ago".to_string());
         assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
-    }
-
-    #[test]
-    fn test_invalid_did_display() {
-        let err = PrestoError::InvalidDid("Not a valid DID".to_string());
-        assert_eq!(err.to_string(), "Invalid DID: Not a valid DID");
-    }
-
-    #[test]
-    fn test_signing_constructor() {
-        let err = PrestoError::signing("test error");
-        assert!(matches!(err, PrestoError::SigningSimple(_)));
-        assert_eq!(err.to_string(), "Signing error: test error");
-    }
-
-    #[test]
-    fn test_signing_with_context() {
-        use std::io::Error as IoError;
-        let source = IoError::other("underlying error");
-        let ctx = SigningContext {
-            network: Some("tempo".to_string()),
-            address: Some("0x123".to_string()),
-            operation: "sign_transaction",
-        };
-        let err = PrestoError::signing_with_context(source, ctx);
-        let display = err.to_string();
-        assert!(display.contains("signing failed"));
-        assert!(display.contains("sign_transaction"));
-        assert!(display.contains("tempo"));
-        assert!(display.contains("0x123"));
-    }
-
-    #[test]
-    fn test_signing_context_display() {
-        let ctx = SigningContext {
-            network: Some("ethereum".to_string()),
-            address: Some("0xabc".to_string()),
-            operation: "get_nonce",
-        };
-        let display = ctx.to_string();
-        assert!(display.contains("operation: get_nonce"));
-        assert!(display.contains("network: ethereum"));
-        assert!(display.contains("address: 0xabc"));
-    }
-
-    #[test]
-    fn test_signing_context_default() {
-        let ctx = SigningContext::default();
-        assert_eq!(ctx.operation, "sign");
-        assert!(ctx.network.is_none());
-        assert!(ctx.address.is_none());
-    }
-
-    #[test]
-    fn test_invalid_address_constructor() {
-        let err = PrestoError::invalid_address("test address");
-        assert!(matches!(err, PrestoError::InvalidAddress(_)));
-        assert_eq!(err.to_string(), "Invalid address: test address");
-    }
-
-    #[test]
-    fn test_config_missing_constructor() {
-        let err = PrestoError::config_missing("test config");
-        assert!(matches!(err, PrestoError::ConfigMissing(_)));
-        assert_eq!(err.to_string(), "Configuration missing: test config");
-    }
-
-    #[test]
-    fn test_unsupported_method_constructor() {
-        let err = PrestoError::unsupported_method(&"bitcoin");
-        assert!(matches!(err, PrestoError::UnsupportedPaymentMethod(_)));
-        assert!(err.to_string().contains("bitcoin"));
-        assert!(err.to_string().contains("not supported"));
     }
 
     #[test]
@@ -519,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_access_key_not_provisioned() {
+    fn test_classify_key_not_provisioned() {
         let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
         assert!(matches!(
             classify_payment_error(err),

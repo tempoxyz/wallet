@@ -9,7 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{get_combined_output, test_command, TestConfigBuilder};
+use common::{get_combined_output, test_command, write_test_files, TestConfigBuilder};
 
 #[test]
 fn test_completions_bash() {
@@ -523,31 +523,18 @@ fn test_private_key_env_value_hidden_in_help() {
 
 /// Helper: write a multi-key keys.toml into both macOS and Linux paths.
 fn setup_multi_key(temp: &tempfile::TempDir) {
-    let wallet_toml = r#"active = "default"
-
-[keys.default]
+    let wallet_toml = r#"
+[[keys]]
 wallet_address = "0xAAA"
-access_key_address = "0xAAA"
-access_key = "0xkey1"
+key_address = "0xAAA"
+key = "0xkey1"
 
-[keys.work]
+[[keys]]
 wallet_address = "0xBBB"
-access_key_address = "0xBBB"
-access_key = "0xkey2"
+key_address = "0xBBB"
+key = "0xkey2"
 "#;
-    let config_toml = "";
-
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), config_toml).unwrap();
-
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), config_toml).unwrap();
+    write_test_files(temp.path(), "", Some(wallet_toml));
 }
 
 #[test]
@@ -556,7 +543,7 @@ fn test_wallet_delete_with_yes() {
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["wallet", "delete", "work", "--yes"])
+        .args(["wallet", "delete", "0xBBB", "--yes"])
         .output()
         .unwrap();
 
@@ -574,7 +561,7 @@ fn test_wallet_delete_nonexistent() {
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["wallet", "delete", "nonexistent", "--yes"])
+        .args(["wallet", "delete", "0xNONEXISTENT", "--yes"])
         .output()
         .unwrap();
 
@@ -589,7 +576,7 @@ fn test_wallet_delete_without_yes_noninteractive() {
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["wallet", "delete", "work"])
+        .args(["wallet", "delete", "0xBBB"])
         .output()
         .unwrap();
 
@@ -608,28 +595,11 @@ fn test_wallet_delete_active_switches() {
 
     // Delete the active key "default"
     let output = test_command(&temp)
-        .args(["wallet", "delete", "default", "--yes"])
+        .args(["wallet", "delete", "0xAAA", "--yes"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
-}
-
-#[test]
-fn test_key_global_flag_selects_key() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["--key", "work", "whoami"])
-        .output()
-        .unwrap();
-
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("0xBBB"),
-        "should use work key's address 0xBBB: {combined}"
-    );
 }
 
 // ==================== Session JSON Output Tests ====================
@@ -694,4 +664,116 @@ fn test_session_list_closed_json_empty() {
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(parsed["total"], 0);
     assert!(parsed["sessions"].as_array().unwrap().is_empty());
+}
+
+// ==================== Golden-Output JSON Tests ====================
+
+#[test]
+fn test_whoami_json_structure_no_wallet() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["whoami", "--output-format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    // Verify required top-level fields exist
+    assert!(parsed.get("ready").is_some(), "missing 'ready' field");
+}
+
+#[test]
+fn test_whoami_json_structure_with_wallet() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp)
+        .args(["whoami", "--output-format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+
+    // Verify expected field structure
+    assert!(parsed.get("ready").is_some(), "missing 'ready' field");
+    assert!(parsed.get("wallet").is_some(), "missing 'wallet' field");
+    assert!(
+        parsed.get("wallet_type").is_some(),
+        "missing 'wallet_type' field"
+    );
+    assert!(parsed.get("network").is_some(), "missing 'network' field");
+}
+
+#[test]
+fn test_key_list_json_structure_with_keys() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp)
+        .args(["key", "list", "--output-format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+
+    // Verify top-level structure
+    assert!(parsed.get("keys").is_some(), "missing 'keys' field");
+    assert!(parsed.get("total").is_some(), "missing 'total' field");
+    assert!(parsed["total"].as_u64().unwrap() > 0, "total should be > 0");
+
+    // Verify key entry structure
+    let keys = parsed["keys"].as_array().unwrap();
+    assert!(!keys.is_empty(), "keys array should not be empty");
+    let key = &keys[0];
+    assert!(key.get("label").is_some(), "key missing 'label' field");
+    assert!(key.get("address").is_some(), "key missing 'address' field");
+}
+
+#[test]
+fn test_session_list_json_structure() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "list", "--output-format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+
+    // Verify required top-level fields
+    assert!(parsed.get("sessions").is_some(), "missing 'sessions' field");
+    assert!(parsed.get("total").is_some(), "missing 'total' field");
+    assert_eq!(parsed["total"], 0);
+    assert!(parsed["sessions"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_session_close_all_json_structure() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close", "--all", "--output-format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+
+    // Verify required close-summary fields
+    assert!(parsed.get("closed").is_some(), "missing 'closed' field");
+    assert!(parsed.get("pending").is_some(), "missing 'pending' field");
+    assert!(parsed.get("failed").is_some(), "missing 'failed' field");
+    assert!(parsed.get("results").is_some(), "missing 'results' field");
 }
