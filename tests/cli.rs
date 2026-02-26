@@ -1233,3 +1233,185 @@ fn test_invalid_network_flag_fails() {
         "should mention unknown network: {combined}"
     );
 }
+
+// ==================== Session List/Close Behavior Coverage ====================
+
+#[test]
+fn test_session_list_json_schema_fields() {
+    // Verify the JSON list schema has exactly "sessions" and "total"
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "list"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(parsed["sessions"].is_array(), "missing sessions array");
+    assert!(parsed["total"].is_number(), "missing total number");
+    let obj = parsed.as_object().unwrap();
+    for key in obj.keys() {
+        assert!(
+            key == "sessions" || key == "total",
+            "unexpected field in list JSON: {key}"
+        );
+    }
+}
+
+#[test]
+fn test_session_list_with_network_filter_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "list", "--network", "tempo"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No active sessions"),
+        "network filter should still show empty message: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_list_with_network_filter_json() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "list", "--network", "tempo-moderato"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+}
+
+#[test]
+fn test_session_list_closed_text_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "list", "--closed"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No sessions pending finalization"),
+        "should show closed-empty message: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_all_text_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close", "--all"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No active sessions to close"),
+        "close --all on empty should report no sessions: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_all_json_schema() {
+    // Verify close summary JSON schema: closed/pending/failed/results
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "close", "--all"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let obj = parsed.as_object().unwrap();
+    for key in obj.keys() {
+        assert!(
+            key == "closed" || key == "pending" || key == "failed" || key == "results",
+            "unexpected field in close JSON: {key}"
+        );
+    }
+    assert!(parsed["results"].is_array());
+}
+
+#[test]
+fn test_session_close_closed_text_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close", "--closed"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No channels pending finalization"),
+        "close --closed on empty should report none: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_closed_json_schema() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "close", "--closed"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["closed"], 0);
+    assert_eq!(parsed["pending"], 0);
+    assert_eq!(parsed["failed"], 0);
+    assert!(parsed["results"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_session_close_no_target_error_message() {
+    // `session close` without URL/--all/--orphaned/--closed should fail with guidance
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Specify") || combined.contains("URL") || combined.contains("--all"),
+        "should prompt user to specify a target: {combined}"
+    );
+}
+
+#[test]
+fn test_session_close_nonexistent_url_text() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No active session"),
+        "should report no session: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_nonexistent_url_json() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "close", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["closed"], 0);
+    assert_eq!(parsed["failed"], 1);
+    let results = parsed["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["status"], "error");
+}
