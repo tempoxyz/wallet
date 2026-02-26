@@ -2055,7 +2055,7 @@ async fn send_open_with_retry(
 }
 
 /// The nonceKey used for client-side session transactions.
-const SESSION_NONCE_KEY: u64 = 1;
+const SESSION_NONCE_KEY: u64 = 0;
 
 /// NONCE precompile address for querying 2D nonce spaces.
 const NONCE_PRECOMPILE: &str = "0x4e4f4e4345000000000000000000000000000000";
