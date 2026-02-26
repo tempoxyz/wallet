@@ -462,7 +462,7 @@ async fn execute_streaming(
 
     let mut bytes_written: usize = 0;
     if sse_json {
-        // Convert SSE to NDJSON objects with a simple parser
+        // Convert SSE to NDJSON objects with event/data/ts schema
         let mut buf: Vec<u8> = Vec::new();
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await.transpose()? {
@@ -476,7 +476,14 @@ async fn execute_streaming(
                     continue;
                 }
                 if let Some(rest) = st.strip_prefix("data:") {
-                    let obj = serde_json::json!({"data": rest.trim_start()});
+                    let content = rest.trim_start();
+                    let data_value = serde_json::from_str::<serde_json::Value>(content)
+                        .unwrap_or_else(|_| serde_json::Value::String(content.to_string()));
+                    let obj = serde_json::json!({
+                        "event": "data",
+                        "data": data_value,
+                        "ts": now_iso8601(),
+                    });
                     let out = serde_json::to_string(&obj)?;
                     std::io::stdout().write_all(out.as_bytes())?;
                     std::io::stdout().write_all(b"\n")?;
@@ -510,14 +517,37 @@ async fn execute_streaming(
     );
 
     if status >= 400 {
-        anyhow::bail!(PrestoError::Http(format!(
-            "{} {}",
-            status,
-            http_status_text(status)
-        )));
+        let msg = format!("{} {}", status, http_status_text(status));
+        if sse_json {
+            use std::io::Write;
+            let obj = serde_json::json!({
+                "event": "error",
+                "message": msg,
+                "ts": now_iso8601(),
+            });
+            let out = serde_json::to_string(&obj)?;
+            std::io::stdout().write_all(out.as_bytes())?;
+            std::io::stdout().write_all(b"\n")?;
+            std::io::stdout().flush().ok();
+        }
+        anyhow::bail!(PrestoError::Http(msg));
     }
 
     Ok(())
+}
+
+/// Current UTC time as an ISO-8601 string (e.g. `2024-01-15T12:00:00Z`).
+fn now_iso8601() -> String {
+    let dt = time::OffsetDateTime::now_utc();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        dt.year(),
+        dt.month() as u8,
+        dt.day(),
+        dt.hour(),
+        dt.minute(),
+        dt.second()
+    )
 }
 
 /// Result of a successful payment dispatch.
