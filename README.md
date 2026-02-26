@@ -4,6 +4,16 @@ A command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
 
 When a server responds with `402 Payment Required`, presto detects the [Machine Payments Protocol (MPP)](https://mpp.dev) challenge, signs a transaction on the [Tempo](https://tempo.xyz) blockchain, and retries the request — all in one step.
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [Examples](#examples)
+- [Contributing](#contributing)
+
 ## Quick Start
 
 ```bash
@@ -39,8 +49,8 @@ make install
 ## Usage
 
 ```
-presto [OPTIONS] <URL>
-presto [OPTIONS] <COMMAND>
+presto [HTTP OPTIONS] <URL>
+presto <COMMAND> [OPTIONS]
 ```
 
 ### Making Requests
@@ -63,6 +73,8 @@ presto -o response.json https://api.example.com/data
 # Include response headers in output
 presto -i https://api.example.com/data
 ```
+
+> **Note:** Redirects are not followed by default. Use `-L`/`--location` to follow redirects.
 
 ### Payment Options
 
@@ -87,11 +99,13 @@ presto -j --offline https://api.example.com/data
 ```bash
 presto -v <URL>          # Payment flow narration (intent, network, amount, completion)
 presto -vv <URL>         # Debug internals (voucher retries, auth header size)
-presto -q <URL>          # Quiet — suppress all stderr logs (overrides RUST_LOG)
-presto --output-format json <URL>   # JSON output format
+presto -s <URL>          # Silent — suppress all stderr logs (overrides RUST_LOG)
+presto -j <URL>          # JSON output format
 ```
 
 presto respects the [`NO_COLOR`](https://no-color.org/) environment variable.
+
+For the complete flag list, run `presto --help`.
 
 ### Streaming / SSE
 
@@ -145,7 +159,12 @@ Use `-j --version` for structured JSON output with fields: `version`, `git_commi
 presto login    # Sign up or log in via browser
 ```
 
-This creates a wallet credential file with your account address, stores your wallet EOA key securely in the OS keychain (macOS Keychain), and writes the key inline to `keys.toml` after login.
+presto supports two wallet types:
+
+- **Passkey wallet** — browser-based authentication via passkey; created by `presto login`
+- **Local wallet** — a locally generated or imported private key; managed via `presto wallet create` / `presto wallet import`
+
+On login, presto stores wallet credentials in `keys.toml` and the wallet EOA private key in the OS keychain (macOS Keychain). The signing key used for payments is stored inline in `keys.toml` with permissions `0600`.
 
 ### File Locations
 
@@ -155,8 +174,6 @@ presto uses platform-native directories:
 |----------|--------|--------|
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
-
-The wallet EOA private key is stored in the OS keychain on macOS. The signing key used for payments is stored inline in `keys.toml` with permissions 0600 alongside account metadata.
 
 ### Config File Reference
 
@@ -176,6 +193,16 @@ enabled = true
 ```
 
 Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence over the `[rpc]` table. The `PRESTO_RPC_URL` env var overrides everything.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `PRESTO_RPC_URL` | Override RPC endpoint |
+| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login; ephemeral) |
+| `PRESTO_BEARER` | Authorization bearer token for requests |
+| `PRESTO_AUTH_URL` | Override auth server URL |
+| `PRESTO_NO_TELEMETRY` | Disable telemetry |
 
 ## Examples
 

@@ -14,25 +14,16 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 
 ## Agent Usage
 
-Set JSON as the default output format in config so you don't need `--output-format json` on every call:
+Use `-s` (silent) to suppress log messages and `-j` to get JSON output:
 
 ```bash
-# One-time setup: set default output format to JSON
-# Add to ~/Library/Application Support/presto/config.toml (macOS)
-# or ~/.config/presto/config.toml (Linux):
-output_format = "json"
-```
-
-Then use `-q` (quiet) to suppress log messages:
-
-```bash
-# Preferred pattern: quiet, pipe through jq
-presto -q -X POST \
+# Preferred pattern: silent + JSON output, pipe through jq
+presto -s -j -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 
 # Check wallet readiness before making requests
-presto -q whoami | jq '.ready'
+presto -s -j whoami | jq '.ready'
 ```
 
 ### Preflight Check
@@ -40,7 +31,7 @@ presto -q whoami | jq '.ready'
 Before making paid requests, verify the wallet is ready:
 
 ```bash
-presto -q --output-format json whoami
+presto -s -j whoami
 ```
 
 Check these fields in the response:
@@ -48,6 +39,8 @@ Check these fields in the response:
 - `key.balance` — check that the token balance is sufficient
 
 If `ready` is `false`, run `presto login` and retry.
+
+**Note:** `presto login` opens a browser for interactive authentication. In non-interactive environments (CI, containers, headless servers), use `PRESTO_PRIVATE_KEY` instead.
 
 ### whoami JSON Response Schema
 
@@ -160,9 +153,9 @@ These options are available on all commands:
 
 | Option | Description |
 |--------|-------------|
-| `-v` | Verbose output — shows payment flow details (intent, network, amount) (use `-vv` for debug) |
-| `-q, --quiet` | Suppress log messages (recommended for agents) |
-| `--output-format json` | JSON output (recommended for agents) |
+| `-v` | Verbose output — shows payment flow details (intent, network, amount) (`-vv` debug, `-vvv` trace) |
+| `-s, --silent` | Suppress non-essential output (recommended for agents) |
+| `-j, --json-output` | JSON output (recommended for agents) |
 
 ## Query Options
 
@@ -173,17 +166,30 @@ These options apply when making HTTP requests (`presto <URL>`):
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Show what would be paid without executing |
+| `--max-pay <AMOUNT>` | Hard cap on the maximum amount to pay |
+| `--currency <ADDR\|SYMBOL>` | Currency for `--max-pay` |
 
 ### HTTP Options
 
 | Option | Description |
 |--------|-------------|
-| `-X, --request <METHOD>` | Custom request method (GET, POST, etc.) |
+| `-X, --request <METHOD>` | Custom request method (GET, POST, PUT, DELETE, ...) |
 | `-H, --header <HEADER>` | Add custom header (can be repeated) |
 | `--json <JSON>` | Send JSON data with Content-Type header |
 | `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
-| `--no-redirect` | Disable following redirects |
+| `-L, --location` | Follow redirects (off by default) |
+| `--max-redirs <N>` | Maximum number of redirects when `-L` is used |
 | `-m, --timeout <SECONDS>` | Maximum time for the request |
+| `--connect-timeout <SECONDS>` | Maximum time to establish TCP connection |
+| `--offline` | Fail immediately without making any network requests |
+| `-f, --fail` | Fail on HTTP errors (do not output body) |
+| `--fail-with-body` | Fail on HTTP errors but still output the response body |
+| `-k, --insecure` | Skip TLS certificate validation |
+| `--compressed` | Request a compressed response |
+| `--stream` | Stream response body as it arrives |
+| `--sse` | Treat response as Server-Sent Events pass-through |
+| `--sse-json` | Output SSE events as NDJSON |
+| `--retries <N>` | Number of retries on transient network errors |
 
 ### Display Options
 
@@ -282,7 +288,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |
 
-When presto fails with a login-fixable error, **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
+When presto fails with a login-fixable error, **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves. **Caveat:** `presto login` requires a browser — in non-interactive environments, set `PRESTO_PRIVATE_KEY` instead.
 
 ## How Payment Works
 
