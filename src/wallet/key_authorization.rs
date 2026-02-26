@@ -1,7 +1,7 @@
 //! Key authorization: decode, validate, and sign key authorizations.
 //!
 //! Centralizes all key authorization handling that was previously
-//! split across signer.rs, passkey_login.rs, and cli/local_wallet.rs.
+//! split across signer.rs, setup.rs, and cli/local_wallet.rs.
 
 use alloy::primitives::Address;
 use alloy::rlp::{Decodable, Encodable};

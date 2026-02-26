@@ -5,11 +5,11 @@ use serde::Serialize;
 
 use super::OutputFormat;
 use crate::config::Config;
+use crate::payment::session::store as session_store;
 use crate::payment::session::{
     close_channel_by_id, close_discovered_channel, close_session_from_record,
     find_all_channels_for_payer, CloseOutcome,
 };
-use crate::payment::session_store;
 use crate::util::format_u256_with_decimals;
 use crate::wallet::credentials::WalletCredentials;
 

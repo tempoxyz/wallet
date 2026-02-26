@@ -23,6 +23,7 @@
 
 pub mod channel;
 mod close;
+pub mod store;
 mod streaming;
 mod tx;
 
@@ -40,8 +41,8 @@ use crate::config::Config;
 use crate::error::map_mpp_validation_error;
 use crate::http::{HttpResponse, RequestContext};
 use crate::network::Network;
-use crate::payment::session_store::{self, SessionRecord, SESSION_TTL_SECS};
 use crate::wallet::signer::load_wallet_signer;
+use store::{SessionRecord, SESSION_TTL_SECS};
 
 // Re-export public API
 pub use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
@@ -171,8 +172,8 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
     let echo_json =
         serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
 
-    let session_key = session_store::session_key(ctx.url);
-    let existing = session_store::load_session(&session_key)?;
+    let session_key = store::session_key(ctx.url);
+    let existing = store::load_session(&session_key)?;
 
     let record = if let Some(mut rec) = existing {
         // Update existing record
@@ -206,7 +207,7 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
         }
     };
 
-    session_store::save_session(&record)?;
+    store::save_session(&record)?;
 
     if ctx.request_ctx.log_enabled() {
         let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
@@ -446,7 +447,7 @@ pub async fn handle_session_request(
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
     let origin = extract_origin(url);
-    let session_key = session_store::session_key(url);
+    let session_key = store::session_key(url);
 
     // Determine deposit: use suggested_deposit or default to 1 token (1_000_000 atomic units).
     // Cap at 5 tokens (5_000_000 atomic units) to limit exposure to malicious servers.
@@ -463,7 +464,7 @@ pub async fn handle_session_request(
     // Check for an existing persisted session.
     // Reuse requires matching payer AND challenge parameters (escrow, currency,
     // recipient, chain) to avoid a wasted round trip when the server changes config.
-    let existing = session_store::load_session(&session_key)?;
+    let existing = store::load_session(&session_key)?;
     let reuse = existing.as_ref().is_some_and(|r| {
         !r.is_expired()
             && r.payer == did
@@ -517,7 +518,7 @@ pub async fn handle_session_request(
                     eprintln!("Session reuse failed: {e}");
                     eprintln!("Opening new channel...");
                 }
-                session_store::delete_session(&session_key)?;
+                store::delete_session(&session_key)?;
                 // Fall through to open a new channel
             }
         }
@@ -530,7 +531,7 @@ pub async fn handle_session_request(
                 eprintln!("Existing session for different payer, opening new channel...");
             }
         }
-        session_store::delete_session(&session_key)?;
+        store::delete_session(&session_key)?;
     }
 
     // === Try on-chain recovery by scanning ChannelOpened events ===

@@ -4,4 +4,3 @@
 
 pub mod charge;
 pub mod session;
-pub mod session_store;

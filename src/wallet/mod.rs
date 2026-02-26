@@ -3,7 +3,7 @@
 pub mod credentials;
 pub(crate) mod key_authorization;
 pub mod keychain;
-mod passkey_login;
+mod setup;
 pub mod signer;
 
-pub use passkey_login::WalletManager;
+pub use setup::WalletManager;

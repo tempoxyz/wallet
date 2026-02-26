@@ -13,9 +13,9 @@ use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
 use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::{parse_receipt, ChallengeEcho};
 
+use super::store as session_store;
 use crate::config::Config;
 use crate::network::Network;
-use crate::payment::session_store;
 use crate::wallet::signer::load_wallet_signer;
 
 use super::channel::{get_channel_on_chain, read_grace_period};
