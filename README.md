@@ -159,12 +159,7 @@ Use `-j --version` for structured JSON output with fields: `version`, `git_commi
 presto login    # Sign up or log in via browser
 ```
 
-presto supports two wallet types:
-
-- **Passkey wallet** — browser-based authentication via passkey; created by `presto login`
-- **Local wallet** — a locally generated or imported private key; managed via `presto wallet create` / `presto wallet import`
-
-On login, presto stores wallet credentials in `keys.toml` and the wallet EOA private key in the OS keychain (macOS Keychain). The signing key used for payments is stored inline in `keys.toml` with permissions `0600`.
+This opens a browser to create or connect a passkey wallet. Presto stores your wallet credentials in `keys.toml` and the signing key inline with permissions `0600`.
 
 ### File Locations
 
@@ -193,16 +188,6 @@ enabled = true
 ```
 
 Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence over the `[rpc]` table. The `PRESTO_RPC_URL` env var overrides everything.
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `PRESTO_RPC_URL` | Override RPC endpoint |
-| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login; ephemeral) |
-| `PRESTO_BEARER` | Authorization bearer token for requests |
-| `PRESTO_AUTH_URL` | Override auth server URL |
-| `PRESTO_NO_TELEMETRY` | Disable telemetry |
 
 ## Examples
 

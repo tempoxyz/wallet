@@ -14,16 +14,16 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 
 ## Agent Usage
 
-Use `-s` (silent) to suppress log messages and `-j` to get JSON output:
+Use `-j` to get JSON output:
 
 ```bash
-# Preferred pattern: silent + JSON output, pipe through jq
-presto -s -j -X POST \
+# Preferred pattern: JSON output, pipe through jq
+presto -j -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 
 # Check wallet readiness before making requests
-presto -s -j whoami | jq '.ready'
+presto -j whoami | jq '.ready'
 ```
 
 ### Preflight Check
@@ -31,7 +31,7 @@ presto -s -j whoami | jq '.ready'
 Before making paid requests, verify the wallet is ready:
 
 ```bash
-presto -s -j whoami
+presto -j whoami
 ```
 
 Check these fields in the response:
@@ -39,8 +39,6 @@ Check these fields in the response:
 - `key.balance` — check that the token balance is sufficient
 
 If `ready` is `false`, run `presto login` and retry.
-
-**Note:** `presto login` opens a browser for interactive authentication. In non-interactive environments (CI, containers, headless servers), use `PRESTO_PRIVATE_KEY` instead.
 
 ### whoami JSON Response Schema
 
@@ -154,7 +152,7 @@ These options are available on all commands:
 | Option | Description |
 |--------|-------------|
 | `-v` | Verbose output — shows payment flow details (intent, network, amount) (`-vv` debug, `-vvv` trace) |
-| `-s, --silent` | Suppress non-essential output (recommended for agents) |
+| `-s, --silent` | Suppress non-essential stderr output |
 | `-j, --json-output` | JSON output (recommended for agents) |
 
 ## Query Options
@@ -288,7 +286,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |
 
-When presto fails with a login-fixable error, **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves. **Caveat:** `presto login` requires a browser — in non-interactive environments, set `PRESTO_PRIVATE_KEY` instead.
+When presto fails with a login-fixable error, **automatically run `presto login`** then retry the original request. Do NOT ask the user to run it themselves.
 
 ## How Payment Works
 
@@ -297,13 +295,3 @@ When presto fails with a login-fixable error, **automatically run `presto login`
 3. For **charge** intent: signs an on-chain payment transaction and retries with an `Authorization: Payment` credential
 4. For **session** intent: opens a payment channel on-chain (first request), then uses off-chain vouchers for subsequent requests to the same origin
 5. The server validates the credential and returns the response
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `PRESTO_RPC_URL` | Override RPC endpoint (required for mainnet — see above) |
-| `PRESTO_AUTH_URL` | Override auth server URL for login |
-| `PRESTO_NO_TELEMETRY` | Disable telemetry |
-| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
-| `NO_COLOR` | Disable colored output |
