@@ -29,13 +29,18 @@ struct ChannelView {
     /// When `None`, channel_id is the header and no Channel line is shown.
     origin: Option<String>,
     symbol: &'static str,
-    /// Whether the session has no spending limit (deposit == 0).
-    unlimited: bool,
     deposit: String,
     spent: String,
     remaining: String,
     status: String,
     remaining_secs: Option<u64>,
+}
+
+impl ChannelView {
+    /// Whether the session has no spending limit (deposit is zero).
+    fn is_unlimited(&self) -> bool {
+        self.deposit.parse::<f64>().is_ok_and(|v| v == 0.0)
+    }
 }
 
 /// Shared JSON item for session/channel listings.
@@ -134,7 +139,7 @@ fn render_channel_text(v: &ChannelView) {
         println!("{:>10}: {}", "Channel", v.channel_id);
     }
     // Amounts
-    if v.unlimited {
+    if v.is_unlimited() {
         println!("{:>10}: unlimited", "Deposit");
     } else {
         let w = [v.deposit.len(), v.spent.len(), v.remaining.len()]
@@ -255,7 +260,6 @@ fn view_from_session(
         network: session.network_name.clone(),
         origin: Some(session.origin.clone()),
         symbol,
-        unlimited: limit_u == 0,
         deposit: format_u256_with_decimals(alloy::primitives::U256::from(limit_u), decimals),
         spent: format_u256_with_decimals(alloy::primitives::U256::from(spent_u), decimals),
         remaining: format_u256_with_decimals(alloy::primitives::U256::from(remaining_u), decimals),
@@ -435,7 +439,6 @@ async fn list_all_channels(
                         network: ch.network.clone(),
                         origin: Some(String::new()),
                         symbol,
-                        unlimited: false,
                         deposit: format_u256_with_decimals(
                             alloy::primitives::U256::from(ch.deposit),
                             decimals,
@@ -501,7 +504,6 @@ async fn list_all_channels(
             network: p.network.clone(),
             origin: Some(String::new()),
             symbol,
-            unlimited: false,
             deposit,
             spent,
             remaining,
@@ -558,7 +560,6 @@ async fn list_orphaned_channels(
                 network: ch.network.clone(),
                 origin: None,
                 symbol,
-                unlimited: false,
                 deposit: format_u256_with_decimals(
                     alloy::primitives::U256::from(ch.deposit),
                     decimals,
@@ -634,7 +635,6 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
             network: p.network.clone(),
             origin: None,
             symbol,
-            unlimited: false,
             deposit,
             spent: settled,
             remaining,

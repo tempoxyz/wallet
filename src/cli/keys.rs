@@ -11,7 +11,6 @@ use tracing::debug;
 
 use super::OutputFormat;
 use crate::config::Config;
-use crate::error::Result;
 use crate::network::Network;
 use crate::util::format_u256_with_decimals;
 use crate::wallet::credentials::{KeyEntry, WalletCredentials};
@@ -97,7 +96,7 @@ pub async fn show_keys(
     config: &Config,
     output_format: OutputFormat,
     network: Option<&str>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
 
@@ -250,7 +249,10 @@ pub(super) fn print_key_amounts(key: &KeyInfo) {
     let _ = print_key_amounts_to(key, &mut std::io::stdout());
 }
 
-pub(super) fn print_key_amounts_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> Result<()> {
+pub(super) fn print_key_amounts_to(
+    key: &KeyInfo,
+    w: &mut dyn std::io::Write,
+) -> anyhow::Result<()> {
     let sym = key.symbol.as_deref().unwrap_or("tokens");
 
     // Collect all numeric values to determine alignment width

@@ -13,7 +13,7 @@ use mpp::PaymentProtocol;
 use crate::analytics::{self, Analytics};
 use crate::config::{load_config_with_overrides, Config};
 
-use super::output::{handle_regular_response, hyperlink, OutputOptions};
+use super::output::{handle_regular_response, OutputOptions};
 use super::{Cli, QueryArgs};
 use crate::http::{
     get_request_method_and_body, should_auto_add_json_content_type, validate_header_size,
@@ -22,6 +22,7 @@ use crate::http::{
 use crate::network::ExplorerConfig;
 use crate::payment::charge::prepare_charge;
 use crate::payment::session::{handle_session_request, SessionResult};
+use crate::util::{format_token_amount, hyperlink};
 
 /// Execute an HTTP request with automatic payment handling.
 ///
@@ -662,20 +663,5 @@ fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> Output
         output_file: query.output.clone(),
         verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
-    }
-}
-
-/// Format atomic token units as a human-readable string with trimmed trailing zeros.
-pub fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
-    let divisor = 10u128.pow(decimals as u32);
-    let whole = atomic / divisor;
-    let remainder = atomic % divisor;
-
-    if remainder == 0 {
-        format!("{whole} {symbol}")
-    } else {
-        let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
-        let trimmed = frac_str.trim_end_matches('0');
-        format!("{whole}.{trimmed} {symbol}")
     }
 }

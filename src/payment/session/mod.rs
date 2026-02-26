@@ -378,7 +378,7 @@ pub async fn handle_session_request(
 
     if request_ctx.log_enabled() {
         let cost_display =
-            crate::cli::query::format_token_amount(tick_cost, token_symbol, token_decimals);
+            crate::util::format_token_amount(tick_cost, token_symbol, token_decimals);
         eprintln!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),
@@ -393,7 +393,7 @@ pub async fn handle_session_request(
         let explorer = network_enum.info().explorer;
 
         let cost_display =
-            crate::cli::query::format_token_amount(tick_cost, token_symbol, token_decimals);
+            crate::util::format_token_amount(tick_cost, token_symbol, token_decimals);
 
         println!("[DRY RUN] Session payment would be made:");
         println!("Protocol: MPP (https://mpp.sh)");
@@ -418,7 +418,7 @@ pub async fn handle_session_request(
         if let Some(ref deposit) = session_req.suggested_deposit {
             let deposit_val: u128 = deposit.parse().unwrap_or(0);
             let deposit_display =
-                crate::cli::query::format_token_amount(deposit_val, token_symbol, token_decimals);
+                crate::util::format_token_amount(deposit_val, token_symbol, token_decimals);
             println!("Suggested deposit: {}", deposit_display);
         }
 
@@ -610,7 +610,7 @@ pub async fn handle_session_request(
 
     if request_ctx.log_enabled() {
         let deposit_display =
-            crate::cli::query::format_token_amount(deposit, token_symbol, token_decimals);
+            crate::util::format_token_amount(deposit, token_symbol, token_decimals);
         eprintln!("Opening payment channel...");
         eprintln!("  Deposit: {}", deposit_display);
         eprintln!("  Channel: {:#x}", channel_id);

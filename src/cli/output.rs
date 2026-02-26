@@ -33,9 +33,6 @@ impl OutputOptions {
     }
 }
 
-// Re-export hyperlink from util for use by query.rs
-pub use crate::util::hyperlink;
-
 // ---------------------------------------------------------------------------
 // Response output
 // ---------------------------------------------------------------------------

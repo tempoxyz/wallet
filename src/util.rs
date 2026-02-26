@@ -176,6 +176,21 @@ pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -
     format!("{}.{}", whole, padded)
 }
 
+/// Format atomic token units as a human-readable string with trimmed trailing zeros.
+pub fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
+    let divisor = 10u128.pow(decimals as u32);
+    let whole = atomic / divisor;
+    let remainder = atomic % divisor;
+
+    if remainder == 0 {
+        format!("{whole} {symbol}")
+    } else {
+        let frac_str = format!("{:0width$}", remainder, width = decimals as usize);
+        let trimmed = frac_str.trim_end_matches('0');
+        format!("{whole}.{trimmed} {symbol}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

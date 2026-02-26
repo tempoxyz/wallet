@@ -9,7 +9,6 @@ use super::keys::{
 use super::OutputFormat;
 use crate::analytics::Analytics;
 use crate::config::Config;
-use crate::error::Result;
 use crate::network::Network;
 use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::WalletManager;
@@ -137,7 +136,7 @@ pub async fn show_whoami(
     config: &Config,
     output_format: OutputFormat,
     network: Option<&str>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
     let response = build_whoami_response(config, &creds, network).await;
@@ -247,7 +246,7 @@ async fn build_whoami_response(
 }
 
 /// Show whoami output on stderr (for use during interactive login when stdout may be piped).
-async fn show_whoami_stderr(config: &Config, network: Option<&str>) -> Result<()> {
+async fn show_whoami_stderr(config: &Config, network: Option<&str>) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
     let network = network.unwrap_or("tempo");
     let response = build_whoami_response(config, &creds, network).await;
@@ -259,7 +258,7 @@ fn print_whoami_text(
     response: &StatusResponse,
     creds: &WalletCredentials,
     w: &mut dyn std::io::Write,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     if let Some(key) = &response.key {
         writeln!(w, "{}", key.label)?;
         if let Some(wallet) = &response.wallet {
