@@ -4,16 +4,6 @@ A command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
 
 When a server responds with `402 Payment Required`, presto detects the [Machine Payments Protocol (MPP)](https://mpp.dev) challenge, signs a transaction on the [Tempo](https://tempo.xyz) blockchain, and retries the request — all in one step.
 
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Commands](#commands)
-- [Configuration](#configuration)
-- [Examples](#examples)
-- [Contributing](#contributing)
-
 ## Quick Start
 
 ```bash
