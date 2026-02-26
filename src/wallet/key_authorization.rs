@@ -15,6 +15,12 @@ use tempo_primitives::transaction::{
 use crate::error::{PrestoError, Result};
 use crate::wallet::credentials::{KeyType, StoredTokenLimit};
 
+/// Default key authorization expiry: 30 days.
+const DEFAULT_EXPIRY_SECS: u64 = 30 * 24 * 60 * 60;
+
+/// Default per-token spending limit: $100 (6 decimals).
+const DEFAULT_LIMIT: u64 = 100_000_000;
+
 /// Decoded and validated key authorization.
 #[derive(Debug, PartialEq)]
 pub(crate) struct ValidatedKeyAuth {
@@ -114,8 +120,8 @@ pub(crate) fn sign(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs()
-        + 30 * 24 * 60 * 60;
-    let limit = alloy::primitives::U256::from(100_000_000u64); // $100 with 6 decimals
+        + DEFAULT_EXPIRY_SECS;
+    let limit = alloy::primitives::U256::from(DEFAULT_LIMIT);
     let token_limits: Vec<TokenLimit> = [
         crate::network::tempo_tokens::USDCE,
         crate::network::tempo_tokens::PATH_USD,

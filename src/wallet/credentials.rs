@@ -386,36 +386,6 @@ impl WalletCredentials {
         }
     }
 
-    /// Resolve which key name to use for a given wallet address.
-    ///
-    /// Prefers the primary key if it matches the address, then searches
-    /// other keys, and finally falls back to the `--key` override
-    /// or the default passkey name.
-    #[cfg(test)]
-    pub fn resolve_key_name(&self, wallet_address: &str) -> String {
-        // Prefer primary key if it matches the address
-        if let Some(name) = self.primary_key_name() {
-            if self
-                .keys
-                .get(&name)
-                .is_some_and(|a| a.wallet_address == wallet_address)
-            {
-                return name;
-            }
-        }
-        // Search all keys for a match
-        self.keys
-            .iter()
-            .find(|(_, a)| a.wallet_address == wallet_address)
-            .map(|(name, _)| name.clone())
-            .unwrap_or_else(|| {
-                KEY_NAME_OVERRIDE
-                    .get()
-                    .cloned()
-                    .unwrap_or_else(|| DEFAULT_PASSKEY_NAME.to_string())
-            })
-    }
-
     /// Resolve which key name to update during login using both wallet and signer addresses.
     ///
     /// Priority:
@@ -464,31 +434,6 @@ impl WalletCredentials {
             .get()
             .cloned()
             .unwrap_or_else(|| DEFAULT_PASSKEY_NAME.to_string())
-    }
-
-    /// Set or update the passkey from a login result.
-    ///
-    /// Stores the key inline in keys.toml (NOT in the OS keychain).
-    /// Always sets `wallet_type = Passkey`.
-    ///
-    /// If a key with the same address already exists under a different
-    /// key name, it updates that one. Otherwise, uses the `--key` override
-    /// (if set) or falls back to the default passkey name.
-    #[cfg(test)]
-    pub fn set_passkey(
-        &mut self,
-        wallet_address: String,
-        key_address: String,
-        key: String,
-        key_authorization: Option<String>,
-    ) {
-        let profile = self.resolve_key_name(&wallet_address);
-        let key_entry = self.keys.entry(profile.clone()).or_default();
-        key_entry.wallet_type = WalletType::Passkey;
-        key_entry.wallet_address = wallet_address;
-        key_entry.key_address = Some(key_address);
-        key_entry.key = Some(Zeroizing::new(key));
-        key_entry.key_authorization = key_authorization;
     }
 
     /// Find the name of the passkey wallet entry, if one exists.
@@ -758,41 +703,25 @@ wallet_address = "0xtest"
         assert!(!creds.has_wallet());
     }
 
-    // Tests for current wallet format only
     #[test]
-    fn test_set_key() {
+    fn test_insert_passkey_entry() {
         let mut creds = WalletCredentials::default();
-        creds.set_passkey(
-            "0xABC".to_string(),
-            "0xsigner1".to_string(),
-            "0xaccesskey1".to_string(),
-            Some("auth".to_string()),
+        creds.keys.insert(
+            "passkey-default".to_string(),
+            KeyEntry {
+                wallet_type: WalletType::Passkey,
+                wallet_address: "0xABC".to_string(),
+                key_address: Some("0xsigner1".to_string()),
+                key: Some(Zeroizing::new("0xaccesskey1".to_string())),
+                key_authorization: Some("auth".to_string()),
+                ..Default::default()
+            },
         );
         assert_eq!(creds.primary_key_name().unwrap(), "passkey-default");
         assert_eq!(creds.wallet_address(), "0xABC");
         assert!(creds.has_wallet());
         let key_entry = creds.primary_key().unwrap();
         assert_eq!(key_entry.key_address, Some("0xsigner1".to_string()));
-        assert_eq!(
-            key_entry.key,
-            Some(Zeroizing::new("0xaccesskey1".to_string()))
-        );
-
-        // Re-login with same address updates same profile
-        creds.set_passkey(
-            "0xABC".to_string(),
-            "0xsigner2".to_string(),
-            "0xaccesskey2".to_string(),
-            None,
-        );
-        assert_eq!(creds.keys.len(), 1);
-        let key_entry = creds.primary_key().unwrap();
-        assert_eq!(key_entry.key_address, Some("0xsigner2".to_string()));
-        assert_eq!(
-            key_entry.key,
-            Some(Zeroizing::new("0xaccesskey2".to_string()))
-        );
-        assert!(key_entry.key_authorization.is_none());
     }
 
     #[test]
@@ -819,40 +748,6 @@ provisioned = true
         assert!(creds.is_provisioned("tempo"));
         // "work" key is provisioned on moderato (42431), found via key_for_network
         assert!(creds.is_provisioned("tempo-moderato"));
-    }
-
-    #[test]
-    fn test_resolve_key_name_matches_wallet_address() {
-        // Key has wallet_address set
-        let mut creds = WalletCredentials::default();
-        let key_entry = KeyEntry {
-            wallet_address: "0xWALLET".to_string(),
-            ..Default::default()
-        };
-        creds.keys.insert("work".to_string(), key_entry);
-
-        // Login returns same wallet address → resolves to existing key name
-        let profile = creds.resolve_key_name("0xWALLET");
-        assert_eq!(profile, "work");
-    }
-
-    #[test]
-    fn test_resolve_key_name_deterministic_with_duplicate_addresses() {
-        let mut creds = WalletCredentials::default();
-        // Two keys with the same wallet_address, active is something else
-        for name in ["zebra", "alpha", "middle"] {
-            creds.keys.insert(
-                name.to_string(),
-                KeyEntry {
-                    wallet_address: "0xSAME".to_string(),
-                    ..Default::default()
-                },
-            );
-        }
-
-        // Should always pick "alpha" (lexicographically first)
-        let profile = creds.resolve_key_name("0xSAME");
-        assert_eq!(profile, "alpha");
     }
 
     #[test]
@@ -1086,44 +981,25 @@ provisioned = true
     }
 
     #[test]
-    fn test_set_passkey_new_entry_preserves_provisioned() {
-        let mut creds = WalletCredentials::default();
-        creds.set_passkey(
-            "0xABC".to_string(),
-            "0xsigner1".to_string(),
-            "0xaccesskey1".to_string(),
-            Some("auth".to_string()),
-        );
-        // Set provisioned on the existing key (set_passkey defaults to "passkey-default" name)
-        creds.keys.get_mut("passkey-default").unwrap().provisioned = true;
-
-        // Re-login with same address
-        creds.set_passkey(
-            "0xABC".to_string(),
-            "0xsigner2".to_string(),
-            "0xaccesskey2".to_string(),
-            None,
-        );
-
-        let key_entry = creds.primary_key().unwrap();
-        assert!(key_entry.provisioned);
-    }
-
-    #[test]
     fn test_relogin_existing_entry_clears_provisioned() {
-        // Simulates the login.rs re-login code path where an existing entry
+        // Simulates the login re-login code path where an existing entry
         // is updated in-place with a new key — provisioned must be cleared
         // because the new key hasn't been provisioned yet.
         let mut creds = WalletCredentials::default();
-        creds.set_passkey(
-            "0xABC".to_string(),
-            "0xsigner1".to_string(),
-            "0xaccesskey1".to_string(),
-            Some("auth".to_string()),
+        creds.keys.insert(
+            "passkey-default".to_string(),
+            KeyEntry {
+                wallet_type: WalletType::Passkey,
+                wallet_address: "0xABC".to_string(),
+                key_address: Some("0xsigner1".to_string()),
+                key: Some(Zeroizing::new("0xaccesskey1".to_string())),
+                key_authorization: Some("auth".to_string()),
+                provisioned: true,
+                ..Default::default()
+            },
         );
-        creds.keys.get_mut("passkey-default").unwrap().provisioned = true;
 
-        // Simulate the login.rs re-login path: update existing entry in-place
+        // Simulate the re-login path: update existing entry in-place
         let profile = creds.resolve_key_name_for_login("0xABC", "0xsigner2");
         let key = creds.keys.get_mut(&profile).unwrap();
         key.key_address = Some("0xsigner2".to_string());
