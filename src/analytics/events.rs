@@ -188,3 +188,82 @@ pub struct LoginTimeoutPayload {
     pub network: String,
 }
 impl EventPayload for LoginTimeoutPayload {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_url_strips_query_params() {
+        assert_eq!(
+            sanitize_url("https://api.example.com/v1?api_key=secret123&token=abc"),
+            "https://api.example.com/v1"
+        );
+    }
+
+    #[test]
+    fn sanitize_url_strips_fragment() {
+        assert_eq!(
+            sanitize_url("https://api.example.com/v1#section"),
+            "https://api.example.com/v1"
+        );
+    }
+
+    #[test]
+    fn sanitize_url_strips_both_query_and_fragment() {
+        assert_eq!(
+            sanitize_url("https://api.example.com/path?key=val#frag"),
+            "https://api.example.com/path"
+        );
+    }
+
+    #[test]
+    fn sanitize_url_preserves_path() {
+        assert_eq!(
+            sanitize_url("https://api.example.com/v1/chat/completions"),
+            "https://api.example.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn sanitize_url_preserves_port() {
+        assert_eq!(
+            sanitize_url("http://127.0.0.1:8080/api?token=secret"),
+            "http://127.0.0.1:8080/api"
+        );
+    }
+
+    #[test]
+    fn sanitize_url_invalid_url_passthrough() {
+        assert_eq!(sanitize_url("not-a-url"), "not-a-url");
+    }
+
+    #[test]
+    fn sanitize_error_short_unchanged() {
+        let short = "connection refused";
+        assert_eq!(sanitize_error(short), short);
+    }
+
+    #[test]
+    fn sanitize_error_exactly_200_unchanged() {
+        let msg = "x".repeat(200);
+        assert_eq!(sanitize_error(&msg), msg);
+    }
+
+    #[test]
+    fn sanitize_error_truncates_long_message() {
+        let msg = "x".repeat(300);
+        let result = sanitize_error(&msg);
+        assert_eq!(result.len(), 200 + "…".len());
+        assert!(result.ends_with('…'));
+        assert!(result.starts_with("xxx"));
+    }
+
+    #[test]
+    fn sanitize_error_prevents_secret_leakage_in_long_body() {
+        // Simulate a server response that might contain a secret deep in the body
+        let msg = format!("server error: {}secret_api_key_12345", "a]".repeat(100));
+        let result = sanitize_error(&msg);
+        assert!(!result.contains("secret_api_key_12345"));
+    }
+}
