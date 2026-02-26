@@ -25,7 +25,7 @@ pub enum OutputFormat {
 
 /// Validates that a path doesn't contain directory traversal sequences.
 /// Returns the validated path or an error if traversal is detected.
-pub fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PrestoError> {
+pub(crate) fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PrestoError> {
     let path = PathBuf::from(path);
 
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
@@ -170,37 +170,13 @@ impl Config {
 
     /// Resolve network information with config overrides applied.
     ///
-    /// RPC overrides are resolved in order:
-    /// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
-    /// 2. General `[rpc]` table overrides (for any network by id)
-    ///
-    /// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
-    /// via `set_rpc_override()` in `load_config_with_overrides` / `cli::query::make_request`,
-    /// which sets `tempo_rpc` and `moderato_rpc` so they flow through this logic.
+    /// Delegates to [`crate::network::resolve`] — see that function for
+    /// override resolution order.
     pub fn resolve_network(
         &self,
         network_id: &str,
     ) -> Result<crate::network::NetworkInfo, PrestoError> {
-        use crate::network::{networks, Network};
-
-        let network: Network = network_id
-            .parse()
-            .map_err(|_| PrestoError::UnknownNetwork(network_id.to_string()))?;
-        let mut network_info = network.info();
-
-        // Apply RPC override if configured (typed overrides take precedence)
-        let rpc_override = match network_id {
-            networks::TEMPO => self.tempo_rpc.as_ref(),
-            networks::TEMPO_MODERATO => self.moderato_rpc.as_ref(),
-            _ => None,
-        }
-        .or_else(|| self.rpc.get(network_id));
-
-        if let Some(url) = rpc_override {
-            network_info.rpc_url = url.clone();
-        }
-
-        Ok(network_info)
+        crate::network::resolve(network_id, self)
     }
 }
 
@@ -208,7 +184,7 @@ impl Config {
 // Load functions
 // ---------------------------------------------------------------------------
 
-pub fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
+pub(crate) fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
     if let Some(path) = config_path {
         validate_path(path, true).context("Invalid config path")?;
     }

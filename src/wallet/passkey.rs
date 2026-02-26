@@ -15,6 +15,7 @@ use crate::analytics::{
     Analytics, CallbackReceivedPayload, CallbackWindowOpenedPayload, Event, KeyCreatedPayload,
 };
 use crate::error::PrestoError;
+use crate::network::networks::network_or_default;
 use crate::wallet::credentials::{KeyEntry, KeyType, WalletCredentials, WalletType};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
@@ -36,7 +37,7 @@ pub struct WalletManager {
 impl WalletManager {
     /// Create a new wallet manager for a specific network.
     pub fn new(network: Option<&str>, analytics: Option<Analytics>) -> Self {
-        let network = network.unwrap_or("tempo").to_string();
+        let network = network_or_default(network).to_string();
 
         let auth_server_url = std::env::var("PRESTO_AUTH_URL")
             .ok()

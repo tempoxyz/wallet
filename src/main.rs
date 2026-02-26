@@ -1,11 +1,30 @@
-//! presto CLI - A command-line HTTP client with automatic payment support.
+//! presto — a command-line HTTP client with automatic payment support.
 //!
-//! Works like curl/wget but handles HTTP 402 (Payment Required) responses
-//! automatically using the Machine Payment Protocol (MPP). When a server
-//! demands payment, presto detects the payment protocol from the
-//! WWW-Authenticate header, constructs a transaction via the user's
-//! configured wallet, and retries the request with a payment receipt —
-//! supporting both one-shot charges and persistent sessions.
+//! Presto works like curl/wget but handles HTTP 402 (Payment Required)
+//! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.sh).
+//!
+//! # Payment flow
+//!
+//! 1. Send the initial HTTP request
+//! 2. If the server responds with 402, parse the `WWW-Authenticate` header
+//! 3. Construct and submit a payment via the user's configured wallet
+//! 4. Retry the request with a payment credential
+//!
+//! # Payment intents
+//!
+//! - **Charge** — one-shot payment settled on-chain per request
+//! - **Session** — opens a payment channel on-chain, then exchanges
+//!   off-chain vouchers for each subsequent request or SSE token,
+//!   settling when the session is closed
+//!
+//! # Security
+//!
+//! - Server-controlled text is sanitized before terminal output to
+//!   prevent ANSI escape injection (OSC 8 breakout, cursor manipulation)
+//! - Redirect targets are validated against an allow-list to prevent
+//!   payment credential leakage to unintended hosts
+//! - Private keys are stored in the OS keychain (macOS Keychain) or
+//!   in a mode-0600 file, and wrapped in [`zeroize::Zeroizing`] in memory
 
 mod analytics;
 mod cli;

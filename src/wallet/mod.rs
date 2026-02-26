@@ -1,9 +1,9 @@
 //! Wallet management: signers, keychain, and Tempo passkey wallets.
 
-pub mod credentials;
+pub(crate) mod credentials;
 pub(crate) mod key_authorization;
-pub mod keychain;
-mod setup;
-pub mod signer;
+pub(crate) mod keychain;
+mod passkey;
+pub(crate) mod signer;
 
-pub use setup::WalletManager;
+pub(crate) use passkey::WalletManager;

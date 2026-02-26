@@ -21,9 +21,9 @@
 //! - [`close`] — Channel close operations (cooperative and on-chain)
 //! - [`tx`] — Tempo transaction building and submission
 
-pub mod channel;
+pub(crate) mod channel;
 mod close;
-pub mod store;
+pub(crate) mod store;
 mod streaming;
 mod tx;
 
@@ -47,13 +47,13 @@ use crate::wallet::signer::load_wallet_signer;
 use store::{SessionRecord, SESSION_TTL_SECS};
 
 // Re-export public API
-pub use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
-pub use close::{close_channel_by_id, close_discovered_channel, close_session_from_record};
+pub(crate) use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
+pub(crate) use close::{close_channel_by_id, close_discovered_channel, close_session_from_record};
 
 // ==================== Types ====================
 
 /// Outcome of an on-chain close attempt.
-pub enum CloseOutcome {
+pub(crate) enum CloseOutcome {
     /// Channel fully closed (withdrawn or cooperatively settled).
     Closed,
     /// `requestClose()` submitted or already pending; waiting for grace period.
@@ -61,7 +61,7 @@ pub enum CloseOutcome {
 }
 
 /// Result of a session request — either streamed (already printed) or a buffered response.
-pub enum SessionResult {
+pub(crate) enum SessionResult {
     /// SSE tokens were streamed directly to stdout.
     Streamed { channel_id: String },
     /// A normal (non-SSE) response that should be handled by the regular output path.

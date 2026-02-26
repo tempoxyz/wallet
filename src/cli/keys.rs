@@ -11,6 +11,7 @@ use tracing::debug;
 
 use super::OutputFormat;
 use crate::config::Config;
+use crate::network::networks::network_or_default;
 use crate::network::Network;
 use crate::util::format_u256_with_decimals;
 use crate::wallet::credentials::{KeyEntry, WalletCredentials, WalletType};
@@ -98,7 +99,7 @@ pub async fn show_keys(
     network: Option<&str>,
 ) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
-    let network = network.unwrap_or("tempo");
+    let network = network_or_default(network);
 
     // Pre-fetch balances for each unique wallet address to avoid redundant RPC calls.
     let unique_wallets: Vec<String> = creds

@@ -9,18 +9,6 @@ use crate::error::PrestoError;
 // ==================== Explorer Configuration ====================
 
 /// URL path patterns for different resource types.
-///
-/// # Examples
-///
-/// ```
-/// use presto::network::ExplorerConfig;
-///
-/// let explorer = ExplorerConfig::tempo("https://explore.mainnet.tempo.xyz");
-/// assert_eq!(
-///     explorer.tx_url("0xabc123"),
-///     "https://explore.mainnet.tempo.xyz/receipt/0xabc123"
-/// );
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplorerConfig {
     /// Base URL (e.g., `https://explore.mainnet.tempo.xyz`)
@@ -75,7 +63,7 @@ impl ExplorerConfig {
 }
 
 /// Format an address as a clickable hyperlink if an explorer is available.
-pub fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> String {
+pub(crate) fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> String {
     if let Some(exp) = explorer {
         exp.address_link(address)
     } else {
@@ -89,6 +77,14 @@ pub fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> 
 pub mod networks {
     pub const TEMPO: &str = "tempo";
     pub const TEMPO_MODERATO: &str = "tempo-moderato";
+
+    /// Default network used when no `--network` flag is provided.
+    pub const DEFAULT_NETWORK: &str = TEMPO;
+
+    /// Unwrap an optional network name, falling back to the default network.
+    pub fn network_or_default(network: Option<&str>) -> &str {
+        network.unwrap_or(DEFAULT_NETWORK)
+    }
 }
 
 /// EVM Chain ID constants.
@@ -281,7 +277,7 @@ impl fmt::Display for Network {
 ///
 /// Returns `("tokens", 6)` as fallback when the network or token is unknown.
 /// This centralizes the repeated lookup pattern used across CLI and payment modules.
-pub fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, u8) {
+pub(crate) fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, u8) {
     network_name
         .parse::<Network>()
         .ok()
@@ -290,11 +286,43 @@ pub fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, 
         .unwrap_or(("tokens", 6))
 }
 
+/// Resolve network information with config overrides applied.
+///
+/// RPC overrides are resolved in order:
+/// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
+/// 2. General `[rpc]` table overrides (for any network by id)
+///
+/// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
+/// via `Config::set_rpc_override()`, which sets `tempo_rpc` and `moderato_rpc`
+/// so they flow through this logic.
+pub(crate) fn resolve(
+    network_id: &str,
+    config: &crate::config::Config,
+) -> Result<NetworkInfo, crate::error::PrestoError> {
+    let network: Network = network_id
+        .parse()
+        .map_err(|_| crate::error::PrestoError::UnknownNetwork(network_id.to_string()))?;
+    let mut network_info = network.info();
+
+    let rpc_override = match network_id {
+        networks::TEMPO => config.tempo_rpc.as_ref(),
+        networks::TEMPO_MODERATO => config.moderato_rpc.as_ref(),
+        _ => None,
+    }
+    .or_else(|| config.rpc.get(network_id));
+
+    if let Some(url) = rpc_override {
+        network_info.rpc_url = url.clone();
+    }
+
+    Ok(network_info)
+}
+
 /// Validate that a network name is a known built-in network.
 ///
 /// Returns `Ok(())` if the name matches a built-in network,
 /// or an error with a suggestion message if not.
-pub fn validate_network_name(name: &str) -> Result<(), String> {
+pub(crate) fn validate_network_name(name: &str) -> Result<(), String> {
     Network::from_str(name).map(|_| ())
 }
 

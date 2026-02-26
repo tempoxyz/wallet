@@ -9,6 +9,7 @@ use super::keys::{
 use super::OutputFormat;
 use crate::analytics::Analytics;
 use crate::config::Config;
+use crate::network::networks::network_or_default;
 use crate::network::Network;
 use crate::wallet::credentials::{WalletCredentials, WalletType};
 use crate::wallet::WalletManager;
@@ -138,7 +139,7 @@ pub async fn show_whoami(
     network: Option<&str>,
 ) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
-    let network = network.unwrap_or("tempo");
+    let network = network_or_default(network);
     let response = build_whoami_response(config, &creds, network).await;
 
     match output_format {
@@ -244,7 +245,7 @@ async fn build_whoami_response(
 /// Show whoami output on stderr (for use during interactive login when stdout may be piped).
 async fn show_whoami_stderr(config: &Config, network: Option<&str>) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
-    let network = network.unwrap_or("tempo");
+    let network = network_or_default(network);
     let response = build_whoami_response(config, &creds, network).await;
     print_whoami_text(&response, &creds, &mut std::io::stderr())?;
     Ok(())

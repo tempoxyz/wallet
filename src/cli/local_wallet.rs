@@ -7,6 +7,7 @@ use anyhow::Result;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::PrestoError;
+use crate::network::networks::network_or_default;
 use crate::network::Network;
 use crate::wallet::credentials::{
     self, keychain, parse_private_key_signer, KeyEntry, WalletCredentials, WalletType,
@@ -45,7 +46,7 @@ pub fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
     let access_key_address = access_signer.address().to_string();
 
     // Sign key_authorization for the target chain
-    let network_str = network.unwrap_or("tempo");
+    let network_str = network_or_default(network);
     let chain_id = network_str
         .parse::<Network>()
         .map(|n| n.chain_id())

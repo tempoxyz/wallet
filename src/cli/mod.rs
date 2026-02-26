@@ -1,10 +1,10 @@
 mod args;
-pub mod auth;
-pub mod exit_codes;
-pub mod keys;
-pub mod local_wallet;
-pub mod output;
-pub mod query;
-pub mod session;
+pub(crate) mod auth;
+pub(crate) mod exit_codes;
+pub(crate) mod keys;
+pub(crate) mod local_wallet;
+pub(crate) mod output;
+pub(crate) mod query;
+pub(crate) mod session;
 
 pub use args::*;
