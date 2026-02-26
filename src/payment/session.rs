@@ -1086,6 +1086,14 @@ pub async fn handle_session_request(
     let escrow_str = session_req
         .escrow_contract()
         .context("Missing escrow contract in session challenge")?;
+    let expected_escrow = network.escrow_contract();
+    anyhow::ensure!(
+        escrow_str.eq_ignore_ascii_case(expected_escrow),
+        "Untrusted escrow contract: {} (expected {} for network {})",
+        escrow_str,
+        expected_escrow,
+        network_name
+    );
     let escrow_contract: Address = escrow_str
         .parse()
         .context("Invalid escrow contract address")?;
