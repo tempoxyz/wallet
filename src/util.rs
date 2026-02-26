@@ -57,6 +57,52 @@ pub(crate) fn sanitize_for_terminal(s: &str) -> String {
         .collect()
 }
 
+// ── Secret redaction ────────────────────────────────────────────────
+
+/// Sensitive header names whose values must be redacted in logs and diagnostics.
+const SENSITIVE_HEADERS: &[&str] = &[
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+];
+
+/// Redact a header value for safe logging.
+///
+/// For sensitive headers (Authorization, Cookie, etc.) the credential portion
+/// is replaced with `[REDACTED]`.  For `Authorization` / `Proxy-Authorization`
+/// the scheme (e.g. `Bearer`, `Basic`) is preserved so the log remains useful:
+///
+/// ```text
+/// Authorization: Bearer [REDACTED]
+/// ```
+///
+/// All other headers are returned unchanged.
+pub(crate) fn redact_header_value(name: &str, value: &str) -> String {
+    let lower = name.to_lowercase();
+    if !SENSITIVE_HEADERS.contains(&lower.as_str()) {
+        return value.to_string();
+    }
+
+    // Authorization / Proxy-Authorization: keep the scheme, redact the credential
+    if lower == "authorization" || lower == "proxy-authorization" {
+        if let Some((scheme, _)) = value.split_once(' ') {
+            return format!("{scheme} [REDACTED]");
+        }
+    }
+
+    "[REDACTED]".to_string()
+}
+
+/// Strip query parameters and fragments from a URL for safe logging.
+///
+/// This is a thin wrapper that delegates to [`crate::analytics::sanitize_url`]
+/// so that both analytics payloads and verbose log output use the same logic.
+pub(crate) fn redact_url(raw: &str) -> String {
+    crate::analytics::sanitize_url(raw)
+}
+
 // ── Terminal hyperlinks (OSC 8) ──────────────────────────────────────
 
 /// Format text as a clickable hyperlink using the OSC 8 protocol.
@@ -482,5 +528,93 @@ mod tests {
         let text = "View transaction";
         let expected = "\x1b]8;;https://etherscan.io/tx/0x123\x07View transaction\x1b]8;;\x07";
         assert_eq!(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text), expected);
+    }
+
+    // ── Redaction tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_redact_bearer_token() {
+        assert_eq!(
+            redact_header_value("Authorization", "Bearer sk_live_abc123"),
+            "Bearer [REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redact_basic_auth() {
+        assert_eq!(
+            redact_header_value("authorization", "Basic dXNlcjpwYXNz"),
+            "Basic [REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redact_proxy_authorization() {
+        assert_eq!(
+            redact_header_value("Proxy-Authorization", "Bearer proxy_token"),
+            "Bearer [REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redact_cookie() {
+        assert_eq!(
+            redact_header_value("cookie", "session=abc123; token=xyz"),
+            "[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redact_set_cookie() {
+        assert_eq!(
+            redact_header_value("Set-Cookie", "sid=secret; Path=/; HttpOnly"),
+            "[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redact_x_api_key() {
+        assert_eq!(
+            redact_header_value("X-Api-Key", "sk-1234567890"),
+            "[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redact_auth_no_scheme() {
+        // Edge case: Authorization without a space-separated scheme
+        assert_eq!(
+            redact_header_value("Authorization", "tokenonly"),
+            "[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redact_safe_header_unchanged() {
+        assert_eq!(
+            redact_header_value("Content-Type", "application/json"),
+            "application/json"
+        );
+    }
+
+    #[test]
+    fn test_redact_accept_unchanged() {
+        assert_eq!(redact_header_value("accept", "text/html"), "text/html");
+    }
+
+    #[test]
+    fn test_redact_url_strips_secrets() {
+        assert_eq!(
+            redact_url("https://api.example.com/v1?api_key=secret"),
+            "https://api.example.com/v1"
+        );
+    }
+
+    #[test]
+    fn test_redact_url_preserves_path() {
+        assert_eq!(
+            redact_url("https://api.example.com/v1/chat"),
+            "https://api.example.com/v1/chat"
+        );
     }
 }
