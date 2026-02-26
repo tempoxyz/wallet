@@ -294,6 +294,19 @@ impl fmt::Display for Network {
 
 // ==================== Convenience Functions ====================
 
+/// Resolve token symbol and decimals from a network name and currency address.
+///
+/// Returns `("tokens", 6)` as fallback when the network or token is unknown.
+/// This centralizes the repeated lookup pattern used across CLI and payment modules.
+pub fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, u8) {
+    network_name
+        .parse::<Network>()
+        .ok()
+        .and_then(|n| n.token_config_by_address(currency))
+        .map(|t| (t.symbol, t.decimals))
+        .unwrap_or(("tokens", 6))
+}
+
 /// Validate that a network name is a known built-in network.
 ///
 /// Returns `Ok(())` if the name matches a built-in network,
@@ -481,5 +494,19 @@ mod tests {
         assert!(validate_network_name("Tempo").is_ok());
         assert!(validate_network_name("TEMPO").is_ok());
         assert!(validate_network_name("TEMPO-MODERATO").is_ok());
+    }
+
+    #[test]
+    fn test_resolve_token_meta_known() {
+        let (sym, dec) = resolve_token_meta("tempo", tempo_tokens::USDCE);
+        assert_eq!(sym, "USDC");
+        assert_eq!(dec, 6);
+    }
+
+    #[test]
+    fn test_resolve_token_meta_unknown() {
+        let (sym, dec) = resolve_token_meta("unknown", "0x0");
+        assert_eq!(sym, "tokens");
+        assert_eq!(dec, 6);
     }
 }

@@ -1,41 +1,9 @@
 //! Error types for the presto library.
 
-use std::error::Error as StdError;
 use thiserror::Error;
 
 /// Result type alias for presto operations.
 pub type Result<T> = std::result::Result<T, PrestoError>;
-
-/// Context for signing errors
-#[derive(Debug, Clone)]
-pub struct SigningContext {
-    pub network: Option<String>,
-    pub address: Option<String>,
-    pub operation: &'static str,
-}
-
-impl Default for SigningContext {
-    fn default() -> Self {
-        Self {
-            network: None,
-            address: None,
-            operation: "sign",
-        }
-    }
-}
-
-impl std::fmt::Display for SigningContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "operation: {}", self.operation)?;
-        if let Some(ref network) = self.network {
-            write!(f, ", network: {}", network)?;
-        }
-        if let Some(ref address) = self.address {
-            write!(f, ", address: {}", address)?;
-        }
-        Ok(())
-    }
-}
 
 #[derive(Error, Debug)]
 pub enum PrestoError {
@@ -116,17 +84,9 @@ pub enum PrestoError {
     #[error("HTTP error: {0}")]
     Http(String),
 
-    /// EVM/Alloy signing error with context and source chain
-    #[error("signing failed ({context})")]
-    Signing {
-        #[source]
-        source: Box<dyn StdError + Send + Sync>,
-        context: SigningContext,
-    },
-
-    /// Simple signing error for backwards compatibility
+    /// Signing error
     #[error("Signing error: {0}")]
-    SigningSimple(String),
+    Signing(String),
 
     /// Address parsing error
     #[error("Invalid address: {0}")]
@@ -204,20 +164,9 @@ pub enum PrestoError {
 }
 
 impl PrestoError {
-    /// Create a signing error with context and source chain
-    pub fn signing_with_context(
-        source: impl StdError + Send + Sync + 'static,
-        context: SigningContext,
-    ) -> Self {
-        Self::Signing {
-            source: Box::new(source),
-            context,
-        }
-    }
-
-    /// Create a signing error with just a message (backwards compat)
+    /// Create a signing error with a message
     pub fn signing(msg: impl Into<String>) -> Self {
-        Self::SigningSimple(msg.into())
+        Self::Signing(msg.into())
     }
 
     /// Create an invalid address error
@@ -357,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_signing_simple_display() {
-        let err = PrestoError::SigningSimple("Failed to sign transaction".to_string());
+        let err = PrestoError::Signing("Failed to sign transaction".to_string());
         assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
     }
 
@@ -412,46 +361,8 @@ mod tests {
     #[test]
     fn test_signing_constructor() {
         let err = PrestoError::signing("test error");
-        assert!(matches!(err, PrestoError::SigningSimple(_)));
+        assert!(matches!(err, PrestoError::Signing(_)));
         assert_eq!(err.to_string(), "Signing error: test error");
-    }
-
-    #[test]
-    fn test_signing_with_context() {
-        use std::io::Error as IoError;
-        let source = IoError::other("underlying error");
-        let ctx = SigningContext {
-            network: Some("tempo".to_string()),
-            address: Some("0x123".to_string()),
-            operation: "sign_transaction",
-        };
-        let err = PrestoError::signing_with_context(source, ctx);
-        let display = err.to_string();
-        assert!(display.contains("signing failed"));
-        assert!(display.contains("sign_transaction"));
-        assert!(display.contains("tempo"));
-        assert!(display.contains("0x123"));
-    }
-
-    #[test]
-    fn test_signing_context_display() {
-        let ctx = SigningContext {
-            network: Some("ethereum".to_string()),
-            address: Some("0xabc".to_string()),
-            operation: "get_nonce",
-        };
-        let display = ctx.to_string();
-        assert!(display.contains("operation: get_nonce"));
-        assert!(display.contains("network: ethereum"));
-        assert!(display.contains("address: 0xabc"));
-    }
-
-    #[test]
-    fn test_signing_context_default() {
-        let ctx = SigningContext::default();
-        assert_eq!(ctx.operation, "sign");
-        assert!(ctx.network.is_none());
-        assert!(ctx.address.is_none());
     }
 
     #[test]

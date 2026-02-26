@@ -134,8 +134,7 @@ impl From<&crate::error::PrestoError> for ExitCode {
 
             // Auth/signing errors
             PrestoError::InvalidKey(_)
-            | PrestoError::Signing { .. }
-            | PrestoError::SigningSimple(_)
+            | PrestoError::Signing(_)
             | PrestoError::InvalidAddress(_) => ExitCode::AuthError,
 
             // General errors

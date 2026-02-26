@@ -415,7 +415,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             let network = cli.network.as_deref();
             let output_format = cli.resolve_output_format(&config);
             match command {
-                Some(KeyCommands::List) => cli::auth::show_keys(&config, output_format, network)
+                Some(KeyCommands::List) => cli::keys::show_keys(&config, output_format, network)
                     .await
                     .map_err(Into::into),
                 Some(KeyCommands::Create { name }) => {
@@ -425,7 +425,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         .await
                         .map_err(Into::into)
                 }
-                Some(KeyCommands::Clean { yes }) => cli::auth::run_key_clean(yes),
+                Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),
                 None => cli::auth::show_whoami(&config, output_format, network)
                     .await
                     .map_err(Into::into),

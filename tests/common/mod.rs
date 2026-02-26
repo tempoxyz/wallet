@@ -9,6 +9,8 @@ use tempfile::TempDir;
 /// Builder for creating test configurations
 pub struct TestConfigBuilder {
     temp_dir: TempDir,
+    keys_toml: Option<String>,
+    config_toml: String,
 }
 
 impl TestConfigBuilder {
@@ -16,22 +18,58 @@ impl TestConfigBuilder {
     pub fn new() -> Self {
         Self {
             temp_dir: TempDir::new().expect("Failed to create temp directory"),
+            keys_toml: None,
+            config_toml: String::new(),
         }
     }
 
-    /// Build the test configuration
-    pub fn build(self) -> TempDir {
-        #[cfg(target_os = "macos")]
-        let config_dir = self
-            .temp_dir
-            .path()
-            .join("Library/Application Support/presto");
-        #[cfg(not(target_os = "macos"))]
-        let config_dir = self.temp_dir.path().join(".config/presto");
+    /// Set the keys.toml content (written to both platform data dirs)
+    #[must_use]
+    pub fn with_keys_toml(mut self, content: impl Into<String>) -> Self {
+        self.keys_toml = Some(content.into());
+        self
+    }
 
-        fs::create_dir_all(&config_dir).expect("Failed to create config directory");
-        fs::write(config_dir.join("config.toml"), "").expect("Failed to write config");
+    /// Set the config.toml content
+    #[must_use]
+    pub fn with_config_toml(mut self, content: impl Into<String>) -> Self {
+        self.config_toml = content.into();
+        self
+    }
+
+    /// Build the test configuration, writing files to both platform layouts
+    pub fn build(self) -> TempDir {
+        write_test_files(
+            self.temp_dir.path(),
+            &self.config_toml,
+            self.keys_toml.as_deref(),
+        );
         self.temp_dir
+    }
+}
+
+/// Write config and (optionally) keys files to both macOS and Linux platform
+/// layouts under the given root directory.
+///
+/// Useful for tests that already own a `TempDir` and need to set up the
+/// platform directories without going through `TestConfigBuilder`.
+pub fn write_test_files(root: &std::path::Path, config_toml: &str, keys_toml: Option<&str>) {
+    // macOS layout
+    let macos_dir = root.join("Library/Application Support/presto");
+    fs::create_dir_all(&macos_dir).expect("Failed to create macOS data directory");
+    fs::write(macos_dir.join("config.toml"), config_toml).expect("Failed to write macOS config");
+    if let Some(keys) = keys_toml {
+        fs::write(macos_dir.join("keys.toml"), keys).expect("Failed to write macOS keys");
+    }
+
+    // Linux layout
+    let linux_data = root.join(".local/share/presto");
+    let linux_config = root.join(".config/presto");
+    fs::create_dir_all(&linux_data).expect("Failed to create Linux data directory");
+    fs::create_dir_all(&linux_config).expect("Failed to create Linux config directory");
+    fs::write(linux_config.join("config.toml"), config_toml).expect("Failed to write Linux config");
+    if let Some(keys) = keys_toml {
+        fs::write(linux_data.join("keys.toml"), keys).expect("Failed to write Linux keys");
     }
 }
 
@@ -72,34 +110,14 @@ const TEST_WALLET_ADDRESS: &str = "0xF0A9071a096674D408F2324c1e0e5eC5ceEDE99F";
 ///
 /// Live tests are gated by `#[ignore]` — run with `cargo test --test live -- --ignored`.
 pub fn setup_live_test() -> TempDir {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-
-    let wallet_toml = format!(
-        "[keys.default]\n\
-         wallet_address = \"{TEST_WALLET_ADDRESS}\"\n\
-         key_address = \"{TEST_WALLET_ADDRESS}\"\n\
-         key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
-    );
-
-    // Layout paths within the temp dir (both macOS and Linux)
-    let macos_dir = temp_dir.path().join("Library/Application Support/presto");
-    let linux_data_dir = temp_dir.path().join(".local/share/presto");
-    let linux_config_dir = temp_dir.path().join(".config/presto");
-
-    fs::create_dir_all(&macos_dir).expect("Failed to create macOS data directory");
-    fs::create_dir_all(&linux_data_dir).expect("Failed to create Linux data directory");
-    fs::create_dir_all(&linux_config_dir).expect("Failed to create Linux config directory");
-
-    // Write keys.toml into both layouts
-    fs::write(macos_dir.join("keys.toml"), &wallet_toml).expect("Failed to write macOS wallet");
-    fs::write(linux_data_dir.join("keys.toml"), &wallet_toml)
-        .expect("Failed to write Linux wallet");
-
-    // Write empty config
-    fs::write(macos_dir.join("config.toml"), "").expect("Failed to write macOS config");
-    fs::write(linux_config_dir.join("config.toml"), "").expect("Failed to write Linux config");
-
-    temp_dir
+    TestConfigBuilder::new()
+        .with_keys_toml(format!(
+            "[keys.default]\n\
+             wallet_address = \"{TEST_WALLET_ADDRESS}\"\n\
+             key_address = \"{TEST_WALLET_ADDRESS}\"\n\
+             key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"
+        ))
+        .build()
 }
 
 /// Delete the sessions database (and WAL/SHM) from the temp dir.

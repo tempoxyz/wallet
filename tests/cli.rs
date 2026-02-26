@@ -9,7 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{get_combined_output, test_command, TestConfigBuilder};
+use common::{get_combined_output, test_command, write_test_files, TestConfigBuilder};
 
 #[test]
 fn test_completions_bash() {
@@ -534,19 +534,7 @@ wallet_address = "0xBBB"
 key_address = "0xBBB"
 key = "0xkey2"
 "#;
-    let config_toml = "";
-
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), config_toml).unwrap();
-
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), config_toml).unwrap();
+    write_test_files(temp.path(), "", Some(wallet_toml));
 }
 
 #[test]

@@ -148,9 +148,7 @@ pub(crate) fn sign(
     };
     let sig = wallet_signer
         .sign_hash_sync(&auth.signature_hash())
-        .map_err(|e| {
-            PrestoError::SigningSimple(format!("Failed to sign key authorization: {e}"))
-        })?;
+        .map_err(|e| PrestoError::Signing(format!("Failed to sign key authorization: {e}")))?;
     let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
     let mut buf = Vec::new();
     signed.encode(&mut buf);

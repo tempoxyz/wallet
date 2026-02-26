@@ -326,12 +326,6 @@ pub enum KeyCommands {
     },
 }
 
-impl QueryArgs {
-    pub fn get_timeout(&self) -> Option<u64> {
-        self.max_time
-    }
-}
-
 impl Cli {
     /// Verbosity count (0 = default/warn, 1 = info/-v, 2 = debug/-vv, etc.)
     /// Returns 0 when quiet.

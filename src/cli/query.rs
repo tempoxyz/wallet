@@ -114,10 +114,8 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         } else {
             "charge"
         };
-        let network_enum: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
-        let token = network_enum.and_then(|n| n.token_config_by_address(&challenge_ctx.currency));
-        let symbol = token.map(|t| t.symbol).unwrap_or("tokens");
-        let decimals = token.map(|t| t.decimals).unwrap_or(6);
+        let (symbol, decimals) =
+            crate::network::resolve_token_meta(&challenge_ctx.network, &challenge_ctx.currency);
         let amount_display = challenge_ctx
             .amount
             .parse::<u128>()
@@ -273,9 +271,8 @@ async fn dispatch_payment(
 
         let network: Option<crate::network::Network> = challenge_ctx.network.parse().ok();
         let explorer = network.and_then(|n| n.info().explorer);
-        let token = network.and_then(|n| n.token_config_by_address(&challenge_ctx.currency));
-        let symbol = token.map(|t| t.symbol).unwrap_or("USDC");
-        let decimals = token.map(|t| t.decimals).unwrap_or(6);
+        let (symbol, decimals) =
+            crate::network::resolve_token_meta(&challenge_ctx.network, &challenge_ctx.currency);
         display_receipt(
             output_opts,
             &resp,
@@ -648,7 +645,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         method,
         headers,
         body,
-        timeout_secs: query.get_timeout(),
+        timeout_secs: query.max_time,
         follow_redirects: !query.no_redirect,
         user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
         verbose_connection: runtime.debug_enabled(),

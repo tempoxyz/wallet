@@ -18,6 +18,10 @@ use crate::error;
 #[derive(Debug)]
 pub struct HttpResponse {
     pub status_code: u32,
+    /// Response headers with **lowercased** keys.
+    ///
+    /// Header names are normalized to lowercase during conversion.
+    /// Use [`get_header`](Self::get_header) for case-insensitive lookup.
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
     /// The final URL after following any redirects.

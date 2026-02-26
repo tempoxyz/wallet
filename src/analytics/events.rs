@@ -78,6 +78,9 @@ impl Event {
     }
 }
 
+/// Trait for analytics event payloads.
+///
+/// The `'static` bound is required because payloads are moved into `tokio::spawn` tasks.
 pub trait EventPayload: Serialize + Send + Sync + 'static {}
 
 #[derive(Debug, Clone, Serialize)]

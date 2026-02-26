@@ -10,7 +10,7 @@ use axum::routing::any;
 use axum::Router;
 use serde_json::json;
 
-use crate::common::{get_combined_output, test_command, TestConfigBuilder};
+use crate::common::{get_combined_output, test_command, write_test_files, TestConfigBuilder};
 
 struct MockServer {
     base_url: String,
@@ -756,30 +756,17 @@ async fn test_402_charge_flow() {
     let server = MockServer::start_payment(&www_auth, "charge accepted").await;
 
     // Set up temp dir with wallet + config pointing RPC to mock
-    let temp = tempfile::TempDir::new().unwrap();
-
-    let wallet_toml = r#"
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-"#;
-
-    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
-
-    // macOS layout
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
-
-    // Linux layout
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+"#,
+        )
+        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+        .build();
 
     let output = test_command(&temp)
         .args(["-v", &server.url("/api")])
@@ -811,26 +798,17 @@ async fn test_402_payment_narration_verbose() {
     let server = MockServer::start_payment(&www_auth, "ok").await;
 
     // Write wallet + RPC config
-    let temp = tempfile::TempDir::new().unwrap();
-    let wallet_toml = r#"
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-"#;
-    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
-
-    // macOS + Linux layouts
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+"#,
+        )
+        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+        .build();
 
     let output = test_command(&temp)
         .args(["-v", &server.url("/api")])
@@ -857,26 +835,17 @@ async fn test_402_paid_summary_default_and_quiet() {
     );
     let server = MockServer::start_payment(&www_auth, "ok").await;
 
-    let temp = tempfile::TempDir::new().unwrap();
-    let wallet_toml = r#"
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-"#;
-    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
-
-    // macOS + Linux layouts
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+"#,
+        )
+        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+        .build();
 
     // Default: summary should be printed
     let output_default = test_command(&temp)
@@ -924,26 +893,17 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
     let receipt_value = format!("tx={}", tx_hash);
     let server = MockServer::start_payment_with_receipt(&www_auth, "ok", &receipt_value).await;
 
-    let temp = tempfile::TempDir::new().unwrap();
-    let wallet_toml = r#"
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            r#"
 [keys.default]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-"#;
-    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
-
-    // macOS + Linux layouts
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+"#,
+        )
+        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+        .build();
 
     // Set up analytics tap file
     let events_path = temp.path().join("events.log");
@@ -1001,32 +961,21 @@ async fn test_402_charge_flow_keychain() {
 
     let server = MockServer::start_payment(&www_auth, "keychain charge accepted").await;
 
-    let temp = tempfile::TempDir::new().unwrap();
-
     // wallet_address (0x7099...) differs from the private key's derived
     // address (0xf39F...), triggering Keychain signing mode.
-    let wallet_toml = r#"
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            r#"
 [keys.default]
 wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 chain_id = 42431
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 provisioned = true
-"#;
-
-    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
-
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
-
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+"#,
+        )
+        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+        .build();
 
     let output = test_command(&temp)
         .args(["-v", &server.url("/api")])
@@ -1052,14 +1001,7 @@ const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5e
 /// Helper: set up a temp dir with config (pointing RPC to mock) but NO keys.toml.
 fn setup_config_only(temp: &tempfile::TempDir, rpc_base_url: &str) {
     let config_toml = format!("moderato_rpc = \"{rpc_base_url}\"\n");
-
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
-
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+    write_test_files(temp.path(), &config_toml, None);
 }
 
 /// The 402 charge flow works with --private-key (no keys.toml needed).
@@ -1236,9 +1178,6 @@ async fn test_private_key_flag_overrides_wallet() {
 
     let server = MockServer::start_payment(&www_auth, "override ok").await;
 
-    let temp = tempfile::TempDir::new().unwrap();
-    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
-
     // Set up keys.toml with a DIFFERENT key (Hardhat #1) that points to a
     // different address. The --private-key flag should be used instead.
     let wallet_toml = r#"
@@ -1247,21 +1186,15 @@ wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 key_address = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 "#;
-
-    let macos_dir = temp.path().join("Library/Application Support/presto");
-    std::fs::create_dir_all(&macos_dir).unwrap();
-    std::fs::write(macos_dir.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(macos_dir.join("config.toml"), &config_toml).unwrap();
-
-    let linux_data = temp.path().join(".local/share/presto");
-    let linux_config = temp.path().join(".config/presto");
-    std::fs::create_dir_all(&linux_data).unwrap();
-    std::fs::create_dir_all(&linux_config).unwrap();
-    std::fs::write(linux_data.join("keys.toml"), wallet_toml).unwrap();
-    std::fs::write(linux_config.join("config.toml"), &config_toml).unwrap();
+    let config_toml = format!("moderato_rpc = \"{}\"\n", rpc.base_url);
+    let temp = tempfile::TempDir::new().unwrap();
+    write_test_files(temp.path(), &config_toml, Some(wallet_toml));
 
     // Snapshot keys.toml content before the run
-    let wallet_before = std::fs::read_to_string(macos_dir.join("keys.toml")).unwrap();
+    let keys_path = temp
+        .path()
+        .join("Library/Application Support/presto/keys.toml");
+    let wallet_before = std::fs::read_to_string(&keys_path).unwrap();
 
     // Use Hardhat #0 via --private-key flag
     let output = test_command(&temp)
@@ -1281,7 +1214,7 @@ key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
     );
 
     // keys.toml must not have been modified by --private-key usage
-    let wallet_after = std::fs::read_to_string(macos_dir.join("keys.toml")).unwrap();
+    let wallet_after = std::fs::read_to_string(&keys_path).unwrap();
     assert_eq!(
         wallet_before, wallet_after,
         "keys.toml should not be modified when --private-key is used"

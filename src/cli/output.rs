@@ -1,8 +1,5 @@
 //! Output formatting and display utilities for the CLI.
 
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use anyhow::{Context, Result};
 
 use crate::config::validate_path;
@@ -40,37 +37,6 @@ impl OutputOptions {
 pub use crate::util::hyperlink;
 
 // ---------------------------------------------------------------------------
-// Time utilities
-// ---------------------------------------------------------------------------
-
-/// Get current Unix timestamp in seconds.
-#[cfg(test)]
-pub fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
-/// Format an expiry timestamp as a human-readable string.
-#[cfg(test)]
-pub fn format_expiry(expiry: u64) -> String {
-    if expiry == 0 {
-        return "no expiry".to_string();
-    }
-
-    let now = now_secs();
-    if expiry < now {
-        "expired".to_string()
-    } else {
-        let remaining = expiry - now;
-        let hours = remaining / 3600;
-        let minutes = (remaining % 3600) / 60;
-        format!("{}h {}m left", hours, minutes)
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Response output
 // ---------------------------------------------------------------------------
 
@@ -101,24 +67,13 @@ pub fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> 
     Ok(())
 }
 
-/// Write response body to file or stdout.
+/// Write raw bytes to the configured output destination.
 ///
 /// Writes exact bytes with no trailing newline, matching curl-like semantics.
 /// This preserves binary payloads and strict byte-stream consumers.
 pub fn output_response_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
     if let Some(ref output_file) = opts.output_file {
-        if output_file == "-" {
-            use std::io::Write;
-            std::io::stdout()
-                .write_all(body)
-                .context("Failed to write response to stdout")?;
-        } else {
-            validate_path(output_file, true).context("Invalid output path")?;
-            std::fs::write(output_file, body).context("Failed to write output file")?;
-            if opts.log_enabled() {
-                eprintln!("Saved to: {output_file}");
-            }
-        }
+        write_to_file(opts, output_file, body)?;
     } else {
         use std::io::Write;
         std::io::stdout()
@@ -128,29 +83,39 @@ pub fn output_response_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Write string output to a specific file or stdout
+/// Write string content to the configured output destination.
+///
+/// Adds a trailing newline for stdout (suitable for formatted/JSON output).
+/// File output writes the content as-is without a trailing newline.
 pub fn write_output_to(opts: &OutputOptions, content: impl AsRef<str>) -> Result<()> {
     let content = content.as_ref();
     if let Some(ref output_file) = opts.output_file {
-        if output_file == "-" {
-            println!("{content}");
-        } else {
-            validate_path(output_file, true).context("Invalid output path")?;
-            std::fs::write(output_file, content).context("Failed to write output file")?;
-            if opts.log_enabled() {
-                eprintln!("Saved to: {output_file}");
-            }
-        }
+        write_to_file(opts, output_file, content.as_bytes())?;
     } else {
         println!("{content}");
     }
     Ok(())
 }
 
+/// Write bytes to a file, handling `-` as stdout and validating the path.
+fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result<()> {
+    if output_file == "-" {
+        use std::io::Write;
+        std::io::stdout()
+            .write_all(data)
+            .context("Failed to write to stdout")?;
+    } else {
+        validate_path(output_file, true).context("Invalid output path")?;
+        std::fs::write(output_file, data).context("Failed to write output file")?;
+        if opts.log_enabled() {
+            eprintln!("Saved to: {output_file}");
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_hyperlink_format() {
         // Test the raw format (ignoring detection)
@@ -158,30 +123,5 @@ mod tests {
         let text = "View transaction";
         let expected = "\x1b]8;;https://etherscan.io/tx/0x123\x07View transaction\x1b]8;;\x07";
         assert_eq!(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text), expected);
-    }
-
-    #[test]
-    fn test_format_expiry_no_expiry() {
-        assert_eq!(format_expiry(0), "no expiry");
-    }
-
-    #[test]
-    fn test_format_expiry_expired() {
-        let past = now_secs().saturating_sub(3600);
-        assert_eq!(format_expiry(past), "expired");
-    }
-
-    #[test]
-    fn test_format_expiry_future() {
-        let future = now_secs() + 7200 + 1800;
-        let result = format_expiry(future);
-        assert!(result.contains("h") && result.contains("m left"));
-    }
-
-    #[test]
-    fn test_now_secs_reasonable() {
-        let now = now_secs();
-        assert!(now > 1704067200);
-        assert!(now < 4102444800);
     }
 }
