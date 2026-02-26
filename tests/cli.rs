@@ -135,7 +135,55 @@ fn test_version_flag() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--version")
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("presto"))
+        .stdout(predicate::str::is_match(r"[0-9a-f]{7}").unwrap());
+}
+
+#[test]
+fn test_version_includes_build_info() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should contain version, 7-char commit, date, and profile
+    assert!(
+        stdout.contains(env!("CARGO_PKG_VERSION")),
+        "missing version in: {stdout}"
+    );
+    assert!(
+        stdout.contains('(') && stdout.contains(')'),
+        "missing build info parens in: {stdout}"
+    );
+}
+
+#[test]
+fn test_version_json() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["-j", "--version"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(parsed.get("version").is_some(), "missing 'version' field");
+    assert!(
+        parsed.get("git_commit").is_some(),
+        "missing 'git_commit' field"
+    );
+    assert!(
+        parsed.get("build_date").is_some(),
+        "missing 'build_date' field"
+    );
+    assert!(parsed.get("profile").is_some(), "missing 'profile' field");
+    // git_commit should be a 7-char hex string (or "unknown" in unusual builds)
+    let commit = parsed["git_commit"].as_str().unwrap();
+    assert!(
+        commit == "unknown" || (commit.len() == 7 && commit.chars().all(|c| c.is_ascii_hexdigit())),
+        "unexpected git_commit format: {commit}"
+    );
 }
 
 #[test]

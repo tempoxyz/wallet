@@ -12,10 +12,22 @@ pub enum ColorMode {
     Never,
 }
 
+/// Long version string including git commit, build date, and profile.
+const LONG_VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("PRESTO_GIT_SHA"),
+    " ",
+    env!("PRESTO_BUILD_DATE"),
+    " ",
+    env!("PRESTO_BUILD_PROFILE"),
+    ")"
+);
+
 #[derive(Parser, Debug)]
 #[command(name = "presto")]
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
-#[command(version)]
+#[command(version = LONG_VERSION)]
 #[command(
     // Match curl-style usage: show HTTP options before the URL and list both forms
     override_usage = "\n  presto [HTTP OPTIONS] <URL>\n  presto <COMMAND> [OPTIONS]"
