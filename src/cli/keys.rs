@@ -104,7 +104,7 @@ pub async fn show_keys(
     // Pre-fetch balances for each unique wallet address to avoid redundant RPC calls.
     let unique_wallets: Vec<String> = creds
         .keys
-        .values()
+        .iter()
         .map(|e| &e.wallet_address)
         .filter(|a| !a.is_empty())
         .collect::<std::collections::BTreeSet<_>>()
@@ -126,13 +126,17 @@ pub async fn show_keys(
 
     let mut keys = Vec::new();
 
-    for (name, entry) in &creds.keys {
+    for entry in &creds.keys {
+        let label = match entry.wallet_type {
+            WalletType::Passkey => "passkey",
+            WalletType::Local => "local",
+        };
         keys.push(
             build_key_info(
                 config,
                 network,
                 current_chain_id,
-                name,
+                label,
                 entry,
                 &balance_cache,
             )
@@ -161,7 +165,11 @@ pub async fn show_keys(
                 if let Some(cur) = &key.currency {
                     println!("{:>10}: {}", "Currency", cur);
                 }
-                if let Some(entry) = creds.keys.get(&key.label) {
+                if let Some(entry) = creds
+                    .keys
+                    .iter()
+                    .find(|e| e.key_address.as_deref() == Some(&key.address))
+                {
                     if let Some(expiry_ts) = key_expiry_timestamp(entry) {
                         println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                     }

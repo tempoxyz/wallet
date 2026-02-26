@@ -21,15 +21,12 @@ use crate::wallet::key_authorization;
 /// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
 /// 5. Print the fundable wallet address
-pub(crate) fn create_local_wallet(name: &str, network: Option<&str>) -> Result<()> {
+pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot create wallets with --private-key flag");
     }
 
     let mut creds = WalletCredentials::load()?;
-    if creds.keys.contains_key(name) {
-        anyhow::bail!("Key '{name}' already exists. Use a different name.");
-    }
 
     // Generate wallet EOA key and store in OS keychain
     let wallet_signer = PrivateKeySigner::random();
@@ -37,7 +34,7 @@ pub(crate) fn create_local_wallet(name: &str, network: Option<&str>) -> Result<(
     let wallet_address = wallet_signer.address().to_string();
 
     keychain()
-        .set(name, &wallet_key_hex)
+        .set(&wallet_address, &wallet_key_hex)
         .map_err(|e| PrestoError::Keychain(format!("Failed to store wallet key: {e}")))?;
 
     // Generate key
@@ -57,7 +54,7 @@ pub(crate) fn create_local_wallet(name: &str, network: Option<&str>) -> Result<(
 
     let key_entry = KeyEntry {
         wallet_type: WalletType::Local,
-        wallet_address,
+        wallet_address: wallet_address.clone(),
         key_address: Some(access_key_address),
         key: Some(access_key_hex),
         key_authorization: Some(auth.hex),
@@ -67,9 +64,9 @@ pub(crate) fn create_local_wallet(name: &str, network: Option<&str>) -> Result<(
         token_limits: auth.token_limits,
         provisioned: false,
     };
-    creds.keys.insert(name.to_string(), key_entry);
+    creds.keys.push(key_entry);
     if let Err(e) = creds.save() {
-        let _ = keychain().delete(name);
+        let _ = keychain().delete(&wallet_address);
         return Err(e.into());
     }
 
@@ -82,29 +79,29 @@ pub(crate) fn create_local_wallet(name: &str, network: Option<&str>) -> Result<(
 /// 2. Generate a new random key → store inline in keys.toml
 /// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
 /// 4. Clear provisioned flag (new key must re-provision)
-pub(crate) fn create_access_key(name: &str) -> Result<()> {
+pub(crate) fn create_access_key() -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot renew wallets with --private-key flag");
     }
 
     let mut creds = WalletCredentials::load()?;
-    let key_entry = creds
+    let idx = creds
         .keys
-        .get(name)
-        .ok_or_else(|| anyhow::anyhow!("Wallet '{name}' not found."))?;
+        .iter()
+        .position(|k| k.wallet_type == WalletType::Local)
+        .ok_or_else(|| anyhow::anyhow!("No local wallet found."))?;
 
-    if key_entry.wallet_type != WalletType::Local {
-        anyhow::bail!("Only local wallets can be renewed. Use 'presto login' for passkey wallets.");
-    }
+    let key_entry = &creds.keys[idx];
 
     // Load wallet EOA key from OS keychain
     let wallet_key_hex = keychain()
-        .get(name)
+        .get(&key_entry.wallet_address)
         .map_err(|e| PrestoError::Keychain(format!("Failed to load wallet key: {e}")))?
         .ok_or_else(|| {
             anyhow::anyhow!(
-            "Wallet key not found in keychain for '{name}'. The wallet may need to be re-created."
-        )
+                "Wallet key not found in keychain for '{}'. The wallet may need to be re-created.",
+                key_entry.wallet_address
+            )
         })?;
     let wallet_signer: PrivateKeySigner = parse_private_key_signer(&wallet_key_hex)
         .map_err(|e| anyhow::anyhow!("Invalid wallet key in keychain: {e}"))?;
@@ -119,7 +116,7 @@ pub(crate) fn create_access_key(name: &str) -> Result<()> {
     let auth = key_authorization::sign(&wallet_signer, &access_signer, chain_id)?;
 
     // Update the key entry in-place
-    let entry = creds.keys.get_mut(name).unwrap();
+    let entry = &mut creds.keys[idx];
     entry.key_address = Some(access_key_address);
     entry.key = Some(access_key_hex);
     entry.key_authorization = Some(auth.hex);
@@ -131,12 +128,16 @@ pub(crate) fn create_access_key(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Delete a wallet by name.
-pub(crate) fn delete_wallet(name: &str, yes: bool) -> Result<()> {
-    let creds = WalletCredentials::load()?;
+/// Delete a wallet by address.
+pub(crate) fn delete_wallet(address: &str, yes: bool) -> Result<()> {
+    let mut creds = WalletCredentials::load()?;
 
-    if !creds.keys.contains_key(name) {
-        anyhow::bail!("Wallet '{name}' not found.");
+    if !creds
+        .keys
+        .iter()
+        .any(|k| k.wallet_address.eq_ignore_ascii_case(address))
+    {
+        anyhow::bail!("Wallet '{address}' not found.");
     }
 
     if !yes {
@@ -144,7 +145,7 @@ pub(crate) fn delete_wallet(name: &str, yes: bool) -> Result<()> {
             anyhow::bail!("Use --yes for non-interactive delete");
         }
 
-        print!("Delete wallet '{name}'? [y/N] ");
+        print!("Delete wallet '{address}'? [y/N] ");
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -155,14 +156,13 @@ pub(crate) fn delete_wallet(name: &str, yes: bool) -> Result<()> {
         }
     }
 
-    let mut creds = creds;
-    creds.delete_key(name)?;
+    creds.delete_by_address(address)?;
     creds.save()?;
 
     if creds.keys.is_empty() {
-        println!("Deleted wallet '{name}'. No wallets configured.");
+        println!("Deleted wallet '{address}'. No wallets configured.");
     } else {
-        println!("Deleted wallet '{name}'.");
+        println!("Deleted wallet '{address}'.");
     }
     Ok(())
 }
@@ -173,19 +173,12 @@ pub(crate) fn delete_wallet(name: &str, yes: bool) -> Result<()> {
 /// (masked) on a TTY. Stores the key in the OS keychain and records the wallet
 /// address in keys.toml. Does not create a key; run `presto login` to connect
 /// and provision when ready.
-pub(crate) fn import_wallet(
-    name: &str,
-    private_key_arg: Option<String>,
-    stdin_key: bool,
-) -> Result<()> {
+pub(crate) fn import_wallet(private_key_arg: Option<String>, stdin_key: bool) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot import wallets with --private-key flag");
     }
 
     let mut creds = WalletCredentials::load()?;
-    if creds.keys.contains_key(name) {
-        anyhow::bail!("Wallet '{name}' already exists. Use a different name.");
-    }
 
     let key_hex: Zeroizing<String> = if let Some(pk) = private_key_arg {
         Zeroizing::new(pk)
@@ -202,9 +195,17 @@ pub(crate) fn import_wallet(
     let private_key_hex = Zeroizing::new(format!("0x{}", hex::encode(signer.to_bytes())));
     let address = signer.address().to_string();
 
+    if creds
+        .keys
+        .iter()
+        .any(|k| k.wallet_address.eq_ignore_ascii_case(&address))
+    {
+        anyhow::bail!("Wallet '{address}' already exists.");
+    }
+
     // Store wallet EOA key in OS keychain
     keychain()
-        .set(name, &private_key_hex)
+        .set(&address, &private_key_hex)
         .map_err(|e| PrestoError::Keychain(format!("Failed to store key: {e}")))?;
 
     let key = KeyEntry {
@@ -212,14 +213,13 @@ pub(crate) fn import_wallet(
         wallet_address: address.clone(),
         ..Default::default()
     };
-    creds.keys.insert(name.to_string(), key);
+    creds.keys.push(key);
     if let Err(e) = creds.save() {
-        let _ = keychain().delete(name);
+        let _ = keychain().delete(&address);
         return Err(e.into());
     }
 
-    println!("Imported wallet '{name}'.");
-    println!("  Address: {address}");
+    println!("Imported wallet '{address}'.");
     println!("\nRun 'presto login' to connect and authorize payments.");
     Ok(())
 }

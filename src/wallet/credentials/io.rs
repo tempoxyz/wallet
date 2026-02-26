@@ -91,7 +91,7 @@ impl WalletCredentials {
             return;
         };
         let Ok(mut creds) = Self::load() else { return };
-        let Some(entry) = creds.keys.values_mut().find(|k| k.chain_id == chain_id) else {
+        let Some(entry) = creds.keys.iter_mut().find(|k| k.chain_id == chain_id) else {
             return;
         };
         if entry.provisioned {

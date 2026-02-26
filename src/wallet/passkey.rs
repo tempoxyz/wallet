@@ -16,7 +16,7 @@ use crate::analytics::{
 };
 use crate::error::PrestoError;
 use crate::network::networks::network_or_default;
-use crate::wallet::credentials::{KeyEntry, KeyType, WalletCredentials, WalletType};
+use crate::wallet::credentials::{WalletCredentials, WalletType};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
@@ -204,31 +204,19 @@ impl WalletManager {
         // If the file is corrupt, surface the error instead of silently resetting.
         let mut creds = WalletCredentials::load()?;
 
-        // Resolve which key name to update using both wallet and signer addresses.
-        // If the resolved profile has a different key for the same wallet
-        // (e.g. mainnet key vs testnet key), use a network-specific name to avoid
-        // overwriting the existing key.
-        let mut profile =
-            creds.resolve_key_name_for_login(&callback.account_address, &access_key_address);
-        if let Some(existing) = creds.keys.get(&profile) {
-            let same_key = existing
-                .key_address
-                .as_deref()
-                .is_some_and(|a| a == access_key_address);
-            if !same_key && self.network != "tempo" {
-                profile = format!("passkey-{}", self.network.replace("tempo-", ""));
-            }
-        }
+        let entry = creds.upsert_by_wallet_address(&callback.account_address);
 
         // Only preserve provisioned state when key and chain are unchanged.
-        let keep_provisioned = creds.keys.get(&profile).is_some_and(|k| {
-            let same_key = k
+        let keep_provisioned = {
+            let same_key = entry
                 .key_address
                 .as_deref()
                 .is_some_and(|a| a == access_key_address);
-            let same_chain = validated.as_ref().is_none_or(|v| v.chain_id == k.chain_id);
-            same_key && same_chain && k.provisioned
-        });
+            let same_chain = validated
+                .as_ref()
+                .is_none_or(|v| v.chain_id == entry.chain_id);
+            same_key && same_chain && entry.provisioned
+        };
 
         // When no new authorization was received, preserve existing chain metadata.
         let (chain_id, key_type, expiry, token_limits) = if let Some(ref v) = validated {
@@ -238,32 +226,26 @@ impl WalletManager {
                 Some(v.expiry),
                 v.token_limits.clone(),
             )
-        } else if let Some(old) = creds.keys.get(&profile) {
-            (
-                old.chain_id,
-                old.key_type.clone(),
-                old.expiry,
-                old.token_limits.clone(),
-            )
         } else {
-            (0, KeyType::default(), None, Vec::new())
+            (
+                entry.chain_id,
+                entry.key_type.clone(),
+                entry.expiry,
+                entry.token_limits.clone(),
+            )
         };
 
-        creds.keys.insert(
-            profile,
-            KeyEntry {
-                wallet_type: WalletType::Passkey,
-                wallet_address: callback.account_address,
-                chain_id,
-                key_type,
-                key_address: Some(access_key_address),
-                key: Some(Zeroizing::new(access_key_hex)),
-                key_authorization: key_auth_hex,
-                expiry,
-                token_limits,
-                provisioned: keep_provisioned,
-            },
-        );
+        entry.wallet_type = WalletType::Passkey;
+        entry.wallet_address = callback.account_address;
+        entry.chain_id = chain_id;
+        entry.key_type = key_type;
+        entry.key_address = Some(access_key_address);
+        entry.key = Some(Zeroizing::new(access_key_hex));
+        entry.key_authorization = key_auth_hex;
+        entry.expiry = expiry;
+        entry.token_limits = token_limits;
+        entry.provisioned = keep_provisioned;
+
         creds.save()?;
 
         if let Some(ref a) = self.analytics {

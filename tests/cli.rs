@@ -524,12 +524,12 @@ fn test_private_key_env_value_hidden_in_help() {
 /// Helper: write a multi-key keys.toml into both macOS and Linux paths.
 fn setup_multi_key(temp: &tempfile::TempDir) {
     let wallet_toml = r#"
-[keys.default]
+[[keys]]
 wallet_address = "0xAAA"
 key_address = "0xAAA"
 key = "0xkey1"
 
-[keys.work]
+[[keys]]
 wallet_address = "0xBBB"
 key_address = "0xBBB"
 key = "0xkey2"
@@ -543,7 +543,7 @@ fn test_wallet_delete_with_yes() {
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["wallet", "delete", "work", "--yes"])
+        .args(["wallet", "delete", "0xBBB", "--yes"])
         .output()
         .unwrap();
 
@@ -561,7 +561,7 @@ fn test_wallet_delete_nonexistent() {
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["wallet", "delete", "nonexistent", "--yes"])
+        .args(["wallet", "delete", "0xNONEXISTENT", "--yes"])
         .output()
         .unwrap();
 
@@ -576,7 +576,7 @@ fn test_wallet_delete_without_yes_noninteractive() {
     setup_multi_key(&temp);
 
     let output = test_command(&temp)
-        .args(["wallet", "delete", "work"])
+        .args(["wallet", "delete", "0xBBB"])
         .output()
         .unwrap();
 
@@ -595,28 +595,11 @@ fn test_wallet_delete_active_switches() {
 
     // Delete the active key "default"
     let output = test_command(&temp)
-        .args(["wallet", "delete", "default", "--yes"])
+        .args(["wallet", "delete", "0xAAA", "--yes"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
-}
-
-#[test]
-fn test_key_global_flag_selects_key() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["--key", "work", "whoami"])
-        .output()
-        .unwrap();
-
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("0xBBB"),
-        "should use work key's address 0xBBB: {combined}"
-    );
 }
 
 // ==================== Session JSON Output Tests ====================
@@ -704,7 +687,7 @@ fn test_whoami_json_structure_no_wallet() {
 fn test_whoami_json_structure_with_wallet() {
     let temp = TestConfigBuilder::new()
         .with_keys_toml(
-            "[keys.default]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
         )
         .build();
 
@@ -731,7 +714,7 @@ fn test_whoami_json_structure_with_wallet() {
 fn test_key_list_json_structure_with_keys() {
     let temp = TestConfigBuilder::new()
         .with_keys_toml(
-            "[keys.default]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
         )
         .build();
 

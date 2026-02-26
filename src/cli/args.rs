@@ -45,10 +45,6 @@ pub struct Cli {
     )]
     pub config: Option<String>,
 
-    /// Use a specific key
-    #[arg(long = "key", value_name = "NAME", global = true, hide = true)]
-    pub key: Option<String>,
-
     /// Use a private key directly for payment (bypasses wallet login)
     #[arg(
         long = "private-key",
@@ -267,18 +263,12 @@ pub enum SessionCommands {
 pub enum WalletCommands {
     /// Create a new wallet
     Create {
-        /// Name for the wallet
-        #[arg(long, value_name = "NAME")]
-        name: Option<String>,
         /// Create a passkey-based wallet via browser auth
         #[arg(long)]
         passkey: bool,
     },
     /// Import an existing private key as a local wallet (stores key in OS keychain)
     Import {
-        /// Name for the wallet
-        #[arg(long, value_name = "NAME")]
-        name: Option<String>,
         /// Provide the private key directly as hex (use with caution; may appear in shell history)
         #[arg(long = "private-key", value_name = "HEX")]
         private_key: Option<String>,
@@ -288,12 +278,9 @@ pub enum WalletCommands {
     },
     /// Delete a wallet
     Delete {
-        /// Wallet name to delete (positional)
-        #[arg(value_name = "NAME", conflicts_with = "name_flag")]
-        name: Option<String>,
-        /// Wallet name to delete (--name)
-        #[arg(long = "name", value_name = "NAME", id = "name_flag")]
-        name_flag: Option<String>,
+        /// Wallet address to delete
+        #[arg(value_name = "ADDRESS")]
+        address: Option<String>,
         /// Delete the passkey wallet
         #[arg(long)]
         passkey: bool,
@@ -309,11 +296,7 @@ pub enum KeyCommands {
     List,
     /// Create a new key for a local wallet (generates fresh 30-day key)
     #[command(hide = true)]
-    Create {
-        /// Wallet name
-        #[arg(long, value_name = "NAME")]
-        name: Option<String>,
-    },
+    Create,
     /// Delete keys.toml and reset all local key state
     #[command(hide = true)]
     Clean {

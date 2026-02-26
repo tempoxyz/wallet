@@ -77,8 +77,8 @@ pub async fn run_login(
 pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
     let mut creds = WalletCredentials::load()?;
 
-    let passkey_name = match creds.find_passkey_name() {
-        Some(name) => name,
+    let passkey_wallet_address = match creds.find_passkey() {
+        Some(entry) => entry.wallet_address.clone(),
         None => {
             println!("Not logged in.");
             return Ok(());
@@ -91,7 +91,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
             anyhow::bail!("Use --yes for non-interactive logout");
         }
 
-        let wallet_addr = creds.wallet_address();
+        let wallet_addr = &passkey_wallet_address;
         let short_addr = if wallet_addr.len() > 10 {
             format!(
                 "{}...{}",
@@ -113,7 +113,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
         }
     }
 
-    creds.delete_key(&passkey_name)?;
+    creds.delete_passkey()?;
     creds.save()?;
     println!("Wallet disconnected.");
     Ok(())
@@ -186,17 +186,10 @@ async fn build_whoami_response(
             };
             response.wallet_type = Some(wt.to_string());
 
-            // Resolve key label from matching entry name
-            let key_label = creds
-                .keys
-                .iter()
-                .find(|(_, e)| {
-                    e.wallet_address == key_entry.wallet_address
-                        && e.key_address == key_entry.key_address
-                        && e.chain_id == key_entry.chain_id
-                })
-                .map(|(name, _)| name.clone())
-                .unwrap_or_else(|| creds.primary_key_name().unwrap_or_default().to_string());
+            let key_label = match key_entry.wallet_type {
+                WalletType::Passkey => "passkey".to_string(),
+                WalletType::Local => "local".to_string(),
+            };
 
             let wallet_addr = response.wallet.as_deref().unwrap_or("");
             let balance_cache = vec![(

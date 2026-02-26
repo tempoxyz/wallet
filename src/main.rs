@@ -176,10 +176,6 @@ fn validate_network_flag(network: &str) -> Result<()> {
 
 /// Handle CLI subcommands
 async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
-    if let Some(ref key) = cli.key {
-        wallet::credentials::set_key_name_override(key.clone());
-    }
-
     if let Some(ref pk) = cli.private_key {
         wallet::credentials::set_credentials_override(pk.clone());
     }
@@ -353,7 +349,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         Commands::Wallet { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
-                    WalletCommands::Create { name, passkey } => {
+                    WalletCommands::Create { passkey } => {
                         if passkey {
                             let network = cli.network.as_deref();
                             let config =
@@ -361,8 +357,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             let output_format = cli.resolve_output_format(&config);
                             cli::auth::run_login(network, analytics.clone(), output_format).await
                         } else {
-                            let name = name.as_deref().unwrap_or("local-default");
-                            cli::local_wallet::create_local_wallet(name, cli.network.as_deref())?;
+                            cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
                             let config =
                                 load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
                             let output_format = cli.resolve_output_format(&config);
@@ -371,26 +366,20 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         }
                     }
                     WalletCommands::Import {
-                        name,
                         private_key,
                         stdin_key,
-                    } => {
-                        let name = name.as_deref().unwrap_or("local-default");
-                        cli::local_wallet::import_wallet(name, private_key, stdin_key)
-                    }
+                    } => cli::local_wallet::import_wallet(private_key, stdin_key),
                     WalletCommands::Delete {
-                        name,
-                        name_flag,
+                        address,
                         passkey,
                         yes,
                     } => {
                         if passkey {
                             cli::auth::run_logout(yes).await
+                        } else if let Some(addr) = address {
+                            cli::local_wallet::delete_wallet(&addr, yes)
                         } else {
-                            let name = name
-                                .or(name_flag)
-                                .unwrap_or_else(|| "local-default".to_string());
-                            cli::local_wallet::delete_wallet(&name, yes)
+                            anyhow::bail!("Specify a wallet address or use --passkey")
                         }
                     }
                 }
@@ -433,9 +422,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 Some(KeyCommands::List) => {
                     cli::keys::show_keys(&config, output_format, network).await
                 }
-                Some(KeyCommands::Create { name }) => {
-                    let name = name.as_deref().unwrap_or("local-default");
-                    cli::local_wallet::create_access_key(name)?;
+                Some(KeyCommands::Create) => {
+                    cli::local_wallet::create_access_key()?;
                     cli::auth::show_whoami(&config, output_format, network).await
                 }
                 Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),

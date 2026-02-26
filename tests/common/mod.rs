@@ -115,7 +115,7 @@ const TEST_WALLET_ADDRESS: &str = "0xF0A9071a096674D408F2324c1e0e5eC5ceEDE99F";
 pub fn setup_live_test() -> TempDir {
     TestConfigBuilder::new()
         .with_keys_toml(format!(
-            "[keys.default]\n\
+            "[[keys]]\n\
              wallet_address = \"{TEST_WALLET_ADDRESS}\"\n\
              key_address = \"{TEST_WALLET_ADDRESS}\"\n\
              key = \"{TEST_WALLET_PRIVATE_KEY}\"\n"

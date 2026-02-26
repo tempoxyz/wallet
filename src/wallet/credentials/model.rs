@@ -1,6 +1,5 @@
 //! Data types for wallet credentials.
 
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use alloy::signers::local::PrivateKeySigner;
@@ -11,13 +10,7 @@ use crate::error::PrestoError;
 use crate::network::Network;
 use crate::wallet::keychain::{self, KeychainBackend};
 
-use super::overrides::{has_credentials_override, KEY_NAME_OVERRIDE};
-
-/// Default key name for local wallets.
-const DEFAULT_KEY_NAME: &str = "default";
-
-/// Default key name for passkey wallets.
-const DEFAULT_PASSKEY_NAME: &str = "passkey-default";
+use super::overrides::has_credentials_override;
 
 /// Global keychain backend.  Initialised lazily via [`keychain()`].
 static KEYCHAIN_BACKEND: OnceLock<Box<dyn KeychainBackend>> = OnceLock::new();
@@ -60,7 +53,7 @@ pub struct StoredTokenLimit {
     pub limit: String,
 }
 
-/// A single named key entry.
+/// A single key entry.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct KeyEntry {
     /// Wallet type: "local" or "passkey".
@@ -115,13 +108,12 @@ impl std::fmt::Debug for KeyEntry {
 
 /// Wallet credentials stored in keys.toml.
 ///
-/// Supports multiple named keys via `[keys.<name>]` tables.
+/// Supports multiple key entries via `[[keys]]` array of tables.
 /// Key selection is deterministic: passkey > first key with key > first key.
-/// The `--key` CLI flag overrides selection at runtime.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WalletCredentials {
     #[serde(default)]
-    pub keys: BTreeMap<String, KeyEntry>,
+    pub keys: Vec<KeyEntry>,
 }
 
 impl WalletCredentials {
@@ -139,38 +131,29 @@ impl WalletCredentials {
             ..Default::default()
         };
         let mut creds = Self::default();
-        creds.keys.insert(DEFAULT_KEY_NAME.to_string(), key_entry);
+        creds.keys.push(key_entry);
         Ok(creds)
     }
 
-    /// Deterministic primary key name: passkey > first key with key > first key.
-    /// The `--key` CLI flag overrides this at runtime.
-    pub fn primary_key_name(&self) -> Option<&str> {
-        if let Some(name) = KEY_NAME_OVERRIDE.get() {
-            if self.keys.contains_key(name.as_str()) {
-                return Some(name);
-            }
-        }
-        if let Some((name, _)) = self
-            .keys
-            .iter()
-            .find(|(_, k)| k.wallet_type == WalletType::Passkey)
-        {
-            return Some(name);
-        }
-        if let Some((name, _)) = self
-            .keys
-            .iter()
-            .find(|(_, k)| k.key.as_ref().is_some_and(|ak| !ak.is_empty()))
-        {
-            return Some(name);
-        }
-        self.keys.keys().next().map(String::as_str)
-    }
-
     /// Get the primary key entry.
+    ///
+    /// Deterministic selection: passkey > first key with non-empty key > first entry.
     pub fn primary_key(&self) -> Option<&KeyEntry> {
-        self.keys.get(self.primary_key_name()?)
+        if let Some(entry) = self
+            .keys
+            .iter()
+            .find(|k| k.wallet_type == WalletType::Passkey)
+        {
+            return Some(entry);
+        }
+        if let Some(entry) = self
+            .keys
+            .iter()
+            .find(|k| k.key.as_ref().is_some_and(|ak| !ak.is_empty()))
+        {
+            return Some(entry);
+        }
+        self.keys.first()
     }
 
     /// Check if a wallet is configured.
@@ -233,103 +216,96 @@ impl WalletCredentials {
 
     /// Find the key for a given network.
     ///
-    /// Respects the `--key` CLI override first, then matches on `chain_id`,
-    /// then falls back to direct EOA keys (wallet == signer) which work on
-    /// any network.
+    /// Matches on `chain_id`, then falls back to direct EOA keys
+    /// (wallet == signer) which work on any network, then falls back
+    /// to any passkey with a signing key.
     pub fn key_for_network(&self, network: &str) -> Option<&KeyEntry> {
-        // Respect --key override
-        if let Some(name) = KEY_NAME_OVERRIDE.get() {
-            if let Some(entry) = self.keys.get(name.as_str()) {
-                return Some(entry);
-            }
-        }
         let chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
         // Try exact chain_id match first
         if let Some(cid) = chain_id {
-            if let Some(entry) = self.keys.values().find(|k| k.chain_id == cid) {
+            if let Some(entry) = self.keys.iter().find(|k| k.chain_id == cid) {
                 return Some(entry);
             }
         }
         // Direct EOA keys (wallet == signer) work on any network
-        self.keys.values().find(|k| {
+        if let Some(entry) = self.keys.iter().find(|k| {
             k.wallet_type == WalletType::Local
                 && k.key_address.as_deref() == Some(&k.wallet_address)
                 && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
+        }) {
+            return Some(entry);
+        }
+        // Any passkey with a signing key
+        self.keys.iter().find(|k| {
+            k.wallet_type == WalletType::Passkey && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
         })
     }
 
-    /// Resolve which key name to update during login using both wallet and signer addresses.
-    ///
-    /// Priority:
-    /// 1) Primary key if its `wallet_address` matches wallet address.
-    /// 2) Any key whose `wallet_address` matches wallet address.
-    /// 3) Primary key if its `key_address` matches signer address.
-    /// 4) Any key whose `key_address` matches signer address.
-    /// 5) `--key` override or default passkey name.
-    pub fn resolve_key_name_for_login(&self, wallet_address: &str, signer_address: &str) -> String {
-        let primary = self.primary_key_name();
-        if let Some(name) = primary {
-            if self
-                .keys
-                .get(name)
-                .is_some_and(|a| a.wallet_address == wallet_address)
-            {
-                return name.to_string();
-            }
-        }
-        if let Some((name, _)) = self
-            .keys
-            .iter()
-            .find(|(_, a)| a.wallet_address == wallet_address)
-        {
-            return name.clone();
-        }
-        if let Some(name) = primary {
-            if self
-                .keys
-                .get(name)
-                .is_some_and(|a| a.key_address.as_deref() == Some(signer_address))
-            {
-                return name.to_string();
-            }
-        }
-        if let Some((name, _)) = self
-            .keys
-            .iter()
-            .find(|(_, a)| a.key_address.as_deref() == Some(signer_address))
-        {
-            return name.clone();
-        }
-        KEY_NAME_OVERRIDE
-            .get()
-            .cloned()
-            .unwrap_or_else(|| DEFAULT_PASSKEY_NAME.to_string())
-    }
-
-    /// Find the name of the passkey wallet entry, if one exists.
-    pub fn find_passkey_name(&self) -> Option<String> {
+    /// Find the passkey wallet entry, if one exists.
+    pub fn find_passkey(&self) -> Option<&KeyEntry> {
         self.keys
             .iter()
-            .find(|(_, k)| k.wallet_type == WalletType::Passkey)
-            .map(|(name, _)| name.clone())
+            .find(|k| k.wallet_type == WalletType::Passkey)
     }
 
-    /// Delete a key.
+    /// Delete the passkey entry.
+    ///
+    /// Returns an error if no passkey is found.
+    pub fn delete_passkey(&mut self) -> Result<(), PrestoError> {
+        let idx = self
+            .keys
+            .iter()
+            .position(|k| k.wallet_type == WalletType::Passkey)
+            .ok_or_else(|| PrestoError::ConfigMissing("No passkey found.".to_string()))?;
+        self.keys.remove(idx);
+        Ok(())
+    }
+
+    /// Delete a key by wallet address (case-insensitive).
     ///
     /// Removes the keychain entry (if local wallet, best-effort) and
-    /// keys.toml metadata. Returns an error if the key doesn't exist.
-    pub fn delete_key(&mut self, profile: &str) -> Result<(), PrestoError> {
-        let entry = self
+    /// keys.toml metadata. Returns an error if the address doesn't match.
+    pub fn delete_by_address(&mut self, address: &str) -> Result<(), PrestoError> {
+        let idx = self
             .keys
-            .get(profile)
-            .ok_or_else(|| PrestoError::ConfigMissing(format!("Key '{}' not found.", profile)))?;
+            .iter()
+            .position(|k| k.wallet_address.eq_ignore_ascii_case(address))
+            .ok_or_else(|| {
+                PrestoError::ConfigMissing(format!("Key with address '{address}' not found."))
+            })?;
+        let entry = &self.keys[idx];
         if !has_credentials_override() && entry.wallet_type == WalletType::Local {
-            if let Err(e) = keychain().delete(profile) {
-                tracing::warn!("Failed to remove keychain entry for '{profile}': {e}");
+            if let Err(e) = keychain().delete(&entry.wallet_address) {
+                tracing::warn!(
+                    "Failed to remove keychain entry for '{}': {e}",
+                    entry.wallet_address
+                );
             }
         }
-        self.keys.remove(profile);
+        self.keys.remove(idx);
         Ok(())
+    }
+
+    /// Find or create an entry by wallet address, returning a mutable reference.
+    ///
+    /// If an entry with the given wallet address exists (case-insensitive),
+    /// returns a mutable reference to it. Otherwise pushes a new default
+    /// entry with that address and returns a mutable reference.
+    pub fn upsert_by_wallet_address(&mut self, wallet_address: &str) -> &mut KeyEntry {
+        let idx = self
+            .keys
+            .iter()
+            .position(|k| k.wallet_address.eq_ignore_ascii_case(wallet_address));
+        match idx {
+            Some(i) => &mut self.keys[i],
+            None => {
+                self.keys.push(KeyEntry {
+                    wallet_address: wallet_address.to_string(),
+                    ..Default::default()
+                });
+                self.keys.last_mut().unwrap()
+            }
+        }
     }
 }
 
