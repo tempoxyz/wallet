@@ -186,3 +186,112 @@ fn write_headers_file(opts: &OutputOptions, path: &str, response: &HttpResponse)
     content.push('\n');
     write_to_file(opts, path, content.as_bytes())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== render_error_json stability ====================
+
+    #[test]
+    fn test_render_error_json_payment_rejected() {
+        let err: anyhow::Error = crate::error::PrestoError::PaymentRejected {
+            reason: "insufficient funds".into(),
+            status_code: 402,
+        }
+        .into();
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["code"], "E_PAYMENT");
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("insufficient funds"));
+    }
+
+    #[test]
+    fn test_render_error_json_missing_header() {
+        let err: anyhow::Error =
+            crate::error::PrestoError::MissingHeader("WWW-Authenticate".into()).into();
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["code"], "E_PAYMENT");
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("WWW-Authenticate"));
+    }
+
+    #[test]
+    fn test_render_error_json_unsupported_payment_method() {
+        let err: anyhow::Error =
+            crate::error::PrestoError::UnsupportedPaymentMethod("bitcoin".into()).into();
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["code"], "E_PAYMENT");
+        assert!(parsed["message"].as_str().unwrap().contains("bitcoin"));
+    }
+
+    #[test]
+    fn test_render_error_json_config_missing() {
+        let err: anyhow::Error =
+            crate::error::PrestoError::ConfigMissing("no wallet".into()).into();
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["code"], "E_CONFIG");
+    }
+
+    #[test]
+    fn test_render_error_json_http_error() {
+        let err: anyhow::Error =
+            crate::error::PrestoError::Http("500 Internal Server Error".into()).into();
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["code"], "E_NETWORK");
+    }
+
+    #[test]
+    fn test_render_error_json_has_cause() {
+        let inner: anyhow::Error =
+            crate::error::PrestoError::Http("connection refused".into()).into();
+        let err = inner.context("failed to reach server");
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        // The outermost message is the context
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("failed to reach server"));
+        // The cause is the inner error
+        assert!(parsed["cause"]
+            .as_str()
+            .unwrap()
+            .contains("connection refused"));
+    }
+
+    #[test]
+    fn test_render_error_json_no_cause() {
+        let err: anyhow::Error = crate::error::PrestoError::InvalidUrl("bad scheme".into()).into();
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed.get("cause").is_none());
+    }
+
+    #[test]
+    fn test_render_error_json_schema_fields() {
+        // Verify the JSON always has exactly "code" and "message" (and optionally "cause")
+        let err: anyhow::Error = crate::error::PrestoError::UnknownNetwork("custom".into()).into();
+        let json_str = render_error_json(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        let obj = parsed.as_object().unwrap();
+        assert!(obj.contains_key("code"));
+        assert!(obj.contains_key("message"));
+        // No extra fields
+        for key in obj.keys() {
+            assert!(
+                key == "code" || key == "message" || key == "cause",
+                "unexpected field: {key}"
+            );
+        }
+    }
+}

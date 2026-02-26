@@ -252,4 +252,182 @@ mod tests {
         assert_eq!(format_duration(3600), "60m");
         assert_eq!(format_duration(3661), "61m 1s");
     }
+
+    // ==================== ChannelView ====================
+
+    fn make_channel_view(status: &str, remaining_secs: Option<u64>) -> ChannelView {
+        ChannelView {
+            channel_id: "0xabc123".to_string(),
+            network: "tempo".to_string(),
+            origin: Some("https://api.example.com".to_string()),
+            symbol: "USDC",
+            deposit: "10.000000".to_string(),
+            spent: "3.500000".to_string(),
+            remaining: "6.500000".to_string(),
+            status: status.to_string(),
+            remaining_secs,
+        }
+    }
+
+    #[test]
+    fn test_channel_view_is_unlimited_zero_deposit() {
+        let mut v = make_channel_view("active", None);
+        v.deposit = "0.000000".to_string();
+        assert!(v.is_unlimited());
+    }
+
+    #[test]
+    fn test_channel_view_is_unlimited_nonzero_deposit() {
+        let v = make_channel_view("active", None);
+        assert!(!v.is_unlimited());
+    }
+
+    #[test]
+    fn test_channel_view_is_unlimited_invalid_deposit() {
+        let mut v = make_channel_view("active", None);
+        v.deposit = "not-a-number".to_string();
+        assert!(!v.is_unlimited());
+    }
+
+    // ==================== render_channel_list ====================
+
+    #[test]
+    fn test_render_channel_list_json_empty() {
+        let views: Vec<ChannelView> = vec![];
+        // Capture stdout by redirecting — just verify it doesn't panic
+        let result = render_channel_list(
+            &views,
+            OutputFormat::Json,
+            "No sessions.",
+            "session(s) total",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_channel_list_text_empty() {
+        let views: Vec<ChannelView> = vec![];
+        let result = render_channel_list(
+            &views,
+            OutputFormat::Text,
+            "No sessions.",
+            "session(s) total",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_channel_list_json_with_entries() {
+        let views = vec![make_channel_view("active", None)];
+        let result = render_channel_list(
+            &views,
+            OutputFormat::Json,
+            "No sessions.",
+            "session(s) total",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_channel_list_text_with_entries() {
+        let views = vec![make_channel_view("active", None)];
+        let result = render_channel_list(
+            &views,
+            OutputFormat::Text,
+            "No sessions.",
+            "session(s) total",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_channel_list_with_closed_status() {
+        let views = vec![make_channel_view("closed", Some(120))];
+        let result = render_channel_list(
+            &views,
+            OutputFormat::Text,
+            "No sessions.",
+            "session(s) total",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_channel_list_ready_to_finalize() {
+        let views = vec![make_channel_view("closed", Some(0))];
+        let result = render_channel_list(
+            &views,
+            OutputFormat::Text,
+            "No sessions.",
+            "session(s) total",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_channel_no_origin_uses_channel_id() {
+        let mut v = make_channel_view("orphaned", None);
+        v.origin = None;
+        let result =
+            render_channel_list(&[v], OutputFormat::Text, "No sessions.", "session(s) total");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_channel_empty_origin_uses_channel_id() {
+        let mut v = make_channel_view("orphaned", None);
+        v.origin = Some(String::new());
+        let result =
+            render_channel_list(&[v], OutputFormat::Json, "No sessions.", "session(s) total");
+        assert!(result.is_ok());
+    }
+
+    // ==================== CloseSummary ====================
+
+    #[test]
+    fn test_close_summary_empty_text() {
+        let summary = CloseSummary::new();
+        // Should print empty message, not panic
+        summary.print(OutputFormat::Text, "No sessions to close.", "closed");
+    }
+
+    #[test]
+    fn test_close_summary_empty_json() {
+        let summary = CloseSummary::new();
+        summary.print(OutputFormat::Json, "No sessions to close.", "closed");
+    }
+
+    #[test]
+    fn test_close_summary_counts() {
+        let mut summary = CloseSummary::new();
+        summary.record_closed(serde_json::json!({"channel_id": "0x1", "status": "closed"}));
+        summary.record_closed(serde_json::json!({"channel_id": "0x2", "status": "closed"}));
+        summary.record_pending(serde_json::json!({"channel_id": "0x3", "status": "pending"}));
+        summary.record_failed(serde_json::json!({"channel_id": "0x4", "status": "error"}));
+
+        assert_eq!(summary.closed, 2);
+        assert_eq!(summary.pending, 1);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.results.len(), 4);
+    }
+
+    #[test]
+    fn test_close_summary_json_output_no_panic() {
+        let mut summary = CloseSummary::new();
+        summary.record_closed(serde_json::json!({"channel_id": "0x1", "status": "closed"}));
+        summary.record_pending(
+            serde_json::json!({"channel_id": "0x2", "status": "pending", "remaining_secs": 60}),
+        );
+        summary.record_failed(
+            serde_json::json!({"channel_id": "0x3", "status": "error", "error": "timeout"}),
+        );
+        summary.print(OutputFormat::Json, "No sessions.", "closed");
+    }
+
+    #[test]
+    fn test_close_summary_text_output_no_panic() {
+        let mut summary = CloseSummary::new();
+        summary.record_closed(serde_json::json!({"status": "closed"}));
+        summary.print(OutputFormat::Text, "No sessions.", "closed");
+    }
 }

@@ -990,3 +990,428 @@ fn test_session_close_all_json_structure() {
     assert!(parsed.get("failed").is_some(), "missing 'failed' field");
     assert!(parsed.get("results").is_some(), "missing 'results' field");
 }
+
+// ==================== Config & Env Precedence Tests ====================
+
+#[test]
+fn test_config_detected_from_macos_path() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("tempo_rpc = \"https://macos-custom-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // On macOS HOME points to the temp dir; config should be found.
+    // Whoami loads config — success means config was detected.
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "whoami should succeed with macOS-layout config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_config_detected_from_linux_xdg_path() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("moderato_rpc = \"https://linux-custom-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // XDG_CONFIG_HOME is set by test_command; config should be found via Linux path.
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "whoami should succeed with XDG-layout config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_explicit_config_path_overrides_default() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // Write a separate config file in a custom location
+    let custom_config = temp.path().join("custom-config.toml");
+    std::fs::write(
+        &custom_config,
+        "tempo_rpc = \"https://explicit-rpc.example.com\"\n",
+    )
+    .unwrap();
+
+    // Use -c to point at the custom config
+    let output = test_command(&temp)
+        .args(["-c", custom_config.to_str().unwrap(), "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "whoami should succeed with explicit -c config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_explicit_config_path_not_found_fails() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-c", "/nonexistent/path/config.toml", "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "should fail when explicit config path not found"
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("not found") || combined.contains("Config"),
+        "should mention config issue: {combined}"
+    );
+}
+
+#[test]
+fn test_missing_default_config_falls_back_to_defaults() {
+    // Empty temp dir with no config.toml written — should use defaults
+    let temp = tempfile::TempDir::new().unwrap();
+
+    // Session list works without any config (uses defaults)
+    let output = test_command(&temp)
+        .args(["session", "list"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "session list should succeed with no config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_malformed_config_toml_fails_gracefully() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("this is [[[invalid toml!!! {{{")
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+
+    // Should fail but not panic
+    assert!(!output.status.success(), "should fail on malformed config");
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("parse") || combined.contains("config") || combined.contains("Config"),
+        "should mention config parse error: {combined}"
+    );
+}
+
+#[test]
+fn test_config_with_unknown_fields_still_loads() {
+    // Old or future config files may have fields we don't know about
+    let temp = TestConfigBuilder::new()
+        .with_config_toml(
+            "tempo_rpc = \"https://rpc.example.com\"\nunknown_field = true\n\n[unknown_section]\nfoo = \"bar\"\n",
+        )
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "should tolerate unknown config fields: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_empty_config_file_loads_ok() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "empty config should load as defaults: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_rpc_env_var_override() {
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("tempo_rpc = \"https://config-file-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    // PRESTO_RPC_URL should override config file settings.
+    // Whoami loads config and resolves network — this verifies the env override
+    // is applied without error (actual RPC is not called for whoami).
+    let output = test_command(&temp)
+        .env("PRESTO_RPC_URL", "https://env-override-rpc.example.com")
+        .arg("whoami")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "whoami should succeed with PRESTO_RPC_URL env: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_typed_rpc_override_in_config() {
+    // Config with typed override for moderato
+    let temp = TestConfigBuilder::new()
+        .with_config_toml("moderato_rpc = \"https://typed-moderato-rpc.example.com\"\n")
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp)
+        .args(["-n", "tempo-moderato", "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "whoami should succeed with typed moderato_rpc config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_rpc_table_override_in_config() {
+    // Config with [rpc] table override
+    let config = "[rpc]\ntempo = \"https://table-rpc.example.com\"\n";
+    let temp = TestConfigBuilder::new()
+        .with_config_toml(config)
+        .with_keys_toml(
+            "[[keys]]\nwallet_type = \"local\"\nwallet_address = \"0xAAA\"\nkey_address = \"0xAAA\"\nkey = \"0xdeadbeef\"\n",
+        )
+        .build();
+
+    let output = test_command(&temp).arg("whoami").output().unwrap();
+    assert!(
+        output.status.success(),
+        "whoami should succeed with [rpc] table config: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[test]
+fn test_invalid_network_flag_fails() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-n", "nonexistent-network", "whoami"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "should fail with unknown network");
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.to_lowercase().contains("unknown network"),
+        "should mention unknown network: {combined}"
+    );
+}
+
+// ==================== Session List/Close Behavior Coverage ====================
+
+#[test]
+fn test_session_list_json_schema_fields() {
+    // Verify the JSON list schema has exactly "sessions" and "total"
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "list"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(parsed["sessions"].is_array(), "missing sessions array");
+    assert!(parsed["total"].is_number(), "missing total number");
+    let obj = parsed.as_object().unwrap();
+    for key in obj.keys() {
+        assert!(
+            key == "sessions" || key == "total",
+            "unexpected field in list JSON: {key}"
+        );
+    }
+}
+
+#[test]
+fn test_session_list_with_network_filter_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "list", "--network", "tempo"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No active sessions"),
+        "network filter should still show empty message: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_list_with_network_filter_json() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "list", "--network", "tempo-moderato"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total"], 0);
+}
+
+#[test]
+fn test_session_list_closed_text_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "list", "--closed"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No sessions pending finalization"),
+        "should show closed-empty message: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_all_text_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close", "--all"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No active sessions to close"),
+        "close --all on empty should report no sessions: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_all_json_schema() {
+    // Verify close summary JSON schema: closed/pending/failed/results
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "close", "--all"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let obj = parsed.as_object().unwrap();
+    for key in obj.keys() {
+        assert!(
+            key == "closed" || key == "pending" || key == "failed" || key == "results",
+            "unexpected field in close JSON: {key}"
+        );
+    }
+    assert!(parsed["results"].is_array());
+}
+
+#[test]
+fn test_session_close_closed_text_empty() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close", "--closed"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No channels pending finalization"),
+        "close --closed on empty should report none: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_closed_json_schema() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "close", "--closed"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["closed"], 0);
+    assert_eq!(parsed["pending"], 0);
+    assert_eq!(parsed["failed"], 0);
+    assert!(parsed["results"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_session_close_no_target_error_message() {
+    // `session close` without URL/--all/--orphaned/--closed should fail with guidance
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Specify") || combined.contains("URL") || combined.contains("--all"),
+        "should prompt user to specify a target: {combined}"
+    );
+}
+
+#[test]
+fn test_session_close_nonexistent_url_text() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["session", "close", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No active session"),
+        "should report no session: {stdout}"
+    );
+}
+
+#[test]
+fn test_session_close_nonexistent_url_json() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "session", "close", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["closed"], 0);
+    assert_eq!(parsed["failed"], 1);
+    let results = parsed["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["status"], "error");
+}
