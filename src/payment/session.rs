@@ -1569,21 +1569,10 @@ pub async fn close_session_from_record(
     config: &Config,
     nonce_offset: u64,
 ) -> Result<CloseOutcome> {
-    tracing::info!(
-        origin = %record.origin,
-        channel_id = %record.channel_id,
-        network = %record.network_name,
-        chain_id = record.chain_id,
-        escrow = %record.escrow_contract,
-        cumulative_amount = %record.cumulative_amount,
-        "starting session close"
-    );
-
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
 
     let wallet = load_wallet_signer(&record.network_name)?;
-    tracing::debug!(wallet_address = %wallet.from, "loaded wallet signer");
 
     let channel_id: B256 = record.channel_id_b256()?;
 
@@ -1593,12 +1582,6 @@ pub async fn close_session_from_record(
         .context("Invalid escrow_contract in session record")?;
 
     let cumulative_amount: u128 = record.cumulative_amount_u128()?;
-
-    tracing::debug!(
-        %cumulative_amount,
-        signer = %wallet.signer.address(),
-        "signing close voucher"
-    );
 
     let sig = sign_voucher(
         &wallet.signer,
@@ -1610,19 +1593,12 @@ pub async fn close_session_from_record(
     .await
     .context("Failed to sign close voucher")?;
 
-    tracing::debug!("close voucher signed, attempting cooperative close");
-
     // Try cooperative close via the server first
     let server_result = try_server_close(record, &echo, channel_id, cumulative_amount, &sig).await;
 
     match server_result {
-        Ok(()) => {
-            tracing::info!(channel_id = %record.channel_id, "cooperative close succeeded");
-            return Ok(CloseOutcome::Closed);
-        }
-        Err(e) => {
-            tracing::warn!(%e, "cooperative close failed, falling back to on-chain close");
-        }
+        Ok(()) => return Ok(CloseOutcome::Closed),
+        Err(_e) => {}
     }
 
     // Fallback: payer-initiated close (requestClose → withdraw)
@@ -1651,23 +1627,11 @@ async fn try_server_close(
         signature: format!("0x{}", hex::encode(sig)),
     };
 
-    tracing::debug!(
-        channel_id = %channel_id,
-        cumulative_amount = %cumulative_amount,
-        did = %record.did,
-        "building close credential"
-    );
-
     let credential =
         mpp::PaymentCredential::with_source(echo.clone(), record.did.clone(), close_payload);
 
     let auth =
         mpp::format_authorization(&credential).context("Failed to format close credential")?;
-
-    tracing::debug!(
-        auth_header_len = auth.len(),
-        "formatted close authorization header"
-    );
 
     let client = reqwest::Client::builder()
         .build()
@@ -1687,12 +1651,6 @@ async fn try_server_close(
         record.request_url.clone()
     };
 
-    tracing::info!(
-        url = %close_url,
-        method = "POST",
-        "sending cooperative close request to server"
-    );
-
     let response = client
         .post(&close_url)
         .header("Authorization", &auth)
@@ -1701,22 +1659,10 @@ async fn try_server_close(
         .context("Channel close request failed")?;
 
     let status = response.status();
-    tracing::info!(
-        status = status.as_u16(),
-        "received cooperative close response"
-    );
-
-    // Log all response headers at debug level for diagnostics
-    for (name, value) in response.headers().iter() {
-        if let Ok(v) = value.to_str() {
-            tracing::debug!(header = %name, value = %v, "response header");
-        }
-    }
 
     // HTTP 410 Gone means the channel is already finalized on-chain.
     // Treat this as a successful close — the local record just needs cleanup.
     if status == reqwest::StatusCode::GONE {
-        tracing::info!("server returned 410 Gone — channel already finalized");
         return Ok(());
     }
 
@@ -1725,11 +1671,6 @@ async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        tracing::warn!(
-            status = status.as_u16(),
-            body = %body,
-            "cooperative close rejected by server"
-        );
         let reason = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|v| {
@@ -1748,7 +1689,6 @@ async fn try_server_close(
 
     if let Some(receipt_str) = response.headers().get("payment-receipt") {
         if let Ok(receipt_str) = receipt_str.to_str() {
-            tracing::debug!(receipt = %receipt_str, "received payment-receipt header");
             if let Ok(receipt) = parse_receipt(receipt_str) {
                 let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
                 let explorer = Network::from_str(&record.network_name)
@@ -1763,7 +1703,6 @@ async fn try_server_close(
             }
         }
     } else {
-        tracing::warn!("server returned success but no payment-receipt header");
         eprintln!("Channel close sent (no receipt)");
     }
 

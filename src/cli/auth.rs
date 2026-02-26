@@ -573,28 +573,31 @@ pub struct KeysResponse {
 pub fn run_key_clean(yes: bool) -> anyhow::Result<()> {
     let path = WalletCredentials::keys_path()?;
 
+    if !path.exists() {
+        eprintln!("Nothing to clean (no keys.toml found).");
+        return Ok(());
+    }
+
     if !yes {
-        eprintln!(
-            "This will permanently delete all local key state at {}.\nType 'yes' to confirm: ",
-            path.display()
-        );
-        use std::io::{stdin, Read};
-        let mut buf = String::new();
-        // Read a small amount; tolerate both full-line and piped single word
-        stdin().read_to_string(&mut buf).ok();
-        let resp = buf.trim().to_ascii_lowercase();
-        if resp != "yes" && resp != "y" {
-            eprintln!("Aborted.");
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!("Use --yes for non-interactive key clean");
+        }
+
+        print!("Delete all local key state at {}? [y/N] ", path.display());
+        use std::io::{self, Write};
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("Cancelled.");
             return Ok(());
         }
     }
 
-    if path.exists() {
-        std::fs::remove_file(&path)?;
-        eprintln!("Removed {}", path.display());
-    } else {
-        eprintln!("Nothing to clean (no keys.toml found).");
-    }
+    std::fs::remove_file(&path)?;
+    eprintln!("Removed {}", path.display());
     Ok(())
 }
 
