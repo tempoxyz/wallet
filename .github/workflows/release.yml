@@ -70,14 +70,12 @@ jobs:
 
       - name: Determine version
         id: version
-        run: echo "version=v${{ inputs.version }}" >> $GITHUB_OUTPUT
+        run: echo "version=presto@${{ inputs.version }}" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.version }}
-          files: artifacts/*
-          generate_release_notes: true
+      - name: Upload binaries to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.version.outputs.version }}" artifacts/* --clobber
 
       - name: Upload binaries to R2
         env:
@@ -88,7 +86,7 @@ jobs:
           # Disable multipart uploads (R2 may reject CreateMultipartUpload)
           aws configure set default.s3.multipart_threshold 200MB
 
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="v${{ inputs.version }}"
 
           for f in artifacts/*; do
             BASENAME=$(basename "$f")
@@ -103,20 +101,3 @@ jobs:
           aws s3 cp .agents/skills/presto/SKILL.md "s3://presto-binaries/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
 
           echo "Uploaded ${VERSION} binaries to R2"
-
-  # Publish to crates.io on tag or workflow_call
-  # DISABLED: tempo-primitives not yet published to crates.io (git deps not allowed)
-  # publish:
-  #   name: Publish to crates.io
-  #   needs: build
-  #   if: startsWith(github.ref, 'refs/tags/v') || inputs.version
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #     - name: Configure git for private repos
-  #       run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - name: Publish to crates.io
-  #       env:
-  #         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-  #       run: cargo publish --no-verify
