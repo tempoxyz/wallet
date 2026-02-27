@@ -64,7 +64,9 @@ pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<String> {
     };
     creds.keys.push(key_entry);
     if let Err(e) = creds.save() {
-        let _ = keychain().delete(&wallet_address);
+        if let Err(del_err) = keychain().delete(&wallet_address) {
+            tracing::warn!("Failed to clean up keychain entry for {wallet_address}: {del_err}");
+        }
         return Err(e.into());
     }
 

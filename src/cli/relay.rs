@@ -220,3 +220,44 @@ pub async fn poll_deposit_status(
         out_tx_hashes,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_chains_includes_base() {
+        let chains = source_chains();
+        let base = chains.iter().find(|c| c.chain_id == 8453);
+        assert!(base.is_some(), "Base should be a supported source chain");
+        assert_eq!(base.unwrap().name, "Base");
+    }
+
+    #[test]
+    fn deposit_status_roundtrip_full() {
+        let status = DepositStatus {
+            status: "success".to_string(),
+            in_tx_hashes: Some(vec!["0xabc".to_string()]),
+            out_tx_hashes: Some(vec!["0xdef".to_string()]),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let roundtrip: DepositStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.status, "success");
+        assert_eq!(roundtrip.in_tx_hashes.as_ref().unwrap(), &["0xabc"]);
+        assert_eq!(roundtrip.out_tx_hashes.as_ref().unwrap(), &["0xdef"]);
+    }
+
+    #[test]
+    fn deposit_status_roundtrip_partial() {
+        let status = DepositStatus {
+            status: "waiting".to_string(),
+            in_tx_hashes: None,
+            out_tx_hashes: None,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let roundtrip: DepositStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.status, "waiting");
+        assert!(roundtrip.in_tx_hashes.is_none());
+        assert!(roundtrip.out_tx_hashes.is_none());
+    }
+}
