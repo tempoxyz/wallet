@@ -12,6 +12,18 @@ A command-line HTTP client with built-in payment support. Use  tempo-walletinste
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
 
+## Setup
+
+Connect your Tempo wallet via browser authentication:
+
+```bash
+# Sign up or log in (opens browser for passkey auth)
+ tempo-walletlogin
+
+# Check wallet status
+ tempo-walletwhoami
+```
+
 ## Agent Usage
 
 Use `-j` to get JSON output:
@@ -36,7 +48,7 @@ Before making paid requests, verify the wallet is ready:
 
 Check these fields in the response:
 - `ready` — `true` means the wallet is connected, provisioned, and has a key
-- `key.balance` — check that the token balance is sufficient
+- `balance` — the wallet's USDC balance (top-level field)
 
 If `ready` is `false`, run ` tempo-walletlogin` and retry.
 
@@ -47,14 +59,13 @@ If `ready` is `false`, run ` tempo-walletlogin` and retry.
   "ready": true,
   "wallet": "0x1234...abcd",
   "wallet_type": "passkey",
+  "symbol": "USDC",
+  "balance": "10.50",
   "network": "tempo",
   "chain_id": 4217,
   "key": {
-    "label": "passkey-default",
+    "label": "passkey",
     "address": "0xabcd...1234",
-    "symbol": "USDC",
-    "currency": "0x...",
-    "balance": "10.50",
     "spending_limit": {
       "unlimited": false,
       "limit": "100.00",
@@ -72,7 +83,7 @@ If `ready` is `false`, run ` tempo-walletlogin` and retry.
 {
   "keys": [
     {
-      "label": "passkey-default",
+      "label": "passkey",
       "address": "0xabcd...1234",
       "wallet_address": "0x1234...abcd",
       "wallet_type": "passkey",
@@ -143,7 +154,6 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | ` tempo-walletsession close --all` | Close all active sessions and on-chain channels |
 | ` tempo-walletsession close --orphaned` | Close only orphaned on-chain channels |
 | ` tempo-walletsession close --closed` | Finalize channels pending close (grace period elapsed) |
-| ` tempo-walletkey` or ` tempo-walletkey list` | List all keys and their spending limits |
 
 ## Global Options
 
@@ -286,7 +296,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |
 
-When  tempo-walletfails with a login-fixable error, **automatically run ` tempo-walletlogin`** then retry the original request. Do NOT ask the user to run it themselves.
+When  tempo-walletfails, read the error message — it tells you which command to run next. Run that command, then retry.
 
 ## How Payment Works
 

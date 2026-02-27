@@ -471,13 +471,38 @@ pub async fn handle_session_request(
 
     // Determine deposit: use suggested_deposit or default to 1 token (1_000_000 atomic units).
     // Cap at 5 tokens (5_000_000 atomic units) to limit exposure to malicious servers.
+    // Also clamp to the wallet's available balance so we don't revert on insufficient funds.
     const MAX_DEPOSIT: u128 = 5_000_000;
-    let deposit: u128 = session_req
+    let mut deposit: u128 = session_req
         .suggested_deposit
         .as_ref()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1_000_000)
         .min(MAX_DEPOSIT);
+
+    // Query on-chain token balance and clamp deposit to available funds.
+    // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
+    // gas is paid in USDC via account abstraction).
+    let network_info = config.resolve_network(network_name)?;
+    let rpc_url: url::Url = network_info
+        .rpc_url
+        .parse()
+        .context("Invalid RPC URL for balance query")?;
+    let balance_provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url);
+    if let Ok(balance) = query_token_balance(&balance_provider, currency, from).await {
+        let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
+        let usable = balance_u128 / 2;
+        if usable < deposit {
+            deposit = usable;
+            if request_ctx.log_enabled() {
+                let (sym, dec) = resolve_token_meta(network_name, &session_req.currency);
+                eprintln!(
+                    "Clamping deposit to 50% of wallet balance: {}",
+                    format_token_amount(deposit, sym, dec)
+                );
+            }
+        }
+    }
 
     let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
     let recipient_hex = format!("{:#x}", recipient);
@@ -675,7 +700,8 @@ pub async fn handle_session_request(
             .rpc_url
             .parse()
             .context("Invalid RPC URL for pre-broadcast")?;
-        let provider = alloy::providers::RootProvider::new_http(rpc_url);
+        let provider =
+            alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
         let pending = provider
             .send_raw_transaction(&payment.tx_bytes)
@@ -788,4 +814,24 @@ pub async fn handle_session_request(
     let result = send_session_request(&ctx, &mut state).await?;
     persist_session(&ctx, &state)?;
     Ok(result)
+}
+
+/// Query the on-chain TIP20 token balance for an account.
+async fn query_token_balance(
+    provider: &impl alloy::providers::Provider,
+    token: Address,
+    account: Address,
+) -> anyhow::Result<alloy::primitives::U256> {
+    use alloy::sol;
+
+    sol! {
+        #[sol(rpc)]
+        interface ITIP20 {
+            function balanceOf(address account) external view returns (uint256);
+        }
+    }
+
+    let contract = ITIP20::new(token, provider);
+    let balance = contract.balanceOf(account).call().await?;
+    Ok(balance)
 }

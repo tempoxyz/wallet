@@ -200,7 +200,9 @@ pub(super) async fn close_on_chain(
     let network_name = network.as_str();
     let network_info = config.resolve_network(network_name)?;
     let rpc_url = Network::parse_rpc_url(&network_info.rpc_url)?;
-    let provider = alloy::providers::RootProvider::new_http(rpc_url);
+    let provider = alloy::providers::RootProvider::new_http(rpc_url.clone());
+    let tempo_provider =
+        alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     // Check current channel state to determine which step we're on
     let on_chain = get_channel_on_chain(&provider, escrow_contract, channel_id, B256::ZERO)
@@ -226,7 +228,7 @@ pub(super) async fn close_on_chain(
         }];
 
         let tx_hash = submit_tempo_tx(
-            &provider,
+            &tempo_provider,
             wallet,
             chain_id,
             fee_token,
@@ -292,7 +294,7 @@ pub(super) async fn close_on_chain(
     }];
 
     let tx_hash = submit_tempo_tx(
-        &provider,
+        &tempo_provider,
         wallet,
         chain_id,
         fee_token,

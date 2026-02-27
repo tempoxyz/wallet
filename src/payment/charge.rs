@@ -3,10 +3,12 @@
 //! This module handles the MPP protocol (https://mpp.dev) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
+use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use mpp::client::PaymentProvider;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::{parse_www_authenticate, ChargeRequest};
+use tracing::debug;
 use zeroize::Zeroizing;
 
 use crate::config::Config;
@@ -69,10 +71,41 @@ pub async fn prepare_charge(
         .with_signing_mode(signing.signing_mode)
         .with_replace_stuck_transactions(true);
 
-    let credential = provider
-        .pay(&challenge)
-        .await
-        .map_err(classify_payment_error)?;
+    let credential = provider.pay(&challenge).await.map_err(|err| {
+        let presto_err = classify_payment_error(err);
+        // When we get an InsufficientBalance error from gas estimation,
+        // cross-check against a direct balanceOf query to help diagnose
+        // whether the wallet truly has 0 balance or the simulation is wrong.
+        if matches!(presto_err, PrestoError::InsufficientBalance { .. }) {
+            let wallet_addr = signing.from;
+            let currency = charge_req.currency_address().ok();
+            debug!(
+                wallet = %wallet_addr,
+                currency = ?currency,
+                "InsufficientBalance from gas estimation; \
+                 run ' tempo-walletwhoami' to verify actual on-chain balance"
+            );
+            if runtime.debug_enabled() {
+                eprintln!(
+                    "Balance check failed for wallet {} on {}",
+                    wallet_addr, network_name,
+                );
+                if let Some(token_addr) = currency {
+                    let rpc_url = network_info.rpc_url.clone();
+                    // Fire a quick balanceOf to cross-check
+                    let bal = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            query_balance_of(&rpc_url, token_addr, wallet_addr).await
+                        })
+                    });
+                    if let Ok(balance) = bal {
+                        eprintln!("Direct balanceOf({}) = {} atomic", wallet_addr, balance);
+                    }
+                }
+            }
+        }
+        presto_err
+    })?;
 
     let auth_header = Zeroizing::new(
         mpp::format_authorization(&credential).context("Failed to format Authorization header")?,
@@ -83,4 +116,27 @@ pub async fn prepare_charge(
     }
 
     Ok(auth_header)
+}
+
+/// Direct `balanceOf` query for diagnostic cross-checking.
+async fn query_balance_of(
+    rpc_url: &str,
+    token: Address,
+    account: Address,
+) -> anyhow::Result<alloy::primitives::U256> {
+    use alloy::providers::ProviderBuilder;
+    use alloy::sol;
+
+    sol! {
+        #[sol(rpc)]
+        interface ITIP20 {
+            function balanceOf(address account) external view returns (uint256);
+        }
+    }
+
+    let url: url::Url = rpc_url.parse()?;
+    let provider = ProviderBuilder::new().connect_http(url);
+    let contract = ITIP20::new(token, &provider);
+    let balance = contract.balanceOf(account).call().await?;
+    Ok(balance)
 }

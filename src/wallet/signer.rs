@@ -59,18 +59,14 @@ pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner, PrestoEr
     let creds = WalletCredentials::load()?;
 
     let key_entry = creds.key_for_network(network).ok_or_else(|| {
-        PrestoError::ConfigMissing(format!(
-            "No key configured for network '{network}'. Run ' tempo-walletlogin --network {network}'."
-        ))
+        PrestoError::ConfigMissing(format!("No key configured for network '{network}'."))
     })?;
 
     let pk = key_entry
         .key
         .as_deref()
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            PrestoError::ConfigMissing("No key configured. Run ' tempo-walletlogin'.".to_string())
-        })?;
+        .ok_or_else(|| PrestoError::ConfigMissing("No key configured.".to_string()))?;
     let signer = crate::wallet::credentials::parse_private_key_signer(pk)?;
 
     let wallet_address: Address = key_entry
