@@ -353,7 +353,7 @@ async fn poll_bridge_and_balance(
         // Check for balance change on Tempo
         if has_balance_changed(initial_balances, &current_balances) {
             if ctx.output_format == OutputFormat::Text {
-                eprintln!("  ✓ Funds arrived on Tempo!");
+                eprintln!("  Funds arrived on Tempo!");
                 print_balance_diff(initial_balances, &current_balances);
             }
             break;
@@ -377,10 +377,10 @@ mod relay_status {
 fn print_relay_status_change(source_chain: &str, status: &DepositStatus) {
     match status.status.as_str() {
         relay_status::WAITING => {
-            eprintln!("  ⏳ Waiting for deposit on {source_chain}...");
+            eprintln!("  Waiting for deposit on {source_chain}...");
         }
         relay_status::PENDING => {
-            eprint!("  ✓ Deposit detected on {source_chain}");
+            eprint!("  Deposit detected on {source_chain}");
             if let Some(txs) = &status.in_tx_hashes {
                 if let Some(hash) = txs.first() {
                     eprint!(" (tx: {}...)", &hash[..10.min(hash.len())]);
@@ -389,10 +389,10 @@ fn print_relay_status_change(source_chain: &str, status: &DepositStatus) {
             eprintln!();
         }
         relay_status::SUBMITTED => {
-            eprintln!("  ↻ Bridging to Tempo...");
+            eprintln!("  Bridging to Tempo...");
         }
         relay_status::SUCCESS => {
-            eprint!("  ✓ Bridge complete");
+            eprint!("  Bridge complete");
             if let Some(txs) = &status.out_tx_hashes {
                 if let Some(hash) = txs.first() {
                     eprint!(" (tx: {}...)", &hash[..10.min(hash.len())]);
@@ -401,10 +401,10 @@ fn print_relay_status_change(source_chain: &str, status: &DepositStatus) {
             eprintln!();
         }
         relay_status::DELAYED => {
-            eprintln!("  ⏳ Bridge delayed — still processing...");
+            eprintln!("  Bridge delayed, still processing...");
         }
         other => {
-            eprintln!("  → Bridge status: {other}");
+            eprintln!("  Bridge status: {other}");
         }
     }
 }
@@ -546,7 +546,7 @@ fn print_balance_diff(before: &[TokenBalance], after: &[TokenBalance]) {
             .map(|b| b.balance.as_str())
             .unwrap_or("0");
         if !balances_equal(&cur.balance, prev) {
-            eprintln!("  {} balance: {} → {}", cur.symbol, prev, cur.balance);
+            eprintln!("  {} balance: {} -> {}", cur.symbol, prev, cur.balance);
         }
     }
 }
