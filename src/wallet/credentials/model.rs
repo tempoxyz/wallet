@@ -10,6 +10,7 @@ use crate::error::PrestoError;
 use crate::network::Network;
 use crate::wallet::keychain::{self, KeychainBackend};
 
+#[cfg(test)]
 use super::overrides::has_credentials_override;
 
 /// Global keychain backend.  Initialised lazily via [`keychain()`].
@@ -137,7 +138,7 @@ impl WalletCredentials {
 
     /// Get the primary key entry.
     ///
-    /// Deterministic selection: passkey > first key with non-empty key > first entry.
+    /// Deterministic selection: passkey > first key with a signing key > first entry.
     pub fn primary_key(&self) -> Option<&KeyEntry> {
         if let Some(entry) = self
             .keys
@@ -188,11 +189,7 @@ impl WalletCredentials {
             .key
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                PrestoError::ConfigMissing(
-                    "No key configured. Run 'presto login' or 'presto wallet create'.".to_string(),
-                )
-            })?;
+            .ok_or_else(|| PrestoError::ConfigMissing("No key configured.".to_string()))?;
         parse_private_key_signer(pk)
     }
 
@@ -241,23 +238,42 @@ impl WalletCredentials {
         })
     }
 
-    /// Find the passkey wallet entry, if one exists.
-    pub fn find_passkey(&self) -> Option<&KeyEntry> {
+    /// Find the key for a specific wallet address on a given network.
+    ///
+    /// Matches by (wallet_address, chain_id). Returns `None` if no match found.
+    pub fn key_for_wallet_and_network(
+        &self,
+        wallet_address: &str,
+        network: &str,
+    ) -> Option<&KeyEntry> {
+        let chain_id = network.parse::<Network>().ok().map(|n| n.chain_id())?;
+        self.keys.iter().find(|k| {
+            k.wallet_address.eq_ignore_ascii_case(wallet_address) && k.chain_id == chain_id
+        })
+    }
+
+    /// Find the first passkey wallet entry, if one exists.
+    pub fn find_passkey_wallet(&self) -> Option<&KeyEntry> {
         self.keys
             .iter()
             .find(|k| k.wallet_type == WalletType::Passkey)
     }
 
-    /// Delete the passkey entry.
+    /// Delete all passkey entries for a given wallet address (case-insensitive).
     ///
-    /// Returns an error if no passkey is found.
-    pub fn delete_passkey(&mut self) -> Result<(), PrestoError> {
-        let idx = self
-            .keys
-            .iter()
-            .position(|k| k.wallet_type == WalletType::Passkey)
-            .ok_or_else(|| PrestoError::ConfigMissing("No passkey found.".to_string()))?;
-        self.keys.remove(idx);
+    /// Removes all entries where wallet_type is Passkey and wallet_address matches.
+    /// Returns an error if no matching entries are found.
+    pub fn delete_passkey_wallet(&mut self, wallet_address: &str) -> Result<(), PrestoError> {
+        let before = self.keys.len();
+        self.keys.retain(|k| {
+            !(k.wallet_type == WalletType::Passkey
+                && k.wallet_address.eq_ignore_ascii_case(wallet_address))
+        });
+        if self.keys.len() == before {
+            return Err(PrestoError::ConfigMissing(format!(
+                "No passkey wallet found for '{wallet_address}'."
+            )));
+        }
         Ok(())
     }
 
@@ -265,6 +281,7 @@ impl WalletCredentials {
     ///
     /// Removes the keychain entry (if local wallet, best-effort) and
     /// keys.toml metadata. Returns an error if the address doesn't match.
+    #[cfg(test)]
     pub fn delete_by_address(&mut self, address: &str) -> Result<(), PrestoError> {
         let idx = self
             .keys
@@ -286,24 +303,26 @@ impl WalletCredentials {
         Ok(())
     }
 
-    /// Find or create an entry by wallet address, returning a mutable reference.
+    /// Find or create an entry by wallet address and chain ID.
     ///
-    /// If an entry with the given wallet address exists (case-insensitive),
-    /// returns a mutable reference to it. Otherwise pushes a new default
-    /// entry with that address and returns a mutable reference.
-    pub fn upsert_by_wallet_address(&mut self, wallet_address: &str) -> &mut KeyEntry {
-        let idx = self
-            .keys
-            .iter()
-            .position(|k| k.wallet_address.eq_ignore_ascii_case(wallet_address));
+    /// Matches by (wallet_address, chain_id) so the same wallet can have
+    /// separate keys on different networks. Falls back to creating a new entry.
+    pub fn upsert_by_wallet_and_chain(
+        &mut self,
+        wallet_address: &str,
+        chain_id: u64,
+    ) -> &mut KeyEntry {
+        let idx = self.keys.iter().position(|k| {
+            k.wallet_address.eq_ignore_ascii_case(wallet_address) && k.chain_id == chain_id
+        });
         match idx {
             Some(i) => &mut self.keys[i],
             None => {
                 self.keys.push(KeyEntry {
                     wallet_address: wallet_address.to_string(),
+                    chain_id,
                     ..Default::default()
                 });
-                // Safe: we just pushed one element
                 let last = self.keys.len() - 1;
                 &mut self.keys[last]
             }

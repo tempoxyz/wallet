@@ -118,10 +118,7 @@ pub(crate) fn sign(
         .as_secs();
     let expiry_secs = now + DEFAULT_EXPIRY_SECS;
     let limit = alloy::primitives::U256::from(DEFAULT_LIMIT);
-    let token_addrs = [
-        crate::network::tempo_tokens::USDCE,
-        crate::network::tempo_tokens::PATH_USD,
-    ];
+    let token_addrs = [crate::network::tempo_tokens::USDCE];
     let mut token_limits: Vec<TokenLimit> = Vec::with_capacity(token_addrs.len());
     for addr in token_addrs.iter() {
         let token = addr.parse().map_err(|_| {

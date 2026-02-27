@@ -36,6 +36,11 @@ pub trait KeychainBackend: Send + Sync {
 
     /// Delete the secret for the given profile. No-op if not found.
     fn delete(&self, profile: &str) -> Result<()>;
+
+    /// List all profile names (account names) stored in the keychain.
+    ///
+    /// Returns an empty vec if no entries exist or listing is not supported.
+    fn list(&self) -> Result<Vec<String>>;
 }
 
 // ===========================================================================
@@ -85,6 +90,17 @@ impl KeychainBackend for OsKeychain {
             anyhow::bail!("OS keychain not supported on this platform")
         }
     }
+
+    fn list(&self) -> Result<Vec<String>> {
+        #[cfg(target_os = "macos")]
+        {
+            macos::list()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(Vec::new())
+        }
+    }
 }
 
 // ===========================================================================
@@ -116,6 +132,62 @@ mod macos {
     pub fn set(profile: &str, secret_hex: &str) -> Result<()> {
         passwords::set_generic_password(SERVICE, profile, secret_hex.as_bytes())
             .context("Failed to store key in macOS Keychain")
+    }
+
+    /// List all account names for our service by parsing `security dump-keychain`.
+    ///
+    /// We can't use `SecItemCopyMatching` directly because the crate forbids
+    /// unsafe code, and `security-framework` doesn't expose an enumerate API.
+    pub fn list() -> Result<Vec<String>> {
+        let output = std::process::Command::new("security")
+            .args(["dump-keychain"])
+            .output()
+            .context("Failed to run `security dump-keychain`")?;
+
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut accounts = Vec::new();
+        // Parse per-item blocks: `acct` and `svce` appear in the same block
+        // but in arbitrary order. Collect both per block, emit when block ends.
+        let mut cur_acct: Option<String> = None;
+        let mut cur_is_ours = false;
+
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            // New item boundary — flush previous block.
+            // `keychain:` starts a new keychain database; `class:` starts a
+            // new item within that database.  Both delimit blocks.
+            if trimmed.starts_with("keychain:") || trimmed.starts_with("class:") {
+                if cur_is_ours {
+                    if let Some(acct) = cur_acct.take() {
+                        accounts.push(acct);
+                    }
+                }
+                cur_acct = None;
+                cur_is_ours = false;
+                continue;
+            }
+            if let Some(acct) = trimmed
+                .strip_prefix("\"acct\"<blob>=\"")
+                .and_then(|s| s.strip_suffix('"'))
+            {
+                cur_acct = Some(acct.to_string());
+            }
+            if trimmed.contains(&format!("\"svce\"<blob>=\"{SERVICE}\"")) {
+                cur_is_ours = true;
+            }
+        }
+        // Flush last block
+        if cur_is_ours {
+            if let Some(acct) = cur_acct {
+                accounts.push(acct);
+            }
+        }
+
+        Ok(accounts)
     }
 
     pub fn delete(profile: &str) -> Result<()> {
@@ -166,6 +238,11 @@ impl KeychainBackend for InMemoryKeychain {
         let mut store = self.store.lock().unwrap();
         store.remove(profile);
         Ok(())
+    }
+
+    fn list(&self) -> Result<Vec<String>> {
+        let store = self.store.lock().unwrap();
+        Ok(store.keys().cloned().collect())
     }
 }
 

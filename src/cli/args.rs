@@ -67,8 +67,8 @@ pub struct Cli {
     )]
     pub private_key: Option<String>,
 
-    /// Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato")
-    #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
+    /// Network to use (e.g. "tempo", "tempo-moderato")
+    #[arg(short = 'n', long, value_name = "NETWORK", global = true, hide = true)]
     pub network: Option<String>,
 
     /// Verbosity: repeat -v to increase (info, debug, trace)
@@ -483,32 +483,18 @@ pub enum SessionCommands {
 
 #[derive(Subcommand, Debug)]
 pub enum WalletCommands {
-    /// Create a new wallet
-    Create {
-        /// Create a passkey-based wallet via browser auth
+    /// List configured wallets
+    List,
+    /// Create a new local wallet
+    Create,
+    /// Fund your wallet (testnet faucet or mainnet bridge)
+    Fund {
+        /// Wallet address to fund (defaults to current wallet)
         #[arg(long)]
-        passkey: bool,
-    },
-    /// Import an existing private key as a local wallet (stores key in OS keychain)
-    Import {
-        /// Provide the private key directly as hex (use with caution; may appear in shell history)
-        #[arg(long = "private-key", value_name = "HEX")]
-        private_key: Option<String>,
-        /// Read the private key from stdin without prompts (non-interactive)
-        #[arg(long = "stdin-key")]
-        stdin_key: bool,
-    },
-    /// Delete a wallet
-    Delete {
-        /// Wallet address to delete
-        #[arg(value_name = "ADDRESS")]
         address: Option<String>,
-        /// Delete the passkey wallet
+        /// Skip waiting for balance confirmation
         #[arg(long)]
-        passkey: bool,
-        /// Skip confirmation prompt
-        #[arg(long)]
-        yes: bool,
+        no_wait: bool,
     },
 }
 
@@ -518,7 +504,11 @@ pub enum KeyCommands {
     List,
     /// Create a new key for a local wallet (generates fresh 30-day key)
     #[command(hide = true)]
-    Create,
+    Create {
+        /// Wallet address to renew key for (required when multiple local wallets exist)
+        #[arg(long)]
+        wallet: Option<String>,
+    },
     /// Delete keys.toml and reset all local key state
     #[command(hide = true)]
     Clean {

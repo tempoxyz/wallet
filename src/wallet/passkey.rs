@@ -66,7 +66,7 @@ impl WalletManager {
     }
 
     /// Open browser for wallet authentication.
-    pub async fn setup_wallet(&self) -> Result<(), PrestoError> {
+    pub async fn setup_wallet(&self) -> Result<String, PrestoError> {
         let local_signer = PrivateKeySigner::random();
         let uncompressed = local_signer
             .credential()
@@ -181,9 +181,9 @@ impl WalletManager {
             );
         }
 
-        self.save_credentials(callback, local_signer).await?;
+        let wallet_address = self.save_credentials(callback, local_signer).await?;
 
-        Ok(())
+        Ok(wallet_address)
     }
 
     /// Save authentication credentials.
@@ -193,7 +193,7 @@ impl WalletManager {
         &self,
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
-    ) -> Result<(), PrestoError> {
+    ) -> Result<String, PrestoError> {
         let validated = super::key_authorization::validate(
             callback.key_authorization.as_deref(),
             local_signer.address(),
@@ -207,46 +207,45 @@ impl WalletManager {
         // If the file is corrupt, surface the error instead of silently resetting.
         let mut creds = WalletCredentials::load()?;
 
-        let entry = creds.upsert_by_wallet_address(&callback.account_address);
+        // Resolve the chain_id before upserting so we can key by (wallet, chain).
+        // Use the chain_id from the key authorization if present and non-zero,
+        // otherwise fall back to the network the user requested.
+        let default_chain_id = self
+            .network
+            .parse::<crate::network::Network>()
+            .map(|n| n.chain_id())
+            .unwrap_or(crate::network::evm_chain_ids::TEMPO);
+        let chain_id = validated
+            .as_ref()
+            .map(|v| {
+                if v.chain_id != 0 {
+                    v.chain_id
+                } else {
+                    default_chain_id
+                }
+            })
+            .unwrap_or(default_chain_id);
 
-        // Only preserve provisioned state when key and chain are unchanged.
+        let entry = creds.upsert_by_wallet_and_chain(&callback.account_address, chain_id);
+        let wallet_address_result = callback.account_address.clone();
+
+        // Only preserve provisioned state when key is unchanged.
         let keep_provisioned = {
             let same_key = entry
                 .key_address
                 .as_deref()
                 .is_some_and(|a| a == access_key_address);
-            let same_chain = validated
-                .as_ref()
-                .is_none_or(|v| v.chain_id == entry.chain_id);
-            same_key && same_chain && entry.provisioned
+            same_key && entry.provisioned
         };
 
-        // When no new authorization was received, preserve existing chain metadata.
-        // chain_id 0 means the server didn't specify — default to Tempo mainnet.
-        let (chain_id, key_type, expiry, token_limits) = if let Some(ref v) = validated {
-            let cid = if v.chain_id != 0 {
-                v.chain_id
-            } else {
-                crate::network::evm_chain_ids::TEMPO
-            };
-            (cid, v.key_type.clone(), Some(v.expiry), v.limits.clone())
+        let (key_type, expiry, token_limits) = if let Some(ref v) = validated {
+            (v.key_type.clone(), Some(v.expiry), v.limits.clone())
         } else {
-            let cid = if entry.chain_id != 0 {
-                entry.chain_id
-            } else {
-                crate::network::evm_chain_ids::TEMPO
-            };
-            (
-                cid,
-                entry.key_type.clone(),
-                entry.expiry,
-                entry.limits.clone(),
-            )
+            (entry.key_type.clone(), entry.expiry, entry.limits.clone())
         };
 
         entry.wallet_type = WalletType::Passkey;
         entry.wallet_address = callback.account_address;
-        entry.chain_id = chain_id;
         entry.key_type = key_type;
         entry.key_address = Some(access_key_address);
         entry.key = Some(access_key_hex);
@@ -267,7 +266,7 @@ impl WalletManager {
             a.identify();
         }
 
-        Ok(())
+        Ok(wallet_address_result)
     }
 }
 

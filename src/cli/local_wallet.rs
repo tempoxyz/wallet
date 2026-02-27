@@ -1,10 +1,8 @@
-//! Wallet management commands — create and delete wallets.
-
-use std::io::{self, BufRead, IsTerminal, Write};
+//! Wallet management commands — create local wallets and renew keys.
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use crate::error::PrestoError;
 use crate::network::networks::network_or_default;
@@ -21,7 +19,7 @@ use crate::wallet::key_authorization;
 /// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
 /// 5. Print the fundable wallet address
-pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
+pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<String> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot create wallets with --private-key flag");
     }
@@ -66,11 +64,13 @@ pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
     };
     creds.keys.push(key_entry);
     if let Err(e) = creds.save() {
-        let _ = keychain().delete(&wallet_address);
+        if let Err(del_err) = keychain().delete(&wallet_address) {
+            tracing::warn!("Failed to clean up keychain entry for {wallet_address}: {del_err}");
+        }
         return Err(e.into());
     }
 
-    Ok(())
+    Ok(wallet_address)
 }
 
 /// Renew the key for an existing local wallet.
@@ -79,17 +79,34 @@ pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
 /// 2. Generate a new random key → store inline in keys.toml
 /// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
 /// 4. Clear provisioned flag (new key must re-provision)
-pub(crate) fn create_access_key() -> Result<()> {
+pub(crate) fn create_access_key(wallet_address: Option<&str>) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot renew wallets with --private-key flag");
     }
 
     let mut creds = WalletCredentials::load()?;
-    let idx = creds
-        .keys
-        .iter()
-        .position(|k| k.wallet_type == WalletType::Local)
-        .ok_or_else(|| anyhow::anyhow!("No local wallet found."))?;
+    let idx = if let Some(addr) = wallet_address {
+        creds
+            .keys
+            .iter()
+            .position(|k| {
+                k.wallet_address.eq_ignore_ascii_case(addr) && k.wallet_type == WalletType::Local
+            })
+            .ok_or_else(|| anyhow::anyhow!("No local wallet found for address '{addr}'."))?
+    } else {
+        let local_indices: Vec<_> = creds
+            .keys
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| k.wallet_type == WalletType::Local)
+            .map(|(i, _)| i)
+            .collect();
+        match local_indices.len() {
+            0 => anyhow::bail!("No local wallet found."),
+            1 => local_indices[0],
+            _ => anyhow::bail!("Multiple local wallets found. Specify --wallet <address>."),
+        }
+    };
 
     let key_entry = &creds.keys[idx];
 
@@ -126,147 +143,4 @@ pub(crate) fn create_access_key() -> Result<()> {
 
     creds.save()?;
     Ok(())
-}
-
-/// Delete a wallet by address.
-pub(crate) fn delete_wallet(address: &str, yes: bool) -> Result<()> {
-    let mut creds = WalletCredentials::load()?;
-
-    if !creds
-        .keys
-        .iter()
-        .any(|k| k.wallet_address.eq_ignore_ascii_case(address))
-    {
-        anyhow::bail!("Wallet '{address}' not found.");
-    }
-
-    if !yes {
-        if !io::stdin().is_terminal() {
-            anyhow::bail!("Use --yes for non-interactive delete");
-        }
-
-        print!("Delete wallet '{address}'? [y/N] ");
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
-            println!("Cancelled.");
-            return Ok(());
-        }
-    }
-
-    creds.delete_by_address(address)?;
-    creds.save()?;
-
-    if creds.keys.is_empty() {
-        println!("Deleted wallet '{address}'. No wallets configured.");
-    } else {
-        println!("Deleted wallet '{address}'.");
-    }
-    Ok(())
-}
-
-/// Import an existing EOA private key as a local wallet.
-///
-/// Reads the private key from `--private-key`, `--stdin-key`, or prompts interactively
-/// (masked) on a TTY. Stores the key in the OS keychain and records the wallet
-/// address in keys.toml. Does not create a key; run `presto login` to connect
-/// and provision when ready.
-pub(crate) fn import_wallet(private_key_arg: Option<String>, stdin_key: bool) -> Result<()> {
-    if credentials::has_credentials_override() {
-        anyhow::bail!("Cannot import wallets with --private-key flag");
-    }
-
-    let mut creds = WalletCredentials::load()?;
-
-    let key_hex: Zeroizing<String> = if let Some(pk) = private_key_arg {
-        Zeroizing::new(pk)
-    } else if stdin_key {
-        read_private_key_noninteractive()? // single-line from stdin
-    } else {
-        read_private_key()? // interactive masked prompt or pipe
-    };
-
-    // Parse and validate the key using shared helper
-    let signer: PrivateKeySigner =
-        parse_private_key_signer(&key_hex).map_err(anyhow::Error::from)?;
-
-    let private_key_hex = Zeroizing::new(format!("0x{}", hex::encode(signer.to_bytes())));
-    let address = signer.address().to_string();
-
-    if creds
-        .keys
-        .iter()
-        .any(|k| k.wallet_address.eq_ignore_ascii_case(&address))
-    {
-        anyhow::bail!("Wallet '{address}' already exists.");
-    }
-
-    // Store wallet EOA key in OS keychain
-    keychain()
-        .set(&address, &private_key_hex)
-        .map_err(|e| PrestoError::Keychain(format!("Failed to store key: {e}")))?;
-
-    let key = KeyEntry {
-        wallet_type: WalletType::Local,
-        wallet_address: address.clone(),
-        ..Default::default()
-    };
-    creds.keys.push(key);
-    if let Err(e) = creds.save() {
-        let _ = keychain().delete(&address);
-        return Err(e.into());
-    }
-
-    println!("Imported wallet '{address}'.");
-    println!("\nRun 'presto login' to connect and authorize payments.");
-    Ok(())
-}
-
-/// Read a private key from stdin.
-///
-/// Disables terminal echo on Unix to avoid leaking the key,
-/// or reads silently from a pipe.
-fn read_private_key() -> Result<Zeroizing<String>> {
-    if !io::stdin().is_terminal() {
-        return read_private_key_noninteractive();
-    }
-
-    struct EchoGuard;
-    impl Drop for EchoGuard {
-        fn drop(&mut self) {
-            let _ = std::process::Command::new("stty").args(["echo"]).status();
-            let _ = writeln!(io::stdout());
-        }
-    }
-
-    print!("Enter private key: ");
-    io::stdout().flush()?;
-
-    // Disable echo with a guard to ensure restoration on all paths
-    let _echo_guard = EchoGuard;
-    let _ = std::process::Command::new("stty").args(["-echo"]).status();
-
-    let mut input = String::new();
-    io::stdin().lock().read_line(&mut input)?;
-
-    let key = Zeroizing::new(input.trim().to_string());
-    input.zeroize();
-    if key.is_empty() {
-        anyhow::bail!("No private key provided");
-    }
-    Ok(key)
-}
-
-/// Read a private key from stdin non-interactively (one line, no prompts).
-fn read_private_key_noninteractive() -> Result<Zeroizing<String>> {
-    let mut input = String::new();
-    io::stdin().lock().read_line(&mut input)?;
-    let key = Zeroizing::new(input.trim().to_string());
-    input.zeroize();
-    if key.is_empty() {
-        anyhow::bail!("No private key provided on stdin");
-    }
-    Ok(key)
 }

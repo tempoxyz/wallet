@@ -284,8 +284,9 @@ async fn list_orphaned_channels(
     output_format: OutputFormat,
     network: Option<&str>,
 ) -> Result<()> {
-    let creds = WalletCredentials::load().context("No wallet configured")?;
-    anyhow::ensure!(creds.has_wallet(), "No wallet configured");
+    let no_wallet_msg = crate::error::no_wallet_message();
+    let creds = WalletCredentials::load().context(no_wallet_msg.clone())?;
+    anyhow::ensure!(creds.has_wallet(), "{no_wallet_msg}");
     let wallet_addr = creds
         .wallet_address()
         .parse()

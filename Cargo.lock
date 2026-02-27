@@ -3362,7 +3362,7 @@ dependencies = [
 [[package]]
 name = "mpp"
 version = "0.5.0"
-source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#ebd58f9af3f11893287749aa158ed83769dd9282"
+source = "git+https://github.com/tempoxyz/mpp-rs.git?branch=main#80aab8e42d8eafccf5ba1e690a09657ee1d7411d"
 dependencies = [
  "alloy",
  "alloy-signer-local",
@@ -3983,6 +3983,7 @@ dependencies = [
  "mpp",
  "posthog-rs",
  "predicates",
+ "qrcode",
  "reqwest 0.12.28",
  "rusqlite",
  "security-framework",
@@ -4093,6 +4094,12 @@ dependencies = [
  "tempfile",
  "unarray",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-error"

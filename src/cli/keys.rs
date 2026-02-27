@@ -101,28 +101,30 @@ pub async fn show_keys(
     let creds = WalletCredentials::load()?;
     let network = network_or_default(network);
 
-    // Pre-fetch balances for each unique wallet address to avoid redundant RPC calls.
-    let unique_wallets: Vec<String> = creds
-        .keys
-        .iter()
-        .map(|e| &e.wallet_address)
-        .filter(|a| !a.is_empty())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .cloned()
-        .collect();
-    let mut balance_cache: HashMap<String, Vec<TokenBalance>> = HashMap::new();
-    let tasks = unique_wallets.iter().map(|addr| async move {
-        (
-            addr.clone(),
-            query_all_balances(config, network, addr).await,
-        )
-    });
-    for (addr, balances) in join_all(tasks).await {
-        balance_cache.insert(addr, balances);
+    // Pre-fetch balances for each unique (wallet, network) pair.
+    // Cache key includes chain_id so the same wallet on different networks
+    // doesn't overwrite its sibling's balances.
+    let mut balance_cache: HashMap<(String, u64), Vec<TokenBalance>> = HashMap::new();
+    let mut balance_tasks = Vec::new();
+    for entry in &creds.keys {
+        if entry.wallet_address.is_empty() {
+            continue;
+        }
+        let entry_network = Network::from_chain_id(entry.chain_id)
+            .map(|n| n.as_str())
+            .unwrap_or(network);
+        let addr = entry.wallet_address.clone();
+        let chain_id = entry.chain_id;
+        balance_tasks.push(async move {
+            (
+                (addr.clone(), chain_id),
+                query_all_balances(config, entry_network, &addr).await,
+            )
+        });
     }
-
-    let current_chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
+    for (key, balances) in join_all(balance_tasks).await {
+        balance_cache.insert(key, balances);
+    }
 
     let mut keys = Vec::new();
 
@@ -131,11 +133,15 @@ pub async fn show_keys(
             WalletType::Passkey => "passkey",
             WalletType::Local => "local",
         };
+        let entry_network = Network::from_chain_id(entry.chain_id)
+            .map(|n| n.as_str())
+            .unwrap_or(network);
+        let entry_chain_id = Some(entry.chain_id);
         keys.push(
             build_key_info(
                 config,
-                network,
-                current_chain_id,
+                entry_network,
+                entry_chain_id,
                 label,
                 entry,
                 &balance_cache,
@@ -153,7 +159,7 @@ pub async fn show_keys(
         }
         _ => {
             if response.keys.is_empty() {
-                println!("No keys configured. Run 'presto login' to get started.");
+                println!("No keys configured.");
                 return Ok(());
             }
             for key in &response.keys {
@@ -161,19 +167,19 @@ pub async fn show_keys(
                     println!("{:>10}: {} ({})", "Wallet", wallet, wt);
                 }
                 println!("{:>10}: {}", "Key", key.address);
-                if let Some(cur) = &key.currency {
-                    println!("{:>10}: {}", "Currency", cur);
-                }
                 if let Some(entry) = creds
                     .keys
                     .iter()
                     .find(|e| e.key_address.as_deref() == Some(&key.address))
                 {
+                    if let Some(net) = Network::from_chain_id(entry.chain_id) {
+                        println!("{:>10}: {}", "Chain", net.as_str());
+                    }
                     if let Some(expiry_ts) = key_expiry_timestamp(entry) {
                         println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                     }
                 }
-                print_key_amounts(key);
+                print_key_limits(key);
                 println!();
             }
             println!("{} key(s) total.", response.total);
@@ -194,7 +200,7 @@ pub(super) async fn build_key_info(
     current_chain_id: Option<u64>,
     label: &str,
     entry: &KeyEntry,
-    balance_cache: &HashMap<String, Vec<TokenBalance>>,
+    balance_cache: &HashMap<(String, u64), Vec<TokenBalance>>,
 ) -> KeyInfo {
     let address = entry
         .key_address
@@ -220,9 +226,10 @@ pub(super) async fn build_key_info(
     let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
         (None, None)
     } else {
+        let cache_key = (entry.wallet_address.clone(), entry.chain_id);
         let bal = currency.as_ref().and_then(|cur| {
             balance_cache
-                .get(&entry.wallet_address)
+                .get(&cache_key)
                 .and_then(|all| all.iter().find(|tb| tb.currency == *cur))
                 .map(|tb| tb.balance.clone())
         });
@@ -248,49 +255,39 @@ pub(super) async fn build_key_info(
 // Display helpers
 // ---------------------------------------------------------------------------
 
-/// Print balance and spending-limit rows for a key with decimal alignment.
-pub(super) fn print_key_amounts(key: &KeyInfo) {
-    // Ignore errors — stdout failures are handled by the caller.
-    let _ = print_key_amounts_to(key, &mut std::io::stdout());
-}
-
-pub(super) fn print_key_amounts_to(
-    key: &KeyInfo,
-    w: &mut dyn std::io::Write,
-) -> anyhow::Result<()> {
+/// Print spending limits in compact format:
+///   `  Limits:`
+///   `      0x20c0...8b50: 0.000 / 100.00 USDC`
+fn print_key_limits(key: &KeyInfo) {
     let sym = key.symbol.as_deref().unwrap_or("tokens");
-
-    // Collect all numeric values to determine alignment width
-    let mut amounts: Vec<&str> = Vec::new();
-    if let Some(bal) = &key.balance {
-        amounts.push(bal);
-    }
-    if let Some(sl) = &key.spending_limit {
-        if !sl.unlimited {
-            if let Some(l) = &sl.limit {
-                amounts.push(l);
-            }
-            if let Some(r) = &sl.remaining {
-                amounts.push(r);
-            }
-            if let Some(s) = &sl.spent {
-                amounts.push(s);
-            }
-        }
-    }
-    let aw = amounts.iter().map(|a| a.len()).max().unwrap_or(0);
-
-    if let Some(bal) = &key.balance {
-        writeln!(w, "{:>10}: {:>aw$} {}", "Balance", bal, sym)?;
-    }
     if let Some(sl) = &key.spending_limit {
         if sl.unlimited {
-            writeln!(w, "{:>10}: unlimited", "Limit")?;
-        } else if let (Some(limit), Some(remaining)) = (&sl.limit, &sl.remaining) {
+            println!("{:>10}: unlimited {sym}", "Limit");
+        } else if let Some(remaining) = &sl.remaining {
+            let limit = sl.limit.as_deref().unwrap_or("?");
             let spent = sl.spent.as_deref().unwrap_or("0");
-            writeln!(w, "{:>10}: {:>aw$} {}", "Limit", limit, sym)?;
-            writeln!(w, "{:>10}: {:>aw$} {}", "Spent", spent, sym)?;
-            writeln!(w, "{:>10}: {:>aw$} {}", "Remaining", remaining, sym)?;
+            println!(
+                "{:>10}: {spent} / {limit} {sym} ({remaining} remaining)",
+                "Limit"
+            );
+        }
+    }
+}
+
+/// Print spending limits to a writer (for whoami output).
+pub(super) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+    let sym = key.symbol.as_deref().unwrap_or("tokens");
+    if let Some(sl) = &key.spending_limit {
+        if sl.unlimited {
+            writeln!(w, "{:>10}: unlimited {sym}", "Limit")?;
+        } else if let Some(remaining) = &sl.remaining {
+            let limit = sl.limit.as_deref().unwrap_or("?");
+            let spent = sl.spent.as_deref().unwrap_or("0");
+            writeln!(
+                w,
+                "{:>10}: {spent} / {limit} {sym} ({remaining} remaining)",
+                "Limit"
+            )?;
         }
     }
     Ok(())

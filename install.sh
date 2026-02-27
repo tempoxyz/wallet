@@ -2,12 +2,22 @@
 set -euo pipefail
 
 # presto installer script
+#
+# Usage:
+#   curl -fsSL https://presto-binaries.tempo.xyz/install.sh | bash
+#
+# Options:
+#   --wallet=local    Install with local wallet mode (default: passkey)
+#   --from-source     Build and install from source (requires cargo)
+#   --uninstall       Remove presto binary, config, data, and AI skills
+#
+# Environment:
+#   PRESTO_WALLET_TYPE=local   Same as --wallet=local
 
 SCRIPT_DIR=""
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
-REPO="tempoxyz/presto"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="presto"
 R2_BASE_URL="https://presto-binaries.tempo.xyz"
@@ -32,7 +42,6 @@ GREEN="\033[32m"
 RED="\033[31m"
 RESET="\033[0m"
 
-# Disable colors if not a terminal
 if [[ ! -t 1 ]]; then
     BOLD="" DIM="" GREEN="" RED="" RESET=""
 fi
@@ -42,7 +51,32 @@ ok()    { echo -e "  ${GREEN}✓${RESET} $*"; }
 fail()  { echo -e "  ${RED}✗${RESET} $*"; }
 
 # ---------------------------------------------------------------------------
-# Checks
+# Shared agent directory list
+# ---------------------------------------------------------------------------
+
+# Format: "parent_dir|skills_dir|agent_name"
+# Based on https://github.com/vercel-labs/skills
+AGENT_DIRS=(
+    "${HOME}/.agents|${HOME}/.agents/skills|universal"
+    "${HOME}/.claude|${HOME}/.claude/skills|Claude Code"
+    "${HOME}/.config/agents|${HOME}/.config/agents/skills|Amp"
+    "${HOME}/.cursor|${HOME}/.cursor/skills|Cursor"
+    "${HOME}/.copilot|${HOME}/.copilot/skills|GitHub Copilot"
+    "${HOME}/.codex|${HOME}/.codex/skills|Codex"
+    "${HOME}/.gemini|${HOME}/.gemini/skills|Gemini CLI"
+    "${HOME}/.config/opencode|${HOME}/.config/opencode/skills|OpenCode"
+    "${HOME}/.config/goose|${HOME}/.config/goose/skills|Goose"
+    "${HOME}/.windsurf|${HOME}/.windsurf/skills|Windsurf"
+    "${HOME}/.codeium/windsurf|${HOME}/.codeium/windsurf/skills|Windsurf"
+    "${HOME}/.continue|${HOME}/.continue/skills|Continue"
+    "${HOME}/.roo|${HOME}/.roo/skills|Roo"
+    "${HOME}/.kiro|${HOME}/.kiro/skills|Kiro"
+    "${HOME}/.augment|${HOME}/.augment/skills|Augment"
+    "${HOME}/.trae|${HOME}/.trae/skills|Trae"
+)
+
+# ---------------------------------------------------------------------------
+# Platform detection
 # ---------------------------------------------------------------------------
 
 check_dependencies() {
@@ -81,43 +115,17 @@ detect_arch() {
 }
 
 # ---------------------------------------------------------------------------
-# Install
+# Install helpers
 # ---------------------------------------------------------------------------
 
-install_presto() {
-    local binary_name="presto-${PLATFORM}-${ARCH}"
-    local download_url="${R2_BASE_URL}/${binary_name}"
+# Move or copy a binary to INSTALL_DIR, using sudo as fallback.
+install_binary() {
+    local src="$1"
+    local cmd="$2"  # "mv" or "cp"
 
-    # Create secure temp directory
-    TMP_DIR=$(mktemp -d)
-    chmod 700 "${TMP_DIR}"
-
-    local tmp_file="${TMP_DIR}/${BINARY_NAME}"
-
-    info "Downloading from ${download_url}"
-
-    if ! curl -fsSL "${download_url}" -o "${tmp_file}"; then
-        fail "Download failed"
-        exit 1
-    fi
-
-    chmod 755 "${tmp_file}"
-
-    # Verify the binary is actually executable
-    if ! file "${tmp_file}" | grep -q "executable"; then
-        fail "Downloaded file is not a valid executable"
-        exit 1
-    fi
-
-    # Quick sanity check
-    if ! "${tmp_file}" --version >/dev/null 2>&1; then
-        fail "Binary failed sanity check (--version)"
-        exit 1
-    fi
-
-    if mv "${tmp_file}" "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null; then
+    if "${cmd}" "${src}" "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null; then
         ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
-    elif sudo mv "${tmp_file}" "${INSTALL_DIR}/${BINARY_NAME}"; then
+    elif sudo "${cmd}" "${src}" "${INSTALL_DIR}/${BINARY_NAME}"; then
         ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
     else
         fail "Failed to install to ${INSTALL_DIR}"
@@ -126,33 +134,12 @@ install_presto() {
     fi
 }
 
-verify_installation() {
-    if command -v presto >/dev/null 2>&1; then
-        ok "$(presto --version)"
-    else
-        echo ""
-        echo -e "  ${DIM}Note: ${INSTALL_DIR} is not in your PATH${RESET}"
+ensure_tmp_dir() {
+    if [[ -z "${TMP_DIR}" ]]; then
+        TMP_DIR=$(mktemp -d)
+        chmod 700 "${TMP_DIR}"
     fi
 }
-
-install_ai_skill() {
-    local skill_dir="${HOME}/.claude/skills/presto"
-    local skill_file="${skill_dir}/SKILL.md"
-    local local_skill="${SCRIPT_DIR}/.agents/skills/presto/SKILL.md"
-
-    mkdir -p "${skill_dir}" 2>/dev/null || return 0
-
-    if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
-        cp "${local_skill}" "${skill_file}"
-    else
-        local skill_url="${R2_BASE_URL}/SKILL.md"
-        curl -fsSL "${skill_url}" -o "${skill_file}" 2>/dev/null || return 0
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Uninstall / helpers
-# ---------------------------------------------------------------------------
 
 remove_file() {
     local path="$1"
@@ -167,27 +154,46 @@ remove_file() {
     fi
 }
 
-uninstall_presto() {
-    echo -e "\n${BOLD}Uninstalling presto${RESET}\n"
+# ---------------------------------------------------------------------------
+# Install modes
+# ---------------------------------------------------------------------------
 
-    remove_file "${INSTALL_DIR}/${BINARY_NAME}" "binary"
+install_remote() {
+    check_dependencies
+    detect_platform
+    detect_arch
 
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        remove_file "${HOME}/Library/Application Support/presto" "data"
-    else
-        remove_file "${XDG_CONFIG_HOME:-${HOME}/.config}/presto" "config"
-        remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/presto" "data"
+    local binary_name="presto-${PLATFORM}-${ARCH}"
+    local download_url="${R2_BASE_URL}/${binary_name}"
+
+    ensure_tmp_dir
+    local tmp_file="${TMP_DIR}/${BINARY_NAME}"
+
+    info "Downloading from ${download_url}"
+
+    if ! curl -fsSL "${download_url}" -o "${tmp_file}"; then
+        fail "Download failed"
+        exit 1
     fi
 
-    remove_file "${HOME}/.claude/skills/presto" "AI skill"
+    chmod 755 "${tmp_file}"
 
-    echo ""
-    ok "Done"
+    if ! file "${tmp_file}" | grep -q "executable"; then
+        fail "Downloaded file is not a valid executable"
+        exit 1
+    fi
+
+    if ! "${tmp_file}" --version >/dev/null 2>&1; then
+        fail "Binary failed sanity check (--version)"
+        exit 1
+    fi
+
+    install_binary "${tmp_file}" "mv"
 }
 
-install_local() {
+install_from_source() {
     if ! command -v cargo >/dev/null 2>&1; then
-        fail "cargo is required for --local install"
+        fail "cargo is required for --from-source install"
         echo "  Install Rust: https://rustup.rs/"
         exit 1
     fi
@@ -201,15 +207,88 @@ install_local() {
         exit 1
     fi
 
-    if cp "${built_binary}" "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null; then
-        ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
-    elif sudo cp "${built_binary}" "${INSTALL_DIR}/${BINARY_NAME}"; then
-        ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
+    install_binary "${built_binary}" "cp"
+}
+
+verify_installation() {
+    if command -v presto >/dev/null 2>&1; then
+        ok "$(presto --version)"
     else
-        fail "Failed to install to ${INSTALL_DIR}"
-        echo "  Try running with sudo or install manually"
-        exit 1
+        echo ""
+        echo -e "  ${DIM}Note: ${INSTALL_DIR} is not in your PATH${RESET}"
     fi
+}
+
+# ---------------------------------------------------------------------------
+# AI skill management
+# ---------------------------------------------------------------------------
+
+install_ai_skill() {
+    local skill_variant="${1:-passkey}"
+    local skill_content=""
+
+    # Resolve skill content: prefer local file, fall back to R2 download
+    local local_skill="${SCRIPT_DIR}/.agents/skills/presto-${skill_variant}/SKILL.md"
+    if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
+        skill_content="${local_skill}"
+    else
+        ensure_tmp_dir
+        local tmp_skill="${TMP_DIR}/SKILL.md"
+        local skill_url="${R2_BASE_URL}/SKILL-${skill_variant}.md"
+        if curl -fsSL "${skill_url}" -o "${tmp_skill}" 2>/dev/null; then
+            skill_content="${tmp_skill}"
+        else
+            return 0
+        fi
+    fi
+
+    # Only install if the agent's parent config dir already exists
+    local installed_names=()
+    for entry in "${AGENT_DIRS[@]}"; do
+        IFS='|' read -r parent skill_base agent_name <<< "${entry}"
+        if [[ -d "${parent}" ]]; then
+            local skill_dir="${skill_base}/presto"
+            mkdir -p "${skill_dir}" 2>/dev/null || continue
+            cp "${skill_content}" "${skill_dir}/SKILL.md" 2>/dev/null || continue
+            installed_names+=("${agent_name}")
+        fi
+    done
+
+    if [[ ${#installed_names[@]} -gt 0 ]]; then
+        local IFS=', '
+        ok "Installed AI skill to ${#installed_names[@]} agent(s): ${installed_names[*]}"
+    fi
+}
+
+uninstall_ai_skills() {
+    for entry in "${AGENT_DIRS[@]}"; do
+        IFS='|' read -r _ skill_base _ <<< "${entry}"
+        for name in presto presto-local presto-passkey; do
+            remove_file "${skill_base}/${name}" "AI skill (${skill_base}/${name})"
+        done
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Uninstall
+# ---------------------------------------------------------------------------
+
+uninstall_presto() {
+    echo -e "\n${BOLD}Uninstalling presto${RESET}\n"
+
+    remove_file "${INSTALL_DIR}/${BINARY_NAME}" "binary"
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        remove_file "${HOME}/Library/Application Support/presto" "data"
+    else
+        remove_file "${XDG_CONFIG_HOME:-${HOME}/.config}/presto" "config"
+        remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/presto" "data"
+    fi
+
+    uninstall_ai_skills
+
+    echo ""
+    ok "Done"
 }
 
 # ---------------------------------------------------------------------------
@@ -228,39 +307,45 @@ banner() {
 }
 
 main() {
-    if [[ "${1:-}" == "--uninstall" ]]; then
-        uninstall_presto
-        exit 0
+    local wallet_type="${PRESTO_WALLET_TYPE:-passkey}"
+    local mode=""
+
+    for arg in "$@"; do
+        case "${arg}" in
+            --wallet=*)    wallet_type="${arg#--wallet=}" ;;
+            --uninstall)   mode="uninstall" ;;
+            --from-source) mode="from-source" ;;
+        esac
+    done
+
+    if [[ "${wallet_type}" != "local" && "${wallet_type}" != "passkey" ]]; then
+        fail "Unknown wallet type '${wallet_type}'. Use 'local' or 'passkey'."
+        exit 1
     fi
 
-    if [[ "${1:-}" == "--reinstall" ]]; then
-        banner
-        remove_file "${INSTALL_DIR}/${BINARY_NAME}" "binary"
-        install_local
-        verify_installation
-        install_ai_skill
-        echo ""
-        ok "Done"
+    if [[ "${mode}" == "uninstall" ]]; then
+        uninstall_presto
         exit 0
     fi
 
     banner
 
-    if [[ "${1:-}" == "--local" ]]; then
-        install_local
+    if [[ "${mode}" == "from-source" ]]; then
+        install_from_source
     else
-        check_dependencies
-        detect_platform
-        detect_arch
-        install_presto
+        install_remote
     fi
 
     verify_installation
-    install_ai_skill
+    install_ai_skill "${wallet_type}"
 
     echo ""
     echo -e "  ${BOLD}Get started:${RESET}"
-    echo -e "    ${DIM}\$${RESET} presto login"
+    if [[ "${wallet_type}" == "local" ]]; then
+        echo -e "    ${DIM}\$${RESET} presto wallet create"
+    else
+        echo -e "    ${DIM}\$${RESET} presto login"
+    fi
     echo -e "    ${DIM}\$${RESET} presto --help"
     echo ""
 }
