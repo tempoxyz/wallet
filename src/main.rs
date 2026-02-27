@@ -35,6 +35,7 @@ mod error;
 mod http;
 mod network;
 mod payment;
+mod services;
 mod util;
 mod wallet;
 
@@ -42,7 +43,9 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, KeyCommands, SessionCommands, Shell, WalletCommands};
+use cli::{
+    Cli, ColorMode, Commands, KeyCommands, ServicesCommands, SessionCommands, Shell, WalletCommands,
+};
 use colored::control;
 
 use analytics::Analytics;
@@ -236,6 +239,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Sessions { .. } => "sessions",
             Commands::Whoami | Commands::Balance => "whoami",
             Commands::Keys { .. } => "keys",
+            Commands::Services { .. } => "services",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -449,6 +453,28 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         Cli::command().print_help()?;
                     }
                     Ok(())
+                }
+            }
+        }
+
+        Commands::Services {
+            command,
+            category,
+            search,
+        } => {
+            let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+            let output_format = cli.resolve_output_format(&config);
+            match command {
+                Some(ServicesCommands::List) | None => {
+                    cli::services::list_services(
+                        output_format,
+                        category.as_deref(),
+                        search.as_deref(),
+                    )
+                    .await
+                }
+                Some(ServicesCommands::Info { service_id }) => {
+                    cli::services::show_service_info(output_format, &service_id).await
                 }
             }
         }

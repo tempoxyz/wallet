@@ -31,8 +31,8 @@ Use `-j` to get JSON output:
 ```bash
 # Preferred pattern: JSON output, pipe through jq
 presto -j -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH> | jq
 
 # Check wallet readiness before making requests
 presto -j whoami | jq '.ready'
@@ -105,21 +105,27 @@ If `ready` is `false`, run `presto login` and retry.
 
 ## Available Services
 
-To see the current list of available services and their endpoints, fetch the live directory:
+Use `presto services` to discover available services, their endpoints, and pricing:
 
 ```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[].id'
+# List all available services
+presto services
+
+# Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
+presto services --category ai
+
+# Search by name, description, or tags
+presto services --search <QUERY>
+
+# Show full details for a service (endpoints, pricing, docs)
+presto services info <SERVICE_ID>
+
+# JSON output for programmatic use
+presto -j services
+presto -j services info <SERVICE_ID>
 ```
 
-The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.mpp.tempo.xyz`. For example:
-- OpenAI: `https://openai.mpp.tempo.xyz/v1/chat/completions`
-- Anthropic: `https://anthropic.mpp.tempo.xyz/v1/messages`
-- fal (image gen): `https://fal.mpp.tempo.xyz/fal-ai/flux/schnell`
-
-To get full details for a specific service (routes, pricing):
-```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
-```
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `presto services`). When you don't know which service or endpoint to use, run `presto services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
@@ -127,15 +133,18 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 # Connect your Tempo wallet
 presto login
 
-# Make a paid LLM request (payment handled automatically on 402)
+# Discover available services
+presto services
+
+# Make a paid request (payment handled automatically on 402)
 presto -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
 presto --dry-run -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ## Commands
@@ -146,14 +155,11 @@ presto --dry-run -X POST \
 | `presto login` | Sign up or log in to your Tempo wallet |
 | `presto logout` | Log out and disconnect your wallet |
 | `presto whoami` | Show wallet address, balances, keys, and readiness |
-| `presto session list` | List active payment sessions |
-| `presto session list --all` | Show all channels: active, orphaned, and closing |
-| `presto session list --orphaned` | Scan on-chain for orphaned channels (no local session) |
-| `presto session list --closed` | Show channels pending finalization |
-| `presto session close [URL]` | Close a payment session by URL or channel ID |
-| `presto session close --all` | Close all active sessions and on-chain channels |
-| `presto session close --orphaned` | Close only orphaned on-chain channels |
-| `presto session close --closed` | Finalize channels pending close (grace period elapsed) |
+| `presto services` | List available MPP services |
+| `presto services --category ai` | Filter services by category |
+| `presto services --search <QUERY>` | Search services by name, description, or tags |
+| `presto services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
+| `presto sessions` | Manage payment sessions (list, close — use `--help` for details) |
 
 ## Global Options
 
@@ -208,30 +214,23 @@ These options apply when making HTTP requests (`presto <URL>`):
 
 ## Real-World Examples
 
-### LLM API Request (Single Payment)
+### Making a Request
 
-Each request is a separate on-chain transaction:
+Use `presto services` to find the service URL and endpoint, then make the request:
 
 ```bash
+# 1. Find the right service and endpoint
+presto services info <SERVICE_ID>
+
+# 2. Make the request (payment handled automatically on 402)
 presto -X POST \
-  --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
-  https://openai.mpp.tempo.xyz/v1/chat/completions
-```
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
-### OpenRouter via Tempo
-
-```bash
-presto -v -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
-```
-
-### Image Generation via fal
-
-```bash
-presto -v -X POST \
-  --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3","num_images":1}' \
-  https://fal.mpp.tempo.xyz/fal-ai/flux/schnell
+# 3. JSON output for programmatic use
+presto -j -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH> | jq
 ```
 
 ### Payment Sessions (Multiple Requests, One Channel)
@@ -240,23 +239,19 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request opens a channel on-chain
-presto -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"First question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+presto -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Subsequent requests to the same origin reuse the session automatically
-presto -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Second question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+presto -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # View active sessions
-presto session list
+presto sessions list
 
 # Close a session when done
-presto session close https://openrouter.mpp.tempo.xyz
+presto sessions close <SERVICE_URL>
 
 # Close all sessions
-presto session close --all
+presto sessions close --all
 ```
 
 ### Check Wallet Status

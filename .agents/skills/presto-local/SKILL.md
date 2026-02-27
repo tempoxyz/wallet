@@ -18,7 +18,7 @@ Create a local wallet — no browser needed, keys stored in the OS keychain:
 
 ```bash
 # Create a new local wallet (one-time setup)
-presto wallet create
+presto wallets create
 
 # Check wallet status
 presto whoami
@@ -32,7 +32,7 @@ The wallet address printed by `presto whoami` is the **fundable address**.
 
 ```bash
 # Fund the wallet — generates a deposit address and QR code for USDC on Base
-presto wallet fund
+presto wallets fund
 ```
 
 The command prints a QR code and deposit address, then polls until funds are bridged to Tempo (up to 10 minutes). **Do NOT use `--no-wait`** — let the command block so you know when funding is complete. **Show the full command output to the user immediately** — they need to see the QR code and deposit address to send funds (they can expand collapsed output with ctrl+o).
@@ -44,8 +44,8 @@ Use `-j` to get JSON output:
 ```bash
 # Preferred pattern: JSON output, pipe through jq
 presto -j -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH> | jq
 
 # Check wallet readiness before making requests
 presto -j whoami | jq '.ready'
@@ -64,8 +64,8 @@ Check these fields in the response:
 - `balance` — the wallet's USDC balance (top-level field)
 
 If `ready` is `false` or the command errors:
-1. Run `presto wallet create` — this is always the correct first step
-2. If key is expired → run `presto key create`
+1. Run `presto wallets create` — this is always the correct first step
+2. If key is expired → run `presto keys create`
 3. Do NOT run `presto login` — that opens a browser for passkey auth, which is not the local wallet flow
 
 ### whoami JSON Response Schema
@@ -121,40 +121,49 @@ If `ready` is `false` or the command errors:
 
 ## Available Services
 
-To see the current list of available services and their endpoints, fetch the live directory:
+Use `presto services` to discover available services, their endpoints, and pricing:
 
 ```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[].id'
+# List all available services
+presto services
+
+# Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
+presto services --category ai
+
+# Search by name, description, or tags
+presto services --search <QUERY>
+
+# Show full details for a service (endpoints, pricing, docs)
+presto services info <SERVICE_ID>
+
+# JSON output for programmatic use
+presto -j services
+presto -j services info <SERVICE_ID>
 ```
 
-The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.mpp.tempo.xyz`. For example:
-- OpenAI: `https://openai.mpp.tempo.xyz/v1/chat/completions`
-- Anthropic: `https://anthropic.mpp.tempo.xyz/v1/messages`
-- fal (image gen): `https://fal.mpp.tempo.xyz/fal-ai/flux/schnell`
-
-To get full details for a specific service (routes, pricing):
-```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
-```
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `presto services`). When you don't know which service or endpoint to use, run `presto services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
 ```bash
 # 1. Create a local wallet (one-time setup, no browser)
-presto wallet create
+presto wallets create
 
 # 2. Fund the wallet (shows QR code for USDC deposit on Base)
-presto wallet fund
+presto wallets fund
 
-# 3. Make a paid LLM request (payment handled automatically on 402)
+# 3. Discover available services
+presto services
+
+# 4. Make a paid request (payment handled automatically on 402)
 presto -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
 presto --dry-run -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ## Commands
@@ -162,19 +171,16 @@ presto --dry-run -X POST \
 | Command | Description |
 |---------|-------------|
 | `presto <URL>` | Make an HTTP request with automatic payment |
-| `presto wallet create` | Create a new local wallet (OS keychain) |
-| `presto wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
+| `presto wallets create` | Create a new local wallet (OS keychain) |
+| `presto wallets fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | `presto whoami` | Show wallet address, balances, keys, and readiness |
-| `presto key list` | List all keys and their spending limits |
-| `presto key create` | Renew access key (fresh 30-day key) |
-| `presto session list` | List active payment sessions |
-| `presto session list --all` | Show all channels: active, orphaned, and closing |
-| `presto session list --orphaned` | Scan on-chain for orphaned channels (no local session) |
-| `presto session list --closed` | Show channels pending finalization |
-| `presto session close [URL]` | Close a payment session by URL or channel ID |
-| `presto session close --all` | Close all active sessions and on-chain channels |
-| `presto session close --orphaned` | Close only orphaned on-chain channels |
-| `presto session close --closed` | Finalize channels pending close (grace period elapsed) |
+| `presto keys list` | List all keys and their spending limits |
+| `presto keys create` | Renew access key (fresh 30-day key) |
+| `presto services` | List available MPP services |
+| `presto services --category ai` | Filter services by category |
+| `presto services --search <QUERY>` | Search services by name, description, or tags |
+| `presto services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
+| `presto sessions` | Manage payment sessions (list, close — use `--help` for details) |
 
 ## Global Options
 
@@ -229,30 +235,23 @@ These options apply when making HTTP requests (`presto <URL>`):
 
 ## Real-World Examples
 
-### LLM API Request (Single Payment)
+### Making a Request
 
-Each request is a separate on-chain transaction:
+Use `presto services` to find the service URL and endpoint, then make the request:
 
 ```bash
+# 1. Find the right service and endpoint
+presto services info <SERVICE_ID>
+
+# 2. Make the request (payment handled automatically on 402)
 presto -X POST \
-  --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
-  https://openai.mpp.tempo.xyz/v1/chat/completions
-```
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
-### OpenRouter via Tempo
-
-```bash
-presto -v -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
-```
-
-### Image Generation via fal
-
-```bash
-presto -v -X POST \
-  --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3","num_images":1}' \
-  https://fal.mpp.tempo.xyz/fal-ai/flux/schnell
+# 3. JSON output for programmatic use
+presto -j -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH> | jq
 ```
 
 ### Payment Sessions (Multiple Requests, One Channel)
@@ -261,23 +260,19 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request opens a channel on-chain
-presto -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"First question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+presto -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Subsequent requests to the same origin reuse the session automatically
-presto -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Second question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+presto -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # View active sessions
-presto session list
+presto sessions list
 
 # Close a session when done
-presto session close https://openrouter.mpp.tempo.xyz
+presto sessions close <SERVICE_URL>
 
 # Close all sessions
-presto session close --all
+presto sessions close --all
 ```
 
 ### Check Wallet Status
@@ -294,8 +289,8 @@ For CI/CD or ephemeral use, skip wallet setup entirely:
 ```bash
 # Use a private key directly (no keychain, no keys.toml)
 PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY presto -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ## Error Recovery
@@ -308,23 +303,23 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 |------|---------|--------------|
 | 0 | Success | — |
 | 1 | General error | Retry or report |
-| 3 | Config error | Run `presto wallet create` |
+| 3 | Config error | Run `presto wallets create` |
 | 4 | Network error | Check connectivity, retry |
 | 5 | Payment failed | Check error message, retry |
-| 6 | Insufficient funds | Run `presto wallet fund` or report to user |
-| 8 | Auth/signing error | Run `presto key create` |
+| 6 | Insufficient funds | Run `presto wallets fund` or report to user |
+| 8 | Auth/signing error | Run `presto keys create` |
 | 10 | Timeout | Retry with longer `--timeout` |
 
 ### Common Errors and Fixes
 
 | Error message contains | Action |
 |------------------------|--------|
-| `No wallet configured` | Run `presto wallet create`, then retry |
-| `Run 'presto login'` | Run `presto wallet create`, then retry (ignore the login suggestion) |
+| `No wallet configured` | Run `presto wallets create`, then retry |
+| `Run 'presto login'` | Run `presto wallets create`, then retry (ignore the login suggestion) |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
-| `Insufficient balance` | Run `presto wallet fund` to add funds, or report to user |
-| `Key is not provisioned` | Auto-provisions on first use; if persists, run `presto wallet create` |
-| `Key expired` | Run `presto key create` to renew |
+| `Insufficient balance` | Run `presto wallets fund` to add funds, or report to user |
+| `Key is not provisioned` | Auto-provisions on first use; if persists, run `presto wallets create` |
+| `Key expired` | Run `presto keys create` to renew |
 | `Unknown network` | Check `-n` flag value |
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |

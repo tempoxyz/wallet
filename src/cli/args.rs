@@ -428,6 +428,20 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<WalletCommands>,
     },
+    /// Browse the MPP service directory
+    #[command(display_order = 7, name = "services")]
+    Services {
+        #[command(subcommand)]
+        command: Option<ServicesCommands>,
+
+        /// Filter by category (e.g. ai, search, compute)
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+
+        /// Search by name, description, or tags
+        #[arg(long, value_name = "QUERY")]
+        search: Option<String>,
+    },
 
     /// Generate shell completions script
     #[command(hide = true)]
@@ -515,6 +529,17 @@ pub enum KeyCommands {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ServicesCommands {
+    /// List available services
+    List,
+    /// Show detailed information about a service
+    Info {
+        /// Service ID (e.g. openai, anthropic)
+        service_id: String,
     },
 }
 
