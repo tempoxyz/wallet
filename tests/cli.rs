@@ -1369,9 +1369,13 @@ fn test_services_info_missing_id() {
 }
 
 #[test]
-fn test_services_invalid_subcommand() {
+fn test_services_bare_id_is_accepted() {
+    // `presto services fal` should be parsed as a valid command (shorthand for `services info fal`)
+    // It will fail at runtime (network) but should not fail argument parsing.
+    // We test via --help to confirm the positional arg is documented.
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["services", "nonexistent"])
+        .args(["services", "--help"])
         .assert()
-        .failure();
+        .success()
+        .stdout(predicate::str::contains("SERVICE_ID"));
 }

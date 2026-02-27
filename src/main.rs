@@ -459,13 +459,17 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 
         Commands::Services {
             command,
+            service_id,
             category,
             search,
         } => {
             let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
             let output_format = cli.resolve_output_format(&config);
             match command {
-                Some(ServicesCommands::List) | None => {
+                Some(ServicesCommands::Info { service_id }) => {
+                    cli::services::show_service_info(output_format, &service_id).await
+                }
+                Some(ServicesCommands::List) => {
                     cli::services::list_services(
                         output_format,
                         category.as_deref(),
@@ -473,8 +477,17 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     )
                     .await
                 }
-                Some(ServicesCommands::Info { service_id }) => {
-                    cli::services::show_service_info(output_format, &service_id).await
+                None if service_id.is_some() => {
+                    cli::services::show_service_info(output_format, service_id.as_deref().unwrap())
+                        .await
+                }
+                None => {
+                    cli::services::list_services(
+                        output_format,
+                        category.as_deref(),
+                        search.as_deref(),
+                    )
+                    .await
                 }
             }
         }

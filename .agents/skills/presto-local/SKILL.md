@@ -1,6 +1,6 @@
 ---
 name: presto
-description: "CLI HTTP client with automatic payment — use when calling AI or LLM APIs, or any HTTP endpoint without an API key or account. Replaces curl/wget when the user has no API key. presto pays automatically via the Tempo blockchain. Supports payment sessions, spending limits, and dry-run cost estimates."
+description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it. presto pays automatically via the Tempo blockchain. Use `presto -j services` to discover available services and endpoints."
 ---
 
 # presto
@@ -42,13 +42,13 @@ The command prints a QR code and deposit address, then polls until funds are bri
 Use `-j` to get JSON output:
 
 ```bash
-# Preferred pattern: JSON output, pipe through jq
+# Preferred pattern: JSON output
 presto -j -X POST \
   --json '{"your":"payload"}' \
-  <SERVICE_URL>/<ENDPOINT_PATH> | jq
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Check wallet readiness before making requests
-presto -j whoami | jq '.ready'
+presto -j whoami
 ```
 
 ### Preflight Check
@@ -125,19 +125,15 @@ Use `presto services` to discover available services, their endpoints, and prici
 
 ```bash
 # List all available services
-presto services
+presto -j services
 
 # Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
-presto services --category ai
+presto -j services --category ai
 
 # Search by name, description, or tags
-presto services --search <QUERY>
+presto -j services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
-presto services info <SERVICE_ID>
-
-# JSON output for programmatic use
-presto -j services
 presto -j services info <SERVICE_ID>
 ```
 
@@ -153,15 +149,15 @@ presto wallets create
 presto wallets fund
 
 # 3. Discover available services
-presto services
+presto -j services
 
 # 4. Make a paid request (payment handled automatically on 402)
-presto -X POST \
+presto -j -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
-presto --dry-run -X POST \
+presto -j --dry-run -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -241,17 +237,12 @@ Use `presto services` to find the service URL and endpoint, then make the reques
 
 ```bash
 # 1. Find the right service and endpoint
-presto services info <SERVICE_ID>
+presto -j services info <SERVICE_ID>
 
 # 2. Make the request (payment handled automatically on 402)
-presto -X POST \
-  --json '{"your":"payload"}' \
-  <SERVICE_URL>/<ENDPOINT_PATH>
-
-# 3. JSON output for programmatic use
 presto -j -X POST \
   --json '{"your":"payload"}' \
-  <SERVICE_URL>/<ENDPOINT_PATH> | jq
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ### Payment Sessions (Multiple Requests, One Channel)
@@ -260,26 +251,26 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request opens a channel on-chain
-presto -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+presto -j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Subsequent requests to the same origin reuse the session automatically
-presto -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+presto -j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # View active sessions
-presto sessions list
+presto -j sessions list
 
 # Close a session when done
-presto sessions close <SERVICE_URL>
+presto -j sessions close <SERVICE_URL>
 
 # Close all sessions
-presto sessions close --all
+presto -j sessions close --all
 ```
 
 ### Check Wallet Status
 
 ```bash
 # Full wallet status with balances and keys
-presto whoami
+presto -j whoami
 ```
 
 ### Environment Variable Override
@@ -288,7 +279,7 @@ For CI/CD or ephemeral use, skip wallet setup entirely:
 
 ```bash
 # Use a private key directly (no keychain, no keys.toml)
-PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY presto -X POST \
+PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY presto -j -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```

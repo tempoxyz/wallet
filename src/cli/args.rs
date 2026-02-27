@@ -434,6 +434,10 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<ServicesCommands>,
 
+        /// Service ID to show details for (shorthand for `services info <ID>`)
+        #[arg(value_name = "SERVICE_ID")]
+        service_id: Option<String>,
+
         /// Filter by category (e.g. ai, search, compute)
         #[arg(long, value_name = "CATEGORY")]
         category: Option<String>,

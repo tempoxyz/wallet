@@ -116,7 +116,10 @@ pub(crate) struct Provider {
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn fetch_services() -> Result<ServiceRegistry> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .context("failed to build HTTP client")?;
     let resp = client
         .get(SERVICES_API_URL)
         .send()

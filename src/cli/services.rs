@@ -1,9 +1,182 @@
 //! Service directory commands: list and inspect MPP services.
 
 use anyhow::{bail, Result};
+use serde::Serialize;
 
 use super::OutputFormat;
 use crate::services::{self, Endpoint, Service};
+
+// ---------------------------------------------------------------------------
+// JSON output shapes (curated, not raw API dumps)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ServiceListEntry<'a> {
+    id: &'a str,
+    name: &'a str,
+    categories: &'a [String],
+    status: Option<&'a str>,
+    integration: Option<&'a str>,
+    payment: Vec<&'a str>,
+    service_url: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct ServiceDetail<'a> {
+    id: &'a str,
+    name: &'a str,
+    description: Option<&'a str>,
+    categories: &'a [String],
+    status: Option<&'a str>,
+    integration: Option<&'a str>,
+    service_url: Option<&'a str>,
+    url: &'a str,
+    tags: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<ProviderJson<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    docs: Option<DocsJson<'a>>,
+    endpoints: Vec<EndpointJson<'a>>,
+}
+
+#[derive(Serialize)]
+struct ProviderJson<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct DocsJson<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    homepage: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    llms_txt: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    openapi: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_reference: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct EndpointJson<'a> {
+    method: &'a str,
+    path: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
+    pricing: String,
+    example: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    docs: Option<&'a str>,
+}
+
+fn collect_payment_intents(s: &Service) -> Vec<&str> {
+    let mut intents: Vec<&str> = s
+        .methods
+        .values()
+        .flat_map(|m| m.intents.iter().map(|i| i.as_str()))
+        .collect();
+    intents.sort();
+    intents.dedup();
+    intents
+}
+
+fn format_endpoint_pricing(ep: &Endpoint) -> String {
+    match &ep.payment {
+        None => "free".to_string(),
+        Some(p) => {
+            let mut parts = Vec::new();
+            if p.dynamic == Some(true) {
+                parts.push("dynamic".to_string());
+            } else if let Some(ref amount) = p.amount {
+                let formatted = match p.decimals {
+                    Some(d) if d > 0 => match amount.parse::<u128>() {
+                        Ok(v) => {
+                            let s = v.to_string();
+                            let d = d as usize;
+                            let padded = format!("{:0>width$}", s, width = d + 1);
+                            let (int, frac) = padded.split_at(padded.len() - d);
+                            format!("${int}.{frac}")
+                        }
+                        Err(_) => amount.clone(),
+                    },
+                    _ => amount.clone(),
+                };
+                parts.push(formatted);
+            }
+            parts.push(p.intent.clone());
+            parts.join(" ")
+        }
+    }
+}
+
+fn format_example_command(method: &str, base_url: &str, path: &str) -> String {
+    let url = format!("{}{}", base_url.trim_end_matches('/'), path);
+    match method.to_uppercase().as_str() {
+        "GET" => format!("presto {url}"),
+        m => format!("presto -X {m} --json '{{}}' {url}"),
+    }
+}
+
+fn to_list_entry(s: &Service) -> ServiceListEntry<'_> {
+    ServiceListEntry {
+        id: &s.id,
+        name: &s.name,
+        categories: &s.categories,
+        status: s.status.as_deref(),
+        integration: s.integration.as_deref(),
+        payment: collect_payment_intents(s),
+        service_url: s.service_url.as_deref(),
+    }
+}
+
+fn to_detail(s: &Service) -> ServiceDetail<'_> {
+    let service_desc = s.description.as_deref();
+
+    ServiceDetail {
+        id: &s.id,
+        name: &s.name,
+        description: service_desc,
+        categories: &s.categories,
+        status: s.status.as_deref(),
+        integration: s.integration.as_deref(),
+        service_url: s.service_url.as_deref(),
+        url: &s.url,
+        tags: &s.tags,
+        provider: s.provider.as_ref().map(|p| ProviderJson {
+            name: p.name.as_deref(),
+            url: p.url.as_deref(),
+        }),
+        docs: s.docs.as_ref().map(|d| DocsJson {
+            homepage: d.homepage.as_deref(),
+            llms_txt: d.llms_txt.as_deref(),
+            openapi: d.openapi.as_deref(),
+            api_reference: d.api_reference.as_deref(),
+        }),
+        endpoints: s
+            .endpoints
+            .iter()
+            .map(|ep| {
+                let ep_desc = ep
+                    .description
+                    .as_deref()
+                    .or_else(|| ep.payment.as_ref().and_then(|p| p.description.as_deref()))
+                    .or(service_desc);
+                let base_url = s.service_url.as_deref().unwrap_or(&s.url);
+                let example = format_example_command(&ep.method, base_url, &ep.path);
+                EndpointJson {
+                    method: &ep.method,
+                    path: &ep.path,
+                    description: ep_desc,
+                    pricing: format_endpoint_pricing(ep),
+                    example,
+                    docs: ep.docs.as_deref(),
+                }
+            })
+            .collect(),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // List
@@ -44,8 +217,8 @@ pub(crate) async fn list_services(
 
     match output_format {
         OutputFormat::Json => {
-            let json: Vec<&Service> = filtered;
-            println!("{}", serde_json::to_string(&json)?);
+            let entries: Vec<_> = filtered.iter().map(|s| to_list_entry(s)).collect();
+            println!("{}", serde_json::to_string(&entries)?);
         }
         OutputFormat::Text => {
             if filtered.is_empty() {
@@ -77,7 +250,7 @@ pub(crate) async fn show_service_info(output_format: OutputFormat, service_id: &
 
     match output_format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string(service)?);
+            println!("{}", serde_json::to_string(&to_detail(service))?);
         }
         OutputFormat::Text => {
             render_service_detail(service);
@@ -92,10 +265,11 @@ pub(crate) async fn show_service_info(output_format: OutputFormat, service_id: &
 // ---------------------------------------------------------------------------
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}…", &s[..max - 1])
+        let truncated: String = s.chars().take(max - 1).collect();
+        format!("{truncated}…")
     }
 }
 
@@ -178,18 +352,11 @@ fn format_categories(s: &Service) -> String {
 }
 
 fn format_payment_intents(s: &Service) -> String {
-    let intents: Vec<&str> = s
-        .methods
-        .values()
-        .flat_map(|m| m.intents.iter().map(|i| i.as_str()))
-        .collect();
+    let intents = collect_payment_intents(s);
     if intents.is_empty() {
         "—".to_string()
     } else {
-        let mut unique: Vec<&str> = intents;
-        unique.sort();
-        unique.dedup();
-        unique.join(", ")
+        intents.join(", ")
     }
 }
 
@@ -199,7 +366,7 @@ fn format_payment_intents(s: &Service) -> String {
 
 fn render_service_detail(s: &Service) {
     println!("{}", s.name);
-    println!("{}", "─".repeat(s.name.len()));
+    println!("{}", "─".repeat(s.name.chars().count()));
 
     if let Some(ref desc) = s.description {
         println!("{desc}");
@@ -266,41 +433,15 @@ fn render_service_detail(s: &Service) {
     if !s.endpoints.is_empty() {
         println!();
         println!("Endpoints:");
+        let base_url = s.service_url.as_deref().unwrap_or(&s.url);
         for ep in &s.endpoints {
-            render_endpoint(ep);
+            render_endpoint(ep, base_url);
         }
     }
 }
 
-fn render_endpoint(ep: &Endpoint) {
-    let pricing = match &ep.payment {
-        None => "free".to_string(),
-        Some(p) => {
-            let mut parts = Vec::new();
-
-            if p.dynamic == Some(true) {
-                parts.push("dynamic".to_string());
-            } else if let Some(ref amount) = p.amount {
-                let formatted = match p.decimals {
-                    Some(d) if d > 0 => {
-                        let divisor = 10u128.pow(d);
-                        match amount.parse::<u128>() {
-                            Ok(v) => {
-                                format!("${:.prec$}", v as f64 / divisor as f64, prec = d as usize)
-                            }
-                            Err(_) => amount.clone(),
-                        }
-                    }
-                    _ => amount.clone(),
-                };
-                parts.push(formatted);
-            }
-
-            parts.push(p.intent.clone());
-
-            parts.join(" ")
-        }
-    };
+fn render_endpoint(ep: &Endpoint, base_url: &str) {
+    let pricing = format_endpoint_pricing(ep);
 
     println!("  {:>6} {:<40} {}", ep.method, ep.path, pricing);
 
@@ -317,6 +458,11 @@ fn render_endpoint(ep: &Endpoint) {
             println!("         per {unit_type}");
         }
     }
+
+    println!(
+        "         example: {}",
+        format_example_command(&ep.method, base_url, &ep.path)
+    );
 
     if let Some(ref docs_url) = ep.docs {
         println!("         docs: {docs_url}");
