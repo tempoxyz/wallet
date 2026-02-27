@@ -33,17 +33,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
-      # Check if the version in Cargo.toml has been released yet.
-      # On normal merges: tag already exists (no output). On version bump PR merges: no tag → output version.
       - name: Check for unreleased version
         id: check
         run: |
-          # Reset to origin/main in case changelogs-rs pushed commits during this run
           git fetch origin main --tags
           git reset --hard origin/main
 
           VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          TAG="v${VERSION}"
+          TAG="presto@${VERSION}"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists, no release needed"
           else
@@ -55,7 +52,9 @@ jobs:
     name: Release
     needs: version
     if: needs.version.outputs.new_version != ''
-    uses: ./.github/workflows/release.yml
-    with:
-      version: ${{ needs.version.outputs.new_version }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger release workflow
+        run: gh workflow run release.yml -f version=${{ needs.version.outputs.new_version }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
