@@ -90,8 +90,12 @@ pub(super) async fn get_nonce_for_key(
     Ok(nonce_u256.to::<u64>())
 }
 
-/// Resolve gas, estimate, build and sign a Tempo type-0x76 transaction.
-async fn resolve_and_sign_tx(
+/// Estimate gas, build and sign a Tempo type-0x76 transaction.
+///
+/// Accepts pre-resolved nonce and gas prices so the caller can fetch them
+/// in parallel (saving one RPC round trip).
+#[allow(clippy::too_many_arguments)]
+async fn estimate_and_sign_tx(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
     wallet: &WalletSigner,
     chain_id: u64,
@@ -99,11 +103,9 @@ async fn resolve_and_sign_tx(
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
     nonce: u64,
+    max_fee_per_gas: u128,
+    max_priority_fee_per_gas: u128,
 ) -> Result<Vec<u8>> {
-    let resolved = gas::resolve_gas(provider, from, DEFAULT_GAS_PRICE, DEFAULT_GAS_PRICE)
-        .await
-        .map_err(|e| PrestoError::Http(e.to_string()))?;
-
     let key_auth = wallet.signing_mode.key_authorization();
     let gas_limit = tx_builder::estimate_gas(
         provider,
@@ -112,8 +114,8 @@ async fn resolve_and_sign_tx(
         nonce,
         fee_token,
         &calls,
-        resolved.max_fee_per_gas,
-        resolved.max_priority_fee_per_gas,
+        max_fee_per_gas,
+        max_priority_fee_per_gas,
         key_auth,
     )
     .await
@@ -126,8 +128,8 @@ async fn resolve_and_sign_tx(
         nonce,
         nonce_key: U256::from(SESSION_NONCE_KEY),
         gas_limit,
-        max_fee_per_gas: resolved.max_fee_per_gas,
-        max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
+        max_fee_per_gas,
+        max_priority_fee_per_gas,
         fee_payer: false,
         valid_before: None,
         key_authorization: key_auth.cloned(),
@@ -153,9 +155,25 @@ pub(super) async fn submit_tempo_tx(
     calls: Vec<tempo_primitives::transaction::Call>,
     nonce_offset: u64,
 ) -> Result<String> {
-    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
-    let tx_bytes =
-        resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls, nonce).await?;
+    // Fetch nonce and gas prices in parallel (saves one RPC round trip)
+    let (nonce_result, gas_result) = tokio::join!(
+        get_nonce_for_key(provider, from, SESSION_NONCE_KEY),
+        gas::resolve_gas(provider, from, DEFAULT_GAS_PRICE, DEFAULT_GAS_PRICE),
+    );
+    let nonce = nonce_result? + nonce_offset;
+    let resolved = gas_result.map_err(|e| PrestoError::Http(e.to_string()))?;
+    let tx_bytes = estimate_and_sign_tx(
+        provider,
+        wallet,
+        chain_id,
+        fee_token,
+        from,
+        calls,
+        nonce,
+        resolved.max_fee_per_gas,
+        resolved.max_priority_fee_per_gas,
+    )
+    .await?;
 
     let pending = provider
         .send_raw_transaction(&tx_bytes)
@@ -230,9 +248,26 @@ pub(super) async fn create_tempo_payment_from_calls(
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;
-    let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
-    let tx_bytes =
-        resolve_and_sign_tx(&provider, signing, chain_id, fee_token, from, calls, nonce).await?;
+
+    // Fetch nonce and gas prices in parallel (saves one RPC round trip)
+    let (nonce_result, gas_result) = tokio::join!(
+        get_nonce_for_key(&provider, from, SESSION_NONCE_KEY),
+        gas::resolve_gas(&provider, from, DEFAULT_GAS_PRICE, DEFAULT_GAS_PRICE),
+    );
+    let nonce = nonce_result?;
+    let resolved = gas_result.map_err(|e| PrestoError::Http(e.to_string()))?;
+    let tx_bytes = estimate_and_sign_tx(
+        &provider,
+        signing,
+        chain_id,
+        fee_token,
+        from,
+        calls,
+        nonce,
+        resolved.max_fee_per_gas,
+        resolved.max_priority_fee_per_gas,
+    )
+    .await?;
 
     let credential = tx_builder::build_charge_credential(challenge, &tx_bytes, chain_id, from);
 
