@@ -512,6 +512,8 @@ pub async fn handle_session_request(
     // Reuse requires matching payer AND challenge parameters (escrow, currency,
     // recipient, chain) to avoid a wasted round trip when the server changes config.
     let existing = store::load_session(&session_key)?;
+    let had_prior_session = existing.is_some();
+
     let reuse = existing.as_ref().is_some_and(|r| {
         !r.is_expired()
             && r.payer == did
@@ -581,7 +583,10 @@ pub async fn handle_session_request(
     }
 
     // === Try on-chain recovery by scanning ChannelOpened events ===
-    {
+    // Only scan if there was a prior session record (expired, deleted, or reuse
+    // failed). For genuinely new sessions (no prior record), skip the expensive
+    // on-chain scan — there can't be an existing channel to recover.
+    if had_prior_session {
         if request_ctx.log_enabled() {
             eprintln!("Checking for existing channel on-chain...");
         }

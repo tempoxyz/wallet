@@ -29,7 +29,7 @@ pub(crate) struct TokenBalance {
 }
 
 /// Spending limit for the key's authorized token.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct SpendingLimitInfo {
     pub(super) unlimited: bool,
     pub(super) limit: Option<String>,
@@ -101,34 +101,48 @@ pub async fn show_keys(
     let creds = WalletCredentials::load()?;
     let network = network_or_default(network);
 
-    // Pre-fetch balances for each unique (wallet, network) pair.
-    // Cache key includes chain_id so the same wallet on different networks
-    // doesn't overwrite its sibling's balances.
-    let mut balance_cache: HashMap<(String, u64), Vec<TokenBalance>> = HashMap::new();
+    // Pre-fetch balances and spending limits concurrently for all keys.
+    // Dedup balance queries: multiple keys can share the same (wallet_address, chain_id).
+    let mut seen_wallets = std::collections::HashSet::new();
     let mut balance_tasks = Vec::new();
+    let mut limit_tasks = Vec::new();
     for entry in &creds.keys {
-        if entry.wallet_address.is_empty() {
-            continue;
+        // Balance tasks (deduplicated by wallet + chain)
+        if !entry.wallet_address.is_empty() {
+            let dedup_key = (entry.wallet_address.clone(), entry.chain_id);
+            if seen_wallets.insert(dedup_key) {
+                let entry_network = Network::from_chain_id(entry.chain_id)
+                    .map(|n| n.as_str())
+                    .unwrap_or(network);
+                let addr = entry.wallet_address.clone();
+                let chain_id = entry.chain_id;
+                balance_tasks.push(async move {
+                    (
+                        (addr.clone(), chain_id),
+                        query_all_balances(config, entry_network, &addr).await,
+                    )
+                });
+            }
         }
+
+        // Spending limit tasks
         let entry_network = Network::from_chain_id(entry.chain_id)
             .map(|n| n.as_str())
             .unwrap_or(network);
-        let addr = entry.wallet_address.clone();
-        let chain_id = entry.chain_id;
-        balance_tasks.push(async move {
-            (
-                (addr.clone(), chain_id),
-                query_all_balances(config, entry_network, &addr).await,
-            )
-        });
+        limit_tasks.push(async move { query_spending_limit(config, entry_network, entry).await });
     }
-    for (key, balances) in join_all(balance_tasks).await {
+
+    // Run all RPC queries concurrently
+    let (balance_results, limit_results) =
+        tokio::join!(join_all(balance_tasks), join_all(limit_tasks));
+
+    let mut balance_cache: HashMap<(String, u64), Vec<TokenBalance>> = HashMap::new();
+    for (key, balances) in balance_results {
         balance_cache.insert(key, balances);
     }
 
     let mut keys = Vec::new();
-
-    for entry in &creds.keys {
+    for (i, entry) in creds.keys.iter().enumerate() {
         let label = match entry.wallet_type {
             WalletType::Passkey => "passkey",
             WalletType::Local => "local",
@@ -137,17 +151,15 @@ pub async fn show_keys(
             .map(|n| n.as_str())
             .unwrap_or(network);
         let entry_chain_id = Some(entry.chain_id);
-        keys.push(
-            build_key_info(
-                config,
-                entry_network,
-                entry_chain_id,
-                label,
-                entry,
-                &balance_cache,
-            )
-            .await,
-        );
+        keys.push(build_key_info_with_limit(
+            config,
+            entry_network,
+            entry_chain_id,
+            label,
+            entry,
+            &balance_cache,
+            limit_results[i].clone(),
+        ));
     }
 
     let total = keys.len();
@@ -193,14 +205,15 @@ pub async fn show_keys(
 // Key info builder
 // ---------------------------------------------------------------------------
 
-/// Build a `KeyInfo` from a key entry, querying on-chain data if on the current network.
-pub(super) async fn build_key_info(
-    config: &Config,
-    network: &str,
-    current_chain_id: Option<u64>,
+/// Build a `KeyInfo` from pre-fetched balance and spending limit data (no RPC calls).
+pub(super) fn build_key_info_with_limit(
+    _config: &Config,
+    _network: &str,
+    _current_chain_id: Option<u64>,
     label: &str,
     entry: &KeyEntry,
     balance_cache: &HashMap<(String, u64), Vec<TokenBalance>>,
+    key_token_info: Option<(String, String, SpendingLimitInfo)>,
 ) -> KeyInfo {
     let address = entry
         .key_address
@@ -212,12 +225,6 @@ pub(super) async fn build_key_info(
         WalletType::Local => "local",
     };
 
-    let on_current_chain = current_chain_id.is_some_and(|cid| cid == entry.chain_id);
-    let key_token_info = if on_current_chain {
-        query_spending_limit(config, network, entry).await
-    } else {
-        None
-    };
     let (symbol, currency, spending_limit) = match key_token_info {
         Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
         None => (None, None, None),
@@ -387,32 +394,33 @@ pub(super) async fn query_all_balances(
         .map(|n| n.supported_tokens())
         .unwrap_or(&[]);
 
-    let mut balances = Vec::new();
+    // Query all token balances concurrently
+    let balance_futures: Vec<_> = tokens
+        .iter()
+        .filter_map(|token_config| {
+            let token_address: Address = token_config.address.parse().ok()?;
+            let provider = &provider;
+            Some(async move {
+                match query_token_balance(provider, token_address, account).await {
+                    Ok(b) => Some(TokenBalance {
+                        symbol: token_config.symbol.to_string(),
+                        currency: token_config.address.to_string(),
+                        balance: format_u256_with_decimals(b, token_config.decimals),
+                    }),
+                    Err(e) => {
+                        debug!(%e, token = token_config.symbol, "failed to query balance");
+                        None
+                    }
+                }
+            })
+        })
+        .collect();
 
-    for token_config in tokens {
-        let token_address: Address = match token_config.address.parse() {
-            Ok(a) => a,
-            Err(_) => continue,
-        };
-
-        let balance = match query_token_balance(&provider, token_address, account).await {
-            Ok(b) => b,
-            Err(e) => {
-                debug!(%e, token = token_config.symbol, "failed to query balance");
-                continue;
-            }
-        };
-
-        let balance_human = format_u256_with_decimals(balance, token_config.decimals);
-
-        balances.push(TokenBalance {
-            symbol: token_config.symbol.to_string(),
-            currency: token_config.address.to_string(),
-            balance: balance_human,
-        });
-    }
-
-    balances
+    futures::future::join_all(balance_futures)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 /// Query the spending limit for the key's authorized token on this network.
@@ -421,7 +429,7 @@ pub(super) async fn query_all_balances(
 /// checking the local key authorization first, then falling back to querying
 /// all supported tokens on-chain and picking the one with a non-zero or
 /// unlimited limit.
-async fn query_spending_limit(
+pub(super) async fn query_spending_limit(
     config: &Config,
     network: &str,
     key_entry: &KeyEntry,

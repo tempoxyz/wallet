@@ -217,26 +217,30 @@ async fn list_all_channels(
         }
     }
 
-    // Phase 3: pending closes not already covered
+    // Phase 3: pending closes not already covered — query on-chain state concurrently
     let pending = session_store::list_all_pending_closes()?;
-    for p in &pending {
-        if views.iter().any(|v| v.channel_id == p.channel_id) {
-            continue;
-        }
-        if let Some(net) = network {
-            if p.network != net {
-                continue;
-            }
-        }
-        let (symbol, deposit, spent, remaining) = match query_channel_state(
-            config,
-            &p.channel_id,
-            &p.network,
-        )
-        .await
-        {
+    let pending_to_query: Vec<_> = pending
+        .iter()
+        .filter(|p| {
+            !views.iter().any(|v| v.channel_id == p.channel_id)
+                && network.is_none_or(|net| p.network == net)
+        })
+        .collect();
+
+    let state_futures: Vec<_> = pending_to_query
+        .iter()
+        .map(|p| async move {
+            let result = query_channel_state(config, &p.channel_id, &p.network).await;
+            (&p.channel_id, &p.network, p.ready_at, result)
+        })
+        .collect();
+
+    let results = futures::future::join_all(state_futures).await;
+
+    for (channel_id, network_name, ready_at, result) in results {
+        let (symbol, deposit, spent, remaining) = match result {
             Ok(Some((token, dep, set))) => {
-                let (sym, dec) = resolve_token_meta(&p.network, &token);
+                let (sym, dec) = resolve_token_meta(network_name, &token);
                 let rem = dep.saturating_sub(set);
                 (
                     sym,
@@ -247,26 +251,26 @@ async fn list_all_channels(
             }
             Ok(None) => {
                 // Channel confirmed not on-chain (finalized) — clean up stale record
-                let _ = session_store::delete_pending_close(&p.channel_id);
-                let _ = session_store::delete_session_by_channel_id(&p.channel_id);
+                let _ = session_store::delete_pending_close(channel_id);
+                let _ = session_store::delete_session_by_channel_id(channel_id);
                 continue;
             }
             Err(e) => {
                 // RPC/config error — skip but don't delete (may be transient)
-                tracing::warn!(%e, channel_id = %p.channel_id, "failed to query channel state, skipping");
+                tracing::warn!(%e, channel_id = %channel_id, "failed to query channel state, skipping");
                 continue;
             }
         };
         views.push(ChannelView {
-            channel_id: p.channel_id.clone(),
-            network: p.network.clone(),
+            channel_id: channel_id.clone(),
+            network: network_name.clone(),
             origin: Some(String::new()),
             symbol,
             deposit,
             spent,
             remaining,
             status: "closed".to_string(),
-            remaining_secs: Some(p.ready_at.saturating_sub(now)),
+            remaining_secs: Some(ready_at.saturating_sub(now)),
         });
     }
 
@@ -343,20 +347,24 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
     let pending = session_store::list_all_pending_closes()?;
     let now = session_store::now_secs();
 
-    let mut views = Vec::new();
-    for p in &pending {
-        let remaining_secs = p.ready_at.saturating_sub(now);
+    // Query all channel states concurrently
+    let state_futures: Vec<_> = pending
+        .iter()
+        .map(|p| async move {
+            let result = query_channel_state(config, &p.channel_id, &p.network).await;
+            (&p.channel_id, &p.network, p.ready_at, result)
+        })
+        .collect();
 
-        // Try to get on-chain state for richer display
-        let (symbol, deposit, settled, remaining) = match query_channel_state(
-            config,
-            &p.channel_id,
-            &p.network,
-        )
-        .await
-        {
+    let results = futures::future::join_all(state_futures).await;
+
+    let mut views = Vec::new();
+    for (channel_id, network, ready_at, result) in results {
+        let remaining_secs = ready_at.saturating_sub(now);
+
+        let (symbol, deposit, settled, remaining) = match result {
             Ok(Some((token, dep, set))) => {
-                let (sym, dec) = resolve_token_meta(&p.network, &token);
+                let (sym, dec) = resolve_token_meta(network, &token);
                 let rem = dep.saturating_sub(set);
                 (
                     sym,
@@ -367,20 +375,20 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
             }
             Ok(None) => {
                 // Channel confirmed not on-chain (finalized) — clean up stale record
-                let _ = session_store::delete_pending_close(&p.channel_id);
-                let _ = session_store::delete_session_by_channel_id(&p.channel_id);
+                let _ = session_store::delete_pending_close(channel_id);
+                let _ = session_store::delete_session_by_channel_id(channel_id);
                 continue;
             }
             Err(e) => {
                 // RPC/config error — skip but don't delete (may be transient)
-                tracing::warn!(%e, channel_id = %p.channel_id, "failed to query channel state, skipping");
+                tracing::warn!(%e, channel_id = %channel_id, "failed to query channel state, skipping");
                 continue;
             }
         };
 
         views.push(ChannelView {
-            channel_id: p.channel_id.clone(),
-            network: p.network.clone(),
+            channel_id: channel_id.clone(),
+            network: network.clone(),
             origin: None,
             symbol,
             deposit,

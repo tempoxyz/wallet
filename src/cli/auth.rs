@@ -5,8 +5,8 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 use super::keys::{
-    build_key_info, format_expiry_countdown, key_expiry_timestamp, print_key_limits_to,
-    query_all_balances, KeyInfo,
+    build_key_info_with_limit, format_expiry_countdown, key_expiry_timestamp, print_key_limits_to,
+    query_all_balances, query_spending_limit, KeyInfo,
 };
 use super::OutputFormat;
 use crate::analytics::Analytics;
@@ -213,22 +213,26 @@ async fn build_whoami_response(
             };
 
             let wallet_addr = response.wallet.as_deref().unwrap_or("");
-            let balance_cache = vec![(
-                (wallet_addr.to_string(), key_entry.chain_id),
-                query_all_balances(config, network, wallet_addr).await,
-            )]
-            .into_iter()
-            .collect();
 
-            let mut key_info = build_key_info(
+            // Run balance and spending limit queries concurrently
+            let (balances, spending_limit_info) = tokio::join!(
+                query_all_balances(config, network, wallet_addr),
+                query_spending_limit(config, network, key_entry)
+            );
+
+            let balance_cache = vec![((wallet_addr.to_string(), key_entry.chain_id), balances)]
+                .into_iter()
+                .collect();
+
+            let mut key_info = build_key_info_with_limit(
                 config,
                 network,
                 chain_id,
                 &key_label,
                 key_entry,
                 &balance_cache,
-            )
-            .await;
+                spending_limit_info,
+            );
             // whoami shows wallet/type/balance at the top level, not per-key
             key_info.wallet_address = None;
             key_info.wallet_type = None;
