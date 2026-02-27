@@ -55,6 +55,85 @@ impl SignTxParams {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct TestTxPreview {
+        nonce: u64,
+        nonce_key: U256,
+        valid_before: Option<u64>,
+    }
+
+    // Test-only helper that mirrors the core fields we set on TempoTxOptions.
+    fn preview_tempo_tx_from_params(params: SignTxParams) -> TestTxPreview {
+        TestTxPreview {
+            nonce: params.nonce,
+            nonce_key: params.nonce_key,
+            valid_before: params.valid_before,
+        }
+    }
+
+    #[test]
+    fn expiring_nonce_params_shape() {
+        let params = SignTxParams::expiring(0);
+        assert_eq!(params.nonce, 0, "nonce should equal provided offset");
+        assert_eq!(
+            params.nonce_key,
+            U256::MAX,
+            "nonce_key must be maxUint256 for TIP-1009",
+        );
+        let vb = params
+            .valid_before
+            .expect("valid_before should be set for expiring nonces");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert!(vb >= now, "valid_before must be in the future");
+        // Allow 1s slop for test runtime between computing now and inside expiring().
+        assert!(
+            vb <= now + VALID_BEFORE_WINDOW_SECS + 1,
+            "valid_before window too large",
+        );
+    }
+
+    #[test]
+    fn expiring_nonce_params_offset_applied() {
+        let params = SignTxParams::expiring(5);
+        assert_eq!(params.nonce, 5, "offset should be used as the nonce value");
+    }
+
+    #[test]
+    fn expiring_nonce_valid_before_window_in_range() {
+        let params = SignTxParams::expiring(0);
+        let vb = params
+            .valid_before
+            .expect("valid_before should be set for expiring nonces");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let delta = vb.saturating_sub(now);
+        assert!(
+            delta >= VALID_BEFORE_WINDOW_SECS.saturating_sub(1)
+                && delta <= VALID_BEFORE_WINDOW_SECS + 1,
+            "valid_before delta {} not within ±1s of {}",
+            delta,
+            VALID_BEFORE_WINDOW_SECS
+        );
+    }
+
+    #[test]
+    fn preview_constructed_tx_has_expiring_fields() {
+        let preview = preview_tempo_tx_from_params(SignTxParams::expiring(2));
+        assert_eq!(preview.nonce, 2);
+        assert_eq!(preview.nonce_key, U256::MAX);
+        assert!(preview.valid_before.is_some());
+    }
+}
+
 /// Resolve gas, estimate, build and sign a Tempo type-0x76 transaction.
 async fn resolve_and_sign_tx(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
@@ -107,8 +186,10 @@ async fn resolve_and_sign_tx(
 
 /// Submit a Tempo type-0x76 transaction and return the tx hash.
 ///
-/// `nonce_offset` is added to the on-chain nonce to allow callers to sequence
-/// multiple transactions without waiting for each to confirm.
+/// Uses expiring nonces (TIP-1009) with `nonce_key = maxUint256`.
+/// `nonce_offset` is used directly as the expiring nonce value. Callers must
+/// ensure unique offsets for concurrently submitted transactions within the
+/// short validity window to avoid collisions.
 pub(super) async fn submit_tempo_tx(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     wallet: &WalletSigner,
