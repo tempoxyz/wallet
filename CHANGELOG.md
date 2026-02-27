@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0 (2026-02-27)
+
+### Minor Changes
+
+- Enhanced `--sse-json` streaming output to use a structured `{event, data, ts}` NDJSON schema, with automatic JSON parsing of `data:` payloads and ISO-8601 timestamps. Added error event emission on HTTP errors during SSE streaming. Added tests for SSE/NDJSON schema, error events, and curl-parity flags (`--compressed`, `--referer`, `--http2`, `--http1.1`, `--proxy`, `--no-proxy`).
+- Added `--connect-timeout`, `--retries`, and `--retry-backoff` CLI flags to support configurable TCP connection timeouts and automatic retry logic with exponential backoff on transient network errors (connect failures and timeouts).
+- Added enhanced version info to `--version` output, including git commit hash, build date, and build profile. Added `-j --version` flag support for structured JSON version output with `version`, `git_commit`, `build_date`, and `profile` fields.
+- Added `--offline` flag that causes the CLI to fail immediately with a network error without making any HTTP requests. Added corresponding `PrestoError::OfflineMode` variant, exit code mapping, JSON error output support, and tests.
+- Added structured JSON error output when `--output-format json` is set, routing errors to stdout as `{ code, message, cause? }` objects with stable machine-readable error code labels. Added `ExitCode::label()` for mapping exit codes to string identifiers, a `render_error_json` helper, and a corresponding integration test. Also suppressed `dead_code` warnings for `OsKeychain` on non-macOS test builds and added a local `coverage` Makefile target.
+- Added `--data-urlencode` support with curl-compatible parsing (bare value, `name=value`, `@file`, and `name@file` forms). Extended `-G/--get` to append URL-encoded pairs to the query string alongside `-d` data, and automatically sets `Content-Type: application/x-www-form-urlencoded` when `--data-urlencode` is used without `-G`.
+- Refactored key management to use a simplified `KeyEntry` schema, renaming `access_key`/`access_key_address`/`provisioned_chain_ids` to `key`/`key_address`/`provisioned` with new fields for `chain_id`, `key_type`, `expiry`, and `token_limits`. Extracted key authorization logic into a dedicated `key_authorization` module and renamed source files (`wallet.rs` → `local_wallet.rs`, `login.rs` → `passkey_login.rs`) for clarity.
+
+### Patch Changes
+
+- Fixed install script to handle environments where `BASH_SOURCE[0]` is unset by guarding its usage, preventing errors when the script is run via `curl | bash`.
+- Fixed sensitive data leaking into verbose logs by redacting URL query parameters and sensitive header values (Authorization, Cookie, X-Api-Key, etc.) before writing to stderr. Added `redact_header_value` and `redact_url` utilities with corresponding unit and integration tests.
+- Added `#![forbid(unsafe_code)]` and `#![deny(warnings)]` crate attributes and replaced `unwrap`/`expect` calls in non-test code with proper error handling. Added open source readiness documentation including a phased backlog of quality, security, and agent-UX tasks.
+- Updated documentation across README.md, CONTRIBUTING.md, ARCHITECTURE.md, and the agent skill file. Replaced `-q`/`--quiet` and `--output-format json` flags with `-s`/`--silent` and `-j`/`--json-output`, added new CLI options (`--max-pay`, `--currency`, `-L`, `--stream`, `--sse`, `--retries`, etc.), expanded environment variable references, and added a Changelogs section to the contributing guide.
+- Added CLI integration tests for config file detection, precedence, and environment variable overrides, covering macOS/Linux paths, explicit `-c` flag, malformed configs, unknown fields, empty configs, RPC overrides, and invalid network flags.
+- Fixed browser opening logic to use a plain thread instead of `tokio::task::spawn_blocking` when waiting for user input before opening the URL, preventing the process from hanging after auth completes.
+- Replaced on-chain nonce tracking with expiring nonces (TIP-1009) for session transactions. Removed the `get_nonce_for_key` function and NONCE precompile integration, instead using `nonce_key = maxUint256` with a short 25-second validity window to eliminate on-chain nonce queries.
+- Updated MPP protocol URL references from `mpp.sh` to `mpp.dev` across documentation and source files.
+
 ## 0.4.1 (2026-02-26)
 
 ### Patch Changes
