@@ -204,10 +204,14 @@ pub(super) async fn close_on_chain(
     let tempo_provider =
         alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
-    // Check current channel state to determine which step we're on
-    let on_chain = get_channel_on_chain(&provider, escrow_contract, channel_id, B256::ZERO)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Channel no longer exists on-chain"))?;
+    // Fetch channel state and grace period concurrently — both are independent RPC calls.
+    let (on_chain_result, grace_period) = tokio::join!(
+        get_channel_on_chain(&provider, escrow_contract, channel_id, B256::ZERO),
+        read_grace_period(&provider, escrow_contract)
+    );
+    let on_chain =
+        on_chain_result?.ok_or_else(|| anyhow::anyhow!("Channel no longer exists on-chain"))?;
+    let grace_secs = grace_period.unwrap_or(900);
 
     let from = wallet.from;
     let channel_id_hex = format!("{:#x}", channel_id);
@@ -245,9 +249,6 @@ pub(super) async fn close_on_chain(
             .unwrap_or(tx_hash);
         tracing::info!("requestClose TX: {}", tx_url);
 
-        let grace_secs = read_grace_period(&provider, escrow_contract)
-            .await
-            .unwrap_or(900);
         let now = session_store::now_secs();
         let ready_at = now + grace_secs;
 
@@ -261,11 +262,8 @@ pub(super) async fn close_on_chain(
     }
 
     // closeRequestedAt is non-zero — check if grace period has elapsed
-    let grace_period = read_grace_period(&provider, escrow_contract)
-        .await
-        .unwrap_or(900);
     let now = session_store::now_secs();
-    let ready_at = on_chain.close_requested_at as u64 + grace_period;
+    let ready_at = on_chain.close_requested_at + grace_secs;
     if now < ready_at {
         let remaining = ready_at - now;
 

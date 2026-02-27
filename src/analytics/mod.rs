@@ -53,6 +53,7 @@ fn anonymous_id() -> String {
 pub struct Analytics {
     client: Arc<posthog_rs::Client>,
     distinct_id: String,
+    wallet_address: Option<String>,
     network: Option<String>,
     pending: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
@@ -64,11 +65,13 @@ impl Analytics {
         }
 
         let client = posthog::build_client().await?;
-        let distinct_id = get_wallet_address().unwrap_or_else(anonymous_id);
+        let wallet_address = get_wallet_address();
+        let distinct_id = wallet_address.clone().unwrap_or_else(anonymous_id);
 
         Some(Self {
             client: Arc::new(client),
             distinct_id,
+            wallet_address,
             network: network.map(|s| s.to_string()),
             pending: Arc::new(Mutex::new(Vec::new())),
         })
@@ -99,7 +102,7 @@ impl Analytics {
     }
 
     pub fn identify(&self) {
-        let Some(wallet) = get_wallet_address() else {
+        let Some(wallet) = self.wallet_address.clone() else {
             return;
         };
 
