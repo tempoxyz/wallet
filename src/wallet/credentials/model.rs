@@ -110,7 +110,7 @@ impl std::fmt::Debug for KeyEntry {
 /// Wallet credentials stored in keys.toml.
 ///
 /// Supports multiple key entries via `[[keys]]` array of tables.
-/// Key selection is deterministic: first key with key > first key.
+/// Key selection is deterministic: passkey > first key with key > first key.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WalletCredentials {
     #[serde(default)]
@@ -138,8 +138,15 @@ impl WalletCredentials {
 
     /// Get the primary key entry.
     ///
-    /// Deterministic selection: first key with a signing key > first entry.
+    /// Deterministic selection: passkey > first key with a signing key > first entry.
     pub fn primary_key(&self) -> Option<&KeyEntry> {
+        if let Some(entry) = self
+            .keys
+            .iter()
+            .find(|k| k.wallet_type == WalletType::Passkey)
+        {
+            return Some(entry);
+        }
         if let Some(entry) = self
             .keys
             .iter()

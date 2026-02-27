@@ -321,7 +321,7 @@ pub async fn show_wallet_list(output_format: OutputFormat) -> anyhow::Result<()>
             let key = addr.to_lowercase();
             wallets.entry(key).or_insert_with(|| WalletListEntry {
                 address: addr,
-                wallet_type: "local (keychain only)".to_string(),
+                wallet_type: "local".to_string(),
                 networks: Vec::new(),
             });
         }

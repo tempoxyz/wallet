@@ -508,7 +508,11 @@ pub enum KeyCommands {
     List,
     /// Create a new key for a local wallet (generates fresh 30-day key)
     #[command(hide = true)]
-    Create,
+    Create {
+        /// Wallet address to renew key for (required when multiple local wallets exist)
+        #[arg(long)]
+        wallet: Option<String>,
+    },
     /// Delete keys.toml and reset all local key state
     #[command(hide = true)]
     Clean {

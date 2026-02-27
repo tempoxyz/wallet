@@ -157,8 +157,10 @@ mod macos {
 
         for line in stdout.lines() {
             let trimmed = line.trim();
-            // New keychain item boundary — flush previous block
-            if trimmed.starts_with("keychain:") {
+            // New item boundary — flush previous block.
+            // `keychain:` starts a new keychain database; `class:` starts a
+            // new item within that database.  Both delimit blocks.
+            if trimmed.starts_with("keychain:") || trimmed.starts_with("class:") {
                 if cur_is_ours {
                     if let Some(acct) = cur_acct.take() {
                         accounts.push(acct);

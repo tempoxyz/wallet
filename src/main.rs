@@ -450,8 +450,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 Some(KeyCommands::List) => {
                     cli::keys::show_keys(&config, output_format, network).await
                 }
-                Some(KeyCommands::Create) => {
-                    cli::local_wallet::create_access_key(None)?;
+                Some(KeyCommands::Create { wallet }) => {
+                    cli::local_wallet::create_access_key(wallet.as_deref())?;
                     cli::auth::show_whoami(&config, output_format, network, None).await
                 }
                 Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),

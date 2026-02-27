@@ -712,7 +712,10 @@ async fn ensure_wallet_configured(
 
     let creds = creds.unwrap();
     if let Some(cid) = chain_id {
-        let has_key = creds.keys.iter().any(|k| k.chain_id == cid);
+        let has_key = creds
+            .keys
+            .iter()
+            .any(|k| k.chain_id == cid || k.chain_id == 0);
         if !has_key {
             anyhow::bail!(PrestoError::ConfigMissing(format!(
                 "No key configured for network '{challenge_network}'. Log in with 'presto login{network_flag}'."

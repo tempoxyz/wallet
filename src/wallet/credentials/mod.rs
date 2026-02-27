@@ -526,8 +526,8 @@ provisioned = true
     // ==================== Multi-key selection rules ====================
 
     #[test]
-    fn test_primary_key_first_with_key_wins() {
-        // First entry with a signing key wins, regardless of wallet type.
+    fn test_primary_key_passkey_beats_local_with_key() {
+        // Passkey entry should win even when a local entry has an inline key.
         let mut creds = WalletCredentials::default();
         creds.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -541,28 +541,28 @@ provisioned = true
             key: Some(Zeroizing::new("0xpasskey_key".to_string())),
             ..Default::default()
         });
-        // First entry with a key wins (insertion order)
-        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xLocal");
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xPasskey");
     }
 
     #[test]
-    fn test_primary_key_skips_entries_without_key() {
-        // Entries without a signing key are skipped in favor of those with one.
+    fn test_primary_key_passkey_without_key_still_wins() {
+        // Passkey entry wins priority even without an inline key.
         let mut creds = WalletCredentials::default();
-        creds.keys.push(KeyEntry {
-            wallet_type: WalletType::Passkey,
-            wallet_address: "0xPasskey".to_string(),
-            ..Default::default()
-        });
         creds.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
             wallet_address: "0xLocal".to_string(),
             key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
             ..Default::default()
         });
-        // Local entry has a key, passkey doesn't → local wins
-        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xLocal");
-        assert!(creds.has_wallet());
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Passkey,
+            wallet_address: "0xPasskey".to_string(),
+            ..Default::default()
+        });
+        // Passkey takes priority even without a key
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xPasskey");
+        // But has_wallet() is false because passkey has no inline key
+        assert!(!creds.has_wallet());
     }
 
     #[test]
