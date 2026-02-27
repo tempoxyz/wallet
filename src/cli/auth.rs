@@ -274,6 +274,9 @@ fn print_whoami_text(
     if let Some(key) = &response.key {
         writeln!(w)?;
         writeln!(w, "{:>10}: {}", "Key", key.address)?;
+        if let Some(network) = &response.network {
+            writeln!(w, "{:>10}: {}", "Chain", network)?;
+        }
         if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
             writeln!(
                 w,

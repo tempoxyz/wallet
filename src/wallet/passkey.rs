@@ -208,17 +208,23 @@ impl WalletManager {
         let mut creds = WalletCredentials::load()?;
 
         // Resolve the chain_id before upserting so we can key by (wallet, chain).
-        // chain_id 0 means the server didn't specify — default to Tempo mainnet.
+        // Use the chain_id from the key authorization if present and non-zero,
+        // otherwise fall back to the network the user requested.
+        let default_chain_id = self
+            .network
+            .parse::<crate::network::Network>()
+            .map(|n| n.chain_id())
+            .unwrap_or(crate::network::evm_chain_ids::TEMPO);
         let chain_id = validated
             .as_ref()
             .map(|v| {
                 if v.chain_id != 0 {
                     v.chain_id
                 } else {
-                    crate::network::evm_chain_ids::TEMPO
+                    default_chain_id
                 }
             })
-            .unwrap_or(crate::network::evm_chain_ids::TEMPO);
+            .unwrap_or(default_chain_id);
 
         let entry = creds.upsert_by_wallet_and_chain(&callback.account_address, chain_id);
 
