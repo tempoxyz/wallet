@@ -15,14 +15,16 @@ use crate::http::{HttpResponse, RequestContext};
 use crate::network::Network;
 use crate::wallet::signer::WalletSigner;
 
-/// The nonceKey used for client-side session transactions.
-pub(super) const SESSION_NONCE_KEY: u64 = 0;
+/// Expiring nonce key for Tempo transactions (TIP-1009): `maxUint256`.
+/// When using this key, set `valid_before` to a short window in the future
+/// (<= ~30s) and a fixed nonce (we use 0) — no on-chain nonce tracking needed.
+const EXPIRING_NONCE_KEY: U256 = U256::MAX;
 
 /// Default gas price: 1 gwei.
 const DEFAULT_GAS_PRICE: u128 = 1_000_000_000;
 
-/// NONCE precompile address for querying 2D nonce spaces.
-const NONCE_PRECOMPILE: &str = "0x4e4f4e4345000000000000000000000000000000";
+/// Default validity window for expiring nonce transactions (in seconds).
+const VALID_BEFORE_WINDOW_SECS: u64 = 25;
 
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {
@@ -30,64 +32,27 @@ pub(super) struct TempoPaymentResult {
     pub tx_bytes: Vec<u8>,
 }
 
-/// Query the on-chain nonce for a specific nonceKey via the NONCE precompile.
-///
-/// Calls `getNonce(address, uint256)` on the NONCE precompile to get the
-/// current nonce for the given account in the specified nonceKey space.
-pub(super) async fn get_nonce_for_key(
-    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
-    account: Address,
-    nonce_key: u64,
-) -> Result<u64> {
-    // For nonceKey=0, use the standard account transaction count.
-    if nonce_key == 0 {
-        // Prefer a raw request to avoid type coupling; returns hex string like "0x..."
-        let count_hex: String = provider
-            .raw_request(
-                "eth_getTransactionCount".into(),
-                [format!("{:#x}", account), "latest".to_string()],
-            )
-            .await
-            .context("Failed to query transaction count")?;
-        let trimmed = count_hex.trim_start_matches("0x");
-        let nonce = u64::from_str_radix(trimmed, 16).unwrap_or(0);
-        return Ok(nonce);
-    }
-    use alloy::primitives::Bytes;
-    use alloy::sol;
-    use alloy::sol_types::SolCall;
+/// Parameters controlling nonce behavior for signing Tempo transactions.
+struct SignTxParams {
+    nonce: u64,
+    nonce_key: U256,
+    valid_before: Option<u64>,
+}
 
-    sol! {
-        interface INonce {
-            function getNonce(address account, uint256 nonceKey) external view returns (uint256);
+impl SignTxParams {
+    /// Build parameters for an expiring-nonce transaction.
+    /// Uses `nonce_key = maxUint256`, `nonce = offset`, and `valid_before = now + window`.
+    fn expiring(offset: u64) -> Self {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Self {
+            nonce: offset,
+            nonce_key: EXPIRING_NONCE_KEY,
+            valid_before: Some(now_secs + VALID_BEFORE_WINDOW_SECS),
         }
     }
-
-    let call_data = INonce::getNonceCall {
-        account,
-        nonceKey: U256::from(nonce_key),
-    }
-    .abi_encode();
-
-    let nonce_precompile: Address = NONCE_PRECOMPILE
-        .parse()
-        .context("invalid NONCE precompile address")?;
-
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .to(nonce_precompile)
-        .input(Bytes::from(call_data).into());
-
-    let result = provider
-        .call(tx)
-        .await
-        .context("Failed to query nonce precompile")?;
-    // Response is a single ABI-encoded uint256
-    if result.len() < 32 {
-        anyhow::bail!("Nonce precompile returned too few bytes: {}", result.len());
-    }
-    let nonce_u256 = U256::from_be_slice(&result[result.len() - 32..]);
-
-    Ok(nonce_u256.to::<u64>())
 }
 
 /// Resolve gas, estimate, build and sign a Tempo type-0x76 transaction.
@@ -98,7 +63,7 @@ async fn resolve_and_sign_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-    nonce: u64,
+    params: SignTxParams,
 ) -> Result<Vec<u8>> {
     let resolved = gas::resolve_gas(provider, from, DEFAULT_GAS_PRICE, DEFAULT_GAS_PRICE)
         .await
@@ -109,7 +74,7 @@ async fn resolve_and_sign_tx(
         provider,
         from,
         chain_id,
-        nonce,
+        params.nonce,
         fee_token,
         &calls,
         resolved.max_fee_per_gas,
@@ -123,13 +88,13 @@ async fn resolve_and_sign_tx(
         calls,
         chain_id,
         fee_token,
-        nonce,
-        nonce_key: U256::from(SESSION_NONCE_KEY),
+        nonce: params.nonce,
+        nonce_key: params.nonce_key,
         gas_limit,
         max_fee_per_gas: resolved.max_fee_per_gas,
         max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
         fee_payer: false,
-        valid_before: None,
+        valid_before: params.valid_before,
         key_authorization: key_auth.cloned(),
     });
 
@@ -153,9 +118,10 @@ pub(super) async fn submit_tempo_tx(
     calls: Vec<tempo_primitives::transaction::Call>,
     nonce_offset: u64,
 ) -> Result<String> {
-    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
+    // Use expiring nonces by default to avoid nonce tracking.
+    let params = SignTxParams::expiring(nonce_offset);
     let tx_bytes =
-        resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls, nonce).await?;
+        resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls, params).await?;
 
     let pending = provider
         .send_raw_transaction(&tx_bytes)
@@ -230,9 +196,10 @@ pub(super) async fn create_tempo_payment_from_calls(
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
     let from = signing.from;
-    let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
+    // Use expiring nonces for session channel open: no nonce tracking, short validity window.
+    let params = SignTxParams::expiring(0);
     let tx_bytes =
-        resolve_and_sign_tx(&provider, signing, chain_id, fee_token, from, calls, nonce).await?;
+        resolve_and_sign_tx(&provider, signing, chain_id, fee_token, from, calls, params).await?;
 
     let credential = tx_builder::build_charge_credential(challenge, &tx_bytes, chain_id, from);
 
