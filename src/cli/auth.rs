@@ -30,7 +30,7 @@ fn load_or_create_default_config() -> anyhow::Result<Config> {
 }
 
 // ---------------------------------------------------------------------------
-// Login
+// Login (passkey only — browser-based wallet authentication)
 // ---------------------------------------------------------------------------
 
 pub async fn run_login(
@@ -76,7 +76,7 @@ pub async fn run_login(
 }
 
 // ---------------------------------------------------------------------------
-// Logout
+// Logout (passkey only — disconnect browser-authenticated wallet)
 // ---------------------------------------------------------------------------
 
 pub async fn run_logout(yes: bool) -> anyhow::Result<()> {

@@ -34,8 +34,10 @@ pub(crate) enum PrestoError {
     UnknownNetwork(String),
 
     /// Key is not provisioned on-chain
-    #[error("Key is not provisioned on-chain. Retry the request to auto-provision, or run 'presto wallet create'.")]
-    AccessKeyNotProvisioned,
+    #[error(
+        "Key is not provisioned on-chain. Retry the request to auto-provision, or run '{hint}'."
+    )]
+    AccessKeyNotProvisioned { hint: String },
 
     /// Browser-based login expired (device code expired or callback window timed out)
     #[error("Login expired. Use presto login to try again.")]
@@ -149,13 +151,15 @@ pub(crate) enum PrestoError {
     Mpp(#[from] mpp::MppError),
 }
 
-/// Default wallet type. Set to `true` for local wallet mode (`presto wallet create`),
-/// `false` for passkey mode (`presto login`).
-const DEFAULT_WALLET_LOCAL: bool = false;
+/// Check if the default wallet type is local (from `PRESTO_WALLET_TYPE` env var).
+/// Returns `false` (passkey mode) when the env var is unset or not `"local"`.
+pub(crate) fn is_local_wallet_default() -> bool {
+    std::env::var("PRESTO_WALLET_TYPE").as_deref() == Ok("local")
+}
 
 /// Build the "no wallet configured" error message with the correct follow-up.
 pub(crate) fn no_wallet_message() -> String {
-    if DEFAULT_WALLET_LOCAL {
+    if is_local_wallet_default() {
         "No wallet configured. Create one with 'presto wallet create'.".to_string()
     } else {
         "No wallet configured. Log in with 'presto login'.".to_string()
@@ -263,7 +267,16 @@ pub(crate) fn classify_payment_error(err: mpp::MppError) -> PrestoError {
 
     match err {
         mpp::MppError::Tempo(tempo_err) => match tempo_err {
-            TempoClientError::AccessKeyNotProvisioned => PrestoError::AccessKeyNotProvisioned,
+            TempoClientError::AccessKeyNotProvisioned => {
+                let hint = if is_local_wallet_default() {
+                    "presto wallet create"
+                } else {
+                    "presto login"
+                };
+                PrestoError::AccessKeyNotProvisioned {
+                    hint: hint.to_string(),
+                }
+            }
             TempoClientError::SpendingLimitExceeded {
                 token,
                 limit,
@@ -444,7 +457,7 @@ mod tests {
         let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
         assert!(matches!(
             classify_payment_error(err),
-            PrestoError::AccessKeyNotProvisioned
+            PrestoError::AccessKeyNotProvisioned { .. }
         ));
     }
 

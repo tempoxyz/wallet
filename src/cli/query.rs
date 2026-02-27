@@ -704,9 +704,15 @@ async fn ensure_wallet_configured(
         format!(" --network {challenge_network}")
     };
 
+    let setup_cmd = if crate::error::is_local_wallet_default() {
+        format!("presto wallet create{network_flag}")
+    } else {
+        format!("presto login{network_flag}")
+    };
+
     if !creds.as_ref().is_some_and(|c| c.has_wallet()) {
         anyhow::bail!(PrestoError::ConfigMissing(format!(
-            "No wallet configured. Log in with 'presto login{network_flag}'."
+            "No wallet configured. Run '{setup_cmd}'."
         )));
     }
 
@@ -718,7 +724,7 @@ async fn ensure_wallet_configured(
             .any(|k| k.chain_id == cid || k.chain_id == 0);
         if !has_key {
             anyhow::bail!(PrestoError::ConfigMissing(format!(
-                "No key configured for network '{challenge_network}'. Log in with 'presto login{network_flag}'."
+                "No key configured for network '{challenge_network}'. Run '{setup_cmd}'."
             )));
         }
     }

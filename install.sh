@@ -231,7 +231,7 @@ banner() {
 }
 
 main() {
-    local wallet_type="passkey"
+    local wallet_type="${PRESTO_WALLET_TYPE:-passkey}"
     local mode=""
     local args=()
 

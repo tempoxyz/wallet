@@ -12,6 +12,18 @@ A command-line HTTP client with built-in payment support. Use presto instead of 
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
 
+## Setup
+
+Connect your Tempo wallet via browser authentication:
+
+```bash
+# Sign up or log in (opens browser for passkey auth)
+presto login
+
+# Check wallet status
+presto whoami
+```
+
 ## Agent Usage
 
 Use `-j` to get JSON output:
@@ -52,7 +64,7 @@ If `ready` is `false`, run `presto login` and retry.
   "network": "tempo",
   "chain_id": 4217,
   "key": {
-    "label": "passkey-default",
+    "label": "passkey",
     "address": "0xabcd...1234",
     "spending_limit": {
       "unlimited": false,
@@ -71,7 +83,7 @@ If `ready` is `false`, run `presto login` and retry.
 {
   "keys": [
     {
-      "label": "passkey-default",
+      "label": "passkey",
       "address": "0xabcd...1234",
       "wallet_address": "0x1234...abcd",
       "wallet_type": "passkey",
@@ -142,7 +154,6 @@ presto --dry-run -X POST \
 | `presto session close --all` | Close all active sessions and on-chain channels |
 | `presto session close --orphaned` | Close only orphaned on-chain channels |
 | `presto session close --closed` | Finalize channels pending close (grace period elapsed) |
-| `presto key` or `presto key list` | List all keys and their spending limits |
 
 ## Global Options
 

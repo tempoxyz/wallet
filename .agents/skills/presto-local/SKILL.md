@@ -1,25 +1,23 @@
 ---
-name: presto-local
-description: "CLI HTTP client with automatic payment using a local wallet — use when calling AI or LLM APIs, or any HTTP endpoint without an API key or account. Replaces curl/wget when the user has no API key. Uses OS keychain for key storage. Supports payment sessions, spending limits, and dry-run cost estimates."
+name: presto
+description: "CLI HTTP client with automatic payment — use when calling AI or LLM APIs, or any HTTP endpoint without an API key or account. Replaces curl/wget when the user has no API key. presto pays automatically via the Tempo blockchain. Supports payment sessions, spending limits, and dry-run cost estimates."
 ---
 
-# presto (Local Wallet)
+# presto
 
 A command-line HTTP client with built-in payment support. Use presto instead of curl/wget when calling paid APIs — no API keys needed. When a server responds with `402 Payment Required`, presto detects the [Machine Payments Protocol (MPP)](https://mpp.dev) challenge, signs a transaction on the Tempo blockchain, and retries the request — all in one step.
-
-This skill uses the **local wallet** method: keys are generated locally and stored in the OS keychain (macOS Keychain / Linux keyring). No browser interaction required.
 
 **Use presto when you need to:**
 - Call any API without an API key or account
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
 
-## Setup (Local Wallet)
+## Setup
 
-Create a local wallet — no browser needed:
+Create a local wallet — no browser needed, keys stored in the OS keychain:
 
 ```bash
-# Create a new local wallet (keys stored in OS keychain)
+# Create a new local wallet (one-time setup)
 presto wallet create
 
 # Check wallet status
@@ -38,34 +36,6 @@ presto wallet fund
 ```
 
 The command prints a QR code and deposit address, then polls until funds are bridged to Tempo (up to 10 minutes). **Do NOT use `--no-wait`** — let the command block so you know when funding is complete. **Show the full command output to the user immediately** — they need to see the QR code and deposit address to send funds (they can expand collapsed output with ctrl+o).
-
-### Alternative: Import an Existing Key
-
-```bash
-# Import from argument (caution: appears in shell history)
-presto wallet import --private-key 0xYOUR_HEX_KEY
-
-# Import from stdin (non-interactive, safe for scripts)
-echo "0xYOUR_HEX_KEY" | presto wallet import --stdin-key
-
-# Interactive masked prompt (TTY only)
-presto wallet import
-```
-
-After importing, run `presto key create` to generate an access key and authorize payments.
-
-### Wallet Lifecycle
-
-```bash
-# Renew an expired access key (generates fresh 30-day key)
-presto key create
-
-# Delete a wallet
-presto wallet delete 0xADDRESS --yes
-
-# Delete the passkey wallet (if any)
-presto wallet delete --passkey --yes
-```
 
 ## Agent Usage
 
@@ -193,14 +163,10 @@ presto --dry-run -X POST \
 |---------|-------------|
 | `presto <URL>` | Make an HTTP request with automatic payment |
 | `presto wallet create` | Create a new local wallet (OS keychain) |
-| `presto wallet import` | Import an existing private key as a local wallet |
-| `presto wallet delete <ADDR>` | Delete a wallet by address |
 | `presto wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | `presto whoami` | Show wallet address, balances, keys, and readiness |
 | `presto key list` | List all keys and their spending limits |
 | `presto key create` | Renew access key (fresh 30-day key) |
-| `presto login` | Fallback: sign up or log in via browser (passkey) |
-| `presto logout` | Disconnect passkey wallet |
 | `presto session list` | List active payment sessions |
 | `presto session list --all` | Show all channels: active, orphaned, and closing |
 | `presto session list --orphaned` | Scan on-chain for orphaned channels (no local session) |
@@ -216,7 +182,7 @@ These options are available on all commands:
 
 | Option | Description |
 |--------|-------------|
-| `-v` | Verbose output — shows payment flow details (intent, network, amount) (`-vv` debug, `--vvv` trace) |
+| `-v` | Verbose output — shows payment flow details (intent, network, amount) (`-vv` debug, `-vvv` trace) |
 | `-s, --silent` | Suppress non-essential stderr output |
 | `-j, --json-output` | JSON output (recommended for agents) |
 
@@ -342,11 +308,11 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 |------|---------|--------------|
 | 0 | Success | — |
 | 1 | General error | Retry or report |
-| 3 | Config error | Run `presto wallet create` or `presto login` |
+| 3 | Config error | Run `presto wallet create` |
 | 4 | Network error | Check connectivity, retry |
 | 5 | Payment failed | Check error message, retry |
-| 6 | Insufficient funds | Report to user — wallet needs funding |
-| 8 | Auth/signing error | Run `presto key create` or `presto login` |
+| 6 | Insufficient funds | Run `presto wallet fund` or report to user |
+| 8 | Auth/signing error | Run `presto key create` |
 | 10 | Timeout | Retry with longer `--timeout` |
 
 ### Common Errors and Fixes
@@ -355,10 +321,9 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 |------------------------|--------|
 | `No wallet configured` | Run `presto wallet create`, then retry |
 | `Run 'presto login'` | Run `presto wallet create`, then retry (ignore the login suggestion) |
-| `run 'presto wallet create'` | Run `presto wallet create`, then retry |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
 | `Insufficient balance` | Run `presto wallet fund` to add funds, or report to user |
-| `Key is not provisioned` | Auto-provisions on first use; if persists, run `presto login` |
+| `Key is not provisioned` | Auto-provisions on first use; if persists, run `presto wallet create` |
 | `Key expired` | Run `presto key create` to renew |
 | `Unknown network` | Check `-n` flag value |
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
