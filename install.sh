@@ -3,7 +3,10 @@ set -euo pipefail
 
 # presto installer script
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 REPO="tempoxyz/presto"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="presto"
@@ -139,7 +142,7 @@ install_ai_skill() {
 
     mkdir -p "${skill_dir}" 2>/dev/null || return 0
 
-    if [[ -f "${local_skill}" ]]; then
+    if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
         cp "${local_skill}" "${skill_file}"
     else
         local skill_url="${R2_BASE_URL}/SKILL.md"
