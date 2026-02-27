@@ -156,10 +156,10 @@ pub async fn show_whoami(
     let response = build_whoami_response(config, &creds, network, wallet_address).await;
 
     match output_format {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string(&response)?);
+        OutputFormat::Json | OutputFormat::Toon => {
+            println!("{}", output_format.serialize(&response)?);
         }
-        _ => {
+        OutputFormat::Text => {
             print_whoami_text(&response, &mut std::io::stdout())?;
         }
     }
@@ -332,10 +332,10 @@ pub async fn show_wallet_list(output_format: OutputFormat) -> anyhow::Result<()>
     let response = WalletListResponse { wallets, total };
 
     match output_format {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string(&response)?);
+        OutputFormat::Json | OutputFormat::Toon => {
+            println!("{}", output_format.serialize(&response)?);
         }
-        _ => {
+        OutputFormat::Text => {
             if response.wallets.is_empty() {
                 println!("No wallets configured.");
                 return Ok(());

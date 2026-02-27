@@ -1,6 +1,6 @@
 ---
 name: presto
-description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-walletpays automatically via the Tempo blockchain. Use ` tempo-wallet-j services` to discover available services and endpoints."
+description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-walletpays automatically via the Tempo blockchain. Use ` tempo-wallet-t services` to discover available services and endpoints."
 ---
 
 # presto
@@ -39,16 +39,16 @@ The command prints a QR code and deposit address, then polls until funds are bri
 
 ## Agent Usage
 
-Use `-j` to get JSON output:
+Use `-t` to get TOON output (compact, token-efficient) or `-j` for JSON:
 
 ```bash
-# Preferred pattern: JSON output
- tempo-wallet-j -X POST \
+# Preferred pattern: TOON output (saves tokens)
+ tempo-wallet-t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Check wallet readiness before making requests
- tempo-wallet-j whoami
+ tempo-wallet-t whoami
 ```
 
 ### Preflight Check
@@ -56,7 +56,7 @@ Use `-j` to get JSON output:
 Before making paid requests, verify the wallet is ready:
 
 ```bash
- tempo-wallet-j whoami
+ tempo-wallet-t whoami
 ```
 
 Check these fields in the response:
@@ -125,16 +125,16 @@ Use ` tempo-walletservices` to discover available services, their endpoints, and
 
 ```bash
 # List all available services
- tempo-wallet-j services
+ tempo-wallet-t services
 
 # Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
- tempo-wallet-j services --category ai
+ tempo-wallet-t services --category ai
 
 # Search by name, description, or tags
- tempo-wallet-j services --search <QUERY>
+ tempo-wallet-t services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
- tempo-wallet-j services info <SERVICE_ID>
+ tempo-wallet-t services info <SERVICE_ID>
 ```
 
 Each service is accessed via its MPP service URL (shown in the `Service URL` column of ` tempo-walletservices`). When you don't know which service or endpoint to use, run ` tempo-walletservices info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
@@ -149,15 +149,15 @@ Each service is accessed via its MPP service URL (shown in the `Service URL` col
  tempo-walletwallets fund
 
 # 3. Discover available services
- tempo-wallet-j services
+ tempo-wallet-t services
 
 # 4. Make a paid request (payment handled automatically on 402)
- tempo-wallet-j -X POST \
+ tempo-wallet-t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
- tempo-wallet-j --dry-run -X POST \
+ tempo-wallet-t --dry-run -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -186,7 +186,8 @@ These options are available on all commands:
 |--------|-------------|
 | `-v` | Verbose output — shows payment flow details (intent, network, amount) (`-vv` debug, `-vvv` trace) |
 | `-s, --silent` | Suppress non-essential stderr output |
-| `-j, --json-output` | JSON output (recommended for agents) |
+| `-t, --toon-output` | TOON output — compact, token-efficient (recommended for agents) |
+| `-j, --json-output` | JSON output |
 
 ## Query Options
 
@@ -207,6 +208,7 @@ These options apply when making HTTP requests (` tempo-wallet<URL>`):
 | `-X, --request <METHOD>` | Custom request method (GET, POST, PUT, DELETE, ...) |
 | `-H, --header <HEADER>` | Add custom header (can be repeated) |
 | `--json <JSON>` | Send JSON data with Content-Type header |
+| `--toon <TOON>` | Send TOON data (decoded to JSON) with Content-Type header |
 | `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
 | `-L, --location` | Follow redirects (off by default) |
 | `--max-redirs <N>` | Maximum number of redirects when `-L` is used |
@@ -237,10 +239,10 @@ Use ` tempo-walletservices` to find the service URL and endpoint, then make the 
 
 ```bash
 # 1. Find the right service and endpoint
- tempo-wallet-j services info <SERVICE_ID>
+ tempo-wallet-t services info <SERVICE_ID>
 
 # 2. Make the request (payment handled automatically on 402)
- tempo-wallet-j -X POST \
+ tempo-wallet-t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -251,26 +253,26 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request opens a channel on-chain
- tempo-wallet-j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+ tempo-wallet-t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Subsequent requests to the same origin reuse the session automatically
- tempo-wallet-j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+ tempo-wallet-t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # View active sessions
- tempo-wallet-j sessions list
+ tempo-wallet-t sessions list
 
 # Close a session when done
- tempo-wallet-j sessions close <SERVICE_URL>
+ tempo-wallet-t sessions close <SERVICE_URL>
 
 # Close all sessions
- tempo-wallet-j sessions close --all
+ tempo-wallet-t sessions close --all
 ```
 
 ### Check Wallet Status
 
 ```bash
 # Full wallet status with balances and keys
- tempo-wallet-j whoami
+ tempo-wallet-t whoami
 ```
 
 ### Environment Variable Override
@@ -279,7 +281,7 @@ For CI/CD or ephemeral use, skip wallet setup entirely:
 
 ```bash
 # Use a private key directly (no keychain, no keys.toml)
-PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY  tempo-wallet-j -X POST \
+PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY  tempo-wallet-t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```

@@ -182,7 +182,7 @@ async fn close_all_sessions(
         }
     }
 
-    summary.print(output_format, "No active sessions to close.", "closed");
+    summary.print(output_format, "No active sessions to close.", "closed")?;
     Ok(())
 }
 
@@ -201,7 +201,7 @@ async fn close_by_channel_id(
         Ok(CloseOutcome::Closed) => {
             let _ = session_store::delete_pending_close(target);
             let _ = session_store::delete_session_by_channel_id(target);
-            if output_format == OutputFormat::Json {
+            if output_format.is_structured() {
                 println!(
                     "{}",
                     serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]})
@@ -211,7 +211,7 @@ async fn close_by_channel_id(
             }
         }
         Ok(CloseOutcome::Pending { remaining_secs }) => {
-            if output_format == OutputFormat::Json {
+            if output_format.is_structured() {
                 println!(
                     "{}",
                     serde_json::json!({"closed": 0, "pending": 1, "failed": 0, "results": [{"channel_id": target, "status": "pending", "remaining_secs": remaining_secs}]})
@@ -230,7 +230,7 @@ async fn close_by_channel_id(
             if err_msg.contains("not found on any network") {
                 let _ = session_store::delete_pending_close(target);
                 let _ = session_store::delete_session_by_channel_id(target);
-                if output_format == OutputFormat::Json {
+                if output_format.is_structured() {
                     println!(
                         "{}",
                         serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]})
@@ -238,7 +238,7 @@ async fn close_by_channel_id(
                 } else {
                     println!("Channel {target} already closed.");
                 }
-            } else if output_format == OutputFormat::Json {
+            } else if output_format.is_structured() {
                 println!(
                     "{}",
                     serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"channel_id": target, "status": "error", "error": err_msg}]})
@@ -273,7 +273,7 @@ async fn close_by_url(
                     }
                 }
                 let _ = session_store::delete_pending_close(&record.channel_id);
-                if output_format == OutputFormat::Json {
+                if output_format.is_structured() {
                     println!(
                         "{}",
                         serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"origin": target, "channel_id": record.channel_id, "status": "closed"}]})
@@ -283,7 +283,7 @@ async fn close_by_url(
                 }
             }
             Ok(CloseOutcome::Pending { remaining_secs }) => {
-                if output_format == OutputFormat::Json {
+                if output_format.is_structured() {
                     println!(
                         "{}",
                         serde_json::json!({"closed": 0, "pending": 1, "failed": 0, "results": [{"origin": target, "channel_id": record.channel_id, "status": "pending", "remaining_secs": remaining_secs}]})
@@ -296,7 +296,7 @@ async fn close_by_url(
                 }
             }
             Err(e) => {
-                if output_format == OutputFormat::Json {
+                if output_format.is_structured() {
                     println!(
                         "{}",
                         serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"origin": target, "channel_id": record.channel_id, "status": "error", "error": e.to_string()}]})
@@ -306,7 +306,7 @@ async fn close_by_url(
                 }
             }
         }
-    } else if output_format == OutputFormat::Json {
+    } else if output_format.is_structured() {
         println!(
             "{}",
             serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"origin": target, "status": "error", "error": "no active session"}]})
@@ -351,7 +351,7 @@ async fn close_orphaned_channels(
 
     if orphaned.is_empty() {
         let summary = CloseSummary::new();
-        summary.print(output_format, "No orphaned channels found.", "closed");
+        summary.print(output_format, "No orphaned channels found.", "closed")?;
         return Ok(());
     }
 
@@ -402,7 +402,7 @@ async fn close_orphaned_channels(
         }
     }
 
-    summary.print(output_format, "No orphaned sessions found.", "closed");
+    summary.print(output_format, "No orphaned sessions found.", "closed")?;
     Ok(())
 }
 
@@ -429,7 +429,7 @@ async fn finalize_closed_channels(
             output_format,
             "No channels pending finalization.",
             "finalized",
-        );
+        )?;
         return Ok(());
     }
 
@@ -515,6 +515,6 @@ async fn finalize_closed_channels(
         output_format,
         "No sessions pending finalization.",
         "finalized",
-    );
+    )?;
     Ok(())
 }

@@ -1379,3 +1379,96 @@ fn test_services_bare_id_is_accepted() {
         .success()
         .stdout(predicate::str::contains("SERVICE_ID"));
 }
+
+// ==================== TOON Output (-t / --toon-output) ====================
+
+#[test]
+fn test_session_list_toon_output() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-t", "sessions", "list"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "toon output should not be empty: {stdout}"
+    );
+    assert!(
+        !stdout.trim().starts_with('{'),
+        "toon output should not be JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("total"),
+        "toon output should contain 'total' field: {stdout}"
+    );
+}
+
+#[test]
+fn test_toon_output_flag_long_form() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["--toon-output", "sessions", "list"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "toon output (long form) should not be empty: {stdout}"
+    );
+}
+
+#[test]
+fn test_toon_error_output_when_output_format_toon() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-t", "-n", "not-a-network", "whoami"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("code"),
+        "toon error output should contain 'code': {stdout}"
+    );
+    assert!(
+        !stdout.trim().starts_with('{'),
+        "toon error output should not be JSON: {stdout}"
+    );
+}
+
+#[test]
+fn test_toon_and_json_output_conflict() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-t", "-j", "whoami"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "toon + json should conflict");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot be used with") || stderr.to_lowercase().contains("conflict"),
+        "should mention conflict: {stderr}"
+    );
+}
+
+#[test]
+fn test_key_list_toon_has_fields() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-t", "keys", "list"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("keys"),
+        "toon keys list should contain 'keys': {stdout}"
+    );
+    assert!(
+        stdout.contains("total"),
+        "toon keys list should contain 'total': {stdout}"
+    );
+}

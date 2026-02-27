@@ -17,6 +17,34 @@ use std::path::{Component, Path, PathBuf};
 pub(crate) enum OutputFormat {
     Text,
     Json,
+    Toon,
+}
+
+impl OutputFormat {
+    /// Whether this format produces structured (non-text) output.
+    pub fn is_structured(&self) -> bool {
+        matches!(self, OutputFormat::Json | OutputFormat::Toon)
+    }
+
+    /// Serialize a value according to this format (compact).
+    pub fn serialize(&self, value: &impl serde::Serialize) -> anyhow::Result<String> {
+        match self {
+            OutputFormat::Json => Ok(serde_json::to_string(value)?),
+            OutputFormat::Toon => toon_format::encode_default(value)
+                .map_err(|e| anyhow::anyhow!("TOON encoding failed: {e}")),
+            OutputFormat::Text => unreachable!("serialize called with Text format"),
+        }
+    }
+
+    /// Serialize a value according to this format (pretty/indented).
+    pub fn serialize_pretty(&self, value: &impl serde::Serialize) -> anyhow::Result<String> {
+        match self {
+            OutputFormat::Json => Ok(serde_json::to_string_pretty(value)?),
+            OutputFormat::Toon => toon_format::encode_default(value)
+                .map_err(|e| anyhow::anyhow!("TOON encoding failed: {e}")),
+            OutputFormat::Text => unreachable!("serialize_pretty called with Text format"),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -503,5 +531,48 @@ mod tests {
             config.rpc.get("tempo-moderato").unwrap(),
             "https://custom-moderato.com"
         );
+    }
+
+    // -- OutputFormat tests --
+
+    #[test]
+    fn test_output_format_is_structured() {
+        assert!(!OutputFormat::Text.is_structured());
+        assert!(OutputFormat::Json.is_structured());
+        assert!(OutputFormat::Toon.is_structured());
+    }
+
+    #[test]
+    fn test_output_format_serialize_json() {
+        let data = serde_json::json!({"name": "Alice", "age": 30});
+        let result = OutputFormat::Json.serialize(&data).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed, data);
+    }
+
+    #[test]
+    fn test_output_format_serialize_toon() {
+        let data = serde_json::json!({"name": "Alice", "age": 30});
+        let result = OutputFormat::Toon.serialize(&data).unwrap();
+        assert!(!result.is_empty());
+        // TOON output should not be valid JSON
+        assert!(serde_json::from_str::<serde_json::Value>(&result).is_err());
+    }
+
+    #[test]
+    fn test_output_format_serialize_pretty_json() {
+        let data = serde_json::json!({"name": "Alice", "age": 30});
+        let result = OutputFormat::Json.serialize_pretty(&data).unwrap();
+        assert!(result.contains('\n'));
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed, data);
+    }
+
+    #[test]
+    fn test_output_format_serialize_toon_roundtrip() {
+        let data = serde_json::json!({"name": "Alice", "age": 30});
+        let encoded = OutputFormat::Toon.serialize(&data).unwrap();
+        let decoded: serde_json::Value = toon_format::decode_default(&encoded).unwrap();
+        assert_eq!(decoded, data);
     }
 }

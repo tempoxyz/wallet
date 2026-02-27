@@ -154,10 +154,10 @@ pub async fn show_keys(
     let response = KeysResponse { keys, total };
 
     match output_format {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string(&response)?);
+        OutputFormat::Json | OutputFormat::Toon => {
+            println!("{}", output_format.serialize(&response)?);
         }
-        _ => {
+        OutputFormat::Text => {
             if response.keys.is_empty() {
                 println!("No keys configured.");
                 return Ok(());
