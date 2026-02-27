@@ -101,28 +101,27 @@ pub async fn show_keys(
     let creds = WalletCredentials::load()?;
     let network = network_or_default(network);
 
-    // Pre-fetch balances for each unique wallet address to avoid redundant RPC calls.
-    let unique_wallets: Vec<String> = creds
-        .keys
-        .iter()
-        .map(|e| &e.wallet_address)
-        .filter(|a| !a.is_empty())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .cloned()
-        .collect();
+    // Pre-fetch balances for each unique (wallet, network) pair.
     let mut balance_cache: HashMap<String, Vec<TokenBalance>> = HashMap::new();
-    let tasks = unique_wallets.iter().map(|addr| async move {
-        (
-            addr.clone(),
-            query_all_balances(config, network, addr).await,
-        )
-    });
-    for (addr, balances) in join_all(tasks).await {
+    let mut balance_tasks = Vec::new();
+    for entry in &creds.keys {
+        if entry.wallet_address.is_empty() {
+            continue;
+        }
+        let entry_network = Network::from_chain_id(entry.chain_id)
+            .map(|n| n.as_str())
+            .unwrap_or(network);
+        let addr = entry.wallet_address.clone();
+        balance_tasks.push(async move {
+            (
+                addr.clone(),
+                query_all_balances(config, entry_network, &addr).await,
+            )
+        });
+    }
+    for (addr, balances) in join_all(balance_tasks).await {
         balance_cache.insert(addr, balances);
     }
-
-    let current_chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
 
     let mut keys = Vec::new();
 
@@ -131,11 +130,15 @@ pub async fn show_keys(
             WalletType::Passkey => "passkey",
             WalletType::Local => "local",
         };
+        let entry_network = Network::from_chain_id(entry.chain_id)
+            .map(|n| n.as_str())
+            .unwrap_or(network);
+        let entry_chain_id = Some(entry.chain_id);
         keys.push(
             build_key_info(
                 config,
-                network,
-                current_chain_id,
+                entry_network,
+                entry_chain_id,
                 label,
                 entry,
                 &balance_cache,
