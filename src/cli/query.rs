@@ -682,20 +682,38 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
     })
 }
 
-/// Ensure a wallet is available, failing with a clear error if not.
+/// Ensure a wallet with a key for the challenge network is available.
 async fn ensure_wallet_configured(
     _request_ctx: &RequestContext,
     _cli: &Cli,
     _config: &mut Config,
     _analytics: &Option<Analytics>,
-    _challenge_network: &str,
+    challenge_network: &str,
 ) -> Result<()> {
-    let has_wallet = WalletCredentials::load()
+    let creds = WalletCredentials::load().ok();
+    let chain_id = challenge_network
+        .parse::<Network>()
         .ok()
-        .is_some_and(|c| c.has_wallet());
+        .map(|n| n.chain_id());
+    let network_flag = Network::default_network()
+        .and_then(|def| chain_id.filter(|&cid| cid != def.chain_id()))
+        .map(|_| format!(" --network {challenge_network}"))
+        .unwrap_or_default();
 
-    if !has_wallet {
-        anyhow::bail!(PrestoError::ConfigMissing(crate::error::no_wallet_message()));
+    if !creds.as_ref().is_some_and(|c| c.has_wallet()) {
+        anyhow::bail!(PrestoError::ConfigMissing(format!(
+            "No wallet configured. Log in with 'presto login{network_flag}'."
+        )));
+    }
+
+    let creds = creds.unwrap();
+    if let Some(cid) = chain_id {
+        let has_key = creds.keys.iter().any(|k| k.chain_id == cid);
+        if !has_key {
+            anyhow::bail!(PrestoError::ConfigMissing(format!(
+                "No key configured for network '{challenge_network}'. Log in with 'presto login{network_flag}'."
+            )));
+        }
     }
 
     Ok(())

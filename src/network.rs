@@ -177,6 +177,11 @@ impl Network {
             .map_err(|e| PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))
     }
 
+    /// Get the default network (parsed from `DEFAULT_NETWORK`).
+    pub fn default_network() -> Option<Self> {
+        networks::DEFAULT_NETWORK.parse().ok()
+    }
+
     /// Check if this is a mainnet.
     #[cfg(test)]
     pub const fn is_mainnet(&self) -> bool {

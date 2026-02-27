@@ -36,13 +36,16 @@ pub async fn run_login(
     analytics: Option<Analytics>,
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
-    // Skip login if a wallet is already connected with a key
-    // AND the key is provisioned on the target network (or no specific network requested).
+    // Skip login if a wallet is already connected with a key for the target network.
     if let Ok(creds) = WalletCredentials::load() {
         if creds.has_wallet() {
-            let provisioned = network.map(|n| creds.is_provisioned(n)).unwrap_or(true);
+            let net = network_or_default(network);
+            let chain_id = net.parse::<Network>().ok().map(|n| n.chain_id());
+            let has_key_for_network = chain_id
+                .map(|cid| creds.keys.iter().any(|k| k.chain_id == cid))
+                .unwrap_or(true);
 
-            if provisioned {
+            if has_key_for_network {
                 let config = load_or_create_default_config()?;
 
                 if output_format == OutputFormat::Text {

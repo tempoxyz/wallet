@@ -437,9 +437,9 @@ provisioned = true
     }
 
     #[test]
-    fn test_upsert_by_wallet_address_creates_new() {
+    fn test_upsert_by_wallet_and_chain_creates_new() {
         let mut creds = WalletCredentials::default();
-        let entry = creds.upsert_by_wallet_address("0xABC");
+        let entry = creds.upsert_by_wallet_and_chain("0xABC", 4217);
         entry.wallet_type = WalletType::Passkey;
         entry.key_address = Some("0xsigner1".to_string());
         entry.key = Some(Zeroizing::new("0xaccesskey1".to_string()));
@@ -450,19 +450,20 @@ provisioned = true
     }
 
     #[test]
-    fn test_upsert_by_wallet_address_updates_existing() {
+    fn test_upsert_by_wallet_and_chain_updates_existing() {
         let mut creds = WalletCredentials::default();
         creds.keys.push(KeyEntry {
             wallet_type: WalletType::Passkey,
             wallet_address: "0xABC".to_string(),
+            chain_id: 4217,
             key_address: Some("0xsigner1".to_string()),
             key: Some(Zeroizing::new("0xaccesskey1".to_string())),
             provisioned: true,
             ..Default::default()
         });
 
-        // Upsert same address — should update in-place
-        let entry = creds.upsert_by_wallet_address("0xABC");
+        // Upsert same address + chain — should update in-place
+        let entry = creds.upsert_by_wallet_and_chain("0xABC", 4217);
         entry.key_address = Some("0xsigner2".to_string());
         entry.key = Some(Zeroizing::new("0xaccesskey2".to_string()));
         entry.provisioned = false;
@@ -471,6 +472,25 @@ provisioned = true
         let key_entry = creds.primary_key().unwrap();
         assert!(!key_entry.provisioned);
         assert_eq!(key_entry.key_address, Some("0xsigner2".to_string()));
+    }
+
+    #[test]
+    fn test_upsert_by_wallet_and_chain_different_chains() {
+        let mut creds = WalletCredentials::default();
+        let entry = creds.upsert_by_wallet_and_chain("0xABC", 4217);
+        entry.wallet_type = WalletType::Passkey;
+        entry.key_address = Some("0xsigner1".to_string());
+        entry.key = Some(Zeroizing::new("0xkey1".to_string()));
+
+        // Same wallet, different chain — should create a second entry
+        let entry2 = creds.upsert_by_wallet_and_chain("0xABC", 42431);
+        entry2.wallet_type = WalletType::Passkey;
+        entry2.key_address = Some("0xsigner2".to_string());
+        entry2.key = Some(Zeroizing::new("0xkey2".to_string()));
+
+        assert_eq!(creds.keys.len(), 2);
+        assert_eq!(creds.keys[0].chain_id, 4217);
+        assert_eq!(creds.keys[1].chain_id, 42431);
     }
 
     #[test]
@@ -861,7 +881,7 @@ wallet_address = "0xtest"
             ..Default::default()
         });
         // Upsert with different casing should update in place
-        let entry = creds.upsert_by_wallet_address("0xABCD");
+        let entry = creds.upsert_by_wallet_and_chain("0xABCD", 0);
         entry.provisioned = true;
         assert_eq!(creds.keys.len(), 1);
         assert!(creds.keys[0].provisioned);

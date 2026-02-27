@@ -912,6 +912,7 @@ async fn test_402_charge_flow() {
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+chain_id = 42431
 "#,
         )
         .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
@@ -954,6 +955,7 @@ async fn test_402_payment_narration_verbose() {
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+chain_id = 42431
 "#,
         )
         .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
@@ -991,6 +993,7 @@ async fn test_402_paid_summary_default_and_quiet() {
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+chain_id = 42431
 "#,
         )
         .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
@@ -1049,6 +1052,7 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+chain_id = 42431
 "#,
         )
         .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))

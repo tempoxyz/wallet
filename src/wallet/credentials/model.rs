@@ -284,24 +284,26 @@ impl WalletCredentials {
         Ok(())
     }
 
-    /// Find or create an entry by wallet address, returning a mutable reference.
+    /// Find or create an entry by wallet address and chain ID.
     ///
-    /// If an entry with the given wallet address exists (case-insensitive),
-    /// returns a mutable reference to it. Otherwise pushes a new default
-    /// entry with that address and returns a mutable reference.
-    pub fn upsert_by_wallet_address(&mut self, wallet_address: &str) -> &mut KeyEntry {
-        let idx = self
-            .keys
-            .iter()
-            .position(|k| k.wallet_address.eq_ignore_ascii_case(wallet_address));
+    /// Matches by (wallet_address, chain_id) so the same wallet can have
+    /// separate keys on different networks. Falls back to creating a new entry.
+    pub fn upsert_by_wallet_and_chain(
+        &mut self,
+        wallet_address: &str,
+        chain_id: u64,
+    ) -> &mut KeyEntry {
+        let idx = self.keys.iter().position(|k| {
+            k.wallet_address.eq_ignore_ascii_case(wallet_address) && k.chain_id == chain_id
+        });
         match idx {
             Some(i) => &mut self.keys[i],
             None => {
                 self.keys.push(KeyEntry {
                     wallet_address: wallet_address.to_string(),
+                    chain_id,
                     ..Default::default()
                 });
-                // Safe: we just pushed one element
                 let last = self.keys.len() - 1;
                 &mut self.keys[last]
             }
