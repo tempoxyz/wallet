@@ -26,13 +26,29 @@ fn is_telemetry_disabled(config: Option<&Config>) -> bool {
     false
 }
 
-fn get_wallet_address() -> Option<String> {
-    let creds = WalletCredentials::load().ok()?;
-    let addr = creds.wallet_address();
-    if addr.is_empty() {
-        None
-    } else {
-        Some(addr.to_string())
+/// Result of loading wallet credentials at analytics init time.
+struct WalletInfo {
+    address: Option<String>,
+    has_wallet: bool,
+}
+
+fn load_wallet_info() -> WalletInfo {
+    match WalletCredentials::load() {
+        Ok(creds) => {
+            let addr = creds.wallet_address();
+            WalletInfo {
+                address: if addr.is_empty() {
+                    None
+                } else {
+                    Some(addr.to_string())
+                },
+                has_wallet: creds.has_wallet(),
+            }
+        }
+        Err(_) => WalletInfo {
+            address: None,
+            has_wallet: false,
+        },
     }
 }
 
@@ -54,6 +70,7 @@ pub struct Analytics {
     client: Arc<posthog_rs::Client>,
     distinct_id: String,
     wallet_address: Option<String>,
+    has_wallet: bool,
     network: Option<String>,
     pending: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
@@ -65,16 +82,22 @@ impl Analytics {
         }
 
         let client = posthog::build_client().await?;
-        let wallet_address = get_wallet_address();
-        let distinct_id = wallet_address.clone().unwrap_or_else(anonymous_id);
+        let wallet_info = load_wallet_info();
+        let distinct_id = wallet_info.address.clone().unwrap_or_else(anonymous_id);
 
         Some(Self {
             client: Arc::new(client),
             distinct_id,
-            wallet_address,
+            wallet_address: wallet_info.address,
+            has_wallet: wallet_info.has_wallet,
             network: network.map(|s| s.to_string()),
             pending: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    /// Whether a fully configured wallet was found when analytics was initialized.
+    pub fn has_wallet(&self) -> bool {
+        self.has_wallet
     }
 
     pub fn track<P: EventPayload>(&self, event: Event, payload: P) {
@@ -111,10 +134,7 @@ impl Analytics {
         let network = self.network.clone();
 
         let handle = tokio::spawn(async move {
-            if old_id != wallet {
-                posthog::alias(&client, &old_id, &wallet).await;
-            }
-            posthog::identify(
+            let identify_fut = posthog::identify(
                 &client,
                 &wallet,
                 json!({
@@ -124,8 +144,12 @@ impl Analytics {
                     "arch": std::env::consts::ARCH,
                     "network": network,
                 }),
-            )
-            .await;
+            );
+            if old_id != wallet {
+                tokio::join!(posthog::alias(&client, &old_id, &wallet), identify_fut);
+            } else {
+                identify_fut.await;
+            }
         });
         if let Ok(mut pending) = self.pending.lock() {
             pending.push(handle);

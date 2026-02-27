@@ -249,9 +249,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
     if let Some(ref a) = analytics {
         a.identify();
 
-        let is_new_user = wallet::credentials::WalletCredentials::load()
-            .ok()
-            .is_none_or(|c| !c.has_wallet());
+        let is_new_user = !a.has_wallet();
 
         let cmd_name = match &command {
             Commands::Query(_) => "query",
