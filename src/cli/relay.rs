@@ -4,6 +4,7 @@
 //! used by `presto fund` to generate deposit addresses and poll for cross-chain
 //! transfer status.
 
+use crate::network::tempo_tokens;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -21,9 +22,6 @@ pub struct SourceChain {
 }
 
 const RELAY_API: &str = "https://api.relay.link";
-
-/// USDC contract address on Tempo mainnet.
-const TEMPO_USDC_ADDRESS: &str = "0x20c000000000000000000000b9537d11c60e8b50";
 
 const SOURCE_CHAINS: &[SourceChain] = &[
     SourceChain {
@@ -82,7 +80,8 @@ pub async fn create_deposit_address(
         "originChainId": source_chain.chain_id,
         "originCurrency": source_chain.usdc_address,
         "destinationChainId": destination_chain_id,
-        "destinationCurrency": TEMPO_USDC_ADDRESS,
+        // Use the canonical USDC address constant from the network module
+        "destinationCurrency": tempo_tokens::USDCE,
         "recipient": recipient,
         // 1 USDC (6 decimals) — nominal amount for address generation; the actual
         // bridge amount is determined by how much the user deposits.

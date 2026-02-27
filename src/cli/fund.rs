@@ -171,7 +171,11 @@ async fn run_relay_bridge(
     wait: bool,
     balances_before: Option<Vec<TokenBalance>>,
 ) -> anyhow::Result<()> {
-    let net: Network = network_id.parse().unwrap();
+    // Safe: network_id was parsed/validated in the caller (`run_fund`). If this
+    // ever fails, the invariant upstream has regressed.
+    let net: Network = network_id
+        .parse()
+        .expect("network_id should be a valid Network (validated in run_fund)");
 
     // Use Base as default source chain
     let source_chain = relay::source_chains()
