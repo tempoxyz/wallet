@@ -408,23 +408,23 @@ pub enum Commands {
     #[command(hide = true, name = "balance")]
     Balance,
     /// Manage keys
-    #[command(display_order = 5, name = "key", hide = true)]
+    #[command(display_order = 5, name = "keys", hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
-    Key {
+    Keys {
         #[command(subcommand)]
         command: Option<KeyCommands>,
     },
     /// Manage payment sessions
-    #[command(display_order = 6)]
+    #[command(display_order = 6, name = "sessions")]
     #[command(args_conflicts_with_subcommands = true)]
-    Session {
+    Sessions {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
     /// Manage wallets
-    #[command(display_order = 5, hide = true)]
+    #[command(display_order = 5, name = "wallets", hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
-    Wallet {
+    Wallets {
         #[command(subcommand)]
         command: Option<WalletCommands>,
     },

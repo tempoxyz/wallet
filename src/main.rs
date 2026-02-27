@@ -232,10 +232,10 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
-            Commands::Wallet { .. } => "wallet",
-            Commands::Session { .. } => "session",
+            Commands::Wallets { .. } => "wallets",
+            Commands::Sessions { .. } => "sessions",
             Commands::Whoami | Commands::Balance => "whoami",
-            Commands::Key { .. } => "key",
+            Commands::Keys { .. } => "keys",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -323,7 +323,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Session { command } => {
+        Commands::Sessions { command } => {
             let config = load_config_with_overrides(cli.config.as_ref())?;
             let output_format = cli.resolve_output_format(&config);
 
@@ -367,7 +367,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     }
                 }
             } else {
-                if let Some(session_cmd) = Cli::command().find_subcommand_mut("session") {
+                if let Some(session_cmd) = Cli::command().find_subcommand_mut("sessions") {
                     session_cmd.print_help()?;
                 } else {
                     Cli::command().print_help()?;
@@ -376,7 +376,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             }
         }
 
-        Commands::Wallet { command } => {
+        Commands::Wallets { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
                     WalletCommands::List => {
@@ -409,7 +409,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     }
                 }
             } else {
-                if let Some(wallet_cmd) = Cli::command().find_subcommand_mut("wallet") {
+                if let Some(wallet_cmd) = Cli::command().find_subcommand_mut("wallets") {
                     wallet_cmd.print_help()?;
                 } else {
                     Cli::command().print_help()?;
@@ -429,7 +429,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             cli::auth::show_whoami(&config, output_format, network, None).await
         }
 
-        Commands::Key { command } => {
+        Commands::Keys { command } => {
             let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
             let output_format = cli.resolve_output_format(&config);
@@ -443,7 +443,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 }
                 Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),
                 None => {
-                    if let Some(key_cmd) = Cli::command().find_subcommand_mut("key") {
+                    if let Some(key_cmd) = Cli::command().find_subcommand_mut("keys") {
                         key_cmd.print_help()?;
                     } else {
                         Cli::command().print_help()?;
