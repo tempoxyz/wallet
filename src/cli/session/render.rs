@@ -71,7 +71,7 @@ pub(super) fn render_channel_list(
     count_label: &str,
 ) -> anyhow::Result<()> {
     match output_format {
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Toon => {
             let items: Vec<SessionItem> = views
                 .iter()
                 .map(|v| SessionItem {
@@ -91,7 +91,7 @@ pub(super) fn render_channel_list(
                 .collect();
             println!(
                 "{}",
-                serde_json::to_string(&serde_json::json!({
+                output_format.serialize(&serde_json::json!({
                     "sessions": items,
                     "total": items.len(),
                 }))?
@@ -170,16 +170,21 @@ impl CloseSummary {
         self.results.push(result);
     }
 
-    pub(super) fn print(&self, output_format: OutputFormat, empty_msg: &str, closed_label: &str) {
+    pub(super) fn print(
+        &self,
+        output_format: OutputFormat,
+        empty_msg: &str,
+        closed_label: &str,
+    ) -> anyhow::Result<()> {
         match output_format {
-            OutputFormat::Json => println!(
+            OutputFormat::Json | OutputFormat::Toon => println!(
                 "{}",
-                serde_json::json!({
+                output_format.serialize(&serde_json::json!({
                     "closed": self.closed,
                     "pending": self.pending,
                     "failed": self.failed,
                     "results": self.results
-                })
+                }))?
             ),
             OutputFormat::Text => {
                 let total = self.closed + self.pending + self.failed;
@@ -200,6 +205,7 @@ impl CloseSummary {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -388,13 +394,17 @@ mod tests {
     fn test_close_summary_empty_text() {
         let summary = CloseSummary::new();
         // Should print empty message, not panic
-        summary.print(OutputFormat::Text, "No sessions to close.", "closed");
+        summary
+            .print(OutputFormat::Text, "No sessions to close.", "closed")
+            .unwrap();
     }
 
     #[test]
     fn test_close_summary_empty_json() {
         let summary = CloseSummary::new();
-        summary.print(OutputFormat::Json, "No sessions to close.", "closed");
+        summary
+            .print(OutputFormat::Json, "No sessions to close.", "closed")
+            .unwrap();
     }
 
     #[test]
@@ -421,13 +431,17 @@ mod tests {
         summary.record_failed(
             serde_json::json!({"channel_id": "0x3", "status": "error", "error": "timeout"}),
         );
-        summary.print(OutputFormat::Json, "No sessions.", "closed");
+        summary
+            .print(OutputFormat::Json, "No sessions.", "closed")
+            .unwrap();
     }
 
     #[test]
     fn test_close_summary_text_output_no_panic() {
         let mut summary = CloseSummary::new();
         summary.record_closed(serde_json::json!({"status": "closed"}));
-        summary.print(OutputFormat::Text, "No sessions.", "closed");
+        summary
+            .print(OutputFormat::Text, "No sessions.", "closed")
+            .unwrap();
     }
 }

@@ -2186,3 +2186,101 @@ async fn test_verbose_log_redacts_basic_auth_in_stderr() {
         "basic auth password leaked in verbose stderr: {stderr}"
     );
 }
+
+// ==================== TOON Input/Output ====================
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_toon_output_pretty_prints_json_response() {
+    let server = MockServer::start(200, vec![], r#"{"name":"Alice","age":30}"#).await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-t", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.starts_with('{'),
+        "TOON output should not start with '{{': {stdout}"
+    );
+    assert!(stdout.contains("name"), "should contain 'name': {stdout}");
+    assert!(stdout.contains("Alice"), "should contain 'Alice': {stdout}");
+    assert!(stdout.contains("age"), "should contain 'age': {stdout}");
+    assert!(stdout.contains("30"), "should contain '30': {stdout}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_toon_output_non_json_response_passthrough() {
+    let server = MockServer::start(200, vec![], "hello world").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-t", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("hello world"),
+        "non-JSON body should pass through: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_toon_input_sets_content_type_json() {
+    let server = MockServer::start_echo_headers().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--toon", "name: Alice", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let ct = parsed["content-type"].as_str().unwrap();
+    assert!(
+        ct.contains("application/json"),
+        "content-type should be application/json: {ct}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_toon_input_invalid_data_errors() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--toon", "[invalid{toon", "http://127.0.0.1:1/test"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("TOON") || combined.contains("decode"),
+        "should mention TOON parse error: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_toon_and_json_input_conflict() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--json", "{}", "--toon", "x: 1", "http://127.0.0.1:1/test"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("cannot be used with")
+            || combined.contains("conflict")
+            || combined.contains("--json"),
+        "should mention conflict: {combined}"
+    );
+}

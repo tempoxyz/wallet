@@ -37,7 +37,8 @@ const LONG_VERSION: &str = concat!(
   -X, --request <METHOD>        Custom request method (GET, POST, PUT, DELETE, ...)
   -H, --header <HEADER>         Add custom header (e.g. -H 'Accept: text/plain')
   -d, --data <DATA>             POST data (use @filename or @- for stdin)
-      --json <JSON>             Send JSON data with Content-Type header
+     --json <JSON>             Send JSON data with Content-Type header
+     --toon <TOON>             Send TOON data (decoded to JSON) with Content-Type header
   -m, --timeout <SECONDS>       Maximum time for the request
   -f, --fail                    Fail on HTTP errors (do not output body)
   -o, --output <FILE>           Write output to file
@@ -102,6 +103,16 @@ pub struct Cli {
         global = true
     )]
     pub json_output: bool,
+
+    /// Quick switch for TOON output format (compact, token-efficient)
+    #[arg(
+        short = 't',
+        long = "toon-output",
+        help_heading = "Display Options",
+        global = true,
+        conflicts_with = "json_output"
+    )]
+    pub toon_output: bool,
 }
 
 /// Make an HTTP request with optional payment
@@ -196,6 +207,15 @@ pub struct QueryArgs {
     /// Send JSON data with Content-Type header
     #[arg(long = "json", value_name = "JSON", help_heading = "HTTP Options")]
     pub json: Option<String>,
+
+    /// Send TOON data (decoded to JSON) with Content-Type header
+    #[arg(
+        long = "toon",
+        value_name = "TOON",
+        help_heading = "HTTP Options",
+        conflicts_with = "json"
+    )]
+    pub toon: Option<String>,
 
     /// Number of retries on transient network errors (timeouts/connect failures)
     #[arg(long = "retries", value_name = "N", help_heading = "HTTP Options")]
@@ -577,6 +597,8 @@ impl Cli {
     pub fn resolve_output_format(&self, _config: &Config) -> OutputFormat {
         if self.json_output {
             OutputFormat::Json
+        } else if self.toon_output {
+            OutputFormat::Toon
         } else {
             OutputFormat::Text
         }

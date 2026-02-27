@@ -52,9 +52,9 @@ pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpRespon
         return Ok(());
     }
     match opts.output_format {
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Toon => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
-                let output = serde_json::to_string_pretty(&json_value)?;
+                let output = opts.output_format.serialize_pretty(&json_value)?;
                 write_output_to(opts, output)?;
             } else {
                 output_response_body(opts, &response.body)?;
@@ -102,10 +102,10 @@ pub(crate) fn write_meta_if_requested(
     Ok(())
 }
 
-/// Render a structured JSON error object for agent consumption.
+/// Render a structured error object for agent consumption.
 ///
 /// Schema: { code, message, cause? }
-pub(crate) fn render_error_json(err: &anyhow::Error) -> String {
+pub(crate) fn render_error_structured(err: &anyhow::Error, format: OutputFormat) -> String {
     let code = ExitCode::from(err).label();
 
     // Root message and optional immediate cause
@@ -123,7 +123,7 @@ pub(crate) fn render_error_json(err: &anyhow::Error) -> String {
         }
     }
 
-    serde_json::to_string(&obj).unwrap_or_else(|_| {
+    format.serialize(&obj).unwrap_or_else(|_| {
         // As a last resort, emit a minimal JSON
         format!("{{\"code\":\"{}\",\"message\":\"error\"}}", code)
     })
@@ -191,7 +191,7 @@ fn write_headers_file(opts: &OutputOptions, path: &str, response: &HttpResponse)
 mod tests {
     use super::*;
 
-    // ==================== render_error_json stability ====================
+    // ==================== render_error_structured stability ====================
 
     #[test]
     fn test_render_error_json_payment_rejected() {
@@ -200,7 +200,7 @@ mod tests {
             status_code: 402,
         }
         .into();
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_PAYMENT");
         assert!(parsed["message"]
@@ -213,7 +213,7 @@ mod tests {
     fn test_render_error_json_missing_header() {
         let err: anyhow::Error =
             crate::error::PrestoError::MissingHeader("WWW-Authenticate".into()).into();
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_PAYMENT");
         assert!(parsed["message"]
@@ -226,7 +226,7 @@ mod tests {
     fn test_render_error_json_unsupported_payment_method() {
         let err: anyhow::Error =
             crate::error::PrestoError::UnsupportedPaymentMethod("bitcoin".into()).into();
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_PAYMENT");
         assert!(parsed["message"].as_str().unwrap().contains("bitcoin"));
@@ -236,7 +236,7 @@ mod tests {
     fn test_render_error_json_config_missing() {
         let err: anyhow::Error =
             crate::error::PrestoError::ConfigMissing("no wallet".into()).into();
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_CONFIG");
     }
@@ -245,7 +245,7 @@ mod tests {
     fn test_render_error_json_http_error() {
         let err: anyhow::Error =
             crate::error::PrestoError::Http("500 Internal Server Error".into()).into();
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_NETWORK");
     }
@@ -255,7 +255,7 @@ mod tests {
         let inner: anyhow::Error =
             crate::error::PrestoError::Http("connection refused".into()).into();
         let err = inner.context("failed to reach server");
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         // The outermost message is the context
         assert!(parsed["message"]
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn test_render_error_json_no_cause() {
         let err: anyhow::Error = crate::error::PrestoError::InvalidUrl("bad scheme".into()).into();
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.get("cause").is_none());
     }
@@ -281,7 +281,7 @@ mod tests {
     fn test_render_error_json_schema_fields() {
         // Verify the JSON always has exactly "code" and "message" (and optionally "cause")
         let err: anyhow::Error = crate::error::PrestoError::UnknownNetwork("custom".into()).into();
-        let json_str = render_error_json(&err);
+        let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         let obj = parsed.as_object().unwrap();
         assert!(obj.contains_key("code"));
@@ -293,5 +293,55 @@ mod tests {
                 "unexpected field: {key}"
             );
         }
+    }
+
+    // ==================== render_error_structured TOON format ====================
+
+    #[test]
+    fn test_render_error_toon_contains_code_and_message() {
+        let err: anyhow::Error = crate::error::PrestoError::Http("timeout".into()).into();
+        let toon_str = render_error_structured(&err, OutputFormat::Toon);
+        assert!(
+            toon_str.contains("code"),
+            "TOON output should contain 'code'"
+        );
+        assert!(
+            toon_str.contains("timeout"),
+            "TOON output should contain 'timeout'"
+        );
+        assert!(
+            toon_str.contains("E_NETWORK"),
+            "TOON output should contain 'E_NETWORK'"
+        );
+
+        // Round-trip: decode TOON back to serde_json::Value
+        let parsed: serde_json::Value = toon_format::decode_default(&toon_str).unwrap();
+        assert_eq!(parsed["code"], "E_NETWORK");
+        assert!(parsed["message"].as_str().unwrap().contains("timeout"));
+    }
+
+    #[test]
+    fn test_render_error_toon_with_cause() {
+        let inner: anyhow::Error = crate::error::PrestoError::Http("refused".into()).into();
+        let err = inner.context("server down");
+        let toon_str = render_error_structured(&err, OutputFormat::Toon);
+        assert!(
+            toon_str.contains("server down"),
+            "TOON output should contain context message"
+        );
+        assert!(
+            toon_str.contains("refused"),
+            "TOON output should contain cause message"
+        );
+    }
+
+    #[test]
+    fn test_render_error_toon_is_not_json() {
+        let err: anyhow::Error = crate::error::PrestoError::Http("fail".into()).into();
+        let toon_str = render_error_structured(&err, OutputFormat::Toon);
+        assert!(
+            !toon_str.starts_with('{'),
+            "TOON output should not start with '{{' (not JSON)"
+        );
     }
 }
