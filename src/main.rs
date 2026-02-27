@@ -385,28 +385,15 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                         let output_format = cli.resolve_output_format(&config);
                         cli::auth::show_wallet_list(output_format).await
                     }
-                    WalletCommands::Create { passkey } => {
-                        if passkey {
-                            let network = cli.network.as_deref();
-                            let config =
-                                load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-                            let output_format = cli.resolve_output_format(&config);
-                            cli::auth::run_login(network, analytics.clone(), output_format).await
-                        } else {
-                            let wallet_addr =
-                                cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
-                            let config =
-                                load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-                            let output_format = cli.resolve_output_format(&config);
-                            let network = cli.network.as_deref();
-                            cli::auth::show_whoami(
-                                &config,
-                                output_format,
-                                network,
-                                Some(&wallet_addr),
-                            )
+                    WalletCommands::Create => {
+                        let wallet_addr =
+                            cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
+                        let config =
+                            load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+                        let output_format = cli.resolve_output_format(&config);
+                        let network = cli.network.as_deref();
+                        cli::auth::show_whoami(&config, output_format, network, Some(&wallet_addr))
                             .await
-                        }
                     }
                     WalletCommands::Fund { address, no_wait } => {
                         let config = load_config_with_overrides(cli.config.as_ref())?;

@@ -485,12 +485,8 @@ pub enum SessionCommands {
 pub enum WalletCommands {
     /// List configured wallets
     List,
-    /// Create a new wallet
-    Create {
-        /// Create a passkey-based wallet via browser auth
-        #[arg(long)]
-        passkey: bool,
-    },
+    /// Create a new local wallet
+    Create,
     /// Fund your wallet (testnet faucet or mainnet bridge)
     Fund {
         /// Wallet address to fund (defaults to current wallet)
