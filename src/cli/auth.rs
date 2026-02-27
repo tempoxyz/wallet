@@ -52,22 +52,22 @@ pub async fn run_login(
                     println!("Already logged in.\n");
                 }
 
-                show_whoami(&config, output_format, network).await?;
+                show_whoami(&config, output_format, network, None).await?;
                 return Ok(());
             }
         }
     }
 
     let manager = WalletManager::new(network, analytics);
-    manager.setup_wallet().await?;
+    let wallet_address = manager.setup_wallet().await?;
 
     let config = load_or_create_default_config()?;
 
     if output_format == OutputFormat::Text {
         eprintln!("\nWallet connected!\n");
-        show_whoami_stderr(&config, network).await?;
+        show_whoami_stderr(&config, network, Some(&wallet_address)).await?;
     } else {
-        show_whoami(&config, output_format, network).await?;
+        show_whoami(&config, output_format, network, Some(&wallet_address)).await?;
     }
 
     Ok(())
@@ -80,7 +80,7 @@ pub async fn run_login(
 pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
     let mut creds = WalletCredentials::load()?;
 
-    let passkey_wallet_address = match creds.find_passkey() {
+    let passkey_wallet_address = match creds.find_passkey_wallet() {
         Some(entry) => entry.wallet_address.clone(),
         None => {
             println!("Not logged in.");
@@ -116,7 +116,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
         }
     }
 
-    creds.delete_passkey()?;
+    creds.delete_passkey_wallet(&passkey_wallet_address)?;
     creds.save()?;
     println!("Wallet disconnected.");
     Ok(())
@@ -138,23 +138,27 @@ pub(crate) struct StatusResponse {
     pub network: Option<String>,
     pub chain_id: Option<u64>,
     pub(crate) key: Option<KeyInfo>,
+    /// Key expiry as a Unix timestamp (used for text display only, not serialized).
+    #[serde(skip)]
+    pub(crate) key_expiry: Option<u64>,
 }
 
 pub async fn show_whoami(
     config: &Config,
     output_format: OutputFormat,
     network: Option<&str>,
+    wallet_address: Option<&str>,
 ) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
     let network = network_or_default(network);
-    let response = build_whoami_response(config, &creds, network).await;
+    let response = build_whoami_response(config, &creds, network, wallet_address).await;
 
     match output_format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string(&response)?);
         }
         _ => {
-            print_whoami_text(&response, &creds, &mut std::io::stdout())?;
+            print_whoami_text(&response, &mut std::io::stdout())?;
         }
     }
 
@@ -165,6 +169,7 @@ async fn build_whoami_response(
     config: &Config,
     creds: &WalletCredentials,
     network: &str,
+    wallet_address: Option<&str>,
 ) -> StatusResponse {
     let mut response = StatusResponse {
         ready: true,
@@ -175,10 +180,15 @@ async fn build_whoami_response(
         network: None,
         chain_id: None,
         key: None,
+        key_expiry: None,
     };
 
     if creds.has_wallet() {
-        let active_entry = creds.key_for_network(network);
+        let active_entry = if let Some(addr) = wallet_address {
+            creds.key_for_wallet_and_network(addr, network)
+        } else {
+            creds.key_for_network(network)
+        };
 
         response.network = Some(network.to_string());
         let chain_id = network.parse::<Network>().ok().map(|n| n.chain_id());
@@ -227,11 +237,12 @@ async fn build_whoami_response(
                 response.ready = false;
             }
             response.key = Some(key_info);
+            response.key_expiry = key_expiry_timestamp(key_entry);
 
             // Readiness requires: key present, wallet connected, and either
             // already provisioned or has a key_authorization (will auto-provision on first use).
             let has_wallet_addr = response.wallet.as_deref().is_some_and(|s| !s.is_empty());
-            let is_provisioned = creds.is_provisioned(network);
+            let is_provisioned = key_entry.provisioned;
             let has_key_auth = key_entry.key_authorization.is_some();
             response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
         } else {
@@ -247,19 +258,19 @@ async fn build_whoami_response(
 }
 
 /// Show whoami output on stderr (for use during interactive login when stdout may be piped).
-async fn show_whoami_stderr(config: &Config, network: Option<&str>) -> anyhow::Result<()> {
+async fn show_whoami_stderr(
+    config: &Config,
+    network: Option<&str>,
+    wallet_address: Option<&str>,
+) -> anyhow::Result<()> {
     let creds = WalletCredentials::load()?;
     let network = network_or_default(network);
-    let response = build_whoami_response(config, &creds, network).await;
-    print_whoami_text(&response, &creds, &mut std::io::stderr())?;
+    let response = build_whoami_response(config, &creds, network, wallet_address).await;
+    print_whoami_text(&response, &mut std::io::stderr())?;
     Ok(())
 }
 
-fn print_whoami_text(
-    response: &StatusResponse,
-    creds: &WalletCredentials,
-    w: &mut dyn std::io::Write,
-) -> anyhow::Result<()> {
+fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
     if let Some(wallet) = &response.wallet {
         let wt = response.wallet_type.as_deref().unwrap_or("unknown");
         writeln!(w, "{:>10}: {} ({})", "Wallet", wallet, wt)?;
@@ -277,7 +288,7 @@ fn print_whoami_text(
         if let Some(network) = &response.network {
             writeln!(w, "{:>10}: {}", "Chain", network)?;
         }
-        if let Some(expiry_ts) = creds.primary_key().and_then(key_expiry_timestamp) {
+        if let Some(expiry_ts) = response.key_expiry {
             writeln!(
                 w,
                 "{:>10}: {}",

@@ -19,7 +19,7 @@ use crate::wallet::key_authorization;
 /// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
 /// 5. Print the fundable wallet address
-pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
+pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<String> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot create wallets with --private-key flag");
     }
@@ -68,7 +68,7 @@ pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
         return Err(e.into());
     }
 
-    Ok(())
+    Ok(wallet_address)
 }
 
 /// Renew the key for an existing local wallet.
@@ -77,17 +77,34 @@ pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<()> {
 /// 2. Generate a new random key → store inline in keys.toml
 /// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
 /// 4. Clear provisioned flag (new key must re-provision)
-pub(crate) fn create_access_key() -> Result<()> {
+pub(crate) fn create_access_key(wallet_address: Option<&str>) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot renew wallets with --private-key flag");
     }
 
     let mut creds = WalletCredentials::load()?;
-    let idx = creds
-        .keys
-        .iter()
-        .position(|k| k.wallet_type == WalletType::Local)
-        .ok_or_else(|| anyhow::anyhow!("No local wallet found."))?;
+    let idx = if let Some(addr) = wallet_address {
+        creds
+            .keys
+            .iter()
+            .position(|k| {
+                k.wallet_address.eq_ignore_ascii_case(addr) && k.wallet_type == WalletType::Local
+            })
+            .ok_or_else(|| anyhow::anyhow!("No local wallet found for address '{addr}'."))?
+    } else {
+        let local_indices: Vec<_> = creds
+            .keys
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| k.wallet_type == WalletType::Local)
+            .map(|(i, _)| i)
+            .collect();
+        match local_indices.len() {
+            0 => anyhow::bail!("No local wallet found."),
+            1 => local_indices[0],
+            _ => anyhow::bail!("Multiple local wallets found. Specify --wallet <address>."),
+        }
+    };
 
     let key_entry = &creds.keys[idx];
 

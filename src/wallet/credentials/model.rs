@@ -110,7 +110,7 @@ impl std::fmt::Debug for KeyEntry {
 /// Wallet credentials stored in keys.toml.
 ///
 /// Supports multiple key entries via `[[keys]]` array of tables.
-/// Key selection is deterministic: passkey > first key with key > first key.
+/// Key selection is deterministic: first key with key > first key.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WalletCredentials {
     #[serde(default)]
@@ -138,15 +138,8 @@ impl WalletCredentials {
 
     /// Get the primary key entry.
     ///
-    /// Deterministic selection: passkey > first key with non-empty key > first entry.
+    /// Deterministic selection: first key with a signing key > first entry.
     pub fn primary_key(&self) -> Option<&KeyEntry> {
-        if let Some(entry) = self
-            .keys
-            .iter()
-            .find(|k| k.wallet_type == WalletType::Passkey)
-        {
-            return Some(entry);
-        }
         if let Some(entry) = self
             .keys
             .iter()
@@ -238,23 +231,42 @@ impl WalletCredentials {
         })
     }
 
-    /// Find the passkey wallet entry, if one exists.
-    pub fn find_passkey(&self) -> Option<&KeyEntry> {
+    /// Find the key for a specific wallet address on a given network.
+    ///
+    /// Matches by (wallet_address, chain_id). Returns `None` if no match found.
+    pub fn key_for_wallet_and_network(
+        &self,
+        wallet_address: &str,
+        network: &str,
+    ) -> Option<&KeyEntry> {
+        let chain_id = network.parse::<Network>().ok().map(|n| n.chain_id())?;
+        self.keys.iter().find(|k| {
+            k.wallet_address.eq_ignore_ascii_case(wallet_address) && k.chain_id == chain_id
+        })
+    }
+
+    /// Find the first passkey wallet entry, if one exists.
+    pub fn find_passkey_wallet(&self) -> Option<&KeyEntry> {
         self.keys
             .iter()
             .find(|k| k.wallet_type == WalletType::Passkey)
     }
 
-    /// Delete the passkey entry.
+    /// Delete all passkey entries for a given wallet address (case-insensitive).
     ///
-    /// Returns an error if no passkey is found.
-    pub fn delete_passkey(&mut self) -> Result<(), PrestoError> {
-        let idx = self
-            .keys
-            .iter()
-            .position(|k| k.wallet_type == WalletType::Passkey)
-            .ok_or_else(|| PrestoError::ConfigMissing("No passkey found.".to_string()))?;
-        self.keys.remove(idx);
+    /// Removes all entries where wallet_type is Passkey and wallet_address matches.
+    /// Returns an error if no matching entries are found.
+    pub fn delete_passkey_wallet(&mut self, wallet_address: &str) -> Result<(), PrestoError> {
+        let before = self.keys.len();
+        self.keys.retain(|k| {
+            !(k.wallet_type == WalletType::Passkey
+                && k.wallet_address.eq_ignore_ascii_case(wallet_address))
+        });
+        if self.keys.len() == before {
+            return Err(PrestoError::ConfigMissing(format!(
+                "No passkey wallet found for '{wallet_address}'."
+            )));
+        }
         Ok(())
     }
 

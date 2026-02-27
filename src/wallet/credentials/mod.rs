@@ -294,7 +294,7 @@ provisioned = true
             ..Default::default()
         });
 
-        creds.delete_passkey().unwrap();
+        creds.delete_passkey_wallet("0xBBB").unwrap();
         assert_eq!(creds.keys.len(), 1);
         assert_eq!(creds.primary_key().unwrap().wallet_address, "0xAAA");
     }
@@ -496,15 +496,15 @@ provisioned = true
     #[test]
     fn test_find_passkey() {
         let mut creds = WalletCredentials::default();
-        assert!(creds.find_passkey().is_none());
+        assert!(creds.find_passkey_wallet().is_none());
 
         creds.keys.push(KeyEntry {
             wallet_type: WalletType::Passkey,
             wallet_address: "0xABC".to_string(),
             ..Default::default()
         });
-        assert!(creds.find_passkey().is_some());
-        assert_eq!(creds.find_passkey().unwrap().wallet_address, "0xABC");
+        assert!(creds.find_passkey_wallet().is_some());
+        assert_eq!(creds.find_passkey_wallet().unwrap().wallet_address, "0xABC");
     }
 
     #[test]
@@ -526,8 +526,8 @@ provisioned = true
     // ==================== Multi-key selection rules ====================
 
     #[test]
-    fn test_primary_key_passkey_beats_local_with_key() {
-        // Passkey entry should win even when a local entry has an inline key.
+    fn test_primary_key_first_with_key_wins() {
+        // First entry with a signing key wins, regardless of wallet type.
         let mut creds = WalletCredentials::default();
         creds.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -541,28 +541,28 @@ provisioned = true
             key: Some(Zeroizing::new("0xpasskey_key".to_string())),
             ..Default::default()
         });
-        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xPasskey");
+        // First entry with a key wins (insertion order)
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xLocal");
     }
 
     #[test]
-    fn test_primary_key_passkey_without_key_still_wins() {
-        // Passkey entry wins priority even without an inline key.
+    fn test_primary_key_skips_entries_without_key() {
+        // Entries without a signing key are skipped in favor of those with one.
         let mut creds = WalletCredentials::default();
+        creds.keys.push(KeyEntry {
+            wallet_type: WalletType::Passkey,
+            wallet_address: "0xPasskey".to_string(),
+            ..Default::default()
+        });
         creds.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
             wallet_address: "0xLocal".to_string(),
             key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
             ..Default::default()
         });
-        creds.keys.push(KeyEntry {
-            wallet_type: WalletType::Passkey,
-            wallet_address: "0xPasskey".to_string(),
-            ..Default::default()
-        });
-        // Passkey takes priority even without a key
-        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xPasskey");
-        // But has_wallet() is false because passkey has no inline key
-        assert!(!creds.has_wallet());
+        // Local entry has a key, passkey doesn't → local wins
+        assert_eq!(creds.primary_key().unwrap().wallet_address, "0xLocal");
+        assert!(creds.has_wallet());
     }
 
     #[test]
@@ -856,8 +856,8 @@ wallet_address = "0xtest"
             wallet_address: "0xLocal".to_string(),
             ..Default::default()
         });
-        let err = creds.delete_passkey().unwrap_err();
-        assert!(err.to_string().contains("No passkey found"));
+        let err = creds.delete_passkey_wallet("0xNonExistent").unwrap_err();
+        assert!(err.to_string().contains("No passkey wallet found"));
     }
 
     #[test]

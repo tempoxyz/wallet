@@ -66,7 +66,7 @@ impl WalletManager {
     }
 
     /// Open browser for wallet authentication.
-    pub async fn setup_wallet(&self) -> Result<(), PrestoError> {
+    pub async fn setup_wallet(&self) -> Result<String, PrestoError> {
         let local_signer = PrivateKeySigner::random();
         let uncompressed = local_signer
             .credential()
@@ -181,9 +181,9 @@ impl WalletManager {
             );
         }
 
-        self.save_credentials(callback, local_signer).await?;
+        let wallet_address = self.save_credentials(callback, local_signer).await?;
 
-        Ok(())
+        Ok(wallet_address)
     }
 
     /// Save authentication credentials.
@@ -193,7 +193,7 @@ impl WalletManager {
         &self,
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
-    ) -> Result<(), PrestoError> {
+    ) -> Result<String, PrestoError> {
         let validated = super::key_authorization::validate(
             callback.key_authorization.as_deref(),
             local_signer.address(),
@@ -227,6 +227,7 @@ impl WalletManager {
             .unwrap_or(default_chain_id);
 
         let entry = creds.upsert_by_wallet_and_chain(&callback.account_address, chain_id);
+        let wallet_address_result = callback.account_address.clone();
 
         // Only preserve provisioned state when key is unchanged.
         let keep_provisioned = {
@@ -265,7 +266,7 @@ impl WalletManager {
             a.identify();
         }
 
-        Ok(())
+        Ok(wallet_address_result)
     }
 }
 

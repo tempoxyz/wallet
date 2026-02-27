@@ -387,12 +387,19 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             let output_format = cli.resolve_output_format(&config);
                             cli::auth::run_login(network, analytics.clone(), output_format).await
                         } else {
-                            cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
+                            let wallet_addr =
+                                cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
                             let config =
                                 load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
                             let output_format = cli.resolve_output_format(&config);
                             let network = cli.network.as_deref();
-                            cli::auth::show_whoami(&config, output_format, network).await
+                            cli::auth::show_whoami(
+                                &config,
+                                output_format,
+                                network,
+                                Some(&wallet_addr),
+                            )
+                            .await
                         }
                     }
                     WalletCommands::Fund { address, no_wait } => {
@@ -426,7 +433,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
             }
-            cli::auth::show_whoami(&config, output_format, network).await
+            cli::auth::show_whoami(&config, output_format, network, None).await
         }
 
         Commands::Key { command } => {
@@ -438,8 +445,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     cli::keys::show_keys(&config, output_format, network).await
                 }
                 Some(KeyCommands::Create) => {
-                    cli::local_wallet::create_access_key()?;
-                    cli::auth::show_whoami(&config, output_format, network).await
+                    cli::local_wallet::create_access_key(None)?;
+                    cli::auth::show_whoami(&config, output_format, network, None).await
                 }
                 Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),
                 None => {
