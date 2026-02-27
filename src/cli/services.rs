@@ -91,32 +91,45 @@ pub(crate) async fn show_service_info(output_format: OutputFormat, service_id: &
 // Text rendering — list table
 // ---------------------------------------------------------------------------
 
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max - 1])
+    }
+}
+
 fn render_service_table(services: &[&Service]) {
-    // Compute column widths
-    let w_name = services
-        .iter()
-        .map(|s| s.name.len())
-        .max()
-        .unwrap_or(4)
-        .max(4);
+    // Column width caps
+    const MAX_ID: usize = 20;
+    const MAX_NAME: usize = 24;
+    const MAX_CAT: usize = 16;
+    const MAX_STATUS: usize = 10;
+
     let w_id = services
         .iter()
         .map(|s| s.id.len())
         .max()
         .unwrap_or(2)
-        .max(2);
+        .clamp(2, MAX_ID);
+    let w_name = services
+        .iter()
+        .map(|s| s.name.len())
+        .max()
+        .unwrap_or(4)
+        .clamp(4, MAX_NAME);
     let w_cat = services
         .iter()
         .map(|s| format_categories(s).len())
         .max()
         .unwrap_or(8)
-        .max(8);
+        .clamp(8, MAX_CAT);
     let w_status = services
         .iter()
         .map(|s| s.status.as_deref().unwrap_or("—").len())
         .max()
         .unwrap_or(6)
-        .max(6);
+        .clamp(6, MAX_STATUS);
     let w_integ = 3; // "1p" / "3p"
     let w_payment = services
         .iter()
@@ -127,16 +140,18 @@ fn render_service_table(services: &[&Service]) {
 
     // Header
     println!(
-        "  {:<w_name$}  {:<w_id$}  {:<w_cat$}  {:<w_status$}  {:<w_integ$}  {:<w_payment$}  Service URL",
-        "Name", "ID", "Category", "Status", "Int", "Payment"
+        "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  {:<w_status$}  {:<w_integ$}  {:<w_payment$}  Service URL",
+        "ID", "Name", "Category", "Status", "Int", "Payment"
     );
     let total_w =
-        2 + w_name + 2 + w_id + 2 + w_cat + 2 + w_status + 2 + w_integ + 2 + w_payment + 2 + 30;
+        2 + w_id + 2 + w_name + 2 + w_cat + 2 + w_status + 2 + w_integ + 2 + w_payment + 2 + 30;
     println!("  {}", "─".repeat(total_w));
 
     for s in services {
-        let categories = format_categories(s);
-        let status = s.status.as_deref().unwrap_or("—");
+        let id = truncate(&s.id, MAX_ID);
+        let name = truncate(&s.name, MAX_NAME);
+        let categories = truncate(&format_categories(s), MAX_CAT);
+        let status = truncate(s.status.as_deref().unwrap_or("—"), MAX_STATUS);
         let integration = match s.integration.as_deref() {
             Some("first-party") => "1p",
             Some("third-party") => "3p",
@@ -146,8 +161,8 @@ fn render_service_table(services: &[&Service]) {
         let service_url = s.service_url.as_deref().unwrap_or("—");
 
         println!(
-            "  {:<w_name$}  {:<w_id$}  {:<w_cat$}  {:<w_status$}  {:<w_integ$}  {:<w_payment$}  {}",
-            s.name, s.id, categories, status, integration, payment, service_url
+            "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  {:<w_status$}  {:<w_integ$}  {:<w_payment$}  {}",
+            id, name, categories, status, integration, payment, service_url
         );
     }
 
@@ -247,23 +262,6 @@ fn render_service_detail(s: &Service) {
         }
     }
 
-    // Payment methods
-    if !s.methods.is_empty() {
-        println!();
-        println!("Payment Methods:");
-        for (method_name, pm) in &s.methods {
-            let intents = if pm.intents.is_empty() {
-                "—".to_string()
-            } else {
-                pm.intents.join(", ")
-            };
-            print_field(&format!("  {method_name}"), &format!("intents: {intents}"));
-            if !pm.assets.is_empty() {
-                print_field("    Assets", &pm.assets.join(", "));
-            }
-        }
-    }
-
     // Endpoints
     if !s.endpoints.is_empty() {
         println!();
@@ -300,29 +298,23 @@ fn render_endpoint(ep: &Endpoint) {
 
             parts.push(p.intent.clone());
 
-            if let Some(ref desc) = p.description {
-                parts.push(format!("({desc})"));
-            }
-
             parts.join(" ")
         }
     };
 
     println!("  {:>6} {:<40} {}", ep.method, ep.path, pricing);
 
+    // Show endpoint description, but skip if it duplicates the payment description
+    let payment_desc = ep.payment.as_ref().and_then(|p| p.description.as_deref());
     if let Some(ref desc) = ep.description {
+        println!("         {desc}");
+    } else if let Some(desc) = payment_desc {
         println!("         {desc}");
     }
 
     if let Some(ref p) = ep.payment {
         if let Some(ref unit_type) = p.unit_type {
             println!("         per {unit_type}");
-        }
-        if let Some(ref currency) = p.currency {
-            println!("         currency: {currency}");
-        }
-        if let Some(ref recipient) = p.recipient {
-            println!("         recipient: {recipient}");
         }
     }
 
