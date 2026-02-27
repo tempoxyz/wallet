@@ -447,6 +447,10 @@ pub enum Commands {
         search: Option<String>,
     },
 
+    /// Update presto to the latest version
+    #[command(display_order = 8)]
+    Update,
+
     /// Generate shell completions script
     #[command(hide = true)]
     Completions {

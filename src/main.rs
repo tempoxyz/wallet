@@ -263,6 +263,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Whoami | Commands::Balance => "whoami",
             Commands::Keys { .. } => "keys",
             Commands::Services { .. } => "services",
+            Commands::Update => "update",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -514,6 +515,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 }
             }
         }
+
+        Commands::Update => run_self_update(),
     };
 
     if let Some(ref a) = analytics {
@@ -524,6 +527,25 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 }
 
 // ==================== Simple Commands ====================
+
+const INSTALL_SCRIPT_URL: &str = "https://presto-binaries.tempo.xyz/install.sh";
+
+/// Download and run the install script to update to the latest version.
+fn run_self_update() -> Result<()> {
+    eprintln!("Updating presto to the latest version...\n");
+
+    let status = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(format!("curl -fsSL {INSTALL_SCRIPT_URL} | bash"))
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to run update script: {e}"))?;
+
+    if !status.success() {
+        anyhow::bail!("update failed (exit code {})", status.code().unwrap_or(1));
+    }
+
+    Ok(())
+}
 
 /// Generate shell completions
 fn generate_completions(shell: Shell) -> Result<()> {
