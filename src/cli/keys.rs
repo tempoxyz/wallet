@@ -102,7 +102,9 @@ pub async fn show_keys(
     let network = network_or_default(network);
 
     // Pre-fetch balances for each unique (wallet, network) pair.
-    let mut balance_cache: HashMap<String, Vec<TokenBalance>> = HashMap::new();
+    // Cache key includes chain_id so the same wallet on different networks
+    // doesn't overwrite its sibling's balances.
+    let mut balance_cache: HashMap<(String, u64), Vec<TokenBalance>> = HashMap::new();
     let mut balance_tasks = Vec::new();
     for entry in &creds.keys {
         if entry.wallet_address.is_empty() {
@@ -112,15 +114,16 @@ pub async fn show_keys(
             .map(|n| n.as_str())
             .unwrap_or(network);
         let addr = entry.wallet_address.clone();
+        let chain_id = entry.chain_id;
         balance_tasks.push(async move {
             (
-                addr.clone(),
+                (addr.clone(), chain_id),
                 query_all_balances(config, entry_network, &addr).await,
             )
         });
     }
-    for (addr, balances) in join_all(balance_tasks).await {
-        balance_cache.insert(addr, balances);
+    for (key, balances) in join_all(balance_tasks).await {
+        balance_cache.insert(key, balances);
     }
 
     let mut keys = Vec::new();
@@ -197,7 +200,7 @@ pub(super) async fn build_key_info(
     current_chain_id: Option<u64>,
     label: &str,
     entry: &KeyEntry,
-    balance_cache: &HashMap<String, Vec<TokenBalance>>,
+    balance_cache: &HashMap<(String, u64), Vec<TokenBalance>>,
 ) -> KeyInfo {
     let address = entry
         .key_address
@@ -223,9 +226,10 @@ pub(super) async fn build_key_info(
     let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
         (None, None)
     } else {
+        let cache_key = (entry.wallet_address.clone(), entry.chain_id);
         let bal = currency.as_ref().and_then(|cur| {
             balance_cache
-                .get(&entry.wallet_address)
+                .get(&cache_key)
                 .and_then(|all| all.iter().find(|tb| tb.currency == *cur))
                 .map(|tb| tb.balance.clone())
         });

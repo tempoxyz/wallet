@@ -878,10 +878,11 @@ wallet_address = "0xtest"
         let mut creds = WalletCredentials::default();
         creds.keys.push(KeyEntry {
             wallet_address: "0xAbCd".to_string(),
+            chain_id: 4217,
             ..Default::default()
         });
         // Upsert with different casing should update in place
-        let entry = creds.upsert_by_wallet_and_chain("0xABCD", 0);
+        let entry = creds.upsert_by_wallet_and_chain("0xABCD", 4217);
         entry.provisioned = true;
         assert_eq!(creds.keys.len(), 1);
         assert!(creds.keys[0].provisioned);

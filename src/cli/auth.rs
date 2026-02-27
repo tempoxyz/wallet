@@ -202,7 +202,7 @@ async fn build_whoami_response(
 
             let wallet_addr = response.wallet.as_deref().unwrap_or("");
             let balance_cache = vec![(
-                wallet_addr.to_string(),
+                (wallet_addr.to_string(), key_entry.chain_id),
                 query_all_balances(config, network, wallet_addr).await,
             )]
             .into_iter()

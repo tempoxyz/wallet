@@ -245,7 +245,6 @@ impl WalletManager {
 
         entry.wallet_type = WalletType::Passkey;
         entry.wallet_address = callback.account_address;
-        entry.chain_id = chain_id;
         entry.key_type = key_type;
         entry.key_address = Some(access_key_address);
         entry.key = Some(access_key_hex);

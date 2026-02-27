@@ -695,10 +695,14 @@ async fn ensure_wallet_configured(
         .parse::<Network>()
         .ok()
         .map(|n| n.chain_id());
-    let network_flag = Network::default_network()
-        .and_then(|def| chain_id.filter(|&cid| cid != def.chain_id()))
-        .map(|_| format!(" --network {challenge_network}"))
-        .unwrap_or_default();
+    let is_default_network = Network::default_network()
+        .zip(chain_id)
+        .is_some_and(|(def, cid)| cid == def.chain_id());
+    let network_flag = if is_default_network {
+        String::new()
+    } else {
+        format!(" --network {challenge_network}")
+    };
 
     if !creds.as_ref().is_some_and(|c| c.has_wallet()) {
         anyhow::bail!(PrestoError::ConfigMissing(format!(
