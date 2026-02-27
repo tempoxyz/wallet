@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install uninstall reinstall e2e
+.PHONY: build release clean check test fix install uninstall e2e
 
 build:
 	cargo build
@@ -11,13 +11,10 @@ release:
 	cargo build --release
 
 install:
-	./install.sh --local $(if $(WALLET),--wallet=$(WALLET))
+	./install.sh --from-source $(if $(WALLET),--wallet=$(WALLET))
 
 uninstall:
 	./install.sh --uninstall
-
-reinstall:
-	./install.sh --reinstall $(if $(WALLET),--wallet=$(WALLET))
 
 clean:
 	cargo clean
