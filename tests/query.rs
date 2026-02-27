@@ -408,7 +408,7 @@ async fn test_session_list_empty() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
 
@@ -424,7 +424,7 @@ async fn test_session_close_no_session() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["session", "close", "https://example.com"])
+        .args(["sessions", "close", "https://example.com"])
         .output()
         .unwrap();
 

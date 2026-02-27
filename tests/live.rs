@@ -43,7 +43,7 @@ fn extract_channel_id(output: &str) -> Option<String> {
 /// Best-effort cleanup: close all sessions.
 fn cleanup_sessions(temp: &tempfile::TempDir) {
     let _ = test_command(temp)
-        .args(["session", "close", "--all"])
+        .args(["sessions", "close", "--all"])
         .output();
 }
 
@@ -61,7 +61,7 @@ async fn test_session_one_per_origin() {
     assert!(output.status.success(), "first request failed");
 
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let combined = get_combined_output(&list_out);
@@ -78,7 +78,7 @@ async fn test_session_one_per_origin() {
     assert!(output.status.success(), "second request failed");
 
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let combined = get_combined_output(&list_out);
@@ -104,7 +104,7 @@ async fn test_session_close() {
     assert!(output.status.success(), "request failed");
 
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let combined = get_combined_output(&list_out);
@@ -115,7 +115,7 @@ async fn test_session_close() {
 
     // Close by URL
     let close_out = test_command(&temp)
-        .args(["session", "close", ENDPOINT])
+        .args(["sessions", "close", ENDPOINT])
         .output()
         .unwrap();
     let combined = get_combined_output(&close_out);
@@ -126,7 +126,7 @@ async fn test_session_close() {
 
     // Verify it's gone
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let combined = get_combined_output(&list_out);
@@ -151,7 +151,7 @@ async fn test_session_recover() {
 
     // Capture channel ID
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let list_combined = get_combined_output(&list_out);
@@ -166,7 +166,7 @@ async fn test_session_recover() {
     delete_sessions_db(&temp);
 
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let combined = get_combined_output(&list_out);
@@ -177,7 +177,7 @@ async fn test_session_recover() {
 
     // Recover from on-chain state
     let recover_out = test_command(&temp)
-        .args(["session", "recover", ENDPOINT])
+        .args(["sessions", "recover", ENDPOINT])
         .output()
         .unwrap();
     let recover_combined = get_combined_output(&recover_out);
@@ -196,7 +196,7 @@ async fn test_session_recover() {
 
     // Verify session list shows it
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let combined = get_combined_output(&list_out);
@@ -223,7 +223,7 @@ async fn test_session_auto_recover() {
 
     // Capture channel ID
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let list_combined = get_combined_output(&list_out);
@@ -234,7 +234,7 @@ async fn test_session_auto_recover() {
     delete_sessions_db(&temp);
 
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let combined = get_combined_output(&list_out);
@@ -258,7 +258,7 @@ async fn test_session_auto_recover() {
 
     // Verify session list shows 1 session with matching channel
     let list_out = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
     let list_combined = get_combined_output(&list_out);

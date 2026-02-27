@@ -143,14 +143,14 @@ fn test_top_level_help_compact_no_hidden_commands() {
         "hidden 'completions' command leaked: {stdout}"
     );
     assert!(
-        !stdout.contains("wallet ") && !stdout.contains("  wallet"),
-        "hidden 'wallet' command leaked: {stdout}"
+        !stdout.contains("wallets ") && !stdout.contains("  wallets"),
+        "hidden 'wallets' command leaked: {stdout}"
     );
     // Visible commands must appear
     assert!(stdout.contains("login"), "missing 'login' command");
     assert!(stdout.contains("logout"), "missing 'logout' command");
     assert!(stdout.contains("whoami"), "missing 'whoami' command");
-    assert!(stdout.contains("session"), "missing 'session' command");
+    assert!(stdout.contains("sessions"), "missing 'sessions' command");
 }
 
 #[test]
@@ -339,7 +339,7 @@ fn test_completions_case_sensitivity() {
 fn test_session_list_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["-j", "session", "list"]);
+    cmd.args(["-j", "sessions", "list"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -352,7 +352,7 @@ fn test_session_list_json_empty() {
 fn test_session_list_json_via_alias_short_j() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["-j", "session", "list"]);
+    cmd.args(["-j", "sessions", "list"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -364,7 +364,7 @@ fn test_session_list_json_via_alias_short_j() {
 fn test_session_list_json_via_alias_long() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["--json-output", "session", "list"]);
+    cmd.args(["--json-output", "sessions", "list"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -377,7 +377,7 @@ fn test_key_list_json_has_total() {
     let temp_dir = TestConfigBuilder::new().build();
 
     let output = test_command(&temp_dir)
-        .args(["-j", "key", "list"])
+        .args(["-j", "keys", "list"])
         .output()
         .unwrap();
 
@@ -447,7 +447,7 @@ fn test_help_flag() {
 #[test]
 fn test_invalid_command() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["session", "invalid-subcommand"])
+        .args(["sessions", "invalid-subcommand"])
         .assert()
         .failure();
 }
@@ -620,14 +620,14 @@ fn test_logout_noninteractive_without_yes() {
 fn test_session_close_all_no_sessions() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["session", "close", "--all"]);
+    cmd.args(["sessions", "close", "--all"]);
     cmd.assert().success();
 }
 
 #[test]
 fn test_session_help() {
     Command::new(assert_cmd::cargo::cargo_bin!("presto"))
-        .args(["session", "--help"])
+        .args(["sessions", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("list"))
@@ -638,7 +638,7 @@ fn test_session_help() {
 fn test_session_shows_help() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.arg("session");
+    cmd.arg("sessions");
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("Manage payment sessions"));
@@ -744,7 +744,7 @@ fn test_rejects_header_with_crlf_injection() {
 fn test_session_list_text_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["session", "list"]);
+    cmd.args(["sessions", "list"]);
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("No active sessions"));
@@ -754,7 +754,7 @@ fn test_session_list_text_empty() {
 fn test_session_close_all_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["-j", "session", "close", "--all"]);
+    cmd.args(["-j", "sessions", "close", "--all"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -769,7 +769,7 @@ fn test_session_close_all_json_empty() {
 fn test_session_close_no_args_fails() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["session", "close"]);
+    cmd.args(["sessions", "close"]);
     cmd.assert().failure();
 }
 
@@ -777,7 +777,7 @@ fn test_session_close_no_args_fails() {
 fn test_session_close_invalid_channel_id() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["session", "close", "0xinvalid"]);
+    cmd.args(["sessions", "close", "0xinvalid"]);
     let output = cmd.output().unwrap();
     // Short hex string (not 66 chars) is treated as a URL, not a channel ID
     // Should print "No active session" not a crash
@@ -793,7 +793,7 @@ fn test_session_close_invalid_channel_id() {
 fn test_session_list_closed_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["-j", "session", "list", "--closed"]);
+    cmd.args(["-j", "sessions", "list", "--closed"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -849,7 +849,7 @@ fn test_key_list_json_structure_with_keys() {
         .build();
 
     let output = test_command(&temp)
-        .args(["-j", "key", "list"])
+        .args(["-j", "keys", "list"])
         .output()
         .unwrap();
 
@@ -874,7 +874,7 @@ fn test_key_list_json_structure_with_keys() {
 fn test_session_list_json_structure() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "session", "list"])
+        .args(["-j", "sessions", "list"])
         .output()
         .unwrap();
 
@@ -893,7 +893,7 @@ fn test_session_list_json_structure() {
 fn test_session_close_all_json_structure() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "session", "close", "--all"])
+        .args(["-j", "sessions", "close", "--all"])
         .output()
         .unwrap();
 
@@ -1003,7 +1003,7 @@ fn test_missing_default_config_falls_back_to_defaults() {
 
     // Session list works without any config (uses defaults)
     let output = test_command(&temp)
-        .args(["session", "list"])
+        .args(["sessions", "list"])
         .output()
         .unwrap();
 
@@ -1158,7 +1158,7 @@ fn test_session_list_json_schema_fields() {
     // Verify the JSON list schema has exactly "sessions" and "total"
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "session", "list"])
+        .args(["-j", "sessions", "list"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1179,7 +1179,7 @@ fn test_session_list_json_schema_fields() {
 fn test_session_list_with_network_filter_empty() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "list", "--network", "tempo"])
+        .args(["sessions", "list", "--network", "tempo"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1194,7 +1194,7 @@ fn test_session_list_with_network_filter_empty() {
 fn test_session_list_with_network_filter_json() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "session", "list", "--network", "tempo-moderato"])
+        .args(["-j", "sessions", "list", "--network", "tempo-moderato"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1207,7 +1207,7 @@ fn test_session_list_with_network_filter_json() {
 fn test_session_list_closed_text_empty() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "list", "--closed"])
+        .args(["sessions", "list", "--closed"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1222,7 +1222,7 @@ fn test_session_list_closed_text_empty() {
 fn test_session_close_all_text_empty() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "close", "--all"])
+        .args(["sessions", "close", "--all"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1238,7 +1238,7 @@ fn test_session_close_all_json_schema() {
     // Verify close summary JSON schema: closed/pending/failed/results
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "session", "close", "--all"])
+        .args(["-j", "sessions", "close", "--all"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1258,7 +1258,7 @@ fn test_session_close_all_json_schema() {
 fn test_session_close_closed_text_empty() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "close", "--closed"])
+        .args(["sessions", "close", "--closed"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1273,7 +1273,7 @@ fn test_session_close_closed_text_empty() {
 fn test_session_close_closed_json_schema() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "session", "close", "--closed"])
+        .args(["-j", "sessions", "close", "--closed"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1290,7 +1290,7 @@ fn test_session_close_no_target_error_message() {
     // `session close` without URL/--all/--orphaned/--closed should fail with guidance
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "close"])
+        .args(["sessions", "close"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -1305,7 +1305,7 @@ fn test_session_close_no_target_error_message() {
 fn test_session_close_nonexistent_url_text() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["session", "close", "https://nonexistent.example.com"])
+        .args(["sessions", "close", "https://nonexistent.example.com"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1320,7 +1320,7 @@ fn test_session_close_nonexistent_url_text() {
 fn test_session_close_nonexistent_url_json() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "session", "close", "https://nonexistent.example.com"])
+        .args(["-j", "sessions", "close", "https://nonexistent.example.com"])
         .output()
         .unwrap();
     assert!(output.status.success());
