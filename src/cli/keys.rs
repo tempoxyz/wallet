@@ -166,6 +166,9 @@ pub async fn show_keys(
                     .iter()
                     .find(|e| e.key_address.as_deref() == Some(&key.address))
                 {
+                    if let Some(net) = Network::from_chain_id(entry.chain_id) {
+                        println!("{:>10}: {}", "Chain", net.as_str());
+                    }
                     if let Some(expiry_ts) = key_expiry_timestamp(entry) {
                         println!("{:>10}: {}", "Expires", format_expiry_countdown(expiry_ts));
                     }
