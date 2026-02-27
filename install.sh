@@ -137,17 +137,68 @@ verify_installation() {
 
 install_ai_skill() {
     local skill_variant="${1:-local}"
-    local skill_dir="${HOME}/.claude/skills/presto"
-    local skill_file="${skill_dir}/SKILL.md"
     local local_skill="${SCRIPT_DIR}/.agents/skills/presto-${skill_variant}/SKILL.md"
+    local skill_content=""
 
-    mkdir -p "${skill_dir}" 2>/dev/null || return 0
-
+    # Resolve skill content: prefer local file, fall back to R2 download
     if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
-        cp "${local_skill}" "${skill_file}"
+        skill_content="${local_skill}"
     else
+        local tmp_skill="${TMP_DIR}/SKILL.md"
         local skill_url="${R2_BASE_URL}/SKILL-${skill_variant}.md"
-        curl -fsSL "${skill_url}" -o "${skill_file}" 2>/dev/null || return 0
+        if curl -fsSL "${skill_url}" -o "${tmp_skill}" 2>/dev/null; then
+            skill_content="${tmp_skill}"
+        else
+            return 0
+        fi
+    fi
+
+    # Global skill directories for known AI coding agents.
+    # Only installs if the agent's parent config dir already exists,
+    # indicating the agent is installed on this machine.
+    # Based on https://github.com/vercel-labs/skills
+    #
+    # Format: "parent_dir|skills_dir|agent_name"
+    local agents=(
+        "${HOME}/.agents|${HOME}/.agents/skills|universal"
+        "${HOME}/.claude|${HOME}/.claude/skills|Claude Code"
+        "${HOME}/.config/agents|${HOME}/.config/agents/skills|Amp"
+        "${HOME}/.cursor|${HOME}/.cursor/skills|Cursor"
+        "${HOME}/.copilot|${HOME}/.copilot/skills|GitHub Copilot"
+        "${HOME}/.codex|${HOME}/.codex/skills|Codex"
+        "${HOME}/.gemini|${HOME}/.gemini/skills|Gemini CLI"
+        "${HOME}/.config/opencode|${HOME}/.config/opencode/skills|OpenCode"
+        "${HOME}/.config/goose|${HOME}/.config/goose/skills|Goose"
+        "${HOME}/.windsurf|${HOME}/.windsurf/skills|Windsurf"
+        "${HOME}/.codeium/windsurf|${HOME}/.codeium/windsurf/skills|Windsurf"
+        "${HOME}/.continue|${HOME}/.continue/skills|Continue"
+        "${HOME}/.roo|${HOME}/.roo/skills|Roo"
+        "${HOME}/.kiro|${HOME}/.kiro/skills|Kiro"
+        "${HOME}/.augment|${HOME}/.augment/skills|Augment"
+        "${HOME}/.trae|${HOME}/.trae/skills|Trae"
+    )
+
+    local installed_names=()
+    for entry in "${agents[@]}"; do
+        IFS='|' read -r parent skill_base agent_name <<< "${entry}"
+        if [[ -d "${parent}" ]]; then
+            local skill_dir="${skill_base}/presto"
+            mkdir -p "${skill_dir}" 2>/dev/null || continue
+            cp "${skill_content}" "${skill_dir}/SKILL.md" 2>/dev/null || continue
+            installed_names+=("${agent_name}")
+        fi
+    done
+
+    if [[ ${#installed_names[@]} -gt 0 ]]; then
+        local names=""
+        for n in "${installed_names[@]}"; do
+            if [[ -n "${names}" ]]; then
+                names="${names}, ${n}"
+            else
+                names="${n}"
+            fi
+        done
+        ok "Installed AI skill to ${#installed_names[@]} agent(s): ${names}"
     fi
 }
 
@@ -180,9 +231,30 @@ uninstall_presto() {
         remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/presto" "data"
     fi
 
-    remove_file "${HOME}/.claude/skills/presto" "AI skill"
-    remove_file "${HOME}/.claude/skills/presto-local" "AI skill (local)"
-    remove_file "${HOME}/.claude/skills/presto-passkey" "AI skill (passkey)"
+    # Remove AI skill from all known agent directories
+    local agent_skill_dirs=(
+        "${HOME}/.agents/skills"
+        "${HOME}/.claude/skills"
+        "${HOME}/.config/agents/skills"
+        "${HOME}/.cursor/skills"
+        "${HOME}/.copilot/skills"
+        "${HOME}/.codex/skills"
+        "${HOME}/.gemini/skills"
+        "${HOME}/.config/opencode/skills"
+        "${HOME}/.config/goose/skills"
+        "${HOME}/.windsurf/skills"
+        "${HOME}/.codeium/windsurf/skills"
+        "${HOME}/.continue/skills"
+        "${HOME}/.roo/skills"
+        "${HOME}/.kiro/skills"
+        "${HOME}/.augment/skills"
+        "${HOME}/.trae/skills"
+    )
+    for skill_base in "${agent_skill_dirs[@]}"; do
+        for name in presto presto-local presto-passkey; do
+            remove_file "${skill_base}/${name}" "AI skill (${skill_base}/${name})"
+        done
+    done
 
     echo ""
     ok "Done"
