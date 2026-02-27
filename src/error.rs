@@ -166,6 +166,84 @@ pub(crate) fn map_mpp_validation_error(
     }
 }
 
+/// Try to extract `available`, `required`, and `token` from a raw RPC error
+/// string that contains `InsufficientBalance { available: N, required: N, token: 0x... }`.
+fn parse_insufficient_balance_fields(raw: &str) -> PrestoError {
+    // Example: "...InsufficientBalance(InsufficientBalance { available: 0, required: 64467, token: 0x20c...})"
+    let extract = |key: &str| -> Option<String> {
+        let needle = format!("{key}: ");
+        let start = raw.find(&needle)? + needle.len();
+        let rest = &raw[start..];
+        let end = rest.find([',', ' ', '}'])?;
+        Some(rest[..end].to_string())
+    };
+
+    if let (Some(avail), Some(req), Some(tok)) =
+        (extract("available"), extract("required"), extract("token"))
+    {
+        let (symbol, decimals) = resolve_token_symbol(&tok);
+        let avail_fmt = format_atomic_amount(&avail, decimals);
+        let req_fmt = format_atomic_amount(&req, decimals);
+
+        PrestoError::InsufficientBalance {
+            token: symbol,
+            available: avail_fmt,
+            required: req_fmt,
+        }
+    } else {
+        // Can't parse — return a clean generic message
+        PrestoError::InsufficientBalance {
+            token: "USDC".to_string(),
+            available: "0".to_string(),
+            required: raw.to_string(),
+        }
+    }
+}
+
+/// Resolve a token address to a human-readable symbol and its decimals.
+///
+/// Returns the symbol name and decimal count. Falls back to `("tokens", 6)` for
+/// unrecognized addresses and passes through non-address strings as-is.
+fn resolve_token_symbol(token: &str) -> (String, u8) {
+    use crate::network::tempo_tokens;
+
+    if token.starts_with("0x") || token.starts_with("0X") {
+        let symbol = match token {
+            s if s.eq_ignore_ascii_case(tempo_tokens::USDCE) => "USDC",
+            s if s.eq_ignore_ascii_case(tempo_tokens::PATH_USD) => "pathUSD",
+            _ => "tokens",
+        };
+        (symbol.to_string(), 6)
+    } else {
+        // Already a symbol name (e.g. "USDC"), pass through
+        (token.to_string(), 6)
+    }
+}
+
+/// Format an amount string from atomic units to human-readable.
+///
+/// If the string is already a decimal (contains '.') or cannot be parsed as a
+/// u128, it is returned unchanged.
+fn format_atomic_amount(amount: &str, decimals: u8) -> String {
+    if amount.contains('.') {
+        return amount.to_string();
+    }
+    match amount.parse::<u128>() {
+        Ok(v) => {
+            let divisor = 10u128.pow(decimals as u32);
+            let whole = v / divisor;
+            let remainder = v % divisor;
+            if remainder == 0 {
+                format!("{whole}.{:0>width$}", 0, width = decimals as usize)
+            } else {
+                let frac = format!("{remainder:0>width$}", width = decimals as usize);
+                format!("{whole}.{frac}")
+            }
+        }
+        Err(_) => amount.to_string(),
+    }
+}
+
 /// Classify an mpp provider error into a PrestoError with actionable context.
 pub(crate) fn classify_payment_error(err: mpp::MppError) -> PrestoError {
     use mpp::client::TempoClientError;
@@ -186,11 +264,25 @@ pub(crate) fn classify_payment_error(err: mpp::MppError) -> PrestoError {
                 token,
                 available,
                 required,
-            } => PrestoError::InsufficientBalance {
-                token,
-                available,
-                required,
-            },
+            } => {
+                // The mpp crate's classify_rpc_error may stuff the raw RPC
+                // error into `required` while leaving `token`/`available`
+                // empty.  Try to extract the real values from the raw string.
+                if token.is_empty() || available.is_empty() {
+                    parse_insufficient_balance_fields(&required)
+                } else {
+                    // Resolve raw token address to human-readable symbol and
+                    // format atomic amounts when the mpp crate returns them.
+                    let (symbol, decimals) = resolve_token_symbol(&token);
+                    let avail_fmt = format_atomic_amount(&available, decimals);
+                    let req_fmt = format_atomic_amount(&required, decimals);
+                    PrestoError::InsufficientBalance {
+                        token: symbol,
+                        available: avail_fmt,
+                        required: req_fmt,
+                    }
+                }
+            }
             TempoClientError::TransactionReverted(msg) => PrestoError::Http(msg),
         },
         other => {
@@ -341,6 +433,78 @@ mod tests {
             classify_payment_error(err),
             PrestoError::AccessKeyNotProvisioned
         ));
+    }
+
+    #[test]
+    fn test_classify_insufficient_balance_raw_address() {
+        // When mpp returns raw token address and atomic amounts
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::InsufficientBalance {
+            token: "0x20c000000000000000000000b9537d11c60e8b50".to_string(),
+            available: "0".to_string(),
+            required: "1000".to_string(),
+        });
+        match classify_payment_error(err) {
+            PrestoError::InsufficientBalance {
+                token,
+                available,
+                required,
+            } => {
+                assert_eq!(token, "USDC");
+                assert_eq!(available, "0.000000");
+                assert_eq!(required, "0.001000");
+            }
+            other => panic!("Expected InsufficientBalance, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_insufficient_balance_pathusd_address() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::InsufficientBalance {
+            token: "0x20c0000000000000000000000000000000000000".to_string(),
+            available: "500000".to_string(),
+            required: "1000000".to_string(),
+        });
+        match classify_payment_error(err) {
+            PrestoError::InsufficientBalance {
+                token,
+                available,
+                required,
+            } => {
+                assert_eq!(token, "pathUSD");
+                assert_eq!(available, "0.500000");
+                assert_eq!(required, "1.000000");
+            }
+            other => panic!("Expected InsufficientBalance, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_token_symbol_usdc() {
+        let (sym, dec) = resolve_token_symbol("0x20c000000000000000000000b9537d11c60e8b50");
+        assert_eq!(sym, "USDC");
+        assert_eq!(dec, 6);
+    }
+
+    #[test]
+    fn test_resolve_token_symbol_passthrough() {
+        let (sym, dec) = resolve_token_symbol("pathUSD");
+        assert_eq!(sym, "pathUSD");
+        assert_eq!(dec, 6);
+    }
+
+    #[test]
+    fn test_format_atomic_amount_zero() {
+        assert_eq!(format_atomic_amount("0", 6), "0.000000");
+    }
+
+    #[test]
+    fn test_format_atomic_amount_small() {
+        assert_eq!(format_atomic_amount("1000", 6), "0.001000");
+    }
+
+    #[test]
+    fn test_format_atomic_amount_decimal_passthrough() {
+        assert_eq!(format_atomic_amount("0.50", 6), "0.50");
     }
 
     #[test]

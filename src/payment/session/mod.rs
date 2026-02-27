@@ -480,7 +480,9 @@ pub async fn handle_session_request(
         .unwrap_or(1_000_000)
         .min(MAX_DEPOSIT);
 
-    // Query on-chain token balance and clamp deposit to available funds
+    // Query on-chain token balance and clamp deposit to available funds.
+    // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
+    // gas is paid in USDC via account abstraction).
     let network_info = config.resolve_network(network_name)?;
     let rpc_url: url::Url = network_info
         .rpc_url
@@ -489,12 +491,13 @@ pub async fn handle_session_request(
     let balance_provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url);
     if let Ok(balance) = query_token_balance(&balance_provider, currency, from).await {
         let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
-        if balance_u128 < deposit {
-            deposit = balance_u128;
+        let usable = balance_u128 / 2;
+        if usable < deposit {
+            deposit = usable;
             if request_ctx.log_enabled() {
                 let (sym, dec) = resolve_token_meta(network_name, &session_req.currency);
                 eprintln!(
-                    "Clamping deposit to wallet balance: {}",
+                    "Clamping deposit to 50% of wallet balance: {}",
                     format_token_amount(deposit, sym, dec)
                 );
             }
