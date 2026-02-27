@@ -105,7 +105,7 @@ pub struct Cli {
 }
 
 /// Make an HTTP request with optional payment
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[command(after_help = "\
 \x1b[1;4mExamples\x1b[0m:
    tempo-wallethttps://api.example.com/data
@@ -428,6 +428,28 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<WalletCommands>,
     },
+    /// Browse the MPP service directory
+    #[command(display_order = 7, name = "services")]
+    Services {
+        #[command(subcommand)]
+        command: Option<ServicesCommands>,
+
+        /// Service ID to show details for (shorthand for `services info <ID>`)
+        #[arg(value_name = "SERVICE_ID")]
+        service_id: Option<String>,
+
+        /// Filter by category (e.g. ai, search, compute)
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+
+        /// Search by name, description, or tags
+        #[arg(long, value_name = "QUERY")]
+        search: Option<String>,
+    },
+
+    /// Update  tempo-walletto the latest version
+    #[command(display_order = 8)]
+    Update,
 
     /// Generate shell completions script
     #[command(hide = true)]
@@ -515,6 +537,17 @@ pub enum KeyCommands {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ServicesCommands {
+    /// List available services
+    List,
+    /// Show detailed information about a service
+    Info {
+        /// Service ID (e.g. openai, anthropic)
+        service_id: String,
     },
 }
 

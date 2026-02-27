@@ -1,6 +1,6 @@
 ---
 name: presto
-description: "CLI HTTP client with automatic payment — use when calling AI or LLM APIs, or any HTTP endpoint without an API key or account. Replaces curl/wget when the user has no API key.  tempo-walletpays automatically via the Tempo blockchain. Supports payment sessions, spending limits, and dry-run cost estimates."
+description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-walletpays automatically via the Tempo blockchain. Use ` tempo-wallet-j services` to discover available services and endpoints."
 ---
 
 # presto
@@ -18,7 +18,7 @@ Create a local wallet — no browser needed, keys stored in the OS keychain:
 
 ```bash
 # Create a new local wallet (one-time setup)
- tempo-walletwallet create
+ tempo-walletwallets create
 
 # Check wallet status
  tempo-walletwhoami
@@ -32,7 +32,7 @@ The wallet address printed by ` tempo-walletwhoami` is the **fundable address**.
 
 ```bash
 # Fund the wallet — generates a deposit address and QR code for USDC on Base
- tempo-walletwallet fund
+ tempo-walletwallets fund
 ```
 
 The command prints a QR code and deposit address, then polls until funds are bridged to Tempo (up to 10 minutes). **Do NOT use `--no-wait`** — let the command block so you know when funding is complete. **Show the full command output to the user immediately** — they need to see the QR code and deposit address to send funds (they can expand collapsed output with ctrl+o).
@@ -42,13 +42,13 @@ The command prints a QR code and deposit address, then polls until funds are bri
 Use `-j` to get JSON output:
 
 ```bash
-# Preferred pattern: JSON output, pipe through jq
+# Preferred pattern: JSON output
  tempo-wallet-j -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Check wallet readiness before making requests
- tempo-wallet-j whoami | jq '.ready'
+ tempo-wallet-j whoami
 ```
 
 ### Preflight Check
@@ -64,8 +64,8 @@ Check these fields in the response:
 - `balance` — the wallet's USDC balance (top-level field)
 
 If `ready` is `false` or the command errors:
-1. Run ` tempo-walletwallet create` — this is always the correct first step
-2. If key is expired → run ` tempo-walletkey create`
+1. Run ` tempo-walletwallets create` — this is always the correct first step
+2. If key is expired → run ` tempo-walletkeys create`
 3. Do NOT run ` tempo-walletlogin` — that opens a browser for passkey auth, which is not the local wallet flow
 
 ### whoami JSON Response Schema
@@ -121,40 +121,45 @@ If `ready` is `false` or the command errors:
 
 ## Available Services
 
-To see the current list of available services and their endpoints, fetch the live directory:
+Use ` tempo-walletservices` to discover available services, their endpoints, and pricing:
 
 ```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[].id'
+# List all available services
+ tempo-wallet-j services
+
+# Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
+ tempo-wallet-j services --category ai
+
+# Search by name, description, or tags
+ tempo-wallet-j services --search <QUERY>
+
+# Show full details for a service (endpoints, pricing, docs)
+ tempo-wallet-j services info <SERVICE_ID>
 ```
 
-The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.mpp.tempo.xyz`. For example:
-- OpenAI: `https://openai.mpp.tempo.xyz/v1/chat/completions`
-- Anthropic: `https://anthropic.mpp.tempo.xyz/v1/messages`
-- fal (image gen): `https://fal.mpp.tempo.xyz/fal-ai/flux/schnell`
-
-To get full details for a specific service (routes, pricing):
-```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
-```
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of ` tempo-walletservices`). When you don't know which service or endpoint to use, run ` tempo-walletservices info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
 ```bash
 # 1. Create a local wallet (one-time setup, no browser)
- tempo-walletwallet create
+ tempo-walletwallets create
 
 # 2. Fund the wallet (shows QR code for USDC deposit on Base)
- tempo-walletwallet fund
+ tempo-walletwallets fund
 
-# 3. Make a paid LLM request (payment handled automatically on 402)
- tempo-wallet-X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+# 3. Discover available services
+ tempo-wallet-j services
+
+# 4. Make a paid request (payment handled automatically on 402)
+ tempo-wallet-j -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
- tempo-wallet--dry-run -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+ tempo-wallet-j --dry-run -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ## Commands
@@ -162,19 +167,16 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | Command | Description |
 |---------|-------------|
 | ` tempo-wallet<URL>` | Make an HTTP request with automatic payment |
-| ` tempo-walletwallet create` | Create a new local wallet (OS keychain) |
-| ` tempo-walletwallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
+| ` tempo-walletwallets create` | Create a new local wallet (OS keychain) |
+| ` tempo-walletwallets fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | ` tempo-walletwhoami` | Show wallet address, balances, keys, and readiness |
-| ` tempo-walletkey list` | List all keys and their spending limits |
-| ` tempo-walletkey create` | Renew access key (fresh 30-day key) |
-| ` tempo-walletsession list` | List active payment sessions |
-| ` tempo-walletsession list --all` | Show all channels: active, orphaned, and closing |
-| ` tempo-walletsession list --orphaned` | Scan on-chain for orphaned channels (no local session) |
-| ` tempo-walletsession list --closed` | Show channels pending finalization |
-| ` tempo-walletsession close [URL]` | Close a payment session by URL or channel ID |
-| ` tempo-walletsession close --all` | Close all active sessions and on-chain channels |
-| ` tempo-walletsession close --orphaned` | Close only orphaned on-chain channels |
-| ` tempo-walletsession close --closed` | Finalize channels pending close (grace period elapsed) |
+| ` tempo-walletkeys list` | List all keys and their spending limits |
+| ` tempo-walletkeys create` | Renew access key (fresh 30-day key) |
+| ` tempo-walletservices` | List available MPP services |
+| ` tempo-walletservices --category ai` | Filter services by category |
+| ` tempo-walletservices --search <QUERY>` | Search services by name, description, or tags |
+| ` tempo-walletservices info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
+| ` tempo-walletsessions` | Manage payment sessions (list, close — use `--help` for details) |
 
 ## Global Options
 
@@ -229,30 +231,18 @@ These options apply when making HTTP requests (` tempo-wallet<URL>`):
 
 ## Real-World Examples
 
-### LLM API Request (Single Payment)
+### Making a Request
 
-Each request is a separate on-chain transaction:
-
-```bash
- tempo-wallet-X POST \
-  --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
-  https://openai.mpp.tempo.xyz/v1/chat/completions
-```
-
-### OpenRouter via Tempo
+Use ` tempo-walletservices` to find the service URL and endpoint, then make the request:
 
 ```bash
- tempo-wallet-v -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
-```
+# 1. Find the right service and endpoint
+ tempo-wallet-j services info <SERVICE_ID>
 
-### Image Generation via fal
-
-```bash
- tempo-wallet-v -X POST \
-  --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3","num_images":1}' \
-  https://fal.mpp.tempo.xyz/fal-ai/flux/schnell
+# 2. Make the request (payment handled automatically on 402)
+ tempo-wallet-j -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ### Payment Sessions (Multiple Requests, One Channel)
@@ -261,30 +251,26 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request opens a channel on-chain
- tempo-wallet-X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"First question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+ tempo-wallet-j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Subsequent requests to the same origin reuse the session automatically
- tempo-wallet-X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Second question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+ tempo-wallet-j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # View active sessions
- tempo-walletsession list
+ tempo-wallet-j sessions list
 
 # Close a session when done
- tempo-walletsession close https://openrouter.mpp.tempo.xyz
+ tempo-wallet-j sessions close <SERVICE_URL>
 
 # Close all sessions
- tempo-walletsession close --all
+ tempo-wallet-j sessions close --all
 ```
 
 ### Check Wallet Status
 
 ```bash
 # Full wallet status with balances and keys
- tempo-walletwhoami
+ tempo-wallet-j whoami
 ```
 
 ### Environment Variable Override
@@ -293,9 +279,9 @@ For CI/CD or ephemeral use, skip wallet setup entirely:
 
 ```bash
 # Use a private key directly (no keychain, no keys.toml)
-PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY  tempo-wallet-X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY  tempo-wallet-j -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ## Error Recovery
@@ -308,23 +294,23 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 |------|---------|--------------|
 | 0 | Success | — |
 | 1 | General error | Retry or report |
-| 3 | Config error | Run ` tempo-walletwallet create` |
+| 3 | Config error | Run ` tempo-walletwallets create` |
 | 4 | Network error | Check connectivity, retry |
 | 5 | Payment failed | Check error message, retry |
-| 6 | Insufficient funds | Run ` tempo-walletwallet fund` or report to user |
-| 8 | Auth/signing error | Run ` tempo-walletkey create` |
+| 6 | Insufficient funds | Run ` tempo-walletwallets fund` or report to user |
+| 8 | Auth/signing error | Run ` tempo-walletkeys create` |
 | 10 | Timeout | Retry with longer `--timeout` |
 
 ### Common Errors and Fixes
 
 | Error message contains | Action |
 |------------------------|--------|
-| `No wallet configured` | Run ` tempo-walletwallet create`, then retry |
-| `Run ' tempo-walletlogin'` | Run ` tempo-walletwallet create`, then retry (ignore the login suggestion) |
+| `No wallet configured` | Run ` tempo-walletwallets create`, then retry |
+| `Run ' tempo-walletlogin'` | Run ` tempo-walletwallets create`, then retry (ignore the login suggestion) |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
-| `Insufficient balance` | Run ` tempo-walletwallet fund` to add funds, or report to user |
-| `Key is not provisioned` | Auto-provisions on first use; if persists, run ` tempo-walletwallet create` |
-| `Key expired` | Run ` tempo-walletkey create` to renew |
+| `Insufficient balance` | Run ` tempo-walletwallets fund` to add funds, or report to user |
+| `Key is not provisioned` | Auto-provisions on first use; if persists, run ` tempo-walletwallets create` |
+| `Key expired` | Run ` tempo-walletkeys create` to renew |
 | `Unknown network` | Check `-n` flag value |
 | `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |

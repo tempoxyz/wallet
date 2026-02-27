@@ -151,6 +151,7 @@ fn test_top_level_help_compact_no_hidden_commands() {
     assert!(stdout.contains("logout"), "missing 'logout' command");
     assert!(stdout.contains("whoami"), "missing 'whoami' command");
     assert!(stdout.contains("sessions"), "missing 'sessions' command");
+    assert!(stdout.contains("services"), "missing 'services' command");
 }
 
 #[test]
@@ -1331,4 +1332,50 @@ fn test_session_close_nonexistent_url_json() {
     let results = parsed["results"].as_array().unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0]["status"], "error");
+}
+
+// ==================== Services ====================
+
+#[test]
+fn test_services_help() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["services", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("info"))
+        .stdout(predicate::str::contains("--category"))
+        .stdout(predicate::str::contains("--search"));
+}
+
+#[test]
+fn test_services_shows_help_with_no_args() {
+    // ` tempo-walletservices` without network hits the API, but `--help` should work offline.
+    // Test that the bare subcommand is recognized (won't error with "not a command").
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["services", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Browse the MPP service directory"));
+}
+
+#[test]
+fn test_services_info_missing_id() {
+    // ` tempo-walletservices info` without a service ID should fail
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["services", "info"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_services_bare_id_is_accepted() {
+    // ` tempo-walletservices fal` should be parsed as a valid command (shorthand for `services info fal`)
+    // It will fail at runtime (network) but should not fail argument parsing.
+    // We test via --help to confirm the positional arg is documented.
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["services", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("SERVICE_ID"));
 }

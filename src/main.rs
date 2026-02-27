@@ -35,6 +35,7 @@ mod error;
 mod http;
 mod network;
 mod payment;
+mod services;
 mod util;
 mod wallet;
 
@@ -42,7 +43,9 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use cli::exit_codes::ExitCode;
-use cli::{Cli, ColorMode, Commands, KeyCommands, SessionCommands, Shell, WalletCommands};
+use cli::{
+    Cli, ColorMode, Commands, KeyCommands, ServicesCommands, SessionCommands, Shell, WalletCommands,
+};
 use colored::control;
 
 use analytics::Analytics;
@@ -167,17 +170,40 @@ fn parse_cli() -> Cli {
                     // mistyped command (no scheme, no dots, no localhost).
                     // This catches ` tempo-walletfoo` and gives a clean error.
                     if let Some(Commands::Query(ref q)) = cli.command {
-                        let url = &q.url;
+                        let url = q.url.clone();
                         if !url.contains("://") && !url.contains("localhost") && !url.contains('.')
                         {
-                            eprintln!("error: '{url}' is not a  tempo-walletcommand. See ' tempo-wallet--help' for a list of available commands.");
-                            ExitCode::InvalidUsage.exit();
+                            // Single-word non-command: still an error
+                            if !url.contains(' ') {
+                                eprintln!("error: '{url}' is not a  tempo-walletcommand. See ' tempo-wallet--help' for a list of available commands.");
+                                ExitCode::InvalidUsage.exit();
+                            }
+
+                            // Multi-word string: treat as a prompt → forward to native agent
+                            exec_prompt(&url);
                         }
                     }
                     cli
                 }
                 Err(_) => original_err.exit(),
             }
+        }
+    }
+}
+
+/// Forward a natural-language prompt to the user's native AI agent (e.g. `claude`).
+fn exec_prompt(prompt: &str) -> ! {
+    let status = std::process::Command::new("claude").arg(prompt).status();
+
+    match status {
+        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("error: 'claude' CLI not found. Install it: https://docs.anthropic.com/en/docs/claude-cli");
+            ExitCode::GeneralError.exit();
+        }
+        Err(e) => {
+            eprintln!("error: failed to run claude: {e}");
+            ExitCode::GeneralError.exit();
         }
     }
 }
@@ -236,6 +262,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             Commands::Sessions { .. } => "sessions",
             Commands::Whoami | Commands::Balance => "whoami",
             Commands::Keys { .. } => "keys",
+            Commands::Services { .. } => "services",
+            Commands::Update => "update",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -452,6 +480,43 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                 }
             }
         }
+
+        Commands::Services {
+            command,
+            service_id,
+            category,
+            search,
+        } => {
+            let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+            let output_format = cli.resolve_output_format(&config);
+            match command {
+                Some(ServicesCommands::Info { service_id }) => {
+                    cli::services::show_service_info(output_format, &service_id).await
+                }
+                Some(ServicesCommands::List) => {
+                    cli::services::list_services(
+                        output_format,
+                        category.as_deref(),
+                        search.as_deref(),
+                    )
+                    .await
+                }
+                None if service_id.is_some() => {
+                    cli::services::show_service_info(output_format, service_id.as_deref().unwrap())
+                        .await
+                }
+                None => {
+                    cli::services::list_services(
+                        output_format,
+                        category.as_deref(),
+                        search.as_deref(),
+                    )
+                    .await
+                }
+            }
+        }
+
+        Commands::Update => run_self_update(),
     };
 
     if let Some(ref a) = analytics {
@@ -462,6 +527,25 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
 }
 
 // ==================== Simple Commands ====================
+
+const INSTALL_SCRIPT_URL: &str = "https://presto-binaries.tempo.xyz/install.sh";
+
+/// Download and run the install script to update to the latest version.
+fn run_self_update() -> Result<()> {
+    eprintln!("Updating  tempo-walletto the latest version...\n");
+
+    let status = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(format!("curl -fsSL {INSTALL_SCRIPT_URL} | bash"))
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to run update script: {e}"))?;
+
+    if !status.success() {
+        anyhow::bail!("update failed (exit code {})", status.code().unwrap_or(1));
+    }
+
+    Ok(())
+}
 
 /// Generate shell completions
 fn generate_completions(shell: Shell) -> Result<()> {

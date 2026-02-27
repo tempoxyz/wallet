@@ -1,6 +1,6 @@
 ---
 name: presto
-description: "CLI HTTP client with automatic payment — use when calling AI or LLM APIs, or any HTTP endpoint without an API key or account. Replaces curl/wget when the user has no API key.  tempo-walletpays automatically via the Tempo blockchain. Supports payment sessions, spending limits, and dry-run cost estimates."
+description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-walletpays automatically via the Tempo blockchain. Use ` tempo-wallet-j services` to discover available services and endpoints."
 ---
 
 # presto
@@ -31,11 +31,11 @@ Use `-j` to get JSON output:
 ```bash
 # Preferred pattern: JSON output, pipe through jq
  tempo-wallet-j -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Check wallet readiness before making requests
- tempo-wallet-j whoami | jq '.ready'
+ tempo-wallet-j whoami
 ```
 
 ### Preflight Check
@@ -105,21 +105,23 @@ If `ready` is `false`, run ` tempo-walletlogin` and retry.
 
 ## Available Services
 
-To see the current list of available services and their endpoints, fetch the live directory:
+Use ` tempo-walletservices` to discover available services, their endpoints, and pricing:
 
 ```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[].id'
+# List all available services
+ tempo-wallet-j services
+
+# Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
+ tempo-wallet-j services --category ai
+
+# Search by name, description, or tags
+ tempo-wallet-j services --search <QUERY>
+
+# Show full details for a service (endpoints, pricing, docs)
+ tempo-wallet-j services info <SERVICE_ID>
 ```
 
-The service directory is updated frequently. Each service is accessed by replacing the original API domain with `<service>.mpp.tempo.xyz`. For example:
-- OpenAI: `https://openai.mpp.tempo.xyz/v1/chat/completions`
-- Anthropic: `https://anthropic.mpp.tempo.xyz/v1/messages`
-- fal (image gen): `https://fal.mpp.tempo.xyz/fal-ai/flux/schnell`
-
-To get full details for a specific service (routes, pricing):
-```bash
-curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
-```
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of ` tempo-walletservices`). When you don't know which service or endpoint to use, run ` tempo-walletservices info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
@@ -127,15 +129,18 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 # Connect your Tempo wallet
  tempo-walletlogin
 
-# Make a paid LLM request (payment handled automatically on 402)
- tempo-wallet-X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+# Discover available services
+ tempo-wallet-j services
+
+# Make a paid request (payment handled automatically on 402)
+ tempo-wallet-j -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
- tempo-wallet--dry-run -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+ tempo-wallet-j --dry-run -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ## Commands
@@ -146,14 +151,11 @@ curl -s https://mpp.tempo.xyz/services | jq '.[] | select(.id == "openai")'
 | ` tempo-walletlogin` | Sign up or log in to your Tempo wallet |
 | ` tempo-walletlogout` | Log out and disconnect your wallet |
 | ` tempo-walletwhoami` | Show wallet address, balances, keys, and readiness |
-| ` tempo-walletsession list` | List active payment sessions |
-| ` tempo-walletsession list --all` | Show all channels: active, orphaned, and closing |
-| ` tempo-walletsession list --orphaned` | Scan on-chain for orphaned channels (no local session) |
-| ` tempo-walletsession list --closed` | Show channels pending finalization |
-| ` tempo-walletsession close [URL]` | Close a payment session by URL or channel ID |
-| ` tempo-walletsession close --all` | Close all active sessions and on-chain channels |
-| ` tempo-walletsession close --orphaned` | Close only orphaned on-chain channels |
-| ` tempo-walletsession close --closed` | Finalize channels pending close (grace period elapsed) |
+| ` tempo-walletservices` | List available MPP services |
+| ` tempo-walletservices --category ai` | Filter services by category |
+| ` tempo-walletservices --search <QUERY>` | Search services by name, description, or tags |
+| ` tempo-walletservices info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
+| ` tempo-walletsessions` | Manage payment sessions (list, close — use `--help` for details) |
 
 ## Global Options
 
@@ -208,30 +210,18 @@ These options apply when making HTTP requests (` tempo-wallet<URL>`):
 
 ## Real-World Examples
 
-### LLM API Request (Single Payment)
+### Making a Request
 
-Each request is a separate on-chain transaction:
-
-```bash
- tempo-wallet-X POST \
-  --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
-  https://openai.mpp.tempo.xyz/v1/chat/completions
-```
-
-### OpenRouter via Tempo
+Use ` tempo-walletservices` to find the service URL and endpoint, then make the request:
 
 ```bash
- tempo-wallet-v -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
-```
+# 1. Find the right service and endpoint
+ tempo-wallet-j services info <SERVICE_ID>
 
-### Image Generation via fal
-
-```bash
- tempo-wallet-v -X POST \
-  --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3","num_images":1}' \
-  https://fal.mpp.tempo.xyz/fal-ai/flux/schnell
+# 2. Make the request (payment handled automatically on 402)
+ tempo-wallet-j -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ### Payment Sessions (Multiple Requests, One Channel)
@@ -240,30 +230,26 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request opens a channel on-chain
- tempo-wallet-X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"First question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+ tempo-wallet-j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Subsequent requests to the same origin reuse the session automatically
- tempo-wallet-X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Second question"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+ tempo-wallet-j -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # View active sessions
- tempo-walletsession list
+ tempo-wallet-j sessions list
 
 # Close a session when done
- tempo-walletsession close https://openrouter.mpp.tempo.xyz
+ tempo-wallet-j sessions close <SERVICE_URL>
 
 # Close all sessions
- tempo-walletsession close --all
+ tempo-wallet-j sessions close --all
 ```
 
 ### Check Wallet Status
 
 ```bash
 # Full wallet status with balances and keys
- tempo-walletwhoami
+ tempo-wallet-j whoami
 ```
 
 ## Error Recovery
