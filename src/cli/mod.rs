@@ -7,6 +7,7 @@ pub(crate) mod local_wallet;
 pub(crate) mod output;
 pub(crate) mod query;
 pub(crate) mod relay;
+pub(crate) mod services;
 pub(crate) mod session;
 
 pub use args::*;
