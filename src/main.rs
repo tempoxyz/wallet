@@ -170,17 +170,40 @@ fn parse_cli() -> Cli {
                     // mistyped command (no scheme, no dots, no localhost).
                     // This catches `presto foo` and gives a clean error.
                     if let Some(Commands::Query(ref q)) = cli.command {
-                        let url = &q.url;
+                        let url = q.url.clone();
                         if !url.contains("://") && !url.contains("localhost") && !url.contains('.')
                         {
-                            eprintln!("error: '{url}' is not a presto command. See 'presto --help' for a list of available commands.");
-                            ExitCode::InvalidUsage.exit();
+                            // Single-word non-command: still an error
+                            if !url.contains(' ') {
+                                eprintln!("error: '{url}' is not a presto command. See 'presto --help' for a list of available commands.");
+                                ExitCode::InvalidUsage.exit();
+                            }
+
+                            // Multi-word string: treat as a prompt → forward to native agent
+                            exec_prompt(&url);
                         }
                     }
                     cli
                 }
                 Err(_) => original_err.exit(),
             }
+        }
+    }
+}
+
+/// Forward a natural-language prompt to the user's native AI agent (e.g. `claude`).
+fn exec_prompt(prompt: &str) -> ! {
+    let status = std::process::Command::new("claude").arg(prompt).status();
+
+    match status {
+        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("error: 'claude' CLI not found. Install it: https://docs.anthropic.com/en/docs/claude-cli");
+            ExitCode::GeneralError.exit();
+        }
+        Err(e) => {
+            eprintln!("error: failed to run claude: {e}");
+            ExitCode::GeneralError.exit();
         }
     }
 }

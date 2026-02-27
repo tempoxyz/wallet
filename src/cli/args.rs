@@ -105,7 +105,7 @@ pub struct Cli {
 }
 
 /// Make an HTTP request with optional payment
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[command(after_help = "\
 \x1b[1;4mExamples\x1b[0m:
   presto https://api.example.com/data
