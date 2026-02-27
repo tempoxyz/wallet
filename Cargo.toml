@@ -34,6 +34,7 @@ serde_json = "1.0"
 tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", features = ["serde"] }
 thiserror = "2.0"
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal"] }
+toon-format = "0.4"
 toml = "1.0"
 sha2 = "0.10"
 tracing = "0.1"

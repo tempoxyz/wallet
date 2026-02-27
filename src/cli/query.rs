@@ -955,23 +955,29 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
 
     // Determine method/body. If -I (HEAD) is provided, override method and ignore body inputs.
     let (method, body) = if query.head {
-        get_request_method_and_body(Some("HEAD"), &[], None)?
+        get_request_method_and_body(Some("HEAD"), &[], None, None)?
     } else if query.method.is_some() {
         // Respect explicit -X even with -G; body still follows normal rules unless -G set
         if query.get {
-            get_request_method_and_body(query.method.as_deref(), &[], None)?
+            get_request_method_and_body(query.method.as_deref(), &[], None, None)?
         } else {
             get_request_method_and_body(
                 query.method.as_deref(),
                 &query.data,
                 query.json.as_deref(),
+                query.toon.as_deref(),
             )?
         }
     } else if query.get {
         // Force GET with no body when -G is used without -X
-        get_request_method_and_body(Some("GET"), &[], None)?
+        get_request_method_and_body(Some("GET"), &[], None, None)?
     } else {
-        get_request_method_and_body(query.method.as_deref(), &query.data, query.json.as_deref())?
+        get_request_method_and_body(
+            query.method.as_deref(),
+            &query.data,
+            query.json.as_deref(),
+            query.toon.as_deref(),
+        )?
     };
 
     let mut headers = parse_headers(&query.headers);
@@ -999,7 +1005,12 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         headers.push(("accept-encoding".to_string(), "gzip, br".to_string()));
     }
     if !query.head {
-        if should_auto_add_json_content_type(&query.headers, query.json.as_deref(), &query.data) {
+        if should_auto_add_json_content_type(
+            &query.headers,
+            query.json.as_deref(),
+            query.toon.as_deref(),
+            &query.data,
+        ) {
             headers.push(("content-type".to_string(), "application/json".to_string()));
         } else if !query.data_urlencode.is_empty()
             && !crate::http::has_header(&query.headers, "content-type")

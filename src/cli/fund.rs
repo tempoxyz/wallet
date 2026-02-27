@@ -120,7 +120,7 @@ async fn run_faucet(
         None
     };
 
-    if output_format == OutputFormat::Json {
+    if output_format.is_structured() {
         let success = balances_after
             .as_ref()
             .zip(balances_before.as_ref())
@@ -138,7 +138,7 @@ async fn run_faucet(
             balances_before,
             balances_after,
         };
-        println!("{}", serde_json::to_string(&response)?);
+        println!("{}", output_format.serialize(&response)?);
     }
 
     Ok(())
@@ -215,7 +215,7 @@ async fn run_relay_bridge(
     }
 
     if !wait {
-        if output_format == OutputFormat::Json {
+        if output_format.is_structured() {
             let response = FundResponse {
                 network: network_id.to_string(),
                 address: address.to_string(),
@@ -227,7 +227,7 @@ async fn run_relay_bridge(
                 balances_before,
                 balances_after: None,
             };
-            println!("{}", serde_json::to_string(&response)?);
+            println!("{}", output_format.serialize(&response)?);
         }
         return Ok(());
     }
@@ -255,7 +255,7 @@ async fn run_relay_bridge(
 
     let balances_after = Some(query_all_balances(config, network_id, address).await);
 
-    if output_format == OutputFormat::Json {
+    if output_format.is_structured() {
         let success = final_status
             .as_ref()
             .is_some_and(|s| s.status == relay_status::SUCCESS)
@@ -275,7 +275,7 @@ async fn run_relay_bridge(
             balances_before,
             balances_after,
         };
-        println!("{}", serde_json::to_string(&response)?);
+        println!("{}", output_format.serialize(&response)?);
     }
 
     Ok(())

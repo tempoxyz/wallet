@@ -575,8 +575,16 @@ pub(crate) fn get_request_method_and_body(
     method: Option<&str>,
     data: &[String],
     json: Option<&str>,
+    toon: Option<&str>,
 ) -> Result<(reqwest::Method, Option<Vec<u8>>)> {
-    let body = if let Some(json) = json {
+    let body = if let Some(toon_data) = toon {
+        // Decode TOON to JSON value, then serialize as JSON bytes for the request body
+        let value: serde_json::Value = toon_format::decode_default(toon_data)
+            .map_err(|e| anyhow::anyhow!("failed to decode TOON input: {e}"))?;
+        let bytes = serde_json::to_string(&value)?.into_bytes();
+        validate_body_size(bytes.len())?;
+        Some(bytes)
+    } else if let Some(json) = json {
         let bytes = json.as_bytes().to_vec();
         validate_body_size(bytes.len())?;
         Some(bytes)
@@ -619,17 +627,18 @@ fn is_json_data(data: &str) -> bool {
 ///
 /// Returns true if:
 /// - The provided headers don't already contain a Content-Type header, AND
-/// - Either json data is provided, OR the first data value looks like JSON
+/// - Either json/toon data is provided, OR the first data value looks like JSON
 pub(crate) fn should_auto_add_json_content_type(
     headers: &[String],
     json: Option<&str>,
+    toon: Option<&str>,
     data: &[String],
 ) -> bool {
     if has_header(headers, "content-type") {
         return false;
     }
 
-    if json.is_some() {
+    if json.is_some() || toon.is_some() {
         return true;
     }
     if let Some(data) = data.first() {
@@ -731,6 +740,7 @@ mod tests {
         assert!(should_auto_add_json_content_type(
             &headers,
             Some(r#"{"key":"value"}"#),
+            None,
             &[]
         ));
     }
@@ -739,45 +749,59 @@ mod tests {
     fn test_should_auto_add_json_content_type_with_json_data() {
         let headers: Vec<String> = vec![];
         let data = vec![r#"{"key":"value"}"#.to_string()];
-        assert!(should_auto_add_json_content_type(&headers, None, &data));
+        assert!(should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
     }
 
     #[test]
     fn test_should_not_auto_add_when_user_provides_content_type() {
         let headers = vec!["Content-Type: application/json".to_string()];
         let data = vec![r#"{"key":"value"}"#.to_string()];
-        assert!(!should_auto_add_json_content_type(&headers, None, &data));
+        assert!(!should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_case_insensitive() {
         let headers = vec!["content-type: application/json".to_string()];
         let data = vec![r#"{"key":"value"}"#.to_string()];
-        assert!(!should_auto_add_json_content_type(&headers, None, &data));
+        assert!(!should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
 
         let headers = vec!["CONTENT-TYPE: application/json".to_string()];
-        assert!(!should_auto_add_json_content_type(&headers, None, &data));
+        assert!(!should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_with_different_type() {
         let headers = vec!["Content-Type: text/plain".to_string()];
         let data = vec![r#"{"key":"value"}"#.to_string()];
-        assert!(!should_auto_add_json_content_type(&headers, None, &data));
+        assert!(!should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
     }
 
     #[test]
     fn test_should_auto_add_content_type_with_other_headers() {
         let headers = vec!["Authorization: Bearer token".to_string()];
         let data = vec![r#"{"key":"value"}"#.to_string()];
-        assert!(should_auto_add_json_content_type(&headers, None, &data));
+        assert!(should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
     }
 
     #[test]
     fn test_should_not_auto_add_content_type_for_plain_data() {
         let headers: Vec<String> = vec![];
         let data = vec!["plain text".to_string()];
-        assert!(!should_auto_add_json_content_type(&headers, None, &data));
+        assert!(!should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
     }
 
     #[test]
@@ -791,21 +815,21 @@ mod tests {
     #[test]
     fn test_multiple_data_values_joined_with_ampersand() {
         let data = vec!["a=1".to_string(), "b=2".to_string()];
-        let (_method, body) = get_request_method_and_body(None, &data, None).unwrap();
+        let (_method, body) = get_request_method_and_body(None, &data, None, None).unwrap();
         assert_eq!(body.unwrap(), b"a=1&b=2");
     }
 
     #[test]
     fn test_body_implies_post() {
         let data = vec!["foo".to_string()];
-        let (method, _body) = get_request_method_and_body(None, &data, None).unwrap();
+        let (method, _body) = get_request_method_and_body(None, &data, None, None).unwrap();
         assert_eq!(method, reqwest::Method::POST);
     }
 
     #[test]
     fn test_explicit_method_overrides_body_implied_post() {
         let data = vec!["foo".to_string()];
-        let (method, _body) = get_request_method_and_body(Some("PUT"), &data, None).unwrap();
+        let (method, _body) = get_request_method_and_body(Some("PUT"), &data, None, None).unwrap();
         assert_eq!(method, reqwest::Method::PUT);
     }
 
@@ -813,7 +837,9 @@ mod tests {
     fn test_data_file_does_not_auto_add_json_content_type() {
         let headers: Vec<String> = vec![];
         let data = vec!["@Cargo.toml".to_string()];
-        assert!(!should_auto_add_json_content_type(&headers, None, &data));
+        assert!(!should_auto_add_json_content_type(
+            &headers, None, None, &data
+        ));
     }
 
     #[test]
@@ -823,6 +849,67 @@ mod tests {
         assert!(
             err.to_string().contains("exceeds maximum size"),
             "got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_toon_input_decoded_to_json_body() {
+        let toon_data = "name: Alice\nage: 30";
+        let (_method, body) =
+            get_request_method_and_body(None, &[], None, Some(toon_data)).unwrap();
+        let body = body.expect("body should be present");
+        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(parsed["name"], "Alice");
+        assert_eq!(parsed["age"], 30);
+    }
+
+    #[test]
+    fn test_toon_input_implies_post() {
+        let toon_data = "name: Alice";
+        let (method, _body) =
+            get_request_method_and_body(None, &[], None, Some(toon_data)).unwrap();
+        assert_eq!(method, reqwest::Method::POST);
+    }
+
+    #[test]
+    fn test_toon_input_explicit_method_preserved() {
+        let toon_data = "name: Alice";
+        let (method, _body) =
+            get_request_method_and_body(Some("PUT"), &[], None, Some(toon_data)).unwrap();
+        assert_eq!(method, reqwest::Method::PUT);
+    }
+
+    #[test]
+    fn test_should_auto_add_content_type_with_toon() {
+        let headers: Vec<String> = vec![];
+        assert!(should_auto_add_json_content_type(
+            &headers,
+            None,
+            Some("name: test"),
+            &[]
+        ));
+    }
+
+    #[test]
+    fn test_should_not_auto_add_content_type_with_toon_when_user_provides() {
+        let headers = vec!["Content-Type: text/plain".to_string()];
+        assert!(!should_auto_add_json_content_type(
+            &headers,
+            None,
+            Some("name: test"),
+            &[]
+        ));
+    }
+
+    #[test]
+    fn test_toon_input_invalid_errors() {
+        let toon_data = "[3}: invalid";
+        let result = get_request_method_and_body(None, &[], None, Some(toon_data));
+        assert!(result.is_err(), "expected error for invalid TOON input");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("TOON"),
+            "error should mention TOON, got: {msg}"
         );
     }
 }

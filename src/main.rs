@@ -79,10 +79,10 @@ async fn main() {
         let output_format = resolve_output_format_for_error();
 
         match output_format {
-            Some(config::OutputFormat::Json) => {
-                // Print structured JSON error to stdout only; logs remain on stderr via tracing.
-                let json = cli::output::render_error_json(&e);
-                println!("{}", json);
+            Some(fmt @ (config::OutputFormat::Json | config::OutputFormat::Toon)) => {
+                // Print structured error to stdout only; logs remain on stderr via tracing.
+                let output = cli::output::render_error_structured(&e, fmt);
+                println!("{}", output);
             }
             _ => {
                 eprintln!("Error: {e:#}");

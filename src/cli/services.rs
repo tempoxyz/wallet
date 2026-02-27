@@ -216,9 +216,9 @@ pub(crate) async fn list_services(
         .collect();
 
     match output_format {
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Toon => {
             let entries: Vec<_> = filtered.iter().map(|s| to_list_entry(s)).collect();
-            println!("{}", serde_json::to_string(&entries)?);
+            println!("{}", output_format.serialize(&entries)?);
         }
         OutputFormat::Text => {
             if filtered.is_empty() {
@@ -249,8 +249,8 @@ pub(crate) async fn show_service_info(output_format: OutputFormat, service_id: &
     };
 
     match output_format {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string(&to_detail(service))?);
+        OutputFormat::Json | OutputFormat::Toon => {
+            println!("{}", output_format.serialize(&to_detail(service))?);
         }
         OutputFormat::Text => {
             render_service_detail(service);
