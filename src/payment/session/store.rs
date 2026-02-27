@@ -342,10 +342,26 @@ pub(crate) fn load_session(key: &str) -> Result<Option<SessionRecord>> {
     load_session_conn(&conn, key)
 }
 
-/// Save a session record to the database.
-pub(crate) fn save_session(record: &SessionRecord) -> Result<()> {
+/// Load a session, apply an update closure, and save — all on a single DB connection.
+///
+/// If no session exists for `key`, `build_new` is called to create a fresh record.
+/// If a session exists, `update` is applied to the loaded record.
+/// The resulting record is saved and returned.
+pub(crate) fn upsert_session<F, G>(key: &str, update: F, build_new: G) -> Result<SessionRecord>
+where
+    F: FnOnce(&mut SessionRecord),
+    G: FnOnce() -> SessionRecord,
+{
     let conn = open_db()?;
-    save_session_conn(&conn, record)
+    let record = match load_session_conn(&conn, key)? {
+        Some(mut rec) => {
+            update(&mut rec);
+            rec
+        }
+        None => build_new(),
+    };
+    save_session_conn(&conn, &record)?;
+    Ok(record)
 }
 
 /// Delete a session record by key.

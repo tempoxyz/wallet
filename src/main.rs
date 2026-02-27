@@ -293,7 +293,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     },
                 );
             }
-            let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
             let output_format = cli.resolve_output_format(&config);
             let result = cli::auth::run_login(network, analytics.clone(), output_format).await;
             if let Some(ref a) = analytics {

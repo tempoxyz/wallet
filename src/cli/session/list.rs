@@ -145,7 +145,12 @@ async fn list_all_channels(
         .map(|s| s.channel_id.to_lowercase())
         .collect();
 
-    let pending_map = build_pending_map();
+    // Load pending closes once for use in Phase 1 (map) and Phase 3 (raw records).
+    let all_pending = session_store::list_all_pending_closes()?;
+    let pending_map: HashMap<String, u64> = all_pending
+        .iter()
+        .map(|p| (p.channel_id.to_lowercase(), p.ready_at.saturating_sub(now)))
+        .collect();
 
     for session in &sessions {
         if let Some(net) = network {
@@ -218,8 +223,7 @@ async fn list_all_channels(
     }
 
     // Phase 3: pending closes not already covered — query on-chain state concurrently
-    let pending = session_store::list_all_pending_closes()?;
-    let pending_to_query: Vec<_> = pending
+    let pending_to_query: Vec<_> = all_pending
         .iter()
         .filter(|p| {
             !views.iter().any(|v| v.channel_id == p.channel_id)

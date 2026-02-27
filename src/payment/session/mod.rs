@@ -202,16 +202,17 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
         serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
 
     let session_key = store::session_key(ctx.url);
-    let existing = store::load_session(&session_key)?;
+    let echo_for_update = echo_json.clone();
+    let cumulative = state.cumulative_amount;
 
-    let record = if let Some(mut rec) = existing {
-        // Update existing record
-        rec.set_cumulative_amount(state.cumulative_amount);
-        rec.challenge_echo = echo_json;
-        rec.touch();
-        rec
-    } else {
-        SessionRecord {
+    store::upsert_session(
+        &session_key,
+        |rec| {
+            rec.set_cumulative_amount(cumulative);
+            rec.challenge_echo = echo_for_update;
+            rec.touch();
+        },
+        || SessionRecord {
             version: 1,
             origin: ctx.origin.to_string(),
             request_url: ctx.url.to_string(),
@@ -226,17 +227,15 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
             channel_id: format!("{:#x}", state.channel_id),
             deposit: ctx.deposit.to_string(),
             tick_cost: ctx.tick_cost.to_string(),
-            cumulative_amount: state.cumulative_amount.to_string(),
+            cumulative_amount: cumulative.to_string(),
             did: ctx.did.to_string(),
             challenge_echo: echo_json,
             challenge_id: ctx.echo.id.clone(),
             created_at: now,
             last_used_at: now,
             expires_at: now + SESSION_TTL_SECS,
-        }
-    };
-
-    store::save_session(&record)?;
+        },
+    )?;
 
     if ctx.request_ctx.log_enabled() {
         let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
