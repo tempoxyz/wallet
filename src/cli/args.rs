@@ -67,8 +67,8 @@ pub struct Cli {
     )]
     pub private_key: Option<String>,
 
-    /// Filter to specific networks (comma-separated, e.g. "tempo, tempo-moderato")
-    #[arg(short = 'n', long, value_name = "NETWORKS", global = true, hide = true)]
+    /// Network to use (e.g. "tempo", "tempo-moderato")
+    #[arg(short = 'n', long, value_name = "NETWORK", global = true, hide = true)]
     pub network: Option<String>,
 
     /// Verbosity: repeat -v to increase (info, debug, trace)
