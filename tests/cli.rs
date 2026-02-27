@@ -9,7 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{get_combined_output, test_command, write_test_files, TestConfigBuilder};
+use common::{get_combined_output, test_command, TestConfigBuilder};
 
 #[test]
 fn test_completions_bash() {
@@ -635,13 +635,13 @@ fn test_session_help() {
 }
 
 #[test]
-fn test_session_list_alias() {
+fn test_session_shows_help() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
     cmd.arg("session");
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("No active sessions"));
+        .stdout(predicate::str::contains("Manage payment sessions"));
 }
 
 #[test]
@@ -736,89 +736,6 @@ fn test_rejects_header_with_crlf_injection() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let val: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
     assert_eq!(val.get("code").and_then(|v| v.as_str()), Some("E_USAGE"));
-}
-
-// ==================== Key Management Tests ====================
-
-/// Helper: write a multi-key keys.toml into both macOS and Linux paths.
-fn setup_multi_key(temp: &tempfile::TempDir) {
-    let wallet_toml = r#"
-[[keys]]
-wallet_address = "0xAAA"
-key_address = "0xAAA"
-key = "0xkey1"
-
-[[keys]]
-wallet_address = "0xBBB"
-key_address = "0xBBB"
-key = "0xkey2"
-"#;
-    write_test_files(temp.path(), "", Some(wallet_toml));
-}
-
-#[test]
-fn test_wallet_delete_with_yes() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["wallet", "delete", "0xBBB", "--yes"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Deleted"),
-        "should confirm delete: {stdout}"
-    );
-}
-
-#[test]
-fn test_wallet_delete_nonexistent() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["wallet", "delete", "0xNONEXISTENT", "--yes"])
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(combined.contains("not found"), "should error: {combined}");
-}
-
-#[test]
-fn test_wallet_delete_without_yes_noninteractive() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    let output = test_command(&temp)
-        .args(["wallet", "delete", "0xBBB"])
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("Use --yes"),
-        "should require --yes in non-interactive mode: {combined}"
-    );
-}
-
-#[test]
-fn test_wallet_delete_active_switches() {
-    let temp = tempfile::TempDir::new().unwrap();
-    setup_multi_key(&temp);
-
-    // Delete the active key "default"
-    let output = test_command(&temp)
-        .args(["wallet", "delete", "0xAAA", "--yes"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
 }
 
 // ==================== Session JSON Output Tests ====================

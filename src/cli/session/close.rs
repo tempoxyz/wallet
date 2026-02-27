@@ -325,12 +325,9 @@ async fn close_orphaned_channels(
     show_output: bool,
     network: Option<&str>,
 ) -> Result<()> {
-    let creds = WalletCredentials::load()
-        .context("No wallet configured. Create one with 'presto wallet create'.")?;
-    anyhow::ensure!(
-        creds.has_wallet(),
-        "No wallet configured. Create one with 'presto wallet create'."
-    );
+    let no_wallet_msg = crate::error::no_wallet_message();
+    let creds = WalletCredentials::load().context(no_wallet_msg.clone())?;
+    anyhow::ensure!(creds.has_wallet(), "{no_wallet_msg}");
     let wallet_addr = creds
         .wallet_address()
         .parse()

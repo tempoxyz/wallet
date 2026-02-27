@@ -398,7 +398,7 @@ fn resolve_address(address: Option<String>, _network: &str) -> anyhow::Result<St
 
     if wallet_addr.is_empty() {
         anyhow::bail!(PrestoError::ConfigMissing(
-            "No wallet configured. Create one with 'presto wallet create'.".to_string(),
+            crate::error::no_wallet_message(),
         ));
     }
 

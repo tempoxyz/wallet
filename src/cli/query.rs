@@ -695,9 +695,7 @@ async fn ensure_wallet_configured(
         .is_some_and(|c| c.has_wallet());
 
     if !has_wallet {
-        anyhow::bail!(PrestoError::ConfigMissing(
-            "No wallet configured. Create one with 'presto wallet create'.".to_string()
-        ));
+        anyhow::bail!(PrestoError::ConfigMissing(crate::error::no_wallet_message()));
     }
 
     Ok(())

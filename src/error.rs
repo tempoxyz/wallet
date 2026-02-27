@@ -149,6 +149,21 @@ pub(crate) enum PrestoError {
     Mpp(#[from] mpp::MppError),
 }
 
+/// Build the "no wallet configured" error message with the correct follow-up
+/// based on the `PRESTO_WALLET_TYPE` env var (`local` → `presto wallet create`,
+/// otherwise → `presto login`).
+pub(crate) fn no_wallet_message() -> String {
+    let is_local = std::env::var("PRESTO_WALLET_TYPE")
+        .ok()
+        .is_some_and(|v| v.eq_ignore_ascii_case("local"));
+
+    if is_local {
+        "No wallet configured. Create one with 'presto wallet create'.".to_string()
+    } else {
+        "No wallet configured. Log in with 'presto login'.".to_string()
+    }
+}
+
 /// Map mpp validation errors to presto error types.
 pub(crate) fn map_mpp_validation_error(
     e: mpp::MppError,

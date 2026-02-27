@@ -10,6 +10,7 @@ use crate::error::PrestoError;
 use crate::network::Network;
 use crate::wallet::keychain::{self, KeychainBackend};
 
+#[cfg(test)]
 use super::overrides::has_credentials_override;
 
 /// Global keychain backend.  Initialised lazily via [`keychain()`].
@@ -261,6 +262,7 @@ impl WalletCredentials {
     ///
     /// Removes the keychain entry (if local wallet, best-effort) and
     /// keys.toml metadata. Returns an error if the address doesn't match.
+    #[cfg(test)]
     pub fn delete_by_address(&mut self, address: &str) -> Result<(), PrestoError> {
         let idx = self
             .keys

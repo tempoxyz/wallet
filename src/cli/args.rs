@@ -498,27 +498,6 @@ pub enum WalletCommands {
         #[arg(long)]
         no_wait: bool,
     },
-    /// Import an existing private key as a local wallet (stores key in OS keychain)
-    Import {
-        /// Provide the private key directly as hex (use with caution; may appear in shell history)
-        #[arg(long = "private-key", value_name = "HEX")]
-        private_key: Option<String>,
-        /// Read the private key from stdin without prompts (non-interactive)
-        #[arg(long = "stdin-key")]
-        stdin_key: bool,
-    },
-    /// Delete a wallet
-    Delete {
-        /// Wallet address to delete
-        #[arg(value_name = "ADDRESS")]
-        address: Option<String>,
-        /// Delete the passkey wallet
-        #[arg(long)]
-        passkey: bool,
-        /// Skip confirmation prompt
-        #[arg(long)]
-        yes: bool,
-    },
 }
 
 #[derive(Subcommand, Debug)]

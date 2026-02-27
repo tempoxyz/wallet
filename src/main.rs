@@ -367,15 +367,12 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     }
                 }
             } else {
-                cli::session::list_sessions(
-                    &config,
-                    output_format,
-                    false,
-                    false,
-                    false,
-                    cli.network.as_deref(),
-                )
-                .await
+                if let Some(session_cmd) = Cli::command().find_subcommand_mut("session") {
+                    session_cmd.print_help()?;
+                } else {
+                    Cli::command().print_help()?;
+                }
+                Ok(())
             }
         }
 
@@ -409,23 +406,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                             no_wait,
                         )
                         .await
-                    }
-                    WalletCommands::Import {
-                        private_key,
-                        stdin_key,
-                    } => cli::local_wallet::import_wallet(private_key, stdin_key),
-                    WalletCommands::Delete {
-                        address,
-                        passkey,
-                        yes,
-                    } => {
-                        if passkey {
-                            cli::auth::run_logout(yes).await
-                        } else if let Some(addr) = address {
-                            cli::local_wallet::delete_wallet(&addr, yes)
-                        } else {
-                            anyhow::bail!("Specify a wallet address or use --passkey")
-                        }
                     }
                 }
             } else {
@@ -462,7 +442,14 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     cli::auth::show_whoami(&config, output_format, network).await
                 }
                 Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),
-                None => cli::auth::show_whoami(&config, output_format, network).await,
+                None => {
+                    if let Some(key_cmd) = Cli::command().find_subcommand_mut("key") {
+                        key_cmd.print_help()?;
+                    } else {
+                        Cli::command().print_help()?;
+                    }
+                    Ok(())
+                }
             }
         }
     };
