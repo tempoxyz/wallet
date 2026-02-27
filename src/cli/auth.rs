@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+use std::collections::BTreeMap;
+
 use super::keys::{
     build_key_info, format_expiry_countdown, key_expiry_timestamp, print_key_limits_to,
     query_all_balances, KeyInfo,
@@ -11,7 +13,7 @@ use crate::analytics::Analytics;
 use crate::config::Config;
 use crate::network::networks::network_or_default;
 use crate::network::Network;
-use crate::wallet::credentials::{WalletCredentials, WalletType};
+use crate::wallet::credentials::{keychain, WalletCredentials, WalletType};
 use crate::wallet::WalletManager;
 use anyhow::Context;
 
@@ -269,6 +271,95 @@ async fn show_whoami_stderr(
     print_whoami_text(&response, &mut std::io::stderr())?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Wallet List
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct WalletListEntry {
+    address: String,
+    wallet_type: String,
+    networks: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct WalletListResponse {
+    wallets: Vec<WalletListEntry>,
+    total: usize,
+}
+
+pub async fn show_wallet_list(output_format: OutputFormat) -> anyhow::Result<()> {
+    let creds = WalletCredentials::load().unwrap_or_default();
+
+    // Group keys by wallet address (case-insensitive).
+    let mut wallets: BTreeMap<String, WalletListEntry> = BTreeMap::new();
+    for entry in &creds.keys {
+        if entry.wallet_address.is_empty() {
+            continue;
+        }
+        let key = entry.wallet_address.to_lowercase();
+        let wallet = wallets.entry(key).or_insert_with(|| WalletListEntry {
+            address: entry.wallet_address.clone(),
+            wallet_type: match entry.wallet_type {
+                WalletType::Passkey => "passkey".to_string(),
+                WalletType::Local => "local".to_string(),
+            },
+            networks: Vec::new(),
+        });
+        if let Some(net) = Network::from_chain_id(entry.chain_id) {
+            let name = net.as_str().to_string();
+            if !wallet.networks.contains(&name) {
+                wallet.networks.push(name);
+            }
+        }
+    }
+
+    // Include keychain-only wallets (orphaned if keys.toml was deleted).
+    if let Ok(keychain_addrs) = keychain().list() {
+        for addr in keychain_addrs {
+            let key = addr.to_lowercase();
+            wallets.entry(key).or_insert_with(|| WalletListEntry {
+                address: addr,
+                wallet_type: "local (keychain only)".to_string(),
+                networks: Vec::new(),
+            });
+        }
+    }
+
+    let wallets: Vec<_> = wallets.into_values().collect();
+    let total = wallets.len();
+    let response = WalletListResponse { wallets, total };
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string(&response)?);
+        }
+        _ => {
+            if response.wallets.is_empty() {
+                println!("No wallets configured.");
+                return Ok(());
+            }
+            for wallet in &response.wallets {
+                println!(
+                    "{:>10}: {} ({})",
+                    "Wallet", wallet.address, wallet.wallet_type
+                );
+                if !wallet.networks.is_empty() {
+                    println!("{:>10}: {}", "Networks", wallet.networks.join(", "));
+                }
+                println!();
+            }
+            println!("{} wallet(s) total.", response.total);
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
 
 fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
     if let Some(wallet) = &response.wallet {

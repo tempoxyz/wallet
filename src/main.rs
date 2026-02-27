@@ -379,6 +379,12 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         Commands::Wallet { command } => {
             if let Some(subcommand) = command {
                 match subcommand {
+                    WalletCommands::List => {
+                        let config =
+                            load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
+                        let output_format = cli.resolve_output_format(&config);
+                        cli::auth::show_wallet_list(output_format).await
+                    }
                     WalletCommands::Create { passkey } => {
                         if passkey {
                             let network = cli.network.as_deref();

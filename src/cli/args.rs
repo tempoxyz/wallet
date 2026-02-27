@@ -483,6 +483,8 @@ pub enum SessionCommands {
 
 #[derive(Subcommand, Debug)]
 pub enum WalletCommands {
+    /// List configured wallets
+    List,
     /// Create a new wallet
     Create {
         /// Create a passkey-based wallet via browser auth
