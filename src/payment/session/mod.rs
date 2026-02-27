@@ -700,7 +700,8 @@ pub async fn handle_session_request(
             .rpc_url
             .parse()
             .context("Invalid RPC URL for pre-broadcast")?;
-        let provider = alloy::providers::RootProvider::new_http(rpc_url);
+        let provider =
+            alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
         let pending = provider
             .send_raw_transaction(&payment.tx_bytes)
