@@ -8,6 +8,7 @@ use std::io::Read;
 use std::time::Duration;
 
 use anyhow::Result;
+use std::sync::OnceLock;
 use thiserror::Error;
 use tracing::warn;
 
@@ -244,14 +245,23 @@ impl HttpClient {
         Ok(HttpClient { client })
     }
 
-    /// Perform a request with the specified HTTP method and optional body.
-    pub async fn request(
+    /// Perform a request with additional per-request headers.
+    ///
+    /// Unlike [`request`], the extra headers are added to this specific request
+    /// rather than baked into the client's default headers, allowing connection
+    /// pool reuse across requests with different headers (e.g. 402 → payment retry).
+    pub async fn request_with_headers(
         &self,
         method: reqwest::Method,
         url: &str,
         body: Option<&[u8]>,
+        extra_headers: &[(String, String)],
     ) -> Result<HttpResponse> {
         let mut request = self.client.request(method, url);
+
+        for (name, value) in extra_headers {
+            request = request.header(name, value);
+        }
 
         if let Some(data) = body {
             request = request.body(data.to_vec());
@@ -448,15 +458,25 @@ pub(crate) fn validate_header_size(header: &str) -> std::result::Result<(), Requ
 ///
 /// Built from `RequestRuntime` + `HttpRequestPlan` at the CLI boundary;
 /// HTTP and payment modules use this without depending on CLI types.
+///
+/// The base HTTP client (and its connection pool) is lazily initialized once
+/// and reused across all requests, so a 402 → payment → retry cycle can
+/// reuse the same TLS connection.
 pub(crate) struct RequestContext {
     pub runtime: RequestRuntime,
     pub plan: HttpRequestPlan,
+    /// Lazily-initialized base HTTP client shared across all requests.
+    base_client: OnceLock<HttpClient>,
 }
 
 impl RequestContext {
     /// Create a new request context from runtime flags and a request plan.
     pub fn new(runtime: RequestRuntime, plan: HttpRequestPlan) -> Self {
-        Self { runtime, plan }
+        Self {
+            runtime,
+            plan,
+            base_client: OnceLock::new(),
+        }
     }
 
     /// Whether verbose log messages should be printed.
@@ -464,14 +484,18 @@ impl RequestContext {
         self.runtime.log_enabled()
     }
 
-    /// Build an HTTP client from the plan, optionally adding extra headers.
-    pub fn build_client(&self, extra_headers: Option<&[(String, String)]>) -> Result<HttpClient> {
-        let mut headers = self.plan.headers.clone();
-
-        if let Some(extra) = extra_headers {
-            headers.extend_from_slice(extra);
+    /// Get (or lazily create) the cached base HTTP client.
+    fn get_or_build_client(&self) -> Result<&HttpClient> {
+        if let Some(client) = self.base_client.get() {
+            return Ok(client);
         }
+        let client = self.build_new_client(&self.plan.headers)?;
+        // Race is fine — worst case we build twice, but only one wins.
+        Ok(self.base_client.get_or_init(|| client))
+    }
 
+    /// Build a fresh HTTP client with the given headers baked in.
+    fn build_new_client(&self, headers: &[(String, String)]) -> Result<HttpClient> {
         let mut builder = HttpClientBuilder::new()
             .verbose(self.plan.verbose_connection)
             .follow_redirects(self.plan.follow_redirects)
@@ -482,7 +506,7 @@ impl RequestContext {
             .no_proxy(self.plan.no_proxy)
             .http2(self.plan.http2)
             .http1_only(self.plan.http1_only)
-            .headers(&headers);
+            .headers(headers);
 
         if let Some(timeout) = self.plan.timeout_secs {
             builder = builder.timeout(timeout);
@@ -495,6 +519,25 @@ impl RequestContext {
         builder.build()
     }
 
+    /// Build an HTTP client from the plan, optionally adding extra headers.
+    ///
+    /// When `extra_headers` is `None`, returns the cached base client.
+    /// When extra headers are provided, builds a fresh client (needed for
+    /// session/SSE flows that bake headers into the client).
+    pub fn build_client(&self, extra_headers: Option<&[(String, String)]>) -> Result<HttpClient> {
+        if let Some(extra) = extra_headers {
+            let mut headers = self.plan.headers.clone();
+            headers.extend_from_slice(extra);
+            self.build_new_client(&headers)
+        } else {
+            // Return a clone of the cached client so the pool is shared
+            let base = self.get_or_build_client()?;
+            Ok(HttpClient {
+                client: base.client.clone(),
+            })
+        }
+    }
+
     /// Build a reqwest::Client with the same configuration as the normal HTTP client.
     ///
     /// Used for session/SSE flows that need direct access to reqwest's streaming API
@@ -503,21 +546,32 @@ impl RequestContext {
         &self,
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<reqwest::Client> {
-        let client = self.build_client(extra_headers)?;
-        Ok(client.inner_client())
+        if extra_headers.is_some() {
+            let client = self.build_client(extra_headers)?;
+            Ok(client.inner_client())
+        } else {
+            Ok(self.get_or_build_client()?.inner_client())
+        }
     }
 
     /// Build a reqwest::RequestBuilder using the shared client configuration.
     ///
-    /// Used by session flows that need a raw RequestBuilder for streaming.
+    /// Uses the cached base client for connection reuse. Extra headers (if any)
+    /// are applied per-request rather than baked into the client.
     pub fn build_reqwest_request(
         &self,
         url: &str,
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<reqwest::RequestBuilder> {
-        let client = self.build_reqwest_client(extra_headers)?;
+        let client = self.get_or_build_client()?.inner_client();
 
         let mut builder = client.request(self.plan.method.clone(), url);
+
+        if let Some(extra) = extra_headers {
+            for (name, value) in extra {
+                builder = builder.header(name, value);
+            }
+        }
 
         if let Some(ref body) = self.plan.body {
             builder = builder.body(body.clone());
@@ -526,19 +580,29 @@ impl RequestContext {
         Ok(builder)
     }
 
-    /// Execute an HTTP request
+    /// Execute an HTTP request, reusing the cached connection pool.
+    ///
+    /// Extra headers are applied per-request so the underlying TLS connection
+    /// can be reused across calls with different headers (e.g. 402 → retry
+    /// with Authorization).
     pub async fn execute(
         &self,
         url: &str,
         extra_headers: Option<&[(String, String)]>,
     ) -> Result<HttpResponse> {
-        let client = self.build_client(extra_headers)?;
+        let client = self.get_or_build_client()?;
         let mut attempt: u32 = 0;
         let max_retries = self.plan.retries;
         let mut backoff = self.plan.retry_backoff_ms;
+        let headers = extra_headers.unwrap_or(&[]);
         loop {
             match client
-                .request(self.plan.method.clone(), url, self.plan.body.as_deref())
+                .request_with_headers(
+                    self.plan.method.clone(),
+                    url,
+                    self.plan.body.as_deref(),
+                    headers,
+                )
                 .await
             {
                 Ok(resp) => return Ok(resp),

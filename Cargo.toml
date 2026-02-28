@@ -26,7 +26,7 @@ getrandom = "0.2"
 hex = "0.4"
 hostname = "0.4"
 posthog-rs = "0.4"
-mpp = { git = "https://github.com/tempoxyz/mpp-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client", "server"] }
+mpp = { path = "../mpp-rs", features = ["tempo", "evm", "utils", "client", "server"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 rusqlite = { version = "0.35", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }

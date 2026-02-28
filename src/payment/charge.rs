@@ -58,10 +58,6 @@ pub async fn prepare_charge(
         );
     }
 
-    if runtime.debug_enabled() {
-        eprintln!("Creating payment credential...");
-    }
-
     let network_name = network.as_str();
     let signing = load_wallet_signer(network_name)?;
     let network_info = config.resolve_network(network_name)?;
@@ -110,10 +106,6 @@ pub async fn prepare_charge(
     let auth_header = Zeroizing::new(
         mpp::format_authorization(&credential).context("Failed to format Authorization header")?,
     );
-
-    if runtime.debug_enabled() {
-        eprintln!("Authorization header length: {} bytes", auth_header.len());
-    }
 
     Ok(auth_header)
 }
