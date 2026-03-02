@@ -37,7 +37,6 @@ sol! {
 pub async fn close_session_from_record(
     record: &session_store::SessionRecord,
     config: &Config,
-    nonce_offset: u64,
 ) -> Result<CloseOutcome> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
@@ -84,7 +83,6 @@ pub async fn close_session_from_record(
         escrow_contract,
         record.chain_id,
         fee_token,
-        nonce_offset,
     )
     .await
 }
@@ -194,7 +192,6 @@ pub(super) async fn close_on_chain(
     escrow_contract: Address,
     chain_id: u64,
     fee_token: Address,
-    nonce_offset: u64,
 ) -> Result<CloseOutcome> {
     let network = Network::require_chain_id(chain_id)?;
     let network_name = network.as_str();
@@ -205,7 +202,7 @@ pub(super) async fn close_on_chain(
         alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     // Check current channel state to determine which step we're on
-    let on_chain = get_channel_on_chain(&provider, escrow_contract, channel_id, B256::ZERO)
+    let on_chain = get_channel_on_chain(&provider, escrow_contract, channel_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Channel no longer exists on-chain"))?;
 
@@ -227,16 +224,8 @@ pub(super) async fn close_on_chain(
             input: request_close_data,
         }];
 
-        let tx_hash = submit_tempo_tx(
-            &tempo_provider,
-            wallet,
-            chain_id,
-            fee_token,
-            from,
-            calls,
-            nonce_offset,
-        )
-        .await?;
+        let tx_hash =
+            submit_tempo_tx(&tempo_provider, wallet, chain_id, fee_token, from, calls).await?;
 
         let explorer = network.info().explorer;
         let tx_url = explorer
@@ -293,16 +282,8 @@ pub(super) async fn close_on_chain(
         input: withdraw_data,
     }];
 
-    let tx_hash = submit_tempo_tx(
-        &tempo_provider,
-        wallet,
-        chain_id,
-        fee_token,
-        from,
-        calls,
-        nonce_offset,
-    )
-    .await?;
+    let tx_hash =
+        submit_tempo_tx(&tempo_provider, wallet, chain_id, fee_token, from, calls).await?;
 
     let explorer = network.info().explorer;
     let tx_url = explorer
@@ -323,7 +304,6 @@ pub(super) async fn close_on_chain(
 pub async fn close_discovered_channel(
     channel: &super::channel::DiscoveredChannel,
     config: &Config,
-    nonce_offset: u64,
 ) -> Result<CloseOutcome> {
     let network: Network = channel
         .network
@@ -346,7 +326,6 @@ pub async fn close_discovered_channel(
         escrow_contract,
         network.chain_id(),
         fee_token,
-        nonce_offset,
     )
     .await
 }
@@ -390,7 +369,7 @@ pub async fn close_channel_by_id(
             Err(_) => continue,
         };
 
-        let on_chain = match get_channel_on_chain(&provider, escrow, channel_id, B256::ZERO).await {
+        let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await {
             Ok(Some(ch)) => ch,
             Ok(None) => continue,
             Err(e) => {
@@ -416,7 +395,6 @@ pub async fn close_channel_by_id(
             escrow,
             network.chain_id(),
             on_chain.token,
-            0,
         )
         .await;
     }

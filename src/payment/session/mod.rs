@@ -30,7 +30,6 @@ mod tx;
 use std::collections::HashMap;
 
 use alloy::primitives::{Address, B256};
-use alloy::providers::Provider;
 use anyhow::{Context, Result};
 use mpp::protocol::core::extract_tx_hash;
 use mpp::protocol::methods::tempo::session::{SessionCredentialPayload, TempoSessionExt};
@@ -39,7 +38,7 @@ use mpp::{parse_receipt, parse_www_authenticate, ChallengeEcho};
 
 use crate::config::Config;
 use crate::error::{map_mpp_validation_error, PrestoError};
-use crate::http::{HttpResponse, RequestContext};
+use crate::http::{HttpClient, HttpResponse, RequestContext};
 use crate::network::{format_address_link, resolve_token_meta, Network};
 use crate::util::format_token_amount;
 use crate::wallet::credentials::WalletCredentials;
@@ -93,6 +92,8 @@ pub(crate) struct SessionContext<'a> {
     pub salt: String,
     pub recipient: String,
     pub currency: String,
+    /// Shared reqwest client for connection pooling across session requests.
+    pub reqwest_client: &'a reqwest::Client,
 }
 
 impl<'a> SessionContext<'a> {
@@ -110,6 +111,7 @@ impl<'a> SessionContext<'a> {
         salt: String,
         recipient: String,
         currency: String,
+        reqwest_client: &'a reqwest::Client,
     ) -> Self {
         Self {
             signer,
@@ -124,6 +126,7 @@ impl<'a> SessionContext<'a> {
             salt,
             recipient,
             currency,
+            reqwest_client,
         }
     }
 
@@ -263,10 +266,13 @@ async fn send_session_request(
     let voucher_auth = mpp::format_authorization(&voucher_credential)
         .context("Failed to format voucher credential")?;
 
-    let data_request = ctx
-        .request_ctx
-        .build_reqwest_request(ctx.url, None)?
+    let mut data_request = ctx
+        .reqwest_client
+        .request(ctx.request_ctx.plan.method.clone(), ctx.url)
         .header("Authorization", &voucher_auth);
+    if let Some(ref body) = ctx.request_ctx.plan.body {
+        data_request = data_request.body(body.clone());
+    }
 
     let response = data_request
         .send()
@@ -331,6 +337,7 @@ async fn send_session_request(
 pub async fn handle_session_request(
     config: &Config,
     request_ctx: &RequestContext,
+    http_client: &HttpClient,
     url: &str,
     initial_response: &HttpResponse,
 ) -> Result<SessionResult> {
@@ -456,13 +463,9 @@ pub async fn handle_session_request(
     // Load signer and resolve signing mode (direct or keychain)
     let signing = load_wallet_signer(network_name)?;
 
-    let is_keychain = matches!(
-        &signing.signing_mode,
-        mpp::client::tempo::signing::TempoSigningMode::Keychain { .. }
-    );
-
     let key_address = signing.signer.address();
     let from = signing.from;
+    let reqwest_client = http_client.inner_client();
 
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
@@ -551,6 +554,7 @@ pub async fn handle_session_request(
             record.salt.clone(),
             recipient_hex.clone(),
             currency_hex.clone(),
+            &reqwest_client,
         );
 
         match send_session_request(&ctx, &mut state).await {
@@ -578,66 +582,6 @@ pub async fn handle_session_request(
             }
         }
         store::delete_session(&session_key)?;
-    }
-
-    // === Try on-chain recovery by scanning ChannelOpened events ===
-    {
-        if request_ctx.log_enabled() {
-            eprintln!("Checking for existing channel on-chain...");
-        }
-        if let Some(on_chain) = channel::find_channel_on_chain(
-            escrow_contract,
-            from,
-            recipient,
-            currency,
-            key_address,
-            network_name,
-            config,
-        )
-        .await
-        {
-            if request_ctx.log_enabled() {
-                eprintln!("Recovered channel from on-chain state");
-                eprintln!("  Channel: {:#x}", on_chain.channel_id);
-            }
-
-            let cumulative = on_chain.settled + tick_cost;
-            let mut state = SessionState {
-                channel_id: on_chain.channel_id,
-                escrow_contract,
-                chain_id,
-                cumulative_amount: cumulative,
-            };
-
-            let ctx = SessionContext::new(
-                &signing.signer,
-                &echo,
-                &did,
-                request_ctx,
-                url,
-                network_name,
-                &origin,
-                tick_cost,
-                on_chain.deposit,
-                format!("{:#x}", on_chain.salt),
-                recipient_hex.clone(),
-                currency_hex.clone(),
-            );
-
-            match send_session_request(&ctx, &mut state).await {
-                Ok(result) => {
-                    persist_session(&ctx, &state)?;
-                    return Ok(result);
-                }
-                Err(e) => {
-                    if request_ctx.log_enabled() {
-                        eprintln!("Recovered channel failed: {e}");
-                        eprintln!("Opening new channel...");
-                    }
-                    // Fall through to open new channel
-                }
-            }
-        }
     }
 
     // === Open a new channel ===
@@ -681,107 +625,41 @@ pub async fn handle_session_request(
     .await
     .context("Failed to sign initial voucher")?;
 
-    let payment = tx::create_tempo_payment_from_calls(
-        config, &signing, &challenge, open_calls, currency, chain_id,
-    )
-    .await?;
+    let payment =
+        tx::create_tempo_payment_from_calls(config, &signing, open_calls, currency, chain_id)
+            .await?;
 
-    if is_keychain {
-        // For keychain (smart wallet) mode, pre-broadcast the open transaction
-        // from the client. The server's `eth_sendRawTransactionSync` may reject
-        // type-0x76 keychain transactions, so we broadcast directly via the
-        // standard RPC and wait for confirmation before proceeding.
-        if request_ctx.log_enabled() {
-            eprintln!("Broadcasting channel open tx (keychain mode)...");
-        }
+    // Send the raw transaction to the server for broadcast (and optional
+    // fee-payer co-signing). The server calls sendRawTransactionSync which
+    // waits for block inclusion, so no client-side confirm_open is needed.
+    let open_tx = format!("0x{}", hex::encode(&payment.tx_bytes));
 
-        let network_info = config.resolve_network(network_name)?;
-        let rpc_url: url::Url = network_info
-            .rpc_url
-            .parse()
-            .context("Invalid RPC URL for pre-broadcast")?;
-        let provider =
-            alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
+    let open_payload = build_open_payload(
+        channel_id,
+        open_tx,
+        authorized_signer,
+        initial_cumulative,
+        &voucher_sig,
+    );
 
-        let pending = provider
-            .send_raw_transaction(&payment.tx_bytes)
-            .await
-            .context("Failed to broadcast channel open transaction")?;
-        let tx_hash = pending.tx_hash();
+    let session_credential =
+        mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
+    let auth_header = mpp::format_authorization(&session_credential)
+        .context("Failed to format open credential")?;
 
-        if request_ctx.log_enabled() {
+    let delays = [2000_u64, 3000, 5000];
+    let open_response =
+        tx::send_open_with_retry(request_ctx, http_client, url, &auth_header, &delays).await?;
+
+    if let Some(receipt_str) = open_response.get_header("payment-receipt") {
+        if let Ok(receipt) = parse_receipt(receipt_str) {
+            let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
             let explorer = network.info().explorer;
-            if let Some(exp) = explorer.as_ref() {
-                eprintln!(
-                    "Channel open tx: {}",
-                    exp.tx_url(&format!("{:#x}", tx_hash))
-                );
-            } else {
-                eprintln!("Channel open tx: {:#x}", tx_hash);
-            }
-        }
-
-        tx::wait_for_tempo_receipt(&provider, *tx_hash).await?;
-
-        if request_ctx.log_enabled() {
-            eprintln!("Channel open confirmed on-chain");
-        }
-
-        // Send the Open credential to the server so it registers the channel.
-        // The tx is already confirmed on-chain, so the server just needs to
-        // look it up.
-        let open_payload = build_open_payload(
-            channel_id,
-            format!("0x{}", hex::encode(&payment.tx_bytes)),
-            authorized_signer,
-            initial_cumulative,
-            &voucher_sig,
-        );
-
-        let session_credential =
-            mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
-        let auth_header = mpp::format_authorization(&session_credential)
-            .context("Failed to format open credential")?;
-
-        let delays = [2000_u64, 3000, 5000];
-        let _ = tx::send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
-    } else {
-        // Direct signing mode: send the raw transaction to the server for broadcast.
-        let open_tx = payment
-            .credential
-            .payload
-            .get("transaction")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing transaction in open credential"))?
-            .to_string();
-
-        let open_payload = build_open_payload(
-            channel_id,
-            open_tx,
-            authorized_signer,
-            initial_cumulative,
-            &voucher_sig,
-        );
-
-        let session_credential =
-            mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
-        let auth_header = mpp::format_authorization(&session_credential)
-            .context("Failed to format open credential")?;
-
-        let delays = [2000_u64, 3000, 5000];
-        let open_response =
-            tx::send_open_with_retry(request_ctx, url, &auth_header, &delays).await?;
-
-        if let Some(receipt_str) = open_response.get_header("payment-receipt") {
-            if let Ok(receipt) = parse_receipt(receipt_str) {
-                let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-                let explorer = network.info().explorer;
-                if request_ctx.log_enabled() {
-                    if let Some(exp) = explorer.as_ref() {
-                        eprintln!("Channel open tx: {}", exp.tx_url(&tx_ref));
-                    } else {
-                        eprintln!("Channel open tx: {}", tx_ref);
-                    }
+            if request_ctx.log_enabled() {
+                if let Some(exp) = explorer.as_ref() {
+                    eprintln!("Channel open tx: {}", exp.tx_url(&tx_ref));
+                } else {
+                    eprintln!("Channel open tx: {}", tx_ref);
                 }
             }
         }
@@ -809,9 +687,27 @@ pub async fn handle_session_request(
         format!("{:#x}", salt),
         recipient_hex,
         currency_hex,
+        &reqwest_client,
     );
 
+    // For non-SSE responses, the open response already contains the proxied
+    // upstream result — use it directly instead of making a duplicate request.
+    // For SSE, fall through to send_session_request which returns a raw
+    // streaming response.
+    let is_sse = open_response
+        .get_header("content-type")
+        .is_some_and(|ct| ct.contains("text/event-stream"));
+
+    if !is_sse && open_response.status_code < 400 {
+        persist_session(&ctx, &state)?;
+        return Ok(SessionResult::Response {
+            response: open_response,
+            channel_id: format!("{:#x}", channel_id),
+        });
+    }
+
     let result = send_session_request(&ctx, &mut state).await?;
+
     persist_session(&ctx, &state)?;
     Ok(result)
 }

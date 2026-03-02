@@ -16,7 +16,8 @@ use crate::config::{load_config_with_overrides, Config};
 use crate::error::PrestoError;
 use crate::http::{
     get_request_method_and_body, parse_headers, resolve_data, should_auto_add_json_content_type,
-    validate_header_size, HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
+    validate_header_size, HttpClient, HttpRequestPlan, HttpResponse, RequestContext,
+    RequestRuntime,
 };
 use crate::network::{resolve_token_meta, ExplorerConfig, Network};
 use crate::payment::charge::prepare_charge;
@@ -171,6 +172,11 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
         return execute_streaming(&request_ctx, &url, &output_opts, query.sse_json).await;
     }
 
+    // Build the HTTP client once and reuse it across initial request and
+    // payment replay. This enables TCP/TLS connection pooling, skipping the
+    // second TLS handshake on the replay request (~50-100ms savings).
+    let http_client = request_ctx.build_client(None)?;
+
     // Execute with optional HTTP status retries
     let mut attempts_left = query.retries.unwrap_or(0);
     let retry_codes: Vec<u16> = query
@@ -183,7 +189,9 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     let mut backoff_ms = query.retry_backoff_ms.unwrap_or(250);
     let response = loop {
         let start = std::time::Instant::now();
-        let resp_res = request_ctx.execute(&url, None).await;
+        let resp_res = request_ctx
+            .execute_with_client(&http_client, &url, &[])
+            .await;
         match resp_res {
             Ok(r) => {
                 // Honor Retry-After and backoff for configured HTTP statuses
@@ -351,6 +359,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     let result = dispatch_payment(
         &config,
         &request_ctx,
+        &http_client,
         &output_opts,
         &challenge_ctx,
         &effective_url,
@@ -539,13 +548,15 @@ struct PaymentResult {
 async fn dispatch_payment(
     config: &Config,
     request_ctx: &RequestContext,
+    http_client: &HttpClient,
     output_opts: &OutputOptions,
     challenge_ctx: &ChallengeContext,
     url: &str,
     response: &HttpResponse,
 ) -> Result<PaymentResult> {
     if challenge_ctx.is_session {
-        let result = handle_session_request(config, request_ctx, url, response).await?;
+        let result =
+            handle_session_request(config, request_ctx, http_client, url, response).await?;
         match result {
             SessionResult::Streamed { channel_id } => Ok(PaymentResult {
                 tx_hash: String::new(),
@@ -581,7 +592,9 @@ async fn dispatch_payment(
         }
 
         let headers = vec![("Authorization".to_string(), (*auth_header).clone())];
-        let resp = request_ctx.execute(url, Some(&headers)).await?;
+        let resp = request_ctx
+            .execute_with_client(http_client, url, &headers)
+            .await?;
 
         if resp.status_code >= 400 {
             return Err(parse_payment_rejection(&resp).into());
