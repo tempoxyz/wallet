@@ -11,8 +11,7 @@ use super::keys::{
 use super::OutputFormat;
 use crate::analytics::Analytics;
 use crate::config::Config;
-use crate::network::networks::network_or_default;
-use crate::network::Network;
+use crate::network::{format_address_link, networks::network_or_default, Network};
 use crate::wallet::credentials::{keychain, WalletCredentials, WalletType};
 use crate::wallet::WalletManager;
 use anyhow::Context;
@@ -341,10 +340,13 @@ pub async fn show_wallet_list(output_format: OutputFormat) -> anyhow::Result<()>
                 return Ok(());
             }
             for wallet in &response.wallets {
-                println!(
-                    "{:>10}: {} ({})",
-                    "Wallet", wallet.address, wallet.wallet_type
-                );
+                let explorer = wallet
+                    .networks
+                    .first()
+                    .and_then(|n| n.parse::<Network>().ok())
+                    .and_then(|n| n.info().explorer);
+                let addr_link = format_address_link(&wallet.address, explorer.as_ref());
+                println!("{:>10}: {} ({})", "Wallet", addr_link, wallet.wallet_type);
                 if !wallet.networks.is_empty() {
                     println!("{:>10}: {}", "Networks", wallet.networks.join(", "));
                 }
@@ -362,9 +364,15 @@ pub async fn show_wallet_list(output_format: OutputFormat) -> anyhow::Result<()>
 // ---------------------------------------------------------------------------
 
 fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+    let explorer = response
+        .chain_id
+        .and_then(Network::from_chain_id)
+        .and_then(|n| n.info().explorer);
+
     if let Some(wallet) = &response.wallet {
         let wt = response.wallet_type.as_deref().unwrap_or("unknown");
-        writeln!(w, "{:>10}: {} ({})", "Wallet", wallet, wt)?;
+        let wallet_link = format_address_link(wallet, explorer.as_ref());
+        writeln!(w, "{:>10}: {} ({})", "Wallet", wallet_link, wt)?;
     }
 
     // Wallet balance
@@ -375,7 +383,8 @@ fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> a
 
     if let Some(key) = &response.key {
         writeln!(w)?;
-        writeln!(w, "{:>10}: {}", "Key", key.address)?;
+        let key_link = format_address_link(&key.address, explorer.as_ref());
+        writeln!(w, "{:>10}: {}", "Key", key_link)?;
         if let Some(network) = &response.network {
             writeln!(w, "{:>10}: {}", "Chain", network)?;
         }

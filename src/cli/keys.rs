@@ -11,8 +11,7 @@ use tracing::debug;
 
 use super::OutputFormat;
 use crate::config::Config;
-use crate::network::networks::network_or_default;
-use crate::network::Network;
+use crate::network::{format_address_link, networks::network_or_default, Network};
 use crate::util::format_u256_with_decimals;
 use crate::wallet::credentials::{KeyEntry, WalletCredentials, WalletType};
 use mpp::client::tempo::keychain::query_key_spending_limit;
@@ -163,10 +162,19 @@ pub async fn show_keys(
                 return Ok(());
             }
             for key in &response.keys {
+                let explorer = creds
+                    .keys
+                    .iter()
+                    .find(|e| e.key_address.as_deref() == Some(&key.address))
+                    .and_then(|e| Network::from_chain_id(e.chain_id))
+                    .and_then(|n| n.info().explorer);
+
                 if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
-                    println!("{:>10}: {} ({})", "Wallet", wallet, wt);
+                    let wallet_link = format_address_link(wallet, explorer.as_ref());
+                    println!("{:>10}: {} ({})", "Wallet", wallet_link, wt);
                 }
-                println!("{:>10}: {}", "Key", key.address);
+                let key_link = format_address_link(&key.address, explorer.as_ref());
+                println!("{:>10}: {}", "Key", key_link);
                 if let Some(entry) = creds
                     .keys
                     .iter()

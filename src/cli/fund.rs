@@ -10,8 +10,7 @@ use super::relay::{self, DepositStatus};
 use super::OutputFormat;
 use crate::config::Config;
 use crate::error::PrestoError;
-use crate::network::networks::network_or_default;
-use crate::network::Network;
+use crate::network::{format_address_link, networks::network_or_default, Network};
 use crate::wallet::credentials::WalletCredentials;
 
 /// Default source chain for bridging (Base).
@@ -109,7 +108,12 @@ async fn run_faucet(
     tracing::debug!("Faucet RPC response: {result}");
 
     if output_format == OutputFormat::Text {
-        eprintln!("Requested faucet funds for {address} on {network_id}.");
+        let explorer = network_id
+            .parse::<Network>()
+            .ok()
+            .and_then(|n| n.info().explorer);
+        let addr_link = format_address_link(address, explorer.as_ref());
+        eprintln!("Requested faucet funds for {addr_link} on {network_id}.");
     }
 
     // Poll for balance change
@@ -206,10 +210,9 @@ async fn run_relay_bridge(
         let qr_uri = format!("ethereum:{}", deposit.deposit_address);
         print_qr_code(&qr_uri);
         eprintln!();
-        eprintln!(
-            "Send USDC on {} to: {}",
-            source_chain.name, deposit.deposit_address
-        );
+        let explorer = net.info().explorer;
+        let deposit_link = format_address_link(&deposit.deposit_address, explorer.as_ref());
+        eprintln!("Send USDC on {} to: {}", source_chain.name, deposit_link);
         eprintln!("Funds will be bridged automatically to your Tempo wallet.");
         eprintln!();
     }
@@ -234,10 +237,9 @@ async fn run_relay_bridge(
 
     // Poll both: Relay status (source chain) and Tempo balance (target chain)
     if output_format == OutputFormat::Text {
-        eprintln!(
-            "Deposit address ({}): {}",
-            source_chain.name, deposit.deposit_address
-        );
+        let explorer = net.info().explorer;
+        let deposit_link = format_address_link(&deposit.deposit_address, explorer.as_ref());
+        eprintln!("Deposit address ({}): {}", source_chain.name, deposit_link);
         eprintln!("Watching for deposit...");
     }
 
