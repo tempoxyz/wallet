@@ -245,13 +245,21 @@ impl HttpClient {
     }
 
     /// Perform a request with the specified HTTP method and optional body.
+    ///
+    /// `extra_headers` are added per-request (not baked into the client),
+    /// allowing the same client to be reused for requests with different headers.
     pub async fn request(
         &self,
         method: reqwest::Method,
         url: &str,
         body: Option<&[u8]>,
+        extra_headers: &[(String, String)],
     ) -> Result<HttpResponse> {
         let mut request = self.client.request(method, url);
+
+        for (name, value) in extra_headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
 
         if let Some(data) = body {
             request = request.body(data.to_vec());
@@ -507,38 +515,39 @@ impl RequestContext {
         Ok(client.inner_client())
     }
 
-    /// Build a reqwest::RequestBuilder using the shared client configuration.
+    /// Execute an HTTP request reusing a pre-built client.
     ///
-    /// Used by session flows that need a raw RequestBuilder for streaming.
-    pub fn build_reqwest_request(
+    /// Extra headers (e.g., Authorization) are added per-request, not baked
+    /// into the client. This enables connection pooling: the same client can
+    /// serve the initial 402 request and the payment replay, skipping the
+    /// second TLS handshake.
+    pub async fn execute_with_client(
         &self,
+        client: &HttpClient,
         url: &str,
-        extra_headers: Option<&[(String, String)]>,
-    ) -> Result<reqwest::RequestBuilder> {
-        let client = self.build_reqwest_client(extra_headers)?;
-
-        let mut builder = client.request(self.plan.method.clone(), url);
-
-        if let Some(ref body) = self.plan.body {
-            builder = builder.body(body.clone());
-        }
-
-        Ok(builder)
+        extra_headers: &[(String, String)],
+    ) -> Result<HttpResponse> {
+        self.execute_with_retry(client, url, extra_headers).await
     }
 
-    /// Execute an HTTP request
-    pub async fn execute(
+    /// Core request execution with transient-error retry logic.
+    async fn execute_with_retry(
         &self,
+        client: &HttpClient,
         url: &str,
-        extra_headers: Option<&[(String, String)]>,
+        extra_headers: &[(String, String)],
     ) -> Result<HttpResponse> {
-        let client = self.build_client(extra_headers)?;
         let mut attempt: u32 = 0;
         let max_retries = self.plan.retries;
         let mut backoff = self.plan.retry_backoff_ms;
         loop {
             match client
-                .request(self.plan.method.clone(), url, self.plan.body.as_deref())
+                .request(
+                    self.plan.method.clone(),
+                    url,
+                    self.plan.body.as_deref(),
+                    extra_headers,
+                )
                 .await
             {
                 Ok(resp) => return Ok(resp),
@@ -911,5 +920,54 @@ mod tests {
             msg.contains("TOON"),
             "error should mention TOON, got: {msg}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_http_client_extra_headers() {
+        use axum::http::StatusCode;
+        use axum::response::IntoResponse;
+        use axum::routing::get;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        let app = axum::Router::new().route(
+            "/",
+            get(|headers: axum::http::HeaderMap| async move {
+                if headers.contains_key("authorization") {
+                    (StatusCode::OK, "authorized").into_response()
+                } else {
+                    (StatusCode::OK, "no-auth").into_response()
+                }
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        // Small delay to let the server start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = HttpClient {
+            client: reqwest::Client::new(),
+        };
+
+        // Request without extra headers
+        let resp = client
+            .request(reqwest::Method::GET, &url, None, &[])
+            .await
+            .unwrap();
+        assert_eq!(resp.body_string().unwrap(), "no-auth");
+
+        // Same client, request WITH extra headers — verifies per-request
+        // headers work without baking them into the client builder.
+        let headers = vec![("Authorization".to_string(), "Bearer tok".to_string())];
+        let resp = client
+            .request(reqwest::Method::GET, &url, None, &headers)
+            .await
+            .unwrap();
+        assert_eq!(resp.body_string().unwrap(), "authorized");
     }
 }

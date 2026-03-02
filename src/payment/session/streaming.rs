@@ -74,12 +74,10 @@ pub(super) async fn stream_sse_response(
     // that never emit the \n\n event delimiter.
     const MAX_BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4 MB
 
-    // Reuse a single client for voucher POSTs to maintain connection affinity
-    // with the server (important when behind a load balancer).
-    let voucher_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .context("failed to build HTTP client for voucher POSTs")?;
+    // Reuse the shared client for voucher POSTs to maintain connection affinity
+    // with the server (important when behind a load balancer) and avoid
+    // redundant TLS handshakes.
+    let voucher_client = ctx.reqwest_client.clone();
 
     // Track pending voucher for retry on stall. When we send a voucher but
     // the server's notify is lost, we need to re-send to wake it up.
