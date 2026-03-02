@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1 (2026-03-02)
+
+### Patch Changes
+
+- Updated the install script to use `~/.local/bin` as the default installation directory instead of `/usr/local/bin`, removing the need for sudo. Added automatic PATH configuration for bash and zsh shell rc files, and added cleanup of legacy binaries from the old install location. Also updated passkey auth URLs for the tempo and moderato networks.
+- Added TOON format support as a compact, token-efficient output and input option. Introduced `-t`/`--toon-output` flag for TOON-formatted output (recommended for agents) and `--toon <TOON>` option to send TOON-encoded request bodies decoded to JSON. Updated agent skill documentation to prefer `-t` over `-j` for token efficiency.
+- Extended clickable terminal hyperlinks to wallet and key addresses displayed in the `auth`, `fund`, and `keys` CLI commands, so addresses in `wallet list`, `whoami`, `faucet`, and bridge deposit output are now rendered as clickable links pointing to the appropriate block explorer.
+- Optimized request path to reuse a single HTTP client across initial and payment replay requests, enabling TCP/TLS connection pooling and skipping redundant TLS handshakes. Replaced on-chain nonce fetches with expiring nonces (`nonceKey=MAX`), removed the `find_channel_on_chain` recovery path, simplified the keychain/direct-signing flow to a unified path, and scoped verbose logging to the `presto` crate only.
+
 ## 0.6.0 (2026-02-27)
 
 ### Minor Changes
