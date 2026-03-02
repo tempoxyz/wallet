@@ -53,8 +53,9 @@ impl WalletManager {
     /// Get the auth server URL for a given network.
     fn auth_url_for_network(network: &str) -> String {
         match network {
-            "tempo" => "https://app.tempo.xyz/cli-auth".to_string(),
-            _ => "https://app.moderato.tempo.xyz/cli-auth".to_string(),
+            "tempo" => "https://wallet.tempo.xyz/?auth=eng:acard-melody-fashion-finish".to_string(),
+            _ => "https://wallet.moderato.tempo.xyz/?auth=eng:acard-melody-fashion-finish"
+                .to_string(),
         }
     }
 
