@@ -18,7 +18,8 @@ SCRIPT_DIR=""
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="${HOME}/.local/bin"
+LEGACY_INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="presto"
 R2_BASE_URL="https://presto-binaries.tempo.xyz"
 
@@ -118,18 +119,16 @@ detect_arch() {
 # Install helpers
 # ---------------------------------------------------------------------------
 
-# Move or copy a binary to INSTALL_DIR, using sudo as fallback.
+# Move or copy a binary to INSTALL_DIR, creating it if needed.
 install_binary() {
     local src="$1"
     local cmd="$2"  # "mv" or "cp"
 
-    if "${cmd}" "${src}" "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null; then
-        ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
-    elif sudo "${cmd}" "${src}" "${INSTALL_DIR}/${BINARY_NAME}"; then
+    mkdir -p "${INSTALL_DIR}"
+    if "${cmd}" "${src}" "${INSTALL_DIR}/${BINARY_NAME}"; then
         ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
     else
         fail "Failed to install to ${INSTALL_DIR}"
-        echo "  Try running with sudo or install manually"
         exit 1
     fi
 }
@@ -147,7 +146,7 @@ remove_file() {
     if [[ ! -f "${path}" && ! -d "${path}" ]]; then
         return 0
     fi
-    if rm -rf "${path}" 2>/dev/null || sudo rm -rf "${path}"; then
+    if rm -rf "${path}"; then
         ok "Removed ${label}"
     else
         fail "Failed to remove ${label}: ${path}"
@@ -192,6 +191,12 @@ install_remote() {
 }
 
 install_from_source() {
+    if [[ -z "${SCRIPT_DIR}" ]]; then
+        fail "--from-source requires running the script from a local checkout"
+        echo "  Usage: ./install.sh --from-source"
+        exit 1
+    fi
+
     if ! command -v cargo >/dev/null 2>&1; then
         fail "cargo is required for --from-source install"
         echo "  Install Rust: https://rustup.rs/"
@@ -210,13 +215,71 @@ install_from_source() {
     install_binary "${built_binary}" "cp"
 }
 
-verify_installation() {
-    if command -v  tempo-wallet>/dev/null 2>&1; then
-        ok "$( tempo-wallet--version)"
-    else
-        echo ""
-        echo -e "  ${DIM}Note: ${INSTALL_DIR} is not in your PATH${RESET}"
+clean_legacy_install() {
+    local legacy="${LEGACY_INSTALL_DIR}/${BINARY_NAME}"
+    if [[ -f "${legacy}" ]]; then
+        if rm -f "${legacy}" 2>/dev/null; then
+            ok "Removed old binary at ${legacy}"
+        else
+            echo ""
+            echo -e "  ${RED}⚠${RESET}  Old binary exists at ${legacy}"
+            echo -e "  ${DIM}Remove it manually: sudo rm ${legacy}${RESET}"
+        fi
     fi
+}
+
+# Append a PATH export line to a shell rc file if not already present.
+add_to_shell_rc() {
+    local rc_file="$1"
+    local line='export PATH="$HOME/.local/bin:$PATH"'
+
+    if [[ -f "${rc_file}" ]] && grep -qF '.local/bin' "${rc_file}" 2>/dev/null; then
+        return 0
+    fi
+
+    [[ -f "${rc_file}" ]] || return 0
+
+    echo "" >> "${rc_file}"
+    echo "# Added by  tempo-walletinstaller" >> "${rc_file}"
+    echo "${line}" >> "${rc_file}"
+    ok "Added ${INSTALL_DIR} to PATH in ${rc_file/#${HOME}/~}"
+}
+
+ensure_in_path() {
+    ok "$("${INSTALL_DIR}/${BINARY_NAME}" --version)"
+
+    case ":${PATH}:" in
+        *":${INSTALL_DIR}:"*) return 0 ;;
+    esac
+
+    # INSTALL_DIR is not in PATH — try to add it to shell rc files
+    local added=false
+    local shell_name
+    shell_name="$(basename "${SHELL:-}")"
+
+    case "${shell_name}" in
+        zsh)
+            add_to_shell_rc "${HOME}/.zshrc" && added=true
+            ;;
+        bash)
+            if [[ -f "${HOME}/.bash_profile" ]]; then
+                add_to_shell_rc "${HOME}/.bash_profile" && added=true
+            elif [[ -f "${HOME}/.bashrc" ]]; then
+                add_to_shell_rc "${HOME}/.bashrc" && added=true
+            fi
+            ;;
+        fish)
+            # fish uses a different syntax; just print the hint
+            ;;
+    esac
+
+    echo ""
+    if [[ "${added}" == true ]]; then
+        echo -e "  ${DIM}Restart your shell or run:${RESET}"
+    else
+        echo -e "  ${DIM}Add ${INSTALL_DIR} to your PATH:${RESET}"
+    fi
+    echo -e "    ${DIM}export PATH=\"${INSTALL_DIR}:\$PATH\"${RESET}"
 }
 
 # ---------------------------------------------------------------------------
@@ -277,6 +340,7 @@ uninstall_presto() {
     echo -e "\n${BOLD}Uninstalling presto${RESET}\n"
 
     remove_file "${INSTALL_DIR}/${BINARY_NAME}" "binary"
+    remove_file "${LEGACY_INSTALL_DIR}/${BINARY_NAME}" "legacy binary"
 
     if [[ "$(uname -s)" == "Darwin" ]]; then
         remove_file "${HOME}/Library/Application Support/presto" "data"
@@ -336,7 +400,8 @@ main() {
         install_remote
     fi
 
-    verify_installation
+    clean_legacy_install
+    ensure_in_path
     install_ai_skill "${wallet_type}"
 
     echo ""
