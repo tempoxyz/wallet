@@ -730,7 +730,7 @@ fn test_rejects_header_with_crlf_injection() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
     // Embed a CRLF in a single -H argument to simulate header injection
-    let bad_header = format!("X-Test: good\r\nInjected: bad");
+    let bad_header = "X-Test: good\r\nInjected: bad".to_string();
     cmd.args(["-j", "-H", &bad_header, "http://example.com"]);
     let output = cmd.output().expect("failed to run");
     assert!(!output.status.success());

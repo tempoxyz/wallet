@@ -47,8 +47,6 @@ sol! {
 
 /// On-chain channel state returned by recovery functions.
 pub(super) struct OnChainChannel {
-    pub channel_id: B256,
-    pub salt: B256,
     pub token: Address,
     pub deposit: u128,
     pub settled: u128,
@@ -106,7 +104,6 @@ pub(super) async fn get_channel_on_chain(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
     channel_id: B256,
-    salt: B256,
 ) -> Result<Option<OnChainChannel>> {
     let call_data = IEscrow::getChannelCall {
         channelId: channel_id,
@@ -129,8 +126,6 @@ pub(super) async fn get_channel_on_chain(
     }
 
     Ok(Some(OnChainChannel {
-        channel_id,
-        salt,
         token: decoded.token,
         deposit: decoded.deposit,
         settled: decoded.settled,
@@ -257,22 +252,20 @@ pub async fn find_all_channels_for_payer(
                     continue;
                 }
                 let log_token = Address::from_slice(&data[12..32]);
-                let log_salt = B256::from_slice(&data[64..96]);
 
-                let on_chain =
-                    match get_channel_on_chain(&provider, escrow, channel_id, log_salt).await {
-                        Ok(Some(ch)) => ch,
-                        Ok(None) => continue,
-                        Err(e) => {
-                            tracing::warn!(
-                                network = network.as_str(),
-                                %channel_id,
-                                %e,
-                                "failed to query channel state, skipping"
-                            );
-                            continue;
-                        }
-                    };
+                let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await {
+                    Ok(Some(ch)) => ch,
+                    Ok(None) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            network = network.as_str(),
+                            %channel_id,
+                            %e,
+                            "failed to query channel state, skipping"
+                        );
+                        continue;
+                    }
+                };
 
                 let token_str = format!("{:#x}", log_token);
 
@@ -304,122 +297,6 @@ pub async fn find_all_channels_for_payer(
     }
 
     results
-}
-
-/// Scan on-chain `ChannelOpened` events to find an open channel matching
-/// the given payer, payee, currency, and authorized signer.
-///
-/// Queries the escrow contract's event logs filtered by payer and payee,
-/// walking backwards from the latest block in chunks to stay within RPC
-/// block-range limits. Returns the most recently opened matching channel
-/// that is still live on-chain.
-pub(super) async fn find_channel_on_chain(
-    escrow_contract: Address,
-    payer: Address,
-    payee: Address,
-    currency: Address,
-    authorized_signer: Address,
-    network_name: &str,
-    config: &Config,
-) -> Option<OnChainChannel> {
-    let network_info = config.resolve_network(network_name).ok()?;
-    let rpc_url: url::Url = network_info.rpc_url.parse().ok()?;
-    let provider = alloy::providers::RootProvider::new_http(rpc_url);
-
-    let event_topic: B256 = match CHANNEL_OPENED_TOPIC.parse() {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!(%e, "Invalid CHANNEL_OPENED_TOPIC constant");
-            return None;
-        }
-    };
-    let payer_topic = B256::left_padding_from(&payer.0 .0);
-    let payee_topic = B256::left_padding_from(&payee.0 .0);
-
-    let latest = provider
-        .get_block_number()
-        .await
-        .ok()?
-        .saturating_sub(LOG_HEAD_MARGIN);
-    let earliest = latest.saturating_sub(LOG_SCAN_DEPTH);
-
-    // Walk backwards in chunks so we find the most recent match first.
-    let mut chunk_end = latest;
-    while chunk_end > earliest {
-        let chunk_start = chunk_end
-            .saturating_sub(LOG_QUERY_BLOCK_RANGE)
-            .max(earliest);
-
-        let filter = Filter::new()
-            .address(escrow_contract)
-            .event_signature(event_topic)
-            .topic2(payer_topic)
-            .topic3(payee_topic)
-            .from_block(BlockNumberOrTag::Number(chunk_start))
-            .to_block(BlockNumberOrTag::Number(chunk_end));
-
-        let logs = match provider.get_logs(&filter).await {
-            Ok(logs) => logs,
-            Err(e) => {
-                let err_str = e.to_string();
-                if is_rpc_range_error(&err_str) && (chunk_end - chunk_start) > 1000 {
-                    let halved = (chunk_end - chunk_start) / 2;
-                    tracing::debug!(
-                        old_range = chunk_end - chunk_start,
-                        new_range = halved,
-                        "RPC range too large, halving"
-                    );
-                    chunk_end = chunk_start + halved;
-                    continue;
-                }
-                if chunk_start == earliest {
-                    break;
-                }
-                chunk_end = chunk_start.saturating_sub(1);
-                continue;
-            }
-        };
-
-        // Most recent log last in results; walk in reverse.
-        for log in logs.iter().rev() {
-            // topic[0] = event sig, topic[1] = channelId, topic[2] = payer, topic[3] = payee
-            let topics = log.topics();
-            if topics.len() < 4 {
-                continue;
-            }
-            let channel_id = topics[1];
-
-            // Decode non-indexed data: (address token, address authorizedSigner, bytes32 salt, uint256 deposit)
-            let data = log.data().data.as_ref();
-            if data.len() < 128 {
-                continue;
-            }
-            let log_token = Address::from_slice(&data[12..32]);
-            let log_signer = Address::from_slice(&data[44..64]);
-            let log_salt = B256::from_slice(&data[64..96]);
-
-            if log_token != currency || log_signer != authorized_signer {
-                continue;
-            }
-
-            // Verify channel is still open on-chain.
-            match get_channel_on_chain(&provider, escrow_contract, channel_id, log_salt).await {
-                Ok(Some(ch)) => return Some(ch),
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::warn!(error = %e, "failed to verify channel on-chain, skipping");
-                    continue;
-                }
-            }
-        }
-
-        if chunk_start == earliest {
-            break;
-        }
-        chunk_end = chunk_start.saturating_sub(1);
-    }
-
-    None
 }
 
 // ==================== Channel Helpers ====================
@@ -499,7 +376,7 @@ pub async fn query_channel_state(
         .parse()
         .context("Invalid escrow address")?;
 
-    let on_chain = match get_channel_on_chain(&provider, escrow, channel_id, B256::ZERO).await? {
+    let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await? {
         Some(ch) => ch,
         None => return Ok(None),
     };

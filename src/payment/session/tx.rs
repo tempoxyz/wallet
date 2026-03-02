@@ -1,96 +1,53 @@
 //! Transaction building for session payments.
 //!
-//! Low-level Tempo type-0x76 transaction construction, nonce management,
-//! and receipt polling.
+//! Low-level Tempo type-0x76 transaction construction and receipt polling.
+//! All transactions use expiring nonces (nonceKey=MAX, nonce=0) so no
+//! on-chain nonce fetch is needed.
 
-use alloy::primitives::{Address, B256, U256};
+use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
 use anyhow::{Context, Result};
 
-use mpp::client::tempo::{gas, signing, tx_builder};
+use mpp::client::tempo::{signing, tx_builder};
 
 use crate::config::Config;
 use crate::error::PrestoError;
-use crate::http::{HttpResponse, RequestContext};
+use crate::http::{HttpClient, HttpResponse, RequestContext};
 use crate::network::Network;
+use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::signer::WalletSigner;
 
-/// The nonceKey used for client-side session transactions.
-pub(super) const SESSION_NONCE_KEY: u64 = 0;
+/// Static max fee per gas (41 gwei) — Tempo uses a fixed 20 gwei base fee.
+const MAX_FEE_PER_GAS: u128 = mpp::client::tempo::MAX_FEE_PER_GAS;
 
-/// Default gas price: 1 gwei.
-const DEFAULT_GAS_PRICE: u128 = 1_000_000_000;
+/// Static max priority fee per gas (1 gwei).
+const MAX_PRIORITY_FEE_PER_GAS: u128 = mpp::client::tempo::MAX_PRIORITY_FEE_PER_GAS;
 
-/// NONCE precompile address for querying 2D nonce spaces.
-const NONCE_PRECOMPILE: &str = "0x4e4f4e4345000000000000000000000000000000";
+/// Expiring nonce key (U256::MAX).
+const EXPIRING_NONCE_KEY: U256 = U256::MAX;
+
+/// Validity window (in seconds) for expiring nonce transactions.
+const VALID_BEFORE_SECS: u64 = 25;
 
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {
-    pub credential: mpp::PaymentCredential,
     pub tx_bytes: Vec<u8>,
 }
 
-/// Query the on-chain nonce for a specific nonceKey via the NONCE precompile.
-///
-/// Calls `getNonce(address, uint256)` on the NONCE precompile to get the
-/// current nonce for the given account in the specified nonceKey space.
-pub(super) async fn get_nonce_for_key(
-    provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
-    account: Address,
-    nonce_key: u64,
-) -> Result<u64> {
-    // For nonceKey=0, use the standard account transaction count.
-    if nonce_key == 0 {
-        // Prefer a raw request to avoid type coupling; returns hex string like "0x..."
-        let count_hex: String = provider
-            .raw_request(
-                "eth_getTransactionCount".into(),
-                [format!("{:#x}", account), "latest".to_string()],
-            )
-            .await
-            .context("Failed to query transaction count")?;
-        let trimmed = count_hex.trim_start_matches("0x");
-        let nonce = u64::from_str_radix(trimmed, 16).unwrap_or(0);
-        return Ok(nonce);
-    }
-    use alloy::primitives::Bytes;
-    use alloy::sol;
-    use alloy::sol_types::SolCall;
-
-    sol! {
-        interface INonce {
-            function getNonce(address account, uint256 nonceKey) external view returns (uint256);
-        }
-    }
-
-    let call_data = INonce::getNonceCall {
-        account,
-        nonceKey: U256::from(nonce_key),
-    }
-    .abi_encode();
-
-    let nonce_precompile: Address = NONCE_PRECOMPILE
-        .parse()
-        .context("invalid NONCE precompile address")?;
-
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .to(nonce_precompile)
-        .input(Bytes::from(call_data).into());
-
-    let result = provider
-        .call(tx.into())
-        .await
-        .context("Failed to query nonce precompile")?;
-    // Response is a single ABI-encoded uint256
-    if result.len() < 32 {
-        anyhow::bail!("Nonce precompile returned too few bytes: {}", result.len());
-    }
-    let nonce_u256 = U256::from_be_slice(&result[result.len() - 32..]);
-
-    Ok(nonce_u256.to::<u64>())
+/// Compute the expiring nonce validity window.
+fn expiring_valid_before() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        + VALID_BEFORE_SECS
 }
 
-/// Resolve gas, estimate, build and sign a Tempo type-0x76 transaction.
+/// Estimate gas, build and sign a Tempo type-0x76 transaction.
+///
+/// Uses expiring nonces (nonceKey=MAX, nonce=0) and static gas fees
+/// (Tempo has a fixed 20 gwei base fee), so only a single RPC call
+/// (`eth_estimateGas`) is needed.
 async fn resolve_and_sign_tx(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
     wallet: &WalletSigner,
@@ -98,38 +55,68 @@ async fn resolve_and_sign_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-    nonce: u64,
 ) -> Result<Vec<u8>> {
-    let resolved = gas::resolve_gas(provider, from, DEFAULT_GAS_PRICE, DEFAULT_GAS_PRICE)
-        .await
-        .map_err(|e| PrestoError::Http(e.to_string()))?;
+    let nonce = 0u64;
+    let valid_before = Some(expiring_valid_before());
 
-    let key_auth = wallet.signing_mode.key_authorization();
-    let gas_limit = tx_builder::estimate_gas(
+    let mut key_auth = wallet.signing_mode.key_authorization();
+
+    let gas_result = tx_builder::estimate_gas(
         provider,
         from,
         chain_id,
         nonce,
         fee_token,
         &calls,
-        resolved.max_fee_per_gas,
-        resolved.max_priority_fee_per_gas,
+        MAX_FEE_PER_GAS,
+        MAX_PRIORITY_FEE_PER_GAS,
         key_auth,
+        EXPIRING_NONCE_KEY,
+        valid_before,
     )
-    .await
-    .map_err(|e| PrestoError::Signing(e.to_string()))?;
+    .await;
+
+    // If gas estimation fails with KeyAlreadyExists, the key is already
+    // provisioned on-chain but the local `provisioned` flag is stale.
+    // Retry without key_authorization.
+    let gas_limit = match gas_result {
+        Ok(gas) => gas,
+        Err(e) if key_auth.is_some() && e.to_string().contains("KeyAlreadyExists") => {
+            key_auth = None;
+            // Persist the correction so future transactions skip key_authorization.
+            if let Ok(network) = Network::require_chain_id(chain_id) {
+                WalletCredentials::mark_provisioned(network.as_str());
+            }
+            tx_builder::estimate_gas(
+                provider,
+                from,
+                chain_id,
+                nonce,
+                fee_token,
+                &calls,
+                MAX_FEE_PER_GAS,
+                MAX_PRIORITY_FEE_PER_GAS,
+                None,
+                EXPIRING_NONCE_KEY,
+                valid_before,
+            )
+            .await
+            .map_err(|e| PrestoError::Signing(e.to_string()))?
+        }
+        Err(e) => return Err(PrestoError::Signing(e.to_string()).into()),
+    };
 
     let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
         calls,
         chain_id,
         fee_token,
         nonce,
-        nonce_key: U256::from(SESSION_NONCE_KEY),
+        nonce_key: EXPIRING_NONCE_KEY,
         gas_limit,
-        max_fee_per_gas: resolved.max_fee_per_gas,
-        max_priority_fee_per_gas: resolved.max_priority_fee_per_gas,
+        max_fee_per_gas: MAX_FEE_PER_GAS,
+        max_priority_fee_per_gas: MAX_PRIORITY_FEE_PER_GAS,
         fee_payer: false,
-        valid_before: None,
+        valid_before,
         key_authorization: key_auth.cloned(),
     });
 
@@ -142,8 +129,7 @@ async fn resolve_and_sign_tx(
 
 /// Submit a Tempo type-0x76 transaction and return the tx hash.
 ///
-/// `nonce_offset` is added to the on-chain nonce to allow callers to sequence
-/// multiple transactions without waiting for each to confirm.
+/// Uses expiring nonces so no on-chain nonce fetch is needed.
 pub(super) async fn submit_tempo_tx(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
     wallet: &WalletSigner,
@@ -151,11 +137,8 @@ pub(super) async fn submit_tempo_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-    nonce_offset: u64,
 ) -> Result<String> {
-    let nonce = get_nonce_for_key(provider, from, SESSION_NONCE_KEY).await? + nonce_offset;
-    let tx_bytes =
-        resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls, nonce).await?;
+    let tx_bytes = resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls).await?;
 
     let pending = provider
         .send_raw_transaction(&tx_bytes)
@@ -165,60 +148,17 @@ pub(super) async fn submit_tempo_tx(
     Ok(format!("{:#x}", pending.tx_hash()))
 }
 
-/// Wait for a Tempo type-0x76 transaction receipt by polling `eth_getTransactionReceipt`.
-///
-/// Alloy's built-in `get_receipt()` can't deserialize type-0x76 receipts, so we
-/// poll the raw JSON and check the `status` field directly.
-pub(super) async fn wait_for_tempo_receipt(
-    provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
-    tx_hash: B256,
-) -> Result<()> {
-    let poll_interval = std::time::Duration::from_secs(2);
-    let timeout = std::time::Duration::from_secs(120);
-    let start = std::time::Instant::now();
-
-    loop {
-        let raw: serde_json::Value = provider
-            .raw_request(
-                "eth_getTransactionReceipt".into(),
-                [format!("{:#x}", tx_hash)],
-            )
-            .await
-            .context("Failed to query transaction receipt")?;
-
-        if !raw.is_null() {
-            let status = raw.get("status").and_then(|s| s.as_str()).unwrap_or("0x0");
-            if status == "0x1" {
-                return Ok(());
-            } else {
-                anyhow::bail!("Channel open transaction reverted on-chain (status={status})");
-            }
-        }
-
-        if start.elapsed() > timeout {
-            anyhow::bail!(
-                "Timed out waiting for channel open tx {:#x} after {}s",
-                tx_hash,
-                timeout.as_secs()
-            );
-        }
-
-        tokio::time::sleep(poll_interval).await;
-    }
-}
-
 /// Create a Tempo payment credential from pre-built calls.
 ///
 /// Used by session payments where the calls (e.g., approve + escrow.open)
-/// are built externally. Resolves nonce/gas at signing time inside mpp-rs
-/// (including stuck-tx detection) and signs with keychain-aware signing mode.
+/// are built externally. Uses expiring nonces and parallelizes fee
+/// resolution with gas estimation.
 ///
 /// Returns both the credential (for sending to the server) and the raw
 /// signed transaction bytes (for optional client-side pre-broadcast).
 pub(super) async fn create_tempo_payment_from_calls(
     config: &Config,
     signing: &WalletSigner,
-    challenge: &mpp::PaymentChallenge,
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
     chain_id: u64,
@@ -230,21 +170,16 @@ pub(super) async fn create_tempo_payment_from_calls(
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;
-    let nonce = get_nonce_for_key(&provider, from, SESSION_NONCE_KEY).await?;
     let tx_bytes =
-        resolve_and_sign_tx(&provider, signing, chain_id, fee_token, from, calls, nonce).await?;
+        resolve_and_sign_tx(&provider, signing, chain_id, fee_token, from, calls).await?;
 
-    let credential = tx_builder::build_charge_credential(challenge, &tx_bytes, chain_id, from);
-
-    Ok(TempoPaymentResult {
-        credential,
-        tx_bytes,
-    })
+    Ok(TempoPaymentResult { tx_bytes })
 }
 
 /// Send the Open credential to the server and retry on HTTP 410 while the node indexes.
 pub(super) async fn send_open_with_retry(
     request_ctx: &RequestContext,
+    http_client: &HttpClient,
     url: &str,
     auth_header: &str,
     delays_ms: &[u64],
@@ -252,7 +187,9 @@ pub(super) async fn send_open_with_retry(
     let truncate = |s: String| -> String { s.chars().take(500).collect() };
 
     let headers = vec![("Authorization".to_string(), auth_header.to_string())];
-    let resp = request_ctx.execute(url, Some(&headers)).await?;
+    let resp = request_ctx
+        .execute_with_client(http_client, url, &headers)
+        .await?;
 
     if resp.status_code < 400 {
         return Ok(resp);
@@ -266,7 +203,9 @@ pub(super) async fn send_open_with_retry(
             }
             for delay in delays_ms {
                 tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
-                let next = request_ctx.execute(url, Some(&headers)).await?;
+                let next = request_ctx
+                    .execute_with_client(http_client, url, &headers)
+                    .await?;
                 if next.status_code < 400 {
                     return Ok(next);
                 }
@@ -291,4 +230,28 @@ pub(super) async fn send_open_with_retry(
         resp.status_code,
         truncate(body)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expiring_valid_before_is_future() {
+        let vb = expiring_valid_before();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // Must be in the future (now < vb <= now + VALID_BEFORE_SECS)
+        assert!(vb > now);
+        assert!(vb <= now + VALID_BEFORE_SECS);
+    }
+
+    #[test]
+    fn test_constants_match_mpp_rs() {
+        assert_eq!(MAX_FEE_PER_GAS, 41_000_000_000); // 41 gwei
+        assert_eq!(MAX_PRIORITY_FEE_PER_GAS, 1_000_000_000); // 1 gwei
+        assert_eq!(EXPIRING_NONCE_KEY, U256::MAX);
+    }
 }
