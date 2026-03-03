@@ -378,46 +378,65 @@ pub async fn show_wallet_list(output_format: OutputFormat) -> anyhow::Result<()>
 // Display helpers
 // ---------------------------------------------------------------------------
 
+/// Balance breakdown with locked/available/total.
+pub(super) struct BalanceBreakdown {
+    pub total: String,
+    pub locked: String,
+    pub available: String,
+    pub session_count: usize,
+}
+
+/// Compute total balance = available + locked, returning a breakdown.
+///
+/// `available_str` is the wallet's on-chain `balanceOf`.
+/// Locked = sum of (deposit - spent) for sessions with remaining deposits.
+pub(super) fn balance_breakdown(
+    available_str: &str,
+    sym: &str,
+    chain_id: Option<u64>,
+) -> Option<BalanceBreakdown> {
+    let (locked_str, session_count, decimals) = compute_locked(sym, chain_id)?;
+
+    let available_f64: f64 = available_str.parse().unwrap_or(0.0);
+    let locked_f64: f64 = locked_str.parse().unwrap_or(0.0);
+    let total_str = format!("{:.width$}", available_f64 + locked_f64, width = decimals);
+
+    Some(BalanceBreakdown {
+        total: total_str,
+        locked: locked_str,
+        available: available_str.to_string(),
+        session_count,
+    })
+}
+
 /// Compute the locked and total balances from active sessions.
 ///
 /// `bal_str` is the wallet's on-chain `balanceOf` (i.e., the available amount).
-/// Locked = sum of (deposit - spent) for non-expired sessions.
+/// Locked = sum of (deposit - spent) for sessions with remaining deposits.
 /// Total balance = available + locked.
 fn compute_locked_balance(response: &mut StatusResponse, bal_str: &str, sym: &str) {
-    let (locked_str, session_count, decimals) = match compute_locked(sym, response.chain_id) {
+    let bb = match balance_breakdown(bal_str, sym, response.chain_id) {
         Some(v) => v,
         None => return,
     };
 
-    // balanceOf = available; total = available + locked
-    let available_f64: f64 = bal_str.parse().unwrap_or(0.0);
-    let locked_f64: f64 = locked_str.parse().unwrap_or(0.0);
-    let total_f64 = available_f64 + locked_f64;
-    let total_str = format!("{:.width$}", total_f64, width = decimals);
-
-    // Balance becomes total, available is the original balanceOf
-    response.balance = Some(total_str);
-    response.available = Some(bal_str.to_string());
-    response.locked = Some(locked_str);
-    response.active_sessions = Some(session_count);
+    response.balance = Some(bb.total);
+    response.available = Some(bb.available);
+    response.locked = Some(bb.locked);
+    response.active_sessions = Some(bb.session_count);
 }
 
-/// Compute locked balance from active (non-expired) sessions.
+/// Compute locked balance from sessions with remaining deposits.
 ///
 /// Returns `(locked_formatted, session_count, decimals)` or `None` if no locked balance.
-pub(super) fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String, usize, usize)> {
+/// Includes expired sessions because funds remain locked in the channel
+/// contract until the channel is settled on-chain.
+fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String, usize, usize)> {
     use crate::payment::session::store as session_store;
 
     let sessions = session_store::list_sessions().ok()?;
-    let now = session_store::now_secs();
 
-    // Filter to non-expired sessions only
-    let active: Vec<_> = sessions
-        .iter()
-        .filter(|s| s.expires_at == 0 || s.expires_at > now)
-        .collect();
-
-    if active.is_empty() {
+    if sessions.is_empty() {
         return None;
     }
 
@@ -431,7 +450,7 @@ pub(super) fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String
         })
         .unwrap_or(6);
 
-    let locked_raw: u128 = active
+    let locked_raw: u128 = sessions
         .iter()
         .filter_map(|s| {
             let deposit = s.deposit_u128().ok()?;
@@ -449,7 +468,7 @@ pub(super) fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String
         decimals as u8,
     );
 
-    Some((locked_str, active.len(), decimals))
+    Some((locked_str, sessions.len(), decimals))
 }
 
 fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> anyhow::Result<()> {

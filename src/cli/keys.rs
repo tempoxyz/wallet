@@ -9,7 +9,7 @@ use futures::future::join_all;
 use serde::Serialize;
 use tracing::debug;
 
-use super::auth::compute_locked;
+use super::auth::balance_breakdown;
 use super::OutputFormat;
 use crate::config::Config;
 use crate::network::{format_address_link, networks::network_or_default, Network};
@@ -180,17 +180,18 @@ pub async fn show_keys(
                         .iter()
                         .find(|e| e.key_address.as_deref() == Some(&key.address))
                         .map(|e| e.chain_id);
-                    if let Some((locked, count, decimals)) = compute_locked(sym, chain_id) {
-                        let bal_f64: f64 = bal.parse().unwrap_or(0.0);
-                        let locked_f64: f64 = locked.parse().unwrap_or(0.0);
-                        let total = format!("{:.width$}", bal_f64 + locked_f64, width = decimals);
-                        let session_label = if count == 1 { "session" } else { "sessions" };
-                        println!("{:>10}: {} {}", "Balance", total, sym);
+                    if let Some(bb) = balance_breakdown(bal, sym, chain_id) {
+                        let session_label = if bb.session_count == 1 {
+                            "session"
+                        } else {
+                            "sessions"
+                        };
+                        println!("{:>10}: {} {}", "Balance", bb.total, sym);
                         println!(
                             "{:>10}: {} {} ({} active {})",
-                            "Locked", locked, sym, count, session_label
+                            "Locked", bb.locked, sym, bb.session_count, session_label
                         );
-                        println!("{:>10}: {} {}", "Available", bal, sym);
+                        println!("{:>10}: {} {}", "Available", bb.available, sym);
                     } else {
                         println!("{:>10}: {} {}", "Balance", bal, sym);
                     }
