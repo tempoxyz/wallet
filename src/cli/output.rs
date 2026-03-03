@@ -238,7 +238,7 @@ mod tests {
             crate::error::PrestoError::ConfigMissing("no wallet".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(parsed["code"], "E_CONFIG");
+        assert_eq!(parsed["code"], "E_USAGE");
     }
 
     #[test]

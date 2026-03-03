@@ -177,20 +177,14 @@ impl Config {
         let config_path = Self::default_config_path()?;
         let body = toml::to_string_pretty(self)?;
         let content = format!(
-            "# presto configuration — optional RPC overrides\n\
-             # Wallet credentials are in keys.toml (managed by `presto login`)\n\
-             #\n\
+            "# presto configuration\n\
+             # Wallet credentials live in keys.toml (set via `presto login`)\n\
+             # Optional RPC overrides:\n\
              # tempo_rpc = \"https://...\"\n\
              # moderato_rpc = \"https://...\"\n\
-             #\n\
              # [rpc]\n\
              # tempo = \"https://...\"\n\
-             # \"tempo-moderato\" = \"https://...\"\n\
-             #\n\
-             # (JSON output: use `presto -j ...`)\n\
-             #\n\
-             # [telemetry]\n\
-             # enabled = true\n\n\
+             # \"tempo-moderato\" = \"https://...\"\n\n\
              {body}"
         );
         crate::util::atomic_write(&config_path, &content, 0o600)?;

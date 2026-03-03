@@ -562,7 +562,7 @@ fn test_no_args_shows_help() {
 fn test_invalid_network_flag_rejected() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["-n", "not-a-network", "balance"]);
+    cmd.args(["-n", "not-a-network", "whoami"]);
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("Unknown network"));

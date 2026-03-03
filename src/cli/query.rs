@@ -892,13 +892,17 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     };
 
     // Build retry policy from CLI flags
-    let retry_codes: Vec<u16> = query
+    let mut retry_codes: Vec<u16> = query
         .retry_http
         .as_deref()
         .unwrap_or("")
         .split(',')
         .filter_map(|s| s.trim().parse::<u16>().ok())
         .collect();
+    // Curl parity: when --retries is set but no explicit --retry-http, use default transient set
+    if query.retries.is_some() && retry_codes.is_empty() {
+        retry_codes = vec![408, 429, 500, 502, 503, 504];
+    }
 
     let plan = HttpRequestPlan {
         method,
@@ -911,7 +915,9 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
             base_backoff_ms: query.retry_backoff_ms.unwrap_or(250),
             max_backoff_ms: 10_000,
             status_retry_codes: retry_codes,
-            honor_retry_after: query.retry_after,
+            // Curl parity: honor Retry-After by default when --retries is used
+            honor_retry_after: query.retries.is_some() || query.retry_after,
+            // Curl default has exponential backoff without jitter; only apply when user opts in
             jitter_pct: query.retry_jitter,
         },
         follow_redirects: query.location,
@@ -955,7 +961,8 @@ fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
         },
         verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
-        fail_silently: query.fail_silently && !query.fail_with_body,
+        // Unified --fail semantics: always print body unless --silent; do not suppress body here
+        fail_silently: false,
         dump_headers: query.dump_header.clone(),
         write_meta: query.write_meta.clone(),
     }

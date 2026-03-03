@@ -215,10 +215,10 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             Commands::Completions { .. } => "completions",
             Commands::Wallets { .. } => "wallets",
             Commands::Sessions { .. } => "sessions",
-            Commands::Whoami | Commands::Balance => "whoami",
+            Commands::Whoami => "whoami",
             Commands::Keys { .. } => "keys",
             Commands::Services { .. } => "services",
-            Commands::Update => "update",
+            Commands::Update { .. } => "update",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -431,7 +431,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             }
         }
 
-        Commands::Whoami | Commands::Balance => {
+        Commands::Whoami => {
             let network = cli.network.as_deref();
             let output_format = cli.resolve_output_format();
 
@@ -498,7 +498,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             }
         }
 
-        Commands::Update => run_self_update(),
+        Commands::Update { yes } => run_self_update(yes),
     };
 
     if let Some(ref a) = analytics {
@@ -513,7 +513,21 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 const INSTALL_SCRIPT_URL: &str = "https://presto-binaries.tempo.xyz/install.sh";
 
 /// Download and run the install script to update to the latest version.
-fn run_self_update() -> Result<()> {
+fn run_self_update(yes: bool) -> Result<()> {
+    if !yes {
+        use std::io::{self, Write};
+        eprintln!("This will run a remote install script: {INSTALL_SCRIPT_URL}\n");
+        eprint!("Proceed? [y/N]: ");
+        io::stderr().flush().ok();
+        let mut line = String::new();
+        io::stdin().read_line(&mut line).ok();
+        let ans = line.trim().to_ascii_lowercase();
+        if ans != "y" && ans != "yes" {
+            eprintln!("Aborted.");
+            return Ok(());
+        }
+    }
+
     eprintln!("Updating presto to the latest version...\n");
 
     let status = std::process::Command::new("bash")

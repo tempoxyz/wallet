@@ -741,6 +741,11 @@ pub(crate) fn should_auto_add_json_content_type(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use axum::routing::get;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_has_header() {
@@ -1001,10 +1006,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_client_extra_headers() {
-        use axum::http::StatusCode;
-        use axum::response::IntoResponse;
-        use axum::routing::get;
-
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let url = format!("http://127.0.0.1:{port}");
@@ -1046,5 +1047,259 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.body_string().unwrap(), "authorized");
+    }
+
+    #[tokio::test]
+    async fn test_status_retry_honored_and_succeeds() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<u32>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(0)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let mut n = ctx.0.lock().unwrap();
+                    *n += 1;
+                    if *n == 1 {
+                        ([("retry-after", "0")], StatusCode::SERVICE_UNAVAILABLE).into_response()
+                    } else {
+                        (StatusCode::OK, "ok").into_response()
+                    }
+                }),
+            )
+            .with_state(ctx.clone());
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let runtime = RequestRuntime {
+            verbosity: 0,
+            show_output: false,
+            network: None,
+            dry_run: false,
+        };
+        let plan = HttpRequestPlan {
+            method: reqwest::Method::GET,
+            headers: vec![],
+            body: None,
+            timeout_secs: Some(2),
+            connect_timeout_secs: Some(1),
+            retry_policy: RetryPolicy {
+                max_retries: 2,
+                base_backoff_ms: 1,
+                max_backoff_ms: 10,
+                status_retry_codes: vec![503],
+                honor_retry_after: true,
+                jitter_pct: None,
+            },
+            follow_redirects: false,
+            follow_redirects_limit: None,
+            user_agent: "presto/test".into(),
+            insecure: false,
+            proxy: None,
+            no_proxy: true,
+            http2: false,
+            http1_only: false,
+            verbose_connection: false,
+        };
+        let ctx_req = RequestContext::new(runtime, plan);
+        let client = ctx_req.build_client(None).unwrap();
+        let resp = ctx_req
+            .execute_with_client(&client, &url, &[])
+            .await
+            .expect("should succeed after retry");
+        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.body_string().unwrap(), "ok");
+        // Ensure it retried at least once
+        assert!(*ctx.0.lock().unwrap() >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_transient_connect_retry_eventually_succeeds() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<u32>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(0)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        // First request sleeps longer than the client timeout, triggering a
+        // timeout error (is_timeout()). Subsequent requests return immediately.
+        let ctx_clone = ctx.clone();
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let n = {
+                        let mut n = ctx.0.lock().unwrap();
+                        *n += 1;
+                        *n
+                    };
+                    if n <= 1 {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                    "ok"
+                }),
+            )
+            .with_state(ctx_clone);
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let runtime = RequestRuntime {
+            verbosity: 0,
+            show_output: false,
+            network: None,
+            dry_run: false,
+        };
+        let plan = HttpRequestPlan {
+            method: reqwest::Method::GET,
+            headers: vec![],
+            body: None,
+            timeout_secs: Some(1),
+            connect_timeout_secs: Some(1),
+            retry_policy: RetryPolicy {
+                max_retries: 3,
+                base_backoff_ms: 10,
+                max_backoff_ms: 100,
+                status_retry_codes: vec![],
+                honor_retry_after: false,
+                jitter_pct: None,
+            },
+            follow_redirects: false,
+            follow_redirects_limit: None,
+            user_agent: "presto/test".into(),
+            insecure: false,
+            proxy: None,
+            no_proxy: true,
+            http2: false,
+            http1_only: false,
+            verbose_connection: false,
+        };
+        let ctx_req = RequestContext::new(runtime, plan);
+        let client = ctx_req.build_client(None).unwrap();
+        let resp = ctx_req
+            .execute_with_client(&client, &url, &[])
+            .await
+            .expect("should succeed after retrying past timeout");
+        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.body_string().unwrap(), "ok");
+        assert!(
+            *ctx.0.lock().unwrap() >= 2,
+            "should have retried at least once"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_retry_jitter_applies_bounded_delay() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<Vec<std::time::Instant>>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(Vec::new())));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        let ctx_clone = ctx.clone();
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let mut times = ctx.0.lock().unwrap();
+                    times.push(std::time::Instant::now());
+                    if times.len() < 3 {
+                        (StatusCode::SERVICE_UNAVAILABLE, "retry").into_response()
+                    } else {
+                        (StatusCode::OK, "ok").into_response()
+                    }
+                }),
+            )
+            .with_state(ctx_clone);
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let runtime = RequestRuntime {
+            verbosity: 0,
+            show_output: false,
+            network: None,
+            dry_run: false,
+        };
+        let plan = HttpRequestPlan {
+            method: reqwest::Method::GET,
+            headers: vec![],
+            body: None,
+            timeout_secs: Some(5),
+            connect_timeout_secs: Some(2),
+            retry_policy: RetryPolicy {
+                max_retries: 5,
+                base_backoff_ms: 100,
+                max_backoff_ms: 1000,
+                status_retry_codes: vec![503],
+                honor_retry_after: false,
+                jitter_pct: Some(50),
+            },
+            follow_redirects: false,
+            follow_redirects_limit: None,
+            user_agent: "presto/test".into(),
+            insecure: false,
+            proxy: None,
+            no_proxy: true,
+            http2: false,
+            http1_only: false,
+            verbose_connection: false,
+        };
+        let ctx_req = RequestContext::new(runtime, plan);
+        let client = ctx_req.build_client(None).unwrap();
+        let resp = ctx_req
+            .execute_with_client(&client, &url, &[])
+            .await
+            .expect("should succeed after retries");
+        assert_eq!(resp.status_code, 200);
+
+        let times = ctx.0.lock().unwrap();
+        assert_eq!(times.len(), 3, "should have 3 requests total");
+
+        // With base_backoff_ms=100 and jitter_pct=50, first delay is 100..150ms.
+        // Second delay: backoff doubles to 200ms, jitter adds 0..100ms → 200..300ms.
+        let gap1 = times[1].duration_since(times[0]);
+        let gap2 = times[2].duration_since(times[1]);
+
+        assert!(
+            gap1.as_millis() >= 90,
+            "first gap should be >= 90ms, was {}ms",
+            gap1.as_millis()
+        );
+        assert!(
+            gap1.as_millis() <= 300,
+            "first gap should be <= 300ms, was {}ms",
+            gap1.as_millis()
+        );
+
+        assert!(
+            gap2.as_millis() >= 150,
+            "second gap should be >= 150ms, was {}ms",
+            gap2.as_millis()
+        );
+        assert!(
+            gap2.as_millis() <= 500,
+            "second gap should be <= 500ms, was {}ms",
+            gap2.as_millis()
+        );
     }
 }
