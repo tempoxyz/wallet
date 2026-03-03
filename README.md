@@ -74,15 +74,6 @@ Ready-to-run scripts in [`examples/`](examples/):
 
 Run `presto --help` or `presto <command> --help` for full flag reference.
 
-### Session States
-
-- active — channel open and usable
-- closing — close requested; grace period in progress
-- finalizable — grace elapsed; ready to withdraw
-- orphaned — on-chain channel without a local record (shown via `--orphaned`)
-
-Use `presto sessions list --all` to see a unified view across these states. `presto sessions close --closed` finalizes channels ready to withdraw.
-
 ## Configuration
 
 ```bash
