@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use super::super::OutputFormat;
 use crate::config::Config;
+use crate::network::Network;
 use crate::payment::session::store as session_store;
 use crate::payment::session::{
     close_channel_by_id, close_discovered_channel, close_session_from_record,
@@ -81,7 +82,6 @@ async fn close_all_sessions(
                         eprintln!("  Failed to remove local session: {e}");
                     }
                 }
-                let _ = session_store::delete_pending_close(&session.channel_id);
                 if show_output {
                     eprintln!("Closed {}", session.origin);
                     print_tx_url(&tx_url);
@@ -141,7 +141,6 @@ async fn close_all_sessions(
                 for ch in &orphaned {
                     match close_discovered_channel(ch, config).await {
                         Ok(CloseOutcome::Closed { tx_url }) => {
-                            let _ = session_store::delete_pending_close(&ch.channel_id);
                             if show_output {
                                 eprintln!("Closed {}", ch.channel_id);
                                 print_tx_url(&tx_url);
@@ -196,7 +195,6 @@ async fn close_by_channel_id(
 ) -> Result<()> {
     match close_channel_by_id(config, target, network, None).await {
         Ok(CloseOutcome::Closed { tx_url }) => {
-            let _ = session_store::delete_pending_close(target);
             let _ = session_store::delete_session_by_channel_id(target);
             if output_format.is_structured() {
                 println!(
@@ -228,7 +226,6 @@ async fn close_by_channel_id(
             // fully closed on-chain. Clean up stale local records.
             let err_msg = e.to_string();
             if err_msg.contains("not found on any network") {
-                let _ = session_store::delete_pending_close(target);
                 let _ = session_store::delete_session_by_channel_id(target);
                 if output_format.is_structured() {
                     println!(
@@ -269,14 +266,13 @@ async fn close_by_url(
                         eprintln!("  Failed to remove local session: {e}");
                     }
                 }
-                let _ = session_store::delete_pending_close(&record.channel_id);
                 if output_format.is_structured() {
                     println!(
                         "{}",
                         serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"origin": target, "channel_id": record.channel_id, "status": "closed"}]})
                     );
                 } else {
-                    println!("Closed {target}");
+                    println!("Closed {}", record.origin);
                     if let Some(url) = &tx_url {
                         println!("  {url}");
                     }
@@ -290,7 +286,8 @@ async fn close_by_url(
                     );
                 } else {
                     println!(
-                        "Session for {target}: close requested — {} remaining.",
+                        "Session for {}: close requested — {} remaining.",
+                        record.origin,
                         format_duration(remaining_secs)
                     );
                 }
@@ -360,7 +357,6 @@ async fn close_orphaned_channels(
     for ch in &orphaned {
         match close_discovered_channel(ch, config).await {
             Ok(CloseOutcome::Closed { tx_url }) => {
-                let _ = session_store::delete_pending_close(&ch.channel_id);
                 let _ = session_store::delete_session_by_channel_id(&ch.channel_id);
                 if show_output {
                     eprintln!("Closed {}", ch.channel_id);
@@ -410,45 +406,34 @@ async fn finalize_closed_channels(
     show_output: bool,
     network: Option<&str>,
 ) -> Result<()> {
-    let all_pending = session_store::list_all_pending_closes()?;
-    let pending: Vec<_> = if let Some(net) = network {
-        all_pending
-            .into_iter()
-            .filter(|p| p.network == net)
-            .collect()
-    } else {
-        all_pending
-    };
-
-    if pending.is_empty() {
-        let summary = CloseSummary::new();
-        summary.print(
-            output_format,
-            "No channels pending finalization.",
-            "finalized",
-        )?;
-        return Ok(());
-    }
-
+    let now = session_store::now_secs();
     let mut summary = CloseSummary::new();
 
-    // Cache wallet signers per network to avoid redundant disk I/O
+    // Cache wallet signers per network
     let mut signer_cache: HashMap<String, WalletSigner> = HashMap::new();
 
-    for record in &pending {
-        // Load signer once per network
-        if !signer_cache.contains_key(&record.network) {
-            match load_wallet_signer(&record.network) {
+    // 1) Local sessions ready to finalize
+    for s in session_store::list_sessions()? {
+        if let Some(net) = network {
+            if s.network_name != net {
+                continue;
+            }
+        }
+        if !(s.state == "closing" && now >= s.grace_ready_at) {
+            continue;
+        }
+        if !signer_cache.contains_key(&s.network_name) {
+            match load_wallet_signer(&s.network_name) {
                 Ok(w) => {
-                    signer_cache.insert(record.network.clone(), w);
+                    signer_cache.insert(s.network_name.clone(), w);
                 }
                 Err(e) => {
                     if show_output {
-                        eprintln!("Failed to load wallet for {}", record.network);
+                        eprintln!("Failed to load wallet for {}", s.network_name);
                         eprintln!("  {e}");
                     }
                     summary.record_failed(serde_json::json!({
-                        "channel_id": record.channel_id,
+                        "channel_id": s.channel_id,
                         "status": "error",
                         "error": e.to_string(),
                     }));
@@ -456,22 +441,18 @@ async fn finalize_closed_channels(
                 }
             }
         }
-        let wallet = signer_cache.get(&record.network);
-
-        match close_channel_by_id(config, &record.channel_id, Some(&record.network), wallet).await {
+        let wallet = signer_cache.get(&s.network_name);
+        match close_channel_by_id(config, &s.channel_id, Some(&s.network_name), wallet).await {
             Ok(CloseOutcome::Closed { tx_url }) => {
-                if let Err(e) = session_store::delete_pending_close(&record.channel_id) {
-                    tracing::warn!(%e, "failed to delete pending close record");
-                }
-                if let Err(e) = session_store::delete_session_by_channel_id(&record.channel_id) {
+                if let Err(e) = session_store::delete_session_by_channel_id(&s.channel_id) {
                     tracing::warn!(%e, "failed to delete session record");
                 }
                 if show_output {
-                    eprintln!("Finalized {}", record.channel_id);
+                    eprintln!("Finalized {}", s.channel_id);
                     print_tx_url(&tx_url);
                 }
                 summary.record_closed(serde_json::json!({
-                    "channel_id": record.channel_id,
+                    "channel_id": s.channel_id,
                     "status": "closed",
                 }));
             }
@@ -479,12 +460,12 @@ async fn finalize_closed_channels(
                 if show_output {
                     eprintln!(
                         "Pending {} — {} remaining",
-                        record.channel_id,
+                        s.channel_id,
                         format_duration(remaining_secs)
                     );
                 }
                 summary.record_pending(serde_json::json!({
-                    "channel_id": record.channel_id,
+                    "channel_id": s.channel_id,
                     "status": "pending",
                     "remaining_secs": remaining_secs,
                 }));
@@ -492,22 +473,21 @@ async fn finalize_closed_channels(
             Err(e) => {
                 let err_msg = e.to_string();
                 if err_msg.contains("not found on any network") {
-                    let _ = session_store::delete_pending_close(&record.channel_id);
-                    let _ = session_store::delete_session_by_channel_id(&record.channel_id);
+                    let _ = session_store::delete_session_by_channel_id(&s.channel_id);
                     if show_output {
-                        eprintln!("Finalized {} (already settled)", record.channel_id);
+                        eprintln!("Finalized {} (already settled)", s.channel_id);
                     }
                     summary.record_closed(serde_json::json!({
-                        "channel_id": record.channel_id,
+                        "channel_id": s.channel_id,
                         "status": "closed",
                     }));
                 } else {
                     if show_output {
-                        eprintln!("Failed to finalize {}", record.channel_id);
+                        eprintln!("Failed to finalize {}", s.channel_id);
                         eprintln!("  {e}");
                     }
                     summary.record_failed(serde_json::json!({
-                        "channel_id": record.channel_id,
+                        "channel_id": s.channel_id,
                         "status": "error",
                         "error": err_msg,
                     }));
@@ -516,9 +496,95 @@ async fn finalize_closed_channels(
         }
     }
 
+    // 2) Orphaned channels ready to finalize
+    if let Ok(creds) = WalletCredentials::load() {
+        if creds.has_wallet() {
+            if let Ok(wallet_addr) = creds.wallet_address().parse() {
+                let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
+                for ch in &channels {
+                    if ch.close_requested_at == 0 {
+                        continue;
+                    }
+                    let net = &ch.network;
+                    if !signer_cache.contains_key(net) {
+                        match load_wallet_signer(net) {
+                            Ok(w) => {
+                                signer_cache.insert(net.clone(), w);
+                            }
+                            Err(e) => {
+                                if show_output {
+                                    eprintln!("Failed to load wallet for {}", net);
+                                    eprintln!("  {e}");
+                                }
+                                summary.record_failed(serde_json::json!({
+                                    "channel_id": ch.channel_id,
+                                    "status": "error",
+                                    "error": e.to_string(),
+                                }));
+                                continue;
+                            }
+                        }
+                    }
+                    // Check grace readiness from on-chain constant
+                    let grace = super::super::super::payment::session::read_grace_period(
+                        &alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(
+                            Network::parse_rpc_url(&config.resolve_network(net)?.rpc_url)?,
+                        ),
+                        ch.escrow_contract.parse().ok().unwrap_or_default(),
+                    )
+                    .await
+                    .unwrap_or(900);
+                    let ready_at = ch.close_requested_at + grace;
+                    if now < ready_at {
+                        continue;
+                    }
+                    let wallet = signer_cache.get(net);
+                    match close_channel_by_id(config, &ch.channel_id, Some(net), wallet).await {
+                        Ok(CloseOutcome::Closed { tx_url }) => {
+                            if show_output {
+                                eprintln!("Finalized {}", ch.channel_id);
+                                print_tx_url(&tx_url);
+                            }
+                            summary.record_closed(serde_json::json!({
+                                "channel_id": ch.channel_id,
+                                "status": "closed",
+                            }));
+                        }
+                        Ok(CloseOutcome::Pending { remaining_secs }) => {
+                            if show_output {
+                                eprintln!(
+                                    "Pending {} — {} remaining",
+                                    ch.channel_id,
+                                    format_duration(remaining_secs)
+                                );
+                            }
+                            summary.record_pending(serde_json::json!({
+                                "channel_id": ch.channel_id,
+                                "status": "pending",
+                                "remaining_secs": remaining_secs,
+                            }));
+                        }
+                        Err(e) => {
+                            let err_msg = e.to_string();
+                            if show_output {
+                                eprintln!("Failed to finalize {}", ch.channel_id);
+                                eprintln!("  {e}");
+                            }
+                            summary.record_failed(serde_json::json!({
+                                "channel_id": ch.channel_id,
+                                "status": "error",
+                                "error": err_msg,
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     summary.print(
         output_format,
-        "No sessions pending finalization.",
+        "No channels pending finalization.",
         "finalized",
     )?;
     Ok(())

@@ -57,7 +57,7 @@ pub async fn sync_sessions(
             }
             let key = session_store::session_key(&session.origin);
             let _ = session_store::delete_session(&key);
-            let _ = session_store::delete_pending_close(&session.channel_id);
+            // pending_closes removed — no cleanup needed
             removed += 1;
         }
     }

@@ -152,7 +152,10 @@ fn render_channel_text(v: &ChannelView) {
     }
     // Status
     let status_display = match v.remaining_secs {
-        Some(0) => format!("{} — ready to finalize", v.status),
+        Some(0) => match v.status.as_str() {
+            "closing" | "closed" | "finalizable" => "finalizable — ready to finalize".to_string(),
+            other => format!("{} — ready to finalize", other),
+        },
         Some(secs) => format!("{} — {} remaining", v.status, format_duration(secs)),
         None => v.status.clone(),
     };

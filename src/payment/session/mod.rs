@@ -214,6 +214,7 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
         rec.touch();
         rec
     } else {
+        let (_sym, dec) = resolve_token_meta(ctx.network_name, &ctx.currency);
         SessionRecord {
             version: 1,
             origin: ctx.origin.to_string(),
@@ -233,6 +234,10 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
             did: ctx.did.to_string(),
             challenge_echo: echo_json,
             challenge_id: ctx.echo.id.clone(),
+            state: "active".to_string(),
+            close_requested_at: 0,
+            grace_ready_at: 0,
+            token_decimals: dec,
             created_at: now,
             last_used_at: now,
         }
@@ -471,16 +476,17 @@ pub async fn handle_session_request(
     let origin = extract_origin(url);
     let session_key = store::session_key(url);
 
-    // Determine deposit: use suggested_deposit or default to 1 token (1_000_000 atomic units).
-    // Cap at 5 tokens (5_000_000 atomic units) to limit exposure to malicious servers.
+    // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).
+    // Cap at 5 tokens to limit exposure to malicious servers.
     // Also clamp to the wallet's available balance so we don't revert on insufficient funds.
-    const MAX_DEPOSIT: u128 = 5_000_000;
+    let base_units: u128 = 10u128.saturating_pow(token_decimals as u32);
+    let max_deposit: u128 = 5u128.saturating_mul(base_units);
     let mut deposit: u128 = session_req
         .suggested_deposit
         .as_ref()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1_000_000)
-        .min(MAX_DEPOSIT);
+        .unwrap_or(base_units)
+        .min(max_deposit);
 
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
@@ -585,6 +591,17 @@ pub async fn handle_session_request(
     }
 
     // === Open a new channel ===
+
+    // Acquire per-origin lock to prevent duplicate opens across processes
+    let _lock_guard = match store::acquire_origin_lock(&session_key) {
+        Ok(l) => Some(l),
+        Err(e) => {
+            if request_ctx.log_enabled() {
+                eprintln!("[warn] could not acquire session lock: {e:#}");
+            }
+            None
+        }
+    };
 
     let salt = B256::random();
     let authorized_signer = key_address;
