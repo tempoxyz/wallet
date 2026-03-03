@@ -14,6 +14,7 @@ main.rs          — entry point; dispatches to cli
   config.rs      — configuration file handling; depends on error
   network.rs     — chain definitions, explorer config, RPC; depends on error
   http.rs        — HTTP client wrapper; depends on config
+  services/      — MPP service directory; depends on http
   analytics/     — opt-out telemetry; no internal dependencies
   error.rs       — error types; foundational
   util.rs        — shared utilities; foundational
@@ -39,8 +40,8 @@ Implemented in `payment/session/`. Provides a persistent payment channel for rep
 1. On first request, presto opens an on-chain channel with a deposit.
 2. Subsequent requests exchange off-chain vouchers — signed cumulative amounts — instead of on-chain transactions.
 3. SSE streaming is supported: per-token voucher top-ups are issued as streamed data arrives.
-4. Sessions persist across CLI invocations in a SQLite database (`session/store.rs`).
-5. Channels can be closed explicitly or expire after a 24-hour TTL.
+4. Sessions persist across CLI invocations in a SQLite database (`payment/session/store.rs`).
+5. Channels can be closed explicitly. Local rows track explicit lifecycle state (active, closing, finalizable). Orphaned channels and close readiness are derived from on-chain state when needed.
 
 ## Wallet Types
 
@@ -79,7 +80,7 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `src/cli/query.rs` | Primary query flow: HTTP → 402 detection → payment → retry |
 | `src/cli/auth.rs` | Login, logout, whoami commands |
 | `src/cli/keys.rs` | Key listing with balance and spending limit queries |
-| `src/cli/session/` | Session list/close commands (text and JSON output) |
+| `src/cli/session/` | Session management commands (list/info/close/recover/sync) |
 | `src/cli/output.rs` | Response display formatting, `OutputOptions` |
 | `src/payment/charge.rs` | One-shot on-chain charge payment |
 | `src/payment/session/` | Session-based payment channel (open, voucher, close, store) |
@@ -89,5 +90,9 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `src/config.rs` | Config file parsing and RPC resolution |
 | `src/network.rs` | Built-in network definitions (Tempo, Moderato), explorer URLs |
 | `src/analytics/` | Opt-out PostHog telemetry |
+| `src/cli/fund.rs` | Wallet funding: testnet faucet or mainnet bridge via Relay |
+| `src/cli/relay.rs` | Relay bridge client for cross-chain wallet funding |
+| `src/cli/services.rs` | Service directory listing and detail views |
+| `src/services/` | MPP service registry fetching and data model |
 | `src/error.rs` | `PrestoError` enum (thiserror) |
 | `src/util.rs` | Atomic file writes, terminal hyperlinks |

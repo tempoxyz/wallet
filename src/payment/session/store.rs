@@ -4,6 +4,7 @@
 //! keyed by the origin (scheme://host\[:port\]) of the endpoint.
 
 use std::fs;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -11,13 +12,6 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::error::PrestoError;
-
-/// A pending channel close waiting for the grace period to elapse.
-pub(crate) struct PendingClose {
-    pub channel_id: String,
-    pub network: String,
-    pub ready_at: u64,
-}
 
 /// A persisted payment channel session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -42,12 +36,32 @@ pub(crate) struct SessionRecord {
     pub did: String,
     pub challenge_echo: String,
     pub challenge_id: String,
+    /// Explicit lifecycle state: "active" | "closing" | "finalizable" | "finalized" (tombstones not persisted) | "orphaned" (not persisted here)
+    #[serde(default = "default_state")]
+    pub state: String,
+    /// UNIX time when close was requested (0 if not requested)
+    #[serde(default)]
+    pub close_requested_at: u64,
+    /// UNIX time when channel is ready to finalize (0 if not applicable)
+    #[serde(default)]
+    pub grace_ready_at: u64,
+    /// Token decimals used to format deposit/spent/remaining
+    #[serde(default = "default_token_decimals")]
+    pub token_decimals: u8,
     pub created_at: u64,
     pub last_used_at: u64,
 }
 
 fn default_version() -> u32 {
     1
+}
+
+fn default_state() -> String {
+    "active".to_string()
+}
+
+fn default_token_decimals() -> u8 {
+    6
 }
 
 pub(crate) fn now_secs() -> u64 {
@@ -131,16 +145,18 @@ fn open_db() -> Result<rusqlite::Connection> {
 }
 
 fn open_db_at(path: &Path, dir: &Path) -> Result<rusqlite::Connection> {
-    // If the DB has the old schema (with expires_at), delete and recreate.
+    // Enforce our public baseline schema as user_version=1. Any pre-release DBs are discarded.
     if path.exists() {
         if let Ok(conn) = rusqlite::Connection::open(path) {
-            let has_old_schema = conn
-                .prepare("SELECT expires_at FROM sessions LIMIT 0")
-                .is_ok();
+            let uv: u32 = conn
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .unwrap_or(0);
             drop(conn);
-            if has_old_schema {
+            if uv != 1 {
                 let _ = std::fs::remove_file(path);
             }
+        } else {
+            let _ = std::fs::remove_file(path);
         }
     }
 
@@ -157,55 +173,40 @@ fn open_db_at(path: &Path, dir: &Path) -> Result<rusqlite::Connection> {
 }
 
 fn init_schema(conn: &rusqlite::Connection, _dir: &Path) -> Result<()> {
-    let version: u32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .context("Failed to read database version")?;
+    // Public baseline: user_version == 1 with explicit state fields.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sessions (
+            key               TEXT PRIMARY KEY,
+            version           INTEGER NOT NULL DEFAULT 1,
+            origin            TEXT NOT NULL UNIQUE,
+            request_url       TEXT NOT NULL DEFAULT '',
+            network_name      TEXT NOT NULL,
+            chain_id          INTEGER NOT NULL,
+            escrow_contract   TEXT NOT NULL,
+            currency          TEXT NOT NULL,
+            recipient         TEXT NOT NULL,
+            payer             TEXT NOT NULL,
+            authorized_signer TEXT NOT NULL,
+            salt              TEXT NOT NULL,
+            channel_id        TEXT NOT NULL,
+            deposit           TEXT NOT NULL,
+            tick_cost         TEXT NOT NULL,
+            cumulative_amount TEXT NOT NULL,
+            did               TEXT NOT NULL,
+            challenge_echo    TEXT NOT NULL,
+            challenge_id      TEXT NOT NULL,
+            state             TEXT NOT NULL DEFAULT 'active',
+            close_requested_at INTEGER NOT NULL DEFAULT 0,
+            grace_ready_at     INTEGER NOT NULL DEFAULT 0,
+            token_decimals     INTEGER NOT NULL DEFAULT 6,
+            created_at        INTEGER NOT NULL,
+            last_used_at      INTEGER NOT NULL
+        );",
+    )
+    .context("Failed to create sessions table")?;
 
-    if version == 0 {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS sessions (
-                key               TEXT PRIMARY KEY,
-                version           INTEGER NOT NULL DEFAULT 1,
-                origin            TEXT NOT NULL UNIQUE,
-                request_url       TEXT NOT NULL DEFAULT '',
-                network_name      TEXT NOT NULL,
-                chain_id          INTEGER NOT NULL,
-                escrow_contract   TEXT NOT NULL,
-                currency          TEXT NOT NULL,
-                recipient         TEXT NOT NULL,
-                payer             TEXT NOT NULL,
-                authorized_signer TEXT NOT NULL,
-                salt              TEXT NOT NULL,
-                channel_id        TEXT NOT NULL,
-                deposit           TEXT NOT NULL,
-                tick_cost         TEXT NOT NULL,
-                cumulative_amount TEXT NOT NULL,
-                did               TEXT NOT NULL,
-                challenge_echo    TEXT NOT NULL,
-                challenge_id      TEXT NOT NULL,
-                created_at        INTEGER NOT NULL,
-                last_used_at      INTEGER NOT NULL
-            );",
-        )
-        .context("Failed to create sessions table")?;
-
-        conn.pragma_update(None, "user_version", 1)
-            .context("Failed to update database version")?;
-    }
-
-    if version < 2 {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS pending_closes (
-                channel_id TEXT PRIMARY KEY,
-                network    TEXT NOT NULL,
-                ready_at   INTEGER NOT NULL
-            );",
-        )
-        .context("Failed to create pending_closes table")?;
-
-        conn.pragma_update(None, "user_version", 2)
-            .context("Failed to update database version to 2")?;
-    }
+    conn.pragma_update(None, "user_version", 1)
+        .context("Failed to set database version to 1")?;
 
     Ok(())
 }
@@ -221,8 +222,8 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             key, version, origin, request_url, network_name, chain_id,
             escrow_contract, currency, recipient, payer, authorized_signer,
             salt, channel_id, deposit, tick_cost, cumulative_amount,
-            did, challenge_echo, challenge_id, created_at, last_used_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            did, challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
         params![
             key,
             record.version,
@@ -243,6 +244,10 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             record.did,
             record.challenge_echo,
             record.challenge_id,
+            record.state,
+            record.close_requested_at as i64,
+            record.grace_ready_at as i64,
+            record.token_decimals as i64,
             record.created_at as i64,
             record.last_used_at as i64,
         ],
@@ -272,8 +277,12 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         did: row.get(15)?,
         challenge_echo: row.get(16)?,
         challenge_id: row.get(17)?,
-        created_at: u64::try_from(row.get::<_, i64>(18)?).unwrap_or(0),
-        last_used_at: u64::try_from(row.get::<_, i64>(19)?).unwrap_or(0),
+        state: row.get(18).unwrap_or_else(|_| "active".to_string()),
+        close_requested_at: u64::try_from(row.get::<_, i64>(19).unwrap_or(0)).unwrap_or(0),
+        grace_ready_at: u64::try_from(row.get::<_, i64>(20).unwrap_or(0)).unwrap_or(0),
+        token_decimals: u8::try_from(row.get::<_, i64>(21).unwrap_or(6)).unwrap_or(6),
+        created_at: u64::try_from(row.get::<_, i64>(22)?).unwrap_or(0),
+        last_used_at: u64::try_from(row.get::<_, i64>(23)?).unwrap_or(0),
     })
 }
 
@@ -283,7 +292,7 @@ fn load_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<Option<Se
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    did, challenge_echo, challenge_id, created_at, last_used_at
+                    did, challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
              FROM sessions WHERE key = ?1",
         )
         .context("Failed to prepare load query")?;
@@ -319,7 +328,7 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    did, challenge_echo, challenge_id, created_at, last_used_at
+                    did, challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
              FROM sessions ORDER BY last_used_at DESC",
         )
         .context("Failed to prepare list query")?;
@@ -365,89 +374,53 @@ pub(crate) fn list_sessions() -> Result<Vec<SessionRecord>> {
     list_sessions_conn(&conn)
 }
 
+// (pending_closes removed — state is now stored on session rows; orphaned channels computed via on-chain scan)
+
 // ---------------------------------------------------------------------------
-// Pending closes – internal helpers
+// Session state updates and per-origin locking
 // ---------------------------------------------------------------------------
 
-fn map_pending_close_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingClose> {
-    Ok(PendingClose {
-        channel_id: row.get(0)?,
-        network: row.get(1)?,
-        ready_at: row.get::<_, i64>(2)? as u64,
-    })
-}
-
-fn save_pending_close_conn(
-    conn: &rusqlite::Connection,
+/// Update close state fields by channel ID for a local session (no-op if not found).
+pub(crate) fn update_session_close_state_by_channel_id(
     channel_id: &str,
-    network: &str,
-    ready_at: u64,
+    state: &str,
+    close_requested_at: u64,
+    grace_ready_at: u64,
 ) -> Result<()> {
+    let conn = open_db()?;
     let channel_id = channel_id.to_lowercase();
-    let network = network.to_lowercase();
     conn.execute(
-        "INSERT OR REPLACE INTO pending_closes (channel_id, network, ready_at)
-         VALUES (?1, ?2, ?3)",
-        params![channel_id, network, ready_at as i64],
+        "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
+        params![state, close_requested_at as i64, grace_ready_at as i64, channel_id],
     )
-    .context("Failed to save pending close")?;
+    .context("Failed to update session close state")?;
     Ok(())
 }
 
-#[cfg(test)]
-fn list_pending_closes_conn(conn: &rusqlite::Connection) -> Result<Vec<PendingClose>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT channel_id, network, ready_at
-             FROM pending_closes WHERE ready_at <= ?1",
-        )
-        .context("Failed to prepare list pending closes query")?;
-
-    let rows = stmt
-        .query_map(params![now_secs() as i64], map_pending_close_row)
-        .context("Failed to list pending closes")?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .context("Failed to read pending close row")
+/// File lock guard for an origin/session key.
+pub(crate) struct SessionLock {
+    file: std::fs::File,
 }
 
-fn delete_pending_close_conn(conn: &rusqlite::Connection, channel_id: &str) -> Result<()> {
-    let channel_id = channel_id.to_lowercase();
-    conn.execute(
-        "DELETE FROM pending_closes WHERE channel_id = ?1",
-        params![channel_id],
-    )
-    .context("Failed to delete pending close")?;
-    Ok(())
+impl Drop for SessionLock {
+    fn drop(&mut self) {
+        let _ = fs2::FileExt::unlock(&self.file);
+    }
 }
 
-// ---------------------------------------------------------------------------
-// Pending closes – public API
-// ---------------------------------------------------------------------------
-
-/// Save a pending close record.
-pub(crate) fn save_pending_close(channel_id: &str, network: &str, ready_at: u64) -> Result<()> {
-    let conn = open_db()?;
-    save_pending_close_conn(&conn, channel_id, network, ready_at)
-}
-
-/// List all pending closes regardless of maturity.
-pub(crate) fn list_all_pending_closes() -> Result<Vec<PendingClose>> {
-    let conn = open_db()?;
-    let mut stmt = conn
-        .prepare("SELECT channel_id, network, ready_at FROM pending_closes ORDER BY ready_at")
-        .context("Failed to prepare list all pending closes query")?;
-
-    let rows = stmt
-        .query_map([], map_pending_close_row)
-        .context("Failed to list all pending closes")?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .context("Failed to read pending close row")
-}
-
-/// Delete a pending close record by channel ID.
-pub(crate) fn delete_pending_close(channel_id: &str) -> Result<()> {
-    let conn = open_db()?;
-    delete_pending_close_conn(&conn, channel_id)
+/// Acquire a per-origin exclusive lock to serialize open/persist operations.
+pub(crate) fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
+    let dir = sessions_dir()?;
+    let lock_path = dir.join(format!("{}.lock", key));
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)
+        .context("Failed to create/open session lock file")?;
+    fs2::FileExt::try_lock_exclusive(&file).context("Failed to acquire session lock")?;
+    Ok(SessionLock { file })
 }
 
 #[cfg(test)]
@@ -475,6 +448,10 @@ mod tests {
             did: "did:pkh:eip155:4217:0x00".into(),
             challenge_echo: "echo".into(),
             challenge_id: "id".into(),
+            state: "active".into(),
+            close_requested_at: 0,
+            grace_ready_at: 0,
+            token_decimals: 6,
             created_at: now,
             last_used_at: now,
         }
@@ -599,106 +576,37 @@ mod tests {
 
     #[test]
     fn test_save_and_list_pending_close() {
-        let (_tmp, conn) = test_db();
-        // ready_at in the past so it shows up in list
-        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
-        save_pending_close_conn(&conn, "0xdef", "tempo-moderato", 1001).unwrap();
-
-        let list = list_pending_closes_conn(&conn).unwrap();
-        assert_eq!(list.len(), 2);
-        assert_eq!(list[0].channel_id, "0xabc");
-        assert_eq!(list[0].network, "tempo");
-        assert_eq!(list[0].ready_at, 1000);
-        assert_eq!(list[1].channel_id, "0xdef");
-        assert_eq!(list[1].network, "tempo-moderato");
+        // removed: pending_closes table
     }
 
     #[test]
     fn test_list_pending_closes_filters_by_time() {
-        let (_tmp, conn) = test_db();
-        // One in the past, one far in the future
-        save_pending_close_conn(&conn, "0xpast", "tempo", 1000).unwrap();
-        save_pending_close_conn(&conn, "0xfuture", "tempo", i64::MAX as u64).unwrap();
-
-        let list = list_pending_closes_conn(&conn).unwrap();
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].channel_id, "0xpast");
+        // removed: pending_closes table
     }
 
     #[test]
     fn test_delete_pending_close() {
-        let (_tmp, conn) = test_db();
-        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
-        delete_pending_close_conn(&conn, "0xabc").unwrap();
-
-        let list = list_pending_closes_conn(&conn).unwrap();
-        assert!(list.is_empty());
+        // removed: pending_closes table
     }
 
     #[test]
     fn test_save_pending_close_upsert() {
-        let (_tmp, conn) = test_db();
-        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
-        save_pending_close_conn(&conn, "0xabc", "tempo", 2000).unwrap();
-
-        let list = list_pending_closes_conn(&conn).unwrap();
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].ready_at, 2000);
+        // removed: pending_closes table
     }
 
     #[test]
     fn test_save_pending_close_normalizes_channel_id() {
-        let (_tmp, conn) = test_db();
-        save_pending_close_conn(&conn, "0xABCDEF", "TEMPO", 1000).unwrap();
-
-        // Query raw DB to verify normalization
-        let stored: String = conn
-            .query_row("SELECT channel_id FROM pending_closes", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert_eq!(stored, "0xabcdef", "channel_id should be stored lowercase");
-
-        let network: String = conn
-            .query_row("SELECT network FROM pending_closes", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(network, "tempo", "network should be stored lowercase");
+        // removed: pending_closes table
     }
 
     #[test]
     fn test_delete_pending_close_case_insensitive() {
-        let (_tmp, conn) = test_db();
-        save_pending_close_conn(&conn, "0xabc123", "tempo", 1000).unwrap();
-
-        // Delete with different casing
-        delete_pending_close_conn(&conn, "0xABC123").unwrap();
-
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM pending_closes", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(count, 0, "delete should match regardless of case");
+        // removed: pending_closes table
     }
 
     #[test]
     fn test_save_pending_close_upsert_case_insensitive() {
-        let (_tmp, conn) = test_db();
-        // Save with lowercase
-        save_pending_close_conn(&conn, "0xabc", "tempo", 1000).unwrap();
-        // Update with uppercase — should upsert (same record after normalization)
-        save_pending_close_conn(&conn, "0xABC", "tempo", 2000).unwrap();
-
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM pending_closes", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(
-            count, 1,
-            "should have 1 record after upsert with different case"
-        );
-
-        let ready_at: i64 = conn
-            .query_row("SELECT ready_at FROM pending_closes", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(ready_at, 2000, "should have updated ready_at");
+        // removed: pending_closes table
     }
 
     #[test]
@@ -719,27 +627,47 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_case_cleanup_scenario() {
-        // Simulates the stale record cleanup scenario:
-        // pending_close saved by on-chain scanner (lowercase), session saved by session flow (could be mixed)
+    fn test_origin_lock_is_exclusive() {
+        // Redirect HOME to a temp directory to isolate lock files
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", tmp.path());
+
+        let key = session_key("https://example.com");
+        let lock1 = acquire_origin_lock(&key).expect("first lock should succeed");
+
+        // Second lock should fail while the first guard is held
+        let second = acquire_origin_lock(&key);
+        assert!(second.is_err(), "second lock should be exclusive-error");
+
+        drop(lock1);
+
+        // After drop, we should be able to re-acquire
+        acquire_origin_lock(&key).expect("re-acquire after drop should succeed");
+    }
+
+    #[test]
+    fn test_token_decimals_schema_default_is_6() {
         let (_tmp, conn) = test_db();
+        let mut stmt = conn
+            .prepare("PRAGMA table_info('sessions')")
+            .expect("pragma should work");
+        let mut rows = stmt.query([]).unwrap();
+        let mut found = false;
+        while let Some(row) = rows.next().unwrap() {
+            let name: String = row.get(1).unwrap();
+            if name == "token_decimals" {
+                // dflt_value column index 4
+                let dflt: Option<String> = row.get(4).unwrap();
+                assert!(dflt.as_deref() == Some("6") || dflt.as_deref() == Some("'6'"));
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "token_decimals column should exist");
+    }
 
-        let mut record = test_record("https://example.com", "salt_1");
-        record.channel_id = "0xAbCdEf".to_string();
-        save_session_conn(&conn, &record).unwrap();
-        save_pending_close_conn(&conn, "0xabcdef", "tempo", 1000).unwrap();
-
-        // Cleanup with the channel_id from the pending_close record (lowercase)
-        delete_pending_close_conn(&conn, "0xabcdef").unwrap();
-        delete_session_by_channel_id_conn(&conn, "0xabcdef").unwrap();
-
-        let pending_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM pending_closes", [], |row| row.get(0))
-            .unwrap();
-        let session_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(pending_count, 0, "pending close should be cleaned up");
-        assert_eq!(session_count, 0, "session should be cleaned up");
+    #[test]
+    fn test_cross_case_cleanup_scenario() {
+        // removed: pending_closes table
     }
 }

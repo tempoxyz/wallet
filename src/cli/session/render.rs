@@ -120,7 +120,7 @@ pub(super) fn render_channel_list(
 }
 
 /// Render a single channel in text format.
-fn render_channel_text(v: &ChannelView) {
+pub(super) fn render_channel_text(v: &ChannelView) {
     // Header: use origin if available and non-empty, otherwise channel_id
     match &v.origin {
         Some(origin) if !origin.is_empty() => println!("{origin}"),
@@ -152,7 +152,10 @@ fn render_channel_text(v: &ChannelView) {
     }
     // Status
     let status_display = match v.remaining_secs {
-        Some(0) => format!("{} — ready to finalize", v.status),
+        Some(0) => match v.status.as_str() {
+            "closing" | "closed" | "finalizable" => "finalizable — ready to finalize".to_string(),
+            other => format!("{} — ready to finalize", other),
+        },
         Some(secs) => format!("{} — {} remaining", v.status, format_duration(secs)),
         None => v.status.clone(),
     };

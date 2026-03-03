@@ -9,7 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{get_combined_output, test_command, TestConfigBuilder};
+use common::{get_combined_output, seed_local_session, test_command, TestConfigBuilder};
 
 #[test]
 fn test_completions_bash() {
@@ -632,7 +632,9 @@ fn test_session_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("list"))
-        .stdout(predicate::str::contains("close"));
+        .stdout(predicate::str::contains("close"))
+        .stdout(predicate::str::contains("info"))
+        .stdout(predicate::str::contains("recover"));
 }
 
 #[test]
@@ -794,7 +796,7 @@ fn test_session_close_invalid_channel_id() {
 fn test_session_list_closed_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["-j", "sessions", "list", "--closed"]);
+    cmd.args(["-j", "sessions", "list", "--state", "closing,finalizable"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1208,7 +1210,7 @@ fn test_session_list_with_network_filter_json() {
 fn test_session_list_closed_text_empty() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["sessions", "list", "--closed"])
+        .args(["sessions", "list", "--state", "closing,finalizable"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1332,6 +1334,97 @@ fn test_session_close_nonexistent_url_json() {
     let results = parsed["results"].as_array().unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0]["status"], "error");
+}
+
+#[test]
+fn test_sessions_info_no_local_text() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["sessions", "info", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let combined = get_combined_output(&output).to_lowercase();
+    assert!(
+        combined.contains("no local session"),
+        "expected 'no local session' message, got: {combined}"
+    );
+}
+
+#[test]
+fn test_sessions_info_no_local_json() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "sessions", "info", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(val["total"], 0);
+    assert!(val["sessions"].as_array().unwrap().is_empty());
+    assert_eq!(val["message"], "no local session for origin");
+}
+
+#[test]
+fn test_sessions_info_single_does_not_print_count() {
+    let temp = TestConfigBuilder::new().build();
+    // Seed a local session for https://example.com
+    seed_local_session(&temp, "https://example.com");
+
+    let output = test_command(&temp)
+        .args(["sessions", "info", "https://example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should contain detailed fields
+    assert!(stdout.contains("https://example.com"));
+    assert!(stdout.contains("Network"));
+    assert!(stdout.contains("Channel"));
+    // Should NOT contain a trailing count summary like "1 session(s)."
+    assert!(
+        !stdout.contains("session(s)"),
+        "info should not print a count footer: {stdout}"
+    );
+}
+
+#[test]
+fn test_sessions_info_help_annotations() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["sessions", "info", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("URL/origin"))
+        .stdout(predicate::str::contains("defaults to Tempo"));
+}
+
+#[test]
+fn test_sessions_recover_help_annotations() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["sessions", "recover", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Re-sync a local session's state"));
+}
+
+#[test]
+fn test_sessions_close_json_uses_normalized_origin() {
+    let temp = TestConfigBuilder::new().build();
+    seed_local_session(&temp, "https://example.com");
+
+    // Close using a URL with a path — JSON should report the stored normalized origin
+    let output = test_command(&temp)
+        .args(["-j", "sessions", "close", "https://example.com/v1/path?x=1"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let results = val["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["origin"], "https://example.com");
 }
 
 // ==================== Services ====================

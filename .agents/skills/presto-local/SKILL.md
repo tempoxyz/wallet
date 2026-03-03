@@ -177,6 +177,7 @@ presto -t --dry-run -X POST \
 | `presto services --search <QUERY>` | Search services by name, description, or tags |
 | `presto services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
 | `presto sessions` | Manage payment sessions (list, close — use `--help` for details) |
+| `presto update` | Update presto to the latest version |
 
 ## Global Options
 
@@ -211,25 +212,16 @@ These options apply when making HTTP requests (`presto <URL>`):
 | `--toon <TOON>` | Send TOON data (decoded to JSON) with Content-Type header |
 | `-d, --data <DATA>` | POST data (use `@filename` to read from file, `@-` for stdin) |
 | `-L, --location` | Follow redirects (off by default) |
-| `--max-redirs <N>` | Maximum number of redirects when `-L` is used |
 | `-m, --timeout <SECONDS>` | Maximum time for the request |
-| `--connect-timeout <SECONDS>` | Maximum time to establish TCP connection |
-| `--offline` | Fail immediately without making any network requests |
 | `-f, --fail` | Fail on HTTP errors (do not output body) |
-| `--fail-with-body` | Fail on HTTP errors but still output the response body |
-| `-k, --insecure` | Skip TLS certificate validation |
-| `--compressed` | Request a compressed response |
 | `--stream` | Stream response body as it arrives |
 | `--sse` | Treat response as Server-Sent Events pass-through |
 | `--sse-json` | Output SSE events as NDJSON |
 | `--retries <N>` | Number of retries on transient network errors |
-
-### Display Options
-
-| Option | Description |
-|--------|-------------|
-| `-i, --include` | Include HTTP response headers in output |
 | `-o, --output <FILE>` | Write output to file |
+| `-i, --include` | Include HTTP response headers in output |
+
+Run `presto <URL> --help` for the full list of curl-compatible options (`-u`, `--proxy`, `--bearer`, `--compressed`, `--http2`, etc.).
 
 ## Real-World Examples
 
@@ -247,43 +239,54 @@ presto -t -X POST \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
-### Payment Sessions (Multiple Requests, One Channel)
+## Sessions
 
-Sessions open a payment channel on-chain once, then use off-chain vouchers for subsequent requests (no gas per request):
+Sessions open a payment channel on-chain once, then use off-chain vouchers for subsequent requests — no gas per request. Presto creates sessions automatically when a service requests one.
 
 ```bash
-# First request opens a channel on-chain
+# First request to an origin opens a channel; subsequent requests reuse it
 presto -t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+presto -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+```
 
-# Subsequent requests to the same origin reuse the session automatically
-presto -t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+### Session States
 
-# View active sessions
+| State | Meaning |
+|-------|---------|
+| active | Channel open and usable |
+| closing | Close requested; grace period in progress |
+| finalizable | Grace period elapsed; ready to withdraw |
+| orphaned | On-chain channel with no local record |
+
+### Managing Sessions
+
+```bash
+# List active sessions
 presto -t sessions list
 
-# Close a session when done
-presto -t sessions close <SERVICE_URL>
+# List all sessions (including closing/finalizable)
+presto -t sessions list --state all
+
+# Show details for a session by URL or channel ID
+presto -t sessions info <URL|channel_id>
+
+# Close a specific session
+presto -t sessions close <URL>
 
 # Close all sessions
 presto -t sessions close --all
-```
 
-### Check Wallet Status
+# Finalize channels ready to withdraw
+presto -t sessions close --closed
 
-```bash
-# Full wallet status with balances and keys
-presto -t whoami
-```
+# Close orphaned on-chain channels (no local record)
+presto -t sessions close --orphaned
 
-### Environment Variable Override
+# Re-sync a session from on-chain state (after crash/manual edit)
+presto -t sessions recover <URL>
 
-For CI/CD or ephemeral use, skip wallet setup entirely:
-
-```bash
-# Use a private key directly (no keychain, no keys.toml)
-PRESTO_PRIVATE_KEY=0xYOUR_HEX_KEY presto -t -X POST \
-  --json '{"your":"payload"}' \
-  <SERVICE_URL>/<ENDPOINT_PATH>
+# Remove stale local records (already settled on-chain)
+presto -t sessions sync
 ```
 
 ## Error Recovery

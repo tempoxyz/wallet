@@ -63,8 +63,14 @@ Ready-to-run scripts in [`examples/`](examples/):
 | `presto login` | Connect your Tempo wallet |
 | `presto logout` | Disconnect your wallet |
 | `presto whoami` | Show wallet, balances, and keys |
-| `presto session list` | List active payment sessions |
-| `presto session close` | Close a payment session |
+| `presto services` | Browse the MPP service directory |
+| `presto services info <ID>` | Show detailed info for a service |
+| `presto update` | Update presto to the latest version |
+| `presto sessions list` | List sessions (active/orphaned/closing) |
+| `presto sessions info <URL|channel_id>` | Show details for a session or channel |
+| `presto sessions close [--all|--orphaned|--closed|<URL>|<channel_id>]` | Close sessions or channels |
+| `presto sessions recover <URL|origin>` | Re-sync a local session's state from chain |
+| `presto sessions sync` | Remove stale local sessions (settled on-chain) |
 
 Run `presto --help` or `presto <command> --help` for full flag reference.
 

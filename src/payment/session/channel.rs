@@ -47,7 +47,7 @@ sol! {
 // ==================== Types ====================
 
 /// On-chain channel state returned by recovery functions.
-pub(super) struct OnChainChannel {
+pub(crate) struct OnChainChannel {
     pub token: Address,
     pub deposit: u128,
     pub settled: u128,
@@ -101,7 +101,7 @@ fn is_rpc_range_error(err: &str) -> bool {
 /// Returns `Ok(None)` if `deposit == 0` or `finalized == true` (channel
 /// does not exist or is already settled). Returns `Err` on RPC failures
 /// so callers can distinguish "no channel" from "network error".
-pub(super) async fn get_channel_on_chain(
+pub(crate) async fn get_channel_on_chain(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
     channel_id: B256,

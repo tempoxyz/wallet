@@ -69,7 +69,7 @@ eval/
 | `llm-*` | LLM API calls via Tempo payment proxies | GPT, Claude, OpenRouter, DALL-E, embeddings, Whisper |
 | `api-*` | Generic HTTP usage and flag correctness | POST JSON, verbose, save output |
 | `wallet-*` | Wallet management commands | balance, whoami, login |
-| `session-*` | Payment session management | list, close |
+| `session-*` | Payment session management | list (state filters), info, close, recover |
 | `usage-*` | Advanced flag/option usage | custom headers, quiet mode, timeout, combined flags |
 | `ambig-*` | Ambiguous prompts requiring reasoning | implicit LLM needs, "curl" mentions, free vs paid APIs |
 | `neg-*` | Clear negative cases | file reads, git, math, local servers, has API key |
@@ -85,5 +85,4 @@ Add entries to the `tests` array in `promptfooconfig.yaml`:
     prompt: "What to ask the agent"
     expect: '{"presto":{"should_invoke":true,"url_pattern":"...","method":"POST"}}'
 ```
-
 
