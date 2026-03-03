@@ -14,6 +14,7 @@ use tempo_primitives::transaction::Call;
 
 use crate::config::Config;
 use crate::network::Network;
+use crate::wallet::credentials::WalletCredentials;
 
 // ==================== ABI Definitions ====================
 
@@ -133,6 +134,30 @@ pub(super) async fn get_channel_on_chain(
     }))
 }
 
+// ==================== Network Resolution ====================
+
+/// Resolve networks to scan. If a specific network is given, use it.
+/// Otherwise, derive from wallet credentials (all unique networks the user has keys for).
+/// Falls back to Tempo mainnet if no credentials are available.
+pub(crate) fn resolve_scan_networks(network_filter: Option<&str>) -> Vec<Network> {
+    if let Some(name) = network_filter {
+        return name.parse::<Network>().ok().into_iter().collect();
+    }
+    if let Ok(creds) = WalletCredentials::load() {
+        let networks: Vec<Network> = creds
+            .keys
+            .iter()
+            .filter_map(|k| Network::from_chain_id(k.chain_id))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !networks.is_empty() {
+            return networks;
+        }
+    }
+    vec![Network::Tempo]
+}
+
 // ==================== Event Scanning ====================
 
 /// Scan all known networks for open channels where `payer` is the sender.
@@ -144,11 +169,7 @@ pub async fn find_all_channels_for_payer(
     payer: Address,
     network_name: Option<&str>,
 ) -> Vec<DiscoveredChannel> {
-    let networks: Vec<Network> = if let Some(name) = network_name {
-        name.parse::<Network>().ok().into_iter().collect()
-    } else {
-        vec![Network::Tempo]
-    };
+    let networks = resolve_scan_networks(network_name);
 
     let event_topic: B256 = match CHANNEL_OPENED_TOPIC.parse() {
         Ok(t) => t,

@@ -54,7 +54,7 @@ pub(crate) use close::{close_channel_by_id, close_discovered_channel, close_sess
 /// Outcome of an on-chain close attempt.
 pub(crate) enum CloseOutcome {
     /// Channel fully closed (withdrawn or cooperatively settled).
-    Closed,
+    Closed { tx_url: Option<String> },
     /// `requestClose()` submitted or already pending; waiting for grace period.
     Pending { remaining_secs: u64 },
 }
@@ -568,7 +568,7 @@ pub async fn handle_session_request(
                 if request_ctx.log_enabled() {
                     eprintln!("Attempting cooperative close of old channel...");
                 }
-                let _ = close::close_session_from_record(&record, config, true).await;
+                let _ = close::try_cooperative_close_from_record(&record).await;
                 store::delete_session(&session_key)?;
                 if request_ctx.log_enabled() {
                     eprintln!("Opening new channel...");
