@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2 (2026-03-03)
+
+### Patch Changes
+
+- Added automatic update checking that fetches the latest version from the release CDN at most once every 6 hours and prints an upgrade notice if a newer version is available. Refactored config loading to happen once at startup and pass it through the call stack, removing redundant `load_config_with_overrides` calls throughout command handlers. Also removed the natural-language prompt forwarding to the `claude` CLI.
+- Updated `mpp-rs` and `tempo` dependency revisions, fixed verbose logging filters to properly scope log levels per crate, updated passkey auth URLs to use `/cli-auth` path, and added `KeychainVersion::V1` to keychain signing mode.
+- Fixed incorrect `presto session` command references to `presto sessions` in finalize hints and documentation comments.
+
 ## 0.6.1 (2026-03-02)
 
 ### Patch Changes
