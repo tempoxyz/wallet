@@ -710,8 +710,6 @@ fn http_status_text(code: u16) -> &'static str {
     }
 }
 
-// parse_payment_rejection moved to payment::dispatch
-
 /// Display receipt information from response with optional clickable explorer links.
 fn display_receipt(
     output_opts: &OutputOptions,
@@ -972,9 +970,6 @@ fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
 mod tests {
     use super::*;
     use crate::config::OutputFormat;
-    use crate::payment::dispatch::parse_payment_rejection;
-
-    // ==================== parse_payment_rejection ====================
 
     fn make_response(status: u16, body: &[u8]) -> HttpResponse {
         HttpResponse {
@@ -982,143 +977,6 @@ mod tests {
             headers: std::collections::HashMap::new(),
             body: body.to_vec(),
             final_url: None,
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_error_field() {
-        let body = br#"{"error":"insufficient funds"}"#;
-        let resp = make_response(400, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected {
-                reason,
-                status_code,
-            } => {
-                assert_eq!(reason, "insufficient funds");
-                assert_eq!(status_code, 400);
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_message_field() {
-        let body = br#"{"message":"bad request"}"#;
-        let resp = make_response(400, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "bad request");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_detail_field() {
-        let body = br#"{"detail":"validation failed"}"#;
-        let resp = make_response(422, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected {
-                reason,
-                status_code,
-            } => {
-                assert_eq!(reason, "validation failed");
-                assert_eq!(status_code, 422);
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_no_known_field() {
-        let body = br#"{"foo":"bar"}"#;
-        let resp = make_response(500, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 500");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_error_precedence() {
-        // "error" takes precedence over "message" and "detail"
-        let body = br#"{"error":"e","message":"m","detail":"d"}"#;
-        let resp = make_response(400, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "e");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_plain_text() {
-        let body = b"Transaction reverted";
-        let resp = make_response(500, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "Transaction reverted");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_plain_text_truncated() {
-        // Very long body should be truncated to 200 chars
-        let body = "a".repeat(500);
-        let resp = make_response(500, body.as_bytes());
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason.len(), 200);
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_empty_body() {
-        let resp = make_response(500, b"");
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 500");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_whitespace_body() {
-        let resp = make_response(503, b"   \n\t  ");
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 503");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_invalid_utf8() {
-        let resp = make_response(500, &[0xff, 0xfe, 0xfd]);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 500");
-            }
-            _ => panic!("expected PaymentRejected"),
         }
     }
 
