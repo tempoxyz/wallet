@@ -65,51 +65,36 @@ use config::load_config_with_overrides;
 /// completions), and installs a Ctrl-C handler for graceful shutdown.
 #[tokio::main]
 async fn main() {
-    // Set up signal handling for graceful shutdown
-    let result = tokio::select! {
-        result = run() => result,
-        _ = tokio::signal::ctrl_c() => {
-            eprintln!("\nInterrupted");
-            ExitCode::Interrupted.exit();
+    let mut cli = parse_cli();
+
+    init_tracing(&cli);
+    init_color_support(&cli);
+
+    let output_format = cli.resolve_output_format();
+
+    let result = async {
+        let mut config = load_config_with_overrides(cli.config.as_ref())?;
+        config.check_for_updates().await;
+
+        match cli.command.take() {
+            Some(command) => handle_command(cli, command, config).await,
+            None => Cli::command().print_help().map_err(Into::into),
         }
-    };
+    }
+    .await;
 
     if let Err(e) = result {
-        // Attempt to resolve the desired output format to decide error rendering.
-        let output_format = resolve_output_format_for_error();
-
         match output_format {
-            Some(fmt @ (config::OutputFormat::Json | config::OutputFormat::Toon)) => {
-                // Print structured error to stdout only; logs remain on stderr via tracing.
-                let output = cli::output::render_error_structured(&e, fmt);
+            config::OutputFormat::Json | config::OutputFormat::Toon => {
+                let output = cli::output::render_error_structured(&e, output_format);
                 println!("{}", output);
             }
             _ => {
                 eprintln!("Error: {e:#}");
             }
         }
-
         ExitCode::from(&e).exit();
     }
-}
-
-async fn run() -> Result<()> {
-    let mut cli = parse_cli();
-
-    init_tracing(&cli);
-
-    // Initialize color support based on user preference and NO_COLOR env var
-    init_color_support(&cli);
-
-    // Handle subcommands
-    let command = cli.command.take();
-    if let Some(command) = command {
-        return handle_command(cli, command).await;
-    }
-
-    // No subcommand — show help
-    Cli::command().print_help()?;
-    Ok(())
 }
 
 /// Parse CLI args, treating a bare URL as an implicit `query` subcommand.
@@ -178,32 +163,12 @@ fn parse_cli() -> Cli {
                                 eprintln!("error: '{url}' is not a presto command. See 'presto --help' for a list of available commands.");
                                 ExitCode::InvalidUsage.exit();
                             }
-
-                            // Multi-word string: treat as a prompt → forward to native agent
-                            exec_prompt(&url);
                         }
                     }
                     cli
                 }
                 Err(_) => original_err.exit(),
             }
-        }
-    }
-}
-
-/// Forward a natural-language prompt to the user's native AI agent (e.g. `claude`).
-fn exec_prompt(prompt: &str) -> ! {
-    let status = std::process::Command::new("claude").arg(prompt).status();
-
-    match status {
-        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("error: 'claude' CLI not found. Install it: https://docs.anthropic.com/en/docs/claude-cli");
-            ExitCode::GeneralError.exit();
-        }
-        Err(e) => {
-            eprintln!("error: failed to run claude: {e}");
-            ExitCode::GeneralError.exit();
         }
     }
 }
@@ -234,7 +199,7 @@ fn validate_network_flag(network: &str) -> Result<()> {
 }
 
 /// Handle CLI subcommands
-async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
+async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> Result<()> {
     if let Some(ref pk) = cli.private_key {
         wallet::credentials::set_credentials_override(pk.clone());
     }
@@ -243,7 +208,6 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         validate_network_flag(network)?;
     }
 
-    let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
     let analytics = Analytics::new(cli.network.as_deref(), Some(&config)).await;
 
     if let Some(ref a) = analytics {
@@ -281,7 +245,13 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
     }
 
     let result = match command {
-        Commands::Query(query) => cli::query::make_request(cli, *query, analytics.clone()).await,
+        Commands::Query(query) => {
+            let mut query_config = config.clone();
+            if let Some(ref rpc_url) = query.rpc_url {
+                query_config.set_rpc_override(rpc_url.clone());
+            }
+            cli::query::make_request(cli, *query, analytics.clone(), query_config).await
+        }
 
         Commands::Login => {
             let network = cli.network.as_deref();
@@ -293,8 +263,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
                     },
                 );
             }
-            let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-            let output_format = cli.resolve_output_format(&config);
+            let output_format = cli.resolve_output_format();
             let result = cli::auth::run_login(network, analytics.clone(), output_format).await;
             if let Some(ref a) = analytics {
                 let net = network.unwrap_or_default().to_string();
@@ -352,8 +321,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Sessions { command } => {
-            let config = load_config_with_overrides(cli.config.as_ref())?;
-            let output_format = cli.resolve_output_format(&config);
+            let output_format = cli.resolve_output_format();
 
             if let Some(subcommand) = command {
                 let show_output = cli.should_show_output();
@@ -408,24 +376,19 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             if let Some(subcommand) = command {
                 match subcommand {
                     WalletCommands::List => {
-                        let config =
-                            load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-                        let output_format = cli.resolve_output_format(&config);
+                        let output_format = cli.resolve_output_format();
                         cli::auth::show_wallet_list(output_format).await
                     }
                     WalletCommands::Create => {
                         let wallet_addr =
                             cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
-                        let config =
-                            load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-                        let output_format = cli.resolve_output_format(&config);
+                        let output_format = cli.resolve_output_format();
                         let network = cli.network.as_deref();
                         cli::auth::show_whoami(&config, output_format, network, Some(&wallet_addr))
                             .await
                     }
                     WalletCommands::Fund { address, no_wait } => {
-                        let config = load_config_with_overrides(cli.config.as_ref())?;
-                        let output_format = cli.resolve_output_format(&config);
+                        let output_format = cli.resolve_output_format();
                         cli::fund::run_fund(
                             &config,
                             output_format,
@@ -447,9 +410,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Whoami | Commands::Balance => {
-            let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
-            let output_format = cli.resolve_output_format(&config);
+            let output_format = cli.resolve_output_format();
 
             if let Some(ref a) = analytics {
                 a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
@@ -458,9 +420,8 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
         }
 
         Commands::Keys { command } => {
-            let config = load_config_with_overrides(cli.config.as_ref())?;
             let network = cli.network.as_deref();
-            let output_format = cli.resolve_output_format(&config);
+            let output_format = cli.resolve_output_format();
             match command {
                 Some(KeyCommands::List) => {
                     cli::keys::show_keys(&config, output_format, network).await
@@ -487,8 +448,7 @@ async fn handle_command(cli: Cli, command: Commands) -> Result<()> {
             category,
             search,
         } => {
-            let config = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-            let output_format = cli.resolve_output_format(&config);
+            let output_format = cli.resolve_output_format();
             match command {
                 Some(ServicesCommands::Info { service_id }) => {
                     cli::services::show_service_info(output_format, &service_id).await
@@ -611,29 +571,4 @@ fn init_color_support(cli: &Cli) {
             }
         }
     }
-}
-
-/// Best-effort resolution of output format for error rendering.
-///
-/// Parses CLI and loads config to determine the resolved `OutputFormat`.
-/// Returns `None` if parsing fails; defaults to text in that case.
-fn resolve_output_format_for_error() -> Option<config::OutputFormat> {
-    // Try to parse CLI normally first
-    if let Ok(cli) = Cli::try_parse() {
-        let cfg = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-        return Some(cli.resolve_output_format(&cfg));
-    }
-
-    // If normal parsing failed, try the same fallback as parse_cli(): insert "query"
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        let mut with_query = vec![args[0].clone(), "query".to_string()];
-        with_query.extend(args[1..].iter().cloned());
-        if let Ok(cli) = Cli::try_parse_from(with_query) {
-            let cfg = load_config_with_overrides(cli.config.as_ref()).unwrap_or_default();
-            return Some(cli.resolve_output_format(&cfg));
-        }
-    }
-
-    None
 }
