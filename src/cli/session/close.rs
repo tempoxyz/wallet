@@ -87,7 +87,7 @@ async fn close_all_sessions(
             Ok(CloseOutcome::Pending { remaining_secs }) => {
                 if show_output {
                     eprintln!(
-                        "  Pending — {} remaining, run `presto session close --closed` to finalize.",
+                        "  Pending — {} remaining, run `presto sessions close --closed` to finalize.",
                         format_duration(remaining_secs)
                     );
                 }
@@ -142,7 +142,7 @@ async fn close_all_sessions(
                         Ok(CloseOutcome::Pending { remaining_secs }) => {
                             if show_output {
                                 eprintln!(
-                                    "  Pending — {} remaining, run `presto session close --closed` to finalize.",
+                                    "  Pending — {} remaining, run `presto sessions close --closed` to finalize.",
                                     format_duration(remaining_secs)
                                 );
                             }
@@ -204,7 +204,7 @@ async fn close_by_channel_id(
                 );
             } else {
                 println!(
-                    "Channel {target}: close requested — {} remaining, run `presto session close --closed` to finalize.",
+                    "Channel {target}: close requested — {} remaining, run `presto sessions close --closed` to finalize.",
                     format_duration(remaining_secs)
                 );
             }
@@ -276,7 +276,7 @@ async fn close_by_url(
                     );
                 } else {
                     println!(
-                        "Session for {target}: close requested — {} remaining, run `presto session close --closed` to finalize.",
+                        "Session for {target}: close requested — {} remaining, run `presto sessions close --closed` to finalize.",
                         format_duration(remaining_secs)
                     );
                 }
@@ -360,7 +360,7 @@ async fn close_orphaned_channels(
             Ok(CloseOutcome::Pending { remaining_secs }) => {
                 if show_output {
                     eprintln!(
-                        "  Pending — {} remaining, run `presto session close --closed` to finalize.",
+                        "  Pending — {} remaining, run `presto sessions close --closed` to finalize.",
                         format_duration(remaining_secs)
                     );
                 }
