@@ -9,7 +9,7 @@ use alloy::signers::local::PrivateKeySigner;
 
 use crate::error::PrestoError;
 use crate::wallet::credentials::WalletCredentials;
-use mpp::client::tempo::signing::TempoSigningMode;
+use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
 /// A loaded wallet signer ready for transaction signing.
 ///
@@ -45,6 +45,7 @@ fn resolve_signing_mode(
         TempoSigningMode::Keychain {
             wallet: wallet_address,
             key_authorization,
+            version: KeychainVersion::V1,
         }
     }
 }
@@ -113,6 +114,7 @@ mod tests {
             TempoSigningMode::Keychain {
                 wallet: w,
                 key_authorization,
+                ..
             } => {
                 assert_eq!(w, wallet);
                 assert!(key_authorization.is_none());

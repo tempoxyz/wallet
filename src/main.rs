@@ -578,13 +578,15 @@ fn init_tracing(cli: &Cli) {
     } else {
         // Map verbosity count to tracing level for the presto crate only;
         // keep all other crates at warn to avoid noise from hyper/reqwest/alloy.
-        let presto_level = match cli.verbose {
+        let filter_str = match cli.verbose {
             0 => "warn",
-            1 => "info",
-            2 => "debug",
-            _ => "trace",
+            1 => "warn,presto=info",
+            2 => "warn,presto=debug,mpp=debug",
+            _ => {
+                "trace,hyper=warn,reqwest=warn,h2=warn,rustls=warn,tower=warn,mio=warn,polling=warn"
+            }
         };
-        EnvFilter::new(format!("warn,presto={presto_level}"))
+        EnvFilter::new(filter_str)
     };
 
     tracing_subscriber::fmt()
