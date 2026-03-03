@@ -582,7 +582,9 @@ fn init_tracing(cli: &Cli) {
             0 => "warn",
             1 => "warn,presto=info",
             2 => "warn,presto=debug,mpp=debug",
-            _ => "trace,hyper=warn,reqwest=warn,h2=warn,rustls=warn,tower=warn,mio=warn,polling=warn",
+            _ => {
+                "trace,hyper=warn,reqwest=warn,h2=warn,rustls=warn,tower=warn,mio=warn,polling=warn"
+            }
         };
         EnvFilter::new(filter_str)
     };
