@@ -92,9 +92,9 @@ pub(crate) struct Config {
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
-    /// Update check cache (managed automatically)
+    /// Version check cache (managed automatically)
     #[serde(default)]
-    pub update: UpdateCheck,
+    pub version: VersionCheck,
 }
 
 /// Telemetry configuration options.
@@ -120,7 +120,7 @@ impl Default for TelemetryConfig {
 
 /// Cached update check state (written automatically, not user-facing).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct UpdateCheck {
+pub(crate) struct VersionCheck {
     /// Unix timestamp of the last update check.
     #[serde(default)]
     pub last_check: u64,
@@ -218,7 +218,7 @@ impl Config {
         crate::network::resolve(network_id, self)
     }
 
-    /// Check for updates (at most once per day) and print a notice if newer.
+    /// Check for updates (at most once per 6 hours) and print a notice if newer.
     /// Silently swallows all errors — never affects CLI behavior.
     pub async fn check_for_updates(&mut self) {
         let _ = self.check_for_updates_inner().await;
@@ -233,8 +233,8 @@ impl Config {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
         // If cache is fresh, just check the cached version.
-        if now.saturating_sub(self.update.last_check) < CHECK_INTERVAL_SECS {
-            Self::print_update_notice(&self.update.latest_version);
+        if now.saturating_sub(self.version.last_check) < CHECK_INTERVAL_SECS {
+            Self::print_update_notice(&self.version.latest_version);
             return Ok(());
         }
 
@@ -249,18 +249,28 @@ impl Config {
         let body = resp.text().await?;
         let latest = body.trim().to_string();
 
-        // Sanity check: must look like a semver string.
-        if latest.len() > 20 || !latest.contains('.') {
+        // Strict validation: must be a valid semver string (with optional v prefix).
+        if !Self::is_valid_version(&latest) {
             return Ok(());
         }
 
-        // Update config and persist.
-        self.update.last_check = now;
-        self.update.latest_version = latest.clone();
+        // Cache the result and persist.
+        self.version.last_check = now;
+        self.version.latest_version = latest.clone();
         let _ = self.save();
 
         Self::print_update_notice(&latest);
         Ok(())
+    }
+
+    /// Returns true if the string is a valid semver version (`v?MAJOR.MINOR.PATCH`).
+    fn is_valid_version(s: &str) -> bool {
+        let s = s.strip_prefix('v').unwrap_or(s);
+        let mut parts = s.split('.');
+        parts.next().is_some_and(|p| p.parse::<u64>().is_ok())
+            && parts.next().is_some_and(|p| p.parse::<u64>().is_ok())
+            && parts.next().is_some_and(|p| p.parse::<u64>().is_ok())
+            && parts.next().is_none()
     }
 
     fn print_update_notice(latest: &str) {
@@ -277,11 +287,13 @@ impl Config {
         let parse = |s: &str| -> Option<(u64, u64, u64)> {
             let s = s.strip_prefix('v').unwrap_or(s);
             let mut parts = s.split('.');
-            Some((
-                parts.next()?.parse().ok()?,
-                parts.next()?.parse().ok()?,
-                parts.next()?.parse().ok()?,
-            ))
+            let major = parts.next()?.parse().ok()?;
+            let minor = parts.next()?.parse().ok()?;
+            let patch = parts.next()?.parse().ok()?;
+            if parts.next().is_some() {
+                return None; // reject trailing components
+            }
+            Some((major, minor, patch))
         };
         match (parse(a), parse(b)) {
             (Some(a), Some(b)) => a > b,
@@ -416,7 +428,7 @@ mod tests {
                 moderato_rpc: self.moderato_rpc,
                 rpc: self.rpc_overrides,
                 telemetry: Default::default(),
-                update: Default::default(),
+                version: Default::default(),
             }
         }
     }
@@ -434,7 +446,7 @@ mod tests {
             moderato_rpc: Some("https://custom-moderato-rpc.com".to_string()),
             rpc: Default::default(),
             telemetry: Default::default(),
-            update: Default::default(),
+            version: Default::default(),
         };
 
         assert_eq!(
@@ -593,7 +605,7 @@ mod tests {
                 "https://custom.example.com".to_string(),
             )]),
             telemetry: Default::default(),
-            update: Default::default(),
+            version: Default::default(),
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");
@@ -686,5 +698,32 @@ mod tests {
         assert!(!Config::version_newer("invalid", "0.6.0"));
         assert!(!Config::version_newer("0.6.0", "invalid"));
         assert!(!Config::version_newer("", ""));
+    }
+
+    #[test]
+    fn test_version_newer_rejects_trailing_components() {
+        assert!(!Config::version_newer("1.0.0.malicious", "0.6.0"));
+        assert!(!Config::version_newer("1.0.0.1", "0.6.0"));
+    }
+
+    // -- is_valid_version tests --
+
+    #[test]
+    fn test_is_valid_version() {
+        assert!(Config::is_valid_version("0.6.0"));
+        assert!(Config::is_valid_version("1.0.0"));
+        assert!(Config::is_valid_version("v0.6.0"));
+        assert!(Config::is_valid_version("v1.0.0"));
+    }
+
+    #[test]
+    fn test_is_valid_version_rejects_garbage() {
+        assert!(!Config::is_valid_version("invalid"));
+        assert!(!Config::is_valid_version(""));
+        assert!(!Config::is_valid_version("1.0"));
+        assert!(!Config::is_valid_version("1.0.0.1"));
+        assert!(!Config::is_valid_version("1.0.0\x1b[2J"));
+        assert!(!Config::is_valid_version("1.0.0-beta"));
+        assert!(!Config::is_valid_version("<html>404</html>"));
     }
 }
