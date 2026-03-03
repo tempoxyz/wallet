@@ -186,7 +186,15 @@ pub async fn close_session_from_record(
             if let Some(a) = analytics {
                 a.track(Event::CoopCloseSuccess, crate::analytics::EmptyPayload);
             }
-            return Ok(CloseOutcome::Closed { tx_url });
+            let (symbol, decimals) = resolve_token_meta(&record.network_name, &record.currency);
+            let amount_display = record
+                .cumulative_amount_u128()
+                .ok()
+                .map(|amt| format_token_amount(amt, symbol, decimals));
+            return Ok(CloseOutcome::Closed {
+                tx_url,
+                amount_display,
+            });
         }
         Err(coop_err) => {
             if let Some(a) = analytics {
@@ -202,7 +210,7 @@ pub async fn close_session_from_record(
         .context("Invalid currency address in session record")?;
 
     // Fallback: payer-initiated close (requestClose → withdraw)
-    close_on_chain(
+    let outcome = close_on_chain(
         config,
         &wallet,
         channel_id,
@@ -210,14 +218,29 @@ pub async fn close_session_from_record(
         record.chain_id,
         fee_token,
     )
-    .await
+    .await?;
+
+    match outcome {
+        CloseOutcome::Closed { tx_url, .. } => {
+            let (symbol, decimals) = resolve_token_meta(&record.network_name, &record.currency);
+            let amount_display = record
+                .cumulative_amount_u128()
+                .ok()
+                .map(|amt| format_token_amount(amt, symbol, decimals));
+            Ok(CloseOutcome::Closed {
+                tx_url,
+                amount_display,
+            })
+        }
+        other => Ok(other),
+    }
 }
 
 /// Attempt a cooperative (server-side) close of a session without on-chain fallback.
 ///
 /// Used for best-effort cleanup when reusing a session fails — the result is
 /// typically discarded because the caller will open a new channel regardless.
-pub(crate) async fn try_cooperative_close_from_record(
+pub async fn try_cooperative_close_from_record(
     record: &session_store::SessionRecord,
 ) -> Result<()> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
@@ -506,6 +529,7 @@ pub(super) async fn close_on_chain(
 
     Ok(CloseOutcome::Closed {
         tx_url: Some(tx_url),
+        amount_display: None,
     })
 }
 

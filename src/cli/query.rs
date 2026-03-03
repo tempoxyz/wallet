@@ -16,12 +16,10 @@ use crate::config::Config;
 use crate::error::PrestoError;
 use crate::http::{
     get_request_method_and_body, parse_headers, resolve_data, should_auto_add_json_content_type,
-    validate_header_size, HttpClient, HttpRequestPlan, HttpResponse, RequestContext,
-    RequestRuntime,
+    validate_header_size, HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
 };
 use crate::network::{resolve_token_meta, ExplorerConfig, Network};
-use crate::payment::charge::prepare_charge;
-use crate::payment::session::{handle_session_request, SessionResult};
+use crate::payment::dispatch::dispatch_payment;
 use crate::util::{format_token_amount, hyperlink};
 use crate::wallet::credentials::{has_credentials_override, WalletCredentials};
 
@@ -173,92 +171,35 @@ pub async fn make_request(
     // second TLS handshake on the replay request (~50-100ms savings).
     let http_client = request_ctx.build_client(None)?;
 
-    // Execute with optional HTTP status retries
-    let mut attempts_left = query.retries.unwrap_or(0);
-    let retry_codes: Vec<u16> = query
-        .retry_http
-        .as_deref()
-        .unwrap_or("")
-        .split(',')
-        .filter_map(|s| s.trim().parse::<u16>().ok())
-        .collect();
-    let mut backoff_ms = query.retry_backoff_ms.unwrap_or(250);
-    let response = loop {
-        let start = std::time::Instant::now();
-        let resp_res = request_ctx
-            .execute_with_client(&http_client, &url, &[])
-            .await;
-        match resp_res {
-            Ok(r) => {
-                // Honor Retry-After and backoff for configured HTTP statuses
-                if !retry_codes.is_empty()
-                    && retry_codes.contains(&r.status_code)
-                    && attempts_left > 0
-                {
-                    let delay_ms = if query.retry_after {
-                        if let Some(ra) = r.get_header("retry-after") {
-                            if let Ok(secs) = ra.trim().parse::<u64>() {
-                                secs.saturating_mul(1000)
-                            } else {
-                                backoff_ms
-                            }
-                        } else {
-                            backoff_ms
-                        }
-                    } else {
-                        backoff_ms
-                    };
-                    // Apply jitter if requested
-                    let jittered = if let Some(pct) = query.retry_jitter {
-                        let jitter = ((delay_ms as f64) * (pct as f64 / 100.0)) as u64;
-                        let rand = (std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .subsec_nanos()
-                            % (jitter as u32)) as u64;
-                        delay_ms.saturating_add(rand)
-                    } else {
-                        delay_ms
-                    };
-
-                    tokio::time::sleep(std::time::Duration::from_millis(jittered)).await;
-                    attempts_left -= 1;
-                    // Exponential backoff with cap
-                    backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
-                    continue;
-                }
-
-                // Write meta for immediate response (non-402) if requested
-                let _ = write_meta_if_requested(
-                    &output_opts,
-                    &r,
-                    start.elapsed().as_millis(),
-                    r.body.len(),
-                    r.final_url.as_deref().unwrap_or(&url),
+    // Single execution; retry policy is handled inside RequestContext/http
+    let start = std::time::Instant::now();
+    let response = match request_ctx
+        .execute_with_client(&http_client, &url, &[])
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(ref a) = analytics {
+                a.track(
+                    analytics::Event::QueryFailure,
+                    analytics::QueryFailurePayload {
+                        url: sanitized_url.clone(),
+                        method: method_str.clone(),
+                        error: analytics::sanitize_error(&e.to_string()),
+                    },
                 );
-                break r;
             }
-            Err(e) => {
-                if let Some(ref a) = analytics {
-                    a.track(
-                        analytics::Event::QueryFailure,
-                        analytics::QueryFailurePayload {
-                            url: sanitized_url.clone(),
-                            method: method_str.clone(),
-                            error: analytics::sanitize_error(&e.to_string()),
-                        },
-                    );
-                }
-                if attempts_left > 0 {
-                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                    attempts_left -= 1;
-                    backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
-                    continue;
-                }
-                return Err(e);
-            }
+            return Err(e);
         }
     };
+    // Write meta for immediate response (non-402) if requested
+    let _ = write_meta_if_requested(
+        &output_opts,
+        &response,
+        start.elapsed().as_millis(),
+        response.body.len(),
+        response.final_url.as_deref().unwrap_or(&url),
+    );
 
     if !response.is_payment_required() {
         if let Some(ref a) = analytics {
@@ -356,8 +297,7 @@ pub async fn make_request(
         &config,
         &request_ctx,
         &http_client,
-        &output_opts,
-        &challenge_ctx,
+        challenge_ctx.is_session,
         &effective_url,
         &response,
     )
@@ -376,6 +316,22 @@ pub async fn make_request(
             if let Some(resp) = result.response {
                 // Capture receipt header before consuming response for output
                 let receipt_hdr = resp.get_header("payment-receipt").map(|s| s.to_string());
+                // Display receipt summary for charge responses
+                if !challenge_ctx.is_session {
+                    let network: Option<Network> = challenge_ctx.network.parse().ok();
+                    let explorer = network.and_then(|n| n.info().explorer);
+                    let (symbol, decimals) =
+                        resolve_token_meta(&challenge_ctx.network, &challenge_ctx.currency);
+                    display_receipt(
+                        &output_opts,
+                        &resp,
+                        explorer.as_ref(),
+                        &challenge_ctx.amount,
+                        symbol,
+                        decimals,
+                    );
+                }
+
                 finalize_response(&output_opts, resp)?;
                 // Optionally save receipt JSON if present
                 if let (Some(path), Some(h)) = (query.save_receipt.as_ref(), receipt_hdr.as_ref()) {
@@ -532,104 +488,7 @@ fn now_iso8601() -> String {
     )
 }
 
-/// Result of a successful payment dispatch.
-struct PaymentResult {
-    tx_hash: String,
-    session_id: Option<String>,
-    status_code: u16,
-    response: Option<HttpResponse>,
-}
-
-/// Dispatch to charge or session payment flow.
-async fn dispatch_payment(
-    config: &Config,
-    request_ctx: &RequestContext,
-    http_client: &HttpClient,
-    output_opts: &OutputOptions,
-    challenge_ctx: &ChallengeContext,
-    url: &str,
-    response: &HttpResponse,
-) -> Result<PaymentResult> {
-    if challenge_ctx.is_session {
-        let result =
-            handle_session_request(config, request_ctx, http_client, url, response).await?;
-        match result {
-            SessionResult::Streamed { channel_id } => Ok(PaymentResult {
-                tx_hash: String::new(),
-                session_id: Some(channel_id),
-                status_code: 200,
-                response: None,
-            }),
-            SessionResult::Response {
-                response: resp,
-                channel_id,
-            } => Ok(PaymentResult {
-                tx_hash: String::new(),
-                session_id: Some(channel_id),
-                status_code: resp.status_code,
-                response: Some(resp),
-            }),
-        }
-    } else {
-        let auth_header = prepare_charge(config, &request_ctx.runtime, response).await?;
-
-        if request_ctx.runtime.dry_run {
-            eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
-            return Ok(PaymentResult {
-                tx_hash: String::new(),
-                session_id: None,
-                status_code: 200,
-                response: None,
-            });
-        }
-
-        if request_ctx.log_enabled() {
-            eprintln!("Submitting payment...");
-        }
-
-        let headers = vec![("Authorization".to_string(), (*auth_header).clone())];
-        let resp = request_ctx
-            .execute_with_client(http_client, url, &headers)
-            .await?;
-
-        if resp.status_code >= 400 {
-            return Err(parse_payment_rejection(&resp).into());
-        }
-
-        if request_ctx.log_enabled() {
-            eprintln!("Payment accepted: HTTP {}", resp.status_code);
-        }
-
-        let network: Option<Network> = challenge_ctx.network.parse().ok();
-        let explorer = network.and_then(|n| n.info().explorer);
-        let (symbol, decimals) =
-            resolve_token_meta(&challenge_ctx.network, &challenge_ctx.currency);
-        display_receipt(
-            output_opts,
-            &resp,
-            explorer.as_ref(),
-            &challenge_ctx.amount,
-            symbol,
-            decimals,
-        );
-
-        // Extract a raw transaction reference (hex hash) for analytics if present
-        let tx_hash = resp
-            .get_header("payment-receipt")
-            .and_then(|h| {
-                mpp::protocol::core::extract_tx_hash(h)
-                    .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
-            })
-            .unwrap_or_default();
-        let status_code = resp.status_code;
-        Ok(PaymentResult {
-            tx_hash,
-            session_id: None,
-            status_code,
-            response: Some(resp),
-        })
-    }
-}
+// payment dispatch moved to crate::payment::dispatch
 
 /// Parsed payment challenge context extracted from a 402 response.
 struct ChallengeContext {
@@ -821,7 +680,7 @@ impl PaymentAnalytics {
 }
 
 /// Finalize a regular response: display output and fail on HTTP errors.
-pub(crate) fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+pub fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     let status = response.status_code;
     handle_regular_response(output_opts, response)?;
     if status >= 400 {
@@ -851,33 +710,7 @@ fn http_status_text(code: u16) -> &'static str {
     }
 }
 
-/// Parse a non-200 response after payment submission into a descriptive error.
-fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
-    let reason = if let Ok(body) = response.body_string() {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
-                error.to_string()
-            } else if let Some(message) = json.get("message").and_then(|m| m.as_str()) {
-                message.to_string()
-            } else if let Some(detail) = json.get("detail").and_then(|d| d.as_str()) {
-                detail.to_string()
-            } else {
-                format!("HTTP {}", response.status_code)
-            }
-        } else if !body.trim().is_empty() {
-            body.chars().take(200).collect()
-        } else {
-            format!("HTTP {}", response.status_code)
-        }
-    } else {
-        format!("HTTP {}", response.status_code)
-    };
-
-    PrestoError::PaymentRejected {
-        reason,
-        status_code: response.status_code,
-    }
-}
+// parse_payment_rejection moved to payment::dispatch
 
 /// Display receipt information from response with optional clickable explorer links.
 fn display_receipt(
@@ -1058,14 +891,35 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         body
     };
 
+    // Build retry policy from CLI flags
+    let mut retry_codes: Vec<u16> = query
+        .retry_http
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .filter_map(|s| s.trim().parse::<u16>().ok())
+        .collect();
+    // Curl parity: when --retries is set but no explicit --retry-http, use default transient set
+    if query.retries.is_some() && retry_codes.is_empty() {
+        retry_codes = vec![408, 429, 500, 502, 503, 504];
+    }
+
     let plan = HttpRequestPlan {
         method,
         headers,
         body,
         timeout_secs: query.max_time,
         connect_timeout_secs: query.connect_timeout,
-        retries: query.retries.unwrap_or(0),
-        retry_backoff_ms: query.retry_backoff_ms.unwrap_or(250),
+        retry_policy: crate::http::RetryPolicy {
+            max_retries: query.retries.unwrap_or(0),
+            base_backoff_ms: query.retry_backoff_ms.unwrap_or(250),
+            max_backoff_ms: 10_000,
+            status_retry_codes: retry_codes,
+            // Curl parity: honor Retry-After by default when --retries is used
+            honor_retry_after: query.retries.is_some() || query.retry_after,
+            // Curl default has exponential backoff without jitter; only apply when user opts in
+            jitter_pct: query.retry_jitter,
+        },
         follow_redirects: query.location,
         follow_redirects_limit: query.max_redirs.map(|v| v as usize),
         user_agent: query
@@ -1107,7 +961,8 @@ fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
         },
         verbosity: cli.verbosity(),
         show_output: cli.should_show_output(),
-        fail_silently: query.fail_silently && !query.fail_with_body,
+        // Unified --fail semantics: always print body unless --silent; do not suppress body here
+        fail_silently: false,
         dump_headers: query.dump_header.clone(),
         write_meta: query.write_meta.clone(),
     }
@@ -1117,6 +972,7 @@ fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
 mod tests {
     use super::*;
     use crate::config::OutputFormat;
+    use crate::payment::dispatch::parse_payment_rejection;
 
     // ==================== parse_payment_rejection ====================
 

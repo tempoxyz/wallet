@@ -1,11 +1,13 @@
 //! Configuration management for presto.
 
-use crate::error::PrestoError;
+use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
+
 use anyhow::Context;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+
+use crate::error::PrestoError;
 
 // ---------------------------------------------------------------------------
 // Output format
@@ -14,7 +16,7 @@ use std::path::{Component, Path, PathBuf};
 /// Output format for CLI commands and config default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum OutputFormat {
+pub enum OutputFormat {
     Text,
     Json,
     Toon,
@@ -53,7 +55,7 @@ impl OutputFormat {
 
 /// Validates that a path doesn't contain directory traversal sequences.
 /// Returns the validated path or an error if traversal is detected.
-pub(crate) fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PrestoError> {
+pub fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PrestoError> {
     let path = PathBuf::from(path);
 
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
@@ -79,7 +81,7 @@ pub(crate) fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf,
 ///
 /// Wallet credentials are stored separately in `keys.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct Config {
+pub struct Config {
     /// RPC URL override for Tempo mainnet
     #[serde(default)]
     pub tempo_rpc: Option<String>,
@@ -99,7 +101,7 @@ pub(crate) struct Config {
 
 /// Telemetry configuration options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct TelemetryConfig {
+pub struct TelemetryConfig {
     /// Enable anonymous telemetry and usage analytics.
     /// Can be disabled here or via `PRESTO_NO_TELEMETRY=1` env var.
     #[serde(default = "TelemetryConfig::default_enabled")]
@@ -120,7 +122,7 @@ impl Default for TelemetryConfig {
 
 /// Cached update check state (written automatically, not user-facing).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct VersionCheck {
+pub struct VersionCheck {
     /// Unix timestamp of the last update check.
     #[serde(default)]
     pub last_check: u64,
@@ -177,20 +179,14 @@ impl Config {
         let config_path = Self::default_config_path()?;
         let body = toml::to_string_pretty(self)?;
         let content = format!(
-            "# presto configuration — optional RPC overrides\n\
-             # Wallet credentials are in keys.toml (managed by `presto login`)\n\
-             #\n\
+            "# presto configuration\n\
+             # Wallet credentials live in keys.toml (set via `presto login`)\n\
+             # Optional RPC overrides:\n\
              # tempo_rpc = \"https://...\"\n\
              # moderato_rpc = \"https://...\"\n\
-             #\n\
              # [rpc]\n\
              # tempo = \"https://...\"\n\
-             # \"tempo-moderato\" = \"https://...\"\n\
-             #\n\
-             # (JSON output: use `presto -j ...`)\n\
-             #\n\
-             # [telemetry]\n\
-             # enabled = true\n\n\
+             # \"tempo-moderato\" = \"https://...\"\n\n\
              {body}"
         );
         crate::util::atomic_write(&config_path, &content, 0o600)?;
@@ -306,7 +302,7 @@ impl Config {
 // Load functions
 // ---------------------------------------------------------------------------
 
-pub(crate) fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
+pub fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Result<Config> {
     if let Some(path) = config_path {
         validate_path(path, true).context("Invalid config path")?;
     }

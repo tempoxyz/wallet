@@ -6,16 +6,16 @@
 
 use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
+use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
 use crate::error::PrestoError;
 use crate::wallet::credentials::WalletCredentials;
-use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
 /// A loaded wallet signer ready for transaction signing.
 ///
 /// Bundles the private key signer, the resolved `TempoSigningMode`
 /// (direct or keychain), and the effective `from` address.
-pub(crate) struct WalletSigner {
+pub struct WalletSigner {
     pub signer: PrivateKeySigner,
     pub signing_mode: TempoSigningMode,
     pub from: Address,
@@ -55,7 +55,7 @@ fn resolve_signing_mode(
 /// Loads the key from persisted credentials, parses the wallet
 /// address, and builds a `TempoSigningMode` (direct EOA or keychain
 /// with optional key authorization).
-pub(crate) fn load_wallet_signer(network: &str) -> Result<WalletSigner, PrestoError> {
+pub fn load_wallet_signer(network: &str) -> Result<WalletSigner, PrestoError> {
     // Preserve detailed error context from loader
     let creds = WalletCredentials::load()?;
 

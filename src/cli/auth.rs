@@ -1,8 +1,9 @@
 //! Authentication commands — login, logout, and wallet status.
 
-use serde::Serialize;
-
 use std::collections::BTreeMap;
+
+use anyhow::Context;
+use serde::Serialize;
 
 use super::keys::{
     build_key_info, format_expiry_countdown, key_expiry_timestamp, print_key_limits_to,
@@ -14,7 +15,6 @@ use crate::config::Config;
 use crate::network::{format_address_link, networks::network_or_default, Network};
 use crate::wallet::credentials::{keychain, WalletCredentials, WalletType};
 use crate::wallet::WalletManager;
-use anyhow::Context;
 
 /// Load the default config, creating and saving a default if the file doesn't exist.
 fn load_or_create_default_config() -> anyhow::Result<Config> {
@@ -128,7 +128,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-pub(crate) struct StatusResponse {
+pub struct StatusResponse {
     pub ready: bool,
     pub wallet: Option<String>,
     pub wallet_type: Option<String>,
@@ -144,10 +144,10 @@ pub(crate) struct StatusResponse {
     pub active_sessions: Option<usize>,
     pub network: Option<String>,
     pub chain_id: Option<u64>,
-    pub(crate) key: Option<KeyInfo>,
+    pub key: Option<KeyInfo>,
     /// Key expiry as a Unix timestamp (used for text display only, not serialized).
     #[serde(skip)]
-    pub(crate) key_expiry: Option<u64>,
+    pub key_expiry: Option<u64>,
 }
 
 pub async fn show_whoami(

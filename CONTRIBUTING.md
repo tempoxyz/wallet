@@ -108,6 +108,10 @@ examples/                # Runnable example scripts
 .changelog/              # Changelog entries (see Changelogs section)
 ```
 
+### Scope: CLI-Only
+
+This repository is a single binary crate. Internal modules are crate-private and not a stable public API. Please do not depend on presto as a library — all supported behavior is exposed via the CLI.
+
 ### Key Conventions
 
 **Imports** — group as std → external crates → crate modules:
@@ -148,7 +152,7 @@ use crate::config::Config;
 Keep documentation in sync with the CLI. After changing flags, commands, or behavior:
 
 1. Run `cargo run -- --help` (and `cargo run -- <subcommand> --help`) to verify help text is accurate
-2. Update `README.md` if user-facing behavior changed
+2. Update `README.md` if user-facing behavior changed (usage and examples only; repository-specific contributor guidance belongs here in CONTRIBUTING)
 3. Check that `AGENTS.md` still reflects the current module layout and conventions
 
 ## Changelogs

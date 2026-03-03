@@ -23,7 +23,7 @@ const DEFAULT_LIMIT: u64 = 100_000_000;
 
 /// Decoded and validated key authorization.
 #[derive(Debug, PartialEq)]
-pub(crate) struct ValidatedKeyAuth {
+pub struct ValidatedKeyAuth {
     pub hex: String,
     pub expiry: u64,
     pub chain_id: u64,
@@ -55,7 +55,7 @@ pub fn decode(hex_str: &str) -> Option<SignedKeyAuthorization> {
 }
 
 /// Validate a key authorization hex string against an expected key ID.
-pub(crate) fn validate(
+pub fn validate(
     hex_str: Option<&str>,
     expected_key_id: Address,
 ) -> Result<Option<ValidatedKeyAuth>, PrestoError> {
@@ -107,7 +107,7 @@ pub(crate) fn validate(
 ///
 /// Returns the validated auth containing hex, expiry, and token limits.
 /// Uses $100 USDC limit and 30-day expiry.
-pub(crate) fn sign(
+pub fn sign(
     wallet_signer: &PrivateKeySigner,
     access_signer: &PrivateKeySigner,
     chain_id: u64,

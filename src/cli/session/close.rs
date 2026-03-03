@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 
-use super::super::OutputFormat;
 use crate::analytics::Analytics;
+use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::network::Network;
 use crate::payment::session::store as session_store;
@@ -79,7 +79,10 @@ async fn close_all_sessions(
     for session in &sessions {
         let key = session_store::session_key(&session.origin);
         match close_session_from_record(session, config, analytics).await {
-            Ok(CloseOutcome::Closed { tx_url }) => {
+            Ok(CloseOutcome::Closed {
+                tx_url,
+                amount_display,
+            }) => {
                 if let Err(e) = session_store::delete_session(&key) {
                     if show_output {
                         eprintln!("  Failed to remove local session: {e}");
@@ -88,6 +91,13 @@ async fn close_all_sessions(
                 if show_output {
                     eprintln!("Closed {}", session.origin);
                     print_tx_url(&tx_url);
+                    if let Some(url) = &tx_url {
+                        if let Some(ref amt) = amount_display {
+                            eprintln!("Paid {amt} · {url}");
+                        } else {
+                            eprintln!("Paid settlement · {url}");
+                        }
+                    }
                 }
                 summary.record_closed(serde_json::json!({
                     "origin": session.origin,
@@ -143,10 +153,20 @@ async fn close_all_sessions(
 
                 for ch in &orphaned {
                     match close_discovered_channel(ch, config).await {
-                        Ok(CloseOutcome::Closed { tx_url }) => {
+                        Ok(CloseOutcome::Closed {
+                            tx_url,
+                            amount_display,
+                        }) => {
                             if show_output {
                                 eprintln!("Closed {}", ch.channel_id);
                                 print_tx_url(&tx_url);
+                                if let Some(url) = &tx_url {
+                                    if let Some(ref amt) = amount_display {
+                                        eprintln!("Paid {amt} · {url}");
+                                    } else {
+                                        eprintln!("Paid settlement · {url}");
+                                    }
+                                }
                             }
                             summary.record_closed(serde_json::json!({
                                 "channel_id": ch.channel_id,
@@ -197,7 +217,7 @@ async fn close_by_channel_id(
     network: Option<&str>,
 ) -> Result<()> {
     match close_channel_by_id(config, target, network, None).await {
-        Ok(CloseOutcome::Closed { tx_url }) => {
+        Ok(CloseOutcome::Closed { tx_url, .. }) => {
             let _ = session_store::delete_session_by_channel_id(target);
             if output_format.is_structured() {
                 println!(
@@ -264,7 +284,10 @@ async fn close_by_url(
 
     if let Some(record) = session {
         match close_session_from_record(&record, config, analytics).await {
-            Ok(CloseOutcome::Closed { tx_url }) => {
+            Ok(CloseOutcome::Closed {
+                tx_url,
+                amount_display,
+            }) => {
                 if let Err(e) = session_store::delete_session(&key) {
                     if show_output {
                         eprintln!("  Failed to remove local session: {e}");
@@ -278,7 +301,11 @@ async fn close_by_url(
                 } else {
                     println!("Closed {}", record.origin);
                     if let Some(url) = &tx_url {
-                        println!("  {url}");
+                        if let Some(ref amt) = amount_display {
+                            println!("Paid {amt} · {url}");
+                        } else {
+                            println!("Paid settlement · {url}");
+                        }
                     }
                 }
             }
@@ -360,7 +387,7 @@ async fn close_orphaned_channels(
 
     for ch in &orphaned {
         match close_discovered_channel(ch, config).await {
-            Ok(CloseOutcome::Closed { tx_url }) => {
+            Ok(CloseOutcome::Closed { tx_url, .. }) => {
                 let _ = session_store::delete_session_by_channel_id(&ch.channel_id);
                 if show_output {
                     eprintln!("Closed {}", ch.channel_id);
@@ -447,7 +474,7 @@ async fn finalize_closed_channels(
         }
         let wallet = signer_cache.get(&s.network_name);
         match close_channel_by_id(config, &s.channel_id, Some(&s.network_name), wallet).await {
-            Ok(CloseOutcome::Closed { tx_url }) => {
+            Ok(CloseOutcome::Closed { tx_url, .. }) => {
                 if let Err(e) = session_store::delete_session_by_channel_id(&s.channel_id) {
                     tracing::warn!(%e, "failed to delete session record");
                 }
@@ -530,7 +557,7 @@ async fn finalize_closed_channels(
                         }
                     }
                     // Check grace readiness from on-chain constant
-                    let grace = super::super::super::payment::session::read_grace_period(
+                    let grace = crate::payment::session::read_grace_period(
                         &alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(
                             Network::parse_rpc_url(&config.resolve_network(net)?.rpc_url)?,
                         ),
@@ -544,7 +571,7 @@ async fn finalize_closed_channels(
                     }
                     let wallet = signer_cache.get(net);
                     match close_channel_by_id(config, &ch.channel_id, Some(net), wallet).await {
-                        Ok(CloseOutcome::Closed { tx_url }) => {
+                        Ok(CloseOutcome::Closed { tx_url, .. }) => {
                             if show_output {
                                 eprintln!("Finalized {}", ch.channel_id);
                                 print_tx_url(&tx_url);

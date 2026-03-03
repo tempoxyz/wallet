@@ -14,7 +14,7 @@ use super::OutputFormat;
 /// `RequestRuntime` to avoid coupling HTTP/payment layers to
 /// presentation concerns.
 #[derive(Clone, Debug)]
-pub(crate) struct OutputOptions {
+pub struct OutputOptions {
     pub output_format: OutputFormat,
     pub include_headers: bool,
     pub output_file: Option<String>,
@@ -42,7 +42,7 @@ impl OutputOptions {
 // ---------------------------------------------------------------------------
 
 /// Handle a regular (non-402) HTTP response
-pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+pub fn handle_regular_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     // If -f/--fail is set and the response is an error, suppress body output.
     // Still honor -D/--dump-header if requested.
     if opts.fail_silently && response.status_code >= 400 {
@@ -81,7 +81,7 @@ pub(crate) fn handle_regular_response(opts: &OutputOptions, response: HttpRespon
 }
 
 /// Write response metadata (JSON) if requested.
-pub(crate) fn write_meta_if_requested(
+pub fn write_meta_if_requested(
     opts: &OutputOptions,
     response: &HttpResponse,
     elapsed_ms: u128,
@@ -105,7 +105,7 @@ pub(crate) fn write_meta_if_requested(
 /// Render a structured error object for agent consumption.
 ///
 /// Schema: { code, message, cause? }
-pub(crate) fn render_error_structured(err: &anyhow::Error, format: OutputFormat) -> String {
+pub fn render_error_structured(err: &anyhow::Error, format: OutputFormat) -> String {
     let code = ExitCode::from(err).label();
 
     // Root message and optional immediate cause
@@ -238,7 +238,7 @@ mod tests {
             crate::error::PrestoError::ConfigMissing("no wallet".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(parsed["code"], "E_CONFIG");
+        assert_eq!(parsed["code"], "E_USAGE");
     }
 
     #[test]

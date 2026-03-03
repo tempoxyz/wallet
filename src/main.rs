@@ -41,15 +41,14 @@ mod wallet;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use clap_complete::{generate, shells};
-use cli::exit_codes::ExitCode;
-use cli::{
-    Cli, ColorMode, Commands, KeyCommands, ServicesCommands, SessionCommands, Shell, WalletCommands,
-};
 use colored::control;
 
-use analytics::Analytics;
-use config::load_config_with_overrides;
+use crate::analytics::Analytics;
+use crate::cli::exit_codes::ExitCode;
+use crate::cli::{
+    Cli, ColorMode, Commands, KeyCommands, ServicesCommands, SessionCommands, WalletCommands,
+};
+use crate::config::load_config_with_overrides;
 
 /// Entry point for the presto CLI.
 ///
@@ -67,7 +66,7 @@ use config::load_config_with_overrides;
 async fn main() {
     let mut cli = parse_cli();
 
-    init_tracing(&cli);
+    cli::logging::init_tracing(&cli);
     init_color_support(&cli);
 
     let output_format = cli.resolve_output_format();
@@ -115,7 +114,7 @@ fn parse_cli() -> Cli {
             if matches!(original_err.kind(), clap::error::ErrorKind::DisplayVersion) {
                 let args: Vec<String> = std::env::args().collect();
                 if args.iter().any(|a| a == "-j" || a == "--json-output") {
-                    print_version_json();
+                    cli::completions::print_version_json();
                     std::process::exit(0);
                 }
                 original_err.exit()
@@ -173,16 +172,7 @@ fn parse_cli() -> Cli {
     }
 }
 
-/// Print version information as structured JSON and exit.
-fn print_version_json() {
-    let json = serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "git_commit": env!("PRESTO_GIT_SHA"),
-        "build_date": env!("PRESTO_BUILD_DATE"),
-        "profile": env!("PRESTO_BUILD_PROFILE"),
-    });
-    println!("{}", serde_json::to_string_pretty(&json).unwrap());
-}
+// Moved to crate::cli::completions::print_version_json
 
 /// Validate the --network flag value against known built-in networks.
 ///
@@ -224,10 +214,10 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             Commands::Completions { .. } => "completions",
             Commands::Wallets { .. } => "wallets",
             Commands::Sessions { .. } => "sessions",
-            Commands::Whoami | Commands::Balance => "whoami",
+            Commands::Whoami => "whoami",
             Commands::Keys { .. } => "keys",
             Commands::Services { .. } => "services",
-            Commands::Update => "update",
+            Commands::Update { .. } => "update",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -313,7 +303,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 
         Commands::Completions { shell } => {
             if let Some(shell) = shell {
-                generate_completions(shell)
+                cli::completions::generate_completions(shell)
             } else {
                 println!("Supported shells: bash, zsh, fish, powershell");
                 Ok(())
@@ -440,7 +430,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             }
         }
 
-        Commands::Whoami | Commands::Balance => {
+        Commands::Whoami => {
             let network = cli.network.as_deref();
             let output_format = cli.resolve_output_format();
 
@@ -507,7 +497,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             }
         }
 
-        Commands::Update => run_self_update(),
+        Commands::Update { yes } => run_self_update(yes),
     };
 
     if let Some(ref a) = analytics {
@@ -522,7 +512,21 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 const INSTALL_SCRIPT_URL: &str = "https://presto-binaries.tempo.xyz/install.sh";
 
 /// Download and run the install script to update to the latest version.
-fn run_self_update() -> Result<()> {
+fn run_self_update(yes: bool) -> Result<()> {
+    if !yes {
+        use std::io::{self, Write};
+        eprintln!("This will run a remote install script: {INSTALL_SCRIPT_URL}\n");
+        eprint!("Proceed? [y/N]: ");
+        io::stderr().flush().ok();
+        let mut line = String::new();
+        io::stdin().read_line(&mut line).ok();
+        let ans = line.trim().to_ascii_lowercase();
+        if ans != "y" && ans != "yes" {
+            eprintln!("Aborted.");
+            return Ok(());
+        }
+    }
+
     eprintln!("Updating presto to the latest version...\n");
 
     let status = std::process::Command::new("bash")
@@ -538,55 +542,9 @@ fn run_self_update() -> Result<()> {
     Ok(())
 }
 
-/// Generate shell completions
-fn generate_completions(shell: Shell) -> Result<()> {
-    let mut cmd = Cli::command();
-    let bin_name = cmd.get_name().to_string();
+// Moved to crate::cli::completions::generate_completions
 
-    match shell {
-        Shell::Bash => generate(shells::Bash, &mut cmd, bin_name, &mut std::io::stdout()),
-        Shell::Zsh => generate(shells::Zsh, &mut cmd, bin_name, &mut std::io::stdout()),
-        Shell::Fish => generate(shells::Fish, &mut cmd, bin_name, &mut std::io::stdout()),
-        Shell::PowerShell => generate(
-            shells::PowerShell,
-            &mut cmd,
-            bin_name,
-            &mut std::io::stdout(),
-        ),
-    }
-
-    Ok(())
-}
-
-fn init_tracing(cli: &Cli) {
-    use tracing_subscriber::EnvFilter;
-
-    // Quiet mode (-q) is absolute: override any RUST_LOG with "off"
-    let filter = if cli.silent {
-        EnvFilter::new("off")
-    } else if let Ok(env) = std::env::var("RUST_LOG") {
-        EnvFilter::new(env)
-    } else {
-        // Map verbosity count to tracing level for the presto crate only;
-        // keep all other crates at warn to avoid noise from hyper/reqwest/alloy.
-        let filter_str = match cli.verbose {
-            0 => "warn",
-            1 => "warn,presto=info",
-            2 => "warn,presto=debug,mpp=debug",
-            _ => {
-                "trace,hyper=warn,reqwest=warn,h2=warn,rustls=warn,tower=warn,mio=warn,polling=warn"
-            }
-        };
-        EnvFilter::new(filter_str)
-    };
-
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .without_time()
-        .init();
-}
+// init_tracing now lives in crate::cli::logging
 
 /// Initialize color support based on user preference and NO_COLOR env var
 fn init_color_support(cli: &Cli) {
