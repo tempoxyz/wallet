@@ -707,7 +707,7 @@ async fn test_no_redirect() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_fail_flag_suppresses_body() {
+async fn test_fail_flag_exits_non_zero_and_keeps_body() {
     let server = MockServer::start(404, vec![], "not found body").await;
     let temp = TestConfigBuilder::new().build();
 
@@ -721,10 +721,8 @@ async fn test_fail_flag_suppresses_body() {
         "-f should make HTTP >= 400 exit with error"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        !stdout.contains("not found body"),
-        "-f should suppress error response body: {stdout}"
-    );
+    // Unified semantics: body is still printed (unless --silent)
+    assert!(stdout.contains("not found body"), "expected body with -f");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1719,7 +1717,7 @@ async fn test_402_malformed_www_authenticate() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_non_402_error_codes_with_fail_flag() {
-    // -f flag should suppress body and fail on 4xx/5xx
+    // -f flag should fail on 4xx/5xx and keep body unless --silent
     for status in [400u16, 403, 404, 500, 502, 503] {
         let body = format!("error body for {status}");
         let server = MockServer::start(status, vec![], &body).await;
@@ -1735,10 +1733,7 @@ async fn test_non_402_error_codes_with_fail_flag() {
             "status {status} should fail with -f"
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            stdout.is_empty(),
-            "body should be suppressed with -f for status {status}: {stdout}"
-        );
+        assert!(stdout.contains(&body), "expected body with -f");
     }
 }
 
@@ -2283,4 +2278,266 @@ async fn test_toon_and_json_input_conflict() {
             || combined.contains("--json"),
         "should mention conflict: {combined}"
     );
+}
+
+// ==================== Services Tests ====================
+
+/// Fixed mock ServiceRegistry for deterministic testing.
+fn mock_service_registry_json() -> serde_json::Value {
+    json!({
+        "version": 1,
+        "services": [
+            {
+                "id": "test-llm",
+                "name": "Test LLM",
+                "url": "https://test-llm.example.com",
+                "serviceUrl": "https://test-llm.mpp.example.com",
+                "description": "A test LLM service",
+                "categories": ["ai"],
+                "integration": "first-party",
+                "tags": ["llm", "chat"],
+                "status": "active",
+                "methods": {
+                    "tempo": {
+                        "intents": ["session"],
+                        "assets": ["USDC"]
+                    }
+                },
+                "endpoints": [
+                    {
+                        "method": "POST",
+                        "path": "/v1/chat/completions",
+                        "description": "Chat completions",
+                        "payment": {
+                            "intent": "session",
+                            "method": "tempo",
+                            "amount": "100000",
+                            "currency": "0x1234",
+                            "decimals": 6,
+                            "unitType": "token"
+                        }
+                    }
+                ],
+                "provider": {
+                    "name": "TestCorp",
+                    "url": "https://testcorp.example.com"
+                },
+                "docs": {
+                    "homepage": "https://docs.example.com",
+                    "openapi": "https://docs.example.com/openapi.json"
+                }
+            },
+            {
+                "id": "test-search",
+                "name": "Test Search",
+                "url": "https://test-search.example.com",
+                "description": "A test search service",
+                "categories": ["search"],
+                "integration": "third-party",
+                "status": "active",
+                "methods": {
+                    "tempo": {
+                        "intents": ["charge"],
+                        "assets": ["USDC"]
+                    }
+                },
+                "endpoints": [
+                    {
+                        "method": "GET",
+                        "path": "/search",
+                        "description": "Search endpoint",
+                        "payment": {
+                            "intent": "charge",
+                            "method": "tempo",
+                            "amount": "50000",
+                            "currency": "0x5678",
+                            "decimals": 6
+                        }
+                    }
+                ]
+            }
+        ]
+    })
+}
+
+/// Start a mock services registry that serves the fixed ServiceRegistry JSON.
+async fn start_mock_services_registry() -> MockServer {
+    let body = serde_json::to_string(&mock_service_registry_json()).unwrap();
+    MockServer::start(200, vec![], &body).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_services_list_json_structure() {
+    let server = start_mock_services_registry().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .args(["services", "list", "-j"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "services list -j failed: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let arr = parsed.as_array().expect("expected JSON array");
+    assert_eq!(arr.len(), 2);
+    for entry in arr {
+        assert!(entry["id"].is_string(), "entry missing 'id'");
+        assert!(entry["name"].is_string(), "entry missing 'name'");
+        assert!(entry["categories"].is_array(), "entry missing 'categories'");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_services_list_toon_structure() {
+    let server = start_mock_services_registry().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .args(["services", "list", "-t"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "services list -t failed: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // TOON is decodable back to JSON
+    let decoded: serde_json::Value =
+        toon_format::decode_default(stdout.trim()).expect("invalid TOON");
+    let arr = decoded.as_array().expect("expected TOON array");
+    assert_eq!(arr.len(), 2);
+    for entry in arr {
+        assert!(entry["id"].is_string(), "entry missing 'id'");
+        assert!(entry["name"].is_string(), "entry missing 'name'");
+        assert!(entry["categories"].is_array(), "entry missing 'categories'");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_services_info_json_structure() {
+    let server = start_mock_services_registry().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .args(["services", "info", "test-llm", "-j"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "services info -j failed: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["id"], "test-llm");
+    assert_eq!(parsed["name"], "Test LLM");
+    assert!(parsed["description"].is_string(), "missing 'description'");
+    let endpoints = parsed["endpoints"].as_array().expect("missing 'endpoints'");
+    assert!(!endpoints.is_empty());
+    let ep = &endpoints[0];
+    assert!(ep["method"].is_string(), "endpoint missing 'method'");
+    assert!(ep["path"].is_string(), "endpoint missing 'path'");
+    assert!(ep["pricing"].is_string(), "endpoint missing 'pricing'");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_services_info_toon_structure() {
+    let server = start_mock_services_registry().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .args(["services", "info", "test-llm", "-t"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "services info -t failed: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let decoded: serde_json::Value =
+        toon_format::decode_default(stdout.trim()).expect("invalid TOON");
+    assert_eq!(decoded["id"], "test-llm");
+    assert_eq!(decoded["name"], "Test LLM");
+    let endpoints = decoded["endpoints"]
+        .as_array()
+        .expect("missing 'endpoints'");
+    assert!(!endpoints.is_empty());
+    let ep = &endpoints[0];
+    assert!(ep["method"].is_string(), "endpoint missing 'method'");
+    assert!(ep["path"].is_string(), "endpoint missing 'path'");
+    assert!(ep["pricing"].is_string(), "endpoint missing 'pricing'");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_services_list_category_filter() {
+    let server = start_mock_services_registry().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .args(["services", "--category", "ai", "-j"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "category filter failed: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let arr = parsed.as_array().expect("expected JSON array");
+    assert_eq!(arr.len(), 1, "expected 1 result for category=ai");
+    assert_eq!(arr[0]["id"], "test-llm");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_services_list_search_filter() {
+    let server = start_mock_services_registry().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .args(["services", "--search", "search", "-j"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "search filter failed: {}",
+        get_combined_output(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let arr = parsed.as_array().expect("expected JSON array");
+    assert_eq!(arr.len(), 1, "expected 1 result for search=search");
+    assert_eq!(arr[0]["id"], "test-search");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_services_info_not_found() {
+    let server = start_mock_services_registry().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .args(["services", "info", "nonexistent", "-j"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "nonexistent service should fail");
 }

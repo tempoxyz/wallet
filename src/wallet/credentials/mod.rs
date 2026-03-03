@@ -2,13 +2,11 @@
 
 mod io;
 mod model;
-pub(crate) mod overrides;
+pub mod overrides;
 
-pub(crate) use model::parse_private_key_signer;
-pub(crate) use model::{
-    keychain, KeyEntry, KeyType, StoredTokenLimit, WalletCredentials, WalletType,
-};
-pub(crate) use overrides::{has_credentials_override, set_credentials_override};
+pub use model::parse_private_key_signer;
+pub use model::{keychain, KeyEntry, KeyType, StoredTokenLimit, WalletCredentials, WalletType};
+pub use overrides::{has_credentials_override, set_credentials_override};
 
 #[cfg(test)]
 mod tests {

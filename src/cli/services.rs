@@ -182,7 +182,7 @@ fn to_detail(s: &Service) -> ServiceDetail<'_> {
 // List
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn list_services(
+pub async fn list_services(
     output_format: OutputFormat,
     category: Option<&str>,
     search: Option<&str>,
@@ -236,7 +236,7 @@ pub(crate) async fn list_services(
 // Info
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn show_service_info(output_format: OutputFormat, service_id: &str) -> Result<()> {
+pub async fn show_service_info(output_format: OutputFormat, service_id: &str) -> Result<()> {
     let registry = services::fetch_services().await?;
 
     let service = registry

@@ -3,17 +3,19 @@
 //! Following standard Unix conventions and providing specific codes
 //! for different error categories to aid scripting and automation.
 
-/// Exit codes for the  tempo-walletCLI.
+/// Exit codes for the  tempo-walletCLI (simplified set).
 ///
-/// These codes follow Unix conventions where possible:
 /// - 0: Success
-/// - 1: General error
-/// - 2: Misuse of shell command (e.g., invalid arguments)
-/// - 130: Script terminated by Ctrl+C (128 + SIGINT)
+/// - 1: General error (fallback)
+/// - 2: Invalid usage (bad arguments, invalid flags, invalid config)
+/// - 3: Network error (connect, timeout, TLS, proxy)
+/// - 4: HTTP error (HTTP >= 400 after successful transfer)
+/// - 5: Payment error (payment rejected, unsupported method/intent)
+/// - 130: Interrupted (Ctrl+C)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 #[allow(dead_code)]
-pub(crate) enum ExitCode {
+pub enum ExitCode {
     /// Successful execution
     Success = 0,
 
@@ -23,29 +25,14 @@ pub(crate) enum ExitCode {
     /// Invalid usage (bad arguments, invalid flags)
     InvalidUsage = 2,
 
-    /// Configuration error (missing config, invalid config)
-    ConfigError = 3,
-
     /// Network/connection error
-    NetworkError = 4,
+    NetworkError = 3,
+
+    /// HTTP error (HTTP >= 400)
+    HttpError = 4,
 
     /// Payment declined or failed
     PaymentFailed = 5,
-
-    /// Insufficient funds for payment
-    InsufficientFunds = 6,
-
-    /// User cancelled operation (e.g., declined confirmation)
-    UserCancelled = 7,
-
-    /// Authentication/signing error
-    AuthError = 8,
-
-    /// Resource not found (network, wallet, etc.)
-    NotFound = 9,
-
-    /// Operation timed out
-    Timeout = 10,
 
     /// Interrupted by signal (Ctrl+C)
     /// Standard Unix convention: 128 + signal number (SIGINT = 2)
@@ -64,14 +51,9 @@ impl ExitCode {
             ExitCode::Success => "OK",
             ExitCode::GeneralError => "E_GENERAL",
             ExitCode::InvalidUsage => "E_USAGE",
-            ExitCode::ConfigError => "E_CONFIG",
             ExitCode::NetworkError => "E_NETWORK",
+            ExitCode::HttpError => "E_HTTP",
             ExitCode::PaymentFailed => "E_PAYMENT",
-            ExitCode::InsufficientFunds => "E_FUNDS",
-            ExitCode::UserCancelled => "E_CANCELLED",
-            ExitCode::AuthError => "E_AUTH",
-            ExitCode::NotFound => "E_NOT_FOUND",
-            ExitCode::Timeout => "E_TIMEOUT",
             ExitCode::Interrupted => "E_INTERRUPTED",
         }
     }
@@ -101,14 +83,15 @@ impl From<&anyhow::Error> for ExitCode {
         // Check error message for common patterns
         let msg = err.to_string().to_lowercase();
 
-        if msg.contains("timeout") {
-            ExitCode::Timeout
-        } else if msg.contains("connection") || msg.contains("network") {
+        if msg.contains("timeout")
+            || msg.contains("timed out")
+            || msg.contains("connect")
+            || msg.contains("connection")
+            || msg.contains("network")
+        {
             ExitCode::NetworkError
-        } else if msg.contains("config") {
-            ExitCode::ConfigError
-        } else if msg.contains("not found") {
-            ExitCode::NotFound
+        } else if msg.contains("config") || msg.contains("invalid") || msg.contains("usage") {
+            ExitCode::InvalidUsage
         } else {
             ExitCode::GeneralError
         }
@@ -125,17 +108,12 @@ impl From<&crate::error::PrestoError> for ExitCode {
             | PrestoError::InvalidConfig(_)
             | PrestoError::NoConfigDir
             | PrestoError::TomlParse(_)
-            | PrestoError::TomlSerialize(_) => ExitCode::ConfigError,
-
-            PrestoError::LoginExpired => ExitCode::Timeout,
+            | PrestoError::TomlSerialize(_) => ExitCode::InvalidUsage,
 
             // Payment/funds errors
-            PrestoError::SpendingLimitExceeded { .. } | PrestoError::InsufficientBalance { .. } => {
-                ExitCode::InsufficientFunds
-            }
-
-            // Payment protocol errors
-            PrestoError::PaymentRejected { .. }
+            PrestoError::SpendingLimitExceeded { .. }
+            | PrestoError::InsufficientBalance { .. }
+            | PrestoError::PaymentRejected { .. }
             | PrestoError::InvalidChallenge(_)
             | PrestoError::MissingHeader(_)
             | PrestoError::ChallengeExpired(_)
@@ -149,10 +127,10 @@ impl From<&crate::error::PrestoError> for ExitCode {
             | PrestoError::Reqwest(_)
             | PrestoError::OfflineMode => ExitCode::NetworkError,
 
-            // Auth/signing errors
+            // Auth/signing errors -> usage (bad keys/addresses entered by user)
             PrestoError::InvalidKey(_)
             | PrestoError::Signing(_)
-            | PrestoError::InvalidAddress(_) => ExitCode::AuthError,
+            | PrestoError::InvalidAddress(_) => ExitCode::InvalidUsage,
 
             // Invalid arguments / user input
             PrestoError::InvalidUrl(_) | PrestoError::InvalidHeader(_) => ExitCode::InvalidUsage,
@@ -180,7 +158,7 @@ mod tests {
 
         assert_eq!(
             ExitCode::from(&PrestoError::ConfigMissing("test".into())),
-            ExitCode::ConfigError
+            ExitCode::InvalidUsage
         );
         assert_eq!(
             ExitCode::from(&PrestoError::UnknownNetwork("test".into())),

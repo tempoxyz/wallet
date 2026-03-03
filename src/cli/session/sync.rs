@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::super::OutputFormat;
+use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::payment::session::query_channel_state;
 use crate::payment::session::store as session_store;

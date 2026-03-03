@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use super::super::OutputFormat;
+use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::payment::session::store as session_store;
 use crate::payment::session::{query_channel_state, read_grace_period};
@@ -51,7 +51,7 @@ pub async fn recover_session(
                 .context("invalid escrow address in local record")?;
 
             // We don't have closeRequestedAt from query_channel_state; re-query full channel
-            let ch = super::super::super::payment::session::channel::get_channel_on_chain(
+            let ch = crate::payment::session::channel::get_channel_on_chain(
                 &provider,
                 escrow,
                 rec.channel_id_b256()?,

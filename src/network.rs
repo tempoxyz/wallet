@@ -10,7 +10,7 @@ use crate::error::PrestoError;
 
 /// URL path patterns for different resource types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ExplorerConfig {
+pub struct ExplorerConfig {
     /// Base URL (e.g., `https://explore.mainnet.tempo.xyz`)
     pub base_url: String,
     /// Path template for transactions (default: "/receipt/{hash}")
@@ -63,7 +63,7 @@ impl ExplorerConfig {
 }
 
 /// Format an address as a clickable hyperlink if an explorer is available.
-pub(crate) fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> String {
+pub fn format_address_link(address: &str, explorer: Option<&ExplorerConfig>) -> String {
     if let Some(exp) = explorer {
         exp.address_link(address)
     } else {
@@ -105,7 +105,7 @@ pub mod tempo_tokens {
 
 /// Runtime network information
 #[derive(Debug, Clone)]
-pub(crate) struct NetworkInfo {
+pub struct NetworkInfo {
     /// RPC endpoint URL for blockchain interactions
     pub rpc_url: String,
     /// Block explorer configuration
@@ -114,7 +114,7 @@ pub(crate) struct NetworkInfo {
 
 /// Token configuration for a network.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TokenConfig {
+pub struct TokenConfig {
     /// Token symbol (e.g., "USDC", "pathUSD")
     pub symbol: &'static str,
     /// Number of decimal places
@@ -128,7 +128,7 @@ pub(crate) struct TokenConfig {
 /// This enum provides compile-time guarantees for network names and
 /// direct access to all network metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Network {
+pub enum Network {
     Tempo,
     TempoModerato,
 }
@@ -277,7 +277,7 @@ impl fmt::Display for Network {
 ///
 /// Returns `("tokens", 6)` as fallback when the network or token is unknown.
 /// This centralizes the repeated lookup pattern used across CLI and payment modules.
-pub(crate) fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, u8) {
+pub fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, u8) {
     network_name
         .parse::<Network>()
         .ok()
@@ -295,7 +295,7 @@ pub(crate) fn resolve_token_meta(network_name: &str, currency: &str) -> (&'stati
 /// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
 /// via `Config::set_rpc_override()`, which sets `tempo_rpc` and `moderato_rpc`
 /// so they flow through this logic.
-pub(crate) fn resolve(
+pub fn resolve(
     network_id: &str,
     config: &crate::config::Config,
 ) -> Result<NetworkInfo, crate::error::PrestoError> {
@@ -322,7 +322,7 @@ pub(crate) fn resolve(
 ///
 /// Returns `Ok(())` if the name matches a built-in network,
 /// or an error with a suggestion message if not.
-pub(crate) fn validate_network_name(name: &str) -> Result<(), String> {
+pub fn validate_network_name(name: &str) -> Result<(), String> {
     Network::from_str(name).map(|_| ())
 }
 

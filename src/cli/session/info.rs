@@ -1,15 +1,14 @@
+use alloy::primitives::{Address, B256, U256};
 use anyhow::{Context, Result};
 
 use super::render::{render_channel_list, render_channel_text, ChannelView};
+use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::network::resolve_token_meta;
 use crate::payment::session::channel::resolve_scan_networks;
 use crate::payment::session::read_grace_period;
 use crate::payment::session::store as session_store;
 use crate::util::format_u256_with_decimals;
-use alloy::primitives::{Address, B256, U256};
-
-use super::super::OutputFormat;
 
 /// Show details for a local session by URL/origin or for a channel by ID.
 pub async fn show_session_info(
@@ -151,7 +150,7 @@ async fn show_channel_info(
             Ok(a) => a,
             Err(_) => continue,
         };
-        let on_chain = match super::super::super::payment::session::channel::get_channel_on_chain(
+        let on_chain = match crate::payment::session::channel::get_channel_on_chain(
             &provider, escrow, channel_id,
         )
         .await

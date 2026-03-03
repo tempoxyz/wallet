@@ -1,7 +1,13 @@
 mod events;
 mod posthog;
 
-pub use events::*;
+pub use events::{
+    sanitize_error, sanitize_url, CallbackReceivedPayload, CallbackWindowOpenedPayload,
+    CommandRunPayload, EmptyPayload, Event, EventPayload, KeyCreatedPayload, LoginFailurePayload,
+    LoginPayload, LoginTimeoutPayload, PaymentFailurePayload, PaymentStartedPayload,
+    PaymentSuccessPayload, QueryFailurePayload, QueryStartedPayload, QuerySuccessPayload,
+    SessionStartedPayload,
+};
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

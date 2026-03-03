@@ -4,7 +4,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 #[allow(dead_code)]
-pub(crate) enum PrestoError {
+pub enum PrestoError {
     /// Missing required payment field
     #[error("Missing payment requirement: {0}")]
     MissingRequirement(String),
@@ -153,12 +153,12 @@ pub(crate) enum PrestoError {
 
 /// Check if the default wallet type is local (from `PRESTO_WALLET_TYPE` env var).
 /// Returns `false` (passkey mode) when the env var is unset or not `"local"`.
-pub(crate) fn is_local_wallet_default() -> bool {
+pub fn is_local_wallet_default() -> bool {
     std::env::var("PRESTO_WALLET_TYPE").as_deref() == Ok("local")
 }
 
 /// Build the "no wallet configured" error message with the correct follow-up.
-pub(crate) fn no_wallet_message() -> String {
+pub fn no_wallet_message() -> String {
     if is_local_wallet_default() {
         "No wallet configured. Create one with ' tempo-walletwallet create'.".to_string()
     } else {
@@ -167,7 +167,7 @@ pub(crate) fn no_wallet_message() -> String {
 }
 
 /// Map mpp validation errors to  tempo-walleterror types.
-pub(crate) fn map_mpp_validation_error(
+pub fn map_mpp_validation_error(
     e: mpp::MppError,
     challenge: &mpp::PaymentChallenge,
 ) -> PrestoError {
@@ -262,7 +262,7 @@ fn format_atomic_amount(amount: &str, decimals: u8) -> String {
 }
 
 /// Classify an mpp provider error into a PrestoError with actionable context.
-pub(crate) fn classify_payment_error(err: mpp::MppError) -> PrestoError {
+pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
     use mpp::client::TempoClientError;
 
     match err {

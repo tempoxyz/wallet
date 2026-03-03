@@ -47,7 +47,7 @@ sol! {
 // ==================== Types ====================
 
 /// On-chain channel state returned by recovery functions.
-pub(crate) struct OnChainChannel {
+pub struct OnChainChannel {
     pub token: Address,
     pub deposit: u128,
     pub settled: u128,
@@ -55,7 +55,7 @@ pub(crate) struct OnChainChannel {
 }
 
 /// Discovered on-chain channel with decoded metadata.
-pub(crate) struct DiscoveredChannel {
+pub struct DiscoveredChannel {
     pub network: String,
     pub channel_id: String,
     pub escrow_contract: String,
@@ -101,7 +101,7 @@ fn is_rpc_range_error(err: &str) -> bool {
 /// Returns `Ok(None)` if `deposit == 0` or `finalized == true` (channel
 /// does not exist or is already settled). Returns `Err` on RPC failures
 /// so callers can distinguish "no channel" from "network error".
-pub(crate) async fn get_channel_on_chain(
+pub async fn get_channel_on_chain(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
     channel_id: B256,
@@ -139,7 +139,7 @@ pub(crate) async fn get_channel_on_chain(
 /// Resolve networks to scan. If a specific network is given, use it.
 /// Otherwise, derive from wallet credentials (all unique networks the user has keys for).
 /// Falls back to Tempo mainnet if no credentials are available.
-pub(crate) fn resolve_scan_networks(network_filter: Option<&str>) -> Vec<Network> {
+pub fn resolve_scan_networks(network_filter: Option<&str>) -> Vec<Network> {
     if let Some(name) = network_filter {
         return name.parse::<Network>().ok().into_iter().collect();
     }

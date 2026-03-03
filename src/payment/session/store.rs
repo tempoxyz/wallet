@@ -15,7 +15,7 @@ use crate::error::PrestoError;
 
 /// A persisted payment channel session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub(crate) struct SessionRecord {
+pub struct SessionRecord {
     #[serde(default = "default_version")]
     pub version: u32,
     pub origin: String,
@@ -64,7 +64,7 @@ fn default_token_decimals() -> u8 {
     6
 }
 
-pub(crate) fn now_secs() -> u64 {
+pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -117,7 +117,7 @@ fn sessions_dir() -> Result<PathBuf> {
 /// Compute a session key from the origin URL (extract `scheme://host[:port]`).
 ///
 /// Non-alphanumeric chars (except `-` and `.`) are replaced with `_`.
-pub(crate) fn session_key(origin: &str) -> String {
+pub fn session_key(origin: &str) -> String {
     let normalized = url::Url::parse(origin)
         .map(|u| u.origin().ascii_serialization())
         .unwrap_or_else(|_| origin.to_string());
@@ -345,31 +345,31 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
 // ---------------------------------------------------------------------------
 
 /// Load a session record by key. Returns `None` if not found.
-pub(crate) fn load_session(key: &str) -> Result<Option<SessionRecord>> {
+pub fn load_session(key: &str) -> Result<Option<SessionRecord>> {
     let conn = open_db()?;
     load_session_conn(&conn, key)
 }
 
 /// Save a session record to the database.
-pub(crate) fn save_session(record: &SessionRecord) -> Result<()> {
+pub fn save_session(record: &SessionRecord) -> Result<()> {
     let conn = open_db()?;
     save_session_conn(&conn, record)
 }
 
 /// Delete a session record by key.
-pub(crate) fn delete_session(key: &str) -> Result<()> {
+pub fn delete_session(key: &str) -> Result<()> {
     let conn = open_db()?;
     delete_session_conn(&conn, key)
 }
 
 /// Delete a session record by channel ID.
-pub(crate) fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
+pub fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
     let conn = open_db()?;
     delete_session_by_channel_id_conn(&conn, channel_id)
 }
 
 /// List all session records, ordered by last_used_at descending.
-pub(crate) fn list_sessions() -> Result<Vec<SessionRecord>> {
+pub fn list_sessions() -> Result<Vec<SessionRecord>> {
     let conn = open_db()?;
     list_sessions_conn(&conn)
 }
@@ -381,7 +381,7 @@ pub(crate) fn list_sessions() -> Result<Vec<SessionRecord>> {
 // ---------------------------------------------------------------------------
 
 /// Update close state fields by channel ID for a local session (no-op if not found).
-pub(crate) fn update_session_close_state_by_channel_id(
+pub fn update_session_close_state_by_channel_id(
     channel_id: &str,
     state: &str,
     close_requested_at: u64,
@@ -398,7 +398,7 @@ pub(crate) fn update_session_close_state_by_channel_id(
 }
 
 /// File lock guard for an origin/session key.
-pub(crate) struct SessionLock {
+pub struct SessionLock {
     file: std::fs::File,
 }
 
@@ -409,7 +409,7 @@ impl Drop for SessionLock {
 }
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
-pub(crate) fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
+pub fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
     let dir = sessions_dir()?;
     let lock_path = dir.join(format!("{}.lock", key));
     let file = OpenOptions::new()

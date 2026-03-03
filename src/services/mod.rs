@@ -13,13 +13,13 @@ const SERVICES_API_URL: &str =
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct ServiceRegistry {
+pub struct ServiceRegistry {
     pub version: u32,
     pub services: Vec<Service>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct Service {
+pub struct Service {
     pub id: String,
     pub name: String,
     pub url: String,
@@ -50,7 +50,7 @@ pub(crate) struct Service {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct ServiceDocs {
+pub struct ServiceDocs {
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default, rename = "llmsTxt")]
@@ -62,7 +62,7 @@ pub(crate) struct ServiceDocs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct PaymentMethod {
+pub struct PaymentMethod {
     #[serde(default)]
     pub intents: Vec<String>,
     #[serde(default)]
@@ -70,7 +70,7 @@ pub(crate) struct PaymentMethod {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct Endpoint {
+pub struct Endpoint {
     pub method: String,
     pub path: String,
     #[serde(default)]
@@ -82,7 +82,7 @@ pub(crate) struct Endpoint {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct EndpointPayment {
+pub struct EndpointPayment {
     pub intent: String,
     pub method: String,
     #[serde(default)]
@@ -102,7 +102,7 @@ pub(crate) struct EndpointPayment {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct Provider {
+pub struct Provider {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -115,13 +115,14 @@ pub(crate) struct Provider {
 // Fetch
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn fetch_services() -> Result<ServiceRegistry> {
+pub async fn fetch_services() -> Result<ServiceRegistry> {
+    let url = std::env::var("PRESTO_SERVICES_URL").unwrap_or_else(|_| SERVICES_API_URL.to_string());
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .context("failed to build HTTP client")?;
     let resp = client
-        .get(SERVICES_API_URL)
+        .get(&url)
         .send()
         .await
         .context("failed to fetch service directory")?;

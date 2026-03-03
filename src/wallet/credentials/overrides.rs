@@ -6,7 +6,7 @@ use zeroize::Zeroizing;
 
 /// Global credentials override set by `--private-key` flag.
 /// Wrapped in [`Zeroizing`] so the secret is scrubbed from memory on process exit.
-pub(crate) static CREDENTIALS_OVERRIDE: OnceLock<Zeroizing<String>> = OnceLock::new();
+pub static CREDENTIALS_OVERRIDE: OnceLock<Zeroizing<String>> = OnceLock::new();
 
 /// Set a global credentials override (called once from main for `--private-key`).
 pub fn set_credentials_override(private_key: String) {

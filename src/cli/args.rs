@@ -2,7 +2,7 @@
 
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
-pub(crate) use crate::config::OutputFormat;
+pub use crate::config::OutputFormat;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ColorMode {
@@ -241,8 +241,13 @@ pub struct QueryArgs {
     pub insecure: bool,
 
     /// Fail on HTTP errors (do not output body)
-    #[arg(short = 'f', long = "fail", help_heading = "HTTP Options")]
-    pub fail_silently: bool,
+    #[arg(
+        short = 'f',
+        long = "fail",
+        help_heading = "HTTP Options",
+        help = "Exit non-zero on HTTP errors (body still printed unless --silent)"
+    )]
+    pub fail: bool,
 
     /// Override RPC URL for the request
     #[arg(
@@ -327,10 +332,7 @@ pub struct QueryArgs {
     )]
     pub write_meta: Option<String>,
 
-    /// Fail on HTTP errors but still output the response body
-    #[arg(long = "fail-with-body", help_heading = "HTTP Options")]
-    pub fail_with_body: bool,
-
+    // fail-with-body removed: unified --fail semantics always print the body unless --silent
     /// Hard cap the maximum amount to pay (integer of minimal units)
     #[arg(
         long = "max-pay",
@@ -432,9 +434,6 @@ pub enum Commands {
     /// Show who you are: wallet, balances, keys
     #[command(display_order = 4)]
     Whoami,
-    /// Alias for whoami
-    #[command(hide = true, name = "balance")]
-    Balance,
     /// Manage keys
     #[command(display_order = 5, name = "keys", hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
@@ -477,7 +476,11 @@ pub enum Commands {
 
     /// Update  tempo-walletto the latest version
     #[command(display_order = 8)]
-    Update,
+    Update {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 
     /// Generate shell completions script
     #[command(hide = true)]
@@ -543,7 +546,7 @@ pub enum SessionCommands {
     /// sessions; use `sessions list --orphaned` and `sessions close --orphaned`
     /// to manage on-chain-only channels.
     Recover {
-        /// URL or origin (scheme://host[:port]) to recover
+        /// URL or origin (scheme://host\[:port\]) to recover
         origin: String,
     },
     /// Sync local sessions with on-chain state (remove stale records)

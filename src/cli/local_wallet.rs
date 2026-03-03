@@ -19,7 +19,7 @@ use crate::wallet::key_authorization;
 /// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
 /// 5. Print the fundable wallet address
-pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<String> {
+pub fn create_local_wallet(network: Option<&str>) -> Result<String> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot create wallets with --private-key flag");
     }
@@ -79,7 +79,7 @@ pub(crate) fn create_local_wallet(network: Option<&str>) -> Result<String> {
 /// 2. Generate a new random key → store inline in keys.toml
 /// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
 /// 4. Clear provisioned flag (new key must re-provision)
-pub(crate) fn create_access_key(wallet_address: Option<&str>) -> Result<()> {
+pub fn create_access_key(wallet_address: Option<&str>) -> Result<()> {
     if credentials::has_credentials_override() {
         anyhow::bail!("Cannot renew wallets with --private-key flag");
     }

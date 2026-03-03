@@ -14,7 +14,7 @@ use tracing::warn;
 // ==================== HTTP Response ====================
 
 #[derive(Debug)]
-pub(crate) struct HttpResponse {
+pub struct HttpResponse {
     pub status_code: u16,
     /// Response headers with **lowercased** keys.
     ///
@@ -69,7 +69,7 @@ struct HttpClientConfig {
 
 /// Builder for configuring HTTP clients.
 #[must_use]
-pub(crate) struct HttpClientBuilder {
+pub struct HttpClientBuilder {
     config: HttpClientConfig,
 }
 
@@ -166,7 +166,7 @@ impl Default for HttpClientBuilder {
 }
 
 /// Async HTTP client for making HTTP requests.
-pub(crate) struct HttpClient {
+pub struct HttpClient {
     client: reqwest::Client,
 }
 
@@ -311,7 +311,7 @@ impl Default for HttpClient {
 // ==================== Header Utilities ====================
 
 /// Utility function to check if a header exists in the response (case-insensitive).
-pub(crate) fn has_header(headers: &[String], name: &str) -> bool {
+pub fn has_header(headers: &[String], name: &str) -> bool {
     let name_lower = name.to_lowercase();
     headers.iter().any(|h| {
         h.split_once(':')
@@ -323,7 +323,7 @@ pub(crate) fn has_header(headers: &[String], name: &str) -> bool {
 ///
 /// Preserves duplicate headers (important for HTTP headers like Set-Cookie).
 /// Header names are lowercased for consistency. Malformed entries are skipped.
-pub(crate) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
+pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
     headers
         .iter()
         .filter_map(|header| {
@@ -340,7 +340,7 @@ pub(crate) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
 /// Derived from CLI arguments at the boundary layer (`request.rs`);
 /// HTTP and payment modules depend on this instead of raw CLI types.
 #[derive(Clone, Debug)]
-pub(crate) struct RequestRuntime {
+pub struct RequestRuntime {
     pub verbosity: u8,
     pub show_output: bool,
     pub network: Option<String>,
@@ -361,14 +361,13 @@ impl RequestRuntime {
 
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Clone, Debug)]
-pub(crate) struct HttpRequestPlan {
+pub struct HttpRequestPlan {
     pub method: reqwest::Method,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
     pub timeout_secs: Option<u64>,
     pub connect_timeout_secs: Option<u64>,
-    pub retries: u32,
-    pub retry_backoff_ms: u64,
+    pub retry_policy: RetryPolicy,
     pub follow_redirects: bool,
     pub follow_redirects_limit: Option<usize>,
     pub user_agent: String,
@@ -389,7 +388,7 @@ const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 const MAX_HEADER_SIZE: usize = 8 * 1024;
 
 #[derive(Error, Debug)]
-pub(crate) enum RequestError {
+pub enum RequestError {
     #[error("Request body exceeds maximum size of {max} bytes")]
     BodyTooLarge { max: usize },
 
@@ -406,7 +405,7 @@ pub(crate) enum RequestError {
     },
 }
 
-pub(crate) fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
+pub fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
     if len > MAX_BODY_SIZE {
         return Err(RequestError::BodyTooLarge { max: MAX_BODY_SIZE });
     }
@@ -419,7 +418,7 @@ pub(crate) fn validate_body_size(len: usize) -> std::result::Result<(), RequestE
 /// - `@filename` — read the file as binary
 /// - `@-` — read stdin as binary
 /// - anything else — treat as a literal UTF-8 string
-pub(crate) fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
+pub fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
     if let Some(path) = data.strip_prefix('@') {
         if path == "-" {
             let mut buf = Vec::new();
@@ -443,7 +442,7 @@ pub(crate) fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestEr
     }
 }
 
-pub(crate) fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
+pub fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
     if header.len() > MAX_HEADER_SIZE {
         return Err(RequestError::HeaderTooLarge {
             max: MAX_HEADER_SIZE,
@@ -456,7 +455,7 @@ pub(crate) fn validate_header_size(header: &str) -> std::result::Result<(), Requ
 ///
 /// Built from `RequestRuntime` + `HttpRequestPlan` at the CLI boundary;
 /// HTTP and payment modules use this without depending on CLI types.
-pub(crate) struct RequestContext {
+pub struct RequestContext {
     pub runtime: RequestRuntime,
     pub plan: HttpRequestPlan,
 }
@@ -537,9 +536,10 @@ impl RequestContext {
         url: &str,
         extra_headers: &[(String, String)],
     ) -> Result<HttpResponse> {
+        let policy = &self.plan.retry_policy;
         let mut attempt: u32 = 0;
-        let max_retries = self.plan.retries;
-        let mut backoff = self.plan.retry_backoff_ms;
+        let mut backoff = policy.base_backoff_ms;
+
         loop {
             match client
                 .request(
@@ -550,7 +550,56 @@ impl RequestContext {
                 )
                 .await
             {
-                Ok(resp) => return Ok(resp),
+                Ok(resp) => {
+                    // HTTP status-based retry
+                    if attempt < policy.max_retries
+                        && !policy.status_retry_codes.is_empty()
+                        && policy.status_retry_codes.contains(&resp.status_code)
+                    {
+                        // Compute delay: Retry-After header or exponential backoff
+                        let mut delay_ms = if policy.honor_retry_after {
+                            if let Some(ra) = resp.get_header("retry-after") {
+                                ra.trim()
+                                    .parse::<u64>()
+                                    .ok()
+                                    .map(|s| s.saturating_mul(1000))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                        .unwrap_or(backoff);
+
+                        // Apply jitter if configured
+                        if let Some(pct) = policy.jitter_pct {
+                            let jitter = ((delay_ms as f64) * (pct as f64 / 100.0)) as u64;
+                            // Very cheap pseudo-random from time; sufficient for jittering backoff
+                            let rand = (std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .subsec_nanos()
+                                % (jitter as u32)) as u64;
+                            delay_ms = delay_ms.saturating_add(rand);
+                        }
+
+                        if self.runtime.debug_enabled() {
+                            eprintln!(
+                                "[retry {} of {} on HTTP {} after {}ms]",
+                                attempt + 1,
+                                policy.max_retries,
+                                resp.status_code,
+                                delay_ms
+                            );
+                        }
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        attempt += 1;
+                        backoff = (backoff.saturating_mul(2)).min(policy.max_backoff_ms);
+                        continue;
+                    }
+
+                    return Ok(resp);
+                }
                 Err(e) => {
                     let is_transient = {
                         if let Some(re) = e.downcast_ref::<reqwest::Error>() {
@@ -559,17 +608,20 @@ impl RequestContext {
                             false
                         }
                     };
-                    if is_transient && attempt < max_retries {
-                        attempt += 1;
+                    if is_transient && attempt < policy.max_retries {
+                        let delay_ms = backoff;
                         if self.runtime.debug_enabled() {
                             eprintln!(
                                 "[retry {} of {} after {}ms: {}]",
-                                attempt, max_retries, backoff, e
+                                attempt + 1,
+                                policy.max_retries,
+                                delay_ms,
+                                e
                             );
                         }
-                        tokio::time::sleep(Duration::from_millis(backoff)).await;
-                        // Exponential backoff capped at 10s
-                        backoff = (backoff.saturating_mul(2)).min(10_000);
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        attempt += 1;
+                        backoff = (backoff.saturating_mul(2)).min(policy.max_backoff_ms);
                         continue;
                     }
                     return Err(e);
@@ -579,8 +631,33 @@ impl RequestContext {
     }
 }
 
+// ==================== Retry Policy ====================
+
+#[derive(Clone, Debug)]
+pub struct RetryPolicy {
+    pub max_retries: u32,
+    pub base_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    pub status_retry_codes: Vec<u16>,
+    pub honor_retry_after: bool,
+    pub jitter_pct: Option<u32>,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 0,
+            base_backoff_ms: 250,
+            max_backoff_ms: 10_000,
+            status_retry_codes: Vec::new(),
+            honor_retry_after: false,
+            jitter_pct: None,
+        }
+    }
+}
+
 /// Determine the HTTP method and body from raw query inputs.
-pub(crate) fn get_request_method_and_body(
+pub fn get_request_method_and_body(
     method: Option<&str>,
     data: &[String],
     json: Option<&str>,
@@ -637,7 +714,7 @@ fn is_json_data(data: &str) -> bool {
 /// Returns true if:
 /// - The provided headers don't already contain a Content-Type header, AND
 /// - Either json/toon data is provided, OR the first data value looks like JSON
-pub(crate) fn should_auto_add_json_content_type(
+pub fn should_auto_add_json_content_type(
     headers: &[String],
     json: Option<&str>,
     toon: Option<&str>,
@@ -664,6 +741,11 @@ pub(crate) fn should_auto_add_json_content_type(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use axum::routing::get;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_has_header() {
@@ -924,10 +1006,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_client_extra_headers() {
-        use axum::http::StatusCode;
-        use axum::response::IntoResponse;
-        use axum::routing::get;
-
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let url = format!("http://127.0.0.1:{port}");
@@ -969,5 +1047,259 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.body_string().unwrap(), "authorized");
+    }
+
+    #[tokio::test]
+    async fn test_status_retry_honored_and_succeeds() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<u32>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(0)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let mut n = ctx.0.lock().unwrap();
+                    *n += 1;
+                    if *n == 1 {
+                        ([("retry-after", "0")], StatusCode::SERVICE_UNAVAILABLE).into_response()
+                    } else {
+                        (StatusCode::OK, "ok").into_response()
+                    }
+                }),
+            )
+            .with_state(ctx.clone());
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let runtime = RequestRuntime {
+            verbosity: 0,
+            show_output: false,
+            network: None,
+            dry_run: false,
+        };
+        let plan = HttpRequestPlan {
+            method: reqwest::Method::GET,
+            headers: vec![],
+            body: None,
+            timeout_secs: Some(2),
+            connect_timeout_secs: Some(1),
+            retry_policy: RetryPolicy {
+                max_retries: 2,
+                base_backoff_ms: 1,
+                max_backoff_ms: 10,
+                status_retry_codes: vec![503],
+                honor_retry_after: true,
+                jitter_pct: None,
+            },
+            follow_redirects: false,
+            follow_redirects_limit: None,
+            user_agent: "presto/test".into(),
+            insecure: false,
+            proxy: None,
+            no_proxy: true,
+            http2: false,
+            http1_only: false,
+            verbose_connection: false,
+        };
+        let ctx_req = RequestContext::new(runtime, plan);
+        let client = ctx_req.build_client(None).unwrap();
+        let resp = ctx_req
+            .execute_with_client(&client, &url, &[])
+            .await
+            .expect("should succeed after retry");
+        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.body_string().unwrap(), "ok");
+        // Ensure it retried at least once
+        assert!(*ctx.0.lock().unwrap() >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_transient_connect_retry_eventually_succeeds() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<u32>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(0)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        // First request sleeps longer than the client timeout, triggering a
+        // timeout error (is_timeout()). Subsequent requests return immediately.
+        let ctx_clone = ctx.clone();
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let n = {
+                        let mut n = ctx.0.lock().unwrap();
+                        *n += 1;
+                        *n
+                    };
+                    if n <= 1 {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                    "ok"
+                }),
+            )
+            .with_state(ctx_clone);
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let runtime = RequestRuntime {
+            verbosity: 0,
+            show_output: false,
+            network: None,
+            dry_run: false,
+        };
+        let plan = HttpRequestPlan {
+            method: reqwest::Method::GET,
+            headers: vec![],
+            body: None,
+            timeout_secs: Some(1),
+            connect_timeout_secs: Some(1),
+            retry_policy: RetryPolicy {
+                max_retries: 3,
+                base_backoff_ms: 10,
+                max_backoff_ms: 100,
+                status_retry_codes: vec![],
+                honor_retry_after: false,
+                jitter_pct: None,
+            },
+            follow_redirects: false,
+            follow_redirects_limit: None,
+            user_agent: "presto/test".into(),
+            insecure: false,
+            proxy: None,
+            no_proxy: true,
+            http2: false,
+            http1_only: false,
+            verbose_connection: false,
+        };
+        let ctx_req = RequestContext::new(runtime, plan);
+        let client = ctx_req.build_client(None).unwrap();
+        let resp = ctx_req
+            .execute_with_client(&client, &url, &[])
+            .await
+            .expect("should succeed after retrying past timeout");
+        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.body_string().unwrap(), "ok");
+        assert!(
+            *ctx.0.lock().unwrap() >= 2,
+            "should have retried at least once"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_retry_jitter_applies_bounded_delay() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<Vec<std::time::Instant>>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(Vec::new())));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        let ctx_clone = ctx.clone();
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let mut times = ctx.0.lock().unwrap();
+                    times.push(std::time::Instant::now());
+                    if times.len() < 3 {
+                        (StatusCode::SERVICE_UNAVAILABLE, "retry").into_response()
+                    } else {
+                        (StatusCode::OK, "ok").into_response()
+                    }
+                }),
+            )
+            .with_state(ctx_clone);
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let runtime = RequestRuntime {
+            verbosity: 0,
+            show_output: false,
+            network: None,
+            dry_run: false,
+        };
+        let plan = HttpRequestPlan {
+            method: reqwest::Method::GET,
+            headers: vec![],
+            body: None,
+            timeout_secs: Some(5),
+            connect_timeout_secs: Some(2),
+            retry_policy: RetryPolicy {
+                max_retries: 5,
+                base_backoff_ms: 100,
+                max_backoff_ms: 1000,
+                status_retry_codes: vec![503],
+                honor_retry_after: false,
+                jitter_pct: Some(50),
+            },
+            follow_redirects: false,
+            follow_redirects_limit: None,
+            user_agent: "presto/test".into(),
+            insecure: false,
+            proxy: None,
+            no_proxy: true,
+            http2: false,
+            http1_only: false,
+            verbose_connection: false,
+        };
+        let ctx_req = RequestContext::new(runtime, plan);
+        let client = ctx_req.build_client(None).unwrap();
+        let resp = ctx_req
+            .execute_with_client(&client, &url, &[])
+            .await
+            .expect("should succeed after retries");
+        assert_eq!(resp.status_code, 200);
+
+        let times = ctx.0.lock().unwrap();
+        assert_eq!(times.len(), 3, "should have 3 requests total");
+
+        // With base_backoff_ms=100 and jitter_pct=50, first delay is 100..150ms.
+        // Second delay: backoff doubles to 200ms, jitter adds 0..100ms → 200..300ms.
+        let gap1 = times[1].duration_since(times[0]);
+        let gap2 = times[2].duration_since(times[1]);
+
+        assert!(
+            gap1.as_millis() >= 90,
+            "first gap should be >= 90ms, was {}ms",
+            gap1.as_millis()
+        );
+        assert!(
+            gap1.as_millis() <= 300,
+            "first gap should be <= 300ms, was {}ms",
+            gap1.as_millis()
+        );
+
+        assert!(
+            gap2.as_millis() >= 150,
+            "second gap should be >= 150ms, was {}ms",
+            gap2.as_millis()
+        );
+        assert!(
+            gap2.as_millis() <= 500,
+            "second gap should be <= 500ms, was {}ms",
+            gap2.as_millis()
+        );
     }
 }
