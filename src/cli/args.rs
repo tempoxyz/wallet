@@ -11,6 +11,15 @@ pub enum ColorMode {
     Never,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SessionStateArg {
+    Active,
+    Closing,
+    Finalizable,
+    Orphaned,
+    All,
+}
+
 /// Long version string including git commit, build date, and profile.
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
@@ -493,15 +502,9 @@ pub enum Shell {
 pub enum SessionCommands {
     /// List active payment sessions
     List {
-        /// Show all channels: active, orphaned, and closing
-        #[arg(long)]
-        all: bool,
-        /// Scan on-chain for orphaned channels (no local session)
-        #[arg(long)]
-        orphaned: bool,
-        /// Show channels pending finalization (requestClose submitted)
-        #[arg(long)]
-        closed: bool,
+        /// Filter by state (comma-separated or repeatable). Defaults to 'active'. Use 'all' for every state.
+        #[arg(long = "state", value_enum, value_delimiter = ',')]
+        state: Vec<SessionStateArg>,
         /// Filter by network (e.g., tempo, tempo-moderato)
         #[arg(long)]
         network: Option<String>,

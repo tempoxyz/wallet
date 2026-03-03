@@ -17,6 +17,14 @@ use super::render::{render_channel_list, ChannelView};
 // Utilities (list-only)
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SessionState {
+    Active,
+    Closing,
+    Finalizable,
+    Orphaned,
+}
+
 /// Build a `ChannelView` from a local session record.
 fn view_from_session(session: &session_store::SessionRecord) -> ChannelView {
     let (symbol, decimals) = resolve_token_meta(&session.network_name, &session.currency);
@@ -154,23 +162,19 @@ async fn resolve_grace_period(config: &Config, network_name: &str, escrow_hex: &
 pub async fn list_sessions(
     config: &Config,
     output_format: OutputFormat,
-    all: bool,
-    orphaned: bool,
-    closed: bool,
+    states: &[SessionState],
     network: Option<&str>,
 ) -> Result<()> {
-    if all {
-        return list_all_channels(config, output_format, network).await;
-    }
-    if orphaned {
-        return list_orphaned_channels(config, output_format, network).await;
-    }
-    if closed {
-        return list_pending_closes(config, output_format).await;
-    }
+    // Default to active when no state filter is provided
+    let selected: Vec<SessionState> = if states.is_empty() {
+        vec![SessionState::Active]
+    } else {
+        states.to_vec()
+    };
 
+    // Local sessions (active/closing/finalizable)
     let sessions = session_store::list_sessions()?;
-    let filtered: Vec<_> = if let Some(net) = network {
+    let filtered_local: Vec<_> = if let Some(net) = network {
         sessions
             .into_iter()
             .filter(|s| s.network_name == net)
@@ -179,17 +183,123 @@ pub async fn list_sessions(
         sessions
     };
 
-    let views: Vec<ChannelView> = filtered.iter().map(view_from_session).collect();
+    let mut views: Vec<ChannelView> = Vec::new();
 
-    render_channel_list(
-        &views,
-        output_format,
-        "No active sessions.",
-        "session(s) total",
-    )
+    // Build local views and filter by selected states
+    for s in &filtered_local {
+        let v = view_from_session(s);
+        let status = v.status.as_str();
+        let matches = match status {
+            "active" => selected.contains(&SessionState::Active),
+            "closing" => selected.contains(&SessionState::Closing),
+            "finalizable" => selected.contains(&SessionState::Finalizable),
+            _ => false,
+        };
+        if matches {
+            views.push(v);
+        }
+    }
+
+    // Orphaned / on-chain closings if requested
+    let need_orphaned = selected.contains(&SessionState::Orphaned)
+        || selected.contains(&SessionState::Closing)
+        || selected.contains(&SessionState::Finalizable);
+
+    if need_orphaned {
+        if let Ok(creds) = WalletCredentials::load() {
+            if creds.has_wallet() {
+                if let Ok(wallet_addr) = creds.wallet_address().parse() {
+                    let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
+
+                    // Avoid duplicates by skipping any with a local session
+                    let local_ids: std::collections::HashSet<String> = filtered_local
+                        .iter()
+                        .map(|s| s.channel_id.to_lowercase())
+                        .collect();
+
+                    // Cache grace per escrow to reduce RPC chatter
+                    let mut grace_cache: HashMap<String, u64> = HashMap::new();
+
+                    let now = session_store::now_secs();
+                    for ch in &channels {
+                        if local_ids.contains(&ch.channel_id.to_lowercase()) {
+                            continue;
+                        }
+                        let (symbol, decimals) = resolve_token_meta(&ch.network, &ch.token);
+                        let remaining_u = ch.deposit.saturating_sub(ch.settled);
+                        let (status, remaining_secs) = if ch.close_requested_at > 0 {
+                            let grace = match grace_cache.get(&ch.escrow_contract) {
+                                Some(&g) => g,
+                                None => {
+                                    let g = resolve_grace_period(
+                                        config,
+                                        &ch.network,
+                                        &ch.escrow_contract,
+                                    )
+                                    .await;
+                                    grace_cache.insert(ch.escrow_contract.clone(), g);
+                                    g
+                                }
+                            };
+                            let ready_at = ch.close_requested_at + grace;
+                            let remaining = ready_at.saturating_sub(now);
+                            if remaining == 0 {
+                                ("finalizable", Some(0))
+                            } else {
+                                ("closing", Some(remaining))
+                            }
+                        } else {
+                            ("orphaned", None)
+                        };
+
+                        let include = match status {
+                            "orphaned" => selected.contains(&SessionState::Orphaned),
+                            "closing" => selected.contains(&SessionState::Closing),
+                            "finalizable" => selected.contains(&SessionState::Finalizable),
+                            _ => false,
+                        };
+                        if !include {
+                            continue;
+                        }
+
+                        views.push(ChannelView {
+                            channel_id: ch.channel_id.clone(),
+                            network: ch.network.clone(),
+                            origin: Some(String::new()),
+                            symbol,
+                            deposit: format_u256_with_decimals(U256::from(ch.deposit), decimals),
+                            spent: format_u256_with_decimals(U256::from(ch.settled), decimals),
+                            remaining: format_u256_with_decimals(U256::from(remaining_u), decimals),
+                            status: status.to_string(),
+                            remaining_secs,
+                            created_at: None,
+                            last_used_at: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Empty message by primary selection
+    let empty_msg = if selected.len() == 1 && selected[0] == SessionState::Active {
+        "No active sessions."
+    } else if selected
+        .iter()
+        .all(|s| matches!(s, SessionState::Closing | SessionState::Finalizable))
+    {
+        "No sessions pending finalization."
+    } else if selected.len() == 1 && selected[0] == SessionState::Orphaned {
+        "No orphaned sessions found."
+    } else {
+        "No sessions found."
+    };
+
+    render_channel_list(&views, output_format, empty_msg, "session(s) total")
 }
 
 /// List all channels in a unified view: active, orphaned, and closed.
+#[allow(dead_code)]
 async fn list_all_channels(
     config: &Config,
     output_format: OutputFormat,
@@ -284,6 +394,7 @@ async fn list_all_channels(
 }
 
 /// List orphaned on-chain channels (no local session record).
+#[allow(dead_code)]
 async fn list_orphaned_channels(
     config: &Config,
     output_format: OutputFormat,
@@ -346,6 +457,7 @@ async fn list_orphaned_channels(
 /// List channels pending finalization (requestClose submitted).
 ///
 /// Queries on-chain state for each pending channel to show deposit/settled/remaining.
+#[allow(dead_code)]
 async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Result<()> {
     let now = session_store::now_secs();
     let mut views = Vec::new();
@@ -430,3 +542,4 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
         "session(s) pending",
     )
 }
+// (duplicate removed)

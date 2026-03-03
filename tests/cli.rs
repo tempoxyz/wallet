@@ -796,7 +796,7 @@ fn test_session_close_invalid_channel_id() {
 fn test_session_list_closed_json_empty() {
     let temp = TestConfigBuilder::new().build();
     let mut cmd = test_command(&temp);
-    cmd.args(["-j", "sessions", "list", "--closed"]);
+    cmd.args(["-j", "sessions", "list", "--state", "closing,finalizable"]);
     let output = cmd.output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1210,7 +1210,7 @@ fn test_session_list_with_network_filter_json() {
 fn test_session_list_closed_text_empty() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["sessions", "list", "--closed"])
+        .args(["sessions", "list", "--state", "closing,finalizable"])
         .output()
         .unwrap();
     assert!(output.status.success());
