@@ -367,8 +367,7 @@ pub(crate) struct HttpRequestPlan {
     pub body: Option<Vec<u8>>,
     pub timeout_secs: Option<u64>,
     pub connect_timeout_secs: Option<u64>,
-    pub retries: u32,
-    pub retry_backoff_ms: u64,
+    pub retry_policy: RetryPolicy,
     pub follow_redirects: bool,
     pub follow_redirects_limit: Option<usize>,
     pub user_agent: String,
@@ -537,9 +536,10 @@ impl RequestContext {
         url: &str,
         extra_headers: &[(String, String)],
     ) -> Result<HttpResponse> {
+        let policy = &self.plan.retry_policy;
         let mut attempt: u32 = 0;
-        let max_retries = self.plan.retries;
-        let mut backoff = self.plan.retry_backoff_ms;
+        let mut backoff = policy.base_backoff_ms;
+
         loop {
             match client
                 .request(
@@ -550,7 +550,56 @@ impl RequestContext {
                 )
                 .await
             {
-                Ok(resp) => return Ok(resp),
+                Ok(resp) => {
+                    // HTTP status-based retry
+                    if attempt < policy.max_retries
+                        && !policy.status_retry_codes.is_empty()
+                        && policy.status_retry_codes.contains(&resp.status_code)
+                    {
+                        // Compute delay: Retry-After header or exponential backoff
+                        let mut delay_ms = if policy.honor_retry_after {
+                            if let Some(ra) = resp.get_header("retry-after") {
+                                ra.trim()
+                                    .parse::<u64>()
+                                    .ok()
+                                    .map(|s| s.saturating_mul(1000))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                        .unwrap_or(backoff);
+
+                        // Apply jitter if configured
+                        if let Some(pct) = policy.jitter_pct {
+                            let jitter = ((delay_ms as f64) * (pct as f64 / 100.0)) as u64;
+                            // Very cheap pseudo-random from time; sufficient for jittering backoff
+                            let rand = (std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .subsec_nanos()
+                                % (jitter as u32)) as u64;
+                            delay_ms = delay_ms.saturating_add(rand);
+                        }
+
+                        if self.runtime.debug_enabled() {
+                            eprintln!(
+                                "[retry {} of {} on HTTP {} after {}ms]",
+                                attempt + 1,
+                                policy.max_retries,
+                                resp.status_code,
+                                delay_ms
+                            );
+                        }
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        attempt += 1;
+                        backoff = (backoff.saturating_mul(2)).min(policy.max_backoff_ms);
+                        continue;
+                    }
+
+                    return Ok(resp);
+                }
                 Err(e) => {
                     let is_transient = {
                         if let Some(re) = e.downcast_ref::<reqwest::Error>() {
@@ -559,22 +608,50 @@ impl RequestContext {
                             false
                         }
                     };
-                    if is_transient && attempt < max_retries {
-                        attempt += 1;
+                    if is_transient && attempt < policy.max_retries {
+                        let delay_ms = backoff;
                         if self.runtime.debug_enabled() {
                             eprintln!(
                                 "[retry {} of {} after {}ms: {}]",
-                                attempt, max_retries, backoff, e
+                                attempt + 1,
+                                policy.max_retries,
+                                delay_ms,
+                                e
                             );
                         }
-                        tokio::time::sleep(Duration::from_millis(backoff)).await;
-                        // Exponential backoff capped at 10s
-                        backoff = (backoff.saturating_mul(2)).min(10_000);
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        attempt += 1;
+                        backoff = (backoff.saturating_mul(2)).min(policy.max_backoff_ms);
                         continue;
                     }
                     return Err(e);
                 }
             }
+        }
+    }
+}
+
+// ==================== Retry Policy ====================
+
+#[derive(Clone, Debug)]
+pub(crate) struct RetryPolicy {
+    pub max_retries: u32,
+    pub base_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    pub status_retry_codes: Vec<u16>,
+    pub honor_retry_after: bool,
+    pub jitter_pct: Option<u32>,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 0,
+            base_backoff_ms: 250,
+            max_backoff_ms: 10_000,
+            status_retry_codes: Vec::new(),
+            honor_retry_after: false,
+            jitter_pct: None,
         }
     }
 }

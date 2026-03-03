@@ -3,4 +3,5 @@
 //! This module provides payment providers, currencies, and protocol handling.
 
 pub(crate) mod charge;
+pub(crate) mod dispatch;
 pub(crate) mod session;
