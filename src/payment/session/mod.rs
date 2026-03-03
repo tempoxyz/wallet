@@ -34,16 +34,15 @@ use anyhow::{Context, Result};
 use mpp::protocol::core::extract_tx_hash;
 use mpp::protocol::methods::tempo::session::{SessionCredentialPayload, TempoSessionExt};
 use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
-use mpp::{parse_receipt, parse_www_authenticate, ChallengeEcho};
+use mpp::{parse_receipt, ChallengeEcho};
 
-use crate::config::Config;
 use crate::error::{map_mpp_validation_error, PrestoError};
 use crate::http::{HttpClient, HttpResponse, RequestContext};
-use crate::network::{format_address_link, resolve_token_meta, Network};
+use crate::network::{format_address_link, resolve_token_meta};
 use crate::payment::session::store::SessionRecord;
 use crate::util::format_token_amount;
 use crate::wallet::credentials::WalletCredentials;
-use crate::wallet::signer::load_wallet_signer;
+use crate::wallet::signer::WalletSigner;
 
 // Re-export public API
 pub use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
@@ -63,16 +62,7 @@ pub enum CloseOutcome {
     Pending { remaining_secs: u64 },
 }
 
-/// Result of a session request — either streamed (already printed) or a buffered response.
-pub enum SessionResult {
-    /// SSE tokens were streamed directly to stdout.
-    Streamed { channel_id: String },
-    /// A normal (non-SSE) response that should be handled by the regular output path.
-    Response {
-        response: HttpResponse,
-        channel_id: String,
-    },
-}
+use crate::payment::dispatch::PaymentResult;
 
 /// State for an active session channel.
 pub struct SessionState {
@@ -264,7 +254,7 @@ pub fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result
 async fn send_session_request(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
-) -> Result<SessionResult> {
+) -> Result<PaymentResult> {
     if ctx.request_ctx.log_enabled() {
         eprintln!("Sending request with session voucher...");
     }
@@ -303,10 +293,15 @@ async fn send_session_request(
         .and_then(|v| v.to_str().ok())
         .is_some_and(|ct| ct.contains("text/event-stream"));
 
+    let channel_id = format!("{:#x}", state.channel_id);
+
     if is_sse {
         streaming::stream_sse_response(ctx, state, response).await?;
-        Ok(SessionResult::Streamed {
-            channel_id: format!("{:#x}", state.channel_id),
+        Ok(PaymentResult {
+            tx_hash: String::new(),
+            session_id: Some(channel_id),
+            status_code: 200,
+            response: None,
         })
     } else {
         let status_code = status.as_u16();
@@ -318,14 +313,16 @@ async fn send_session_request(
         }
         let body = response.bytes().await?.to_vec();
 
-        Ok(SessionResult::Response {
-            response: HttpResponse {
+        Ok(PaymentResult {
+            tx_hash: String::new(),
+            session_id: Some(channel_id),
+            status_code,
+            response: Some(HttpResponse {
                 status_code,
                 headers,
                 body,
                 final_url: None,
-            },
-            channel_id: format!("{:#x}", state.channel_id),
+            }),
         })
     }
 }
@@ -343,22 +340,19 @@ async fn send_session_request(
 /// 6. Stream SSE events (or return buffered response)
 /// 7. Persist/update the session (do NOT close the channel)
 pub async fn handle_session_request(
-    config: &Config,
     request_ctx: &RequestContext,
     http_client: &HttpClient,
     url: &str,
-    initial_response: &HttpResponse,
-) -> Result<SessionResult> {
-    let www_auth = initial_response
-        .get_header("www-authenticate")
-        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
-
-    let challenge =
-        parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
+    resolved: crate::payment::dispatch::ResolvedChallenge,
+    signer: WalletSigner,
+) -> Result<PaymentResult> {
+    let challenge = &resolved.challenge;
+    let network = resolved.network;
+    let network_name = network.as_str();
 
     challenge
         .validate_for_session("tempo")
-        .map_err(|e| map_mpp_validation_error(e, &challenge))?;
+        .map_err(|e| map_mpp_validation_error(e, challenge))?;
 
     let session_req: mpp::SessionRequest = challenge
         .request
@@ -368,19 +362,6 @@ pub async fn handle_session_request(
     let chain_id = session_req.chain_id().ok_or_else(|| {
         PrestoError::InvalidConfig("Missing chainId in session request".to_string())
     })?;
-    let network = Network::require_chain_id(chain_id)?;
-    let network_name = network.as_str();
-
-    // Validate --network constraint if set (matches charge.rs enforcement)
-    if let Some(ref networks) = request_ctx.runtime.network {
-        let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
-        anyhow::ensure!(
-            allowed.contains(&network_name),
-            "Network '{}' not in allowed networks: {:?}",
-            network_name,
-            allowed
-        );
-    }
 
     let tick_cost: u128 = session_req
         .amount
@@ -457,22 +438,16 @@ pub async fn handle_session_request(
             println!("Suggested deposit: {}", deposit_display);
         }
 
-        return Ok(SessionResult::Response {
-            response: HttpResponse {
-                status_code: 200,
-                headers: HashMap::new(),
-                body: Vec::new(),
-                final_url: None,
-            },
-            channel_id: String::new(),
+        return Ok(PaymentResult {
+            tx_hash: String::new(),
+            session_id: None,
+            status_code: 200,
+            response: None,
         });
     }
 
-    // Load signer and resolve signing mode (direct or keychain)
-    let signing = load_wallet_signer(network_name)?;
-
-    let key_address = signing.signer.address();
-    let from = signing.from;
+    let key_address = signer.signer.address();
+    let from = signer.from;
     let reqwest_client = http_client.inner_client();
 
     // Always refresh the challenge echo from the current 402 response
@@ -495,8 +470,8 @@ pub async fn handle_session_request(
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
     // gas is paid in USDC via account abstraction).
-    let network_info = config.resolve_network(network_name)?;
-    let rpc_url: url::Url = network_info
+    let rpc_url: url::Url = resolved
+        .network_info
         .rpc_url
         .parse()
         .context("Invalid RPC URL for balance query")?;
@@ -550,7 +525,7 @@ pub async fn handle_session_request(
         };
 
         let ctx = SessionContext::new(
-            &signing.signer,
+            &signer.signer,
             &echo,
             &did,
             request_ctx,
@@ -637,7 +612,7 @@ pub async fn handle_session_request(
 
     let initial_cumulative = tick_cost;
     let voucher_sig = sign_voucher(
-        &signing.signer,
+        &signer.signer,
         channel_id,
         initial_cumulative,
         escrow_contract,
@@ -646,9 +621,14 @@ pub async fn handle_session_request(
     .await
     .context("Failed to sign initial voucher")?;
 
-    let payment =
-        tx::create_tempo_payment_from_calls(config, &signing, open_calls, currency, chain_id)
-            .await?;
+    let payment = tx::create_tempo_payment_from_calls(
+        &resolved.network_info.rpc_url,
+        &signer,
+        open_calls,
+        currency,
+        chain_id,
+    )
+    .await?;
 
     // Send the raw transaction to the server for broadcast (and optional
     // fee-payer co-signing). The server calls sendRawTransactionSync which
@@ -696,7 +676,7 @@ pub async fn handle_session_request(
     };
 
     let ctx = SessionContext::new(
-        &signing.signer,
+        &signer.signer,
         &echo,
         &did,
         request_ctx,
@@ -721,9 +701,11 @@ pub async fn handle_session_request(
 
     if !is_sse && open_response.status_code < 400 {
         persist_session(&ctx, &state)?;
-        return Ok(SessionResult::Response {
-            response: open_response,
-            channel_id: format!("{:#x}", channel_id),
+        return Ok(PaymentResult {
+            tx_hash: String::new(),
+            session_id: Some(format!("{:#x}", channel_id)),
+            status_code: open_response.status_code,
+            response: Some(open_response),
         });
     }
 
