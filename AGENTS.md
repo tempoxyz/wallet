@@ -17,9 +17,12 @@ Single binary crate with source organized by module directories:
   - `auth.rs` - Login, logout, whoami commands
   - `keys.rs` - Key listing, balance and spending limit queries
   - `local_wallet.rs` - Local wallet management (create/import/delete)
-  - `session/` - Session list/close commands (directory module with list.rs, close.rs, render.rs)
+  - `session/` - Session management commands (directory module with list.rs, info.rs, close.rs, recover.rs, render.rs, sync.rs)
   - `output.rs` - Response display, `OutputOptions`
   - `exit_codes.rs` - Process exit codes
+  - `fund.rs` - Wallet funding (testnet faucet, mainnet bridge via Relay)
+  - `relay.rs` - Relay bridge client for cross-chain wallet funding
+  - `services.rs` - Service directory listing and details
 - `src/http.rs` - HTTP client, `RequestContext`, `RequestRuntime`
 - `src/config.rs` - Configuration file handling
 - `src/network.rs` - Network definitions, explorer config, RPC
@@ -35,6 +38,7 @@ Single binary crate with source organized by module directories:
 - `src/analytics/` - Opt-out telemetry (PostHog)
 - `src/util.rs` - Shared utilities (atomic writes, terminal hyperlinks)
 - `src/error.rs` - Error types
+- `src/services/` - MPP service directory (registry fetching, data model)
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
 **Package:** `presto` | **Binary:** `presto`

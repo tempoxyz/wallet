@@ -326,22 +326,46 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             if let Some(subcommand) = command {
                 let show_output = cli.should_show_output();
                 match subcommand {
-                    SessionCommands::List {
-                        all,
-                        orphaned,
-                        closed,
-                        network,
-                    } => {
+                    SessionCommands::List { state, network } => {
                         let net = network.as_deref().or(cli.network.as_deref());
-                        cli::session::list_sessions(
-                            &config,
-                            output_format,
-                            all,
-                            orphaned,
-                            closed,
-                            net,
-                        )
-                        .await
+                        let mut selected: Vec<cli::session::ListSessionState> = Vec::new();
+                        if state.is_empty() {
+                            // default will be applied in list_sessions
+                        } else if state
+                            .iter()
+                            .any(|s| matches!(s, crate::cli::SessionStateArg::All))
+                        {
+                            selected = vec![
+                                cli::session::ListSessionState::Active,
+                                cli::session::ListSessionState::Closing,
+                                cli::session::ListSessionState::Finalizable,
+                                cli::session::ListSessionState::Orphaned,
+                            ];
+                        } else {
+                            for s in state {
+                                let m = match s {
+                                    crate::cli::SessionStateArg::Active => {
+                                        cli::session::ListSessionState::Active
+                                    }
+                                    crate::cli::SessionStateArg::Closing => {
+                                        cli::session::ListSessionState::Closing
+                                    }
+                                    crate::cli::SessionStateArg::Finalizable => {
+                                        cli::session::ListSessionState::Finalizable
+                                    }
+                                    crate::cli::SessionStateArg::Orphaned => {
+                                        cli::session::ListSessionState::Orphaned
+                                    }
+                                    crate::cli::SessionStateArg::All => continue,
+                                };
+                                selected.push(m);
+                            }
+                        }
+                        cli::session::list_sessions(&config, output_format, &selected, net).await
+                    }
+                    SessionCommands::Info { target, network } => {
+                        let net = network.as_deref().or(cli.network.as_deref());
+                        cli::session::show_session_info(&config, output_format, &target, net).await
                     }
                     SessionCommands::Close {
                         url,
@@ -358,8 +382,12 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                             output_format,
                             show_output,
                             cli.network.as_deref(),
+                            analytics.as_ref(),
                         )
                         .await
+                    }
+                    SessionCommands::Recover { origin } => {
+                        cli::session::recover_session(&config, output_format, &origin).await
                     }
                     SessionCommands::Sync => {
                         cli::session::sync_sessions(&config, output_format, show_output).await

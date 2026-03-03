@@ -195,7 +195,7 @@ pub(super) async fn stream_sse_response(
                         // instead of a network round-trip per token.
                         // Clamp to our known channel deposit to prevent a
                         // malicious server from coercing an overly large voucher.
-                        let voucher_amount = if server_deposit > 0 {
+                        let authorize_amount = if server_deposit > 0 {
                             server_deposit
                         } else {
                             required
@@ -205,15 +205,12 @@ pub(super) async fn stream_sse_response(
                         if runtime.debug_enabled() {
                             eprintln!(
                                 "[voucher top-up: required={} authorizing={}]",
-                                required, voucher_amount
+                                required, authorize_amount
                             );
                         }
 
-                        state.cumulative_amount = voucher_amount;
-
-                        // Persist the updated cumulative mid-stream
-                        let _ = persist_session(ctx, state);
-
+                        // Sign the voucher for the authorized amount
+                        state.cumulative_amount = authorize_amount;
                         let voucher =
                             build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
                         let auth = mpp::format_authorization(&voucher)
@@ -221,6 +218,11 @@ pub(super) async fn stream_sse_response(
 
                         let verbose = runtime.debug_enabled();
                         post_voucher(&voucher_client, ctx.url, &auth, verbose);
+
+                        // For our persisted record, keep the exact required amount so
+                        // cooperative close can match the server's expectation precisely.
+                        state.cumulative_amount = required;
+                        let _ = persist_session(ctx, state);
 
                         // Track this voucher for retry if the server stalls
                         pending_voucher_auth = Some(auth);

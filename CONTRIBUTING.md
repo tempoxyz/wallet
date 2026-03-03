@@ -87,6 +87,9 @@ src/
 │   ├── auth.rs          # Login, logout, whoami
 │   ├── keys.rs          # Key listing and spending limit queries
 │   ├── local_wallet.rs  # Local wallet management (create/import/delete)
+│   ├── fund.rs          # Wallet funding (faucet + bridge)
+│   ├── relay.rs         # Relay bridge client for cross-chain funding
+│   ├── services.rs      # Service directory listing and details
 │   ├── session/         # Session management commands
 │   ├── output.rs        # Response display
 │   └── exit_codes.rs
@@ -98,6 +101,7 @@ src/
 │   ├── keychain.rs      # Platform-native secret storage (macOS Keychain)
 │   ├── passkey.rs       # Browser-based passkey wallet flow
 │   └── signer.rs        # Signing mode resolution
+├── services/            # MPP service directory (registry fetching, data model)
 └── analytics/           # Opt-out telemetry
 tests/                   # Integration tests (black-box CLI testing via assert_cmd)
 examples/                # Runnable example scripts
@@ -179,5 +183,4 @@ Changelog settings live in `.changelog/config.toml`. The project uses a single r
 | `RUST_LOG` | Override tracing filter (e.g., `debug`, `info`) |
 | `NO_COLOR` | Disable colored output (also disabled when stdout is not a terminal) |
 | `PRESTO_PRIVATE_KEY` | *(hidden)* Provide a private key directly for payment — bypasses wallet login and keychain |
-| `PRESTO_BEARER` | *(hidden)* Authorization bearer token for HTTP requests |
 | `PRESTO_TEST_EVENTS` | *(internal)* Test hook — path to a file where analytics events are appended for assertion |

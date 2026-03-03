@@ -179,7 +179,7 @@ async fn build_whoami_response(
     wallet_address: Option<&str>,
 ) -> StatusResponse {
     let mut response = StatusResponse {
-        ready: true,
+        ready: creds.has_wallet(),
         wallet: None,
         wallet_type: None,
         symbol: None,
@@ -476,6 +476,16 @@ fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> a
         .chain_id
         .and_then(Network::from_chain_id)
         .and_then(|n| n.info().explorer);
+
+    if response.wallet.is_none() && response.key.is_none() {
+        let cmd = if crate::error::is_local_wallet_default() {
+            " tempo-walletwallet create"
+        } else {
+            " tempo-walletlogin"
+        };
+        writeln!(w, "Not logged in. Run `{cmd}` to get started.")?;
+        return Ok(());
+    }
 
     if let Some(wallet) = &response.wallet {
         let wt = response.wallet_type.as_deref().unwrap_or("unknown");

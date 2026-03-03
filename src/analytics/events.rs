@@ -51,6 +51,8 @@ pub enum Event {
 
     SessionStarted,
     CommandRun,
+    CoopCloseSuccess,
+    CoopCloseFailure,
 }
 
 impl Event {
@@ -74,6 +76,8 @@ impl Event {
             Self::CallbackReceived => "callback_received",
             Self::SessionStarted => "session_started",
             Self::CommandRun => "command_run",
+            Self::CoopCloseSuccess => "coop_close_success",
+            Self::CoopCloseFailure => "coop_close_failure",
         }
     }
 }

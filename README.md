@@ -63,8 +63,14 @@ Ready-to-run scripts in [`examples/`](examples/):
 | ` tempo-walletlogin` | Connect your Tempo wallet |
 | ` tempo-walletlogout` | Disconnect your wallet |
 | ` tempo-walletwhoami` | Show wallet, balances, and keys |
-| ` tempo-walletsession list` | List active payment sessions |
-| ` tempo-walletsession close` | Close a payment session |
+| ` tempo-walletservices` | Browse the MPP service directory |
+| ` tempo-walletservices info <ID>` | Show detailed info for a service |
+| ` tempo-walletupdate` | Update  tempo-walletto the latest version |
+| ` tempo-walletsessions list` | List sessions (active/orphaned/closing) |
+| ` tempo-walletsessions info <URL|channel_id>` | Show details for a session or channel |
+| ` tempo-walletsessions close [--all|--orphaned|--closed|<URL>|<channel_id>]` | Close sessions or channels |
+| ` tempo-walletsessions recover <URL|origin>` | Re-sync a local session's state from chain |
+| ` tempo-walletsessions sync` | Remove stale local sessions (settled on-chain) |
 
 Run ` tempo-wallet--help` or ` tempo-wallet<command> --help` for full flag reference.
 
