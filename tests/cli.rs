@@ -632,7 +632,9 @@ fn test_session_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("list"))
-        .stdout(predicate::str::contains("close"));
+        .stdout(predicate::str::contains("close"))
+        .stdout(predicate::str::contains("info"))
+        .stdout(predicate::str::contains("recover"));
 }
 
 #[test]
@@ -1385,6 +1387,44 @@ fn test_sessions_info_single_does_not_print_count() {
         !stdout.contains("session(s)"),
         "info should not print a count footer: {stdout}"
     );
+}
+
+#[test]
+fn test_sessions_info_help_annotations() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["sessions", "info", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("URL/origin"))
+        .stdout(predicate::str::contains("defaults to Tempo"));
+}
+
+#[test]
+fn test_sessions_recover_help_annotations() {
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
+        .args(["sessions", "recover", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Re-sync a local session's state"));
+}
+
+#[test]
+fn test_sessions_close_json_uses_normalized_origin() {
+    let temp = TestConfigBuilder::new().build();
+    seed_local_session(&temp, "https://example.com");
+
+    // Close using a URL with a path — JSON should report the stored normalized origin
+    let output = test_command(&temp)
+        .args(["-j", "sessions", "close", "https://example.com/v1/path?x=1"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let results = val["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["origin"], "https://example.com");
 }
 
 // ==================== Services ====================

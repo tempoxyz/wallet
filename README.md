@@ -73,8 +73,6 @@ Run `presto --help` or `presto <command> --help` for full flag reference.
 
 ### Session States
 
-Sessions now track explicit lifecycle state for clearer UX:
-
 - active — channel open and usable
 - closing — close requested; grace period in progress
 - finalizable — grace elapsed; ready to withdraw
