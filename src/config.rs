@@ -92,6 +92,9 @@ pub(crate) struct Config {
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
+    /// Version check cache (managed automatically)
+    #[serde(default)]
+    pub version: VersionCheck,
 }
 
 /// Telemetry configuration options.
@@ -113,6 +116,17 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self { enabled: true }
     }
+}
+
+/// Cached update check state (written automatically, not user-facing).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct VersionCheck {
+    /// Unix timestamp of the last update check.
+    #[serde(default)]
+    pub last_check: u64,
+    /// Latest version seen from the release CDN.
+    #[serde(default)]
+    pub latest_version: String,
 }
 
 impl Config {
@@ -202,6 +216,89 @@ impl Config {
         network_id: &str,
     ) -> Result<crate::network::NetworkInfo, PrestoError> {
         crate::network::resolve(network_id, self)
+    }
+
+    /// Check for updates (at most once per 6 hours) and print a notice if newer.
+    /// Silently swallows all errors — never affects CLI behavior.
+    pub async fn check_for_updates(&mut self) {
+        let _ = self.check_for_updates_inner().await;
+    }
+
+    async fn check_for_updates_inner(&mut self) -> anyhow::Result<()> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        const CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
+        const VERSION_URL: &str = "https://presto-binaries.tempo.xyz/VERSION";
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+
+        // If cache is fresh, just check the cached version.
+        if now.saturating_sub(self.version.last_check) < CHECK_INTERVAL_SECS {
+            Self::print_update_notice(&self.version.latest_version);
+            return Ok(());
+        }
+
+        // Fetch the remote VERSION file.
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+        let resp = client.get(VERSION_URL).send().await?;
+        if !resp.status().is_success() {
+            return Ok(());
+        }
+        let body = resp.text().await?;
+        let latest = body.trim().to_string();
+
+        // Strict validation: must be a valid semver string (with optional v prefix).
+        if !Self::is_valid_version(&latest) {
+            return Ok(());
+        }
+
+        // Cache the result and persist.
+        self.version.last_check = now;
+        self.version.latest_version = latest.clone();
+        let _ = self.save();
+
+        Self::print_update_notice(&latest);
+        Ok(())
+    }
+
+    /// Returns true if the string is a valid semver version (`v?MAJOR.MINOR.PATCH`).
+    fn is_valid_version(s: &str) -> bool {
+        let s = s.strip_prefix('v').unwrap_or(s);
+        let mut parts = s.split('.');
+        parts.next().is_some_and(|p| p.parse::<u64>().is_ok())
+            && parts.next().is_some_and(|p| p.parse::<u64>().is_ok())
+            && parts.next().is_some_and(|p| p.parse::<u64>().is_ok())
+            && parts.next().is_none()
+    }
+
+    fn print_update_notice(latest: &str) {
+        let current = env!("CARGO_PKG_VERSION");
+        if Self::version_newer(latest, current) {
+            eprintln!(
+                "  Update available: {} → {}. Run ` tempo-walletupdate` to upgrade.\n",
+                current, latest,
+            );
+        }
+    }
+
+    fn version_newer(a: &str, b: &str) -> bool {
+        let parse = |s: &str| -> Option<(u64, u64, u64)> {
+            let s = s.strip_prefix('v').unwrap_or(s);
+            let mut parts = s.split('.');
+            let major = parts.next()?.parse().ok()?;
+            let minor = parts.next()?.parse().ok()?;
+            let patch = parts.next()?.parse().ok()?;
+            if parts.next().is_some() {
+                return None; // reject trailing components
+            }
+            Some((major, minor, patch))
+        };
+        match (parse(a), parse(b)) {
+            (Some(a), Some(b)) => a > b,
+            _ => false,
+        }
     }
 }
 
@@ -331,6 +428,7 @@ mod tests {
                 moderato_rpc: self.moderato_rpc,
                 rpc: self.rpc_overrides,
                 telemetry: Default::default(),
+                version: Default::default(),
             }
         }
     }
@@ -348,6 +446,7 @@ mod tests {
             moderato_rpc: Some("https://custom-moderato-rpc.com".to_string()),
             rpc: Default::default(),
             telemetry: Default::default(),
+            version: Default::default(),
         };
 
         assert_eq!(
@@ -506,6 +605,7 @@ mod tests {
                 "https://custom.example.com".to_string(),
             )]),
             telemetry: Default::default(),
+            version: Default::default(),
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");
@@ -574,5 +674,56 @@ mod tests {
         let encoded = OutputFormat::Toon.serialize(&data).unwrap();
         let decoded: serde_json::Value = toon_format::decode_default(&encoded).unwrap();
         assert_eq!(decoded, data);
+    }
+
+    // -- version_newer tests --
+
+    #[test]
+    fn test_version_newer() {
+        assert!(Config::version_newer("0.7.0", "0.6.0"));
+        assert!(Config::version_newer("1.0.0", "0.9.9"));
+        assert!(Config::version_newer("0.6.1", "0.6.0"));
+        assert!(!Config::version_newer("0.6.0", "0.6.0"));
+        assert!(!Config::version_newer("0.5.0", "0.6.0"));
+    }
+
+    #[test]
+    fn test_version_newer_with_v_prefix() {
+        assert!(Config::version_newer("v0.7.0", "0.6.0"));
+        assert!(Config::version_newer("v1.0.0", "v0.9.9"));
+    }
+
+    #[test]
+    fn test_version_newer_invalid() {
+        assert!(!Config::version_newer("invalid", "0.6.0"));
+        assert!(!Config::version_newer("0.6.0", "invalid"));
+        assert!(!Config::version_newer("", ""));
+    }
+
+    #[test]
+    fn test_version_newer_rejects_trailing_components() {
+        assert!(!Config::version_newer("1.0.0.malicious", "0.6.0"));
+        assert!(!Config::version_newer("1.0.0.1", "0.6.0"));
+    }
+
+    // -- is_valid_version tests --
+
+    #[test]
+    fn test_is_valid_version() {
+        assert!(Config::is_valid_version("0.6.0"));
+        assert!(Config::is_valid_version("1.0.0"));
+        assert!(Config::is_valid_version("v0.6.0"));
+        assert!(Config::is_valid_version("v1.0.0"));
+    }
+
+    #[test]
+    fn test_is_valid_version_rejects_garbage() {
+        assert!(!Config::is_valid_version("invalid"));
+        assert!(!Config::is_valid_version(""));
+        assert!(!Config::is_valid_version("1.0"));
+        assert!(!Config::is_valid_version("1.0.0.1"));
+        assert!(!Config::is_valid_version("1.0.0\x1b[2J"));
+        assert!(!Config::is_valid_version("1.0.0-beta"));
+        assert!(!Config::is_valid_version("<html>404</html>"));
     }
 }

@@ -2,7 +2,6 @@
 
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
-use crate::config::Config;
 pub(crate) use crate::config::OutputFormat;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -594,7 +593,7 @@ impl Cli {
     }
 
     /// Resolve the effective output format: CLI flag > default (text).
-    pub fn resolve_output_format(&self, _config: &Config) -> OutputFormat {
+    pub fn resolve_output_format(&self) -> OutputFormat {
         if self.json_output {
             OutputFormat::Json
         } else if self.toon_output {

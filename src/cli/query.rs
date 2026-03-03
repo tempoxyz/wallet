@@ -12,7 +12,7 @@ use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::PaymentProtocol;
 
 use crate::analytics::{self, Analytics};
-use crate::config::{load_config_with_overrides, Config};
+use crate::config::Config;
 use crate::error::PrestoError;
 use crate::http::{
     get_request_method_and_body, parse_headers, resolve_data, should_auto_add_json_content_type,
@@ -68,16 +68,12 @@ fn parse_data_urlencode(items: &[String]) -> Vec<(Option<String>, String)> {
 /// 4. Ensure wallet is available (prompt login if needed)
 /// 5. Dispatch to charge or session payment flow
 /// 6. Display the final response
-pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytics>) -> Result<()> {
-    let mut config = load_config_with_overrides(cli.config.as_ref())?;
-
-    // Apply --rpc flag override to config.
-    // The  TEMPO_RPC_URLenv var is already handled by load_config_with_overrides,
-    // but the explicit --rpc flag takes final precedence.
-    if let Some(ref rpc_url) = query.rpc_url {
-        config.set_rpc_override(rpc_url.clone());
-    }
-
+pub async fn make_request(
+    cli: Cli,
+    query: QueryArgs,
+    analytics: Option<Analytics>,
+    mut config: Config,
+) -> Result<()> {
     let mut url = query.url.clone();
 
     // Validate the URL early to give a clear error instead of a cryptic reqwest message.
@@ -144,7 +140,7 @@ pub async fn make_request(cli: Cli, query: QueryArgs, analytics: Option<Analytic
     }
 
     let request_ctx = build_request_context(&cli, &query)?;
-    let output_opts = build_output_options(&cli, &query, &config);
+    let output_opts = build_output_options(&cli, &query);
     let method_str = request_ctx.plan.method.to_string();
 
     let sanitized_url = analytics::sanitize_url(&url);
@@ -1088,9 +1084,9 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
 }
 
 /// Build `OutputOptions` from CLI arguments + config.
-fn build_output_options(cli: &Cli, query: &QueryArgs, config: &Config) -> OutputOptions {
+fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
     OutputOptions {
-        output_format: cli.resolve_output_format(config),
+        output_format: cli.resolve_output_format(),
         // -I (HEAD) implies showing headers, even if -i wasn't explicitly set
         include_headers: query.include_headers || query.head,
         output_file: if query.output.is_none() && query.remote_name {
