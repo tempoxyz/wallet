@@ -87,6 +87,9 @@ src/
 │   ├── auth.rs          # Login, logout, whoami
 │   ├── keys.rs          # Key listing and spending limit queries
 │   ├── local_wallet.rs  # Local wallet management (create/import/delete)
+│   ├── fund.rs          # Wallet funding (faucet + bridge)
+│   ├── relay.rs         # Relay bridge client for cross-chain funding
+│   ├── services.rs      # Service directory listing and details
 │   ├── session/         # Session management commands
 │   ├── output.rs        # Response display
 │   └── exit_codes.rs
@@ -98,6 +101,7 @@ src/
 │   ├── keychain.rs      # Platform-native secret storage (macOS Keychain)
 │   ├── passkey.rs       # Browser-based passkey wallet flow
 │   └── signer.rs        # Signing mode resolution
+├── services/            # MPP service directory (registry fetching, data model)
 └── analytics/           # Opt-out telemetry
 tests/                   # Integration tests (black-box CLI testing via assert_cmd)
 examples/                # Runnable example scripts

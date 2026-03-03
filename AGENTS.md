@@ -17,9 +17,12 @@ Single binary crate with source organized by module directories:
   - `auth.rs` - Login, logout, whoami commands
   - `keys.rs` - Key listing, balance and spending limit queries
   - `local_wallet.rs` - Local wallet management (create/import/delete)
-  - `session/` - Session list/close commands (directory module with list.rs, close.rs, render.rs)
+  - `session/` - Session management commands (directory module with list.rs, info.rs, close.rs, recover.rs, render.rs, sync.rs)
   - `output.rs` - Response display, `OutputOptions`
   - `exit_codes.rs` - Process exit codes
+  - `fund.rs` - Wallet funding (testnet faucet, mainnet bridge via Relay)
+  - `relay.rs` - Relay bridge client for cross-chain wallet funding
+  - `services.rs` - Service directory listing and details
 - `src/http.rs` - HTTP client, `RequestContext`, `RequestRuntime`
 - `src/config.rs` - Configuration file handling
 - `src/network.rs` - Network definitions, explorer config, RPC
@@ -35,6 +38,7 @@ Single binary crate with source organized by module directories:
 - `src/analytics/` - Opt-out telemetry (PostHog)
 - `src/util.rs` - Shared utilities (atomic writes, terminal hyperlinks)
 - `src/error.rs` - Error types
+- `src/services/` - MPP service directory (registry fetching, data model)
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
 **Package:** `presto` | **Binary:** `presto`
@@ -204,6 +208,7 @@ new-crate = "1.0"
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
 | `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
 | `PRESTO_WALLET_TYPE` | Set to `"local"` to default to local wallet mode (affects `presto login`/`presto wallet create` guidance). When unset, passkey mode is the default. Does **not** select which wallet to use at runtime — wallet selection is determined by the credentials in `keys.toml`. Multi-wallet support: the first matching key entry is used (passkey > first key with inline `key` > first key by address). |
+| `PRESTO_BEARER` | Authorization bearer token for HTTP requests |
 
 ## Data Locations
 
