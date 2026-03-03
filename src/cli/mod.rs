@@ -12,4 +12,7 @@ pub mod relay;
 pub mod services;
 pub mod session;
 
-pub use args::*;
+pub use args::{
+    Cli, ColorMode, Commands, KeyCommands, OutputFormat, QueryArgs, ServicesCommands,
+    SessionCommands, SessionStateArg, Shell, WalletCommands,
+};

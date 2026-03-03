@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use super::super::OutputFormat;
+use crate::cli::OutputFormat;
 
 /// Unified channel view used by all list/display functions.
 ///

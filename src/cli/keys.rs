@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use alloy::primitives::{Address, U256};
 use alloy::providers::ProviderBuilder;
 use futures::future::join_all;
+use mpp::client::tempo::keychain::query_key_spending_limit;
 use serde::Serialize;
 use tracing::debug;
 
@@ -15,7 +16,6 @@ use crate::config::Config;
 use crate::network::{format_address_link, networks::network_or_default, Network};
 use crate::util::format_u256_with_decimals;
 use crate::wallet::credentials::{KeyEntry, WalletCredentials, WalletType};
-use mpp::client::tempo::keychain::query_key_spending_limit;
 
 // ---------------------------------------------------------------------------
 // Types

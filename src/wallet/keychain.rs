@@ -333,7 +333,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     mod macos_integration {
-        use super::super::*;
+        use super::super::{KeychainBackend, OsKeychain};
 
         const TEST_PROFILE: &str = "presto-test-integration";
 

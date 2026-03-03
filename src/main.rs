@@ -41,15 +41,14 @@ mod wallet;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use cli::exit_codes::ExitCode;
-use cli::{
-    Cli, ColorMode, Commands, KeyCommands, ServicesCommands, SessionCommands, WalletCommands,
-};
 use colored::control;
 
-use crate::cli::completions;
-use analytics::Analytics;
-use config::load_config_with_overrides;
+use crate::analytics::Analytics;
+use crate::cli::exit_codes::ExitCode;
+use crate::cli::{
+    Cli, ColorMode, Commands, KeyCommands, ServicesCommands, SessionCommands, WalletCommands,
+};
+use crate::config::load_config_with_overrides;
 
 /// Entry point for the presto CLI.
 ///
@@ -115,7 +114,7 @@ fn parse_cli() -> Cli {
             if matches!(original_err.kind(), clap::error::ErrorKind::DisplayVersion) {
                 let args: Vec<String> = std::env::args().collect();
                 if args.iter().any(|a| a == "-j" || a == "--json-output") {
-                    completions::print_version_json();
+                    cli::completions::print_version_json();
                     std::process::exit(0);
                 }
                 original_err.exit()
@@ -304,7 +303,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 
         Commands::Completions { shell } => {
             if let Some(shell) = shell {
-                completions::generate_completions(shell)
+                cli::completions::generate_completions(shell)
             } else {
                 println!("Supported shells: bash, zsh, fish, powershell");
                 Ok(())

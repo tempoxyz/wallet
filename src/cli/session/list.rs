@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use alloy::primitives::{Address, U256};
 use anyhow::{Context, Result};
 
-use super::super::OutputFormat;
+use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::network::resolve_token_meta;
 use crate::payment::session::store as session_store;

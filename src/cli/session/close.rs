@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 
-use super::super::OutputFormat;
 use crate::analytics::Analytics;
+use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::network::Network;
 use crate::payment::session::store as session_store;
@@ -557,7 +557,7 @@ async fn finalize_closed_channels(
                         }
                     }
                     // Check grace readiness from on-chain constant
-                    let grace = super::super::super::payment::session::read_grace_period(
+                    let grace = crate::payment::session::read_grace_period(
                         &alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(
                             Network::parse_rpc_url(&config.resolve_network(net)?.rpc_url)?,
                         ),

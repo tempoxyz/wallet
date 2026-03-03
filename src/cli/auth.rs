@@ -1,8 +1,9 @@
 //! Authentication commands — login, logout, and wallet status.
 
-use serde::Serialize;
-
 use std::collections::BTreeMap;
+
+use anyhow::Context;
+use serde::Serialize;
 
 use super::keys::{
     build_key_info, format_expiry_countdown, key_expiry_timestamp, print_key_limits_to,
@@ -14,7 +15,6 @@ use crate::config::Config;
 use crate::network::{format_address_link, networks::network_or_default, Network};
 use crate::wallet::credentials::{keychain, WalletCredentials, WalletType};
 use crate::wallet::WalletManager;
-use anyhow::Context;
 
 /// Load the default config, creating and saving a default if the file doesn't exist.
 fn load_or_create_default_config() -> anyhow::Result<Config> {
