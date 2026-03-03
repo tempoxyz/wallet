@@ -1,6 +1,6 @@
 //! MPP charge payment handling.
 //!
-//! This module handles the MPP protocol (https://mpp.dev) which uses
+//! This module handles the MPP protocol (<https://mpp.dev>) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
 use alloy::primitives::Address;

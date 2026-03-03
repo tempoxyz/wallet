@@ -546,7 +546,7 @@ pub enum SessionCommands {
     /// sessions; use `sessions list --orphaned` and `sessions close --orphaned`
     /// to manage on-chain-only channels.
     Recover {
-        /// URL or origin (scheme://host[:port]) to recover
+        /// URL or origin (scheme://host\[:port\]) to recover
         origin: String,
     },
     /// Sync local sessions with on-chain state (remove stale records)

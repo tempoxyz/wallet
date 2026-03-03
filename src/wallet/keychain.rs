@@ -252,7 +252,7 @@ impl KeychainBackend for InMemoryKeychain {
 
 /// Get the default keychain backend for the current environment.
 ///
-/// In test builds, returns an [`InMemoryKeychain`] so unit tests never
+/// In test builds, returns an `InMemoryKeychain` so unit tests never
 /// touch the real OS keychain.  In release/debug builds, returns
 /// [`OsKeychain`] for platform-native secret storage.
 pub fn default_backend() -> Box<dyn KeychainBackend> {
