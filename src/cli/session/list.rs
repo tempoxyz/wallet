@@ -46,6 +46,8 @@ fn view_from_session(
         remaining: format_u256_with_decimals(U256::from(remaining_u), decimals),
         status,
         remaining_secs,
+        created_at: Some(session.created_at),
+        last_used_at: Some(session.last_used_at),
     }
 }
 
@@ -211,6 +213,8 @@ async fn list_all_channels(
                         remaining: format_u256_with_decimals(U256::from(remaining_u), decimals),
                         status: status.to_string(),
                         remaining_secs: close_remaining_secs,
+                        created_at: None,
+                        last_used_at: None,
                     });
                 }
             }
@@ -267,6 +271,8 @@ async fn list_all_channels(
             remaining,
             status: "closed".to_string(),
             remaining_secs: Some(p.ready_at.saturating_sub(now)),
+            created_at: None,
+            last_used_at: None,
         });
     }
 
@@ -324,6 +330,8 @@ async fn list_orphaned_channels(
                 remaining: format_u256_with_decimals(U256::from(remaining_u), decimals),
                 status: status.to_string(),
                 remaining_secs: None,
+                created_at: None,
+                last_used_at: None,
             }
         })
         .collect();
@@ -388,6 +396,8 @@ async fn list_pending_closes(config: &Config, output_format: OutputFormat) -> Re
             remaining,
             status: "closed".to_string(),
             remaining_secs: Some(remaining_secs),
+            created_at: None,
+            last_used_at: None,
         });
     }
 

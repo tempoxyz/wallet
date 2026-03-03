@@ -15,7 +15,7 @@ use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
 use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::{parse_receipt, ChallengeEcho};
 
-use super::channel::{get_channel_on_chain, read_grace_period};
+use super::channel::{get_channel_on_chain, read_grace_period, resolve_scan_networks};
 use super::store as session_store;
 use super::tx::submit_tempo_tx;
 use super::CloseOutcome;
@@ -63,11 +63,9 @@ pub async fn close_session_from_record(
     .context("Failed to sign close voucher")?;
 
     // Try cooperative close via the server first
-    if try_server_close(record, &echo, channel_id, cumulative_amount, &sig)
-        .await
-        .is_ok()
-    {
-        return Ok(CloseOutcome::Closed);
+    match try_server_close(record, &echo, channel_id, cumulative_amount, &sig).await {
+        Ok(tx_url) => return Ok(CloseOutcome::Closed { tx_url }),
+        Err(coop_err) => tracing::info!("Cooperative close failed: {coop_err:#}"),
     }
 
     let fee_token: Address = record
@@ -87,14 +85,52 @@ pub async fn close_session_from_record(
     .await
 }
 
+/// Attempt a cooperative (server-side) close of a session without on-chain fallback.
+///
+/// Used for best-effort cleanup when reusing a session fails — the result is
+/// typically discarded because the caller will open a new channel regardless.
+pub(crate) async fn try_cooperative_close_from_record(
+    record: &session_store::SessionRecord,
+) -> Result<()> {
+    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
+        .context("Failed to parse persisted challenge echo")?;
+
+    let wallet = load_wallet_signer(&record.network_name)?;
+
+    let channel_id: B256 = record.channel_id_b256()?;
+
+    let escrow_contract: Address = record
+        .escrow_contract
+        .parse()
+        .context("Invalid escrow_contract in session record")?;
+
+    let cumulative_amount: u128 = record.cumulative_amount_u128()?;
+
+    let sig = sign_voucher(
+        &wallet.signer,
+        channel_id,
+        cumulative_amount,
+        escrow_contract,
+        record.chain_id,
+    )
+    .await
+    .context("Failed to sign close voucher")?;
+
+    try_server_close(record, &echo, channel_id, cumulative_amount, &sig)
+        .await
+        .map(|_| ())
+}
+
 /// Try cooperative close via the server.
+///
+/// Returns the settlement transaction URL on success (if available).
 async fn try_server_close(
     record: &session_store::SessionRecord,
     echo: &ChallengeEcho,
     channel_id: B256,
     cumulative_amount: u128,
     sig: &[u8],
-) -> Result<()> {
+) -> Result<Option<String>> {
     let close_payload = SessionCredentialPayload::Close {
         channel_id: format!("{}", channel_id),
         cumulative_amount: cumulative_amount.to_string(),
@@ -125,7 +161,7 @@ async fn try_server_close(
     // HTTP 410 Gone means the channel is already finalized on-chain.
     // Treat this as a successful close — the local record just needs cleanup.
     if status == reqwest::StatusCode::GONE {
-        return Ok(());
+        return Ok(None);
     }
 
     if status.is_client_error() || status.is_server_error() {
@@ -149,27 +185,27 @@ async fn try_server_close(
         );
     }
 
-    if let Some(receipt_str) = response.headers().get("payment-receipt") {
-        if let Ok(receipt_str) = receipt_str.to_str() {
-            if let Ok(receipt) = parse_receipt(receipt_str) {
-                let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-                let explorer = record
-                    .network_name
-                    .parse::<Network>()
-                    .ok()
-                    .and_then(|n| n.info().explorer);
-                if let Some(exp) = explorer.as_ref() {
-                    eprintln!("Channel settled: {}", exp.tx_url(&tx_ref));
-                } else {
-                    eprintln!("Channel settled: {}", tx_ref);
-                }
-            }
-        }
-    } else {
-        eprintln!("Channel close sent (no receipt)");
-    }
+    let tx_url = response
+        .headers()
+        .get("payment-receipt")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|receipt_str| {
+            let receipt = parse_receipt(receipt_str).ok()?;
+            let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
+            let explorer = record
+                .network_name
+                .parse::<Network>()
+                .ok()
+                .and_then(|n| n.info().explorer);
+            Some(
+                explorer
+                    .as_ref()
+                    .map(|exp| exp.tx_url(&tx_ref))
+                    .unwrap_or(tx_ref),
+            )
+        });
 
-    Ok(())
+    Ok(tx_url)
 }
 
 /// Submit requestClose() or withdraw() directly on-chain as a Tempo type-0x76 transaction.
@@ -292,7 +328,9 @@ pub(super) async fn close_on_chain(
         .unwrap_or(tx_hash);
     tracing::info!("withdraw TX: {}", tx_url);
 
-    Ok(CloseOutcome::Closed)
+    Ok(CloseOutcome::Closed {
+        tx_url: Some(tx_url),
+    })
 }
 
 /// Close a discovered on-chain channel directly, without a server.
@@ -345,11 +383,7 @@ pub async fn close_channel_by_id(
         .parse()
         .context("Invalid channel ID (expected 0x-prefixed bytes32 hex)")?;
 
-    let networks: Vec<Network> = if let Some(name) = network_filter {
-        name.parse::<Network>().ok().into_iter().collect()
-    } else {
-        Network::all().to_vec()
-    };
+    let networks = resolve_scan_networks(network_filter);
 
     let mut had_rpc_errors = false;
 
