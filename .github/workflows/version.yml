@@ -27,26 +27,20 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - name: Changelogs
+        id: changelogs
         uses: wevm/changelogs-rs@master
         with:
           conventional-commit: true
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
-      - name: Check for unreleased version
+      - name: Check for new release
         id: check
+        if: steps.changelogs.outputs.published == 'true'
         run: |
-          git fetch origin main --tags
-          git reset --hard origin/main
-
           VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          TAG="presto@${VERSION}"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists, no release needed"
-          else
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "New version $VERSION detected, triggering release"
-          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "New version $VERSION published, triggering release"
 
   release:
     name: Release
