@@ -69,10 +69,11 @@ pub async fn close_session_from_record(
         return Ok(CloseOutcome::Closed);
     }
 
+    let coop_err = server_result.unwrap_err();
+    tracing::info!("Cooperative close failed: {coop_err:#}");
+
     if cooperative_only {
-        return Err(server_result
-            .unwrap_err()
-            .context("Cooperative close failed (--cooperative skips on-chain fallback)"));
+        return Err(coop_err.context("Cooperative close failed"));
     }
 
     let fee_token: Address = record

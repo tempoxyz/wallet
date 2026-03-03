@@ -519,10 +519,9 @@ pub enum SessionCommands {
         /// Finalize channels pending close (grace period elapsed)
         #[arg(long)]
         closed: bool,
-        /// Only attempt cooperative (server-side) close; skip on-chain fallback
-        #[arg(long)]
-        cooperative: bool,
     },
+    /// Sync local sessions with on-chain state (remove stale records)
+    Sync,
 }
 
 #[derive(Subcommand, Debug)]

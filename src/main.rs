@@ -348,7 +348,6 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                         all,
                         orphaned,
                         closed,
-                        cooperative,
                     } => {
                         cli::session::close_sessions(
                             &config,
@@ -356,12 +355,14 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                             all,
                             orphaned,
                             closed,
-                            cooperative,
                             output_format,
                             show_output,
                             cli.network.as_deref(),
                         )
                         .await
+                    }
+                    SessionCommands::Sync => {
+                        cli::session::sync_sessions(&config, output_format, show_output).await
                     }
                 }
             } else {
