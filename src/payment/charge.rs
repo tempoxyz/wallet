@@ -10,8 +10,7 @@ use crate::error::{classify_payment_error, map_mpp_validation_error, PrestoError
 use crate::http::{HttpClient, HttpResponse, RequestContext};
 use crate::wallet::signer::WalletSigner;
 
-use super::dispatch::PaymentResult;
-use super::ResolvedChallenge;
+use super::dispatch::{PaymentResult, ResolvedChallenge};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").
 ///

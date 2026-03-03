@@ -6,15 +6,23 @@ use anyhow::{Context, Result};
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 
+use mpp::PaymentChallenge;
+
 use crate::config::Config;
 use crate::error::PrestoError;
 use crate::http::{HttpClient, HttpResponse, RequestContext};
-use crate::network::Network;
+use crate::network::{Network, NetworkInfo};
 use crate::wallet::signer::load_wallet_signer;
 
 use super::charge::handle_charge_request;
 use super::session::handle_session_request;
-use super::ResolvedChallenge;
+
+/// Parsed challenge with resolved network, shared by charge and session flows.
+pub struct ResolvedChallenge {
+    pub challenge: PaymentChallenge,
+    pub network: Network,
+    pub network_info: NetworkInfo,
+}
 
 /// Result of a successful payment dispatch.
 pub struct PaymentResult {

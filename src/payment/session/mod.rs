@@ -343,7 +343,7 @@ pub async fn handle_session_request(
     request_ctx: &RequestContext,
     http_client: &HttpClient,
     url: &str,
-    resolved: crate::payment::ResolvedChallenge,
+    resolved: crate::payment::dispatch::ResolvedChallenge,
     signer: WalletSigner,
 ) -> Result<PaymentResult> {
     let challenge = &resolved.challenge;
