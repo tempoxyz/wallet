@@ -9,6 +9,7 @@ use futures::future::join_all;
 use serde::Serialize;
 use tracing::debug;
 
+use super::auth::compute_locked;
 use super::OutputFormat;
 use crate::config::Config;
 use crate::network::{format_address_link, networks::network_or_default, Network};
@@ -172,6 +173,27 @@ pub async fn show_keys(
                 if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
                     let wallet_link = format_address_link(wallet, explorer.as_ref());
                     println!("{:>10}: {} ({})", "Wallet", wallet_link, wt);
+                }
+                if let (Some(bal), Some(sym)) = (&key.balance, &key.symbol) {
+                    let chain_id = creds
+                        .keys
+                        .iter()
+                        .find(|e| e.key_address.as_deref() == Some(&key.address))
+                        .map(|e| e.chain_id);
+                    if let Some((locked, count, decimals)) = compute_locked(sym, chain_id) {
+                        let bal_f64: f64 = bal.parse().unwrap_or(0.0);
+                        let locked_f64: f64 = locked.parse().unwrap_or(0.0);
+                        let total = format!("{:.width$}", bal_f64 + locked_f64, width = decimals);
+                        let session_label = if count == 1 { "session" } else { "sessions" };
+                        println!("{:>10}: {} {}", "Balance", total, sym);
+                        println!(
+                            "{:>10}: {} {} ({} active {})",
+                            "Locked", locked, sym, count, session_label
+                        );
+                        println!("{:>10}: {} {}", "Available", bal, sym);
+                    } else {
+                        println!("{:>10}: {} {}", "Balance", bal, sym);
+                    }
                 }
                 let key_link = format_address_link(&key.address, explorer.as_ref());
                 println!("{:>10}: {}", "Key", key_link);

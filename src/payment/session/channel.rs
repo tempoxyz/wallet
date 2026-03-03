@@ -147,7 +147,7 @@ pub async fn find_all_channels_for_payer(
     let networks: Vec<Network> = if let Some(name) = network_name {
         name.parse::<Network>().ok().into_iter().collect()
     } else {
-        Network::all().to_vec()
+        vec![Network::Tempo]
     };
 
     let event_topic: B256 = match CHANNEL_OPENED_TOPIC.parse() {

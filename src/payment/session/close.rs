@@ -37,6 +37,7 @@ sol! {
 pub async fn close_session_from_record(
     record: &session_store::SessionRecord,
     config: &Config,
+    cooperative_only: bool,
 ) -> Result<CloseOutcome> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
@@ -63,11 +64,15 @@ pub async fn close_session_from_record(
     .context("Failed to sign close voucher")?;
 
     // Try cooperative close via the server first
-    if try_server_close(record, &echo, channel_id, cumulative_amount, &sig)
-        .await
-        .is_ok()
-    {
+    let server_result = try_server_close(record, &echo, channel_id, cumulative_amount, &sig).await;
+    if server_result.is_ok() {
         return Ok(CloseOutcome::Closed);
+    }
+
+    if cooperative_only {
+        return Err(server_result
+            .unwrap_err()
+            .context("Cooperative close failed (--cooperative skips on-chain fallback)"));
     }
 
     let fee_token: Address = record
@@ -348,7 +353,7 @@ pub async fn close_channel_by_id(
     let networks: Vec<Network> = if let Some(name) = network_filter {
         name.parse::<Network>().ok().into_iter().collect()
     } else {
-        Network::all().to_vec()
+        vec![Network::Tempo]
     };
 
     let mut had_rpc_errors = false;

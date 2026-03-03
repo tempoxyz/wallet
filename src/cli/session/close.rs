@@ -25,10 +25,16 @@ pub async fn close_sessions(
     all: bool,
     orphaned: bool,
     closed: bool,
+    cooperative: bool,
     output_format: OutputFormat,
     show_output: bool,
     network: Option<&str>,
 ) -> Result<()> {
+    if cooperative && (orphaned || closed) {
+        anyhow::bail!(
+            "--cooperative cannot be used with --orphaned or --closed (those are on-chain only)"
+        );
+    }
     if closed {
         return finalize_closed_channels(config, output_format, show_output, network).await;
     }
@@ -36,17 +42,22 @@ pub async fn close_sessions(
         return close_orphaned_channels(config, output_format, show_output, network).await;
     }
     if all {
-        return close_all_sessions(config, output_format, show_output, network).await;
+        return close_all_sessions(config, cooperative, output_format, show_output, network).await;
     }
 
     if let Some(ref target) = url {
         // If the target looks like a channel ID (0x-prefixed hex), close on-chain directly
         if target.starts_with("0x") && target.len() == 66 {
+            if cooperative {
+                anyhow::bail!(
+                    "--cooperative cannot be used with a channel ID (no server to close with)"
+                );
+            }
             return close_by_channel_id(config, target, output_format, show_output, network).await;
         }
 
         // Otherwise treat as a URL — close the local session
-        return close_by_url(config, target, output_format, show_output).await;
+        return close_by_url(config, target, cooperative, output_format, show_output).await;
     }
 
     anyhow::bail!(
@@ -57,6 +68,7 @@ pub async fn close_sessions(
 /// Close all local sessions and on-chain orphaned channels.
 async fn close_all_sessions(
     config: &Config,
+    cooperative: bool,
     output_format: OutputFormat,
     show_output: bool,
     network: Option<&str>,
@@ -70,7 +82,7 @@ async fn close_all_sessions(
         if show_output {
             eprintln!("Closing {}...", session.origin);
         }
-        match close_session_from_record(session, config).await {
+        match close_session_from_record(session, config, cooperative).await {
             Ok(CloseOutcome::Closed) => {
                 if let Err(e) = session_store::delete_session(&key) {
                     if show_output {
@@ -100,19 +112,24 @@ async fn close_all_sessions(
             }
             Err(e) => {
                 if show_output {
-                    eprintln!("  Error: {e}");
+                    eprintln!("  Error: {e:#}");
                 }
                 summary.record_failed(serde_json::json!({
                     "origin": session.origin,
                     "channel_id": session.channel_id,
                     "status": "error",
-                    "error": e.to_string(),
+                    "error": format!("{e:#}"),
                 }));
             }
         }
     }
 
-    // Phase 2: scan on-chain for orphaned channels
+    // Phase 2: scan on-chain for orphaned channels (skip in cooperative mode)
+    if cooperative {
+        summary.print(output_format, "No active sessions to close.", "closed")?;
+        return Ok(());
+    }
+
     let local_channel_ids: HashSet<&str> = sessions.iter().map(|s| s.channel_id.as_str()).collect();
 
     if let Ok(creds) = WalletCredentials::load() {
@@ -241,6 +258,7 @@ async fn close_by_channel_id(
 async fn close_by_url(
     config: &Config,
     target: &str,
+    cooperative: bool,
     output_format: OutputFormat,
     show_output: bool,
 ) -> Result<()> {
@@ -251,7 +269,7 @@ async fn close_by_url(
         if show_output {
             eprintln!("Closing {target}...");
         }
-        match close_session_from_record(&record, config).await {
+        match close_session_from_record(&record, config, cooperative).await {
             Ok(CloseOutcome::Closed) => {
                 if let Err(e) = session_store::delete_session(&key) {
                     if show_output {
