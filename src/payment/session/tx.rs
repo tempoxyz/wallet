@@ -10,7 +10,6 @@ use anyhow::Result;
 
 use mpp::client::tempo::{signing, tx_builder};
 
-use crate::config::Config;
 use crate::error::PrestoError;
 use crate::http::{HttpClient, HttpResponse, RequestContext};
 use crate::network::Network;
@@ -157,16 +156,13 @@ pub(super) async fn submit_tempo_tx(
 /// Returns both the credential (for sending to the server) and the raw
 /// signed transaction bytes (for optional client-side pre-broadcast).
 pub(super) async fn create_tempo_payment_from_calls(
-    config: &Config,
+    rpc_url_str: &str,
     signing: &WalletSigner,
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
     chain_id: u64,
 ) -> Result<TempoPaymentResult> {
-    let network = Network::require_chain_id(chain_id)?;
-    let network_info = config.resolve_network(network.as_str())?;
-
-    let rpc_url = Network::parse_rpc_url(&network_info.rpc_url)?;
+    let rpc_url = Network::parse_rpc_url(rpc_url_str)?;
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;

@@ -2,14 +2,27 @@
 //!
 //! This module is crate-internal and intentionally decoupled from CLI types.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use mpp::protocol::methods::tempo::session::TempoSessionExt;
+use mpp::protocol::methods::tempo::TempoChargeExt;
+
+use mpp::PaymentChallenge;
 
 use crate::config::Config;
 use crate::error::PrestoError;
 use crate::http::{HttpClient, HttpResponse, RequestContext};
+use crate::network::{Network, NetworkInfo};
+use crate::wallet::signer::load_wallet_signer;
 
-use super::charge::prepare_charge;
-use super::session::{handle_session_request, SessionResult};
+use super::charge::handle_charge_request;
+use super::session::handle_session_request;
+
+/// Parsed challenge with resolved network, shared by charge and session flows.
+pub struct ResolvedChallenge {
+    pub challenge: PaymentChallenge,
+    pub network: Network,
+    pub network_info: NetworkInfo,
+}
 
 /// Result of a successful payment dispatch.
 pub struct PaymentResult {
@@ -28,247 +41,57 @@ pub async fn dispatch_payment(
     url: &str,
     response: &HttpResponse,
 ) -> Result<PaymentResult> {
-    if is_session {
-        let result =
-            handle_session_request(config, request_ctx, http_client, url, response).await?;
-        return match result {
-            SessionResult::Streamed { channel_id } => Ok(PaymentResult {
-                tx_hash: String::new(),
-                session_id: Some(channel_id),
-                status_code: 200,
-                response: None,
-            }),
-            SessionResult::Response {
-                response: resp,
-                channel_id,
-            } => Ok(PaymentResult {
-                tx_hash: String::new(),
-                session_id: Some(channel_id),
-                status_code: resp.status_code,
-                response: Some(resp),
-            }),
-        };
-    }
+    let www_auth = response
+        .get_header("www-authenticate")
+        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
 
-    let auth_header = prepare_charge(config, &request_ctx.runtime, response).await?;
+    let challenge =
+        mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
-    if request_ctx.runtime.dry_run {
-        eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
-        return Ok(PaymentResult {
-            tx_hash: String::new(),
-            session_id: None,
-            status_code: 200,
-            response: None,
-        });
-    }
-
-    if request_ctx.log_enabled() {
-        eprintln!("Submitting payment...");
-    }
-
-    let headers = vec![("Authorization".to_string(), (*auth_header).clone())];
-    let resp = request_ctx
-        .execute_with_client(http_client, url, &headers)
-        .await?;
-
-    if resp.status_code >= 400 {
-        return Err(parse_payment_rejection(&resp).into());
-    }
-
-    if request_ctx.log_enabled() {
-        eprintln!("Payment accepted: HTTP {}", resp.status_code);
-    }
-
-    // Extract a raw transaction reference (hex hash) for analytics if present
-    let tx_hash = resp
-        .get_header("payment-receipt")
-        .and_then(|h| {
-            mpp::protocol::core::extract_tx_hash(h)
-                .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
-        })
-        .unwrap_or_default();
-    let status_code = resp.status_code;
-    Ok(PaymentResult {
-        tx_hash,
-        session_id: None,
-        status_code,
-        response: Some(resp),
-    })
-}
-
-/// Parse a non-200 response after payment submission into a descriptive error.
-pub fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
-    let reason = if let Ok(body) = response.body_string() {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
-                error.to_string()
-            } else if let Some(message) = json.get("message").and_then(|m| m.as_str()) {
-                message.to_string()
-            } else if let Some(detail) = json.get("detail").and_then(|d| d.as_str()) {
-                detail.to_string()
-            } else {
-                format!("HTTP {}", response.status_code)
-            }
-        } else if !body.trim().is_empty() {
-            body.chars().take(200).collect()
-        } else {
-            format!("HTTP {}", response.status_code)
-        }
+    let chain_id = if challenge.intent.is_charge() {
+        challenge
+            .request
+            .decode::<mpp::ChargeRequest>()
+            .ok()
+            .and_then(|r| r.chain_id())
+    } else if challenge.intent.is_session() {
+        challenge
+            .request
+            .decode::<mpp::SessionRequest>()
+            .ok()
+            .and_then(|r| r.chain_id())
     } else {
-        format!("HTTP {}", response.status_code)
+        None
     };
 
-    PrestoError::PaymentRejected {
-        reason,
-        status_code: response.status_code,
-    }
-}
+    let chain_id = chain_id.ok_or_else(|| {
+        PrestoError::InvalidConfig("Missing chainId in payment request".to_string())
+    })?;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    let network = Network::require_chain_id(chain_id)?;
 
-    fn make_response(status: u16, body: &[u8]) -> HttpResponse {
-        HttpResponse {
-            status_code: status,
-            headers: std::collections::HashMap::new(),
-            body: body.to_vec(),
-            final_url: None,
-        }
+    if let Some(ref networks) = request_ctx.runtime.network {
+        let allowed: Vec<&str> = networks.split(',').map(|s| s.trim()).collect();
+        anyhow::ensure!(
+            allowed.contains(&network.as_str()),
+            "Network '{}' not in allowed networks: {:?}",
+            network.as_str(),
+            allowed
+        );
     }
 
-    #[test]
-    fn test_parse_payment_rejection_json_error_field() {
-        let body = br#"{"error":"insufficient funds"}"#;
-        let resp = make_response(400, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected {
-                reason,
-                status_code,
-            } => {
-                assert_eq!(reason, "insufficient funds");
-                assert_eq!(status_code, 400);
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
+    let network_info = config.resolve_network(network.as_str())?;
+    let resolved = ResolvedChallenge {
+        challenge,
+        network,
+        network_info,
+    };
+
+    let signer = load_wallet_signer(resolved.network.as_str())?;
+
+    if is_session {
+        return handle_session_request(request_ctx, http_client, url, resolved, signer).await;
     }
 
-    #[test]
-    fn test_parse_payment_rejection_json_message_field() {
-        let body = br#"{"message":"bad request"}"#;
-        let resp = make_response(400, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "bad request");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_detail_field() {
-        let body = br#"{"detail":"validation failed"}"#;
-        let resp = make_response(422, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected {
-                reason,
-                status_code,
-            } => {
-                assert_eq!(reason, "validation failed");
-                assert_eq!(status_code, 422);
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_no_known_field() {
-        let body = br#"{"foo":"bar"}"#;
-        let resp = make_response(500, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 500");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_json_error_precedence() {
-        let body = br#"{"error":"e","message":"m","detail":"d"}"#;
-        let resp = make_response(400, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "e");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_plain_text() {
-        let body = b"Transaction reverted";
-        let resp = make_response(500, body);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "Transaction reverted");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_plain_text_truncated() {
-        let body = "a".repeat(500);
-        let resp = make_response(500, body.as_bytes());
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason.len(), 200);
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_empty_body() {
-        let resp = make_response(500, b"");
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 500");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_whitespace_body() {
-        let resp = make_response(503, b"   \n\t  ");
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 503");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
-
-    #[test]
-    fn test_parse_payment_rejection_invalid_utf8() {
-        let resp = make_response(500, &[0xff, 0xfe, 0xfd]);
-        let err = parse_payment_rejection(&resp);
-        match err {
-            PrestoError::PaymentRejected { reason, .. } => {
-                assert_eq!(reason, "HTTP 500");
-            }
-            _ => panic!("expected PaymentRejected"),
-        }
-    }
+    handle_charge_request(request_ctx, http_client, url, resolved, signer).await
 }
