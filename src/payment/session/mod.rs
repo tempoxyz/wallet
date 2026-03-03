@@ -21,9 +21,9 @@
 //! - [`close`] — Channel close operations (cooperative and on-chain)
 //! - [`tx`] — Tempo transaction building and submission
 
-pub(crate) mod channel;
+pub mod channel;
 mod close;
-pub(crate) mod store;
+pub mod store;
 mod streaming;
 mod tx;
 
@@ -46,13 +46,13 @@ use crate::wallet::signer::load_wallet_signer;
 use store::SessionRecord;
 
 // Re-export public API
-pub(crate) use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
-pub(crate) use close::{close_channel_by_id, close_discovered_channel, close_session_from_record};
+pub use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
+pub use close::{close_channel_by_id, close_discovered_channel, close_session_from_record};
 
 // ==================== Types ====================
 
 /// Outcome of an on-chain close attempt.
-pub(crate) enum CloseOutcome {
+pub enum CloseOutcome {
     /// Channel fully closed (withdrawn or cooperatively settled).
     Closed {
         tx_url: Option<String>,
@@ -64,7 +64,7 @@ pub(crate) enum CloseOutcome {
 }
 
 /// Result of a session request — either streamed (already printed) or a buffered response.
-pub(crate) enum SessionResult {
+pub enum SessionResult {
     /// SSE tokens were streamed directly to stdout.
     Streamed { channel_id: String },
     /// A normal (non-SSE) response that should be handled by the regular output path.
@@ -75,7 +75,7 @@ pub(crate) enum SessionResult {
 }
 
 /// State for an active session channel.
-pub(crate) struct SessionState {
+pub struct SessionState {
     pub channel_id: B256,
     pub escrow_contract: Address,
     pub chain_id: u64,
@@ -83,7 +83,7 @@ pub(crate) struct SessionState {
 }
 
 /// Shared context for session operations (streaming, closing).
-pub(crate) struct SessionContext<'a> {
+pub struct SessionContext<'a> {
     pub signer: &'a alloy::signers::local::PrivateKeySigner,
     pub echo: &'a ChallengeEcho,
     pub did: &'a str,
@@ -135,7 +135,7 @@ impl<'a> SessionContext<'a> {
     }
 
     /// Resolve the token symbol for the current session (e.g., "USDC" or "pathUSD").
-    pub(crate) fn token_symbol(&self) -> &'static str {
+    pub fn token_symbol(&self) -> &'static str {
         resolve_token_meta(self.network_name, &self.currency).0
     }
 }
@@ -170,7 +170,7 @@ fn build_open_payload(
 // ==================== Voucher ====================
 
 /// Build a voucher credential for an existing session.
-pub(crate) async fn build_voucher_credential(
+pub async fn build_voucher_credential(
     signer: &alloy::signers::local::PrivateKeySigner,
     echo: &ChallengeEcho,
     did: &str,
@@ -202,7 +202,7 @@ pub(crate) async fn build_voucher_credential(
 // ==================== Persistence ====================
 
 /// Persist or update the session record to disk.
-pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()> {
+pub fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()> {
     let now = store::now_secs();
 
     let echo_json =

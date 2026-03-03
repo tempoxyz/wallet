@@ -14,7 +14,7 @@ use tracing::warn;
 // ==================== HTTP Response ====================
 
 #[derive(Debug)]
-pub(crate) struct HttpResponse {
+pub struct HttpResponse {
     pub status_code: u16,
     /// Response headers with **lowercased** keys.
     ///
@@ -69,7 +69,7 @@ struct HttpClientConfig {
 
 /// Builder for configuring HTTP clients.
 #[must_use]
-pub(crate) struct HttpClientBuilder {
+pub struct HttpClientBuilder {
     config: HttpClientConfig,
 }
 
@@ -166,7 +166,7 @@ impl Default for HttpClientBuilder {
 }
 
 /// Async HTTP client for making HTTP requests.
-pub(crate) struct HttpClient {
+pub struct HttpClient {
     client: reqwest::Client,
 }
 
@@ -311,7 +311,7 @@ impl Default for HttpClient {
 // ==================== Header Utilities ====================
 
 /// Utility function to check if a header exists in the response (case-insensitive).
-pub(crate) fn has_header(headers: &[String], name: &str) -> bool {
+pub fn has_header(headers: &[String], name: &str) -> bool {
     let name_lower = name.to_lowercase();
     headers.iter().any(|h| {
         h.split_once(':')
@@ -323,7 +323,7 @@ pub(crate) fn has_header(headers: &[String], name: &str) -> bool {
 ///
 /// Preserves duplicate headers (important for HTTP headers like Set-Cookie).
 /// Header names are lowercased for consistency. Malformed entries are skipped.
-pub(crate) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
+pub fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
     headers
         .iter()
         .filter_map(|header| {
@@ -340,7 +340,7 @@ pub(crate) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
 /// Derived from CLI arguments at the boundary layer (`request.rs`);
 /// HTTP and payment modules depend on this instead of raw CLI types.
 #[derive(Clone, Debug)]
-pub(crate) struct RequestRuntime {
+pub struct RequestRuntime {
     pub verbosity: u8,
     pub show_output: bool,
     pub network: Option<String>,
@@ -361,7 +361,7 @@ impl RequestRuntime {
 
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Clone, Debug)]
-pub(crate) struct HttpRequestPlan {
+pub struct HttpRequestPlan {
     pub method: reqwest::Method,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
@@ -388,7 +388,7 @@ const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 const MAX_HEADER_SIZE: usize = 8 * 1024;
 
 #[derive(Error, Debug)]
-pub(crate) enum RequestError {
+pub enum RequestError {
     #[error("Request body exceeds maximum size of {max} bytes")]
     BodyTooLarge { max: usize },
 
@@ -405,7 +405,7 @@ pub(crate) enum RequestError {
     },
 }
 
-pub(crate) fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
+pub fn validate_body_size(len: usize) -> std::result::Result<(), RequestError> {
     if len > MAX_BODY_SIZE {
         return Err(RequestError::BodyTooLarge { max: MAX_BODY_SIZE });
     }
@@ -418,7 +418,7 @@ pub(crate) fn validate_body_size(len: usize) -> std::result::Result<(), RequestE
 /// - `@filename` — read the file as binary
 /// - `@-` — read stdin as binary
 /// - anything else — treat as a literal UTF-8 string
-pub(crate) fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
+pub fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestError> {
     if let Some(path) = data.strip_prefix('@') {
         if path == "-" {
             let mut buf = Vec::new();
@@ -442,7 +442,7 @@ pub(crate) fn resolve_data(data: &str) -> std::result::Result<Vec<u8>, RequestEr
     }
 }
 
-pub(crate) fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
+pub fn validate_header_size(header: &str) -> std::result::Result<(), RequestError> {
     if header.len() > MAX_HEADER_SIZE {
         return Err(RequestError::HeaderTooLarge {
             max: MAX_HEADER_SIZE,
@@ -455,7 +455,7 @@ pub(crate) fn validate_header_size(header: &str) -> std::result::Result<(), Requ
 ///
 /// Built from `RequestRuntime` + `HttpRequestPlan` at the CLI boundary;
 /// HTTP and payment modules use this without depending on CLI types.
-pub(crate) struct RequestContext {
+pub struct RequestContext {
     pub runtime: RequestRuntime,
     pub plan: HttpRequestPlan,
 }
@@ -634,7 +634,7 @@ impl RequestContext {
 // ==================== Retry Policy ====================
 
 #[derive(Clone, Debug)]
-pub(crate) struct RetryPolicy {
+pub struct RetryPolicy {
     pub max_retries: u32,
     pub base_backoff_ms: u64,
     pub max_backoff_ms: u64,
@@ -657,7 +657,7 @@ impl Default for RetryPolicy {
 }
 
 /// Determine the HTTP method and body from raw query inputs.
-pub(crate) fn get_request_method_and_body(
+pub fn get_request_method_and_body(
     method: Option<&str>,
     data: &[String],
     json: Option<&str>,
@@ -714,7 +714,7 @@ fn is_json_data(data: &str) -> bool {
 /// Returns true if:
 /// - The provided headers don't already contain a Content-Type header, AND
 /// - Either json/toon data is provided, OR the first data value looks like JSON
-pub(crate) fn should_auto_add_json_content_type(
+pub fn should_auto_add_json_content_type(
     headers: &[String],
     json: Option<&str>,
     toon: Option<&str>,

@@ -7,7 +7,7 @@ use clap_complete::{generate, shells};
 use crate::cli::{Cli, Shell};
 
 /// Print version information as structured JSON and exit.
-pub(crate) fn print_version_json() {
+pub fn print_version_json() {
     let json = serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
         "git_commit": env!("PRESTO_GIT_SHA"),
@@ -18,7 +18,7 @@ pub(crate) fn print_version_json() {
 }
 
 /// Generate shell completions to stdout for the provided shell.
-pub(crate) fn generate_completions(shell: Shell) -> Result<()> {
+pub fn generate_completions(shell: Shell) -> Result<()> {
     let mut cmd = Cli::command();
     let bin_name = cmd.get_name().to_string();
 

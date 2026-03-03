@@ -331,7 +331,7 @@ impl WalletCredentials {
 }
 
 /// Parse a private key hex string into a PrivateKeySigner.
-pub(crate) fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, PrestoError> {
+pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, PrestoError> {
     let key = pk_str.trim();
     let key_hex = key.strip_prefix("0x").unwrap_or(key);
     let bytes = hex::decode(key_hex)

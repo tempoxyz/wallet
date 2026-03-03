@@ -12,7 +12,7 @@ use super::charge::prepare_charge;
 use super::session::{handle_session_request, SessionResult};
 
 /// Result of a successful payment dispatch.
-pub(crate) struct PaymentResult {
+pub struct PaymentResult {
     pub tx_hash: String,
     pub session_id: Option<String>,
     pub status_code: u16,
@@ -20,7 +20,7 @@ pub(crate) struct PaymentResult {
 }
 
 /// Dispatch to charge or session payment flow.
-pub(crate) async fn dispatch_payment(
+pub async fn dispatch_payment(
     config: &Config,
     request_ctx: &RequestContext,
     http_client: &HttpClient,
@@ -97,7 +97,7 @@ pub(crate) async fn dispatch_payment(
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
-pub(crate) fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
+pub fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
     let reason = if let Ok(body) = response.body_string() {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
             if let Some(error) = json.get("error").and_then(|e| e.as_str()) {

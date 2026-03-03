@@ -22,7 +22,7 @@ use mpp::client::tempo::keychain::query_key_spending_limit;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct TokenBalance {
+pub struct TokenBalance {
     pub symbol: String,
     pub currency: String,
     pub balance: String,
@@ -30,7 +30,7 @@ pub(crate) struct TokenBalance {
 
 /// Spending limit for the key's authorized token.
 #[derive(Debug, Serialize)]
-pub(crate) struct SpendingLimitInfo {
+pub struct SpendingLimitInfo {
     pub(super) unlimited: bool,
     pub(super) limit: Option<String>,
     pub(super) remaining: Option<String>,
@@ -39,7 +39,7 @@ pub(crate) struct SpendingLimitInfo {
 
 /// Key details for JSON output.
 #[derive(Debug, Serialize)]
-pub(crate) struct KeyInfo {
+pub struct KeyInfo {
     pub label: String,
     pub address: String,
     pub wallet_address: Option<String>,
@@ -53,7 +53,7 @@ pub(crate) struct KeyInfo {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct KeysResponse {
+pub struct KeysResponse {
     pub keys: Vec<KeyInfo>,
     pub total: usize,
 }
@@ -62,7 +62,7 @@ pub(crate) struct KeysResponse {
 // Commands
 // ---------------------------------------------------------------------------
 
-pub(crate) fn run_key_clean(yes: bool) -> anyhow::Result<()> {
+pub fn run_key_clean(yes: bool) -> anyhow::Result<()> {
     let path = WalletCredentials::keys_path()?;
 
     if !path.exists() {

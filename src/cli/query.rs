@@ -680,7 +680,7 @@ impl PaymentAnalytics {
 }
 
 /// Finalize a regular response: display output and fail on HTTP errors.
-pub(crate) fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+pub fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     let status = response.status_code;
     handle_regular_response(output_opts, response)?;
     if status >= 400 {

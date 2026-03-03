@@ -3,7 +3,7 @@
 use crate::cli::Cli;
 
 /// Initialize tracing subscriber based on CLI verbosity and environment.
-pub(crate) fn init_tracing(cli: &Cli) {
+pub fn init_tracing(cli: &Cli) {
     use tracing_subscriber::EnvFilter;
 
     // Quiet mode (-q) is absolute: override any RUST_LOG with "off"

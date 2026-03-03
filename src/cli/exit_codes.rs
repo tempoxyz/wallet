@@ -15,7 +15,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 #[allow(dead_code)]
-pub(crate) enum ExitCode {
+pub enum ExitCode {
     /// Successful execution
     Success = 0,
 

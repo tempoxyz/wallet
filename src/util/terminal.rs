@@ -11,7 +11,7 @@ use crate::analytics;
 /// - ANSI escape sequence injection (CSI, OSC, etc.)
 /// - OSC 8 breakout via BEL (\x07)
 /// - Cursor manipulation and line erasure
-pub(crate) fn sanitize_for_terminal(s: &str) -> String {
+pub fn sanitize_for_terminal(s: &str) -> String {
     s.chars()
         .filter(|c| {
             // Keep printable characters and safe whitespace (tab, newline)
@@ -34,7 +34,7 @@ const SENSITIVE_HEADERS: &[&str] = &[
 /// For sensitive headers (Authorization, Cookie, etc.) the credential portion
 /// is replaced with `[REDACTED]`. For `Authorization` / `Proxy-Authorization`
 /// the scheme (e.g. `Bearer`, `Basic`) is preserved so the log remains useful.
-pub(crate) fn redact_header_value(name: &str, value: &str) -> String {
+pub fn redact_header_value(name: &str, value: &str) -> String {
     let lower = name.to_lowercase();
     if !SENSITIVE_HEADERS.contains(&lower.as_str()) {
         return value.to_string();
@@ -51,13 +51,13 @@ pub(crate) fn redact_header_value(name: &str, value: &str) -> String {
 
 /// Strip query parameters and fragments from a URL for safe logging.
 /// Delegates to analytics::sanitize_url so both analytics and logs match.
-pub(crate) fn redact_url(raw: &str) -> String {
+pub fn redact_url(raw: &str) -> String {
     analytics::sanitize_url(raw)
 }
 
 /// Format text as a clickable hyperlink using the OSC 8 protocol.
 /// Both text and url are sanitized to strip control characters.
-pub(crate) fn hyperlink(text: &str, url: &str) -> String {
+pub fn hyperlink(text: &str, url: &str) -> String {
     let clean_text = sanitize_for_terminal(text);
     if supports_hyperlinks() {
         let clean_url = sanitize_for_terminal(url);
@@ -68,7 +68,7 @@ pub(crate) fn hyperlink(text: &str, url: &str) -> String {
 }
 
 /// Check if the current terminal supports OSC 8 hyperlinks.
-pub(crate) fn supports_hyperlinks() -> bool {
+pub fn supports_hyperlinks() -> bool {
     static SUPPORTS: OnceLock<bool> = OnceLock::new();
     *SUPPORTS.get_or_init(detect_hyperlink_support)
 }

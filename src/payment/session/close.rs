@@ -240,7 +240,7 @@ pub async fn close_session_from_record(
 ///
 /// Used for best-effort cleanup when reusing a session fails — the result is
 /// typically discarded because the caller will open a new channel regardless.
-pub(crate) async fn try_cooperative_close_from_record(
+pub async fn try_cooperative_close_from_record(
     record: &session_store::SessionRecord,
 ) -> Result<()> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)

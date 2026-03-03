@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::error::PrestoError;
 
 /// Atomic file write with optional UNIX mode.
-pub(crate) fn atomic_write(
+pub fn atomic_write(
     path: &Path,
     contents: &str,
     #[allow(unused_variables)] unix_mode: u32,

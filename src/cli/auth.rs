@@ -128,7 +128,7 @@ pub async fn run_logout(yes: bool) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-pub(crate) struct StatusResponse {
+pub struct StatusResponse {
     pub ready: bool,
     pub wallet: Option<String>,
     pub wallet_type: Option<String>,
@@ -144,10 +144,10 @@ pub(crate) struct StatusResponse {
     pub active_sessions: Option<usize>,
     pub network: Option<String>,
     pub chain_id: Option<u64>,
-    pub(crate) key: Option<KeyInfo>,
+    pub key: Option<KeyInfo>,
     /// Key expiry as a Unix timestamp (used for text display only, not serialized).
     #[serde(skip)]
-    pub(crate) key_expiry: Option<u64>,
+    pub key_expiry: Option<u64>,
 }
 
 pub async fn show_whoami(

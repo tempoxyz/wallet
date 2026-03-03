@@ -4,7 +4,7 @@
 ///
 /// Converts atomic units to a human-readable decimal string.
 /// For example, `1000000` with 6 decimals becomes `"1.000000"`.
-pub(crate) fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
+pub fn format_u256_with_decimals(value: alloy::primitives::U256, decimals: u8) -> String {
     use alloy::primitives::U256;
 
     if decimals == 0 {
@@ -22,7 +22,7 @@ pub(crate) fn format_u256_with_decimals(value: alloy::primitives::U256, decimals
 }
 
 /// Format atomic token units as a human-readable string with trimmed trailing zeros.
-pub(crate) fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
+pub fn format_token_amount(atomic: u128, symbol: &str, decimals: u8) -> String {
     let divisor = 10u128.pow(decimals as u32);
     let whole = atomic / divisor;
     let remainder = atomic % divisor;

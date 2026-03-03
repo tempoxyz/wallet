@@ -2,7 +2,7 @@
 
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
-pub(crate) use crate::config::OutputFormat;
+pub use crate::config::OutputFormat;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ColorMode {
