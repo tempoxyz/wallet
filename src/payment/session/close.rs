@@ -19,6 +19,7 @@ use super::channel::{get_channel_on_chain, read_grace_period, resolve_scan_netwo
 use super::store as session_store;
 use super::tx::submit_tempo_tx;
 use super::CloseOutcome;
+use crate::analytics::{Analytics, Event};
 use crate::config::Config;
 use crate::network::{resolve_token_meta, Network};
 use crate::util::format_token_amount;
@@ -153,6 +154,7 @@ mod tests {
 pub async fn close_session_from_record(
     record: &session_store::SessionRecord,
     config: &Config,
+    analytics: Option<&Analytics>,
 ) -> Result<CloseOutcome> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
@@ -180,8 +182,18 @@ pub async fn close_session_from_record(
     )
     .await
     {
-        Ok(tx_url) => return Ok(CloseOutcome::Closed { tx_url }),
-        Err(coop_err) => tracing::info!("Cooperative close failed: {coop_err:#}"),
+        Ok(tx_url) => {
+            if let Some(a) = analytics {
+                a.track(Event::CoopCloseSuccess, crate::analytics::EmptyPayload);
+            }
+            return Ok(CloseOutcome::Closed { tx_url });
+        }
+        Err(coop_err) => {
+            if let Some(a) = analytics {
+                a.track(Event::CoopCloseFailure, crate::analytics::EmptyPayload);
+            }
+            tracing::info!("Cooperative close failed: {coop_err:#}")
+        }
     }
 
     let fee_token: Address = record

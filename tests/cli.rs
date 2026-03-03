@@ -9,7 +9,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 mod common;
-use common::{get_combined_output, test_command, TestConfigBuilder};
+use common::{get_combined_output, seed_local_session, test_command, TestConfigBuilder};
 
 #[test]
 fn test_completions_bash() {
@@ -1362,6 +1362,29 @@ fn test_sessions_info_no_local_json() {
     assert_eq!(val["total"], 0);
     assert!(val["sessions"].as_array().unwrap().is_empty());
     assert_eq!(val["message"], "no local session for origin");
+}
+
+#[test]
+fn test_sessions_info_single_does_not_print_count() {
+    let temp = TestConfigBuilder::new().build();
+    // Seed a local session for https://example.com
+    seed_local_session(&temp, "https://example.com");
+
+    let output = test_command(&temp)
+        .args(["sessions", "info", "https://example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should contain detailed fields
+    assert!(stdout.contains("https://example.com"));
+    assert!(stdout.contains("Network"));
+    assert!(stdout.contains("Channel"));
+    // Should NOT contain a trailing count summary like "1 session(s)."
+    assert!(
+        !stdout.contains("session(s)"),
+        "info should not print a count footer: {stdout}"
+    );
 }
 
 // ==================== Services ====================

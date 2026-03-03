@@ -362,6 +362,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                             output_format,
                             show_output,
                             cli.network.as_deref(),
+                            analytics.as_ref(),
                         )
                         .await
                     }

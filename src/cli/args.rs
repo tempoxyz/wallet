@@ -508,11 +508,12 @@ pub enum SessionCommands {
     },
     /// Show details for a specific session or channel
     ///
-    /// Accepts a URL/origin (shows local session details) or a channel ID (0x...)
+    /// Accepts a URL/origin (shows local session details) or a channel ID (0x...).
+    /// For channel IDs, if no network is provided, defaults to Tempo mainnet.
     Info {
         /// URL/origin or channel ID (0x...)
         target: String,
-        /// Filter by network when target is a channel ID (optional)
+        /// Network to use when target is a channel ID (optional; defaults to Tempo)
         #[arg(long)]
         network: Option<String>,
     },
@@ -530,7 +531,10 @@ pub enum SessionCommands {
         #[arg(long)]
         closed: bool,
     },
-    /// Re-sync a local session's state from on-chain for a given origin
+    /// Re-sync a local session's state from on-chain for a given origin.
+    ///
+    /// Updates local lifecycle fields (state, close timing) if a close was requested
+    /// on-chain, or removes the local record if the channel has been settled.
     ///
     /// Useful after crashes or manual DB edits. Does not recreate missing
     /// sessions; use `sessions list --orphaned` and `sessions close --orphaned`

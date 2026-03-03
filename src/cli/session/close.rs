@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 
 use super::super::OutputFormat;
+use crate::analytics::Analytics;
 use crate::config::Config;
 use crate::network::Network;
 use crate::payment::session::store as session_store;
@@ -36,6 +37,7 @@ pub async fn close_sessions(
     output_format: OutputFormat,
     show_output: bool,
     network: Option<&str>,
+    analytics: Option<&Analytics>,
 ) -> Result<()> {
     if closed {
         return finalize_closed_channels(config, output_format, show_output, network).await;
@@ -44,7 +46,7 @@ pub async fn close_sessions(
         return close_orphaned_channels(config, output_format, show_output, network).await;
     }
     if all {
-        return close_all_sessions(config, output_format, show_output, network).await;
+        return close_all_sessions(config, output_format, show_output, network, analytics).await;
     }
 
     if let Some(ref target) = url {
@@ -54,7 +56,7 @@ pub async fn close_sessions(
         }
 
         // Otherwise treat as a URL — close the local session
-        return close_by_url(config, target, output_format, show_output).await;
+        return close_by_url(config, target, output_format, show_output, analytics).await;
     }
 
     anyhow::bail!(
@@ -68,6 +70,7 @@ async fn close_all_sessions(
     output_format: OutputFormat,
     show_output: bool,
     network: Option<&str>,
+    analytics: Option<&Analytics>,
 ) -> Result<()> {
     let mut summary = CloseSummary::new();
 
@@ -75,7 +78,7 @@ async fn close_all_sessions(
     let sessions = session_store::list_sessions()?;
     for session in &sessions {
         let key = session_store::session_key(&session.origin);
-        match close_session_from_record(session, config).await {
+        match close_session_from_record(session, config, analytics).await {
             Ok(CloseOutcome::Closed { tx_url }) => {
                 if let Err(e) = session_store::delete_session(&key) {
                     if show_output {
@@ -254,12 +257,13 @@ async fn close_by_url(
     target: &str,
     output_format: OutputFormat,
     show_output: bool,
+    analytics: Option<&Analytics>,
 ) -> Result<()> {
     let key = session_store::session_key(target);
     let session = session_store::load_session(&key)?;
 
     if let Some(record) = session {
-        match close_session_from_record(&record, config).await {
+        match close_session_from_record(&record, config, analytics).await {
             Ok(CloseOutcome::Closed { tx_url }) => {
                 if let Err(e) = session_store::delete_session(&key) {
                     if show_output {
