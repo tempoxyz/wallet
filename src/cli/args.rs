@@ -520,6 +520,8 @@ pub enum SessionCommands {
         #[arg(long)]
         closed: bool,
     },
+    /// Sync local sessions with on-chain state (remove stale records)
+    Sync,
 }
 
 #[derive(Subcommand, Debug)]

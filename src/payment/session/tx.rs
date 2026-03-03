@@ -6,7 +6,7 @@
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use mpp::client::tempo::{signing, tx_builder};
 
@@ -143,7 +143,7 @@ pub(super) async fn submit_tempo_tx(
     let pending = provider
         .send_raw_transaction(&tx_bytes)
         .await
-        .context("Failed to broadcast transaction")?;
+        .map_err(|e| anyhow::anyhow!("Failed to broadcast transaction: {e:#}"))?;
 
     Ok(format!("{:#x}", pending.tx_hash()))
 }

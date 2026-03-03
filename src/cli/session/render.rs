@@ -19,6 +19,8 @@ pub(super) struct ChannelView {
     pub(super) remaining: String,
     pub(super) status: String,
     pub(super) remaining_secs: Option<u64>,
+    pub(super) created_at: Option<u64>,
+    pub(super) last_used_at: Option<u64>,
 }
 
 impl ChannelView {
@@ -45,6 +47,10 @@ struct SessionItem<'a> {
     status: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     remaining_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_used_at: Option<u64>,
 }
 
 /// Tracks the result of batch close operations for consistent output.
@@ -87,6 +93,8 @@ pub(super) fn render_channel_list(
                     remaining: &v.remaining,
                     status: &v.status,
                     remaining_secs: v.remaining_secs,
+                    created_at: v.created_at,
+                    last_used_at: v.last_used_at,
                 })
                 .collect();
             println!(
@@ -134,6 +142,13 @@ fn render_channel_text(v: &ChannelView) {
         println!("{:>10}: {:>w$} {}", "Deposit", v.deposit, v.symbol);
         println!("{:>10}: {:>w$} {}", "Spent", v.spent, v.symbol);
         println!("{:>10}: {:>w$} {}", "Remaining", v.remaining, v.symbol);
+    }
+    // Timestamps
+    if let Some(ts) = v.created_at {
+        println!("{:>10}: {}", "Created", format_relative_time(ts));
+    }
+    if let Some(ts) = v.last_used_at {
+        println!("{:>10}: {}", "Last used", format_relative_time(ts));
     }
     // Status
     let status_display = match v.remaining_secs {
@@ -209,6 +224,25 @@ impl CloseSummary {
     }
 }
 
+/// Format a Unix timestamp as a human-readable relative time (e.g., "5m ago", "2h ago", "3d ago").
+fn format_relative_time(ts: u64) -> String {
+    use crate::payment::session::store as session_store;
+    let now = session_store::now_secs();
+    if ts == 0 || ts > now {
+        return "just now".to_string();
+    }
+    let ago = now - ts;
+    if ago < 60 {
+        format!("{ago}s ago")
+    } else if ago < 3600 {
+        format!("{}m ago", ago / 60)
+    } else if ago < 86400 {
+        format!("{}h ago", ago / 3600)
+    } else {
+        format!("{}d ago", ago / 86400)
+    }
+}
+
 /// Format seconds as a human-readable duration (e.g., "15m 0s", "2m 30s").
 pub(super) fn format_duration(secs: u64) -> String {
     if secs >= 60 {
@@ -272,6 +306,8 @@ mod tests {
             remaining: "6.500000".to_string(),
             status: status.to_string(),
             remaining_secs,
+            created_at: None,
+            last_used_at: None,
         }
     }
 

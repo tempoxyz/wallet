@@ -19,9 +19,6 @@ pub(crate) struct PendingClose {
     pub ready_at: u64,
 }
 
-/// Session TTL: 24 hours.
-pub const SESSION_TTL_SECS: u64 = 24 * 60 * 60;
-
 /// A persisted payment channel session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct SessionRecord {
@@ -47,7 +44,6 @@ pub(crate) struct SessionRecord {
     pub challenge_id: String,
     pub created_at: u64,
     pub last_used_at: u64,
-    pub expires_at: u64,
 }
 
 fn default_version() -> u32 {
@@ -88,16 +84,9 @@ impl SessionRecord {
         self.cumulative_amount = amount.to_string();
     }
 
-    /// Returns `true` if this session has expired.
-    pub fn is_expired(&self) -> bool {
-        now_secs() > self.expires_at
-    }
-
-    /// Update `last_used_at` and extend `expires_at`.
+    /// Update `last_used_at` timestamp.
     pub fn touch(&mut self) {
-        let now = now_secs();
-        self.last_used_at = now;
-        self.expires_at = now + SESSION_TTL_SECS;
+        self.last_used_at = now_secs();
     }
 }
 
@@ -142,6 +131,19 @@ fn open_db() -> Result<rusqlite::Connection> {
 }
 
 fn open_db_at(path: &Path, dir: &Path) -> Result<rusqlite::Connection> {
+    // If the DB has the old schema (with expires_at), delete and recreate.
+    if path.exists() {
+        if let Ok(conn) = rusqlite::Connection::open(path) {
+            let has_old_schema = conn
+                .prepare("SELECT expires_at FROM sessions LIMIT 0")
+                .is_ok();
+            drop(conn);
+            if has_old_schema {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
     let conn = rusqlite::Connection::open(path).context("Failed to open sessions database")?;
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
@@ -182,8 +184,7 @@ fn init_schema(conn: &rusqlite::Connection, _dir: &Path) -> Result<()> {
                 challenge_echo    TEXT NOT NULL,
                 challenge_id      TEXT NOT NULL,
                 created_at        INTEGER NOT NULL,
-                last_used_at      INTEGER NOT NULL,
-                expires_at        INTEGER NOT NULL
+                last_used_at      INTEGER NOT NULL
             );",
         )
         .context("Failed to create sessions table")?;
@@ -220,8 +221,8 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             key, version, origin, request_url, network_name, chain_id,
             escrow_contract, currency, recipient, payer, authorized_signer,
             salt, channel_id, deposit, tick_cost, cumulative_amount,
-            did, challenge_echo, challenge_id, created_at, last_used_at, expires_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+            did, challenge_echo, challenge_id, created_at, last_used_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
         params![
             key,
             record.version,
@@ -244,7 +245,6 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             record.challenge_id,
             record.created_at as i64,
             record.last_used_at as i64,
-            record.expires_at as i64,
         ],
     )
     .context("Failed to save session")?;
@@ -274,7 +274,6 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         challenge_id: row.get(17)?,
         created_at: u64::try_from(row.get::<_, i64>(18)?).unwrap_or(0),
         last_used_at: u64::try_from(row.get::<_, i64>(19)?).unwrap_or(0),
-        expires_at: u64::try_from(row.get::<_, i64>(20)?).unwrap_or(0),
     })
 }
 
@@ -284,7 +283,7 @@ fn load_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<Option<Se
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    did, challenge_echo, challenge_id, created_at, last_used_at, expires_at
+                    did, challenge_echo, challenge_id, created_at, last_used_at
              FROM sessions WHERE key = ?1",
         )
         .context("Failed to prepare load query")?;
@@ -320,7 +319,7 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    did, challenge_echo, challenge_id, created_at, last_used_at, expires_at
+                    did, challenge_echo, challenge_id, created_at, last_used_at
              FROM sessions ORDER BY last_used_at DESC",
         )
         .context("Failed to prepare list query")?;
@@ -478,7 +477,6 @@ mod tests {
             challenge_id: "id".into(),
             created_at: now,
             last_used_at: now,
-            expires_at: now + SESSION_TTL_SECS,
         }
     }
 
@@ -592,26 +590,11 @@ mod tests {
     }
 
     #[test]
-    fn test_is_expired_future() {
-        let record = test_record("https://example.com", "salt");
-        assert!(!record.is_expired());
-    }
-
-    #[test]
-    fn test_is_expired_past() {
-        let mut record = test_record("https://example.com", "salt");
-        record.expires_at = 1000;
-        assert!(record.is_expired());
-    }
-
-    #[test]
-    fn test_touch_updates_timestamps() {
+    fn test_touch_updates_last_used() {
         let mut record = test_record("https://example.com", "salt");
         record.last_used_at = 1000;
-        record.expires_at = 1000;
         record.touch();
         assert!(record.last_used_at > 1000);
-        assert_eq!(record.expires_at, record.last_used_at + SESSION_TTL_SECS);
     }
 
     #[test]

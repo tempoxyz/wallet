@@ -43,7 +43,7 @@ use crate::network::{format_address_link, resolve_token_meta, Network};
 use crate::util::format_token_amount;
 use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::signer::load_wallet_signer;
-use store::{SessionRecord, SESSION_TTL_SECS};
+use store::SessionRecord;
 
 // Re-export public API
 pub(crate) use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
@@ -54,7 +54,7 @@ pub(crate) use close::{close_channel_by_id, close_discovered_channel, close_sess
 /// Outcome of an on-chain close attempt.
 pub(crate) enum CloseOutcome {
     /// Channel fully closed (withdrawn or cooperatively settled).
-    Closed,
+    Closed { tx_url: Option<String> },
     /// `requestClose()` submitted or already pending; waiting for grace period.
     Pending { remaining_secs: u64 },
 }
@@ -235,7 +235,6 @@ pub(crate) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
             challenge_id: ctx.echo.id.clone(),
             created_at: now,
             last_used_at: now,
-            expires_at: now + SESSION_TTL_SECS,
         }
     };
 
@@ -516,8 +515,7 @@ pub async fn handle_session_request(
     // recipient, chain) to avoid a wasted round trip when the server changes config.
     let existing = store::load_session(&session_key)?;
     let reuse = existing.as_ref().is_some_and(|r| {
-        !r.is_expired()
-            && r.payer == did
+        r.payer == did
             && r.escrow_contract == format!("{:#x}", escrow_contract)
             && r.currency == currency_hex
             && r.recipient == recipient_hex
@@ -563,23 +561,25 @@ pub async fn handle_session_request(
                 return Ok(result);
             }
             Err(e) => {
-                // If the server rejected us (stale session), delete and fall through
                 if request_ctx.log_enabled() {
                     eprintln!("Session reuse failed: {e}");
+                }
+                // Best-effort cooperative close of the old channel
+                if request_ctx.log_enabled() {
+                    eprintln!("Attempting cooperative close of old channel...");
+                }
+                let _ = close::try_cooperative_close_from_record(&record).await;
+                store::delete_session(&session_key)?;
+                if request_ctx.log_enabled() {
                     eprintln!("Opening new channel...");
                 }
-                store::delete_session(&session_key)?;
                 // Fall through to open a new channel
             }
         }
-    } else if let Some(ref record) = existing {
-        // Expired or different payer — clean up
+    } else if existing.is_some() {
+        // Different payer or params — clean up
         if request_ctx.log_enabled() {
-            if record.is_expired() {
-                eprintln!("Existing session expired, opening new channel...");
-            } else {
-                eprintln!("Existing session for different payer, opening new channel...");
-            }
+            eprintln!("Existing session for different payer, opening new channel...");
         }
         store::delete_session(&session_key)?;
     }

@@ -361,6 +361,9 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                         )
                         .await
                     }
+                    SessionCommands::Sync => {
+                        cli::session::sync_sessions(&config, output_format, show_output).await
+                    }
                 }
             } else {
                 if let Some(session_cmd) = Cli::command().find_subcommand_mut("sessions") {
