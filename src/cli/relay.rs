@@ -4,9 +4,10 @@
 //! used by `presto fund` to generate deposit addresses and poll for cross-chain
 //! transfer status.
 
-use crate::network::tempo_tokens;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+use crate::network::tempo_tokens;
 
 // ---------------------------------------------------------------------------
 // Source chain definitions

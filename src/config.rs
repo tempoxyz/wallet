@@ -1,11 +1,13 @@
 //! Configuration management for presto.
 
-use crate::error::PrestoError;
+use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
+
 use anyhow::Context;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+
+use crate::error::PrestoError;
 
 // ---------------------------------------------------------------------------
 // Output format

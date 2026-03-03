@@ -40,10 +40,10 @@ use crate::config::Config;
 use crate::error::{map_mpp_validation_error, PrestoError};
 use crate::http::{HttpClient, HttpResponse, RequestContext};
 use crate::network::{format_address_link, resolve_token_meta, Network};
+use crate::payment::session::store::SessionRecord;
 use crate::util::format_token_amount;
 use crate::wallet::credentials::WalletCredentials;
 use crate::wallet::signer::load_wallet_signer;
-use store::SessionRecord;
 
 // Re-export public API
 pub use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};

@@ -6,10 +6,10 @@
 
 use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
+use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
 use crate::error::PrestoError;
 use crate::wallet::credentials::WalletCredentials;
-use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
 /// A loaded wallet signer ready for transaction signing.
 ///
