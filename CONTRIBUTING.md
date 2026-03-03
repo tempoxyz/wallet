@@ -183,5 +183,4 @@ Changelog settings live in `.changelog/config.toml`. The project uses a single r
 | `RUST_LOG` | Override tracing filter (e.g., `debug`, `info`) |
 | `NO_COLOR` | Disable colored output (also disabled when stdout is not a terminal) |
 | `PRESTO_PRIVATE_KEY` | *(hidden)* Provide a private key directly for payment — bypasses wallet login and keychain |
-| `PRESTO_BEARER` | *(hidden)* Authorization bearer token for HTTP requests |
 | `PRESTO_TEST_EVENTS` | *(internal)* Test hook — path to a file where analytics events are appended for assertion |

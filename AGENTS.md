@@ -208,7 +208,6 @@ new-crate = "1.0"
 | `PRESTO_NO_TELEMETRY` | Disable telemetry |
 | `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
 | `PRESTO_WALLET_TYPE` | Set to `"local"` to default to local wallet mode (affects `presto login`/`presto wallet create` guidance). When unset, passkey mode is the default. Does **not** select which wallet to use at runtime — wallet selection is determined by the credentials in `keys.toml`. Multi-wallet support: the first matching key entry is used (passkey > first key with inline `key` > first key by address). |
-| `PRESTO_BEARER` | Authorization bearer token for HTTP requests |
 
 ## Data Locations
 
