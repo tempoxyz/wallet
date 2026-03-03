@@ -506,6 +506,16 @@ pub enum SessionCommands {
         #[arg(long)]
         network: Option<String>,
     },
+    /// Show details for a specific session or channel
+    ///
+    /// Accepts a URL/origin (shows local session details) or a channel ID (0x...)
+    Info {
+        /// URL/origin or channel ID (0x...)
+        target: String,
+        /// Filter by network when target is a channel ID (optional)
+        #[arg(long)]
+        network: Option<String>,
+    },
     /// Close a payment session and remove it locally
     Close {
         /// URL, origin, or channel ID (0x...) to close
@@ -519,6 +529,15 @@ pub enum SessionCommands {
         /// Finalize channels pending close (grace period elapsed)
         #[arg(long)]
         closed: bool,
+    },
+    /// Re-sync a local session's state from on-chain for a given origin
+    ///
+    /// Useful after crashes or manual DB edits. Does not recreate missing
+    /// sessions; use `sessions list --orphaned` and `sessions close --orphaned`
+    /// to manage on-chain-only channels.
+    Recover {
+        /// URL or origin (scheme://host[:port]) to recover
+        origin: String,
     },
     /// Sync local sessions with on-chain state (remove stale records)
     Sync,

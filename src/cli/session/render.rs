@@ -120,7 +120,7 @@ pub(super) fn render_channel_list(
 }
 
 /// Render a single channel in text format.
-fn render_channel_text(v: &ChannelView) {
+pub(super) fn render_channel_text(v: &ChannelView) {
     // Header: use origin if available and non-empty, otherwise channel_id
     match &v.origin {
         Some(origin) if !origin.is_empty() => println!("{origin}"),

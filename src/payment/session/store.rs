@@ -627,6 +627,46 @@ mod tests {
     }
 
     #[test]
+    fn test_origin_lock_is_exclusive() {
+        // Redirect HOME to a temp directory to isolate lock files
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", tmp.path());
+
+        let key = session_key("https://example.com");
+        let lock1 = acquire_origin_lock(&key).expect("first lock should succeed");
+
+        // Second lock should fail while the first guard is held
+        let second = acquire_origin_lock(&key);
+        assert!(second.is_err(), "second lock should be exclusive-error");
+
+        drop(lock1);
+
+        // After drop, we should be able to re-acquire
+        acquire_origin_lock(&key).expect("re-acquire after drop should succeed");
+    }
+
+    #[test]
+    fn test_token_decimals_schema_default_is_6() {
+        let (_tmp, conn) = test_db();
+        let mut stmt = conn
+            .prepare("PRAGMA table_info('sessions')")
+            .expect("pragma should work");
+        let mut rows = stmt.query([]).unwrap();
+        let mut found = false;
+        while let Some(row) = rows.next().unwrap() {
+            let name: String = row.get(1).unwrap();
+            if name == "token_decimals" {
+                // dflt_value column index 4
+                let dflt: Option<String> = row.get(4).unwrap();
+                assert!(dflt.as_deref() == Some("6") || dflt.as_deref() == Some("'6'"));
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "token_decimals column should exist");
+    }
+
+    #[test]
     fn test_cross_case_cleanup_scenario() {
         // removed: pending_closes table
     }

@@ -343,6 +343,10 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                         )
                         .await
                     }
+                    SessionCommands::Info { target, network } => {
+                        let net = network.as_deref().or(cli.network.as_deref());
+                        cli::session::show_session_info(&config, output_format, &target, net).await
+                    }
                     SessionCommands::Close {
                         url,
                         all,
@@ -360,6 +364,9 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                             cli.network.as_deref(),
                         )
                         .await
+                    }
+                    SessionCommands::Recover { origin } => {
+                        cli::session::recover_session(&config, output_format, &origin).await
                     }
                     SessionCommands::Sync => {
                         cli::session::sync_sessions(&config, output_format, show_output).await

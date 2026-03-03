@@ -1334,6 +1334,36 @@ fn test_session_close_nonexistent_url_json() {
     assert_eq!(results[0]["status"], "error");
 }
 
+#[test]
+fn test_sessions_info_no_local_text() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["sessions", "info", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let combined = get_combined_output(&output).to_lowercase();
+    assert!(
+        combined.contains("no local session"),
+        "expected 'no local session' message, got: {combined}"
+    );
+}
+
+#[test]
+fn test_sessions_info_no_local_json() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["-j", "sessions", "info", "https://nonexistent.example.com"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(val["total"], 0);
+    assert!(val["sessions"].as_array().unwrap().is_empty());
+    assert_eq!(val["message"], "no local session for origin");
+}
+
 // ==================== Services ====================
 
 #[test]
