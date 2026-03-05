@@ -12,14 +12,14 @@
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/tempoxyz/presto/main/install.sh | bash
+curl -fsSL https://presto-binaries.tempo.xyz/install.sh | bash
 
 # Connect your wallet
  tempo-walletlogin
 
 # Make a paid API request
- tempo-wallethttps://openai.mpp.tempo.xyz/v1/chat/completions \
-  -X POST --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
+ tempo-wallethttps://openrouter.mpp.tempo.xyz/v1/chat/completions \
+  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 ### From Source
@@ -87,6 +87,23 @@ Credentials are stored in `keys.toml` (signing key inline, permissions `0600`).
 | **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
 | **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
 
+## Telemetry
+
+ tempo-walletcollects anonymous usage analytics (via PostHog) to help improve the tool. No personal data, API keys, request bodies, or wallet private keys are ever collected.
+
+Opt out with:
+
+```bash
+export PRESTO_NO_TELEMETRY=1 
+```
+
+Or disable in `config.toml`:
+
+```toml
+[telemetry]
+enabled = false
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, project structure, and guidelines.
@@ -96,3 +113,7 @@ make build    # Debug build
 make test     # Run all tests
 make check    # fmt + clippy + test + build
 ```
+
+## License
+
+Dual-licensed under [Apache 2.0](LICENSE-APACHE) and [MIT](LICENSE-MIT).

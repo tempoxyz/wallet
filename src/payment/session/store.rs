@@ -11,11 +11,11 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::error::PrestoError;
+use crate::network::NetworkId;
 
 /// A persisted payment channel session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SessionRecord {
+pub(crate) struct SessionRecord {
     #[serde(default = "default_version")]
     pub version: u32,
     pub origin: String,
@@ -64,7 +64,7 @@ fn default_token_decimals() -> u8 {
     6
 }
 
-pub fn now_secs() -> u64 {
+pub(crate) fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -73,43 +73,67 @@ pub fn now_secs() -> u64 {
 
 impl SessionRecord {
     /// Parse the cumulative amount.
-    pub fn cumulative_amount_u128(&self) -> anyhow::Result<u128> {
+    pub(crate) fn cumulative_amount_u128(&self) -> anyhow::Result<u128> {
         self.cumulative_amount
             .parse()
             .context("Invalid cumulative_amount in session record")
     }
 
     /// Parse the deposit amount.
-    pub fn deposit_u128(&self) -> anyhow::Result<u128> {
+    pub(crate) fn deposit_u128(&self) -> anyhow::Result<u128> {
         self.deposit
             .parse()
             .context("Invalid deposit in session record")
     }
 
     /// Parse the channel ID.
-    pub fn channel_id_b256(&self) -> anyhow::Result<alloy::primitives::B256> {
+    pub(crate) fn channel_id_b256(&self) -> anyhow::Result<alloy::primitives::B256> {
         self.channel_id
             .parse()
             .context("Invalid channel_id in session record")
     }
 
     /// Update the cumulative amount.
-    pub fn set_cumulative_amount(&mut self, amount: u128) {
+    pub(crate) fn set_cumulative_amount(&mut self, amount: u128) {
         self.cumulative_amount = amount.to_string();
     }
 
     /// Update `last_used_at` timestamp.
-    pub fn touch(&mut self) {
+    pub(crate) fn touch(&mut self) {
         self.last_used_at = now_secs();
+    }
+
+    /// Parse the network name into a `NetworkId`.
+    pub(crate) fn network_id(&self) -> NetworkId {
+        self.network_name
+            .parse()
+            .expect("session has valid network")
+    }
+
+    /// Compute the display status and optional remaining seconds from the session state.
+    ///
+    /// Returns `(status_str, remaining_secs)`:
+    /// - Active sessions: `("active", None)`
+    /// - Closing with time remaining: `("closing", Some(secs))`
+    /// - Closing with grace elapsed: `("finalizable", Some(0))`
+    pub(crate) fn status_at(&self, now: u64) -> (String, Option<u64>) {
+        match self.state.as_str() {
+            "closing" => {
+                let rem = self.grace_ready_at.saturating_sub(now);
+                if rem == 0 && self.grace_ready_at > 0 {
+                    ("finalizable".to_string(), Some(0))
+                } else {
+                    ("closing".to_string(), Some(rem))
+                }
+            }
+            _ => ("active".to_string(), None),
+        }
     }
 }
 
 /// Get the sessions directory, creating it if needed.
 fn sessions_dir() -> Result<PathBuf> {
-    let dir = dirs::data_dir()
-        .ok_or(PrestoError::NoConfigDir)?
-        .join("presto")
-        .join("sessions");
+    let dir = crate::util::data_dir()?.join("sessions");
     fs::create_dir_all(&dir).context("Failed to create sessions directory")?;
     Ok(dir)
 }
@@ -117,7 +141,7 @@ fn sessions_dir() -> Result<PathBuf> {
 /// Compute a session key from the origin URL (extract `scheme://host[:port]`).
 ///
 /// Non-alphanumeric chars (except `-` and `.`) are replaced with `_`.
-pub fn session_key(origin: &str) -> String {
+pub(crate) fn session_key(origin: &str) -> String {
     let normalized = url::Url::parse(origin)
         .map(|u| u.origin().ascii_serialization())
         .unwrap_or_else(|_| origin.to_string());
@@ -141,10 +165,10 @@ pub fn session_key(origin: &str) -> String {
 fn open_db() -> Result<rusqlite::Connection> {
     let dir = sessions_dir()?;
     let db_path = dir.join("sessions.db");
-    open_db_at(&db_path, &dir)
+    open_db_at(&db_path)
 }
 
-fn open_db_at(path: &Path, dir: &Path) -> Result<rusqlite::Connection> {
+fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
     // Enforce our public baseline schema as user_version=1. Any pre-release DBs are discarded.
     if path.exists() {
         if let Ok(conn) = rusqlite::Connection::open(path) {
@@ -168,11 +192,11 @@ fn open_db_at(path: &Path, dir: &Path) -> Result<rusqlite::Connection> {
          PRAGMA foreign_keys = ON;",
     )
     .context("Failed to set database pragmas")?;
-    init_schema(&conn, dir)?;
+    init_schema(&conn)?;
     Ok(conn)
 }
 
-fn init_schema(conn: &rusqlite::Connection, _dir: &Path) -> Result<()> {
+fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
     // Public baseline: user_version == 1 with explicit state fields.
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
@@ -345,43 +369,41 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
 // ---------------------------------------------------------------------------
 
 /// Load a session record by key. Returns `None` if not found.
-pub fn load_session(key: &str) -> Result<Option<SessionRecord>> {
+pub(crate) fn load_session(key: &str) -> Result<Option<SessionRecord>> {
     let conn = open_db()?;
     load_session_conn(&conn, key)
 }
 
 /// Save a session record to the database.
-pub fn save_session(record: &SessionRecord) -> Result<()> {
+pub(crate) fn save_session(record: &SessionRecord) -> Result<()> {
     let conn = open_db()?;
     save_session_conn(&conn, record)
 }
 
 /// Delete a session record by key.
-pub fn delete_session(key: &str) -> Result<()> {
+pub(crate) fn delete_session(key: &str) -> Result<()> {
     let conn = open_db()?;
     delete_session_conn(&conn, key)
 }
 
 /// Delete a session record by channel ID.
-pub fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
+pub(crate) fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
     let conn = open_db()?;
     delete_session_by_channel_id_conn(&conn, channel_id)
 }
 
 /// List all session records, ordered by last_used_at descending.
-pub fn list_sessions() -> Result<Vec<SessionRecord>> {
+pub(crate) fn list_sessions() -> Result<Vec<SessionRecord>> {
     let conn = open_db()?;
     list_sessions_conn(&conn)
 }
-
-// (pending_closes removed — state is now stored on session rows; orphaned channels computed via on-chain scan)
 
 // ---------------------------------------------------------------------------
 // Session state updates and per-origin locking
 // ---------------------------------------------------------------------------
 
 /// Update close state fields by channel ID for a local session (no-op if not found).
-pub fn update_session_close_state_by_channel_id(
+pub(crate) fn update_session_close_state_by_channel_id(
     channel_id: &str,
     state: &str,
     close_requested_at: u64,
@@ -398,7 +420,7 @@ pub fn update_session_close_state_by_channel_id(
 }
 
 /// File lock guard for an origin/session key.
-pub struct SessionLock {
+pub(crate) struct SessionLock {
     file: std::fs::File,
 }
 
@@ -409,7 +431,7 @@ impl Drop for SessionLock {
 }
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
-pub fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
+pub(crate) fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
     let dir = sessions_dir()?;
     let lock_path = dir.join(format!("{}.lock", key));
     let file = OpenOptions::new()
@@ -460,7 +482,7 @@ mod tests {
     fn test_db() -> (tempfile::TempDir, rusqlite::Connection) {
         let tmp = tempfile::tempdir().unwrap();
         let db_path = tmp.path().join("sessions.db");
-        let conn = open_db_at(&db_path, tmp.path()).unwrap();
+        let conn = open_db_at(&db_path).unwrap();
         (tmp, conn)
     }
 
@@ -575,41 +597,6 @@ mod tests {
     }
 
     #[test]
-    fn test_save_and_list_pending_close() {
-        // removed: pending_closes table
-    }
-
-    #[test]
-    fn test_list_pending_closes_filters_by_time() {
-        // removed: pending_closes table
-    }
-
-    #[test]
-    fn test_delete_pending_close() {
-        // removed: pending_closes table
-    }
-
-    #[test]
-    fn test_save_pending_close_upsert() {
-        // removed: pending_closes table
-    }
-
-    #[test]
-    fn test_save_pending_close_normalizes_channel_id() {
-        // removed: pending_closes table
-    }
-
-    #[test]
-    fn test_delete_pending_close_case_insensitive() {
-        // removed: pending_closes table
-    }
-
-    #[test]
-    fn test_save_pending_close_upsert_case_insensitive() {
-        // removed: pending_closes table
-    }
-
-    #[test]
     fn test_delete_session_by_channel_id_case_insensitive() {
         let (_tmp, conn) = test_db();
         let mut record = test_record("https://example.com", "salt_1");
@@ -664,10 +651,5 @@ mod tests {
             }
         }
         assert!(found, "token_decimals column should exist");
-    }
-
-    #[test]
-    fn test_cross_case_cleanup_scenario() {
-        // removed: pending_closes table
     }
 }

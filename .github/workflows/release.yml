@@ -96,10 +96,9 @@ jobs:
             aws s3 cp "$f" "s3://presto-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
-          # Upload install script and AI skills
+          # Upload install script and AI skill
           aws s3 cp install.sh "s3://presto-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
-          aws s3 cp .agents/skills/presto-passkey/SKILL.md "s3://presto-binaries/SKILL-passkey.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-          aws s3 cp .agents/skills/presto-local/SKILL.md "s3://presto-binaries/SKILL-local.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          aws s3 cp skills/presto/SKILL.md "s3://presto-binaries/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
 
           # Upload VERSION file for auto-update checks
           echo "${{ inputs.version }}" > VERSION

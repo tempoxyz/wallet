@@ -75,34 +75,57 @@ let value = something.unwrap();
 
 ```
 src/
-├── main.rs              # CLI entry point and module declarations
+├── main.rs              # CLI entry point, module declarations, error rendering
 ├── error.rs             # Error types (thiserror)
-├── http.rs              # HTTP client and request building
 ├── config.rs            # Configuration file handling
-├── network.rs           # Network definitions (Tempo, Moderato) and RPC
-├── util.rs              # Shared utilities (atomic writes, terminal hyperlinks)
-├── cli/                 # Argument parsing (clap) and command implementations
-│   ├── args.rs          # CLI argument definitions
-│   ├── query.rs         # Query command (request → 402 → payment → response)
-│   ├── auth.rs          # Login, logout, whoami
-│   ├── keys.rs          # Key listing and spending limit queries
-│   ├── local_wallet.rs  # Local wallet management (create/import/delete)
-│   ├── fund.rs          # Wallet funding (faucet + bridge)
-│   ├── relay.rs         # Relay bridge client for cross-chain funding
-│   ├── services.rs      # Service directory listing and details
-│   ├── session/         # Session management commands
-│   ├── output.rs        # Response display
-│   └── exit_codes.rs
+├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
+├── util.rs              # Shared utilities (formatting, terminal hyperlinks, sanitization)
+├── version.rs           # Version checking and self-update logic
+├── analytics.rs         # Opt-out telemetry (PostHog)
+├── account/             # Wallet account types (balances, spending limits, on-chain queries)
+│   ├── mod.rs           # Types (TokenBalance, KeyInfo, SpendingLimitInfo) and display helpers
+│   └── query.rs         # On-chain balance and spending-limit queries
+├── http/                # HTTP client, request building, response parsing
+│   ├── client.rs        # HttpClient, HttpRequestPlan, retry logic
+│   └── response.rs      # HttpResponse type
+├── cli/                 # Argument parsing (clap) and command dispatch
+│   ├── args.rs          # CLI argument definitions (Cli, QueryArgs, Commands)
+│   ├── run.rs           # Application lifecycle: tracing, color, context, dispatch, analytics
+│   ├── context.rs       # Context struct (shared app state threaded to all commands)
+│   ├── output.rs        # OutputFormat, OutputOptions
+│   ├── exit_codes.rs    # Process exit codes
+│   └── commands/        # Command implementations (all take &Context)
+│       ├── query/       # Query command (request → 402 → payment → response)
+│       │   ├── mod.rs       # Main query flow
+│       │   ├── context.rs   # HTTP client and output options building
+│       │   ├── input.rs     # Header and body parsing helpers
+│       │   ├── challenge.rs # 402 challenge parsing and wallet checks
+│       │   ├── receipt.rs   # Payment receipt display and response output
+│       │   ├── streaming.rs # SSE and streaming response handling
+│       │   └── analytics.rs # Query-specific analytics tracking
+│       ├── login/       # Login command and passkey authentication flow
+│       ├── sessions/    # Session management (list, info, close, recover, sync)
+│       ├── wallets/     # Wallet management (create, list, fund/, keychain.rs)
+│       ├── logout.rs    # Logout command
+│       ├── whoami.rs    # Whoami command
+│       ├── keys.rs      # Key listing with balance and spending limit queries
+│       ├── services.rs  # Service directory listing and details
+│       ├── update.rs    # Self-update command
+│       └── completions.rs # Shell completions
+├── keys/                # Key storage, signing, and authorization
+│   ├── model.rs         # KeyEntry, Keystore, WalletType types
+│   ├── io.rs            # File I/O for keys.toml (load, save, keys_path)
+│   ├── signer.rs        # Signing mode resolution (direct EOA vs keychain)
+│   └── authorization.rs # Key authorization decoding and signing
 ├── payment/             # Payment protocol logic (MPP - https://mpp.dev)
+│   ├── dispatch.rs      # Payment dispatch (route 402 flows to charge or session)
 │   ├── charge.rs        # One-shot on-chain charge payment
 │   └── session/         # Session-based payment channels
-├── wallet/              # Wallet management, signing, and credentials
-│   ├── credentials/     # Credential storage and key management
-│   ├── keychain.rs      # Platform-native secret storage (macOS Keychain)
-│   ├── passkey.rs       # Browser-based passkey wallet flow
-│   └── signer.rs        # Signing mode resolution
-├── services/            # MPP service directory (registry fetching, data model)
-└── analytics/           # Opt-out telemetry
+│       ├── channel.rs   # Channel open/query operations
+│       ├── close.rs     # Channel close and finalization
+│       ├── store.rs     # SQLite session persistence
+│       ├── streaming.rs # Per-token voucher streaming
+│       └── tx.rs        # Transaction building
 tests/                   # Integration tests (black-box CLI testing via assert_cmd)
 examples/                # Runnable example scripts
 .changelog/              # Changelog entries (see Changelogs section)
@@ -127,7 +150,7 @@ use crate::config::Config;
 
 **Error handling** — use `thiserror` for error types, `anyhow` for propagation.
 
-**Modules** — each module has a single responsibility. CLI commands go in `src/cli/`. Use `mod.rs` for modules with submodules.
+**Modules** — each module has a single responsibility. CLI commands go in `src/cli/commands/`. Use `mod.rs` for modules with submodules.
 
 ## Adding a New Feature
 

@@ -21,13 +21,11 @@
 //! - [`close`] — Channel close operations (cooperative and on-chain)
 //! - [`tx`] — Tempo transaction building and submission
 
-pub mod channel;
+pub(crate) mod channel;
 mod close;
-pub mod store;
+pub(crate) mod store;
 mod streaming;
 mod tx;
-
-use std::collections::HashMap;
 
 use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
@@ -36,22 +34,22 @@ use mpp::protocol::methods::tempo::session::{SessionCredentialPayload, TempoSess
 use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
 use mpp::{parse_receipt, ChallengeEcho};
 
-use crate::error::{map_mpp_validation_error, PrestoError};
-use crate::http::{HttpClient, HttpResponse, RequestContext};
-use crate::network::{format_address_link, resolve_token_meta};
+use super::dispatch::{map_mpp_validation_error, PaymentResult};
+use crate::error::PrestoError;
+use crate::http::{HttpClient, HttpResponse};
+use crate::keys::{Keystore, Signer};
+use crate::network::NetworkId;
 use crate::payment::session::store::SessionRecord;
 use crate::util::format_token_amount;
-use crate::wallet::credentials::WalletCredentials;
-use crate::wallet::signer::WalletSigner;
 
-// Re-export public API
-pub use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
-pub use close::{close_channel_by_id, close_discovered_channel, close_session_from_record};
+// Re-export crate-internal API
+pub(crate) use channel::{find_all_channels_for_payer, query_channel_state, read_grace_period};
+pub(crate) use close::{close_channel_by_id, close_discovered_channel, close_session_from_record};
 
 // ==================== Types ====================
 
 /// Outcome of an on-chain close attempt.
-pub enum CloseOutcome {
+pub(crate) enum CloseOutcome {
     /// Channel fully closed (withdrawn or cooperatively settled).
     Closed {
         tx_url: Option<String>,
@@ -62,10 +60,8 @@ pub enum CloseOutcome {
     Pending { remaining_secs: u64 },
 }
 
-use crate::payment::dispatch::PaymentResult;
-
 /// State for an active session channel.
-pub struct SessionState {
+pub(crate) struct SessionState {
     pub channel_id: B256,
     pub escrow_contract: Address,
     pub chain_id: u64,
@@ -73,13 +69,13 @@ pub struct SessionState {
 }
 
 /// Shared context for session operations (streaming, closing).
-pub struct SessionContext<'a> {
+pub(crate) struct SessionContext<'a> {
     pub signer: &'a alloy::signers::local::PrivateKeySigner,
     pub echo: &'a ChallengeEcho,
     pub did: &'a str,
-    pub request_ctx: &'a RequestContext,
+    pub http: &'a HttpClient,
     pub url: &'a str,
-    pub network_name: &'a str,
+    pub network_id: NetworkId,
     pub origin: &'a str,
     pub tick_cost: u128,
     pub deposit: u128,
@@ -96,9 +92,9 @@ impl<'a> SessionContext<'a> {
         signer: &'a alloy::signers::local::PrivateKeySigner,
         echo: &'a ChallengeEcho,
         did: &'a str,
-        request_ctx: &'a RequestContext,
+        http: &'a HttpClient,
         url: &'a str,
-        network_name: &'a str,
+        network_id: NetworkId,
         origin: &'a str,
         tick_cost: u128,
         deposit: u128,
@@ -111,9 +107,9 @@ impl<'a> SessionContext<'a> {
             signer,
             echo,
             did,
-            request_ctx,
+            http,
             url,
-            network_name,
+            network_id,
             origin,
             tick_cost,
             deposit,
@@ -125,8 +121,8 @@ impl<'a> SessionContext<'a> {
     }
 
     /// Resolve the token symbol for the current session (e.g., "USDC" or "pathUSD").
-    pub fn token_symbol(&self) -> &'static str {
-        resolve_token_meta(self.network_name, &self.currency).0
+    pub(crate) fn token_symbol(&self) -> &'static str {
+        self.network_id.token().symbol
     }
 }
 
@@ -160,7 +156,7 @@ fn build_open_payload(
 // ==================== Voucher ====================
 
 /// Build a voucher credential for an existing session.
-pub async fn build_voucher_credential(
+pub(crate) async fn build_voucher_credential(
     signer: &alloy::signers::local::PrivateKeySigner,
     echo: &ChallengeEcho,
     did: &str,
@@ -192,7 +188,7 @@ pub async fn build_voucher_credential(
 // ==================== Persistence ====================
 
 /// Persist or update the session record to disk.
-pub fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()> {
+pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()> {
     let now = store::now_secs();
 
     let echo_json =
@@ -208,12 +204,12 @@ pub fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result
         rec.touch();
         rec
     } else {
-        let (_sym, dec) = resolve_token_meta(ctx.network_name, &ctx.currency);
+        let dec = ctx.network_id.token().decimals;
         SessionRecord {
             version: 1,
             origin: ctx.origin.to_string(),
             request_url: ctx.url.to_string(),
-            network_name: ctx.network_name.to_string(),
+            network_name: ctx.network_id.as_str().to_string(),
             chain_id: state.chain_id,
             escrow_contract: format!("{:#x}", state.escrow_contract),
             currency: ctx.currency.clone(),
@@ -239,7 +235,7 @@ pub fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result
 
     store::save_session(&record)?;
 
-    if ctx.request_ctx.log_enabled() {
+    if ctx.http.log_enabled() {
         let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
         let symbol = ctx.token_symbol();
         eprintln!("Session persisted (cumulative: {cumulative_f64:.6} {symbol})");
@@ -251,11 +247,15 @@ pub fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result
 // ==================== Request ====================
 
 /// Send the actual request with a voucher and handle the response.
+///
+/// Bypasses [`HttpClient::execute()`] and uses the raw reqwest client directly
+/// because session streaming requires access to `reqwest::Response` for SSE
+/// `bytes_stream()`, which `execute()` does not expose.
 async fn send_session_request(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
 ) -> Result<PaymentResult> {
-    if ctx.request_ctx.log_enabled() {
+    if ctx.http.log_enabled() {
         eprintln!("Sending request with session voucher...");
     }
 
@@ -266,9 +266,9 @@ async fn send_session_request(
 
     let mut data_request = ctx
         .reqwest_client
-        .request(ctx.request_ctx.plan.method.clone(), ctx.url)
+        .request(ctx.http.plan.method.clone(), ctx.url)
         .header("Authorization", &voucher_auth);
-    if let Some(ref body) = ctx.request_ctx.plan.body {
+    if let Some(ref body) = ctx.http.plan.body {
         data_request = data_request.body(body.clone());
     }
 
@@ -304,25 +304,14 @@ async fn send_session_request(
             response: None,
         })
     } else {
-        let status_code = status.as_u16();
-        let mut headers = HashMap::new();
-        for (key, value) in response.headers() {
-            if let Ok(value_str) = value.to_str() {
-                headers.insert(key.as_str().to_lowercase(), value_str.to_string());
-            }
-        }
-        let body = response.bytes().await?.to_vec();
+        let http_response = HttpResponse::from_reqwest(response).await?;
+        let status_code = http_response.status_code;
 
         Ok(PaymentResult {
             tx_hash: String::new(),
             session_id: Some(channel_id),
             status_code,
-            response: Some(HttpResponse {
-                status_code,
-                headers,
-                body,
-                final_url: None,
-            }),
+            response: Some(http_response),
         })
     }
 }
@@ -339,16 +328,16 @@ async fn send_session_request(
 /// 5. Send the real request with a voucher
 /// 6. Stream SSE events (or return buffered response)
 /// 7. Persist/update the session (do NOT close the channel)
-pub async fn handle_session_request(
-    request_ctx: &RequestContext,
-    http_client: &HttpClient,
+pub(in crate::payment) async fn handle_session_request(
+    http: &HttpClient,
     url: &str,
-    resolved: crate::payment::dispatch::ResolvedChallenge,
-    signer: WalletSigner,
+    resolved: super::dispatch::ResolvedChallenge,
+    signer: Signer,
+    keys: &Keystore,
 ) -> Result<PaymentResult> {
     let challenge = &resolved.challenge;
-    let network = resolved.network;
-    let network_name = network.as_str();
+    let network_id = resolved.network_id;
+    let network_name = network_id.as_str();
 
     challenge
         .validate_for_session("tempo")
@@ -371,7 +360,7 @@ pub async fn handle_session_request(
     let escrow_str = session_req
         .escrow_contract()
         .context("Missing escrow contract in session challenge")?;
-    let expected_escrow = network.escrow_contract();
+    let expected_escrow = resolved.network_id.escrow_contract();
     anyhow::ensure!(
         escrow_str.eq_ignore_ascii_case(expected_escrow),
         "Untrusted escrow contract: {} (expected {} for network {})",
@@ -395,11 +384,8 @@ pub async fn handle_session_request(
         .parse()
         .context("Invalid recipient address")?;
 
-    // Resolve token metadata for human-readable amounts
-    let (token_symbol, token_decimals) = resolve_token_meta(network_name, &session_req.currency);
-
-    if request_ctx.log_enabled() {
-        let cost_display = format_token_amount(tick_cost, token_symbol, token_decimals);
+    if http.log_enabled() {
+        let cost_display = format_token_amount(tick_cost, network_id);
         eprintln!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),
@@ -408,9 +394,8 @@ pub async fn handle_session_request(
     }
 
     // Dry-run: print session parameters and exit without signing or transacting
-    if request_ctx.runtime.dry_run {
-        let explorer = network.info().explorer;
-        let cost_display = format_token_amount(tick_cost, token_symbol, token_decimals);
+    if http.dry_run {
+        let cost_display = format_token_amount(tick_cost, network_id);
 
         println!("[DRY RUN] Session payment would be made:");
         println!("Protocol: MPP (https://mpp.dev)");
@@ -424,17 +409,14 @@ pub async fn handle_session_request(
         );
         println!(
             "Currency: {}",
-            format_address_link(&session_req.currency, explorer.as_ref())
+            resolved.network_id.address_link(&session_req.currency)
         );
         if let Some(ref recipient) = session_req.recipient {
-            println!(
-                "Recipient: {}",
-                format_address_link(recipient, explorer.as_ref())
-            );
+            println!("Recipient: {}", resolved.network_id.address_link(recipient));
         }
         if let Some(ref deposit) = session_req.suggested_deposit {
             let deposit_val: u128 = deposit.parse().unwrap_or(0);
-            let deposit_display = format_token_amount(deposit_val, token_symbol, token_decimals);
+            let deposit_display = format_token_amount(deposit_val, network_id);
             println!("Suggested deposit: {}", deposit_display);
         }
 
@@ -448,7 +430,6 @@ pub async fn handle_session_request(
 
     let key_address = signer.signer.address();
     let from = signer.from;
-    let reqwest_client = http_client.inner_client();
 
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
@@ -458,7 +439,7 @@ pub async fn handle_session_request(
     // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).
     // Cap at 5 tokens to limit exposure to malicious servers.
     // Also clamp to the wallet's available balance so we don't revert on insufficient funds.
-    let base_units: u128 = 10u128.saturating_pow(token_decimals as u32);
+    let base_units: u128 = 10u128.saturating_pow(network_id.token().decimals as u32);
     let max_deposit: u128 = 5u128.saturating_mul(base_units);
     let mut deposit: u128 = session_req
         .suggested_deposit
@@ -470,22 +451,17 @@ pub async fn handle_session_request(
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
     // gas is paid in USDC via account abstraction).
-    let rpc_url: url::Url = resolved
-        .network_info
-        .rpc_url
-        .parse()
-        .context("Invalid RPC URL for balance query")?;
-    let balance_provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url);
-    if let Ok(balance) = query_token_balance(&balance_provider, currency, from).await {
+    let balance_provider =
+        alloy::providers::ProviderBuilder::new().connect_http(resolved.rpc_url.clone());
+    if let Ok(balance) = channel::query_token_balance(&balance_provider, currency, from).await {
         let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
         let usable = balance_u128 / 2;
         if usable < deposit {
             deposit = usable;
-            if request_ctx.log_enabled() {
-                let (sym, dec) = resolve_token_meta(network_name, &session_req.currency);
+            if http.log_enabled() {
                 eprintln!(
                     "Clamping deposit to 50% of wallet balance: {}",
-                    format_token_amount(deposit, sym, dec)
+                    format_token_amount(deposit, network_id)
                 );
             }
         }
@@ -509,7 +485,7 @@ pub async fn handle_session_request(
 
     if reuse {
         let record = existing.unwrap();
-        if request_ctx.log_enabled() {
+        if http.log_enabled() {
             eprintln!("Reusing existing session for {}", origin);
             eprintln!("  Channel: {}", record.channel_id);
         }
@@ -528,16 +504,16 @@ pub async fn handle_session_request(
             &signer.signer,
             &echo,
             &did,
-            request_ctx,
+            http,
             url,
-            network_name,
+            network_id,
             &origin,
             tick_cost,
             deposit,
             record.salt.clone(),
             recipient_hex.clone(),
             currency_hex.clone(),
-            &reqwest_client,
+            http.client(),
         );
 
         match send_session_request(&ctx, &mut state).await {
@@ -546,16 +522,16 @@ pub async fn handle_session_request(
                 return Ok(result);
             }
             Err(e) => {
-                if request_ctx.log_enabled() {
+                if http.log_enabled() {
                     eprintln!("Session reuse failed: {e}");
                 }
                 // Best-effort cooperative close of the old channel
-                if request_ctx.log_enabled() {
+                if http.log_enabled() {
                     eprintln!("Attempting cooperative close of old channel...");
                 }
-                let _ = close::try_cooperative_close_from_record(&record).await;
+                let _ = close::try_cooperative_close_from_record(&record, keys).await;
                 store::delete_session(&session_key)?;
-                if request_ctx.log_enabled() {
+                if http.log_enabled() {
                     eprintln!("Opening new channel...");
                 }
                 // Fall through to open a new channel
@@ -563,7 +539,7 @@ pub async fn handle_session_request(
         }
     } else if existing.is_some() {
         // Different payer or params — clean up
-        if request_ctx.log_enabled() {
+        if http.log_enabled() {
             eprintln!("Existing session for different payer, opening new channel...");
         }
         store::delete_session(&session_key)?;
@@ -575,7 +551,7 @@ pub async fn handle_session_request(
     let _lock_guard = match store::acquire_origin_lock(&session_key) {
         Ok(l) => Some(l),
         Err(e) => {
-            if request_ctx.log_enabled() {
+            if http.log_enabled() {
                 eprintln!("[warn] could not acquire session lock: {e:#}");
             }
             None
@@ -594,8 +570,8 @@ pub async fn handle_session_request(
         chain_id,
     );
 
-    if request_ctx.log_enabled() {
-        let deposit_display = format_token_amount(deposit, token_symbol, token_decimals);
+    if http.log_enabled() {
+        let deposit_display = format_token_amount(deposit, network_id);
         eprintln!("Opening payment channel...");
         eprintln!("  Deposit: {}", deposit_display);
         eprintln!("  Channel: {:#x}", channel_id);
@@ -622,7 +598,7 @@ pub async fn handle_session_request(
     .context("Failed to sign initial voucher")?;
 
     let payment = tx::create_tempo_payment_from_calls(
-        &resolved.network_info.rpc_url,
+        resolved.rpc_url.as_str(),
         &signer,
         open_calls,
         currency,
@@ -649,24 +625,16 @@ pub async fn handle_session_request(
         .context("Failed to format open credential")?;
 
     let delays = [2000_u64, 3000, 5000];
-    let open_response =
-        tx::send_open_with_retry(request_ctx, http_client, url, &auth_header, &delays).await?;
+    let open_response = tx::send_open_with_retry(http, url, &auth_header, &delays).await?;
 
-    if let Some(receipt_str) = open_response.get_header("payment-receipt") {
+    if let Some(receipt_str) = open_response.header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_str) {
             let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-            let explorer = network.info().explorer;
-            if request_ctx.log_enabled() {
-                if let Some(exp) = explorer.as_ref() {
-                    eprintln!("Channel open tx: {}", exp.tx_url(&tx_ref));
-                } else {
-                    eprintln!("Channel open tx: {}", tx_ref);
-                }
+            if http.log_enabled() {
+                eprintln!("Channel open tx: {}", resolved.network_id.tx_url(&tx_ref));
             }
         }
     }
-
-    WalletCredentials::mark_provisioned(network_name);
 
     let mut state = SessionState {
         channel_id,
@@ -679,16 +647,16 @@ pub async fn handle_session_request(
         &signer.signer,
         &echo,
         &did,
-        request_ctx,
+        http,
         url,
-        network_name,
+        network_id,
         &origin,
         tick_cost,
         deposit,
         format!("{:#x}", salt),
         recipient_hex,
         currency_hex,
-        &reqwest_client,
+        http.client(),
     );
 
     // For non-SSE responses, the open response already contains the proxied
@@ -696,7 +664,7 @@ pub async fn handle_session_request(
     // For SSE, fall through to send_session_request which returns a raw
     // streaming response.
     let is_sse = open_response
-        .get_header("content-type")
+        .header("content-type")
         .is_some_and(|ct| ct.contains("text/event-stream"));
 
     if !is_sse && open_response.status_code < 400 {
@@ -713,24 +681,4 @@ pub async fn handle_session_request(
 
     persist_session(&ctx, &state)?;
     Ok(result)
-}
-
-/// Query the on-chain TIP20 token balance for an account.
-async fn query_token_balance(
-    provider: &impl alloy::providers::Provider,
-    token: Address,
-    account: Address,
-) -> anyhow::Result<alloy::primitives::U256> {
-    use alloy::sol;
-
-    sol! {
-        #[sol(rpc)]
-        interface ITIP20 {
-            function balanceOf(address account) external view returns (uint256);
-        }
-    }
-
-    let contract = ITIP20::new(token, provider);
-    let balance = contract.balanceOf(account).call().await?;
-    Ok(balance)
 }

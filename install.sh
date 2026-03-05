@@ -7,12 +7,8 @@ set -euo pipefail
 #   curl -fsSL https://presto-binaries.tempo.xyz/install.sh | bash
 #
 # Options:
-#   --wallet=local    Install with local wallet mode (default: passkey)
 #   --from-source     Build and install from source (requires cargo)
 #   --uninstall       Remove  tempo-walletbinary, config, data, and AI skills
-#
-# Environment:
-#   PRESTO_WALLET_TYPE=local   Same as --wallet=local
 
 SCRIPT_DIR=""
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
@@ -287,17 +283,16 @@ ensure_in_path() {
 # ---------------------------------------------------------------------------
 
 install_ai_skill() {
-    local skill_variant="${1:-passkey}"
     local skill_content=""
 
     # Resolve skill content: prefer local file, fall back to R2 download
-    local local_skill="${SCRIPT_DIR}/.agents/skills/presto-${skill_variant}/SKILL.md"
+    local local_skill="${SCRIPT_DIR}/skills/presto/SKILL.md"
     if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
         skill_content="${local_skill}"
     else
         ensure_tmp_dir
         local tmp_skill="${TMP_DIR}/SKILL.md"
-        local skill_url="${R2_BASE_URL}/SKILL-${skill_variant}.md"
+        local skill_url="${R2_BASE_URL}/SKILL.md"
         if curl -fsSL "${skill_url}" -o "${tmp_skill}" 2>/dev/null; then
             skill_content="${tmp_skill}"
         else
@@ -326,7 +321,7 @@ install_ai_skill() {
 uninstall_ai_skills() {
     for entry in "${AGENT_DIRS[@]}"; do
         IFS='|' read -r _ skill_base _ <<< "${entry}"
-        for name in  tempo-walletpresto-local presto-passkey; do
+        for name in  tempo-walletpresto-local presto-passkey presto-skill; do
             remove_file "${skill_base}/${name}" "AI skill (${skill_base}/${name})"
         done
     done
@@ -371,21 +366,14 @@ banner() {
 }
 
 main() {
-    local wallet_type="${PRESTO_WALLET_TYPE:-passkey}"
     local mode=""
 
     for arg in "$@"; do
         case "${arg}" in
-            --wallet=*)    wallet_type="${arg#--wallet=}" ;;
             --uninstall)   mode="uninstall" ;;
             --from-source) mode="from-source" ;;
         esac
     done
-
-    if [[ "${wallet_type}" != "local" && "${wallet_type}" != "passkey" ]]; then
-        fail "Unknown wallet type '${wallet_type}'. Use 'local' or 'passkey'."
-        exit 1
-    fi
 
     if [[ "${mode}" == "uninstall" ]]; then
         uninstall_presto
@@ -402,15 +390,11 @@ main() {
 
     clean_legacy_install
     ensure_in_path
-    install_ai_skill "${wallet_type}"
+    install_ai_skill
 
     echo ""
     echo -e "  ${BOLD}Get started:${RESET}"
-    if [[ "${wallet_type}" == "local" ]]; then
-        echo -e "    ${DIM}\$${RESET}  tempo-walletwallet create"
-    else
-        echo -e "    ${DIM}\$${RESET}  tempo-walletlogin"
-    fi
+    echo -e "    ${DIM}\$${RESET}  tempo-walletlogin"
     echo -e "    ${DIM}\$${RESET}  tempo-wallet--help"
     echo ""
 }

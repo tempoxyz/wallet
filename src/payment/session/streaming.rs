@@ -3,10 +3,11 @@
 //! Handles Server-Sent Events (SSE) response streams with mid-stream
 //! voucher top-ups and retry logic for lost server notifications.
 
-use anyhow::{Context, Result};
-use futures::StreamExt;
 use std::io::Write;
 use std::time::Duration;
+
+use anyhow::{Context, Result};
+use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
@@ -62,7 +63,7 @@ pub(super) async fn stream_sse_response(
     state: &mut SessionState,
     response: reqwest::Response,
 ) -> Result<()> {
-    let runtime = &ctx.request_ctx.runtime;
+    let runtime = ctx.http;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut token_count: u64 = 0;

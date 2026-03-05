@@ -1,18 +1,10 @@
-mod args;
-pub mod auth;
-pub mod completions;
-pub mod exit_codes;
-pub mod fund;
-pub mod keys;
-pub mod local_wallet;
-pub mod logging;
-pub mod output;
-pub mod query;
-pub mod relay;
-pub mod services;
-pub mod session;
+pub(crate) mod args;
+pub(crate) mod commands;
+mod context;
+pub(crate) mod exit_codes;
+pub(crate) mod output;
+pub(super) mod run;
 
-pub use args::{
-    Cli, ColorMode, Commands, KeyCommands, OutputFormat, QueryArgs, ServicesCommands,
-    SessionCommands, SessionStateArg, Shell, WalletCommands,
-};
+pub(crate) use args::{Cli, Commands};
+pub(crate) use context::Context;
+pub(crate) use output::OutputFormat;

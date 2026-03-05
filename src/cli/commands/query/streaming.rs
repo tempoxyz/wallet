@@ -1,0 +1,127 @@
+//! SSE response streaming with incremental stdout output.
+
+use std::io::Write;
+
+use anyhow::Result;
+use futures::StreamExt;
+
+use crate::error::PrestoError;
+use crate::http::{HttpClient, HttpResponse};
+
+use super::receipt::write_meta_if_requested;
+use crate::cli::output::OutputOptions;
+use crate::http::http_status_text;
+
+/// Execute a streaming request and write the body to stdout incrementally.
+///
+/// Bypasses [`HttpClient::execute()`] and uses the raw reqwest client directly
+/// because streaming requires access to `reqwest::Response::bytes_stream()`,
+/// which `execute()` does not expose (it consumes the response into `HttpResponse`).
+pub(super) async fn execute_streaming(
+    http: &HttpClient,
+    url: &str,
+    output_opts: &OutputOptions,
+    sse_json: bool,
+) -> Result<()> {
+    let start = std::time::Instant::now();
+    let mut req = http.client().request(http.plan.method.clone(), url);
+    if let Some(ref body) = http.plan.body {
+        req = req.body(body.clone());
+    }
+    let resp = req.send().await?;
+    let status = resp.status().as_u16();
+    let final_url_string = resp.url().to_string();
+    let header_map_for_meta: Vec<(String, String)> = resp
+        .headers()
+        .iter()
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|s| (k.as_str().to_lowercase(), s.to_string()))
+        })
+        .collect();
+
+    if output_opts.include_headers {
+        println!("HTTP {}", status);
+        for (k, v) in resp.headers() {
+            if let Ok(s) = v.to_str() {
+                println!("{}: {}", k.as_str().to_lowercase(), s);
+            }
+        }
+        println!();
+    }
+
+    let mut bytes_written: usize = 0;
+    if sse_json {
+        // Convert SSE to NDJSON objects with event/data/ts schema
+        let mut buf: Vec<u8> = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await.transpose()? {
+            buf.extend_from_slice(&chunk);
+            // Process complete lines
+            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                let line = buf.drain(..=pos).collect::<Vec<u8>>();
+                let s = String::from_utf8_lossy(&line);
+                let st = s.trim_end_matches(['\r', '\n']);
+                if st.is_empty() {
+                    continue;
+                }
+                if let Some(rest) = st.strip_prefix("data:") {
+                    let content = rest.trim_start();
+                    let data_value = serde_json::from_str::<serde_json::Value>(content)
+                        .unwrap_or_else(|_| serde_json::Value::String(content.to_string()));
+                    let obj = serde_json::json!({
+                        "event": "data",
+                        "data": data_value,
+                        "ts": crate::util::now_utc(),
+                    });
+                    let out = serde_json::to_string(&obj)?;
+                    std::io::stdout().write_all(out.as_bytes())?;
+                    std::io::stdout().write_all(b"\n")?;
+                    bytes_written = bytes_written.saturating_add(out.len() + 1);
+                }
+            }
+            std::io::stdout().flush().ok();
+        }
+    } else {
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await.transpose()? {
+            bytes_written = bytes_written.saturating_add(chunk.len());
+            std::io::stdout().write_all(&chunk)?;
+            std::io::stdout().flush().ok();
+        }
+    }
+
+    // Write meta if requested
+    let meta_resp = HttpResponse {
+        status_code: status,
+        headers: header_map_for_meta,
+        body: Vec::new(),
+        final_url: Some(final_url_string.clone()),
+    };
+    let _ = write_meta_if_requested(
+        output_opts,
+        &meta_resp,
+        start.elapsed().as_millis(),
+        bytes_written,
+        &final_url_string,
+    );
+
+    if status >= 400 {
+        let msg = format!("{} {}", status, http_status_text(status));
+        if sse_json {
+            let obj = serde_json::json!({
+                "event": "error",
+                "message": msg,
+                "ts": crate::util::now_utc(),
+            });
+            let out = serde_json::to_string(&obj)?;
+            std::io::stdout().write_all(out.as_bytes())?;
+            std::io::stdout().write_all(b"\n")?;
+            std::io::stdout().flush().ok();
+        }
+        anyhow::bail!(PrestoError::Http(msg));
+    }
+
+    Ok(())
+}
