@@ -8,13 +8,11 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
 use anyhow::Result;
 
-use mpp::client::tempo::{signing, tx_builder};
+use mpp::client::tempo::{charge::tx_builder, signing};
 
 use crate::error::PrestoError;
-use crate::http::{HttpClient, HttpResponse, RequestContext};
-use crate::network::Network;
-use crate::wallet::credentials::WalletCredentials;
-use crate::wallet::signer::WalletSigner;
+use crate::http::{HttpClient, HttpResponse};
+use crate::keys::Signer;
 
 /// Static max fee per gas (41 gwei) — Tempo uses a fixed 20 gwei base fee.
 const MAX_FEE_PER_GAS: u128 = mpp::client::tempo::MAX_FEE_PER_GAS;
@@ -49,7 +47,7 @@ fn expiring_valid_before() -> u64 {
 /// (`eth_estimateGas`) is needed.
 async fn resolve_and_sign_tx(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
-    wallet: &WalletSigner,
+    wallet: &Signer,
     chain_id: u64,
     fee_token: Address,
     from: Address,
@@ -82,10 +80,6 @@ async fn resolve_and_sign_tx(
         Ok(gas) => gas,
         Err(e) if key_auth.is_some() && e.to_string().contains("KeyAlreadyExists") => {
             key_auth = None;
-            // Persist the correction so future transactions skip key_authorization.
-            if let Ok(network) = Network::require_chain_id(chain_id) {
-                WalletCredentials::mark_provisioned(network.as_str());
-            }
             tx_builder::estimate_gas(
                 provider,
                 from,
@@ -131,7 +125,7 @@ async fn resolve_and_sign_tx(
 /// Uses expiring nonces so no on-chain nonce fetch is needed.
 pub(super) async fn submit_tempo_tx(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
-    wallet: &WalletSigner,
+    wallet: &Signer,
     chain_id: u64,
     fee_token: Address,
     from: Address,
@@ -157,12 +151,14 @@ pub(super) async fn submit_tempo_tx(
 /// signed transaction bytes (for optional client-side pre-broadcast).
 pub(super) async fn create_tempo_payment_from_calls(
     rpc_url_str: &str,
-    signing: &WalletSigner,
+    signing: &Signer,
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
     chain_id: u64,
 ) -> Result<TempoPaymentResult> {
-    let rpc_url = Network::parse_rpc_url(rpc_url_str)?;
+    let rpc_url: url::Url = rpc_url_str
+        .parse()
+        .map_err(|e| PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))?;
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;
@@ -174,8 +170,7 @@ pub(super) async fn create_tempo_payment_from_calls(
 
 /// Send the Open credential to the server and retry on HTTP 410 while the node indexes.
 pub(super) async fn send_open_with_retry(
-    request_ctx: &RequestContext,
-    http_client: &HttpClient,
+    http: &HttpClient,
     url: &str,
     auth_header: &str,
     delays_ms: &[u64],
@@ -183,9 +178,7 @@ pub(super) async fn send_open_with_retry(
     let truncate = |s: String| -> String { s.chars().take(500).collect() };
 
     let headers = vec![("Authorization".to_string(), auth_header.to_string())];
-    let resp = request_ctx
-        .execute_with_client(http_client, url, &headers)
-        .await?;
+    let resp = http.execute(url, &headers).await?;
 
     if resp.status_code < 400 {
         return Ok(resp);
@@ -194,14 +187,12 @@ pub(super) async fn send_open_with_retry(
     if resp.status_code == 410 {
         let body = resp.body_string().unwrap_or_default();
         if body.contains("channel not funded") || body.contains("Channel Not Found") {
-            if request_ctx.log_enabled() {
+            if http.log_enabled() {
                 eprintln!("Server hasn't indexed channel yet, retrying...");
             }
             for delay in delays_ms {
                 tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
-                let next = request_ctx
-                    .execute_with_client(http_client, url, &headers)
-                    .await?;
+                let next = http.execute(url, &headers).await?;
                 if next.status_code < 400 {
                     return Ok(next);
                 }

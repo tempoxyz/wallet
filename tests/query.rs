@@ -707,25 +707,6 @@ async fn test_no_redirect() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_fail_flag_exits_non_zero_and_keeps_body() {
-    let server = MockServer::start(404, vec![], "not found body").await;
-    let temp = TestConfigBuilder::new().build();
-
-    let output = test_command(&temp)
-        .args(["-f", &server.url("/missing")])
-        .output()
-        .unwrap();
-
-    assert!(
-        !output.status.success(),
-        "-f should make HTTP >= 400 exit with error"
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // Unified semantics: body is still printed (unless --silent)
-    assert!(stdout.contains("not found body"), "expected body with -f");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_dump_header_writes_file() {
     let server = MockServer::start(200, vec![("x-test", "1")], "ok").await;
     let temp = TestConfigBuilder::new().build();
@@ -883,7 +864,7 @@ fn mock_rpc_response(req: &serde_json::Value, chain_id: u64) -> serde_json::Valu
 /// Verifies that presto correctly:
 /// 1. Receives a 402 with WWW-Authenticate header
 /// 2. Parses the MPP payment challenge
-/// 3. Loads wallet credentials
+/// 3. Loads wallet keys
 /// 4. Builds and signs a payment credential via mock RPC
 /// 5. Retries the request with Authorization header
 /// 6. Returns the final 200 response body
@@ -1716,28 +1697,6 @@ async fn test_402_malformed_www_authenticate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_non_402_error_codes_with_fail_flag() {
-    // -f flag should fail on 4xx/5xx and keep body unless --silent
-    for status in [400u16, 403, 404, 500, 502, 503] {
-        let body = format!("error body for {status}");
-        let server = MockServer::start(status, vec![], &body).await;
-        let temp = TestConfigBuilder::new().build();
-
-        let output = test_command(&temp)
-            .args(["-f", &server.url("/test")])
-            .output()
-            .unwrap();
-
-        assert!(
-            !output.status.success(),
-            "status {status} should fail with -f"
-        );
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains(&body), "expected body with -f");
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_server_error_json_output_schema() {
     // A 500 error with -j should produce structured JSON error with stable schema
     let server = MockServer::start(500, vec![], "Internal Server Error").await;
@@ -1911,10 +1870,6 @@ async fn test_analytics_event_sequence_success() {
 
     // Must contain the core sequence in order
     assert!(
-        names.contains(&"session_started"),
-        "missing session_started: {names:?}"
-    );
-    assert!(
         names.contains(&"command_run"),
         "missing command_run: {names:?}"
     );
@@ -1927,9 +1882,9 @@ async fn test_analytics_event_sequence_success() {
         "missing query_success: {names:?}"
     );
 
-    // Verify ordering: session_started before query_started before query_success
+    // Verify ordering: command_run before query_started before query_success
     let pos = |name: &str| names.iter().position(|n| *n == name);
-    assert!(pos("session_started") < pos("query_started"));
+    assert!(pos("command_run") < pos("query_started"));
     assert!(pos("query_started") < pos("query_success"));
 }
 

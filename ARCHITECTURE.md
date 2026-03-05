@@ -7,17 +7,19 @@
 Dependency flows top-down; lower layers never import from higher ones.
 
 ```
-main.rs          — entry point; dispatches to cli
-  cli/           — user-facing commands; depends on all lower layers
-  payment/       — payment flows (charge + session); depends on wallet, config, network
-  wallet/        — wallet credentials, signing, keychain; depends on config, network
-  config.rs      — configuration file handling; depends on error
-  network.rs     — chain definitions, explorer config, RPC; depends on error
-  http.rs        — HTTP client wrapper; depends on config
-  services/      — MPP service directory; depends on http
-  analytics/     — opt-out telemetry; no internal dependencies
-  error.rs       — error types; foundational
-  util.rs        — shared utilities; foundational
+main.rs            — entry point; parse CLI, run, handle errors
+  cli/run.rs       — application lifecycle: tracing, color, context, dispatch, analytics
+  cli/context.rs   — Context struct (Cli, Config, NetworkId, Keystore, Analytics, OutputFormat)
+  cli/commands/    — command implementations; all take &Context as first arg
+  account/         — wallet account types (balances, spending limits) and on-chain queries
+  payment/         — payment flows (charge + session); depends on keys, config, network
+  keys/            — key storage, signing, authorization; depends on config, network
+  config.rs        — configuration file handling; depends on error
+  network.rs       — chain definitions, explorer config, RPC; depends on error
+  http/            — HTTP client wrapper; depends on network
+  analytics.rs     — opt-out telemetry; no internal dependencies
+  error.rs         — error types; foundational
+  util.rs          — shared utilities; depends on network (for token formatting)
 ```
 
 ## Payment Flows
@@ -47,15 +49,15 @@ Implemented in `payment/session/`. Provides a persistent payment channel for rep
 
 ### Passkey
 
-Browser-based WebAuthn wallet created via Tempo's passkey flow (`wallet/passkey.rs`). Authentication is delegated to the browser; presto stores the resulting wallet address and key authorization.
+Browser-based WebAuthn wallet created via Tempo's passkey flow (`cli/commands/login/passkey.rs`). Authentication is delegated to the browser; presto stores the resulting wallet address and key authorization.
 
 ### Local
 
-Locally generated or imported secp256k1 private key (`wallet/credentials/`). The private key is stored in the OS keychain on macOS (`wallet/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
+Locally generated or imported secp256k1 private key (`cli/commands/wallets/`). The private key is stored in the OS keychain on macOS (`cli/commands/wallets/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
 
 ### Signing Modes
 
-Determined by the relationship between `wallet_address` and `key_address` (`wallet/signer.rs`):
+Determined by the relationship between `wallet_address` and `key_address` (`keys/signer.rs`):
 
 - **Direct EOA signing** — when the wallet address equals the key address, transactions are signed directly.
 - **Keychain (smart wallet) signing** — otherwise, transactions are signed with the authorized sub-key and include the on-chain key authorization proof.
@@ -75,24 +77,26 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | Path | Purpose |
 |------|---------|
 | `src/main.rs` | CLI entry point, module declarations |
-| `src/http.rs` | `HttpClient` (reqwest wrapper), `RequestContext`, `RequestRuntime`, header/body helpers |
+| `src/cli/run.rs` | Application lifecycle: init, build `Context`, dispatch commands, track analytics |
+| `src/cli/context.rs` | `Context` struct: shared app state threaded to all commands |
 | `src/cli/args.rs` | Clap definitions (`Cli`, `QueryArgs`, `Commands`) |
-| `src/cli/query.rs` | Primary query flow: HTTP → 402 detection → payment → retry |
-| `src/cli/auth.rs` | Login, logout, whoami commands |
-| `src/cli/keys.rs` | Key listing with balance and spending limit queries |
-| `src/cli/session/` | Session management commands (list/info/close/recover/sync) |
-| `src/cli/output.rs` | Response display formatting, `OutputOptions` |
+| `src/cli/output.rs` | `OutputFormat`, `OutputOptions` |
+| `src/account/` | Wallet account types (balances, spending limits), on-chain queries |
+| `src/cli/commands/query/` | Primary query flow: HTTP → 402 detection → payment → retry |
+| `src/cli/commands/login/` | Login command and passkey authentication flow |
+| `src/cli/commands/logout.rs` | Logout command |
+| `src/cli/commands/whoami.rs` | Whoami command |
+| `src/cli/commands/keys.rs` | Key listing with balance and spending limit queries |
+| `src/cli/commands/sessions/` | Session management commands (list/info/close/recover/sync) |
+| `src/cli/commands/wallets/` | Wallet management (create, renew, list, fund, keychain) |
+| `src/cli/commands/services.rs` | Service directory listing and detail views |
+| `src/http/` | `HttpClient` (reqwest wrapper with retry logic), `HttpRequestPlan`, header/body helpers |
+| `src/keys/` | Key storage (model, I/O), signer resolution, authorization |
 | `src/payment/charge.rs` | One-shot on-chain charge payment |
 | `src/payment/session/` | Session-based payment channel (open, voucher, close, store) |
-| `src/wallet/signer.rs` | Signing mode selection and transaction signing |
-| `src/wallet/keychain.rs` | macOS Keychain integration for private key storage |
-| `src/wallet/credentials/` | Wallet credential management (create, import, delete) |
 | `src/config.rs` | Config file parsing and RPC resolution |
 | `src/network.rs` | Built-in network definitions (Tempo, Moderato), explorer URLs |
-| `src/analytics/` | Opt-out PostHog telemetry |
-| `src/cli/fund.rs` | Wallet funding: testnet faucet or mainnet bridge via Relay |
-| `src/cli/relay.rs` | Relay bridge client for cross-chain wallet funding |
-| `src/cli/services.rs` | Service directory listing and detail views |
-| `src/services/` | MPP service registry fetching and data model |
+| `src/analytics.rs` | Opt-out PostHog telemetry |
 | `src/error.rs` | `PrestoError` enum (thiserror) |
-| `src/util.rs` | Atomic file writes, terminal hyperlinks |
+| `src/util.rs` | Formatting helpers, terminal hyperlinks |
+| `src/version.rs` | Version checking and self-update logic |

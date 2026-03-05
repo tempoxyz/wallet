@@ -162,9 +162,7 @@ fn test_query_help_has_key_flags() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Key HTTP flags
-    for flag in [
-        "-X", "-H", "-d,", "--json", "-L", "-i,", "-I", "-m,", "-f,", "-o,",
-    ] {
+    for flag in ["-X", "-H", "-d,", "--json", "-L", "-i,", "-I", "-m,", "-o,"] {
         assert!(stdout.contains(flag), "missing flag {flag} in query help");
     }
     // Examples section

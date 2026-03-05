@@ -6,22 +6,23 @@
 use anyhow::{Context, Result};
 use mpp::client::PaymentProvider;
 
-use crate::error::{classify_payment_error, map_mpp_validation_error, PrestoError};
-use crate::http::{HttpClient, HttpResponse, RequestContext};
-use crate::wallet::signer::WalletSigner;
+use crate::error::PrestoError;
+use crate::http::{HttpClient, HttpResponse};
+use crate::keys::Signer;
 
-use super::dispatch::{PaymentResult, ResolvedChallenge};
+use super::dispatch::{
+    classify_payment_error, map_mpp_validation_error, PaymentResult, ResolvedChallenge,
+};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").
 ///
 /// Validates the challenge, builds and signs the transaction,
 /// submits the payment, and returns the result.
-pub async fn handle_charge_request(
-    request_ctx: &RequestContext,
-    http_client: &HttpClient,
+pub(super) async fn handle_charge_request(
+    http: &HttpClient,
     url: &str,
     resolved: ResolvedChallenge,
-    signer: WalletSigner,
+    signer: Signer,
 ) -> Result<PaymentResult> {
     let challenge = &resolved.challenge;
 
@@ -30,19 +31,19 @@ pub async fn handle_charge_request(
         .map_err(|e| map_mpp_validation_error(e, challenge))?;
 
     let provider =
-        mpp::client::TempoProvider::new(signer.signer.clone(), &resolved.network_info.rpc_url)
+        mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str())
             .map_err(|e| PrestoError::InvalidConfig(e.to_string()))?
             .with_signing_mode(signer.signing_mode);
 
     let credential = provider
         .pay(challenge)
         .await
-        .map_err(classify_payment_error)?;
+        .map_err(|e| classify_payment_error(e, &resolved.network_id))?;
 
     let auth_header =
         mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
 
-    if request_ctx.runtime.dry_run {
+    if http.dry_run {
         eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
         return Ok(PaymentResult {
             tx_hash: String::new(),
@@ -52,25 +53,23 @@ pub async fn handle_charge_request(
         });
     }
 
-    if request_ctx.log_enabled() {
+    if http.log_enabled() {
         eprintln!("Submitting payment...");
     }
 
     let headers = vec![("Authorization".to_string(), auth_header)];
-    let resp = request_ctx
-        .execute_with_client(http_client, url, &headers)
-        .await?;
+    let resp = http.execute(url, &headers).await?;
 
     if resp.status_code >= 400 {
         return Err(parse_payment_rejection(&resp).into());
     }
 
-    if request_ctx.log_enabled() {
+    if http.log_enabled() {
         eprintln!("Payment accepted: HTTP {}", resp.status_code);
     }
 
     let tx_hash = resp
-        .get_header("payment-receipt")
+        .header("payment-receipt")
         .and_then(|h| {
             mpp::protocol::core::extract_tx_hash(h)
                 .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
@@ -86,18 +85,13 @@ pub async fn handle_charge_request(
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
-pub fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
+pub(super) fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
     let reason = if let Ok(body) = response.body_string() {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
-                error.to_string()
-            } else if let Some(message) = json.get("message").and_then(|m| m.as_str()) {
-                message.to_string()
-            } else if let Some(detail) = json.get("detail").and_then(|d| d.as_str()) {
-                detail.to_string()
-            } else {
-                format!("HTTP {}", response.status_code)
-            }
+        if let Some(msg) = super::extract_json_error(&body) {
+            msg
+        } else if serde_json::from_str::<serde_json::Value>(&body).is_ok() {
+            // Valid JSON but no known error field
+            format!("HTTP {}", response.status_code)
         } else if !body.trim().is_empty() {
             body.chars().take(200).collect()
         } else {
@@ -117,19 +111,10 @@ pub fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
 mod tests {
     use super::*;
 
-    fn make_response(status: u16, body: &[u8]) -> HttpResponse {
-        HttpResponse {
-            status_code: status,
-            headers: std::collections::HashMap::new(),
-            body: body.to_vec(),
-            final_url: None,
-        }
-    }
-
     #[test]
     fn test_parse_payment_rejection_json_error_field() {
         let body = br#"{"error":"insufficient funds"}"#;
-        let resp = make_response(400, body);
+        let resp = HttpResponse::for_test(400, body);
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected {
@@ -146,7 +131,7 @@ mod tests {
     #[test]
     fn test_parse_payment_rejection_json_message_field() {
         let body = br#"{"message":"bad request"}"#;
-        let resp = make_response(400, body);
+        let resp = HttpResponse::for_test(400, body);
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
@@ -159,7 +144,7 @@ mod tests {
     #[test]
     fn test_parse_payment_rejection_json_detail_field() {
         let body = br#"{"detail":"validation failed"}"#;
-        let resp = make_response(422, body);
+        let resp = HttpResponse::for_test(422, body);
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected {
@@ -176,7 +161,7 @@ mod tests {
     #[test]
     fn test_parse_payment_rejection_json_no_known_field() {
         let body = br#"{"foo":"bar"}"#;
-        let resp = make_response(500, body);
+        let resp = HttpResponse::for_test(500, body);
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
@@ -189,7 +174,7 @@ mod tests {
     #[test]
     fn test_parse_payment_rejection_json_error_precedence() {
         let body = br#"{"error":"e","message":"m","detail":"d"}"#;
-        let resp = make_response(400, body);
+        let resp = HttpResponse::for_test(400, body);
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
@@ -202,7 +187,7 @@ mod tests {
     #[test]
     fn test_parse_payment_rejection_plain_text() {
         let body = b"Transaction reverted";
-        let resp = make_response(500, body);
+        let resp = HttpResponse::for_test(500, body);
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
@@ -215,7 +200,7 @@ mod tests {
     #[test]
     fn test_parse_payment_rejection_plain_text_truncated() {
         let body = "a".repeat(500);
-        let resp = make_response(500, body.as_bytes());
+        let resp = HttpResponse::for_test(500, body.as_bytes());
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
@@ -227,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_parse_payment_rejection_empty_body() {
-        let resp = make_response(500, b"");
+        let resp = HttpResponse::for_test(500, b"");
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
@@ -239,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_parse_payment_rejection_whitespace_body() {
-        let resp = make_response(503, b"   \n\t  ");
+        let resp = HttpResponse::for_test(503, b"   \n\t  ");
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
@@ -251,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_parse_payment_rejection_invalid_utf8() {
-        let resp = make_response(500, &[0xff, 0xfe, 0xfd]);
+        let resp = HttpResponse::for_test(500, &[0xff, 0xfe, 0xfd]);
         let err = parse_payment_rejection(&resp);
         match err {
             PrestoError::PaymentRejected { reason, .. } => {
