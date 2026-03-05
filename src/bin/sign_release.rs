@@ -41,13 +41,11 @@ fn main() {
     let key_file = find_flag_value(&args, "--key-file");
     let artifacts_dir = find_flag_value(&args, "--artifacts-dir");
     let version = find_flag_value(&args, "--version");
-    let base_url = find_flag_value(&args, "--base-url")
-        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-    let output = find_flag_value(&args, "--output")
-        .unwrap_or_else(|| "manifest.json".to_string());
+    let base_url =
+        find_flag_value(&args, "--base-url").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+    let output = find_flag_value(&args, "--output").unwrap_or_else(|| "manifest.json".to_string());
 
-    let (Some(key_file), Some(artifacts_dir), Some(version)) =
-        (key_file, artifacts_dir, version)
+    let (Some(key_file), Some(artifacts_dir), Some(version)) = (key_file, artifacts_dir, version)
     else {
         eprintln!("error: --key-file, --artifacts-dir, and --version are required");
         process::exit(2);
@@ -201,10 +199,7 @@ fn build_manifest(
         }
         let filename = entry.file_name();
         let filename = filename.to_string_lossy();
-        if SKIP_EXTENSIONS
-            .iter()
-            .any(|ext| filename.ends_with(ext))
-        {
+        if SKIP_EXTENSIONS.iter().any(|ext| filename.ends_with(ext)) {
             continue;
         }
 

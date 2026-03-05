@@ -1,9 +1,6 @@
 //! Snapshot-like structure tests for JSON and TOON outputs.
 
-use assert_cmd::prelude::*;
-use predicates::prelude::*;
 use serde_json::Value;
-use std::process::Command;
 
 mod common;
 use common::{seed_local_session, test_command, TestConfigBuilder};

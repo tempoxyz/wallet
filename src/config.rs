@@ -327,7 +327,6 @@ mod tests {
                 moderato_rpc: self.moderato_rpc,
                 rpc: self.rpc_overrides,
                 telemetry: Default::default(),
-                version: Default::default(),
             }
         }
     }
@@ -345,7 +344,6 @@ mod tests {
             moderato_rpc: Some("https://custom-moderato-rpc.com".to_string()),
             rpc: Default::default(),
             telemetry: Default::default(),
-            version: Default::default(),
         };
 
         assert_eq!(
@@ -504,7 +502,6 @@ mod tests {
                 "https://custom.example.com".to_string(),
             )]),
             telemetry: Default::default(),
-            version: Default::default(),
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");
@@ -573,56 +570,5 @@ mod tests {
         let encoded = OutputFormat::Toon.serialize(&data).unwrap();
         let decoded: serde_json::Value = toon_format::decode_default(&encoded).unwrap();
         assert_eq!(decoded, data);
-    }
-
-    // -- version_newer tests --
-
-    #[test]
-    fn test_version_newer() {
-        assert!(Config::version_newer("0.7.0", "0.6.0"));
-        assert!(Config::version_newer("1.0.0", "0.9.9"));
-        assert!(Config::version_newer("0.6.1", "0.6.0"));
-        assert!(!Config::version_newer("0.6.0", "0.6.0"));
-        assert!(!Config::version_newer("0.5.0", "0.6.0"));
-    }
-
-    #[test]
-    fn test_version_newer_with_v_prefix() {
-        assert!(Config::version_newer("v0.7.0", "0.6.0"));
-        assert!(Config::version_newer("v1.0.0", "v0.9.9"));
-    }
-
-    #[test]
-    fn test_version_newer_invalid() {
-        assert!(!Config::version_newer("invalid", "0.6.0"));
-        assert!(!Config::version_newer("0.6.0", "invalid"));
-        assert!(!Config::version_newer("", ""));
-    }
-
-    #[test]
-    fn test_version_newer_rejects_trailing_components() {
-        assert!(!Config::version_newer("1.0.0.malicious", "0.6.0"));
-        assert!(!Config::version_newer("1.0.0.1", "0.6.0"));
-    }
-
-    // -- is_valid_version tests --
-
-    #[test]
-    fn test_is_valid_version() {
-        assert!(Config::is_valid_version("0.6.0"));
-        assert!(Config::is_valid_version("1.0.0"));
-        assert!(Config::is_valid_version("v0.6.0"));
-        assert!(Config::is_valid_version("v1.0.0"));
-    }
-
-    #[test]
-    fn test_is_valid_version_rejects_garbage() {
-        assert!(!Config::is_valid_version("invalid"));
-        assert!(!Config::is_valid_version(""));
-        assert!(!Config::is_valid_version("1.0"));
-        assert!(!Config::is_valid_version("1.0.0.1"));
-        assert!(!Config::is_valid_version("1.0.0\x1b[2J"));
-        assert!(!Config::is_valid_version("1.0.0-beta"));
-        assert!(!Config::is_valid_version("<html>404</html>"));
     }
 }
