@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 (2026-03-05)
+
+### Minor Changes
+
+- Refactored session management to consolidate close state into session records, replacing the separate `pending_closes` table with explicit `state`, `close_requested_at`, `grace_ready_at`, and `token_decimals` fields on `SessionRecord`. Added per-origin file locking (`fs2`) to prevent duplicate channel opens across processes, improved cooperative close to fetch a fresh challenge echo before submitting, and introduced "closing"/"finalizable" session statuses. Also fixed deposit scaling to respect token decimals and corrected the `whoami` ready flag to require a wallet.
+
+### Patch Changes
+
+- Added `sessions sync` command to reconcile local session records with on-chain state. Added locked/available balance breakdown to `whoami` and `keys` output showing funds held in active payment channels. Improved session close output messages with cleaner formatting and settlement transaction URLs. Removed session TTL expiry logic and migrated the sessions database schema to drop the `expires_at` column. Added `created_at` and `last_used_at` timestamps to session list output.
+- Refactored payment dispatch to centralize challenge parsing and network/signer resolution in `dispatch_payment`, passing a `ResolvedChallenge` struct to `handle_charge_request` and `handle_session_request`. Moved `parse_payment_rejection` to `charge.rs`, removed the `SessionResult` enum in favor of `PaymentResult`, and eliminated redundant `Config` and network lookups from individual payment handlers.
+- Refactored internal module structure by splitting `src/util.rs` into focused submodules (`util/format.rs`, `util/fs.rs`, `util/terminal.rs`), extracting `dispatch_payment` and `parse_payment_rejection` into `src/payment/dispatch.rs`, and moving CLI helpers (`init_tracing`, `generate_completions`, `print_version_json`) into `src/cli/logging.rs` and `src/cli/completions.rs`. Also moved retry logic from `query.rs` into `HttpRequestPlan` via a new `RetryPolicy` struct.
+
 ## 0.6.2 (2026-03-03)
 
 ### Patch Changes
