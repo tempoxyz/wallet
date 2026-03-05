@@ -24,7 +24,7 @@ impl Verbosity {
     }
 }
 
-/// Get the  tempo-walletdata directory (platform-specific).
+/// Get the tempo-wallet data directory (platform-specific).
 ///
 /// - macOS: `~/Library/Application Support/tempo/wallet/`
 /// - Linux: `~/.local/share/tempo/wallet/`

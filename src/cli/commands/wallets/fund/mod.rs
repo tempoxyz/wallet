@@ -83,7 +83,7 @@ fn resolve_address(address: Option<String>, keys: &Keystore) -> anyhow::Result<S
 
     if wallet_addr.is_empty() {
         anyhow::bail!(TempoWalletError::ConfigMissing(
-            "No wallet configured. Log in with ' tempo-walletlogin'.".to_string(),
+            "No wallet configured. Log in with 'tempo-wallet login'.".to_string(),
         ));
     }
 

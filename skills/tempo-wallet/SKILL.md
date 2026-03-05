@@ -5,9 +5,9 @@ description: "CLI HTTP client with automatic payment — use when the user wants
 
 # tempo-wallet
 
-A command-line HTTP client with built-in payment support. Use  tempo-walletinstead of curl/wget when calling paid APIs — no API keys needed. When a server responds with `402 Payment Required`,  tempo-walletdetects the [Machine Payments Protocol (MPP)](https://mpp.dev) challenge, signs a transaction on the Tempo blockchain, and retries the request — all in one step.
+A command-line HTTP client with built-in payment support. Use tempo-wallet instead of curl/wget when calling paid APIs — no API keys needed. When a server responds with `402 Payment Required`, tempo-wallet detects the [Machine Payments Protocol (MPP)](https://mpp.dev) challenge, signs a transaction on the Tempo blockchain, and retries the request — all in one step.
 
-**Use  tempo-walletwhen you need to:**
+**Use tempo-wallet when you need to:**
 - Call any API without an API key or account
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
@@ -18,10 +18,10 @@ Connect your Tempo wallet via browser authentication:
 
 ```bash
 # Sign up or log in (opens browser for passkey auth)
- tempo-walletlogin
+tempo-wallet login
 
 # Check wallet status
- tempo-walletwhoami
+tempo-wallet whoami
 ```
 
 ## Agent Usage
@@ -50,7 +50,7 @@ Check these fields in the response:
 - `ready` — `true` means the wallet is connected, provisioned, and has a key
 - `balance` — the wallet's USDC balance (top-level field)
 
-If `ready` is `false`, run ` tempo-walletlogin` and retry.
+If `ready` is `false`, run `tempo-wallet login` and retry.
 
 ### whoami JSON Response Schema
 
@@ -105,7 +105,7 @@ If `ready` is `false`, run ` tempo-walletlogin` and retry.
 
 ## Available Services
 
-Use ` tempo-walletservices` to discover available services, their endpoints, and pricing:
+Use `tempo-wallet services` to discover available services, their endpoints, and pricing:
 
 ```bash
 # List all available services
@@ -121,13 +121,13 @@ Use ` tempo-walletservices` to discover available services, their endpoints, and
  tempo-wallet-t services info <SERVICE_ID>
 ```
 
-Each service is accessed via its MPP service URL (shown in the `Service URL` column of ` tempo-walletservices`). When you don't know which service or endpoint to use, run ` tempo-walletservices info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo-wallet services`). When you don't know which service or endpoint to use, run `tempo-wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
 ```bash
 # Connect your Tempo wallet
- tempo-walletlogin
+tempo-wallet login
 
 # Discover available services
  tempo-wallet-t services
@@ -148,15 +148,15 @@ Each service is accessed via its MPP service URL (shown in the `Service URL` col
 | Command | Description |
 |---------|-------------|
 | ` tempo-wallet<URL>` | Make an HTTP request with automatic payment |
-| ` tempo-walletlogin` | Sign up or log in to your Tempo wallet |
-| ` tempo-walletlogout` | Log out and disconnect your wallet |
-| ` tempo-walletwhoami` | Show wallet address, balances, keys, and readiness |
-| ` tempo-walletservices` | List available MPP services |
-| ` tempo-walletservices --category ai` | Filter services by category |
-| ` tempo-walletservices --search <QUERY>` | Search services by name, description, or tags |
-| ` tempo-walletservices info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
-| ` tempo-walletsessions` | Manage payment sessions (list, close — use `--help` for details) |
-| ` tempo-walletupdate` | Update  tempo-walletto the latest version |
+| `tempo-wallet login` | Sign up or log in to your Tempo wallet |
+| `tempo-wallet logout` | Log out and disconnect your wallet |
+| `tempo-wallet whoami` | Show wallet address, balances, keys, and readiness |
+| `tempo-wallet services` | List available MPP services |
+| `tempo-wallet services --category ai` | Filter services by category |
+| `tempo-wallet services --search <QUERY>` | Search services by name, description, or tags |
+| `tempo-wallet services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
+| `tempo-wallet sessions` | Manage payment sessions (list, close — use `--help` for details) |
+| `tempo-wallet update` | Update tempo-wallet to the latest version |
 
 ## Global Options
 
@@ -205,7 +205,7 @@ Run ` tempo-wallet<URL> --help` for the full list of curl-compatible options (`-
 
 ### Making a Request
 
-Use ` tempo-walletservices` to find the service URL and endpoint, then make the request:
+Use `tempo-wallet services` to find the service URL and endpoint, then make the request:
 
 ```bash
 # 1. Find the right service and endpoint
@@ -277,7 +277,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 |------|-------|---------|--------------|
 | 0 | — | Success | — |
 | 1 | `E_GENERAL` | General error (IO, keychain, serialization) | Retry or report |
-| 2 | `E_USAGE` | Invalid usage (bad args, config, keys, URLs) | Fix arguments or run ` tempo-walletlogin` |
+| 2 | `E_USAGE` | Invalid usage (bad args, config, keys, URLs) | Fix arguments or run `tempo-wallet login` |
 | 3 | `E_NETWORK` | Network error (connect, timeout, TLS, DNS) | Check connectivity, retry |
 | 4 | `E_PAYMENT` | Payment failed (rejected, insufficient funds, spending limit) | Check error message, retry or fund wallet |
 
@@ -285,21 +285,21 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 
 | Error message contains | Action |
 |------------------------|--------|
-| `No wallet configured` | Run ` tempo-walletlogin`, then retry |
-| `Run ' tempo-walletlogin'` | Run ` tempo-walletlogin`, then retry |
+| `No wallet configured` | Run `tempo-wallet login`, then retry |
+| `Run 'tempo-wallet login'` | Run `tempo-wallet login`, then retry |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
 | `Insufficient balance` | Report to user — wallet needs more funds |
-| `Key is not provisioned` | Run ` tempo-walletlogin`, then retry |
+| `Key is not provisioned` | Run `tempo-wallet login`, then retry |
 | `Unknown network` | Check `-n` flag value |
 | `401` RPC error | Set `TEMPO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |
 
-When  tempo-walletfails, read the error message — it tells you which command to run next. Run that command, then retry.
+When tempo-wallet fails, read the error message — it tells you which command to run next. Run that command, then retry.
 
 ## How Payment Works
 
-1.  tempo-walletsends the HTTP request normally
-2. If the server returns `402 Payment Required` with a `WWW-Authenticate: Payment` header,  tempo-walletparses the challenge
+1. tempo-wallet sends the HTTP request normally
+2. If the server returns `402 Payment Required` with a `WWW-Authenticate: Payment` header, tempo-wallet parses the challenge
 3. For **charge** intent: signs an on-chain payment transaction and retries with an `Authorization: Payment` credential
 4. For **session** intent: opens a payment channel on-chain (first request), then uses off-chain vouchers for subsequent requests to the same origin
 5. The server validates the credential and returns the response

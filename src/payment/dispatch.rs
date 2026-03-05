@@ -89,7 +89,7 @@ pub(crate) async fn dispatch_payment(
     handle_charge_request(http, url, resolved, signer).await
 }
 
-/// Map mpp validation errors to  tempo-walleterror types.
+/// Map mpp validation errors to tempo-wallet error types.
 pub(super) fn map_mpp_validation_error(
     e: mpp::MppError,
     challenge: &mpp::PaymentChallenge,
@@ -116,7 +116,7 @@ pub(super) fn classify_payment_error(err: mpp::MppError, network: &NetworkId) ->
         mpp::MppError::Tempo(tempo_err) => match tempo_err {
             TempoClientError::AccessKeyNotProvisioned => {
                 TempoWalletError::AccessKeyNotProvisioned {
-                    hint: " tempo-walletlogin".to_string(),
+                    hint: "tempo-wallet login".to_string(),
                 }
             }
             TempoClientError::SpendingLimitExceeded {

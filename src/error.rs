@@ -35,7 +35,7 @@ pub(crate) enum TempoWalletError {
     AccessKeyNotProvisioned { hint: String },
 
     /// Browser-based login expired (device code expired or callback window timed out)
-    #[error("Login expired. Use  tempo-walletlogin to try again.")]
+    #[error("Login expired. Use tempo-wallet login to try again.")]
     LoginExpired,
 
     /// Key spending limit exceeded on-chain
@@ -47,7 +47,7 @@ pub(crate) enum TempoWalletError {
     },
 
     /// Insufficient token balance for payment
-    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with ' tempo-walletwallet fund'.")]
+    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo-wallet wallet fund'.")]
     InsufficientBalance {
         token: String,
         available: String,

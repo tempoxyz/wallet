@@ -132,7 +132,7 @@ pub(crate) struct Cli {
 #[derive(Parser, Debug, Default)]
 #[command(after_help = "\
 Examples:
-   tempo-wallethttps://api.example.com/data
+  tempo-wallet https://api.example.com/data
    tempo-wallet-X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
    tempo-wallet-H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
 pub(crate) struct QueryArgs {
@@ -458,7 +458,7 @@ pub(crate) enum Commands {
         search: Option<String>,
     },
 
-    /// Update  tempo-walletto the latest version
+    /// Update tempo-wallet to the latest version
     #[command(display_order = 8)]
     Update,
 
@@ -578,8 +578,8 @@ pub(crate) enum ServicesCommands {
 impl Cli {
     /// Parse CLI args, treating a bare URL as an implicit `query` subcommand.
     ///
-    /// This allows ` tempo-wallethttps://example.com` as a shorthand for
-    /// ` tempo-walletquery https://example.com`, making the primary use case
+    /// This allows `tempo-wallet https://example.com` as a shorthand for
+    /// `tempo-wallet query https://example.com`, making the primary use case
     /// as frictionless as curl/wget.
     pub(crate) fn parse() -> Self {
         match Self::try_parse() {
@@ -617,8 +617,8 @@ impl Cli {
 
     /// Try re-parsing with an implicit `query` subcommand.
     ///
-    /// Allows ` tempo-wallethttps://example.com` as shorthand for
-    /// ` tempo-walletquery https://example.com`. Returns `None` when
+    /// Allows `tempo-wallet https://example.com` as shorthand for
+    /// `tempo-wallet query https://example.com`. Returns `None` when
     /// the args don't look like an implicit query.
     fn try_implicit_query(args: &[String]) -> Option<Self> {
         use clap::CommandFactory;
@@ -651,7 +651,7 @@ impl Cli {
             let url = &q.url;
             if !url.contains("://") && !url.contains("localhost") && !url.contains('.') {
                 eprintln!(
-                    "error: '{url}' is not a  tempo-walletcommand. \
+                    "error: '{url}' is not a tempo-wallet command. \
                      See ' tempo-wallet--help' for a list of available commands."
                 );
                 super::exit_codes::ExitCode::InvalidUsage.exit();

@@ -39,7 +39,7 @@ This mode requires no persistent state — each request is independently settled
 
 Implemented in `payment/session/`. Provides a persistent payment channel for repeated requests to the same origin.
 
-1. On first request,  tempo-walletopens an on-chain channel with a deposit.
+1. On first request, tempo-wallet opens an on-chain channel with a deposit.
 2. Subsequent requests exchange off-chain vouchers — signed cumulative amounts — instead of on-chain transactions.
 3. SSE streaming is supported: per-token voucher top-ups are issued as streamed data arrives.
 4. Sessions persist across CLI invocations in a SQLite database (`payment/session/store.rs`).
@@ -49,7 +49,7 @@ Implemented in `payment/session/`. Provides a persistent payment channel for rep
 
 ### Passkey
 
-Browser-based WebAuthn wallet created via Tempo's passkey flow (`cli/commands/login/passkey.rs`). Authentication is delegated to the browser;  tempo-walletstores the resulting wallet address and key authorization.
+Browser-based WebAuthn wallet created via Tempo's passkey flow (`cli/commands/login/passkey.rs`). Authentication is delegated to the browser; tempo-wallet stores the resulting wallet address and key authorization.
 
 ### Local
 

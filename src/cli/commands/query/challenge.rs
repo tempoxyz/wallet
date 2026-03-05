@@ -86,7 +86,7 @@ pub(super) fn ensure_wallet_configured(
 ) -> Result<()> {
     let chain_id = Some(challenge_network.chain_id());
 
-    let setup_cmd = " tempo-walletlogin";
+    let setup_cmd = "tempo-wallet login";
 
     if !keys.has_wallet() {
         anyhow::bail!(TempoWalletError::ConfigMissing(format!(

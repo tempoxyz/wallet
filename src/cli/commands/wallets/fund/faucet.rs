@@ -96,7 +96,7 @@ async fn wait_for_balance(
         None => {
             if output_format == OutputFormat::Text {
                 eprintln!(
-                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run ' tempo-walletwhoami' to check later."
+                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo-wallet whoami' to check later."
                 );
             }
             Some(query_all_balances(config, network_id, address).await)

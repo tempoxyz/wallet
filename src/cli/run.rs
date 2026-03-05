@@ -71,7 +71,7 @@ impl Cli {
         } else if let Ok(env) = std::env::var("RUST_LOG") {
             EnvFilter::new(env)
         } else {
-            // Map verbosity count to tracing level for the  tempo-walletcrate only;
+            // Map verbosity count to tracing level for the tempo-wallet crate only;
             // keep all other crates at warn to avoid noise from hyper/reqwest/alloy.
             let filter_str = match self.verbose {
                 0 => "warn",

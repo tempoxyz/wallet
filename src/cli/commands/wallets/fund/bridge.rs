@@ -168,7 +168,7 @@ async fn poll_bridge_and_balance(
     loop {
         if start.elapsed() > timeout {
             if ctx.output_format == OutputFormat::Text {
-                eprintln!("Timed out after 10 minutes. Run ' tempo-walletwhoami' to check later.");
+                eprintln!("Timed out after 10 minutes. Run 'tempo-wallet whoami' to check later.");
             }
             break;
         }

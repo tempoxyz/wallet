@@ -2,10 +2,10 @@
 # Basic Payment Demo — single paid request with tempo-wallet
 #
 # Makes a single paid request using the charge intent (pay-per-request).
-#  tempo-walletdetects the 402, signs an on-chain payment, and retries with credentials.
+# tempo-wallet detects the 402, signs an on-chain payment, and retries with credentials.
 #
 # Flow:
-#   1.  tempo-walletsends POST to paid endpoint → receives 402 + challenge
+#   1. tempo-wallet sends POST to paid endpoint → receives 402 + challenge
 #   2. Automatically signs a payment transaction on-chain
 #   3. Retries the request with the payment credential
 #   4. Receives the response
@@ -13,8 +13,8 @@
 # No payment channels, no sessions — just a single transaction per request.
 #
 # Prerequisites:
-#   -  tempo-walletinstalled (`make install`)
-#   - Run ` tempo-walletlogin` to connect your Tempo wallet
+#   - tempo-wallet installed (`make install`)
+#   - Run `tempo-wallet login` to connect your Tempo wallet
 #
 # Usage:
 #   ./examples/basic.sh [PROMPT]
@@ -36,9 +36,9 @@ echo "Prompt:   \"${PROMPT}\""
 echo ""
 
 # Ensure wallet is configured
-if !  tempo-walletwhoami 2>/dev/null | grep -q "Wallet:"; then
-  echo "No wallet configured. Running ' tempo-walletlogin'..."
-   tempo-walletlogin
+if ! tempo-wallet whoami 2>/dev/null | grep -q "Wallet:"; then
+  echo "No wallet configured. Running 'tempo-wallet login'..."
+  tempo-wallet login
   echo ""
 fi
 

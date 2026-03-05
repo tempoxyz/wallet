@@ -1,4 +1,4 @@
-//! Update command: self-update  tempo-walletto the latest version.
+//! Update command: self-update tempo-wallet to the latest version.
 
 use anyhow::Result;
 

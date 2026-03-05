@@ -131,8 +131,8 @@ impl Config {
         let config_path = Self::default_config_path()?;
         let body = toml::to_string_pretty(self)?;
         let content = format!(
-            "#  tempo-walletconfiguration\n\
-             # Wallet keys live in keys.toml (set via ` tempo-walletlogin`)\n\
+            "# tempo-wallet configuration\n\
+             # Wallet keys live in keys.toml (set via `tempo-wallet login`)\n\
              # Optional RPC overrides:\n\
              # [rpc]\n\
              # tempo = \"https://...\"\n\

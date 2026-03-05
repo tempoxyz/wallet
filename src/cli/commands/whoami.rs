@@ -205,7 +205,7 @@ fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> a
     let explorer = response.chain_id.and_then(NetworkId::from_chain_id);
 
     if response.wallet.is_none() && response.key.is_none() {
-        writeln!(w, "Not logged in. Run ` tempo-walletlogin` to get started.")?;
+        writeln!(w, "Not logged in. Run `tempo-wallet login` to get started.")?;
         return Ok(());
     }
 

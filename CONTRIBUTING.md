@@ -132,7 +132,7 @@ examples/                # Runnable example scripts
 
 ### Scope: CLI-Only
 
-This repository is a single binary crate. Internal modules are crate-private and not a stable public API. Please do not depend on  tempo-walletas a library — all supported behavior is exposed via the CLI.
+This repository is a single binary crate. Internal modules are crate-private and not a stable public API. Please do not depend on tempo-wallet as a library — all supported behavior is exposed via the CLI.
 
 ### Key Conventions
 

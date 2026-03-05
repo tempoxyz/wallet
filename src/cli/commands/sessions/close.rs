@@ -362,7 +362,7 @@ async fn close_orphaned_channels(
 ) -> Result<()> {
     anyhow::ensure!(
         keys.has_wallet(),
-        "No wallet configured. Log in with ' tempo-walletlogin'."
+        "No wallet configured. Log in with 'tempo-wallet login'."
     );
     let wallet_addr = keys
         .wallet_address()

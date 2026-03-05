@@ -463,7 +463,7 @@ fn test_invalid_flag() {
 
 #[test]
 fn test_bare_url_acts_as_query() {
-    // ` tempo-wallethttp://example.com` should work like ` tempo-walletquery http://example.com`
+    // `tempo-wallet http://example.com` should work like `tempo-wallet query http://example.com`
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
         .arg("http://example.com")
         .assert()
@@ -527,12 +527,12 @@ fn test_typo_subcommand_not_swallowed() {
 
 #[test]
 fn test_unknown_command_shows_clean_error() {
-    // ` tempo-walletfoo` should show a clean "not a command" error, not a URL parse error
+    // `tempo-wallet foo` should show a clean "not a command" error, not a URL parse error
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
         .args(["foo"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("is not a  tempo-walletcommand"))
+        .stderr(predicate::str::contains("is not a tempo-wallet command"))
         .stderr(predicate::str::contains(" tempo-wallet--help"));
 }
 
@@ -1441,7 +1441,7 @@ fn test_services_help() {
 
 #[test]
 fn test_services_shows_help_with_no_args() {
-    // ` tempo-walletservices` without network hits the API, but `--help` should work offline.
+    // `tempo-wallet services` without network hits the API, but `--help` should work offline.
     // Test that the bare subcommand is recognized (won't error with "not a command").
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
         .args(["services", "--help"])
@@ -1452,7 +1452,7 @@ fn test_services_shows_help_with_no_args() {
 
 #[test]
 fn test_services_info_missing_id() {
-    // ` tempo-walletservices info` without a service ID should fail
+    // `tempo-wallet services info` without a service ID should fail
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
         .args(["services", "info"])
         .assert()
@@ -1461,7 +1461,7 @@ fn test_services_info_missing_id() {
 
 #[test]
 fn test_services_bare_id_is_accepted() {
-    // ` tempo-walletservices fal` should be parsed as a valid command (shorthand for `services info fal`)
+    // `tempo-wallet services fal` should be parsed as a valid command (shorthand for `services info fal`)
     // It will fail at runtime (network) but should not fail argument parsing.
     // We test via --help to confirm the positional arg is documented.
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
