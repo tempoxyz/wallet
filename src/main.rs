@@ -210,6 +210,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 
         let cmd_name = match &command {
             Commands::Query(_) => "query",
+            Commands::Pay { .. } => "pay",
             Commands::Login => "login",
             Commands::Logout { .. } => "logout",
             Commands::Completions { .. } => "completions",
@@ -242,6 +243,23 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                 query_config.set_rpc_override(rpc_url.clone());
             }
             cli::query::make_request(cli, *query, analytics.clone(), query_config).await
+        }
+
+        Commands::Pay {
+            to,
+            amount,
+            currency,
+        } => {
+            let output_format = cli.resolve_output_format();
+            cli::pay::run_pay(
+                &config,
+                output_format,
+                cli.network.as_deref(),
+                to,
+                amount,
+                currency,
+            )
+            .await
         }
 
         Commands::Login => {

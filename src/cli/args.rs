@@ -421,42 +421,53 @@ pub enum Commands {
     /// Make an HTTP request with optional payment
     #[command(alias = "q", display_order = 1, hide = true)]
     Query(Box<QueryArgs>),
-    /// Sign up or log in to your Tempo wallet
+    /// Send a payment to an address on Tempo
     #[command(display_order = 2)]
+    Pay {
+        /// Recipient address (e.g. 0xAbC...123)
+        to: String,
+        /// Amount to send (e.g. 1.50)
+        amount: String,
+        /// Token address or symbol (default: USDC on mainnet, pathUSD on testnet)
+        #[arg(long = "currency", value_name = "TOKEN")]
+        currency: Option<String>,
+    },
+    /// Sign up or log in to your Tempo wallet
+    #[command(display_order = 3)]
     Login,
     /// Log out and disconnect your wallet
-    #[command(display_order = 3)]
+    #[command(display_order = 4)]
     Logout {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
     },
     /// Show who you are: wallet, balances, keys
-    #[command(display_order = 4)]
+    #[command(display_order = 5)]
     Whoami,
     /// Manage keys
-    #[command(display_order = 5, name = "keys", hide = true)]
+    #[command(display_order = 6, name = "keys", hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
     Keys {
         #[command(subcommand)]
         command: Option<KeyCommands>,
     },
     /// Manage payment sessions
-    #[command(display_order = 6, name = "sessions")]
+    #[command(display_order = 7, name = "sessions")]
     #[command(args_conflicts_with_subcommands = true)]
     Sessions {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
     /// Manage wallets
-    #[command(display_order = 5, name = "wallets", hide = true)]
+    #[command(display_order = 6, name = "wallets", hide = true)]
     #[command(args_conflicts_with_subcommands = true)]
     Wallets {
         #[command(subcommand)]
         command: Option<WalletCommands>,
     },
     /// Browse the MPP service directory
-    #[command(display_order = 7, name = "services")]
+    #[command(display_order = 8, name = "services")]
     Services {
         #[command(subcommand)]
         command: Option<ServicesCommands>,
@@ -475,7 +486,7 @@ pub enum Commands {
     },
 
     /// Update tempo-wallet to the latest version
-    #[command(display_order = 8)]
+    #[command(display_order = 9)]
     Update {
         /// Skip confirmation prompt
         #[arg(long)]

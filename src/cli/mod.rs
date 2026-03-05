@@ -7,6 +7,7 @@ pub mod keys;
 pub mod local_wallet;
 pub mod logging;
 pub mod output;
+pub mod pay;
 pub mod query;
 pub mod relay;
 pub mod services;
