@@ -112,7 +112,7 @@ impl WalletManager {
         use std::io::IsTerminal;
         if std::io::stdin().is_terminal() {
             eprint!(
-                "\x1b[1mPress Enter\x1b[0m to open your browser to {}... ",
+                "\x1b[1mPress Enter\x1b[0m to open your browser to:\n\n{}\n\n",
                 url_str
             );
             std::io::Write::flush(&mut std::io::stderr()).ok();

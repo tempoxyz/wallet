@@ -128,16 +128,36 @@ fn detect_hyperlink_support() -> bool {
 mod tests {
     use super::*;
 
+    /// Extract the visible text portion from an OSC 8 hyperlink string.
+    /// If the string contains OSC 8 framing, returns the text between the
+    /// opening BEL and the closing ESC. Otherwise returns the full string.
+    fn extract_hyperlink_text(s: &str) -> &str {
+        // OSC 8 format: \x1b]8;;<url>\x07<text>\x1b]8;;\x07
+        // Find the first BEL after the opening OSC 8 sequence
+        if let Some(start) = s.find('\x07') {
+            let after_bel = start + 1;
+            // Find the closing OSC 8 sequence
+            if let Some(end) = s[after_bel..].find("\x1b]8;;") {
+                return &s[after_bel..after_bel + end];
+            }
+        }
+        s
+    }
+
     #[test]
     fn test_hyperlink_sanitizes_escape_sequences_in_text() {
         let malicious_text = "0xabc\x1b[31mPHISHING\x1b[0m";
         let url = "https://explorer.tempo.xyz/tx/0xabc";
 
-        let result = hyperlink(malicious_text, url);
+        let clean = sanitize_for_terminal(malicious_text);
+        assert_eq!(clean, "0xabc[31mPHISHING[0m");
 
+        let result = hyperlink(malicious_text, url);
+        // The text portion must not contain raw ESC bytes (the OSC 8 framing is fine)
+        let text_portion = extract_hyperlink_text(&result);
         assert!(
-            !result.contains('\x1b'),
-            "hyperlink() must strip escape sequences from text, got: {:?}",
+            !text_portion.contains('\x1b'),
+            "hyperlink() must strip escape sequences from visible text, got: {:?}",
             result
         );
     }
@@ -147,11 +167,18 @@ mod tests {
         let malicious_text = "0xabc\x07\x1b]8;;https://evil.com\x07click here\x1b]8;;\x07";
         let url = "https://explorer.tempo.xyz/tx/0xabc";
 
-        let result = hyperlink(malicious_text, url);
-
+        let clean = sanitize_for_terminal(malicious_text);
         assert!(
-            !result.contains('\x07') && !result.contains('\x1b'),
-            "hyperlink() must strip BEL/ESC from text to prevent OSC 8 breakout, got: {:?}",
+            !clean.contains('\x07') && !clean.contains('\x1b'),
+            "sanitize_for_terminal must strip BEL/ESC: {:?}",
+            clean
+        );
+
+        let result = hyperlink(malicious_text, url);
+        let text_portion = extract_hyperlink_text(&result);
+        assert!(
+            !text_portion.contains('\x07') && !text_portion.contains('\x1b'),
+            "hyperlink() must strip BEL/ESC from visible text to prevent OSC 8 breakout, got: {:?}",
             result
         );
     }
