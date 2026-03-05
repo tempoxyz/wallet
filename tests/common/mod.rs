@@ -1,4 +1,4 @@
-//! Common test utilities for  tempo-walletCLI tests
+//! Common test utilities for tempo-wallet CLI tests
 
 #![allow(dead_code)]
 

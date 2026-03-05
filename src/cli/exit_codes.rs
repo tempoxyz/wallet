@@ -1,9 +1,9 @@
-//! Exit codes for the  tempo-walletCLI.
+//! Exit codes for the tempo-wallet CLI.
 //!
 //! Following standard Unix conventions and providing specific codes
 //! for different error categories to aid scripting and automation.
 
-/// Exit codes for the  tempo-walletCLI (simplified set).
+/// Exit codes for the tempo-wallet CLI (simplified set).
 ///
 /// - 1: General error (fallback)
 /// - 2: Invalid usage (bad arguments, invalid flags, invalid config)

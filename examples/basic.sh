@@ -28,7 +28,7 @@ ENDPOINT="https://openai.mpp.tempo.xyz/v1/chat/completions"
 MODEL="gpt-4o-mini"
 PROMPT="${1:-Tell me a fortune in one sentence.}"
 
-echo "===  tempo-walletBasic Payment Demo ==="
+echo "=== tempo-wallet Basic Payment Demo ==="
 echo ""
 echo "Endpoint: ${ENDPOINT}"
 echo "Model:    ${MODEL}"
@@ -44,7 +44,7 @@ fi
 
 echo "--- Sending paid request ---"
 
-RESPONSE=$( tempo-wallet-v -X POST \
+RESPONSE=$( tempo-wallet -v -X POST \
   --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
   "${ENDPOINT}" 2>"$STDERR_FILE")
 

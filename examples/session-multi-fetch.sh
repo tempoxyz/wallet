@@ -37,7 +37,7 @@ PROMPTS=(
   "What is the speed of light in km/s?"
 )
 
-echo "===  tempo-walletSession Multi-Fetch Demo ==="
+echo "=== tempo-wallet Session Multi-Fetch Demo ==="
 echo ""
 echo "Endpoint: ${ENDPOINT}"
 echo "Model:    ${MODEL}"
@@ -70,7 +70,7 @@ for i in "${!PROMPTS[@]}"; do
   N=$((i + 1))
   echo "[$N/${#PROMPTS[@]}] Prompt: \"${PROMPT}\""
 
-  RESPONSE=$( tempo-wallet-v -X POST \
+  RESPONSE=$( tempo-wallet -v -X POST \
     --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
     "${ENDPOINT}" 2>"$STDERR_FILE") || true
 

@@ -1,6 +1,6 @@
 ---
 name: tempo-wallet
-description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-wallet pays automatically via the Tempo blockchain. Use ` tempo-wallet-t services` to discover available services and endpoints."
+description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-wallet pays automatically via the Tempo blockchain. Use ` tempo-wallet -t services` to discover available services and endpoints."
 ---
 
 # tempo-wallet
@@ -30,12 +30,12 @@ Use `-t` to get TOON output (compact, token-efficient) or `-j` for JSON:
 
 ```bash
 # Preferred pattern: TOON output (saves tokens)
- tempo-wallet-t -X POST \
+ tempo-wallet -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Check wallet readiness before making requests
- tempo-wallet-t whoami
+ tempo-wallet -t whoami
 ```
 
 ### Preflight Check
@@ -43,7 +43,7 @@ Use `-t` to get TOON output (compact, token-efficient) or `-j` for JSON:
 Before making paid requests, verify the wallet is ready:
 
 ```bash
- tempo-wallet-t whoami
+ tempo-wallet -t whoami
 ```
 
 Check these fields in the response:
@@ -109,16 +109,16 @@ Use `tempo-wallet services` to discover available services, their endpoints, and
 
 ```bash
 # List all available services
- tempo-wallet-t services
+ tempo-wallet -t services
 
 # Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
- tempo-wallet-t services --category ai
+ tempo-wallet -t services --category ai
 
 # Search by name, description, or tags
- tempo-wallet-t services --search <QUERY>
+ tempo-wallet -t services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
- tempo-wallet-t services info <SERVICE_ID>
+ tempo-wallet -t services info <SERVICE_ID>
 ```
 
 Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo-wallet services`). When you don't know which service or endpoint to use, run `tempo-wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
@@ -130,15 +130,15 @@ Each service is accessed via its MPP service URL (shown in the `Service URL` col
 tempo-wallet login
 
 # Discover available services
- tempo-wallet-t services
+ tempo-wallet -t services
 
 # Make a paid request (payment handled automatically on 402)
- tempo-wallet-t -X POST \
+ tempo-wallet -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
- tempo-wallet-t --dry-run -X POST \
+ tempo-wallet -t --dry-run -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -209,10 +209,10 @@ Use `tempo-wallet services` to find the service URL and endpoint, then make the 
 
 ```bash
 # 1. Find the right service and endpoint
- tempo-wallet-t services info <SERVICE_ID>
+ tempo-wallet -t services info <SERVICE_ID>
 
 # 2. Make the request (payment handled automatically on 402)
- tempo-wallet-t -X POST \
+ tempo-wallet -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -223,8 +223,8 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request to an origin opens a channel; subsequent requests reuse it
- tempo-wallet-t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
- tempo-wallet-t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+ tempo-wallet -t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+ tempo-wallet -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ### Session States
@@ -240,31 +240,31 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # List active sessions
- tempo-wallet-t sessions list
+ tempo-wallet -t sessions list
 
 # List all sessions (including closing/finalizable)
- tempo-wallet-t sessions list --state all
+ tempo-wallet -t sessions list --state all
 
 # Show details for a session by URL or channel ID
- tempo-wallet-t sessions info <URL|channel_id>
+ tempo-wallet -t sessions info <URL|channel_id>
 
 # Close a specific session
- tempo-wallet-t sessions close <URL>
+ tempo-wallet -t sessions close <URL>
 
 # Close all sessions
- tempo-wallet-t sessions close --all
+ tempo-wallet -t sessions close --all
 
 # Finalize channels ready to withdraw
- tempo-wallet-t sessions close --closed
+ tempo-wallet -t sessions close --closed
 
 # Close orphaned on-chain channels (no local record)
- tempo-wallet-t sessions close --orphaned
+ tempo-wallet -t sessions close --orphaned
 
 # Re-sync a session from on-chain state (after crash/manual edit)
- tempo-wallet-t sessions recover <URL>
+ tempo-wallet -t sessions recover <URL>
 
 # Remove stale local records (already settled on-chain)
- tempo-wallet-t sessions sync
+ tempo-wallet -t sessions sync
 ```
 
 ## Error Recovery
