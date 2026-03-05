@@ -54,7 +54,6 @@ webbrowser = "1"
 tempfile = "3.24"
 time = "0.3"
 zeroize = { version = "1", features = ["serde"] }
-clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
 qrcode = { version = "0.14", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,5 +1,6 @@
 //! Common test utilities for tempo-wallet CLI tests
-
+//!
+//! Not every helper is used in every test binary — suppress false positives.
 #![allow(dead_code)]
 
 use rusqlite::Connection;
@@ -72,11 +73,6 @@ pub fn write_test_files(root: &std::path::Path, config_toml: &str, keys_toml: Op
     if let Some(keys) = keys_toml {
         fs::write(linux_data.join("keys.toml"), keys).expect("Failed to write Linux keys");
     }
-}
-
-/// Set up a test configuration
-pub fn setup_test_config() -> TempDir {
-    TestConfigBuilder::new().build()
 }
 
 /// Create a test command with proper environment variables set

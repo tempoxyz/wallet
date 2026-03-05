@@ -189,7 +189,6 @@ pub struct Cli {
 | `serde` / `serde_json` / `toml` | Serialization |
 | `tokio` | Async runtime (minimal features) |
 | `mpp` | [Machine Payments Protocol](https://mpp.dev) SDK |
-| `clap-verbosity-flag` | CLI verbosity levels |
 
 ### Adding Dependencies
 

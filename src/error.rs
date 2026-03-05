@@ -47,7 +47,7 @@ pub(crate) enum TempoWalletError {
     },
 
     /// Insufficient token balance for payment
-    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo-wallet wallet fund'.")]
+    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo-wallet wallets fund'.")]
     InsufficientBalance {
         token: String,
         available: String,
