@@ -7,7 +7,7 @@ use anyhow::Result;
 
 use crate::config::Config;
 
-const BINARIES_BASE_URL: &str = "https://cli.tempo.xyz";
+const BINARIES_BASE_URL: &str = "https://cli.tempo.xyz/wallet";
 const CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
 
 /// Check for updates (at most once per 6 hours) and print a notice if newer.

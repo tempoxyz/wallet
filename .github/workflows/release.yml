@@ -109,17 +109,18 @@ jobs:
           for f in artifacts/tempo-wallet-*; do
             BASENAME=$(basename "$f")
             # Upload as latest
-            aws s3 cp "$f" "s3://tempo-cli/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://tempo-cli/wallet/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
             # Upload with version prefix
-            aws s3 cp "$f" "s3://tempo-cli/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://tempo-cli/wallet/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
-          # Upload install script and AI skill
+          # Upload install script to both root and wallet/
           aws s3 cp install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
-          aws s3 cp skills/tempo-wallet/SKILL.md "s3://tempo-cli/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          aws s3 cp install.sh "s3://tempo-cli/wallet/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
-          # Upload VERSION file for auto-update checks
+          # Upload AI skill and VERSION file
+          aws s3 cp skills/tempo-wallet/SKILL.md "s3://tempo-cli/wallet/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
           echo "${{ inputs.version }}" > VERSION
-          aws s3 cp VERSION "s3://tempo-cli/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp VERSION "s3://tempo-cli/wallet/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           echo "Uploaded ${VERSION} binaries and signed manifest to R2"

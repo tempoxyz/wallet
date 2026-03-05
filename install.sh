@@ -21,7 +21,7 @@ fi
 INSTALL_DIR="${HOME}/.local/bin"
 LEGACY_INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="tempo-wallet"
-R2_BASE_URL="https://cli.tempo.xyz"
+R2_BASE_URL="https://cli.tempo.xyz/wallet"
 
 # Temp directory for downloads (cleaned up on exit)
 TMP_DIR=""
