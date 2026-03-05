@@ -26,12 +26,12 @@ impl Verbosity {
 
 /// Get the  tempo-walletdata directory (platform-specific).
 ///
-/// - macOS: `~/Library/Application Support/presto/`
-/// - Linux: `~/.local/share/presto/`
-pub(crate) fn data_dir() -> Result<PathBuf, crate::error::PrestoError> {
+/// - macOS: `~/Library/Application Support/tempo-wallet/`
+/// - Linux: `~/.local/share/tempo-wallet/`
+pub(crate) fn data_dir() -> Result<PathBuf, crate::error::TempoWalletError> {
     dirs::data_dir()
-        .ok_or(crate::error::PrestoError::NoConfigDir)
-        .map(|d| d.join("presto"))
+        .ok_or(crate::error::TempoWalletError::NoConfigDir)
+        .map(|d| d.join("tempo-wallet"))
 }
 
 /// Format atomic token units as a human-readable string with trimmed trailing zeros.

@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 use self::keychain::keychain;
 use crate::cli::args::WalletCommands;
 use crate::cli::{Cli, Context, OutputFormat};
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::keys::authorization;
 use crate::keys::{parse_private_key_signer, KeyEntry, Keystore, WalletType};
 use crate::network::NetworkId;
@@ -128,7 +128,7 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
 
     keychain()
         .set(&wallet_address, &wallet_key_hex)
-        .map_err(|e| PrestoError::Keychain(format!("Failed to store wallet key: {e}")))?;
+        .map_err(|e| TempoWalletError::Keychain(format!("Failed to store wallet key: {e}")))?;
 
     // Generate key
     let access_signer = PrivateKeySigner::random();
@@ -201,7 +201,7 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
     // Load wallet EOA key from OS keychain
     let wallet_key_hex = keychain()
         .get(&key_entry.wallet_address)
-        .map_err(|e| PrestoError::Keychain(format!("Failed to load wallet key: {e}")))?
+        .map_err(|e| TempoWalletError::Keychain(format!("Failed to load wallet key: {e}")))?
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Wallet key not found in keychain for '{}'. The wallet may need to be re-created.",

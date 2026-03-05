@@ -8,7 +8,7 @@ use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::network::NetworkId;
 
 use super::authorization;
@@ -30,9 +30,9 @@ impl Keystore {
     /// Looks up the key entry for the network, parses the private key,
     /// resolves the signing mode (direct EOA or keychain with optional
     /// key authorization), and returns a ready-to-use [`Signer`].
-    pub(crate) fn signer(&self, network: NetworkId) -> Result<Signer, PrestoError> {
+    pub(crate) fn signer(&self, network: NetworkId) -> Result<Signer, TempoWalletError> {
         let key_entry = self.key_for_network(network).ok_or_else(|| {
-            PrestoError::ConfigMissing(format!(
+            TempoWalletError::ConfigMissing(format!(
                 "No key configured for network '{}'.",
                 network.as_str()
             ))
@@ -42,13 +42,12 @@ impl Keystore {
             .key
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| PrestoError::ConfigMissing("No key configured.".to_string()))?;
+            .ok_or_else(|| TempoWalletError::ConfigMissing("No key configured.".to_string()))?;
         let signer = super::parse_private_key_signer(pk)?;
 
-        let wallet_address: Address = key_entry
-            .wallet_address
-            .parse()
-            .map_err(|e| PrestoError::InvalidConfig(format!("Invalid wallet address: {}", e)))?;
+        let wallet_address: Address = key_entry.wallet_address.parse().map_err(|e| {
+            TempoWalletError::InvalidConfig(format!("Invalid wallet address: {}", e))
+        })?;
 
         let signing_mode = if wallet_address == signer.address() {
             TempoSigningMode::Direct

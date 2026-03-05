@@ -17,7 +17,7 @@ use anyhow::{Context as _, Result};
 use crate::analytics::{Event, QueryFailurePayload, QueryStartedPayload, QuerySuccessPayload};
 use crate::cli::args::QueryArgs;
 use crate::cli::Context;
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::payment::dispatch::dispatch_payment;
 use crate::util::{format_token_amount, redact_url, sanitize_error};
 use input::resolve_data;
@@ -40,14 +40,14 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         Ok(parsed) => {
             let scheme = parsed.scheme();
             if scheme != "http" && scheme != "https" {
-                anyhow::bail!(PrestoError::InvalidUrl(format!(
+                anyhow::bail!(TempoWalletError::InvalidUrl(format!(
                     "unsupported scheme '{}'",
                     scheme
                 )));
             }
         }
         Err(e) => {
-            anyhow::bail!(PrestoError::InvalidUrl(e.to_string()));
+            anyhow::bail!(TempoWalletError::InvalidUrl(e.to_string()));
         }
     }
 
@@ -95,7 +95,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     // Offline mode: fail fast before any network I/O
     if query.offline {
-        anyhow::bail!(PrestoError::OfflineMode);
+        anyhow::bail!(TempoWalletError::OfflineMode);
     }
 
     let http = context::build_http_client(&ctx.cli, &query)?;
@@ -219,7 +219,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
                         || cur_lower == symbol.to_lowercase();
                 }
                 if currency_ok && req_val > max_val {
-                    anyhow::bail!(PrestoError::PaymentRejected {
+                    anyhow::bail!(TempoWalletError::PaymentRejected {
                         reason: "price exceeds client max".to_string(),
                         status_code: 402,
                     });

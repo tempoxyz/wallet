@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use mpp::client::tempo::{charge::tx_builder, signing};
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::Signer;
 
@@ -94,9 +94,9 @@ async fn resolve_and_sign_tx(
                 valid_before,
             )
             .await
-            .map_err(|e| PrestoError::Signing(e.to_string()))?
+            .map_err(|e| TempoWalletError::Signing(e.to_string()))?
         }
-        Err(e) => return Err(PrestoError::Signing(e.to_string()).into()),
+        Err(e) => return Err(TempoWalletError::Signing(e.to_string()).into()),
     };
 
     let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
@@ -116,7 +116,7 @@ async fn resolve_and_sign_tx(
     Ok(
         signing::sign_and_encode_async(tx, &wallet.signer, &wallet.signing_mode)
             .await
-            .map_err(|e| PrestoError::Signing(e.to_string()))?,
+            .map_err(|e| TempoWalletError::Signing(e.to_string()))?,
     )
 }
 
@@ -158,7 +158,7 @@ pub(super) async fn create_tempo_payment_from_calls(
 ) -> Result<TempoPaymentResult> {
     let rpc_url: url::Url = rpc_url_str
         .parse()
-        .map_err(|e| PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))?;
+        .map_err(|e| TempoWalletError::InvalidConfig(format!("invalid RPC URL: {}", e)))?;
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;

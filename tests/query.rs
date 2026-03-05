@@ -1044,7 +1044,7 @@ chain_id = 42431
     let events_path = temp.path().join("events.log");
 
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args(["-v", &server.url("/api")])
         .output()
         .unwrap();
@@ -1187,7 +1187,7 @@ async fn test_402_charge_flow_with_private_key_env() {
     setup_config_only(&temp, &rpc.base_url);
 
     let output = test_command(&temp)
-        .env("PRESTO_PRIVATE_KEY", TEST_PRIVATE_KEY)
+        .env("TEMPO_PRIVATE_KEY", TEST_PRIVATE_KEY)
         .args(["-v", &server.url("/api")])
         .output()
         .unwrap();
@@ -1328,7 +1328,7 @@ key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
     // Snapshot keys.toml content before the run
     let keys_path = temp
         .path()
-        .join("Library/Application Support/presto/keys.toml");
+        .join("Library/Application Support/tempo-wallet/keys.toml");
     let wallet_before = std::fs::read_to_string(&keys_path).unwrap();
 
     // Use Hardhat #0 via --private-key flag
@@ -1819,7 +1819,7 @@ async fn test_offline_flag_no_socket_opened() {
     let events_path = temp.path().join("events_offline.log");
 
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args(["--offline", &server.url("/api")])
         .output()
         .unwrap();
@@ -1842,7 +1842,7 @@ async fn test_offline_flag_no_socket_opened() {
 
 // ==================== Analytics Events Sequencing & Redaction ====================
 
-/// Helper to parse the PRESTO_TEST_EVENTS file into a list of (event_name, props_json).
+/// Helper to parse the TEMPO_TEST_EVENTS file into a list of (event_name, props_json).
 fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
     let content = std::fs::read_to_string(path).unwrap_or_default();
     content
@@ -1862,7 +1862,7 @@ async fn test_analytics_event_sequence_success() {
     let events_path = temp.path().join("events_seq_success.log");
 
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args([&server.url("/api/data")])
         .output()
         .unwrap();
@@ -1898,7 +1898,7 @@ async fn test_analytics_event_sequence_failure() {
 
     // Connect to a port nothing is listening on
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args(["http://127.0.0.1:1/unreachable"])
         .output()
         .unwrap();
@@ -1948,7 +1948,7 @@ async fn test_analytics_url_query_params_redacted() {
     );
 
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args([&url_with_secrets])
         .output()
         .unwrap();
@@ -1982,7 +1982,7 @@ async fn test_analytics_bearer_token_not_leaked() {
     let events_path = temp.path().join("events_bearer.log");
 
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args(["--bearer", "super_secret_token_12345", &server.url("/api")])
         .output()
         .unwrap();
@@ -2003,7 +2003,7 @@ async fn test_analytics_basic_auth_not_leaked() {
     let events_path = temp.path().join("events_basic.log");
 
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args(["-u", "admin:s3cretP@ss", &server.url("/api")])
         .output()
         .unwrap();
@@ -2027,7 +2027,7 @@ async fn test_analytics_custom_auth_header_not_leaked() {
     let events_path = temp.path().join("events_custom_auth.log");
 
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .args([
             "-H",
             "Authorization: Bearer my_private_jwt_token",
@@ -2053,9 +2053,9 @@ async fn test_analytics_private_key_env_not_leaked() {
     //  TEMPO_PRIVATE_KEYis used for payment signing, not for the HTTP request itself,
     // but verify it never appears in analytics output
     let output = test_command(&temp)
-        .env("PRESTO_TEST_EVENTS", events_path.to_str().unwrap())
+        .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
         .env(
-            "PRESTO_PRIVATE_KEY",
+            "TEMPO_PRIVATE_KEY",
             "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         )
         .args([&server.url("/api")])
@@ -2330,7 +2330,7 @@ async fn test_services_list_json_structure() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .env("TEMPO_SERVICES_URL", server.url("/api/services"))
         .args(["services", "list", "-j"])
         .output()
         .unwrap();
@@ -2357,7 +2357,7 @@ async fn test_services_list_toon_structure() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .env("TEMPO_SERVICES_URL", server.url("/api/services"))
         .args(["services", "list", "-t"])
         .output()
         .unwrap();
@@ -2386,7 +2386,7 @@ async fn test_services_info_json_structure() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .env("TEMPO_SERVICES_URL", server.url("/api/services"))
         .args(["services", "info", "test-llm", "-j"])
         .output()
         .unwrap();
@@ -2415,7 +2415,7 @@ async fn test_services_info_toon_structure() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .env("TEMPO_SERVICES_URL", server.url("/api/services"))
         .args(["services", "info", "test-llm", "-t"])
         .output()
         .unwrap();
@@ -2446,7 +2446,7 @@ async fn test_services_list_category_filter() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .env("TEMPO_SERVICES_URL", server.url("/api/services"))
         .args(["services", "--category", "ai", "-j"])
         .output()
         .unwrap();
@@ -2469,7 +2469,7 @@ async fn test_services_list_search_filter() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .env("TEMPO_SERVICES_URL", server.url("/api/services"))
         .args(["services", "--search", "search", "-j"])
         .output()
         .unwrap();
@@ -2492,7 +2492,7 @@ async fn test_services_info_not_found() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("PRESTO_SERVICES_URL", server.url("/api/services"))
+        .env("TEMPO_SERVICES_URL", server.url("/api/services"))
         .args(["services", "info", "nonexistent", "-j"])
         .output()
         .unwrap();

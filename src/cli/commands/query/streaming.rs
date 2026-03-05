@@ -5,7 +5,7 @@ use std::io::Write;
 use anyhow::Result;
 use futures::StreamExt;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse};
 
 use super::receipt::write_meta_if_requested;
@@ -120,7 +120,7 @@ pub(super) async fn execute_streaming(
             std::io::stdout().write_all(b"\n")?;
             std::io::stdout().flush().ok();
         }
-        anyhow::bail!(PrestoError::Http(msg));
+        anyhow::bail!(TempoWalletError::Http(msg));
     }
 
     Ok(())

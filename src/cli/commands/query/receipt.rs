@@ -5,7 +5,7 @@ use std::path::{Component, Path};
 use anyhow::{Context as _, Result};
 
 use crate::cli::output::{OutputFormat, OutputOptions};
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::HttpResponse;
 use crate::network::NetworkId;
 use crate::util::{format_token_amount, hyperlink};
@@ -15,7 +15,7 @@ pub(super) fn finalize_response(output_opts: &OutputOptions, response: HttpRespo
     let status = response.status_code;
     handle_response(output_opts, response)?;
     if status >= 400 {
-        anyhow::bail!(PrestoError::Http(format!(
+        anyhow::bail!(TempoWalletError::Http(format!(
             "{} {}",
             status,
             crate::http::http_status_text(status)

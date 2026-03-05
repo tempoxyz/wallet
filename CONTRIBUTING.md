@@ -1,6 +1,6 @@
-# Contributing to presto
+# Contributing to tempo-wallet
 
-Thanks for your interest in contributing to presto! This guide covers everything you need to build, test, and submit changes.
+Thanks for your interest in contributing to tempo-wallet! This guide covers everything you need to build, test, and submit changes.
 
 ## Table of Contents
 
@@ -20,8 +20,8 @@ Thanks for your interest in contributing to presto! This guide covers everything
 - [Rust](https://rustup.rs/) (edition 2021)
 
 ```bash
-git clone https://github.com/tempoxyz/presto.git
-cd presto
+git clone https://github.com/tempoxyz/wallet.git
+cd wallet
 make build
 make test
 ```
@@ -187,7 +187,7 @@ Create a markdown file in `.changelog/` with a descriptive name and version-bump
 
 ```markdown
 ---
-presto: patch
+tempo-wallet: patch
 ---
 
 Fixed a bug where session close would hang on timeout.
@@ -203,10 +203,10 @@ Changelog settings live in `.changelog/config.toml`. The project uses a single r
 
 | Variable | Description |
 |----------|-------------|
-| `PRESTO_RPC_URL` | Override RPC endpoint |
-| `PRESTO_AUTH_URL` | Override auth server URL |
-| `PRESTO_NO_TELEMETRY` | Disable telemetry |
+| `TEMPO_RPC_URL` | Override RPC endpoint |
+| `TEMPO_AUTH_URL` | Override auth server URL |
+| `TEMPO_NO_TELEMETRY` | Disable telemetry |
 | `RUST_LOG` | Override tracing filter (e.g., `debug`, `info`) |
 | `NO_COLOR` | Disable colored output (also disabled when stdout is not a terminal) |
-| `PRESTO_PRIVATE_KEY` | *(hidden)* Provide a private key directly for payment — bypasses wallet login and keychain |
-| `PRESTO_TEST_EVENTS` | *(internal)* Test hook — path to a file where analytics events are appended for assertion |
+| `TEMPO_PRIVATE_KEY` | *(hidden)* Provide a private key directly for payment — bypasses wallet login and keychain |
+| `TEMPO_TEST_EVENTS` | *(internal)* Test hook — path to a file where analytics events are appended for assertion |

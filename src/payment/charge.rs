@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use mpp::client::PaymentProvider;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::Signer;
 
@@ -32,7 +32,7 @@ pub(super) async fn handle_charge_request(
 
     let provider =
         mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str())
-            .map_err(|e| PrestoError::InvalidConfig(e.to_string()))?
+            .map_err(|e| TempoWalletError::InvalidConfig(e.to_string()))?
             .with_signing_mode(signer.signing_mode);
 
     let credential = provider
@@ -85,7 +85,7 @@ pub(super) async fn handle_charge_request(
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
-pub(super) fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
+pub(super) fn parse_payment_rejection(response: &HttpResponse) -> TempoWalletError {
     let reason = if let Ok(body) = response.body_string() {
         if let Some(msg) = super::extract_json_error(&body) {
             msg
@@ -101,7 +101,7 @@ pub(super) fn parse_payment_rejection(response: &HttpResponse) -> PrestoError {
         format!("HTTP {}", response.status_code)
     };
 
-    PrestoError::PaymentRejected {
+    TempoWalletError::PaymentRejected {
         reason,
         status_code: response.status_code,
     }
@@ -117,7 +117,7 @@ mod tests {
         let resp = HttpResponse::for_test(400, body);
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected {
+            TempoWalletError::PaymentRejected {
                 reason,
                 status_code,
             } => {
@@ -134,7 +134,7 @@ mod tests {
         let resp = HttpResponse::for_test(400, body);
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason, "bad request");
             }
             _ => panic!("expected PaymentRejected"),
@@ -147,7 +147,7 @@ mod tests {
         let resp = HttpResponse::for_test(422, body);
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected {
+            TempoWalletError::PaymentRejected {
                 reason,
                 status_code,
             } => {
@@ -164,7 +164,7 @@ mod tests {
         let resp = HttpResponse::for_test(500, body);
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason, "HTTP 500");
             }
             _ => panic!("expected PaymentRejected"),
@@ -177,7 +177,7 @@ mod tests {
         let resp = HttpResponse::for_test(400, body);
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason, "e");
             }
             _ => panic!("expected PaymentRejected"),
@@ -190,7 +190,7 @@ mod tests {
         let resp = HttpResponse::for_test(500, body);
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason, "Transaction reverted");
             }
             _ => panic!("expected PaymentRejected"),
@@ -203,7 +203,7 @@ mod tests {
         let resp = HttpResponse::for_test(500, body.as_bytes());
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason.len(), 200);
             }
             _ => panic!("expected PaymentRejected"),
@@ -215,7 +215,7 @@ mod tests {
         let resp = HttpResponse::for_test(500, b"");
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason, "HTTP 500");
             }
             _ => panic!("expected PaymentRejected"),
@@ -227,7 +227,7 @@ mod tests {
         let resp = HttpResponse::for_test(503, b"   \n\t  ");
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason, "HTTP 503");
             }
             _ => panic!("expected PaymentRejected"),
@@ -239,7 +239,7 @@ mod tests {
         let resp = HttpResponse::for_test(500, &[0xff, 0xfe, 0xfd]);
         let err = parse_payment_rejection(&resp);
         match err {
-            PrestoError::PaymentRejected { reason, .. } => {
+            TempoWalletError::PaymentRejected { reason, .. } => {
                 assert_eq!(reason, "HTTP 500");
             }
             _ => panic!("expected PaymentRejected"),

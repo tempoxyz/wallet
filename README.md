@@ -1,4 +1,4 @@
-# presto
+# tempo-wallet
 
  tempo-walletis a command-line HTTP client that pays for API calls automatically. Call services without signing up or managing API keys —  tempo-wallethandles payment on the [Tempo](https://tempo.xyz) blockchain using the [Machine Payments Protocol](https://mpp.dev).
 
@@ -12,7 +12,7 @@
 
 ```bash
 # Install
-curl -fsSL https://presto-binaries.tempo.xyz/install.sh | bash
+curl -fsSL cli.tempo.xyz/install.sh | bash
 
 # Connect your wallet
  tempo-walletlogin
@@ -25,7 +25,7 @@ curl -fsSL https://presto-binaries.tempo.xyz/install.sh | bash
 ### From Source
 
 ```bash
-git clone https://github.com/tempoxyz/presto.git
+git clone https://github.com/tempoxyz/wallet.git
 cd  tempo-wallet&& make install
 ```
 
@@ -84,8 +84,8 @@ Credentials are stored in `keys.toml` (signing key inline, permissions `0600`).
 
 | Platform | Config | Keys |
 |----------|--------|------|
-| **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
-| **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
+| **macOS** | `~/Library/Application Support/tempo-wallet/config.toml` | `~/Library/Application Support/tempo-wallet/keys.toml` |
+| **Linux** | `~/.config/tempo-wallet/config.toml` | `~/.local/share/tempo-wallet/keys.toml` |
 
 ## Telemetry
 
@@ -94,7 +94,7 @@ Credentials are stored in `keys.toml` (signing key inline, permissions `0600`).
 Opt out with:
 
 ```bash
-export PRESTO_NO_TELEMETRY=1 
+export TEMPO_NO_TELEMETRY=1 
 ```
 
 Or disable in `config.toml`:

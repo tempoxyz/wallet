@@ -90,11 +90,11 @@ fn render_error(err: &anyhow::Error, format: OutputFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::PrestoError;
+    use crate::error::TempoWalletError;
 
     #[test]
     fn test_render_error_json_payment_rejected() {
-        let err: anyhow::Error = PrestoError::PaymentRejected {
+        let err: anyhow::Error = TempoWalletError::PaymentRejected {
             reason: "insufficient funds".into(),
             status_code: 402,
         }
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_render_error_json_config_missing() {
-        let err: anyhow::Error = PrestoError::ConfigMissing("no wallet".into()).into();
+        let err: anyhow::Error = TempoWalletError::ConfigMissing("no wallet".into()).into();
         let json_str = render_error(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_USAGE");
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_render_error_json_has_cause() {
-        let inner: anyhow::Error = PrestoError::Http("connection refused".into()).into();
+        let inner: anyhow::Error = TempoWalletError::Http("connection refused".into()).into();
         let err = inner.context("failed to reach server");
         let json_str = render_error(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_render_error_json_no_cause() {
-        let err: anyhow::Error = PrestoError::InvalidUrl("bad scheme".into()).into();
+        let err: anyhow::Error = TempoWalletError::InvalidUrl("bad scheme".into()).into();
         let json_str = render_error(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.get("cause").is_none());
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_render_error_json_schema_fields() {
-        let err: anyhow::Error = PrestoError::UnknownNetwork("custom".into()).into();
+        let err: anyhow::Error = TempoWalletError::UnknownNetwork("custom".into()).into();
         let json_str = render_error(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         let obj = parsed.as_object().unwrap();
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_render_error_toon_roundtrip() {
-        let err: anyhow::Error = PrestoError::Http("timeout".into()).into();
+        let err: anyhow::Error = TempoWalletError::Http("timeout".into()).into();
         let toon_str = render_error(&err, OutputFormat::Toon);
         let parsed: serde_json::Value = toon_format::decode_default(&toon_str).unwrap();
         assert_eq!(parsed["code"], "E_NETWORK");

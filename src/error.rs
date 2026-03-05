@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub(crate) enum PrestoError {
+pub(crate) enum TempoWalletError {
     /// Configuration file or value is missing
     #[error("Configuration missing: {0}")]
     ConfigMissing(String),
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_config_missing_display() {
-        let err = PrestoError::ConfigMissing("wallet not configured".to_string());
+        let err = TempoWalletError::ConfigMissing("wallet not configured".to_string());
         assert_eq!(
             err.to_string(),
             "Configuration missing: wallet not configured"
@@ -147,73 +147,73 @@ mod tests {
 
     #[test]
     fn test_invalid_config_display() {
-        let err = PrestoError::InvalidConfig("invalid rpc url".to_string());
+        let err = TempoWalletError::InvalidConfig("invalid rpc url".to_string());
         assert_eq!(err.to_string(), "Invalid configuration: invalid rpc url");
     }
 
     #[test]
     fn test_invalid_key_display() {
-        let err = PrestoError::InvalidKey("wrong format".to_string());
+        let err = TempoWalletError::InvalidKey("wrong format".to_string());
         assert_eq!(err.to_string(), "Invalid private key: wrong format");
     }
 
     #[test]
     fn test_no_config_dir_display() {
-        let err = PrestoError::NoConfigDir;
+        let err = TempoWalletError::NoConfigDir;
         assert_eq!(err.to_string(), "Failed to determine config directory");
     }
 
     #[test]
     fn test_unknown_network_display() {
-        let err = PrestoError::UnknownNetwork("custom-chain".to_string());
+        let err = TempoWalletError::UnknownNetwork("custom-chain".to_string());
         assert_eq!(err.to_string(), "Unknown network: custom-chain");
     }
 
     #[test]
     fn test_http_display() {
-        let err = PrestoError::Http("404 Not Found".to_string());
+        let err = TempoWalletError::Http("404 Not Found".to_string());
         assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
     }
 
     #[test]
     fn test_signing_simple_display() {
-        let err = PrestoError::Signing("Failed to sign transaction".to_string());
+        let err = TempoWalletError::Signing("Failed to sign transaction".to_string());
         assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
     }
 
     #[test]
     fn test_invalid_address_display() {
-        let err = PrestoError::InvalidAddress("Not a valid address".to_string());
+        let err = TempoWalletError::InvalidAddress("Not a valid address".to_string());
         assert_eq!(err.to_string(), "Invalid address: Not a valid address");
     }
 
     #[test]
     fn test_unsupported_payment_method_display() {
-        let err = PrestoError::UnsupportedPaymentMethod("bitcoin".to_string());
+        let err = TempoWalletError::UnsupportedPaymentMethod("bitcoin".to_string());
         assert_eq!(err.to_string(), "Unsupported payment method: bitcoin");
     }
 
     #[test]
     fn test_unsupported_payment_intent_display() {
-        let err = PrestoError::UnsupportedPaymentIntent("subscription".to_string());
+        let err = TempoWalletError::UnsupportedPaymentIntent("subscription".to_string());
         assert_eq!(err.to_string(), "Unsupported payment intent: subscription");
     }
 
     #[test]
     fn test_invalid_challenge_display() {
-        let err = PrestoError::InvalidChallenge("Malformed challenge".to_string());
+        let err = TempoWalletError::InvalidChallenge("Malformed challenge".to_string());
         assert_eq!(err.to_string(), "Invalid challenge: Malformed challenge");
     }
 
     #[test]
     fn test_missing_header_display() {
-        let err = PrestoError::MissingHeader("WWW-Authenticate".to_string());
+        let err = TempoWalletError::MissingHeader("WWW-Authenticate".to_string());
         assert_eq!(err.to_string(), "Missing required header: WWW-Authenticate");
     }
 
     #[test]
     fn test_challenge_expired_display() {
-        let err = PrestoError::ChallengeExpired("Expired 5 minutes ago".to_string());
+        let err = TempoWalletError::ChallengeExpired("Expired 5 minutes ago".to_string());
         assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
     }
 }

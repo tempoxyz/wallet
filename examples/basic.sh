@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Basic Payment Demo — single paid request with presto
+# Basic Payment Demo — single paid request with tempo-wallet
 #
 # Makes a single paid request using the charge intent (pay-per-request).
 #  tempo-walletdetects the 402, signs an on-chain payment, and retries with credentials.

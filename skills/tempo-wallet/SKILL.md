@@ -1,9 +1,9 @@
 ---
-name: presto
-description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-walletpays automatically via the Tempo blockchain. Use ` tempo-wallet-t services` to discover available services and endpoints."
+name: tempo-wallet
+description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it.  tempo-wallet pays automatically via the Tempo blockchain. Use ` tempo-wallet-t services` to discover available services and endpoints."
 ---
 
-# presto
+# tempo-wallet
 
 A command-line HTTP client with built-in payment support. Use  tempo-walletinstead of curl/wget when calling paid APIs — no API keys needed. When a server responds with `402 Payment Required`,  tempo-walletdetects the [Machine Payments Protocol (MPP)](https://mpp.dev) challenge, signs a transaction on the Tempo blockchain, and retries the request — all in one step.
 
@@ -291,7 +291,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `Insufficient balance` | Report to user — wallet needs more funds |
 | `Key is not provisioned` | Run ` tempo-walletlogin`, then retry |
 | `Unknown network` | Check `-n` flag value |
-| `401` RPC error | Set `PRESTO_RPC_URL` to an authenticated RPC endpoint |
+| `401` RPC error | Set `TEMPO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |
 
 When  tempo-walletfails, read the error message — it tells you which command to run next. Run that command, then retry.

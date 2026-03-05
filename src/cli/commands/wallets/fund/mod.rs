@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::account::TokenBalance;
 use crate::cli::OutputFormat;
 use crate::config::Config;
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
 
@@ -82,7 +82,7 @@ fn resolve_address(address: Option<String>, keys: &Keystore) -> anyhow::Result<S
     let wallet_addr = keys.wallet_address();
 
     if wallet_addr.is_empty() {
-        anyhow::bail!(PrestoError::ConfigMissing(
+        anyhow::bail!(TempoWalletError::ConfigMissing(
             "No wallet configured. Log in with ' tempo-walletlogin'.".to_string(),
         ));
     }

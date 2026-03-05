@@ -1,6 +1,6 @@
 //! Session-based payment handling.
 //!
-//! This module handles session payments (intent="session") using presto's
+//! This module handles session payments (intent="session") using tempo-wallet's
 //! keychain-aware transaction building. Sessions open a payment channel
 //! on-chain and then exchange off-chain vouchers for each request or SSE
 //! token, settling on-chain when the session is closed.
@@ -11,7 +11,7 @@
 //! voucher amount.
 //!
 //! Unlike the mpp `TempoSessionProvider` (which only supports direct EOA
-//! signing), this implementation uses presto's transaction builder to
+//! signing), this implementation uses tempo-wallet's transaction builder to
 //! support smart wallet / key (keychain) signing mode.
 //!
 //! # Module structure
@@ -35,7 +35,7 @@ use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
 use mpp::{parse_receipt, ChallengeEcho};
 
 use super::dispatch::{map_mpp_validation_error, PaymentResult};
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
@@ -349,7 +349,7 @@ pub(in crate::payment) async fn handle_session_request(
         .context("Failed to parse session request from challenge")?;
 
     let chain_id = session_req.chain_id().ok_or_else(|| {
-        PrestoError::InvalidConfig("Missing chainId in session request".to_string())
+        TempoWalletError::InvalidConfig("Missing chainId in session request".to_string())
     })?;
 
     let tick_cost: u128 = session_req

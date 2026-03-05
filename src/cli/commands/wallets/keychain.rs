@@ -1,7 +1,7 @@
 //! OS keychain abstraction for secure private key storage.
 //!
 //! Stores private keys in the platform keychain (macOS Keychain)
-//! using the service name `xyz.tempo.presto`. Keys are indexed by profile name.
+//! using the service name `xyz.tempo.wallet`. Keys are indexed by profile name.
 //!
 //! Two backends are available:
 //! - `OsKeychain` (default): macOS Keychain via `security-framework`
@@ -34,7 +34,7 @@ pub(super) fn keychain() -> &'static dyn KeychainBackend {
 
 /// Service name used for all keychain entries.
 #[cfg(target_os = "macos")]
-const SERVICE: &str = "xyz.tempo.presto";
+const SERVICE: &str = "xyz.tempo.wallet";
 
 /// Trait for keychain backends.
 pub(super) trait KeychainBackend: Send + Sync {
@@ -348,7 +348,7 @@ mod tests {
     mod macos_integration {
         use super::{KeychainBackend, OsKeychain};
 
-        const TEST_PROFILE: &str = "presto-test-integration";
+        const TEST_PROFILE: &str = "tempo-wallet-test-integration";
 
         #[test]
         #[ignore] // requires macOS Keychain — run with `cargo test -- --ignored`

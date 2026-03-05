@@ -115,7 +115,7 @@ struct Provider {
 }
 
 async fn fetch_services() -> Result<ServiceRegistry> {
-    let url = std::env::var("PRESTO_SERVICES_URL").unwrap_or_else(|_| SERVICES_API_URL.to_string());
+    let url = std::env::var("TEMPO_SERVICES_URL").unwrap_or_else(|_| SERVICES_API_URL.to_string());
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()

@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-This is `presto` - a pure binary crate providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
+This is `tempo-wallet` - a pure binary crate providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
 
 **Supported Payment Protocols:**
 - [Machine Payments Protocol (MPP)](https://mpp.dev) - Open protocol for HTTP-native machine-to-machine payments
@@ -43,7 +43,7 @@ Single binary crate with source organized by module directories:
 - `src/util.rs` - Shared utilities (formatting, terminal hyperlinks, sanitization)
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)
 
-**Package:** `presto` | **Binary:** `presto`
+**Package:** `tempo-wallet` | **Binary:** `tempo-wallet`
 
 ## Commands
 
@@ -60,7 +60,7 @@ make run ARGS="<url>"   # Run CLI with arguments
 
 ## Agent Suggestions
 
-When the user explicitly says "ask the oracle" to check a value, run `presto` against OpenRouter and explicitly tell the user which model was used in the response.
+When the user explicitly says "ask the oracle" to check a value, run `tempo-wallet` against OpenRouter and explicitly tell the user which model was used in the response.
 
 Example:
 ```bash
@@ -78,15 +78,15 @@ Example:
 When creating pull requests:
 
 1. **Always include the PR link** in your response after creating a PR
-2. Format as a clickable link: `[#123](https://github.com/tempoxyz/presto/pull/123)`
+2. Format as a clickable link: `[#123](https://github.com/tempoxyz/wallet/pull/123)`
 3. When creating multiple PRs, provide a summary table with all links
 
 Example summary format:
 ```
 | PR | Title | Link |
 |----|-------|------|
-| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/presto/pull/123) |
-| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/presto/pull/124) |
+| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/wallet/pull/123) |
+| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/wallet/pull/124) |
 ```
 
 ## Code Style Guidelines
@@ -110,7 +110,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::config::Config;
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 ```
 
 ### Error Handling Pattern
@@ -204,21 +204,21 @@ new-crate = "1.0"
 
 | Variable | Description |
 | -------- | ----------- |
-| `PRESTO_RPC_URL` | Override RPC endpoint |
-| `PRESTO_AUTH_URL` | Override auth server URL |
-| `PRESTO_NO_TELEMETRY` | Disable telemetry |
-| `PRESTO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
+| `TEMPO_RPC_URL` | Override RPC endpoint |
+| `TEMPO_AUTH_URL` | Override auth server URL |
+| `TEMPO_NO_TELEMETRY` | Disable telemetry |
+| `TEMPO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
 
 ## Data Locations
 
 **macOS:**
-- Config: `~/Library/Application Support/presto/config.toml`
-- Wallet keys: `~/Library/Application Support/presto/keys.toml`
+- Config: `~/Library/Application Support/tempo-wallet/config.toml`
+- Wallet keys: `~/Library/Application Support/tempo-wallet/keys.toml`
 - Private keys: macOS Keychain
 
 **Linux:**
-- Config: `~/.config/presto/config.toml`
-- Wallet keys: `~/.local/share/presto/keys.toml`
+- Config: `~/.config/tempo-wallet/config.toml`
+- Wallet keys: `~/.local/share/tempo-wallet/keys.toml`
 - Private keys: not yet supported via OS keychain (unit tests use in-memory keychain)
 
 ## Configuration Structure
@@ -246,7 +246,7 @@ struct Config {
 **Key Selection:** Deterministic: passkey > first key with `key` > first key (lexicographically). The old `active` field was removed.
 
 **Network Resolution Priority:**
-1. `PRESTO_RPC_URL` env var (overrides everything)
+1. `TEMPO_RPC_URL` env var (overrides everything)
 2. Typed overrides (`tempo_rpc`, `moderato_rpc`) take precedence
 3. General `[rpc]` table as fallback
 4. Default RPC if no override

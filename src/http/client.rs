@@ -43,7 +43,7 @@ impl Default for HttpRequestPlan {
             connect_timeout_secs: None,
             follow_redirects: false,
             follow_redirects_limit: None,
-            user_agent: format!("presto/{}", env!("CARGO_PKG_VERSION")),
+            user_agent: format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")),
             insecure: false,
             proxy: None,
             no_proxy: false,

@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 
 // ==================== Constants ====================
 
@@ -64,12 +64,12 @@ pub(crate) enum NetworkId {
 
 impl NetworkId {
     /// Resolve an optional network name to a `NetworkId`, defaulting to Tempo mainnet.
-    pub(crate) fn resolve(network: Option<&str>) -> Result<Self, PrestoError> {
+    pub(crate) fn resolve(network: Option<&str>) -> Result<Self, TempoWalletError> {
         match network {
             None => Ok(NetworkId::Tempo),
             Some(s) => s
                 .parse::<NetworkId>()
-                .map_err(|_| PrestoError::UnknownNetwork(s.to_string())),
+                .map_err(|_| TempoWalletError::UnknownNetwork(s.to_string())),
         }
     }
 
@@ -99,9 +99,10 @@ impl NetworkId {
     }
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
-    pub(crate) fn require_chain_id(chain_id: u64) -> Result<Self, PrestoError> {
-        Self::from_chain_id(chain_id)
-            .ok_or_else(|| PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id)))
+    pub(crate) fn require_chain_id(chain_id: u64) -> Result<Self, TempoWalletError> {
+        Self::from_chain_id(chain_id).ok_or_else(|| {
+            TempoWalletError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+        })
     }
 
     /// Get the default RPC URL for this network.

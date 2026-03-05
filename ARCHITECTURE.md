@@ -1,6 +1,6 @@
 # Architecture
 
-`presto` is a CLI HTTP client with built-in [MPP](https://mpp.dev) payment support. It sends HTTP requests and, when a server responds with `402 Payment Required`, automatically negotiates and executes payment before retrying.
+`tempo-wallet` is a CLI HTTP client with built-in [MPP](https://mpp.dev) payment support. It sends HTTP requests and, when a server responds with `402 Payment Required`, automatically negotiates and executes payment before retrying.
 
 ## Module Layering
 
@@ -97,6 +97,6 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `src/config.rs` | Config file parsing and RPC resolution |
 | `src/network.rs` | Built-in network definitions (Tempo, Moderato), explorer URLs |
 | `src/analytics.rs` | Opt-out PostHog telemetry |
-| `src/error.rs` | `PrestoError` enum (thiserror) |
+| `src/error.rs` | `TempoWalletError` enum (thiserror) |
 | `src/util.rs` | Formatting helpers, terminal hyperlinks |
 | `src/version.rs` | Version checking and self-update logic |

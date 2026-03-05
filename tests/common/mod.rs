@@ -56,7 +56,7 @@ impl TestConfigBuilder {
 /// platform directories without going through `TestConfigBuilder`.
 pub fn write_test_files(root: &std::path::Path, config_toml: &str, keys_toml: Option<&str>) {
     // macOS layout
-    let macos_dir = root.join("Library/Application Support/presto");
+    let macos_dir = root.join("Library/Application Support/tempo-wallet");
     fs::create_dir_all(&macos_dir).expect("Failed to create macOS data directory");
     fs::write(macos_dir.join("config.toml"), config_toml).expect("Failed to write macOS config");
     if let Some(keys) = keys_toml {
@@ -64,8 +64,8 @@ pub fn write_test_files(root: &std::path::Path, config_toml: &str, keys_toml: Op
     }
 
     // Linux layout
-    let linux_data = root.join(".local/share/presto");
-    let linux_config = root.join(".config/presto");
+    let linux_data = root.join(".local/share/tempo-wallet");
+    let linux_config = root.join(".config/tempo-wallet");
     fs::create_dir_all(&linux_data).expect("Failed to create Linux data directory");
     fs::create_dir_all(&linux_config).expect("Failed to create Linux config directory");
     fs::write(linux_config.join("config.toml"), config_toml).expect("Failed to write Linux config");
@@ -85,13 +85,13 @@ pub fn setup_test_config() -> TempDir {
 /// tests to work consistently across platforms, especially Linux where the
 /// dirs crate v6+ respects XDG environment variables.
 pub fn test_command(temp_dir: &TempDir) -> Command {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("presto"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"));
 
     // Set HOME for both macOS and Linux
     cmd.env("HOME", temp_dir.path());
 
     // Prevent whoami from auto-triggering browser login in tests
-    cmd.env("PRESTO_NO_AUTO_LOGIN", "1");
+    cmd.env("TEMPO_NO_AUTO_LOGIN", "1");
 
     // Set XDG variables for Linux (dirs crate v6+ respects these)
     cmd.env("XDG_CONFIG_HOME", temp_dir.path().join(".config"));
@@ -104,7 +104,7 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 /// Hardcoded test wallet for Moderato (testnet).
 ///
 /// This is the mpp-proxy client wallet, funded with pathUSD on Moderato.
-/// Since it's a direct EOA (wallet_address == derived address), presto
+/// Since it's a direct EOA (wallet_address == derived address), tempo-wallet
 /// will automatically use Direct signing mode.
 pub const TEST_WALLET_PRIVATE_KEY: &str =
     "0xbb53fe0be41a5da041ea0c9d2612914cec26bb6c39d747154b519b51feb9ae49";
@@ -129,10 +129,10 @@ pub fn delete_sessions_db(temp_dir: &TempDir) {
     let candidates = [
         temp_dir
             .path()
-            .join("Library/Application Support/presto/sessions/sessions.db"),
+            .join("Library/Application Support/tempo-wallet/sessions/sessions.db"),
         temp_dir
             .path()
-            .join(".local/share/presto/sessions/sessions.db"),
+            .join(".local/share/tempo-wallet/sessions/sessions.db"),
     ];
 
     for db_path in &candidates {
@@ -160,10 +160,10 @@ pub fn get_combined_output(output: &std::process::Output) -> String {
 pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
     let mac_db = temp_dir
         .path()
-        .join("Library/Application Support/presto/sessions/sessions.db");
+        .join("Library/Application Support/tempo-wallet/sessions/sessions.db");
     let lin_db = temp_dir
         .path()
-        .join(".local/share/presto/sessions/sessions.db");
+        .join(".local/share/tempo-wallet/sessions/sessions.db");
 
     for db_path in [mac_db, lin_db] {
         if let Some(parent) = db_path.parent() {

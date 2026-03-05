@@ -23,8 +23,8 @@ const POSTHOG_API_KEY: &str = "phc_aNlTw2xAUQKd9zTovXeYheEUpQpEhplehCK5r1e31HR";
 
 async fn ph_capture(client: &Client, distinct_id: &str, event_name: &str, properties: Value) {
     let mut event = posthog_rs::Event::new(event_name, distinct_id);
-    let _ = event.insert_prop("tempo_app_id", "presto");
-    let _ = event.insert_prop("$lib", "presto");
+    let _ = event.insert_prop("tempo_app_id", "tempo-wallet");
+    let _ = event.insert_prop("$lib", "tempo-wallet");
     let _ = event.insert_prop("$lib_version", env!("CARGO_PKG_VERSION"));
     let _ = event.insert_prop("os", std::env::consts::OS);
     let _ = event.insert_prop("arch", std::env::consts::ARCH);
@@ -41,14 +41,14 @@ async fn ph_capture(client: &Client, distinct_id: &str, event_name: &str, proper
 async fn ph_alias(client: &Client, previous_id: &str, new_id: &str) {
     let mut event = posthog_rs::Event::new("$create_alias", new_id);
     let _ = event.insert_prop("alias", previous_id);
-    let _ = event.insert_prop("tempo_app_id", "presto");
+    let _ = event.insert_prop("tempo_app_id", "tempo-wallet");
 
     let _ = client.capture(event).await;
 }
 
 async fn ph_identify(client: &Client, distinct_id: &str, properties: Value) {
     let mut event = posthog_rs::Event::new("$identify", distinct_id);
-    let _ = event.insert_prop("tempo_app_id", "presto");
+    let _ = event.insert_prop("tempo_app_id", "tempo-wallet");
     let _ = event.insert_prop("$set", properties);
 
     let _ = client.capture(event).await;
@@ -59,7 +59,7 @@ async fn ph_identify(client: &Client, distinct_id: &str, properties: Value) {
 // ---------------------------------------------------------------------------
 
 fn is_telemetry_disabled(config: &Config) -> bool {
-    if std::env::var("PRESTO_NO_TELEMETRY").is_ok() {
+    if std::env::var("TEMPO_NO_TELEMETRY").is_ok() {
         return true;
     }
 
@@ -136,7 +136,7 @@ impl Analytics {
             map.entry("network".to_string()).or_insert(json!(network));
         }
 
-        // Test hook: if PRESTO_TEST_EVENTS is set, append events to the file for assertions
+        // Test hook: if TEMPO_TEST_EVENTS is set, append events to the file for assertions
         test_tap_event(&event_name, &props);
 
         let handle = tokio::spawn(async move {
@@ -191,7 +191,7 @@ impl Analytics {
 }
 
 fn test_tap_event(name: &str, props: &Value) {
-    if let Ok(path) = std::env::var("PRESTO_TEST_EVENTS") {
+    if let Ok(path) = std::env::var("TEMPO_TEST_EVENTS") {
         if path.is_empty() {
             return;
         }

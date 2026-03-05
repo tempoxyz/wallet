@@ -4,7 +4,7 @@ use alloy::signers::local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::network::NetworkId;
 
 /// Wallet type: local (self-custodial EOA in OS keychain) or passkey (browser auth).
@@ -108,7 +108,7 @@ impl Keystore {
     ///
     /// Derives the address from the key and creates a single-account
     /// key set with an inline key. Not written to disk.
-    pub(crate) fn from_private_key(key: &str) -> Result<Self, PrestoError> {
+    pub(crate) fn from_private_key(key: &str) -> Result<Self, TempoWalletError> {
         let signer = parse_private_key_signer(key)?;
         let address = signer.address().to_string();
         let key_entry = KeyEntry {
@@ -219,14 +219,14 @@ impl Keystore {
     pub(crate) fn delete_passkey_wallet(
         &mut self,
         wallet_address: &str,
-    ) -> Result<(), PrestoError> {
+    ) -> Result<(), TempoWalletError> {
         let before = self.keys.len();
         self.keys.retain(|k| {
             !(k.wallet_type == WalletType::Passkey
                 && k.wallet_address.eq_ignore_ascii_case(wallet_address))
         });
         if self.keys.len() == before {
-            return Err(PrestoError::ConfigMissing(format!(
+            return Err(TempoWalletError::ConfigMissing(format!(
                 "No passkey wallet found for '{wallet_address}'."
             )));
         }
@@ -261,17 +261,17 @@ impl Keystore {
 }
 
 /// Parse a private key hex string into a PrivateKeySigner.
-pub(crate) fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, PrestoError> {
+pub(crate) fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoWalletError> {
     let key = pk_str.trim();
     let key_hex = key.strip_prefix("0x").unwrap_or(key);
     let bytes = hex::decode(key_hex)
-        .map_err(|_| PrestoError::InvalidKey("Invalid private key format".to_string()))?;
+        .map_err(|_| TempoWalletError::InvalidKey("Invalid private key format".to_string()))?;
     if bytes.len() != 32 {
-        return Err(PrestoError::InvalidKey(
+        return Err(TempoWalletError::InvalidKey(
             "Invalid private key format".to_string(),
         ));
     }
-    PrivateKeySigner::from_slice(&bytes).map_err(|e| PrestoError::InvalidKey(e.to_string()))
+    PrivateKeySigner::from_slice(&bytes).map_err(|e| TempoWalletError::InvalidKey(e.to_string()))
 }
 
 #[cfg(test)]

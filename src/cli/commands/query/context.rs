@@ -3,7 +3,7 @@
 use anyhow::Result;
 use base64::Engine;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpRequestPlan};
 use crate::network;
 
@@ -24,7 +24,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
     for header in &query.headers {
         validate_header_size(header)?;
         if header.contains('\r') || header.contains('\n') {
-            anyhow::bail!(PrestoError::InvalidHeader(
+            anyhow::bail!(TempoWalletError::InvalidHeader(
                 "header contains CR/LF characters".to_string()
             ));
         }
@@ -158,7 +158,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         user_agent: query
             .user_agent
             .clone()
-            .unwrap_or_else(|| format!("presto/{}", env!("CARGO_PKG_VERSION"))),
+            .unwrap_or_else(|| format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION"))),
         insecure: query.insecure,
         proxy: query.proxy.clone(),
         no_proxy: query.no_proxy,

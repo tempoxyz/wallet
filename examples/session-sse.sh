@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Session SSE Demo — pay-per-token streaming with presto
+# Session SSE Demo — pay-per-token streaming with tempo-wallet
 #
 # Mirrors the mpp-rs "session/sse" example: opens a payment channel,
 # streams SSE tokens to stdout with per-token vouchers, and settles.

@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 
 use super::Keystore;
 
@@ -12,7 +12,7 @@ const KEYS_FILE_NAME: &str = "keys.toml";
 
 impl Keystore {
     /// Get the keys.toml file path.
-    pub(crate) fn keys_path() -> Result<PathBuf, PrestoError> {
+    pub(crate) fn keys_path() -> Result<PathBuf, TempoWalletError> {
         Ok(crate::util::data_dir()?.join(KEYS_FILE_NAME))
     }
 
@@ -20,13 +20,13 @@ impl Keystore {
     ///
     /// Use after a mutation (login, logout, key creation) to get the
     /// freshly-persisted state.
-    pub(crate) fn reload(&self) -> Result<Self, PrestoError> {
+    pub(crate) fn reload(&self) -> Result<Self, TempoWalletError> {
         Self::load_from_disk()
     }
 
     /// Load wallet keys, using `private_key` if provided (ephemeral),
     /// otherwise reading from disk.
-    pub(crate) fn load(private_key: Option<&str>) -> Result<Self, PrestoError> {
+    pub(crate) fn load(private_key: Option<&str>) -> Result<Self, TempoWalletError> {
         if let Some(pk) = private_key {
             return Self::from_private_key(pk);
         }
@@ -36,7 +36,7 @@ impl Keystore {
     /// Load wallet keys from disk.
     ///
     /// Returns default (empty) keys if the file doesn't exist.
-    fn load_from_disk() -> Result<Self, PrestoError> {
+    fn load_from_disk() -> Result<Self, TempoWalletError> {
         let path = Self::keys_path()?;
 
         if !path.exists() {
@@ -60,20 +60,20 @@ impl Keystore {
     ///
     /// No-op when an ephemeral key override is active (e.g., `--private-key`),
     /// to avoid overwriting the persistent keys.toml with transient data.
-    pub(crate) fn save(&self) -> Result<(), PrestoError> {
+    pub(crate) fn save(&self) -> Result<(), TempoWalletError> {
         if self.ephemeral {
             return Ok(());
         }
         let path = Self::keys_path()?;
         let body = toml::to_string_pretty(self)?;
         let contents = format!(
-            "#  tempo-walletwallet keys — managed by `presto`\n\
+            "#  tempo-walletwallet keys — managed by `tempo-wallet`\n\
              # Do not edit manually.\n\n\
              {body}"
         );
         {
             std::fs::create_dir_all(path.parent().ok_or_else(|| {
-                PrestoError::Io(std::io::Error::new(
+                TempoWalletError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     format!("path has no parent directory: {}", path.display()),
                 ))
@@ -87,7 +87,8 @@ impl Keystore {
             }
             temp.write_all(contents.as_bytes())?;
             temp.as_file().sync_all()?;
-            temp.persist(&path).map_err(|e| PrestoError::Io(e.error))?;
+            temp.persist(&path)
+                .map_err(|e| TempoWalletError::Io(e.error))?;
         }
         Ok(())
     }

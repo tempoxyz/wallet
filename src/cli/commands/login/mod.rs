@@ -5,7 +5,7 @@ mod passkey;
 use super::whoami::{show_whoami, show_whoami_stderr};
 use crate::analytics::{self, Event};
 use crate::cli::{Context, OutputFormat};
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::util::sanitize_error;
 
 use passkey::WalletManager;
@@ -35,8 +35,8 @@ pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
                 let err_str = e.to_string();
                 let is_timeout = err_str.contains("timed out")
                     || e.chain()
-                        .find_map(|cause| cause.downcast_ref::<PrestoError>())
-                        .is_some_and(|pe| matches!(pe, PrestoError::LoginExpired));
+                        .find_map(|cause| cause.downcast_ref::<TempoWalletError>())
+                        .is_some_and(|pe| matches!(pe, TempoWalletError::LoginExpired));
 
                 if is_timeout {
                     a.track(

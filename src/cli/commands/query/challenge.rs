@@ -5,7 +5,7 @@ use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::PaymentProtocol;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::HttpResponse;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
@@ -24,27 +24,30 @@ pub(super) struct ChallengeContext {
 pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> {
     let www_auth = response
         .header("www-authenticate")
-        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let _protocol = PaymentProtocol::detect(Some(www_auth))
-        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate: Payment".to_string()))?;
+        .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate: Payment".to_string()))?;
 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // Enforce supported payment protocol (tempo only for now)
     if !challenge.method.eq_ignore_ascii_case("tempo") {
-        return Err(PrestoError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
+        return Err(
+            TempoWalletError::UnsupportedPaymentMethod(challenge.method.to_string()).into(),
+        );
     }
 
     let is_session = challenge.intent.is_session();
 
     let require_chain = |chain_id: Option<u64>| -> Result<NetworkId> {
         let cid = chain_id.ok_or_else(|| {
-            PrestoError::InvalidChallenge("missing chainId in payment request".to_string())
+            TempoWalletError::InvalidChallenge("missing chainId in payment request".to_string())
         })?;
-        Ok(NetworkId::from_chain_id(cid)
-            .ok_or_else(|| PrestoError::InvalidChallenge(format!("unsupported chainId: {cid}")))?)
+        Ok(NetworkId::from_chain_id(cid).ok_or_else(|| {
+            TempoWalletError::InvalidChallenge(format!("unsupported chainId: {cid}"))
+        })?)
     };
 
     let (network, amount, currency) =
@@ -61,7 +64,7 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<Challen
                 session.currency,
             )
         } else {
-            return Err(PrestoError::InvalidChallenge(
+            return Err(TempoWalletError::InvalidChallenge(
                 "unsupported payment challenge payload".to_string(),
             )
             .into());
@@ -86,7 +89,7 @@ pub(super) fn ensure_wallet_configured(
     let setup_cmd = " tempo-walletlogin";
 
     if !keys.has_wallet() {
-        anyhow::bail!(PrestoError::ConfigMissing(format!(
+        anyhow::bail!(TempoWalletError::ConfigMissing(format!(
             "No wallet configured. Run '{setup_cmd}'."
         )));
     }
@@ -97,7 +100,7 @@ pub(super) fn ensure_wallet_configured(
             .iter()
             .any(|k| k.chain_id == cid || k.chain_id == 0);
         if !has_key {
-            anyhow::bail!(PrestoError::ConfigMissing(format!(
+            anyhow::bail!(TempoWalletError::ConfigMissing(format!(
                 "No key configured for network '{}'. Run '{setup_cmd}'.",
                 challenge_network.as_str()
             )));

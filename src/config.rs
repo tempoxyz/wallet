@@ -1,11 +1,11 @@
-//! Configuration management for presto.
+//! Configuration management for tempo-wallet.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::network::NetworkId;
 
 /// Application configuration (optional RPC overrides, telemetry).
@@ -33,7 +33,7 @@ type RpcConfig = HashMap<NetworkId, String>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TelemetryConfig {
     /// Enable anonymous telemetry and usage analytics.
-    /// Can be disabled here or via `PRESTO_NO_TELEMETRY=1` env var.
+    /// Can be disabled here or via `TEMPO_NO_TELEMETRY=1` env var.
     #[serde(default = "TelemetryConfig::default_enabled")]
     pub enabled: bool,
 }
@@ -86,7 +86,7 @@ impl Config {
 
         let mut config = if !config_path.exists() {
             if explicit {
-                anyhow::bail!(PrestoError::ConfigMissing(format!(
+                anyhow::bail!(TempoWalletError::ConfigMissing(format!(
                     "Config file not found at {}.",
                     config_path.display()
                 )));
@@ -94,7 +94,7 @@ impl Config {
             Self::default()
         } else {
             let content = std::fs::read_to_string(&config_path).map_err(|e| {
-                PrestoError::InvalidConfig(format!(
+                TempoWalletError::InvalidConfig(format!(
                     "Failed to read config file at {}: {}",
                     config_path.display(),
                     e
@@ -102,7 +102,7 @@ impl Config {
             })?;
 
             toml::from_str(&content).map_err(|e| {
-                PrestoError::InvalidConfig(format!(
+                TempoWalletError::InvalidConfig(format!(
                     "Failed to parse config file at {}: {}",
                     config_path.display(),
                     e
@@ -119,15 +119,15 @@ impl Config {
         Ok(config)
     }
 
-    /// Get the default config file path (platform config directory + `presto/config.toml`).
-    pub(crate) fn default_config_path() -> Result<PathBuf, PrestoError> {
+    /// Get the default config file path (platform config directory + `tempo-wallet/config.toml`).
+    pub(crate) fn default_config_path() -> Result<PathBuf, TempoWalletError> {
         dirs::config_dir()
-            .map(|c| c.join("presto").join("config.toml"))
-            .ok_or(PrestoError::NoConfigDir)
+            .map(|c| c.join("tempo-wallet").join("config.toml"))
+            .ok_or(TempoWalletError::NoConfigDir)
     }
 
     /// Save config to the default location.
-    pub(crate) fn save(&self) -> Result<(), PrestoError> {
+    pub(crate) fn save(&self) -> Result<(), TempoWalletError> {
         let config_path = Self::default_config_path()?;
         let body = toml::to_string_pretty(self)?;
         let content = format!(
@@ -142,7 +142,7 @@ impl Config {
         {
             use std::io::Write;
             std::fs::create_dir_all(config_path.parent().ok_or_else(|| {
-                PrestoError::Io(std::io::Error::new(
+                TempoWalletError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     format!("path has no parent directory: {}", config_path.display()),
                 ))
@@ -157,7 +157,7 @@ impl Config {
             temp.write_all(content.as_bytes())?;
             temp.as_file().sync_all()?;
             temp.persist(&config_path)
-                .map_err(|e| PrestoError::Io(e.error))?;
+                .map_err(|e| TempoWalletError::Io(e.error))?;
         }
 
         Ok(())

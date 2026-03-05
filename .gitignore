@@ -12,14 +12,14 @@
 .DS_Store
 
 # Configuration (contains private keys!)
-presto.toml
 *.toml
-!presto.toml.example
 !Cargo.toml
 !.changelog/config.toml
+!rustfmt.toml
+!.cargo/config.toml
+!.cargo/config
 
 # Build artifacts
-/presto
 *.tar.gz
 
 # Eval (promptfoo output and old run artifacts)
@@ -37,3 +37,6 @@ node_modules/
 package-lock.json
 .ai/
 !.ai/skills/
+.env
+.env.*
+!.env.example

@@ -18,16 +18,16 @@ pub(crate) enum SessionStateArg {
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
-    env!("PRESTO_GIT_SHA"),
+    env!("TEMPO_GIT_SHA"),
     " ",
-    env!("PRESTO_BUILD_DATE"),
+    env!("TEMPO_BUILD_DATE"),
     " ",
-    env!("PRESTO_BUILD_PROFILE"),
+    env!("TEMPO_BUILD_PROFILE"),
     ")"
 );
 
 #[derive(Parser, Debug)]
-#[command(name = "presto")]
+#[command(name = "tempo-wallet")]
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version = LONG_VERSION)]
 #[command(
@@ -62,7 +62,7 @@ pub(crate) struct Cli {
     #[arg(
         long = "private-key",
         value_name = "KEY",
-        env = "PRESTO_PRIVATE_KEY",
+        env = "TEMPO_PRIVATE_KEY",
         global = true,
         hide = true,
         hide_env_values = true
@@ -79,7 +79,7 @@ pub(crate) struct Cli {
         long = "rpc",
         visible_alias = "rpc-url",
         value_name = "URL",
-        env = "PRESTO_RPC_URL",
+        env = "TEMPO_RPC_URL",
         global = true,
         hide = true
     )]
@@ -606,9 +606,9 @@ impl Cli {
         if args.iter().any(|a| a == "-j" || a == "--json-output") {
             let json = serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
-                "git_commit": env!("PRESTO_GIT_SHA"),
-                "build_date": env!("PRESTO_BUILD_DATE"),
-                "profile": env!("PRESTO_BUILD_PROFILE"),
+                "git_commit": env!("TEMPO_GIT_SHA"),
+                "build_date": env!("TEMPO_BUILD_DATE"),
+                "profile": env!("TEMPO_BUILD_PROFILE"),
             });
             println!("{}", serde_json::to_string_pretty(&json).unwrap());
             std::process::exit(0);

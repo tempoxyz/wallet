@@ -7,7 +7,7 @@ use anyhow::Result;
 
 use crate::config::Config;
 
-const BINARIES_BASE_URL: &str = "https://presto-binaries.tempo.xyz";
+const BINARIES_BASE_URL: &str = "https://cli.tempo.xyz";
 const CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
 
 /// Check for updates (at most once per 6 hours) and print a notice if newer.
@@ -68,7 +68,7 @@ pub(crate) fn run_update(yes: bool) -> Result<()> {
         }
     }
 
-    eprintln!("Updating  tempo-walletto the latest version...\n");
+    eprintln!("Updating tempo-wallet to the latest version...\n");
 
     let status = std::process::Command::new("bash")
         .arg("-c")
@@ -108,7 +108,7 @@ fn print_update_notice(latest: &str) {
     );
     if is_newer {
         eprintln!(
-            "  Update available: {} → {}. Run ` tempo-walletupdate` to upgrade.\n",
+            "  Update available: {} → {}. Run `tempo-wallet update` to upgrade.\n",
             current, latest,
         );
     }
