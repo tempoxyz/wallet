@@ -1,24 +1,17 @@
-//! Exit codes for the tempo-wallet CLI.
+//! Exit codes for the  tempo-walletCLI.
 //!
 //! Following standard Unix conventions and providing specific codes
 //! for different error categories to aid scripting and automation.
 
-/// Exit codes for the tempo-wallet CLI (simplified set).
+/// Exit codes for the  tempo-walletCLI (simplified set).
 ///
-/// - 0: Success
 /// - 1: General error (fallback)
 /// - 2: Invalid usage (bad arguments, invalid flags, invalid config)
 /// - 3: Network error (connect, timeout, TLS, proxy)
-/// - 4: HTTP error (HTTP >= 400 after successful transfer)
-/// - 5: Payment error (payment rejected, unsupported method/intent)
-/// - 130: Interrupted (Ctrl+C)
+/// - 4: Payment error (payment rejected, unsupported method/intent)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
-#[allow(dead_code)]
-pub enum ExitCode {
-    /// Successful execution
-    Success = 0,
-
+pub(crate) enum ExitCode {
     /// General/unknown error
     GeneralError = 1,
 
@@ -28,38 +21,28 @@ pub enum ExitCode {
     /// Network/connection error
     NetworkError = 3,
 
-    /// HTTP error (HTTP >= 400)
-    HttpError = 4,
-
     /// Payment declined or failed
-    PaymentFailed = 5,
-
-    /// Interrupted by signal (Ctrl+C)
-    /// Standard Unix convention: 128 + signal number (SIGINT = 2)
-    Interrupted = 130,
+    PaymentFailed = 4,
 }
 
 impl ExitCode {
     /// Convert to process exit code
-    pub fn code(self) -> i32 {
+    pub(crate) fn code(self) -> i32 {
         self as i32
     }
 
     /// Machine-readable error code label for JSON error objects
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
-            ExitCode::Success => "OK",
             ExitCode::GeneralError => "E_GENERAL",
             ExitCode::InvalidUsage => "E_USAGE",
             ExitCode::NetworkError => "E_NETWORK",
-            ExitCode::HttpError => "E_HTTP",
             ExitCode::PaymentFailed => "E_PAYMENT",
-            ExitCode::Interrupted => "E_INTERRUPTED",
         }
     }
 
     /// Exit the process with this code
-    pub fn exit(self) -> ! {
+    pub(crate) fn exit(self) -> ! {
         std::process::exit(self.code())
     }
 }
@@ -72,73 +55,61 @@ impl From<ExitCode> for i32 {
 
 impl From<&anyhow::Error> for ExitCode {
     fn from(err: &anyhow::Error) -> Self {
-        // Try to downcast to TempoWalletError for specific handling
-        if let Some(tempo_wallet_err) = err
+        // Try to downcast to PrestoError for specific handling
+        if let Some(presto_err) = err
             .chain()
-            .find_map(|e| e.downcast_ref::<crate::error::TempoWalletError>())
+            .find_map(|e| e.downcast_ref::<crate::error::PrestoError>())
         {
-            return ExitCode::from(tempo_wallet_err);
+            return ExitCode::from(presto_err);
         }
 
-        // Check error message for common patterns
-        let msg = err.to_string().to_lowercase();
-
-        if msg.contains("timeout")
-            || msg.contains("timed out")
-            || msg.contains("connect")
-            || msg.contains("connection")
-            || msg.contains("network")
-        {
-            ExitCode::NetworkError
-        } else if msg.contains("config") || msg.contains("invalid") || msg.contains("usage") {
-            ExitCode::InvalidUsage
-        } else {
-            ExitCode::GeneralError
-        }
+        ExitCode::GeneralError
     }
 }
 
-impl From<&crate::error::TempoWalletError> for ExitCode {
-    fn from(err: &crate::error::TempoWalletError) -> Self {
-        use crate::error::TempoWalletError;
+impl From<&crate::error::PrestoError> for ExitCode {
+    fn from(err: &crate::error::PrestoError) -> Self {
+        use crate::error::PrestoError;
 
         match err {
             // Configuration errors
-            TempoWalletError::ConfigMissing(_)
-            | TempoWalletError::InvalidConfig(_)
-            | TempoWalletError::NoConfigDir
-            | TempoWalletError::TomlParse(_)
-            | TempoWalletError::TomlSerialize(_) => ExitCode::InvalidUsage,
+            PrestoError::ConfigMissing(_)
+            | PrestoError::InvalidConfig(_)
+            | PrestoError::NoConfigDir
+            | PrestoError::TomlParse(_)
+            | PrestoError::TomlSerialize(_) => ExitCode::InvalidUsage,
 
             // Payment/funds errors
-            TempoWalletError::SpendingLimitExceeded { .. }
-            | TempoWalletError::InsufficientBalance { .. }
-            | TempoWalletError::PaymentRejected { .. }
-            | TempoWalletError::InvalidChallenge(_)
-            | TempoWalletError::MissingHeader(_)
-            | TempoWalletError::ChallengeExpired(_)
-            | TempoWalletError::UnsupportedPaymentMethod(_)
-            | TempoWalletError::UnsupportedPaymentIntent(_)
-            | TempoWalletError::Mpp(_) => ExitCode::PaymentFailed,
+            PrestoError::SpendingLimitExceeded { .. }
+            | PrestoError::InsufficientBalance { .. }
+            | PrestoError::PaymentRejected { .. }
+            | PrestoError::AccessKeyNotProvisioned { .. }
+            | PrestoError::InvalidChallenge(_)
+            | PrestoError::MissingHeader(_)
+            | PrestoError::ChallengeExpired(_)
+            | PrestoError::UnsupportedPaymentMethod(_)
+            | PrestoError::UnsupportedPaymentIntent(_)
+            | PrestoError::Mpp(_) => ExitCode::PaymentFailed,
 
             // Network/provider errors
-            TempoWalletError::UnknownNetwork(_)
-            | TempoWalletError::Http(_)
-            | TempoWalletError::Reqwest(_)
-            | TempoWalletError::OfflineMode => ExitCode::NetworkError,
+            PrestoError::UnknownNetwork(_)
+            | PrestoError::Http(_)
+            | PrestoError::Reqwest(_)
+            | PrestoError::OfflineMode => ExitCode::NetworkError,
 
             // Auth/signing errors -> usage (bad keys/addresses entered by user)
-            TempoWalletError::InvalidKey(_)
-            | TempoWalletError::Signing(_)
-            | TempoWalletError::InvalidAddress(_) => ExitCode::InvalidUsage,
+            PrestoError::InvalidKey(_)
+            | PrestoError::Signing(_)
+            | PrestoError::InvalidAddress(_) => ExitCode::InvalidUsage,
 
             // Invalid arguments / user input
-            TempoWalletError::InvalidUrl(_) | TempoWalletError::InvalidHeader(_) => {
-                ExitCode::InvalidUsage
-            }
+            PrestoError::InvalidUrl(_) | PrestoError::InvalidHeader(_) => ExitCode::InvalidUsage,
 
-            // General errors
-            _ => ExitCode::GeneralError,
+            // Auth / login
+            PrestoError::Keychain(_) | PrestoError::LoginExpired => ExitCode::GeneralError,
+
+            // Serialization / IO
+            PrestoError::Json(_) | PrestoError::Io(_) => ExitCode::GeneralError,
         }
     }
 }
@@ -149,30 +120,31 @@ mod tests {
 
     #[test]
     fn test_exit_code_values() {
-        assert_eq!(ExitCode::Success.code(), 0);
         assert_eq!(ExitCode::GeneralError.code(), 1);
-        assert_eq!(ExitCode::Interrupted.code(), 130);
+        assert_eq!(ExitCode::InvalidUsage.code(), 2);
+        assert_eq!(ExitCode::NetworkError.code(), 3);
+        assert_eq!(ExitCode::PaymentFailed.code(), 4);
     }
 
     #[test]
-    fn test_exit_code_from_tempo_wallet_error() {
-        use crate::error::TempoWalletError;
+    fn test_exit_code_from_presto_error() {
+        use crate::error::PrestoError;
 
         assert_eq!(
-            ExitCode::from(&TempoWalletError::ConfigMissing("test".into())),
+            ExitCode::from(&PrestoError::ConfigMissing("test".into())),
             ExitCode::InvalidUsage
         );
         assert_eq!(
-            ExitCode::from(&TempoWalletError::UnknownNetwork("test".into())),
+            ExitCode::from(&PrestoError::UnknownNetwork("test".into())),
             ExitCode::NetworkError
         );
     }
 
     #[test]
     fn test_challenge_expired_exit_code() {
-        use crate::error::TempoWalletError;
+        use crate::error::PrestoError;
         assert_eq!(
-            ExitCode::from(&TempoWalletError::ChallengeExpired("expired".into())),
+            ExitCode::from(&PrestoError::ChallengeExpired("expired".into())),
             ExitCode::PaymentFailed
         );
     }

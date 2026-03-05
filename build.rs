@@ -2,7 +2,7 @@ use std::process::Command;
 
 fn main() {
     // Git SHA: prefer CI-provided env, then invoke git, fallback to "unknown"
-    let git_sha = std::env::var("TEMPO_GIT_SHA").unwrap_or_else(|_| {
+    let git_sha = std::env::var("PRESTO_GIT_SHA").unwrap_or_else(|_| {
         Command::new("git")
             .args(["rev-parse", "--short=7", "HEAD"])
             .output()
@@ -20,7 +20,7 @@ fn main() {
     });
 
     // Build date: prefer CI-provided env, fallback to current UTC via `date`
-    let build_date = std::env::var("TEMPO_BUILD_DATE").unwrap_or_else(|_| {
+    let build_date = std::env::var("PRESTO_BUILD_DATE").unwrap_or_else(|_| {
         Command::new("date")
             .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
             .output()
@@ -38,13 +38,13 @@ fn main() {
     });
 
     // Build profile: prefer CI-provided env, then Cargo's PROFILE
-    let profile = std::env::var("TEMPO_BUILD_PROFILE")
+    let profile = std::env::var("PRESTO_BUILD_PROFILE")
         .or_else(|_| std::env::var("PROFILE"))
         .unwrap_or_else(|_| "unknown".to_string());
 
-    println!("cargo:rustc-env=TEMPO_GIT_SHA={git_sha}");
-    println!("cargo:rustc-env=TEMPO_BUILD_DATE={build_date}");
-    println!("cargo:rustc-env=TEMPO_BUILD_PROFILE={profile}");
+    println!("cargo:rustc-env=PRESTO_GIT_SHA={git_sha}");
+    println!("cargo:rustc-env=PRESTO_BUILD_DATE={build_date}");
+    println!("cargo:rustc-env=PRESTO_BUILD_PROFILE={profile}");
 
     // Re-run when build script, git HEAD, or CI env vars change
     println!("cargo:rerun-if-changed=build.rs");
@@ -54,7 +54,7 @@ fn main() {
             println!("cargo:rerun-if-changed=.git/{}", ref_path.trim());
         }
     }
-    println!("cargo:rerun-if-env-changed=TEMPO_GIT_SHA");
-    println!("cargo:rerun-if-env-changed=TEMPO_BUILD_DATE");
-    println!("cargo:rerun-if-env-changed=TEMPO_BUILD_PROFILE");
+    println!("cargo:rerun-if-env-changed=PRESTO_GIT_SHA");
+    println!("cargo:rerun-if-env-changed=PRESTO_BUILD_DATE");
+    println!("cargo:rerun-if-env-changed=PRESTO_BUILD_PROFILE");
 }

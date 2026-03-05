@@ -5,13 +5,13 @@
 # channel on-chain, then sends multiple requests using off-chain vouchers.
 #
 # Flow:
-#   1. First request: tempo-wallet opens a payment channel on-chain (one gas tx)
+#   1. First request:  tempo-walletopens a payment channel on-chain (one gas tx)
 #   2. Subsequent requests: reuse the channel with cumulative vouchers (no gas)
 #   3. At the end: close the session and settle on-chain
 #
 # Prerequisites:
-#   - tempo-wallet installed (`make install`)
-#   - Run `tempo wallet login` to connect your Tempo wallet
+#   -  tempo-walletinstalled (`make install`)
+#   - Run ` tempo-walletlogin` to connect your Tempo wallet
 #
 # Usage:
 #   ./examples/session-multi-fetch.sh
@@ -37,7 +37,7 @@ PROMPTS=(
   "What is the speed of light in km/s?"
 )
 
-echo "=== tempo-wallet Session Multi-Fetch Demo ==="
+echo "===  tempo-walletSession Multi-Fetch Demo ==="
 echo ""
 echo "Endpoint: ${ENDPOINT}"
 echo "Model:    ${MODEL}"
@@ -45,21 +45,21 @@ echo "Requests: ${#PROMPTS[@]}"
 echo ""
 
 # Ensure wallet is configured
-if ! tempo wallet whoami 2>/dev/null | grep -q "Wallet:"; then
-  echo "No wallet configured. Running 'tempo wallet login'..."
-  tempo wallet login
+if !  tempo-walletwhoami 2>/dev/null | grep -q "Wallet:"; then
+  echo "No wallet configured. Running ' tempo-walletlogin'..."
+   tempo-walletlogin
   echo ""
 fi
 
 # Clear any existing session for this endpoint
-tempo wallet session close "${ENDPOINT}" 2>/dev/null || true
+ tempo-walletsession close "${ENDPOINT}" 2>/dev/null || true
 
 echo "--- Wallet ---"
-tempo wallet whoami 2>/dev/null
+ tempo-walletwhoami 2>/dev/null
 echo ""
 
 echo "--- Balance (before) ---"
-tempo wallet balance 2>/dev/null || echo "(could not fetch balance)"
+ tempo-walletbalance 2>/dev/null || echo "(could not fetch balance)"
 echo ""
 
 echo "--- Sending ${#PROMPTS[@]} requests over a single session ---"
@@ -70,7 +70,7 @@ for i in "${!PROMPTS[@]}"; do
   N=$((i + 1))
   echo "[$N/${#PROMPTS[@]}] Prompt: \"${PROMPT}\""
 
-  RESPONSE=$(tempo wallet -v -X POST \
+  RESPONSE=$( tempo-wallet-v -X POST \
     --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
     "${ENDPOINT}" 2>"$STDERR_FILE") || true
 
@@ -112,7 +112,7 @@ for i in "${!PROMPTS[@]}"; do
 done
 
 echo "--- Closing session ---"
-tempo wallet session close "${ENDPOINT}" 2>"$STDERR_FILE" || true
+ tempo-walletsession close "${ENDPOINT}" 2>"$STDERR_FILE" || true
 CLOSE_STDERR=$(cat "$STDERR_FILE")
 CLEAN_CLOSE=$(echo "$CLOSE_STDERR" | sed $'s/\x1b[^m]*m//g' | sed $'s/\x1b\\][^\x1b]*\x1b\\\\//g')
 CLOSE_TX=$(echo "$CLEAN_CLOSE" | grep "Channel settled:" | awk '{print $NF}' || true)
@@ -130,6 +130,6 @@ fi
 echo ""
 
 echo "--- Balance (after) ---"
-tempo wallet balance 2>/dev/null || echo "(could not fetch balance)"
+ tempo-walletbalance 2>/dev/null || echo "(could not fetch balance)"
 echo ""
 echo "=== Done ==="

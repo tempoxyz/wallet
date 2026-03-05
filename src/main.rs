@@ -1,8 +1,8 @@
-//! tempo-wallet — a command-line HTTP client with automatic payment support.
 #![forbid(unsafe_code)]
 #![deny(warnings)]
+//!  tempo-wallet— a command-line HTTP client with automatic payment support.
 //!
-//! tempo-wallet works like curl/wget but handles HTTP 402 (Payment Required)
+//!  Tempo Walletworks like curl/wget but handles HTTP 402 (Payment Required)
 //! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.dev).
 //!
 //! # Payment flow
@@ -28,63 +28,32 @@
 //! - Private keys are stored in the OS keychain (macOS Keychain) or
 //!   in a mode-0600 file, and wrapped in [`zeroize::Zeroizing`] in memory
 
+mod account;
 mod analytics;
 mod cli;
 mod config;
 mod error;
 mod http;
+mod keys;
 mod network;
 mod payment;
-mod services;
 mod util;
-mod wallet;
+mod version;
 
-use anyhow::Result;
-use clap::Parser;
-use colored::control;
-
-use crate::analytics::Analytics;
 use crate::cli::exit_codes::ExitCode;
-use crate::cli::{
-    Cli, ColorMode, Commands, KeyCommands, ServicesCommands, SessionCommands, WalletCommands,
-};
-use crate::config::load_config_with_overrides;
+use crate::cli::{Cli, OutputFormat};
 
-/// Entry point for the tempo-wallet CLI.
-///
-/// tempo-wallet is a command-line HTTP client (like curl/wget) that automatically
-/// handles paid APIs. When a server responds with HTTP 402 Payment Required,
-/// tempo-wallet detects the payment details from the `WWW-Authenticate` header,
-/// submits a transaction through the user's configured wallet using the
-/// Machine Payment Protocol (MPP), and retries the request with a payment
-/// receipt — supporting both one-shot charges and persistent sessions.
-///
-/// This function parses CLI arguments, dispatches to the appropriate
-/// subcommand (query, session management, login/logout, whoami, or shell
-/// completions), and installs a Ctrl-C handler for graceful shutdown.
 #[tokio::main]
 async fn main() {
-    let mut cli = parse_cli();
-
-    cli::logging::init_tracing(&cli);
-    init_color_support(&cli);
-
+    let cli = Cli::parse();
     let output_format = cli.resolve_output_format();
-
-    let result = async {
-        let config = load_config_with_overrides(cli.config.as_ref())?;
-        match cli.command.take() {
-            Some(command) => handle_command(cli, command, config).await,
-            None => Cli::command_with_usage().print_help().map_err(Into::into),
-        }
-    }
-    .await;
+    let result = cli.run().await;
 
     if let Err(e) = result {
         match output_format {
-            config::OutputFormat::Json | config::OutputFormat::Toon => {
-                let output = cli::output::render_error_structured(&e, output_format);
-                println!("{}", output);
+            OutputFormat::Json | OutputFormat::Toon => {
+                let output = render_error(&e, output_format);
+                println!("{output}");
             }
             _ => {
                 eprintln!("Error: {e:#}");
@@ -94,471 +63,105 @@ async fn main() {
     }
 }
 
-/// Parse CLI args, treating a bare URL as an implicit `query` subcommand.
+/// Render a structured error object for agent consumption.
 ///
-/// This allows `tempo-wallet https://example.com` as a shorthand for
-/// `tempo-wallet query https://example.com`, making the primary use case
-/// as frictionless as curl/wget.
-fn parse_cli() -> Cli {
-    match Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(original_err) => {
-            // Help requests pass through immediately
-            if matches!(original_err.kind(), clap::error::ErrorKind::DisplayHelp) {
-                original_err.exit()
-            }
+/// Schema: `{ code, message, cause? }`
+fn render_error(err: &anyhow::Error, format: OutputFormat) -> String {
+    let code = ExitCode::from(err).label();
+    let message = err.to_string();
+    let cause = err.chain().nth(1).map(|c| c.to_string());
 
-            // Version: check for JSON flag in raw args before exiting
-            if matches!(original_err.kind(), clap::error::ErrorKind::DisplayVersion) {
-                let args: Vec<String> = std::env::args().collect();
-                if args.iter().any(|a| a == "-j" || a == "--json-output") {
-                    cli::completions::print_version_json();
-                    std::process::exit(0);
-                }
-                original_err.exit()
-            }
+    let mut obj = serde_json::json!({
+        "code": code,
+        "message": message,
+    });
 
-            // If normal parsing failed, try again with "query" inserted.
-            // This handles cases like `tempo-wallet https://example.com` or
-            // `tempo-wallet -X POST --json '{}' https://example.com`.
-            //
-            // Skip the fallback if the first non-flag arg is a known
-            // subcommand so we don't swallow its parse errors (e.g.,
-            // missing required args) as an implicit query.
-            let args: Vec<String> = std::env::args().collect();
-            let mut subcommands: Vec<String> = Cli::command_with_usage()
-                .get_subcommands()
-                .flat_map(|c| {
-                    let mut names = vec![c.get_name().to_string()];
-                    names.extend(c.get_all_aliases().map(String::from));
-                    names
-                })
-                .collect();
-            subcommands.push("help".to_string());
-            let first_positional = args[1..]
-                .iter()
-                .find(|a| !a.starts_with('-'))
-                .map(|s| s.as_str());
-
-            if first_positional.is_some_and(|p| subcommands.iter().any(|s| s == p)) {
-                original_err.exit()
-            }
-
-            let mut with_query = vec![args[0].clone(), "query".to_string()];
-            with_query.extend(args[1..].iter().cloned());
-            match Cli::try_parse_from(with_query) {
-                Ok(cli) => {
-                    // Re-parse succeeded. Check if the URL looks like a
-                    // mistyped command (no scheme, no dots, no localhost).
-                    // This catches `tempo-wallet foo` and gives a clean error.
-                    if let Some(Commands::Query(ref q)) = cli.command {
-                        let url = q.url.clone();
-                        if !url.contains("://") && !url.contains("localhost") && !url.contains('.')
-                        {
-                            // Single-word non-command: still an error
-                            if !url.contains(' ') {
-                                let bin = std::env::args()
-                                    .next()
-                                    .and_then(|p| {
-                                        std::path::Path::new(&p)
-                                            .file_name()
-                                            .map(|n| n.to_string_lossy().to_string())
-                                    })
-                                    .unwrap_or_else(|| "tempo-wallet".to_string());
-                                eprintln!("error: '{url}' is not a {bin} command. See '{bin} --help' for a list of available commands.");
-                                ExitCode::InvalidUsage.exit();
-                            }
-                        }
-                    }
-                    cli
-                }
-                Err(_) => original_err.exit(),
-            }
+    if let Some(c) = cause {
+        if let serde_json::Value::Object(ref mut map) = obj {
+            map.insert("cause".into(), serde_json::Value::String(c));
         }
     }
+
+    format
+        .serialize(&obj)
+        .unwrap_or_else(|_| format!("{{\"code\":\"{code}\",\"message\":\"error\"}}"))
 }
 
-// Moved to crate::cli::completions::print_version_json
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::PrestoError;
 
-/// Validate the --network flag value against known built-in networks.
-///
-/// This catches typos and invalid names early, before they cause silent
-/// failures in login/logout/whoami where the network name is used as an
-/// exact match to select wallet credentials.
-fn validate_network_flag(network: &str) -> Result<()> {
-    // Support comma-separated network lists (e.g. "tempo, tempo-moderato")
-    for name in network.split(',').map(|s| s.trim()) {
-        network::validate_network_name(name).map_err(|_| {
-            anyhow::anyhow!(error::TempoWalletError::UnknownNetwork(name.to_string()))
-        })?;
-    }
-    Ok(())
-}
-
-/// Handle CLI subcommands
-async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> Result<()> {
-    if let Some(ref pk) = cli.private_key {
-        wallet::credentials::set_credentials_override(pk.clone());
+    #[test]
+    fn test_render_error_json_payment_rejected() {
+        let err: anyhow::Error = PrestoError::PaymentRejected {
+            reason: "insufficient funds".into(),
+            status_code: 402,
+        }
+        .into();
+        let json_str = render_error(&err, OutputFormat::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["code"], "E_PAYMENT");
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("insufficient funds"));
     }
 
-    if let Some(ref network) = cli.network {
-        validate_network_flag(network)?;
+    #[test]
+    fn test_render_error_json_config_missing() {
+        let err: anyhow::Error = PrestoError::ConfigMissing("no wallet".into()).into();
+        let json_str = render_error(&err, OutputFormat::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["code"], "E_USAGE");
     }
 
-    let analytics = Analytics::new(cli.network.as_deref(), Some(&config)).await;
-
-    if let Some(ref a) = analytics {
-        a.identify();
-
-        let is_new_user = wallet::credentials::WalletCredentials::load()
-            .ok()
-            .is_none_or(|c| !c.has_wallet());
-
-        let cmd_name = match &command {
-            Commands::Query(_) => "query",
-            Commands::Login => "login",
-            Commands::Logout { .. } => "logout",
-            Commands::Completions { .. } => "completions",
-            Commands::Wallets { .. } => "wallets",
-            Commands::Sessions { .. } => "sessions",
-            Commands::Whoami => "whoami",
-            Commands::Keys { .. } => "keys",
-            Commands::Services { .. } => "services",
-            Commands::Update => "update",
-        };
-        a.track(
-            analytics::Event::SessionStarted,
-            analytics::SessionStartedPayload {
-                is_new_user,
-                command: cmd_name.to_string(),
-            },
-        );
-        a.track(
-            analytics::Event::CommandRun,
-            analytics::CommandRunPayload {
-                command: cmd_name.to_string(),
-            },
-        );
+    #[test]
+    fn test_render_error_json_has_cause() {
+        let inner: anyhow::Error = PrestoError::Http("connection refused".into()).into();
+        let err = inner.context("failed to reach server");
+        let json_str = render_error(&err, OutputFormat::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("failed to reach server"));
+        assert!(parsed["cause"]
+            .as_str()
+            .unwrap()
+            .contains("connection refused"));
     }
 
-    let result = match command {
-        Commands::Query(query) => {
-            let mut query_config = config.clone();
-            if let Some(ref rpc_url) = query.rpc_url {
-                query_config.set_rpc_override(rpc_url.clone());
-            }
-            cli::query::make_request(cli, *query, analytics.clone(), query_config).await
-        }
-
-        Commands::Login => {
-            let network = cli.network.as_deref();
-            if let Some(ref a) = analytics {
-                a.track(
-                    analytics::Event::LoginStarted,
-                    analytics::LoginPayload {
-                        network: network.unwrap_or_default().to_string(),
-                    },
-                );
-            }
-            let output_format = cli.resolve_output_format();
-            let result = cli::auth::run_login(network, analytics.clone(), output_format).await;
-            if let Some(ref a) = analytics {
-                let net = network.unwrap_or_default().to_string();
-                match &result {
-                    Ok(()) => {
-                        a.track(
-                            analytics::Event::LoginSuccess,
-                            analytics::LoginPayload { network: net },
-                        );
-                    }
-                    Err(e) => {
-                        let err_str = e.to_string();
-                        let is_login_timeout = err_str.contains("timed out")
-                            || e.chain()
-                                .find_map(|cause| cause.downcast_ref::<error::TempoWalletError>())
-                                .is_some_and(|pe| {
-                                    matches!(pe, error::TempoWalletError::LoginExpired)
-                                });
-
-                        if is_login_timeout {
-                            a.track(
-                                analytics::Event::LoginTimeout,
-                                analytics::LoginTimeoutPayload { network: net },
-                            );
-                        } else {
-                            a.track(
-                                analytics::Event::LoginFailure,
-                                analytics::LoginFailurePayload {
-                                    network: net,
-                                    error: analytics::sanitize_error(&err_str),
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-            result
-        }
-
-        Commands::Logout { yes } => {
-            let result = cli::auth::run_logout(yes).await;
-            if let Some(ref a) = analytics {
-                if result.is_ok() {
-                    a.track(analytics::Event::Logout, analytics::EmptyPayload);
-                }
-            }
-            result
-        }
-
-        Commands::Completions { shell } => {
-            if let Some(shell) = shell {
-                cli::completions::generate_completions(shell)
-            } else {
-                println!("Supported shells: bash, zsh, fish, powershell");
-                Ok(())
-            }
-        }
-
-        Commands::Sessions { command } => {
-            let output_format = cli.resolve_output_format();
-
-            if let Some(subcommand) = command {
-                let show_output = cli.should_show_output();
-                match subcommand {
-                    SessionCommands::List { state, network } => {
-                        let net = network.as_deref().or(cli.network.as_deref());
-                        let mut selected: Vec<cli::session::ListSessionState> = Vec::new();
-                        if state.is_empty() {
-                            // default will be applied in list_sessions
-                        } else if state
-                            .iter()
-                            .any(|s| matches!(s, crate::cli::SessionStateArg::All))
-                        {
-                            selected = vec![
-                                cli::session::ListSessionState::Active,
-                                cli::session::ListSessionState::Closing,
-                                cli::session::ListSessionState::Finalizable,
-                                cli::session::ListSessionState::Orphaned,
-                            ];
-                        } else {
-                            for s in state {
-                                let m = match s {
-                                    crate::cli::SessionStateArg::Active => {
-                                        cli::session::ListSessionState::Active
-                                    }
-                                    crate::cli::SessionStateArg::Closing => {
-                                        cli::session::ListSessionState::Closing
-                                    }
-                                    crate::cli::SessionStateArg::Finalizable => {
-                                        cli::session::ListSessionState::Finalizable
-                                    }
-                                    crate::cli::SessionStateArg::Orphaned => {
-                                        cli::session::ListSessionState::Orphaned
-                                    }
-                                    crate::cli::SessionStateArg::All => continue,
-                                };
-                                selected.push(m);
-                            }
-                        }
-                        cli::session::list_sessions(&config, output_format, &selected, net).await
-                    }
-                    SessionCommands::Info { target, network } => {
-                        let net = network.as_deref().or(cli.network.as_deref());
-                        cli::session::show_session_info(&config, output_format, &target, net).await
-                    }
-                    SessionCommands::Close {
-                        url,
-                        all,
-                        orphaned,
-                        closed,
-                    } => {
-                        cli::session::close_sessions(
-                            &config,
-                            url,
-                            all,
-                            orphaned,
-                            closed,
-                            output_format,
-                            show_output,
-                            cli.network.as_deref(),
-                            analytics.as_ref(),
-                        )
-                        .await
-                    }
-                    SessionCommands::Recover { origin } => {
-                        cli::session::recover_session(&config, output_format, &origin).await
-                    }
-                    SessionCommands::Sync => {
-                        cli::session::sync_sessions(&config, output_format, show_output).await
-                    }
-                }
-            } else {
-                if let Some(session_cmd) = Cli::command_with_usage().find_subcommand_mut("sessions")
-                {
-                    session_cmd.print_help()?;
-                } else {
-                    Cli::command_with_usage().print_help()?;
-                }
-                Ok(())
-            }
-        }
-
-        Commands::Wallets { command } => {
-            if let Some(subcommand) = command {
-                match subcommand {
-                    WalletCommands::List => {
-                        let output_format = cli.resolve_output_format();
-                        cli::auth::show_wallet_list(output_format).await
-                    }
-                    WalletCommands::Create => {
-                        let wallet_addr =
-                            cli::local_wallet::create_local_wallet(cli.network.as_deref())?;
-                        let output_format = cli.resolve_output_format();
-                        let network = cli.network.as_deref();
-                        cli::auth::show_whoami(&config, output_format, network, Some(&wallet_addr))
-                            .await
-                    }
-                    WalletCommands::Fund { address, no_wait } => {
-                        let output_format = cli.resolve_output_format();
-                        cli::fund::run_fund(
-                            &config,
-                            output_format,
-                            cli.network.as_deref(),
-                            address,
-                            no_wait,
-                        )
-                        .await
-                    }
-                }
-            } else {
-                if let Some(wallet_cmd) = Cli::command_with_usage().find_subcommand_mut("wallets") {
-                    wallet_cmd.print_help()?;
-                } else {
-                    Cli::command_with_usage().print_help()?;
-                }
-                Ok(())
-            }
-        }
-
-        Commands::Whoami => {
-            let network = cli.network.as_deref();
-            let output_format = cli.resolve_output_format();
-
-            if let Some(ref a) = analytics {
-                a.track(analytics::Event::WhoamiViewed, analytics::EmptyPayload);
-            }
-            cli::auth::show_whoami(&config, output_format, network, None).await
-        }
-
-        Commands::Keys { command } => {
-            let network = cli.network.as_deref();
-            let output_format = cli.resolve_output_format();
-            match command {
-                Some(KeyCommands::List) => {
-                    cli::keys::show_keys(&config, output_format, network).await
-                }
-                Some(KeyCommands::Create { wallet }) => {
-                    cli::local_wallet::create_access_key(wallet.as_deref())?;
-                    cli::auth::show_whoami(&config, output_format, network, None).await
-                }
-                Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),
-                None => {
-                    if let Some(key_cmd) = Cli::command_with_usage().find_subcommand_mut("keys") {
-                        key_cmd.print_help()?;
-                    } else {
-                        Cli::command_with_usage().print_help()?;
-                    }
-                    Ok(())
-                }
-            }
-        }
-
-        Commands::Services {
-            command,
-            service_id,
-            category,
-            search,
-        } => {
-            let output_format = cli.resolve_output_format();
-            match command {
-                Some(ServicesCommands::Info { service_id }) => {
-                    cli::services::show_service_info(output_format, &service_id).await
-                }
-                Some(ServicesCommands::List) => {
-                    cli::services::list_services(
-                        output_format,
-                        category.as_deref(),
-                        search.as_deref(),
-                    )
-                    .await
-                }
-                None if service_id.is_some() => {
-                    cli::services::show_service_info(output_format, service_id.as_deref().unwrap())
-                        .await
-                }
-                None => {
-                    cli::services::list_services(
-                        output_format,
-                        category.as_deref(),
-                        search.as_deref(),
-                    )
-                    .await
-                }
-            }
-        }
-
-        Commands::Update => run_self_update(),
-    };
-
-    if let Some(ref a) = analytics {
-        a.flush().await;
+    #[test]
+    fn test_render_error_json_no_cause() {
+        let err: anyhow::Error = PrestoError::InvalidUrl("bad scheme".into()).into();
+        let json_str = render_error(&err, OutputFormat::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed.get("cause").is_none());
     }
 
-    result
-}
-
-// ==================== Simple Commands ====================
-
-/// Update to the latest version via the tempo CLI.
-fn run_self_update() -> Result<()> {
-    eprintln!("Updating tempo-wallet to the latest version...\n");
-
-    let status = std::process::Command::new("tempo")
-        .args(["update", "wallet"])
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!(
-                    "tempo CLI not found. Install it first, then run: tempo update wallet"
-                )
-            } else {
-                anyhow::anyhow!("failed to run tempo: {e}")
-            }
-        })?;
-
-    if !status.success() {
-        anyhow::bail!("update failed (exit code {})", status.code().unwrap_or(1));
+    #[test]
+    fn test_render_error_json_schema_fields() {
+        let err: anyhow::Error = PrestoError::UnknownNetwork("custom".into()).into();
+        let json_str = render_error(&err, OutputFormat::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        let obj = parsed.as_object().unwrap();
+        assert!(obj.contains_key("code"));
+        assert!(obj.contains_key("message"));
+        for key in obj.keys() {
+            assert!(
+                key == "code" || key == "message" || key == "cause",
+                "unexpected field: {key}"
+            );
+        }
     }
 
-    Ok(())
-}
-
-// Moved to crate::cli::completions::generate_completions
-
-// init_tracing now lives in crate::cli::logging
-
-/// Initialize color support based on user preference and NO_COLOR env var
-fn init_color_support(cli: &Cli) {
-    use std::io::IsTerminal;
-    let no_color_env = std::env::var("NO_COLOR").is_ok();
-
-    match cli.color {
-        ColorMode::Always => control::set_override(true),
-        ColorMode::Never => control::set_override(false),
-        ColorMode::Auto => {
-            if no_color_env || !std::io::stdout().is_terminal() {
-                control::set_override(false);
-            }
-        }
+    #[test]
+    fn test_render_error_toon_roundtrip() {
+        let err: anyhow::Error = PrestoError::Http("timeout".into()).into();
+        let toon_str = render_error(&err, OutputFormat::Toon);
+        let parsed: serde_json::Value = toon_format::decode_default(&toon_str).unwrap();
+        assert_eq!(parsed["code"], "E_NETWORK");
+        assert!(parsed["message"].as_str().unwrap().contains("timeout"));
     }
 }

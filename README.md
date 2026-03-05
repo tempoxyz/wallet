@@ -1,6 +1,6 @@
-# wallet
+# presto
 
-tempo-wallet is a command-line HTTP client that pays for API calls automatically. Call services without signing up or managing API keys — tempo-wallet handles payment on the [Tempo](https://tempo.xyz) blockchain using the [Machine Payments Protocol](https://mpp.dev).
+ tempo-walletis a command-line HTTP client that pays for API calls automatically. Call services without signing up or managing API keys —  tempo-wallethandles payment on the [Tempo](https://tempo.xyz) blockchain using the [Machine Payments Protocol](https://mpp.dev).
 
 - **No API keys** — pay per request, skip signups and billing dashboards
 - **No minimums** — pay only for what you use, down to fractions of a cent
@@ -11,15 +11,22 @@ tempo-wallet is a command-line HTTP client that pays for API calls automatically
 ## Quick Start
 
 ```bash
-# Install via the tempo CLI
-tempo add wallet
+# Install
+curl -fsSL https://presto-binaries.tempo.xyz/install.sh | bash
 
 # Connect your wallet
-tempo wallet login
+ tempo-walletlogin
 
 # Make a paid API request
-tempo wallet https://openai.mpp.tempo.xyz/v1/chat/completions \
-  -X POST --json '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
+ tempo-wallethttps://openrouter.mpp.tempo.xyz/v1/chat/completions \
+  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
+```
+
+### From Source
+
+```bash
+git clone https://github.com/tempoxyz/presto.git
+cd  tempo-wallet&& make install
 ```
 
 ## Examples
@@ -27,21 +34,21 @@ tempo wallet https://openai.mpp.tempo.xyz/v1/chat/completions \
 Chat with an LLM:
 
 ```bash
-tempo wallet https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+ tempo-wallethttps://openrouter.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 Generate an image:
 
 ```bash
-tempo wallet https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
+ tempo-wallethttps://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
   -X POST --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3"}'
 ```
 
 Preview cost without paying:
 
 ```bash
-tempo wallet --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+ tempo-wallet--dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
@@ -52,33 +59,50 @@ Ready-to-run scripts in [`examples/`](examples/):
 
 | Command | Description |
 |---------|-------------|
-| `tempo wallet <URL>` | Make an HTTP request with automatic payment |
-| `tempo wallet login` | Connect your Tempo wallet |
-| `tempo wallet logout` | Disconnect your wallet |
-| `tempo wallet whoami` | Show wallet, balances, and keys |
-| `tempo wallet services` | Browse the MPP service directory |
-| `tempo wallet services info <ID>` | Show detailed info for a service |
-| `tempo wallet update` | Update tempo-wallet to the latest version |
-| `tempo wallet sessions list` | List sessions (active/orphaned/closing) |
-| `tempo wallet sessions info <URL|channel_id>` | Show details for a session or channel |
-| `tempo wallet sessions close [--all|--orphaned|--closed|<URL>|<channel_id>]` | Close sessions or channels |
-| `tempo wallet sessions recover <URL|origin>` | Re-sync a local session's state from chain |
-| `tempo wallet sessions sync` | Remove stale local sessions (settled on-chain) |
+| ` tempo-wallet<URL>` | Make an HTTP request with automatic payment |
+| ` tempo-walletlogin` | Connect your Tempo wallet |
+| ` tempo-walletlogout` | Disconnect your wallet |
+| ` tempo-walletwhoami` | Show wallet, balances, and keys |
+| ` tempo-walletservices` | Browse the MPP service directory |
+| ` tempo-walletservices info <ID>` | Show detailed info for a service |
+| ` tempo-walletupdate` | Update  tempo-walletto the latest version |
+| ` tempo-walletsessions list` | List sessions (active/orphaned/closing) |
+| ` tempo-walletsessions info <URL|channel_id>` | Show details for a session or channel |
+| ` tempo-walletsessions close [--all|--orphaned|--closed|<URL>|<channel_id>]` | Close sessions or channels |
+| ` tempo-walletsessions recover <URL|origin>` | Re-sync a local session's state from chain |
+| ` tempo-walletsessions sync` | Remove stale local sessions (settled on-chain) |
 
-Run `tempo wallet --help` or `tempo wallet <command> --help` for full flag reference.
+Run ` tempo-wallet--help` or ` tempo-wallet<command> --help` for full flag reference.
 
 ## Configuration
 
 ```bash
-tempo wallet login    # Opens browser to create or connect a passkey wallet
+ tempo-walletlogin    # Opens browser to create or connect a passkey wallet
 ```
 
 Credentials are stored in `keys.toml` (signing key inline, permissions `0600`).
 
 | Platform | Config | Keys |
 |----------|--------|------|
-| **macOS** | `~/Library/Application Support/tempo-wallet/config.toml` | `~/Library/Application Support/tempo-wallet/keys.toml` |
-| **Linux** | `~/.config/tempo-wallet/config.toml` | `~/.local/share/tempo-wallet/keys.toml` |
+| **macOS** | `~/Library/Application Support/presto/config.toml` | `~/Library/Application Support/presto/keys.toml` |
+| **Linux** | `~/.config/presto/config.toml` | `~/.local/share/presto/keys.toml` |
+
+## Telemetry
+
+ tempo-walletcollects anonymous usage analytics (via PostHog) to help improve the tool. No personal data, API keys, request bodies, or wallet private keys are ever collected.
+
+Opt out with:
+
+```bash
+export PRESTO_NO_TELEMETRY=1 
+```
+
+Or disable in `config.toml`:
+
+```toml
+[telemetry]
+enabled = false
+```
 
 ## Contributing
 
@@ -89,3 +113,7 @@ make build    # Debug build
 make test     # Run all tests
 make check    # fmt + clippy + test + build
 ```
+
+## License
+
+Dual-licensed under [Apache 2.0](LICENSE-APACHE) and [MIT](LICENSE-MIT).

@@ -6,7 +6,7 @@
 
 - Added automatic update checking that fetches the latest version from the release CDN at most once every 6 hours and prints an upgrade notice if a newer version is available. Refactored config loading to happen once at startup and pass it through the call stack, removing redundant `load_config_with_overrides` calls throughout command handlers. Also removed the natural-language prompt forwarding to the `claude` CLI.
 - Updated `mpp-rs` and `tempo` dependency revisions, fixed verbose logging filters to properly scope log levels per crate, updated passkey auth URLs to use `/cli-auth` path, and added `KeychainVersion::V1` to keychain signing mode.
-- Fixed incorrect `tempo-wallet session` command references to `tempo-wallet sessions` in finalize hints and documentation comments.
+- Fixed incorrect ` tempo-walletsession` command references to ` tempo-walletsessions` in finalize hints and documentation comments.
 
 ## 0.6.1 (2026-03-02)
 
@@ -15,15 +15,15 @@
 - Updated the install script to use `~/.local/bin` as the default installation directory instead of `/usr/local/bin`, removing the need for sudo. Added automatic PATH configuration for bash and zsh shell rc files, and added cleanup of legacy binaries from the old install location. Also updated passkey auth URLs for the tempo and moderato networks.
 - Added TOON format support as a compact, token-efficient output and input option. Introduced `-t`/`--toon-output` flag for TOON-formatted output (recommended for agents) and `--toon <TOON>` option to send TOON-encoded request bodies decoded to JSON. Updated agent skill documentation to prefer `-t` over `-j` for token efficiency.
 - Extended clickable terminal hyperlinks to wallet and key addresses displayed in the `auth`, `fund`, and `keys` CLI commands, so addresses in `wallet list`, `whoami`, `faucet`, and bridge deposit output are now rendered as clickable links pointing to the appropriate block explorer.
-- Optimized request path to reuse a single HTTP client across initial and payment replay requests, enabling TCP/TLS connection pooling and skipping redundant TLS handshakes. Replaced on-chain nonce fetches with expiring nonces (`nonceKey=MAX`), removed the `find_channel_on_chain` recovery path, simplified the keychain/direct-signing flow to a unified path, and scoped verbose logging to the `tempo-wallet` crate only.
+- Optimized request path to reuse a single HTTP client across initial and payment replay requests, enabling TCP/TLS connection pooling and skipping redundant TLS handshakes. Replaced on-chain nonce fetches with expiring nonces (`nonceKey=MAX`), removed the `find_channel_on_chain` recovery path, simplified the keychain/direct-signing flow to a unified path, and scoped verbose logging to the `presto` crate only.
 
 ## 0.6.0 (2026-02-27)
 
 ### Minor Changes
 
-- Added `tempo-wallet services` command for browsing the MPP service directory, supporting listing, filtering by category, searching by query, and viewing detailed service info including endpoints and pricing. Updated agent skill documentation to use pluralized subcommands (`wallets`, `keys`, `sessions`) and replace hardcoded service examples with generic `tempo-wallet services`-based discovery patterns.
-- Added `tempo-wallet wallet fund` command with QR code display and Relay bridge integration for funding wallets from Base, Ethereum, Arbitrum, or Optimism via USDC. Added separate `tempo-wallet-local` and `tempo-wallet-passkey` skill variants with install script support for `--wallet=` flag, moved wallet balance to top-level in `whoami` JSON output, improved `InsufficientBalance` error messages with human-readable amounts, and removed automatic browser login prompts in favor of explicit wallet setup instructions.
-- Code quality improvements: extracted timeout and polling constants, fixed balance comparison to use numeric equality instead of string matching, added generic `poll_until` helper, added relay status constants, removed unused parameters, and added unit tests for balance change detection and relay deserialization. Removed `--passkey` flag from `wallet create` to keep passkey flow isolated to `tempo-wallet login`/`tempo-wallet logout`. Defaulted key authorization to USDC.e only on Tempo mainnet. Refactored install script: renamed `--local` to `--from-source`, removed redundant `--force` and `--passkey` flags, deduplicated agent directory lists and install logic. Removed emoji from CLI output.
+- Added ` tempo-walletservices` command for browsing the MPP service directory, supporting listing, filtering by category, searching by query, and viewing detailed service info including endpoints and pricing. Updated agent skill documentation to use pluralized subcommands (`wallets`, `keys`, `sessions`) and replace hardcoded service examples with generic ` tempo-walletservices`-based discovery patterns.
+- Added ` tempo-walletwallet fund` command with QR code display and Relay bridge integration for funding wallets from Base, Ethereum, Arbitrum, or Optimism via USDC. Added separate `presto-local` and `presto-passkey` skill variants with install script support for `--wallet=` flag, moved wallet balance to top-level in `whoami` JSON output, improved `InsufficientBalance` error messages with human-readable amounts, and removed automatic browser login prompts in favor of explicit wallet setup instructions.
+- Code quality improvements: extracted timeout and polling constants, fixed balance comparison to use numeric equality instead of string matching, added generic `poll_until` helper, added relay status constants, removed unused parameters, and added unit tests for balance change detection and relay deserialization. Removed `--passkey` flag from `wallet create` to keep passkey flow isolated to ` tempo-walletlogin`/` tempo-walletlogout`. Defaulted key authorization to USDC.e only on Tempo mainnet. Refactored install script: renamed `--local` to `--from-source`, removed redundant `--force` and `--passkey` flags, deduplicated agent directory lists and install logic. Removed emoji from CLI output.
 
 ### Patch Changes
 
@@ -36,7 +36,7 @@
 - Enhanced `--sse-json` streaming output to use a structured `{event, data, ts}` NDJSON schema, with automatic JSON parsing of `data:` payloads and ISO-8601 timestamps. Added error event emission on HTTP errors during SSE streaming. Added tests for SSE/NDJSON schema, error events, and curl-parity flags (`--compressed`, `--referer`, `--http2`, `--http1.1`, `--proxy`, `--no-proxy`).
 - Added `--connect-timeout`, `--retries`, and `--retry-backoff` CLI flags to support configurable TCP connection timeouts and automatic retry logic with exponential backoff on transient network errors (connect failures and timeouts).
 - Added enhanced version info to `--version` output, including git commit hash, build date, and build profile. Added `-j --version` flag support for structured JSON version output with `version`, `git_commit`, `build_date`, and `profile` fields.
-- Added `--offline` flag that causes the CLI to fail immediately with a network error without making any HTTP requests. Added corresponding `TempoWalletError::OfflineMode` variant, exit code mapping, JSON error output support, and tests.
+- Added `--offline` flag that causes the CLI to fail immediately with a network error without making any HTTP requests. Added corresponding `PrestoError::OfflineMode` variant, exit code mapping, JSON error output support, and tests.
 - Added structured JSON error output when `--output-format json` is set, routing errors to stdout as `{ code, message, cause? }` objects with stable machine-readable error code labels. Added `ExitCode::label()` for mapping exit codes to string identifiers, a `render_error_json` helper, and a corresponding integration test. Also suppressed `dead_code` warnings for `OsKeychain` on non-macOS test builds and added a local `coverage` Makefile target.
 - Added `--data-urlencode` support with curl-compatible parsing (bare value, `name=value`, `@file`, and `name@file` forms). Extended `-G/--get` to append URL-encoded pairs to the query string alongside `-d` data, and automatically sets `Content-Type: application/x-www-form-urlencoded` when `--data-urlencode` is used without `-G`.
 - Refactored key management to use a simplified `KeyEntry` schema, renaming `access_key`/`access_key_address`/`provisioned_chain_ids` to `key`/`key_address`/`provisioned` with new fields for `chain_id`, `key_type`, `expiry`, and `token_limits`. Extracted key authorization logic into a dedicated `key_authorization` module and renamed source files (`wallet.rs` → `local_wallet.rs`, `login.rs` → `passkey_login.rs`) for clarity.
@@ -63,8 +63,8 @@
 
 ### Minor Changes
 
-- Remove `active` field from wallet credentials. Key selection is now deterministic (passkey > first key with access_key > first key) via `primary_key_name()`, with `--key` CLI override. Remove `(active)` marker from `whoami`/`keys` output. Fix provisioning bug where `show_whoami` incorrectly auto-marked keys as provisioned based on spending limit query fallbacks, causing "access key does not exist" errors on re-login. Fix `create_local_wallet` to include token limits for both USDC and pathUSD (mainnet + testnet). Clear `provisioned_chain_ids` on re-login with a new access key. Replace manual date math in `format_expiry_iso` with the `time` crate. Add `tempo-wallet key` command (`key` = whoami, `key list` = list all keys, `key create` = create fresh access key for local wallets).
-- Store wallet EOA private keys in the OS keychain (macOS Keychain) instead of on disk. Access keys from `tempo-wallet login` remain inline in `keys.toml`. Add `tempo-wallet wallet` commands for creating, importing, and deleting local wallets.
+- Remove `active` field from wallet credentials. Key selection is now deterministic (passkey > first key with access_key > first key) via `primary_key_name()`, with `--key` CLI override. Remove `(active)` marker from `whoami`/`keys` output. Fix provisioning bug where `show_whoami` incorrectly auto-marked keys as provisioned based on spending limit query fallbacks, causing "access key does not exist" errors on re-login. Fix `create_local_wallet` to include token limits for both USDC and pathUSD (mainnet + testnet). Clear `provisioned_chain_ids` on re-login with a new access key. Replace manual date math in `format_expiry_iso` with the `time` crate. Add ` tempo-walletkey` command (`key` = whoami, `key list` = list all keys, `key create` = create fresh access key for local wallets).
+- Store wallet EOA private keys in the OS keychain (macOS Keychain) instead of on disk. Access keys from ` tempo-walletlogin` remain inline in `keys.toml`. Add ` tempo-walletwallet` commands for creating, importing, and deleting local wallets.
 
 ## 0.3.0 (2026-02-20)
 
@@ -79,7 +79,7 @@
 - Fixed double wallet signer load in session flow (`create_tempo_payment_from_calls` now takes `&WalletSigner`)
 - Fixed hyperlink display: transaction hash shown as link text instead of full URL
 - Deleted: `payment/currency.rs`, `payment/provider.rs`, `payment/tempo.rs`, `cli/commands/`, `cli/formatting.rs`, `cli/hyperlink.rs`
-- Mainnet support: network is now derived from the 402 challenge's `chainId` instead of being hardcoded to testnet. Tempo Wallet correctly pays on Tempo mainnet (chain 4217) or Moderato testnet (chain 42431) based on what the server requests.
+- Mainnet support: network is now derived from the 402 challenge's `chainId` instead of being hardcoded to testnet.  Tempo Walletcorrectly pays on Tempo mainnet (chain 4217) or Moderato testnet (chain 42431) based on what the server requests.
 - Additional production hardening:
 - `--max-amount` decimal conversion now uses lossless string-based parsing instead of f64 arithmetic, and respects the token's actual decimal places instead of hardcoding 6.
 - Session store now uses file locking (`fs2`) to prevent concurrent CLI invocations from clobbering each other's session state.
@@ -88,7 +88,7 @@
 
 ### Patch Changes
 
-- Replaced brittle string-parsing of MppError messages with typed matching on `MppError::Tempo(TempoClientError)` variants. Deleted `extract_field` and `extract_between` helpers from charge.rs. Payment errors (AccessKeyNotProvisioned, SpendingLimitExceeded, InsufficientBalance, TransactionReverted) now propagate as `TempoWalletError::Mpp` instead of being stringified into `TempoWalletError::InvalidChallenge`.
+- Replaced brittle string-parsing of MppError messages with typed matching on `MppError::Tempo(TempoClientError)` variants. Deleted `extract_field` and `extract_between` helpers from charge.rs. Payment errors (AccessKeyNotProvisioned, SpendingLimitExceeded, InsufficientBalance, TransactionReverted) now propagate as `PrestoError::Mpp` instead of being stringified into `PrestoError::InvalidChallenge`.
 - Replaced local implementations with upstream mpp-rs helpers:
 - Challenge expiry checking now uses `PaymentChallenge::is_expired()` instead of a hand-rolled RFC 3339 parser
 - Spending limit queries (`query_key_spending_limit`, `local_key_spending_limit`) now use `mpp::client::tempo::keychain` instead of local copies
@@ -120,7 +120,7 @@
 - Gas limit bumped to 500k for Account Abstraction transactions
 - Show AI integrations message only on new install
 - ### Refactors
-- Renamed to tempo-wallet
+- Renamed to presto
 - Streamlined CLI — removed config/version commands, merged keys into whoami
 - Removed keystore/private key support, passkey auth only
 - Cleaned up payment error messages

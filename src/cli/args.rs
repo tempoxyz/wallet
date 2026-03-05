@@ -2,17 +2,11 @@
 
 use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 
-pub use crate::config::OutputFormat;
+use super::output::OutputFormat;
+use super::run::ColorMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum ColorMode {
-    Auto,
-    Always,
-    Never,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum SessionStateArg {
+pub(crate) enum SessionStateArg {
     Active,
     Closing,
     Finalizable,
@@ -24,30 +18,33 @@ pub enum SessionStateArg {
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
-    env!("TEMPO_GIT_SHA"),
+    env!("PRESTO_GIT_SHA"),
     " ",
-    env!("TEMPO_BUILD_DATE"),
+    env!("PRESTO_BUILD_DATE"),
     " ",
-    env!("TEMPO_BUILD_PROFILE"),
+    env!("PRESTO_BUILD_PROFILE"),
     ")"
 );
 
 #[derive(Parser, Debug)]
-#[command(name = "tempo-wallet")]
+#[command(name = "presto")]
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version = LONG_VERSION)]
+#[command(
+    // Match curl-style usage: show HTTP options before the URL and list both forms
+    override_usage = "\n   tempo-wallet[HTTP OPTIONS] <URL>\n   tempo-wallet<COMMAND> [OPTIONS]"
+)]
 #[command(after_help = "\
-\x1b[1;4mHTTP Options\x1b[0m (before <URL>):
+HTTP Options (before <URL>):
   -X, --request <METHOD>        Custom request method (GET, POST, PUT, DELETE, ...)
   -H, --header <HEADER>         Add custom header (e.g. -H 'Accept: text/plain')
   -d, --data <DATA>             POST data (use @filename or @- for stdin)
      --json <JSON>             Send JSON data with Content-Type header
      --toon <TOON>             Send TOON data (decoded to JSON) with Content-Type header
   -m, --timeout <SECONDS>       Maximum time for the request
-  -f, --fail                    Fail on HTTP errors (do not output body)
   -o, --output <FILE>           Write output to file
       --dry-run                 Show what would be paid without executing")]
-pub struct Cli {
+pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
@@ -65,7 +62,7 @@ pub struct Cli {
     #[arg(
         long = "private-key",
         value_name = "KEY",
-        env = "TEMPO_PRIVATE_KEY",
+        env = "PRESTO_PRIVATE_KEY",
         global = true,
         hide = true,
         hide_env_values = true
@@ -75,6 +72,18 @@ pub struct Cli {
     /// Network to use (e.g. "tempo", "tempo-moderato")
     #[arg(short = 'n', long, value_name = "NETWORK", global = true, hide = true)]
     pub network: Option<String>,
+
+    /// Override RPC URL (applies to all commands)
+    #[arg(
+        short = 'r',
+        long = "rpc",
+        visible_alias = "rpc-url",
+        value_name = "URL",
+        env = "PRESTO_RPC_URL",
+        global = true,
+        hide = true
+    )]
+    pub rpc_url: Option<String>,
 
     /// Verbosity: repeat -v to increase (info, debug, trace)
     #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true, help_heading = "Display Options")]
@@ -122,11 +131,11 @@ pub struct Cli {
 /// Make an HTTP request with optional payment
 #[derive(Parser, Debug, Default)]
 #[command(after_help = "\
-\x1b[1;4mExamples\x1b[0m:
-  tempo wallet https://api.example.com/data
-  tempo wallet -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
-  tempo wallet -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
-pub struct QueryArgs {
+Examples:
+   tempo-wallethttps://api.example.com/data
+   tempo-wallet-X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
+   tempo-wallet-H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
+pub(crate) struct QueryArgs {
     /// URL to request
     #[arg(value_name = "URL")]
     pub url: String,
@@ -236,26 +245,6 @@ pub struct QueryArgs {
     #[arg(short = 'k', long = "insecure", help_heading = "HTTP Options")]
     pub insecure: bool,
 
-    /// Fail on HTTP errors (do not output body)
-    #[arg(
-        short = 'f',
-        long = "fail",
-        help_heading = "HTTP Options",
-        help = "Exit non-zero on HTTP errors (body still printed unless --silent)"
-    )]
-    pub fail: bool,
-
-    /// Override RPC URL for the request
-    #[arg(
-        short = 'r',
-        long = "rpc",
-        visible_alias = "rpc-url",
-        value_name = "URL",
-        env = "TEMPO_RPC_URL",
-        hide = true
-    )]
-    pub rpc_url: Option<String>,
-
     /// Override the User-Agent header
     #[arg(
         short = 'A',
@@ -328,7 +317,6 @@ pub struct QueryArgs {
     )]
     pub write_meta: Option<String>,
 
-    // fail-with-body removed: unified --fail semantics always print the body unless --silent
     /// Hard cap the maximum amount to pay (integer of minimal units)
     #[arg(
         long = "max-pay",
@@ -413,7 +401,7 @@ pub struct QueryArgs {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Commands {
+pub(crate) enum Commands {
     /// Make an HTTP request with optional payment
     #[command(alias = "q", display_order = 1, hide = true)]
     Query(Box<QueryArgs>),
@@ -470,7 +458,7 @@ pub enum Commands {
         search: Option<String>,
     },
 
-    /// Update tempo-wallet to the latest version
+    /// Update  tempo-walletto the latest version
     #[command(display_order = 8)]
     Update,
 
@@ -485,7 +473,7 @@ pub enum Commands {
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 #[allow(clippy::enum_variant_names)]
-pub enum Shell {
+pub(crate) enum Shell {
     Bash,
     Zsh,
     Fish,
@@ -494,15 +482,12 @@ pub enum Shell {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum SessionCommands {
+pub(crate) enum SessionCommands {
     /// List active payment sessions
     List {
         /// Filter by state (comma-separated or repeatable). Defaults to 'active'. Use 'all' for every state.
         #[arg(long = "state", value_enum, value_delimiter = ',')]
         state: Vec<SessionStateArg>,
-        /// Filter by network (e.g., tempo, tempo-moderato)
-        #[arg(long)]
-        network: Option<String>,
     },
     /// Show details for a specific session or channel
     ///
@@ -511,9 +496,6 @@ pub enum SessionCommands {
     Info {
         /// URL/origin or channel ID (0x...)
         target: String,
-        /// Network to use when target is a channel ID (optional; defaults to Tempo)
-        #[arg(long)]
-        network: Option<String>,
     },
     /// Close a payment session and remove it locally
     Close {
@@ -546,7 +528,7 @@ pub enum SessionCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum WalletCommands {
+pub(crate) enum WalletCommands {
     /// List configured wallets
     List,
     /// Create a new local wallet
@@ -563,7 +545,7 @@ pub enum WalletCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum KeyCommands {
+pub(crate) enum KeyCommands {
     /// List all keys and their spending limits
     List,
     /// Create a new key for a local wallet (generates fresh 30-day key)
@@ -583,7 +565,7 @@ pub enum KeyCommands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum ServicesCommands {
+pub(crate) enum ServicesCommands {
     /// List available services
     List,
     /// Show detailed information about a service
@@ -594,47 +576,101 @@ pub enum ServicesCommands {
 }
 
 impl Cli {
-    /// Returns a `clap::Command` with the usage string derived from the runtime
-    /// binary name (argv\[0\]). This ensures `tempo wallet help` shows
-    /// `tempo wallet [HTTP OPTIONS] <URL>` rather than `tempo-wallet`.
-    pub fn command_with_usage() -> clap::Command {
-        let bin = std::env::args()
-            .next()
-            .and_then(|p| {
-                std::path::Path::new(&p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| "tempo-wallet".to_string());
-        let usage = format!("\n  {bin} [HTTP OPTIONS] <URL>\n  {bin} <COMMAND> [OPTIONS]");
-        <Self as CommandFactory>::command()
-            .bin_name(&bin)
-            .override_usage(usage)
-    }
+    /// Parse CLI args, treating a bare URL as an implicit `query` subcommand.
+    ///
+    /// This allows ` tempo-wallethttps://example.com` as a shorthand for
+    /// ` tempo-walletquery https://example.com`, making the primary use case
+    /// as frictionless as curl/wget.
+    pub(crate) fn parse() -> Self {
+        match Self::try_parse() {
+            Ok(cli) => cli,
+            Err(err) => {
+                if matches!(err.kind(), clap::error::ErrorKind::DisplayHelp) {
+                    err.exit()
+                }
 
-    /// Verbosity level (0=warn, 1=info, 2=debug, 3+=trace). Returns 0 when silent.
-    pub fn verbosity(&self) -> u8 {
-        if self.silent || self.verbose == 0 {
-            0
-        } else if self.verbose == 1 {
-            1
-        } else if self.verbose == 2 {
-            2
-        } else {
-            3
+                let args: Vec<String> = std::env::args().collect();
+
+                if matches!(err.kind(), clap::error::ErrorKind::DisplayVersion) {
+                    Self::handle_version(&args);
+                    err.exit()
+                }
+
+                Self::try_implicit_query(&args).unwrap_or_else(|| err.exit())
+            }
         }
     }
 
-    /// Whether output should be shown (false when `-q` is used).
+    /// Print JSON version info if `-j` was passed alongside `--version`.
+    fn handle_version(args: &[String]) {
+        if args.iter().any(|a| a == "-j" || a == "--json-output") {
+            let json = serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "git_commit": env!("PRESTO_GIT_SHA"),
+                "build_date": env!("PRESTO_BUILD_DATE"),
+                "profile": env!("PRESTO_BUILD_PROFILE"),
+            });
+            println!("{}", serde_json::to_string_pretty(&json).unwrap());
+            std::process::exit(0);
+        }
+    }
+
+    /// Try re-parsing with an implicit `query` subcommand.
     ///
-    /// Note: with `WarnLevel`, `-q` maps to `Error` (not `Off`). Treat both
-    /// `Off` and `Error` as silent for CLI user-facing logs.
-    pub fn should_show_output(&self) -> bool {
-        !self.silent
+    /// Allows ` tempo-wallethttps://example.com` as shorthand for
+    /// ` tempo-walletquery https://example.com`. Returns `None` when
+    /// the args don't look like an implicit query.
+    fn try_implicit_query(args: &[String]) -> Option<Self> {
+        use clap::CommandFactory;
+
+        let mut subcommands: Vec<String> = Self::command()
+            .get_subcommands()
+            .flat_map(|c| {
+                let mut names = vec![c.get_name().to_string()];
+                names.extend(c.get_all_aliases().map(String::from));
+                names
+            })
+            .collect();
+        subcommands.push("help".to_string());
+
+        let first_positional = args[1..]
+            .iter()
+            .find(|a| !a.starts_with('-'))
+            .map(|s| s.as_str());
+
+        if first_positional.is_some_and(|p| subcommands.iter().any(|s| s == p)) {
+            return None;
+        }
+
+        let mut with_query = vec![args[0].clone(), "query".to_string()];
+        with_query.extend(args[1..].iter().cloned());
+
+        let cli = Self::try_parse_from(with_query).ok()?;
+
+        if let Some(Commands::Query(ref q)) = cli.command {
+            let url = &q.url;
+            if !url.contains("://") && !url.contains("localhost") && !url.contains('.') {
+                eprintln!(
+                    "error: '{url}' is not a  tempo-walletcommand. \
+                     See ' tempo-wallet--help' for a list of available commands."
+                );
+                super::exit_codes::ExitCode::InvalidUsage.exit();
+            }
+        }
+
+        Some(cli)
+    }
+
+    /// Build a `Verbosity` from CLI flags (silent overrides verbose).
+    pub(crate) fn verbosity(&self) -> crate::util::Verbosity {
+        crate::util::Verbosity {
+            level: if self.silent { 0 } else { self.verbose.min(3) },
+            show_output: !self.silent,
+        }
     }
 
     /// Resolve the effective output format: CLI flag > default (text).
-    pub fn resolve_output_format(&self) -> OutputFormat {
+    pub(crate) fn resolve_output_format(&self) -> OutputFormat {
         if self.json_output {
             OutputFormat::Json
         } else if self.toon_output {

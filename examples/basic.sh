@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Basic Payment Demo — single paid request with tempo-wallet
+# Basic Payment Demo — single paid request with presto
 #
 # Makes a single paid request using the charge intent (pay-per-request).
-# tempo-wallet detects the 402, signs an on-chain payment, and retries with credentials.
+#  tempo-walletdetects the 402, signs an on-chain payment, and retries with credentials.
 #
 # Flow:
-#   1. tempo-wallet sends POST to paid endpoint → receives 402 + challenge
+#   1.  tempo-walletsends POST to paid endpoint → receives 402 + challenge
 #   2. Automatically signs a payment transaction on-chain
 #   3. Retries the request with the payment credential
 #   4. Receives the response
@@ -13,8 +13,8 @@
 # No payment channels, no sessions — just a single transaction per request.
 #
 # Prerequisites:
-#   - tempo-wallet installed (`make install`)
-#   - Run `tempo wallet login` to connect your Tempo wallet
+#   -  tempo-walletinstalled (`make install`)
+#   - Run ` tempo-walletlogin` to connect your Tempo wallet
 #
 # Usage:
 #   ./examples/basic.sh [PROMPT]
@@ -28,7 +28,7 @@ ENDPOINT="https://openai.mpp.tempo.xyz/v1/chat/completions"
 MODEL="gpt-4o-mini"
 PROMPT="${1:-Tell me a fortune in one sentence.}"
 
-echo "=== tempo-wallet Basic Payment Demo ==="
+echo "===  tempo-walletBasic Payment Demo ==="
 echo ""
 echo "Endpoint: ${ENDPOINT}"
 echo "Model:    ${MODEL}"
@@ -36,15 +36,15 @@ echo "Prompt:   \"${PROMPT}\""
 echo ""
 
 # Ensure wallet is configured
-if ! tempo wallet whoami 2>/dev/null | grep -q "Wallet:"; then
-  echo "No wallet configured. Running 'tempo wallet login'..."
-  tempo wallet login
+if !  tempo-walletwhoami 2>/dev/null | grep -q "Wallet:"; then
+  echo "No wallet configured. Running ' tempo-walletlogin'..."
+   tempo-walletlogin
   echo ""
 fi
 
 echo "--- Sending paid request ---"
 
-RESPONSE=$(tempo wallet -v -X POST \
+RESPONSE=$( tempo-wallet-v -X POST \
   --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
   "${ENDPOINT}" 2>"$STDERR_FILE")
 
