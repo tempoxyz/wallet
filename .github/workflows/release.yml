@@ -81,9 +81,8 @@ jobs:
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
-          pip3 install PyNaCl
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
-          python3 scripts/sign-release.py \
+          cargo run --bin sign-release -- \
             --key-file /tmp/release.key \
             --artifacts-dir artifacts \
             --version "${{ inputs.version }}" \
@@ -110,8 +109,9 @@ jobs:
             aws s3 cp "$f" "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
-          # Upload signed manifest for tempo CLI auto-install
+          # Upload signed manifest for tempo CLI auto-install (latest + versioned)
           aws s3 cp artifacts/manifest.json "s3://tempo-cli/extensions/tempo-wallet/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "application/json"
+          aws s3 cp artifacts/manifest.json "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "application/json"
 
           # Upload install script and AI skills
           aws s3 cp install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
