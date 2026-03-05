@@ -12,7 +12,7 @@ tempo-wallet is a command-line HTTP client that pays for API calls automatically
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/tempoxyz/wallet/main/install.sh | bash
+curl -fsSL cli.tempo.xyz/install.sh | bash
 
 # Connect your wallet
 tempo-wallet login
