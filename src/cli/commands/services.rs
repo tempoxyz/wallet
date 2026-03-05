@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::args::ServicesCommands;
 use crate::cli::{Context, OutputFormat};
+use crate::error::TempoWalletError;
 
 // ---------------------------------------------------------------------------
 // Data model (service registry)
@@ -128,7 +129,9 @@ async fn fetch_services() -> Result<ServiceRegistry> {
 
     let status = resp.status();
     if !status.is_success() {
-        anyhow::bail!("service directory returned HTTP {status}");
+        anyhow::bail!(TempoWalletError::Http(format!(
+            "service directory returned HTTP {status}"
+        )));
     }
 
     resp.json::<ServiceRegistry>()

@@ -58,6 +58,10 @@ pub(crate) enum TempoWalletError {
     #[error("Payment rejected by server: {reason}")]
     PaymentRejected { reason: String, status_code: u16 },
 
+    /// On-chain transaction reverted
+    #[error("Transaction reverted: {0}")]
+    TransactionReverted(String),
+
     // ==================== Input Validation Errors ====================
     /// Signing error
     #[error("Signing error: {0}")]

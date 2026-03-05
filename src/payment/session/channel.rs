@@ -51,21 +51,21 @@ sol! {
 
 /// On-chain channel state returned by recovery functions.
 pub(crate) struct OnChainChannel {
-    pub token: Address,
-    pub deposit: u128,
-    pub settled: u128,
-    pub close_requested_at: u64,
+    pub(crate) token: Address,
+    pub(crate) deposit: u128,
+    pub(crate) settled: u128,
+    pub(crate) close_requested_at: u64,
 }
 
 /// Discovered on-chain channel with decoded metadata.
 pub(crate) struct DiscoveredChannel {
-    pub network: NetworkId,
-    pub channel_id: String,
-    pub escrow_contract: String,
-    pub token: String,
-    pub deposit: u128,
-    pub settled: u128,
-    pub close_requested_at: u64,
+    pub(crate) network: NetworkId,
+    pub(crate) channel_id: String,
+    pub(crate) escrow_contract: String,
+    pub(crate) token: String,
+    pub(crate) deposit: u128,
+    pub(crate) settled: u128,
+    pub(crate) close_requested_at: u64,
 }
 
 // ==================== Constants ====================

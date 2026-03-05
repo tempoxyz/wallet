@@ -116,7 +116,9 @@ pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Resul
 /// 5. Print the fundable wallet address
 fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
     if keys.ephemeral {
-        anyhow::bail!("Cannot create wallets with --private-key flag");
+        anyhow::bail!(TempoWalletError::InvalidConfig(
+            "Cannot create wallets with --private-key flag".to_string()
+        ));
     }
 
     let mut keys = keys.clone();
@@ -170,7 +172,9 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
 /// 4. Clear provisioned flag (new key must re-provision)
 pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -> Result<()> {
     if keys.ephemeral {
-        anyhow::bail!("Cannot renew wallets with --private-key flag");
+        anyhow::bail!(TempoWalletError::InvalidConfig(
+            "Cannot renew wallets with --private-key flag".to_string()
+        ));
     }
 
     let mut keys = keys.clone();
@@ -180,7 +184,11 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
             .position(|k| {
                 k.wallet_address.eq_ignore_ascii_case(addr) && k.wallet_type == WalletType::Local
             })
-            .ok_or_else(|| anyhow::anyhow!("No local wallet found for address '{addr}'."))?
+            .ok_or_else(|| {
+                TempoWalletError::ConfigMissing(format!(
+                    "No local wallet found for address '{addr}'."
+                ))
+            })?
     } else {
         let local_indices: Vec<_> = keys
             .keys
@@ -190,9 +198,13 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
             .map(|(i, _)| i)
             .collect();
         match local_indices.len() {
-            0 => anyhow::bail!("No local wallet found."),
+            0 => anyhow::bail!(TempoWalletError::ConfigMissing(
+                "No local wallet found.".to_string()
+            )),
             1 => local_indices[0],
-            _ => anyhow::bail!("Multiple local wallets found. Specify --wallet <address>."),
+            _ => anyhow::bail!(TempoWalletError::InvalidConfig(
+                "Multiple local wallets found. Specify --wallet <address>.".to_string()
+            )),
         }
     };
 
@@ -203,13 +215,13 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
         .get(&key_entry.wallet_address)
         .map_err(|e| TempoWalletError::Keychain(format!("Failed to load wallet key: {e}")))?
         .ok_or_else(|| {
-            anyhow::anyhow!(
+            TempoWalletError::Keychain(format!(
                 "Wallet key not found in keychain for '{}'. The wallet may need to be re-created.",
                 key_entry.wallet_address
-            )
+            ))
         })?;
     let wallet_signer: PrivateKeySigner = parse_private_key_signer(&wallet_key_hex)
-        .map_err(|e| anyhow::anyhow!("Invalid wallet key in keychain: {e}"))?;
+        .map_err(|e| TempoWalletError::Keychain(format!("Invalid wallet key in keychain: {e}")))?;
 
     // Generate new key
     let access_signer = PrivateKeySigner::random();

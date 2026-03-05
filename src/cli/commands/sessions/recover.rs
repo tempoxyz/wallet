@@ -134,7 +134,7 @@ pub(super) async fn recover_session(
                     "error": e.to_string(),
                 }))?
             ),
-            OutputFormat::Text => anyhow::bail!("{e}"),
+            OutputFormat::Text => return Err(e),
         },
     }
 

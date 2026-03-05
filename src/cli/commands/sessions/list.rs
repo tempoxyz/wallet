@@ -76,7 +76,6 @@ mod tests {
             deposit: "1000000".into(),
             tick_cost: "100".into(),
             cumulative_amount: "2000".into(),
-            did: "did:pkh:eip155:4217:0x00".into(),
             challenge_echo: "{}".into(),
             challenge_id: "id".into(),
             state: state.into(),

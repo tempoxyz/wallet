@@ -82,46 +82,6 @@ struct SessionContext<'a> {
     reqwest_client: &'a reqwest::Client,
 }
 
-impl<'a> SessionContext<'a> {
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        signer: &'a alloy::signers::local::PrivateKeySigner,
-        echo: &'a ChallengeEcho,
-        did: &'a str,
-        http: &'a HttpClient,
-        url: &'a str,
-        network_id: NetworkId,
-        origin: &'a str,
-        tick_cost: u128,
-        deposit: u128,
-        salt: String,
-        recipient: String,
-        currency: String,
-        reqwest_client: &'a reqwest::Client,
-    ) -> Self {
-        Self {
-            signer,
-            echo,
-            did,
-            http,
-            url,
-            network_id,
-            origin,
-            tick_cost,
-            deposit,
-            salt,
-            recipient,
-            currency,
-            reqwest_client,
-        }
-    }
-
-    /// Resolve the token symbol for the current session (e.g., "USDC" or "pathUSD").
-    fn token_symbol(&self) -> &'static str {
-        self.network_id.token().symbol
-    }
-}
-
 // ==================== Helpers ====================
 
 /// Extract the origin (scheme://host\[:port\]) from a URL.
@@ -217,7 +177,6 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
             deposit: ctx.deposit.to_string(),
             tick_cost: ctx.tick_cost.to_string(),
             cumulative_amount: state.cumulative_amount.to_string(),
-            did: ctx.did.to_string(),
             challenge_echo: echo_json,
             challenge_id: ctx.echo.id.clone(),
             state: "active".to_string(),
@@ -232,9 +191,8 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
     store::save_session(&record)?;
 
     if ctx.http.log_enabled() {
-        let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
-        let symbol = ctx.token_symbol();
-        eprintln!("Session persisted (cumulative: {cumulative_f64:.6} {symbol})");
+        let cumulative_display = format_token_amount(state.cumulative_amount, ctx.network_id);
+        eprintln!("Session persisted (cumulative: {cumulative_display})");
     }
 
     Ok(())
@@ -276,11 +234,13 @@ async fn send_session_request(
     let status = response.status();
     if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!(
-            "Session request failed: HTTP {} — {}",
-            status,
-            body.chars().take(500).collect::<String>()
-        );
+        let reason = crate::payment::extract_json_error(&body)
+            .unwrap_or_else(|| body.chars().take(500).collect::<String>());
+        return Err(TempoWalletError::PaymentRejected {
+            reason,
+            status_code: status.as_u16(),
+        }
+        .into());
     }
 
     let is_sse = response
@@ -345,7 +305,7 @@ pub(in crate::payment) async fn handle_session_request(
         .context("Failed to parse session request from challenge")?;
 
     let chain_id = session_req.chain_id().ok_or_else(|| {
-        TempoWalletError::InvalidConfig("Missing chainId in session request".to_string())
+        TempoWalletError::InvalidChallenge("Missing chainId in session request".to_string())
     })?;
 
     let tick_cost: u128 = session_req
@@ -357,13 +317,13 @@ pub(in crate::payment) async fn handle_session_request(
         .escrow_contract()
         .context("Missing escrow contract in session challenge")?;
     let expected_escrow = resolved.network_id.escrow_contract();
-    anyhow::ensure!(
-        escrow_str.eq_ignore_ascii_case(expected_escrow),
-        "Untrusted escrow contract: {} (expected {} for network {})",
-        escrow_str,
-        expected_escrow,
-        network_name
-    );
+    if !escrow_str.eq_ignore_ascii_case(expected_escrow) {
+        return Err(TempoWalletError::InvalidChallenge(format!(
+            "Untrusted escrow contract: {} (expected {} for network {})",
+            escrow_str, expected_escrow, network_name
+        ))
+        .into());
+    }
     let escrow_contract: Address = escrow_str
         .parse()
         .context("Invalid escrow contract address")?;
@@ -376,7 +336,9 @@ pub(in crate::payment) async fn handle_session_request(
     let recipient: Address = session_req
         .recipient
         .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("Missing recipient in session challenge"))?
+        .ok_or(TempoWalletError::InvalidChallenge(
+            "Missing recipient in session challenge".to_string(),
+        ))?
         .parse()
         .context("Invalid recipient address")?;
 
@@ -496,21 +458,21 @@ pub(in crate::payment) async fn handle_session_request(
             cumulative_amount: prev_cumulative + tick_cost,
         };
 
-        let ctx = SessionContext::new(
-            &signer.signer,
-            &echo,
-            &did,
+        let ctx = SessionContext {
+            signer: &signer.signer,
+            echo: &echo,
+            did: &did,
             http,
             url,
             network_id,
-            &origin,
+            origin: &origin,
             tick_cost,
             deposit,
-            record.salt.clone(),
-            recipient_hex.clone(),
-            currency_hex.clone(),
-            http.client(),
-        );
+            salt: record.salt.clone(),
+            recipient: recipient_hex.clone(),
+            currency: currency_hex.clone(),
+            reqwest_client: http.client(),
+        };
 
         match send_session_request(&ctx, &mut state).await {
             Ok(result) => {
@@ -639,21 +601,21 @@ pub(in crate::payment) async fn handle_session_request(
         cumulative_amount: initial_cumulative,
     };
 
-    let ctx = SessionContext::new(
-        &signer.signer,
-        &echo,
-        &did,
+    let ctx = SessionContext {
+        signer: &signer.signer,
+        echo: &echo,
+        did: &did,
         http,
         url,
         network_id,
-        &origin,
+        origin: &origin,
         tick_cost,
         deposit,
-        format!("{:#x}", salt),
-        recipient_hex,
-        currency_hex,
-        http.client(),
-    );
+        salt: format!("{:#x}", salt),
+        recipient: recipient_hex,
+        currency: currency_hex,
+        reqwest_client: http.client(),
+    };
 
     // For non-SSE responses, the open response already contains the proxied
     // upstream result — use it directly instead of making a duplicate request.

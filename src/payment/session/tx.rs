@@ -28,7 +28,7 @@ const VALID_BEFORE_SECS: u64 = 25;
 
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {
-    pub tx_bytes: Vec<u8>,
+    pub(super) tx_bytes: Vec<u8>,
 }
 
 /// Compute the expiring nonce validity window.
@@ -136,7 +136,7 @@ pub(super) async fn submit_tempo_tx(
     let pending = provider
         .send_raw_transaction(&tx_bytes)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to broadcast transaction: {e:#}"))?;
+        .map_err(|e| TempoWalletError::Http(format!("Failed to broadcast transaction: {e:#}")))?;
 
     Ok(format!("{:#x}", pending.tx_hash()))
 }
@@ -198,25 +198,36 @@ pub(super) async fn send_open_with_retry(
                 }
                 if next.status_code != 410 {
                     let nb = next.body_string().unwrap_or_default();
-                    anyhow::bail!(
-                        "Session open failed: HTTP {} — {}",
-                        next.status_code,
-                        truncate(nb)
-                    );
+                    let reason =
+                        crate::payment::extract_json_error(&nb).unwrap_or_else(|| truncate(nb));
+                    return Err(TempoWalletError::PaymentRejected {
+                        reason,
+                        status_code: next.status_code,
+                    }
+                    .into());
                 }
             }
-            anyhow::bail!("Server could not find channel after retries");
+            return Err(TempoWalletError::PaymentRejected {
+                reason: "Server could not find channel after retries".to_string(),
+                status_code: 410,
+            }
+            .into());
         } else {
-            anyhow::bail!("Session open failed: HTTP 410 — {}", truncate(body));
+            return Err(TempoWalletError::PaymentRejected {
+                reason: truncate(body),
+                status_code: 410,
+            }
+            .into());
         }
     }
 
     let body = resp.body_string().unwrap_or_default();
-    anyhow::bail!(
-        "Session open failed: HTTP {} — {}",
-        resp.status_code,
-        truncate(body)
-    );
+    let reason = crate::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
+    Err(TempoWalletError::PaymentRejected {
+        reason,
+        status_code: resp.status_code,
+    }
+    .into())
 }
 
 #[cfg(test)]

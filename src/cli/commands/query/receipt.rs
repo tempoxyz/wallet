@@ -179,10 +179,11 @@ fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result
             .context("Failed to write to stdout")?;
     } else {
         let path = Path::new(output_file);
-        anyhow::ensure!(
-            !path.components().any(|c| matches!(c, Component::ParentDir)),
-            "Invalid output path: path traversal (..) not allowed"
-        );
+        if path.components().any(|c| matches!(c, Component::ParentDir)) {
+            anyhow::bail!(TempoWalletError::InvalidUrl(
+                "Invalid output path: path traversal (..) not allowed".to_string()
+            ));
+        }
         std::fs::write(output_file, data).context("Failed to write output file")?;
         if opts.log_enabled() {
             eprintln!("Saved to: {output_file}");

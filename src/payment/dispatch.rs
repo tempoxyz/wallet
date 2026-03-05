@@ -59,18 +59,19 @@ pub(crate) async fn dispatch_payment(
     };
 
     let chain_id = chain_id.ok_or_else(|| {
-        TempoWalletError::InvalidConfig("Missing chainId in payment request".to_string())
+        TempoWalletError::InvalidChallenge("Missing chainId in payment request".to_string())
     })?;
 
     let network_id = NetworkId::require_chain_id(chain_id)?;
 
     if let Some(allowed) = http.network {
-        anyhow::ensure!(
-            allowed == network_id,
-            "Server requested network '{}' but --network is '{}'",
-            network_id,
-            allowed
-        );
+        if allowed != network_id {
+            return Err(TempoWalletError::InvalidChallenge(format!(
+                "Server requested network '{}' but --network is '{}'",
+                network_id, allowed
+            ))
+            .into());
+        }
     }
 
     let rpc_url = config.rpc_url(network_id);
@@ -153,7 +154,9 @@ pub(super) fn classify_payment_error(err: mpp::MppError, network: &NetworkId) ->
                     required: req_fmt,
                 }
             }
-            TempoClientError::TransactionReverted(msg) => TempoWalletError::Http(msg),
+            TempoClientError::TransactionReverted(msg) => {
+                TempoWalletError::TransactionReverted(msg)
+            }
         },
         other => {
             let raw = other.to_string();

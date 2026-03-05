@@ -158,7 +158,9 @@ pub(super) async fn stream_sse_response(
         }
 
         if buffer.len() > MAX_BUFFER_SIZE {
-            anyhow::bail!("SSE buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event — aborting stream");
+            return Err(crate::error::TempoWalletError::Http(
+                format!("SSE buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event — aborting stream")
+            ).into());
         }
 
         while let Some(pos) = buffer.find("\n\n") {
@@ -257,9 +259,9 @@ pub(super) async fn stream_sse_response(
 
     if runtime.log_enabled() {
         eprintln!("Tokens streamed: {}", token_count);
-        let cumulative_f64 = state.cumulative_amount as f64 / 1e6;
-        let symbol = ctx.token_symbol();
-        eprintln!("Voucher cumulative: {cumulative_f64:.6} {symbol}");
+        let cumulative_display =
+            crate::util::format_token_amount(state.cumulative_amount, ctx.network_id);
+        eprintln!("Voucher cumulative: {cumulative_display}");
     }
 
     Ok(())
@@ -288,5 +290,66 @@ fn parse_sse_chunk(raw: &str) -> (Option<String>, bool) {
     } else {
         // Not JSON — return raw content as-is (plain text SSE)
         (Some(trimmed.to_string()), false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_sse_chunk_openai_delta_content() {
+        let raw = r#"{"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let (content, finished) = parse_sse_chunk(raw);
+        assert_eq!(content.as_deref(), Some("Hello"));
+        assert!(!finished);
+    }
+
+    #[test]
+    fn test_parse_sse_chunk_finish_reason_stop() {
+        let raw = r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#;
+        let (content, finished) = parse_sse_chunk(raw);
+        assert!(content.is_none());
+        assert!(finished);
+    }
+
+    #[test]
+    fn test_parse_sse_chunk_role_only_delta() {
+        let raw = r#"{"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}"#;
+        let (content, finished) = parse_sse_chunk(raw);
+        assert!(content.is_none());
+        assert!(!finished);
+    }
+
+    #[test]
+    fn test_parse_sse_chunk_empty_content() {
+        let raw = r#"{"choices":[{"delta":{"content":""},"finish_reason":null}]}"#;
+        let (content, finished) = parse_sse_chunk(raw);
+        assert!(content.is_none());
+        assert!(!finished);
+    }
+
+    #[test]
+    fn test_parse_sse_chunk_plain_text() {
+        let raw = "some plain text response";
+        let (content, finished) = parse_sse_chunk(raw);
+        assert_eq!(content.as_deref(), Some("some plain text response"));
+        assert!(!finished);
+    }
+
+    #[test]
+    fn test_parse_sse_chunk_whitespace_trimmed() {
+        let raw = "  hello world  \n";
+        let (content, finished) = parse_sse_chunk(raw);
+        assert_eq!(content.as_deref(), Some("hello world"));
+        assert!(!finished);
+    }
+
+    #[test]
+    fn test_parse_sse_chunk_json_no_choices() {
+        let raw = r#"{"model":"gpt-4"}"#;
+        let (content, finished) = parse_sse_chunk(raw);
+        assert!(content.is_none());
+        assert!(!finished);
     }
 }

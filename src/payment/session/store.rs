@@ -33,7 +33,6 @@ pub(crate) struct SessionRecord {
     pub(crate) deposit: String,
     pub(crate) tick_cost: String,
     pub(crate) cumulative_amount: String,
-    pub(crate) did: String,
     pub(crate) challenge_echo: String,
     pub(crate) challenge_id: String,
     /// Explicit lifecycle state: "active" | "closing" | "finalizable" | "finalized" (tombstones not persisted) | "orphaned" (not persisted here)
@@ -126,6 +125,7 @@ impl SessionRecord {
                     ("closing".to_string(), Some(rem))
                 }
             }
+            "finalizable" => ("finalizable".to_string(), Some(0)),
             _ => ("active".to_string(), None),
         }
     }
@@ -169,14 +169,14 @@ fn open_db() -> Result<rusqlite::Connection> {
 }
 
 fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
-    // Enforce our public baseline schema as user_version=1. Any pre-release DBs are discarded.
+    // Enforce our public baseline schema as user_version=2. Any pre-release DBs are discarded.
     if path.exists() {
         if let Ok(conn) = rusqlite::Connection::open(path) {
             let uv: u32 = conn
                 .pragma_query_value(None, "user_version", |row| row.get(0))
                 .unwrap_or(0);
             drop(conn);
-            if uv != 1 {
+            if uv != 2 {
                 let _ = std::fs::remove_file(path);
             }
         } else {
@@ -197,7 +197,7 @@ fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
 }
 
 fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
-    // Public baseline: user_version == 1 with explicit state fields.
+    // Public baseline: user_version == 2 (removed redundant `did` column).
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
             key               TEXT PRIMARY KEY,
@@ -216,7 +216,6 @@ fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
             deposit           TEXT NOT NULL,
             tick_cost         TEXT NOT NULL,
             cumulative_amount TEXT NOT NULL,
-            did               TEXT NOT NULL,
             challenge_echo    TEXT NOT NULL,
             challenge_id      TEXT NOT NULL,
             state             TEXT NOT NULL DEFAULT 'active',
@@ -229,8 +228,8 @@ fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
     )
     .context("Failed to create sessions table")?;
 
-    conn.pragma_update(None, "user_version", 1)
-        .context("Failed to set database version to 1")?;
+    conn.pragma_update(None, "user_version", 2)
+        .context("Failed to set database version")?;
 
     Ok(())
 }
@@ -246,8 +245,8 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             key, version, origin, request_url, network_name, chain_id,
             escrow_contract, currency, recipient, payer, authorized_signer,
             salt, channel_id, deposit, tick_cost, cumulative_amount,
-            did, challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+            challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
         params![
             key,
             record.version,
@@ -265,7 +264,6 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             record.deposit,
             record.tick_cost,
             record.cumulative_amount,
-            record.did,
             record.challenge_echo,
             record.challenge_id,
             record.state,
@@ -298,15 +296,14 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         deposit: row.get(12)?,
         tick_cost: row.get(13)?,
         cumulative_amount: row.get(14)?,
-        did: row.get(15)?,
-        challenge_echo: row.get(16)?,
-        challenge_id: row.get(17)?,
-        state: row.get(18).unwrap_or_else(|_| "active".to_string()),
-        close_requested_at: u64::try_from(row.get::<_, i64>(19).unwrap_or(0)).unwrap_or(0),
-        grace_ready_at: u64::try_from(row.get::<_, i64>(20).unwrap_or(0)).unwrap_or(0),
-        token_decimals: u8::try_from(row.get::<_, i64>(21).unwrap_or(6)).unwrap_or(6),
-        created_at: u64::try_from(row.get::<_, i64>(22)?).unwrap_or(0),
-        last_used_at: u64::try_from(row.get::<_, i64>(23)?).unwrap_or(0),
+        challenge_echo: row.get(15)?,
+        challenge_id: row.get(16)?,
+        state: row.get(17).unwrap_or_else(|_| "active".to_string()),
+        close_requested_at: u64::try_from(row.get::<_, i64>(18).unwrap_or(0)).unwrap_or(0),
+        grace_ready_at: u64::try_from(row.get::<_, i64>(19).unwrap_or(0)).unwrap_or(0),
+        token_decimals: u8::try_from(row.get::<_, i64>(20).unwrap_or(6)).unwrap_or(6),
+        created_at: u64::try_from(row.get::<_, i64>(21)?).unwrap_or(0),
+        last_used_at: u64::try_from(row.get::<_, i64>(22)?).unwrap_or(0),
     })
 }
 
@@ -316,7 +313,7 @@ fn load_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<Option<Se
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    did, challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
+                    challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
              FROM sessions WHERE key = ?1",
         )
         .context("Failed to prepare load query")?;
@@ -352,7 +349,7 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    did, challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
+                    challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
              FROM sessions ORDER BY last_used_at DESC",
         )
         .context("Failed to prepare list query")?;
@@ -467,7 +464,6 @@ mod tests {
             deposit: "1000000".into(),
             tick_cost: "100".into(),
             cumulative_amount: "0".into(),
-            did: "did:pkh:eip155:4217:0x00".into(),
             challenge_echo: "echo".into(),
             challenge_id: "id".into(),
             state: "active".into(),
@@ -630,6 +626,43 @@ mod tests {
 
         // After drop, we should be able to re-acquire
         acquire_origin_lock(&key).expect("re-acquire after drop should succeed");
+    }
+
+    #[test]
+    fn test_status_at_active() {
+        let record = test_record("https://example.com", "salt");
+        let (status, rem) = record.status_at(1000);
+        assert_eq!(status, "active");
+        assert!(rem.is_none());
+    }
+
+    #[test]
+    fn test_status_at_closing_with_remaining() {
+        let mut record = test_record("https://example.com", "salt");
+        record.state = "closing".to_string();
+        record.grace_ready_at = 2000;
+        let (status, rem) = record.status_at(1500);
+        assert_eq!(status, "closing");
+        assert_eq!(rem, Some(500));
+    }
+
+    #[test]
+    fn test_status_at_closing_grace_elapsed() {
+        let mut record = test_record("https://example.com", "salt");
+        record.state = "closing".to_string();
+        record.grace_ready_at = 1000;
+        let (status, rem) = record.status_at(2000);
+        assert_eq!(status, "finalizable");
+        assert_eq!(rem, Some(0));
+    }
+
+    #[test]
+    fn test_status_at_finalizable() {
+        let mut record = test_record("https://example.com", "salt");
+        record.state = "finalizable".to_string();
+        let (status, rem) = record.status_at(5000);
+        assert_eq!(status, "finalizable");
+        assert_eq!(rem, Some(0));
     }
 
     #[test]

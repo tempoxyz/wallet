@@ -166,9 +166,9 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             let _ = fs::create_dir_all(parent);
         }
         let conn = Connection::open(&db_path).expect("open sessions.db");
-        // Public baseline schema v1
+        // Public baseline schema v2 (removed redundant `did` column)
         conn.execute_batch(
-            "PRAGMA user_version=1;\n
+            "PRAGMA user_version=2;\n
              CREATE TABLE IF NOT EXISTS sessions (
                 key               TEXT PRIMARY KEY,
                 version           INTEGER NOT NULL DEFAULT 1,
@@ -186,7 +186,6 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
                 deposit           TEXT NOT NULL,
                 tick_cost         TEXT NOT NULL,
                 cumulative_amount TEXT NOT NULL,
-                did               TEXT NOT NULL,
                 challenge_echo    TEXT NOT NULL,
                 challenge_id      TEXT NOT NULL,
                 state             TEXT NOT NULL DEFAULT 'active',
@@ -224,10 +223,10 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
                 key, version, origin, request_url, network_name, chain_id,
                 escrow_contract, currency, recipient, payer, authorized_signer,
                 salt, channel_id, deposit, tick_cost, cumulative_amount,
-                did, challenge_echo, challenge_id, state, close_requested_at,
+                challenge_echo, challenge_id, state, close_requested_at,
                 grace_ready_at, token_decimals, created_at, last_used_at
             ) VALUES (?1, 1, ?2, ?3, 'tempo', 4217, ?4, ?5, ?6, ?7, ?8, ?9,
-                      ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'active', 0, 0, 6, ?17, ?18)",
+                      ?10, ?11, ?12, ?13, ?14, ?15, 'active', 0, 0, 6, ?16, ?17)",
             rusqlite::params![
                 key,
                 origin,
@@ -242,7 +241,6 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
                 "1000000",
                 "100",
                 "0",
-                "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003",
                 "{}",
                 "id",
                 now,

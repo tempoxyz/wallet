@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use super::render::{render_channel_list, render_channel_text, ChannelView};
 use crate::cli::OutputFormat;
 use crate::config::Config;
+use crate::error::TempoWalletError;
 use crate::network::NetworkId;
 use crate::payment::session::channel::read_grace_period;
 use crate::payment::session::store as session_store;
@@ -144,7 +145,12 @@ async fn show_channel_info(
                 }
                 return Ok(());
             }
-            Err(e) => anyhow::bail!("Failed to query channel on {}: {e}", network),
+            Err(e) => {
+                anyhow::bail!(TempoWalletError::Http(format!(
+                    "Failed to query channel on {}: {e}",
+                    network
+                )))
+            }
         };
 
     let t = network.token();

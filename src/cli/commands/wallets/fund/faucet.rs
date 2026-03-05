@@ -7,6 +7,7 @@ use alloy::providers::{Provider, ProviderBuilder};
 use crate::account::{query_all_balances, TokenBalance};
 use crate::cli::OutputFormat;
 use crate::config::Config;
+use crate::error::TempoWalletError;
 use crate::network::NetworkId;
 
 use super::{
@@ -34,7 +35,7 @@ pub(super) async fn run_faucet(
     let result: serde_json::Value = provider
         .raw_request("tempo_fundAddress".into(), [address])
         .await
-        .map_err(|e| anyhow::anyhow!("Faucet request failed: {e}"))?;
+        .map_err(|e| TempoWalletError::Http(format!("Faucet request failed: {e}")))?;
 
     tracing::debug!("Faucet RPC response: {result}");
 

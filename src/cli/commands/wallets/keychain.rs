@@ -21,6 +21,9 @@ use std::sync::OnceLock;
 use anyhow::Result;
 use zeroize::Zeroizing;
 
+#[cfg(not(target_os = "macos"))]
+use crate::error::TempoWalletError;
+
 /// Global keychain backend. Initialised lazily via [`keychain()`].
 static KEYCHAIN_BACKEND: OnceLock<Box<dyn KeychainBackend>> = OnceLock::new();
 
@@ -76,7 +79,9 @@ impl KeychainBackend for OsKeychain {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = profile;
-            anyhow::bail!("OS keychain not supported on this platform")
+            anyhow::bail!(TempoWalletError::Keychain(
+                "OS keychain not supported on this platform".to_string()
+            ))
         }
     }
 
@@ -88,7 +93,9 @@ impl KeychainBackend for OsKeychain {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (profile, secret_hex);
-            anyhow::bail!("OS keychain not supported on this platform")
+            anyhow::bail!(TempoWalletError::Keychain(
+                "OS keychain not supported on this platform".to_string()
+            ))
         }
     }
 
@@ -100,7 +107,9 @@ impl KeychainBackend for OsKeychain {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = profile;
-            anyhow::bail!("OS keychain not supported on this platform")
+            anyhow::bail!(TempoWalletError::Keychain(
+                "OS keychain not supported on this platform".to_string()
+            ))
         }
     }
 
@@ -111,7 +120,9 @@ impl KeychainBackend for OsKeychain {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            anyhow::bail!("OS keychain not supported on this platform")
+            anyhow::bail!(TempoWalletError::Keychain(
+                "OS keychain not supported on this platform".to_string()
+            ))
         }
     }
 }

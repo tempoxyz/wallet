@@ -3,6 +3,7 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
+use crate::error::TempoWalletError;
 use crate::network;
 
 // ---------------------------------------------------------------------------
@@ -103,7 +104,9 @@ pub(super) async fn create_deposit_address(
         } else {
             &text
         };
-        anyhow::bail!("Relay API returned {status}: {truncated}");
+        anyhow::bail!(TempoWalletError::Http(format!(
+            "Relay API returned {status}: {truncated}"
+        )));
     }
 
     let json: serde_json::Value =
@@ -131,7 +134,9 @@ pub(super) async fn create_deposit_address(
         }
     }
 
-    anyhow::bail!("No deposit step found in Relay response")
+    anyhow::bail!(TempoWalletError::Http(
+        "No deposit step found in Relay response".to_string()
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +179,9 @@ pub(super) async fn poll_deposit_status(
         } else {
             &text
         };
-        anyhow::bail!("Relay API returned {status}: {truncated}");
+        anyhow::bail!(TempoWalletError::Http(format!(
+            "Relay API returned {status}: {truncated}"
+        )));
     }
 
     let json: serde_json::Value =

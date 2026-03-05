@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use crate::analytics::Analytics;
 use crate::cli::OutputFormat;
 use crate::config::Config;
+use crate::error::TempoWalletError;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
 use crate::payment::session::channel::find_all_channels_for_payer;
@@ -63,9 +64,10 @@ pub(super) async fn close_sessions(
         return close_by_url(config, target, output_format, show_output, analytics, keys).await;
     }
 
-    anyhow::bail!(
+    anyhow::bail!(TempoWalletError::InvalidUrl(
         "Specify a URL, channel ID (0x...), or use --all/--orphaned/--closed to close sessions"
-    );
+            .to_string()
+    ));
 }
 
 /// Close all local sessions and on-chain orphaned channels.
@@ -270,7 +272,7 @@ async fn close_by_channel_id(
                     serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"channel_id": target, "status": "error", "error": err_msg}]})
                 );
             } else {
-                anyhow::bail!("{e}");
+                return Err(e);
             }
         }
     }
@@ -337,7 +339,7 @@ async fn close_by_url(
                         serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"origin": record.origin, "channel_id": record.channel_id, "status": "error", "error": e.to_string()}]})
                     );
                 } else {
-                    anyhow::bail!("{e}");
+                    return Err(e);
                 }
             }
         }
@@ -361,10 +363,11 @@ async fn close_orphaned_channels(
     network: NetworkId,
     keys: &Keystore,
 ) -> Result<()> {
-    anyhow::ensure!(
-        keys.has_wallet(),
-        "No wallet configured. Log in with 'tempo-wallet login'."
-    );
+    if !keys.has_wallet() {
+        anyhow::bail!(TempoWalletError::ConfigMissing(
+            "No wallet configured. Log in with 'tempo-wallet login'.".to_string()
+        ));
+    }
     let wallet_addr = keys
         .wallet_address()
         .parse()

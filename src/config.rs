@@ -75,10 +75,12 @@ impl Config {
     ) -> anyhow::Result<Self> {
         let (config_path, explicit) = if let Some(path) = config_path {
             let path = PathBuf::from(path.as_ref());
-            anyhow::ensure!(
-                !path.components().any(|c| matches!(c, Component::ParentDir)),
-                "Invalid config path: path traversal (..) not allowed"
-            );
+            if path.components().any(|c| matches!(c, Component::ParentDir)) {
+                return Err(TempoWalletError::InvalidConfig(
+                    "Invalid config path: path traversal (..) not allowed".to_string(),
+                )
+                .into());
+            }
             (path, true)
         } else {
             (Self::default_config_path()?, false)
