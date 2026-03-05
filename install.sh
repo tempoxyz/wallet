@@ -356,6 +356,52 @@ uninstall_tempo_wallet() {
 }
 
 # ---------------------------------------------------------------------------
+# Legacy presto cleanup
+# ---------------------------------------------------------------------------
+
+clean_legacy_presto() {
+    local found=false
+
+    # Remove old presto binaries
+    for dir in "${INSTALL_DIR}" "${LEGACY_INSTALL_DIR}"; do
+        if [[ -f "${dir}/presto" ]]; then
+            remove_file "${dir}/presto" "legacy presto binary (${dir}/presto)"
+            found=true
+        fi
+    done
+
+    # Remove old presto data/config directories
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        if [[ -d "${HOME}/Library/Application Support/presto" ]]; then
+            remove_file "${HOME}/Library/Application Support/presto" "legacy presto data"
+            found=true
+        fi
+    else
+        for dir in "${XDG_CONFIG_HOME:-${HOME}/.config}/presto" "${XDG_DATA_HOME:-${HOME}/.local/share}/presto"; do
+            if [[ -d "${dir}" ]]; then
+                remove_file "${dir}" "legacy presto data (${dir})"
+                found=true
+            fi
+        done
+    fi
+
+    # Remove old presto AI skills
+    for entry in "${AGENT_DIRS[@]}"; do
+        IFS='|' read -r _ skill_base _ <<< "${entry}"
+        for name in presto presto-local presto-passkey; do
+            if [[ -d "${skill_base}/${name}" ]]; then
+                remove_file "${skill_base}/${name}" "legacy presto skill (${name})"
+                found=true
+            fi
+        done
+    done
+
+    if [[ "${found}" == true ]]; then
+        ok "Legacy presto install cleaned up"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -401,6 +447,7 @@ main() {
     fi
 
     clean_legacy_install
+    clean_legacy_presto
     ensure_in_path
     install_ai_skill "${wallet_type}"
 
