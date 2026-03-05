@@ -129,7 +129,7 @@ mod macos {
     /// errSecItemNotFound
     const ITEM_NOT_FOUND: i32 = -25300;
 
-    pub fn get(profile: &str) -> Result<Option<Zeroizing<String>>> {
+    pub(super) fn get(profile: &str) -> Result<Option<Zeroizing<String>>> {
         let opts = PasswordOptions::new_generic_password(SERVICE, profile);
         match passwords::generic_password(opts) {
             Ok(bytes) => {
@@ -142,7 +142,7 @@ mod macos {
         }
     }
 
-    pub fn set(profile: &str, secret: &str) -> Result<()> {
+    pub(super) fn set(profile: &str, secret: &str) -> Result<()> {
         passwords::set_generic_password(SERVICE, profile, secret.as_bytes())
             .context("Failed to store key in macOS Keychain")
     }
@@ -151,7 +151,7 @@ mod macos {
     ///
     /// We can't use `SecItemCopyMatching` directly because the crate forbids
     /// unsafe code, and `security-framework` doesn't expose an enumerate API.
-    pub fn list() -> Result<Vec<String>> {
+    pub(super) fn list() -> Result<Vec<String>> {
         let output = std::process::Command::new("security")
             .args(["dump-keychain"])
             .output()
@@ -203,7 +203,7 @@ mod macos {
         Ok(accounts)
     }
 
-    pub fn delete(profile: &str) -> Result<()> {
+    pub(super) fn delete(profile: &str) -> Result<()> {
         match passwords::delete_generic_password(SERVICE, profile) {
             Err(e) if e.code() != ITEM_NOT_FOUND => {
                 Err(e).context("Failed to delete key from macOS Keychain")
@@ -227,7 +227,7 @@ struct InMemoryKeychain {
 
 #[cfg(test)]
 impl InMemoryKeychain {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             store: Mutex::new(HashMap::new()),
         }

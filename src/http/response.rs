@@ -4,16 +4,16 @@ use anyhow::Result;
 
 #[derive(Debug)]
 pub(crate) struct HttpResponse {
-    pub status_code: u16,
+    pub(crate) status_code: u16,
     /// Response headers stored as name-value pairs with **lowercased** names.
     ///
     /// Header names are normalized to lowercase during conversion.
     /// Duplicate header names (e.g., multiple `Set-Cookie`) are preserved.
     /// Use [`header`](Self::header) for lookup by lowercase name (returns the last value).
-    pub headers: Vec<(String, String)>,
-    pub body: Vec<u8>,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
     /// The final URL after following any redirects.
-    pub final_url: Option<String>,
+    pub(crate) final_url: Option<String>,
 }
 
 impl HttpResponse {

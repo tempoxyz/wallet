@@ -19,9 +19,9 @@ use super::Keystore;
 /// Bundles the private key signer, the resolved `TempoSigningMode`
 /// (direct or keychain), and the effective `from` address.
 pub(crate) struct Signer {
-    pub signer: PrivateKeySigner,
-    pub signing_mode: TempoSigningMode,
-    pub from: Address,
+    pub(crate) signer: PrivateKeySigner,
+    pub(crate) signing_mode: TempoSigningMode,
+    pub(crate) from: Address,
 }
 
 impl Keystore {

@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::cli::OutputFormat;
 use crate::config::Config;
-use crate::payment::session::query_channel_state;
+use crate::payment::session::channel::query_channel_state;
 use crate::payment::session::store as session_store;
 
 /// Reconcile local session records with on-chain state.

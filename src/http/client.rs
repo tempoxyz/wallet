@@ -11,26 +11,26 @@ use crate::network::NetworkId;
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Debug)]
 pub(crate) struct HttpRequestPlan {
-    pub method: reqwest::Method,
-    pub headers: Vec<(String, String)>,
-    pub body: Option<Vec<u8>>,
-    pub timeout_secs: Option<u64>,
-    pub connect_timeout_secs: Option<u64>,
-    pub follow_redirects: bool,
-    pub follow_redirects_limit: Option<usize>,
-    pub user_agent: String,
-    pub insecure: bool,
-    pub proxy: Option<String>,
-    pub no_proxy: bool,
-    pub http2: bool,
-    pub http1_only: bool,
+    pub(crate) method: reqwest::Method,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Option<Vec<u8>>,
+    pub(crate) timeout_secs: Option<u64>,
+    pub(crate) connect_timeout_secs: Option<u64>,
+    pub(crate) follow_redirects: bool,
+    pub(crate) follow_redirects_limit: Option<usize>,
+    pub(crate) user_agent: String,
+    pub(crate) insecure: bool,
+    pub(crate) proxy: Option<String>,
+    pub(crate) no_proxy: bool,
+    pub(crate) http2: bool,
+    pub(crate) http1_only: bool,
     // Retry configuration
-    pub max_retries: u32,
-    pub base_backoff_ms: u64,
-    pub max_backoff_ms: u64,
-    pub retry_status_codes: Vec<u16>,
-    pub honor_retry_after: bool,
-    pub retry_jitter_pct: Option<u32>,
+    pub(crate) max_retries: u32,
+    pub(crate) base_backoff_ms: u64,
+    pub(crate) max_backoff_ms: u64,
+    pub(crate) retry_status_codes: Vec<u16>,
+    pub(crate) honor_retry_after: bool,
+    pub(crate) retry_jitter_pct: Option<u32>,
 }
 
 impl Default for HttpRequestPlan {
@@ -64,11 +64,11 @@ impl Default for HttpRequestPlan {
 /// Owns a pre-built reqwest client and the request plan. Built at the CLI
 /// boundary so that HTTP and payment modules never depend on CLI types.
 pub(crate) struct HttpClient {
-    pub plan: HttpRequestPlan,
+    pub(crate) plan: HttpRequestPlan,
     client: reqwest::Client,
-    pub verbosity: crate::util::Verbosity,
-    pub network: Option<NetworkId>,
-    pub dry_run: bool,
+    pub(crate) verbosity: crate::util::Verbosity,
+    pub(crate) network: Option<NetworkId>,
+    pub(crate) dry_run: bool,
 }
 
 impl HttpClient {

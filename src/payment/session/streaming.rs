@@ -19,7 +19,7 @@ use super::{build_voucher_credential, persist_session, SessionContext, SessionSt
 /// with a streaming body (treating the POST as a new chat request).
 /// Awaiting would deadlock: the server waits for us to read the SSE
 /// stream, and we wait for the POST response.
-pub(super) fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) {
+fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) {
     let client = client.clone();
     let url = url.to_string();
     let auth = auth.to_string();

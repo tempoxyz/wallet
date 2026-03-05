@@ -20,17 +20,17 @@ use super::session::handle_session_request;
 
 /// Parsed challenge with resolved network, shared by charge and session flows.
 pub(super) struct ResolvedChallenge {
-    pub challenge: PaymentChallenge,
-    pub network_id: NetworkId,
-    pub rpc_url: url::Url,
+    pub(super) challenge: PaymentChallenge,
+    pub(super) network_id: NetworkId,
+    pub(super) rpc_url: url::Url,
 }
 
 /// Result of a successful payment dispatch.
 pub(crate) struct PaymentResult {
-    pub tx_hash: String,
-    pub session_id: Option<String>,
-    pub status_code: u16,
-    pub response: Option<HttpResponse>,
+    pub(crate) tx_hash: String,
+    pub(crate) session_id: Option<String>,
+    pub(crate) status_code: u16,
+    pub(crate) response: Option<HttpResponse>,
 }
 
 /// Dispatch to charge or session payment flow.

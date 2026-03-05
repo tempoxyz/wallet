@@ -85,7 +85,7 @@ pub(super) async fn handle_charge_request(
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
-pub(super) fn parse_payment_rejection(response: &HttpResponse) -> TempoWalletError {
+fn parse_payment_rejection(response: &HttpResponse) -> TempoWalletError {
     let reason = if let Ok(body) = response.body_string() {
         if let Some(msg) = super::extract_json_error(&body) {
             msg

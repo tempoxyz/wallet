@@ -225,10 +225,10 @@ async fn poll_bridge_and_balance(
 }
 
 mod relay_status {
-    pub const SUCCESS: &str = "success";
-    pub const FAILURE: &str = "failure";
-    pub const REFUNDED: &str = "refunded";
-    pub const REFUND: &str = "refund";
+    pub(super) const SUCCESS: &str = "success";
+    pub(super) const FAILURE: &str = "failure";
+    pub(super) const REFUNDED: &str = "refunded";
+    pub(super) const REFUND: &str = "refund";
 }
 
 fn print_relay_status_change(source_chain: &str, status: &DepositStatus) {

@@ -6,7 +6,7 @@ use super::render::{render_channel_list, render_channel_text, ChannelView};
 use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::network::NetworkId;
-use crate::payment::session::read_grace_period;
+use crate::payment::session::channel::read_grace_period;
 use crate::payment::session::store as session_store;
 
 /// Show details for a local session by URL/origin or for a channel by ID.

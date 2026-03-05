@@ -392,7 +392,7 @@ fn summarize_error_message(body: &str) -> String {
 /// - If 0: submits `requestClose()` and returns `Pending`
 /// - If non-zero and grace period elapsed: submits `withdraw()` and returns `Closed`
 /// - If non-zero but grace period not elapsed: returns `Pending`
-pub(super) async fn close_on_chain(
+async fn close_on_chain(
     config: &Config,
     wallet: &Signer,
     channel_id: B256,

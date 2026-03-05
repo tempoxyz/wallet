@@ -30,9 +30,9 @@ pub(crate) enum KeyType {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct StoredTokenLimit {
     /// Token contract address.
-    pub currency: String,
+    pub(crate) currency: String,
     /// Spending limit amount (as string to avoid precision issues).
-    pub limit: String,
+    pub(crate) limit: String,
 }
 
 /// A single key entry.
@@ -40,35 +40,35 @@ pub(crate) struct StoredTokenLimit {
 pub(crate) struct KeyEntry {
     /// Wallet type: "local" or "passkey".
     #[serde(default)]
-    pub wallet_type: WalletType,
+    pub(crate) wallet_type: WalletType,
     /// On-chain wallet address (the fundable address).
     #[serde(default)]
-    pub wallet_address: String,
+    pub(crate) wallet_address: String,
     /// Chain ID this key is authorized for.
     #[serde(default)]
-    pub chain_id: u64,
+    pub(crate) chain_id: u64,
     /// Cryptographic key type.
     #[serde(default)]
-    pub key_type: KeyType,
+    pub(crate) key_type: KeyType,
     /// Public address of the key (derived from the key private key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key_address: Option<String>,
+    pub(crate) key_address: Option<String>,
     /// Key private key, stored inline in keys.toml.
     /// Wrapped in [`Zeroizing`] so the secret is scrubbed from memory on drop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<Zeroizing<String>>,
+    pub(crate) key: Option<Zeroizing<String>>,
     /// Key authorization (RLP-encoded SignedKeyAuthorization hex).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key_authorization: Option<String>,
+    pub(crate) key_authorization: Option<String>,
     /// Key expiry as unix timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expiry: Option<u64>,
+    pub(crate) expiry: Option<u64>,
     /// Token spending limits for this key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub limits: Vec<StoredTokenLimit>,
+    pub(crate) limits: Vec<StoredTokenLimit>,
     /// Whether this key has been provisioned on-chain.
     #[serde(default)]
-    pub provisioned: bool,
+    pub(crate) provisioned: bool,
 }
 
 impl std::fmt::Debug for KeyEntry {
@@ -95,7 +95,7 @@ impl std::fmt::Debug for KeyEntry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct Keystore {
     #[serde(default)]
-    pub keys: Vec<KeyEntry>,
+    pub(crate) keys: Vec<KeyEntry>,
 
     /// Whether this keystore was built from an ephemeral `--private-key`
     /// override. Ephemeral keystores are never written to disk.

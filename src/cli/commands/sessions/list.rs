@@ -8,8 +8,8 @@ use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
+use crate::payment::session::channel::{find_all_channels_for_payer, read_grace_period};
 use crate::payment::session::store as session_store;
-use crate::payment::session::{find_all_channels_for_payer, read_grace_period};
 
 use super::render::{render_channel_list, ChannelView};
 

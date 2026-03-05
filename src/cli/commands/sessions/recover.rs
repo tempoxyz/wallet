@@ -3,8 +3,8 @@ use anyhow::{Context, Result};
 use crate::analytics::Analytics;
 use crate::cli::OutputFormat;
 use crate::config::Config;
+use crate::payment::session::channel::{query_channel_state, read_grace_period};
 use crate::payment::session::store as session_store;
-use crate::payment::session::{query_channel_state, read_grace_period};
 
 /// Re-sync a local session's state from on-chain for a given origin.
 ///

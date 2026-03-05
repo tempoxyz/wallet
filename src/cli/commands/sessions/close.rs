@@ -8,11 +8,12 @@ use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
-use crate::payment::session::store as session_store;
-use crate::payment::session::{
+use crate::payment::session::channel::find_all_channels_for_payer;
+use crate::payment::session::close::{
     close_channel_by_id, close_discovered_channel, close_session_from_record,
-    find_all_channels_for_payer, CloseOutcome,
 };
+use crate::payment::session::store as session_store;
+use crate::payment::session::CloseOutcome;
 
 use super::render::{format_duration, CloseSummary};
 
@@ -551,7 +552,7 @@ async fn finalize_closed_channels(
                 continue;
             };
             // Check grace readiness from on-chain constant
-            let grace = crate::payment::session::read_grace_period(
+            let grace = crate::payment::session::channel::read_grace_period(
                 &alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(
                     config.rpc_url(network),
                 ),

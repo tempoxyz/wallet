@@ -17,39 +17,39 @@ use crate::network::NetworkId;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct SessionRecord {
     #[serde(default = "default_version")]
-    pub version: u32,
-    pub origin: String,
+    pub(crate) version: u32,
+    pub(crate) origin: String,
     #[serde(default)]
-    pub request_url: String,
-    pub network_name: String,
-    pub chain_id: u64,
-    pub escrow_contract: String,
-    pub currency: String,
-    pub recipient: String,
-    pub payer: String,
-    pub authorized_signer: String,
-    pub salt: String,
-    pub channel_id: String,
-    pub deposit: String,
-    pub tick_cost: String,
-    pub cumulative_amount: String,
-    pub did: String,
-    pub challenge_echo: String,
-    pub challenge_id: String,
+    pub(crate) request_url: String,
+    pub(crate) network_name: String,
+    pub(crate) chain_id: u64,
+    pub(crate) escrow_contract: String,
+    pub(crate) currency: String,
+    pub(crate) recipient: String,
+    pub(crate) payer: String,
+    pub(crate) authorized_signer: String,
+    pub(crate) salt: String,
+    pub(crate) channel_id: String,
+    pub(crate) deposit: String,
+    pub(crate) tick_cost: String,
+    pub(crate) cumulative_amount: String,
+    pub(crate) did: String,
+    pub(crate) challenge_echo: String,
+    pub(crate) challenge_id: String,
     /// Explicit lifecycle state: "active" | "closing" | "finalizable" | "finalized" (tombstones not persisted) | "orphaned" (not persisted here)
     #[serde(default = "default_state")]
-    pub state: String,
+    pub(crate) state: String,
     /// UNIX time when close was requested (0 if not requested)
     #[serde(default)]
-    pub close_requested_at: u64,
+    pub(crate) close_requested_at: u64,
     /// UNIX time when channel is ready to finalize (0 if not applicable)
     #[serde(default)]
-    pub grace_ready_at: u64,
+    pub(crate) grace_ready_at: u64,
     /// Token decimals used to format deposit/spent/remaining
     #[serde(default = "default_token_decimals")]
-    pub token_decimals: u8,
-    pub created_at: u64,
-    pub last_used_at: u64,
+    pub(crate) token_decimals: u8,
+    pub(crate) created_at: u64,
+    pub(crate) last_used_at: u64,
 }
 
 fn default_version() -> u32 {
@@ -94,12 +94,12 @@ impl SessionRecord {
     }
 
     /// Update the cumulative amount.
-    pub(crate) fn set_cumulative_amount(&mut self, amount: u128) {
+    pub(super) fn set_cumulative_amount(&mut self, amount: u128) {
         self.cumulative_amount = amount.to_string();
     }
 
     /// Update `last_used_at` timestamp.
-    pub(crate) fn touch(&mut self) {
+    pub(super) fn touch(&mut self) {
         self.last_used_at = now_secs();
     }
 
@@ -420,7 +420,7 @@ pub(crate) fn update_session_close_state_by_channel_id(
 }
 
 /// File lock guard for an origin/session key.
-pub(crate) struct SessionLock {
+pub(super) struct SessionLock {
     file: std::fs::File,
 }
 
@@ -431,7 +431,7 @@ impl Drop for SessionLock {
 }
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
-pub(crate) fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
+pub(super) fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
     let dir = sessions_dir()?;
     let lock_path = dir.join(format!("{}.lock", key));
     let file = OpenOptions::new()
