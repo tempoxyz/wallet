@@ -1,4 +1,4 @@
-# tempo-wallet
+# wallet
 
 tempo-wallet is a command-line HTTP client that pays for API calls automatically. Call services without signing up or managing API keys — tempo-wallet handles payment on the [Tempo](https://tempo.xyz) blockchain using the [Machine Payments Protocol](https://mpp.dev).
 
