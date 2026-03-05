@@ -4,16 +4,16 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 
 /// Atomic file write with optional UNIX mode.
 pub fn atomic_write(
     path: &Path,
     contents: &str,
     #[allow(unused_variables)] unix_mode: u32,
-) -> Result<(), PrestoError> {
+) -> Result<(), TempoWalletError> {
     let parent = path.parent().ok_or_else(|| {
-        PrestoError::Io(std::io::Error::new(
+        TempoWalletError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             format!("path has no parent directory: {}", path.display()),
         ))
@@ -35,7 +35,7 @@ pub fn atomic_write(
 
     temp.write_all(contents.as_bytes())?;
     temp.as_file().sync_all()?;
-    temp.persist(path).map_err(|e| PrestoError::Io(e.error))?;
+    temp.persist(path).map_err(|e| TempoWalletError::Io(e.error))?;
 
     Ok(())
 }

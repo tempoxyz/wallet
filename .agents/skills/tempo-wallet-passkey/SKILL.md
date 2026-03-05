@@ -14,28 +14,15 @@ A command-line HTTP client with built-in payment support. Use tempo-wallet inste
 
 ## Setup
 
-Create a local wallet — no browser needed, keys stored in the OS keychain:
+Connect your Tempo wallet via browser authentication:
 
 ```bash
-# Create a new local wallet (one-time setup)
-tempo-wallet wallets create
+# Sign up or log in (opens browser for passkey auth)
+tempo-wallet login
 
 # Check wallet status
 tempo-wallet whoami
 ```
-
-The wallet address printed by `tempo-wallet whoami` is the **fundable address**.
-
-### Funding the Wallet
-
-**Always fund on mainnet** (the default). Do NOT use `--network tempo-moderato` unless the user explicitly asks for testnet.
-
-```bash
-# Fund the wallet — generates a deposit address and QR code for USDC on Base
-tempo-wallet wallets fund
-```
-
-The command prints a QR code and deposit address, then polls until funds are bridged to Tempo (up to 10 minutes). **Do NOT use `--no-wait`** — let the command block so you know when funding is complete. **Show the full command output to the user immediately** — they need to see the QR code and deposit address to send funds (they can expand collapsed output with ctrl+o).
 
 ## Agent Usage
 
@@ -60,13 +47,10 @@ tempo-wallet -t whoami
 ```
 
 Check these fields in the response:
-- `ready` — `true` means the wallet is connected, has a key, and is provisioned (or will auto-provision)
+- `ready` — `true` means the wallet is connected, provisioned, and has a key
 - `balance` — the wallet's USDC balance (top-level field)
 
-If `ready` is `false` or the command errors:
-1. Run `tempo-wallet wallets create` — this is always the correct first step
-2. If key is expired → run `tempo-wallet keys create`
-3. Do NOT run `tempo-wallet login` — that opens a browser for passkey auth, which is not the local wallet flow
+If `ready` is `false`, run `tempo-wallet login` and retry.
 
 ### whoami JSON Response Schema
 
@@ -74,13 +58,13 @@ If `ready` is `false` or the command errors:
 {
   "ready": true,
   "wallet": "0x1234...abcd",
-  "wallet_type": "local",
+  "wallet_type": "passkey",
   "symbol": "USDC",
   "balance": "10.50",
   "network": "tempo",
   "chain_id": 4217,
   "key": {
-    "label": "local",
+    "label": "passkey",
     "address": "0xabcd...1234",
     "spending_limit": {
       "unlimited": false,
@@ -99,10 +83,10 @@ If `ready` is `false` or the command errors:
 {
   "keys": [
     {
-      "label": "local",
+      "label": "passkey",
       "address": "0xabcd...1234",
       "wallet_address": "0x1234...abcd",
-      "wallet_type": "local",
+      "wallet_type": "passkey",
       "symbol": "USDC",
       "currency": "0x...",
       "balance": "10.50",
@@ -142,16 +126,13 @@ Each service is accessed via its MPP service URL (shown in the `Service URL` col
 ## Quick Start
 
 ```bash
-# 1. Create a local wallet (one-time setup, no browser)
-tempo-wallet wallets create
+# Connect your Tempo wallet
+tempo-wallet login
 
-# 2. Fund the wallet (shows QR code for USDC deposit on Base)
-tempo-wallet wallets fund
-
-# 3. Discover available services
+# Discover available services
 tempo-wallet -t services
 
-# 4. Make a paid request (payment handled automatically on 402)
+# Make a paid request (payment handled automatically on 402)
 tempo-wallet -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
@@ -167,11 +148,9 @@ tempo-wallet -t --dry-run -X POST \
 | Command | Description |
 |---------|-------------|
 | `tempo-wallet <URL>` | Make an HTTP request with automatic payment |
-| `tempo-wallet wallets create` | Create a new local wallet (OS keychain) |
-| `tempo-wallet wallets fund` | Fund your wallet (testnet faucet or mainnet bridge) |
+| `tempo-wallet login` | Sign up or log in to your Tempo wallet |
+| `tempo-wallet logout` | Log out and disconnect your wallet |
 | `tempo-wallet whoami` | Show wallet address, balances, keys, and readiness |
-| `tempo-wallet keys list` | List all keys and their spending limits |
-| `tempo-wallet keys create` | Renew access key (fresh 30-day key) |
 | `tempo-wallet services` | List available MPP services |
 | `tempo-wallet services --category ai` | Filter services by category |
 | `tempo-wallet services --search <QUERY>` | Search services by name, description, or tags |
@@ -299,25 +278,24 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 |------|---------|--------------|
 | 0 | Success | — |
 | 1 | General error | Retry or report |
-| 3 | Config error | Run `tempo-wallet wallets create` |
+| 3 | Config error | Run `tempo-wallet login` |
 | 4 | Network error | Check connectivity, retry |
 | 5 | Payment failed | Check error message, retry |
-| 6 | Insufficient funds | Run `tempo-wallet wallets fund` or report to user |
-| 8 | Auth/signing error | Run `tempo-wallet keys create` |
+| 6 | Insufficient funds | Report to user — wallet needs funding |
+| 8 | Auth/signing error | Run `tempo-wallet login` |
 | 10 | Timeout | Retry with longer `--timeout` |
 
 ### Common Errors and Fixes
 
 | Error message contains | Action |
 |------------------------|--------|
-| `No wallet configured` | Run `tempo-wallet wallets create`, then retry |
-| `Run 'tempo-wallet login'` | Run `tempo-wallet wallets create`, then retry (ignore the login suggestion) |
+| `No wallet configured` | Run `tempo-wallet login`, then retry |
+| `Run 'tempo-wallet login'` | Run `tempo-wallet login`, then retry |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
-| `Insufficient balance` | Run `tempo-wallet wallets fund` to add funds, or report to user |
-| `Key is not provisioned` | Auto-provisions on first use; if persists, run `tempo-wallet wallets create` |
-| `Key expired` | Run `tempo-wallet keys create` to renew |
+| `Insufficient balance` | Report to user — wallet needs more funds |
+| `Key is not provisioned` | Run `tempo-wallet login`, then retry |
 | `Unknown network` | Check `-n` flag value |
-| `401` RPC error | Set `TEMPO_WALLET_RPC_URL` to an authenticated RPC endpoint |
+| `401` RPC error | Set `TEMPO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |
 
 When tempo-wallet fails, read the error message — it tells you which command to run next. Run that command, then retry.

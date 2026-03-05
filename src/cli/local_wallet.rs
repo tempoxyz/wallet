@@ -4,7 +4,7 @@ use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
 use zeroize::Zeroizing;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::network::networks::network_or_default;
 use crate::network::Network;
 use crate::wallet::credentials::{
@@ -33,7 +33,7 @@ pub fn create_local_wallet(network: Option<&str>) -> Result<String> {
 
     keychain()
         .set(&wallet_address, &wallet_key_hex)
-        .map_err(|e| PrestoError::Keychain(format!("Failed to store wallet key: {e}")))?;
+        .map_err(|e| TempoWalletError::Keychain(format!("Failed to store wallet key: {e}")))?;
 
     // Generate key
     let access_signer = PrivateKeySigner::random();
@@ -113,7 +113,7 @@ pub fn create_access_key(wallet_address: Option<&str>) -> Result<()> {
     // Load wallet EOA key from OS keychain
     let wallet_key_hex = keychain()
         .get(&key_entry.wallet_address)
-        .map_err(|e| PrestoError::Keychain(format!("Failed to load wallet key: {e}")))?
+        .map_err(|e| TempoWalletError::Keychain(format!("Failed to load wallet key: {e}")))?
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Wallet key not found in keychain for '{}'. The wallet may need to be re-created.",

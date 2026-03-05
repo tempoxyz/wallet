@@ -13,7 +13,7 @@ use mpp::PaymentProtocol;
 
 use crate::analytics::{self, Analytics};
 use crate::config::Config;
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{
     get_request_method_and_body, parse_headers, resolve_data, should_auto_add_json_content_type,
     validate_header_size, HttpRequestPlan, HttpResponse, RequestContext, RequestRuntime,
@@ -79,14 +79,14 @@ pub async fn make_request(
         Ok(parsed) => {
             let scheme = parsed.scheme();
             if scheme != "http" && scheme != "https" {
-                anyhow::bail!(PrestoError::InvalidUrl(format!(
+                anyhow::bail!(TempoWalletError::InvalidUrl(format!(
                     "unsupported scheme '{}'",
                     scheme
                 )));
             }
         }
         Err(e) => {
-            anyhow::bail!(PrestoError::InvalidUrl(e.to_string()));
+            anyhow::bail!(TempoWalletError::InvalidUrl(e.to_string()));
         }
     }
 
@@ -134,7 +134,7 @@ pub async fn make_request(
 
     // Offline mode: fail fast before any network I/O
     if query.offline {
-        anyhow::bail!(PrestoError::OfflineMode);
+        anyhow::bail!(TempoWalletError::OfflineMode);
     }
 
     let request_ctx = build_request_context(&cli, &query)?;
@@ -269,7 +269,7 @@ pub async fn make_request(
                         || cur_lower == symbol.to_lowercase();
                 }
                 if currency_ok && req_val > max_val {
-                    anyhow::bail!(PrestoError::PaymentRejected {
+                    anyhow::bail!(TempoWalletError::PaymentRejected {
                         reason: "price exceeds client max".to_string(),
                         status_code: 402,
                     });
@@ -391,7 +391,7 @@ async fn execute_streaming(
 
     // Handle fail modes
     if status >= 400 && output_opts.fail_silently {
-        anyhow::bail!(PrestoError::Http(format!(
+        anyhow::bail!(TempoWalletError::Http(format!(
             "{} {}",
             status,
             http_status_text(status)
@@ -468,7 +468,7 @@ async fn execute_streaming(
             std::io::stdout().write_all(b"\n")?;
             std::io::stdout().flush().ok();
         }
-        anyhow::bail!(PrestoError::Http(msg));
+        anyhow::bail!(TempoWalletError::Http(msg));
     }
 
     Ok(())
@@ -503,17 +503,17 @@ struct ChallengeContext {
 fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> {
     let www_auth = response
         .get_header("www-authenticate")
-        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let _protocol = PaymentProtocol::detect(Some(www_auth))
-        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate: Payment".to_string()))?;
+        .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate: Payment".to_string()))?;
 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // Enforce supported payment protocol (tempo only for now)
     if !challenge.method.eq_ignore_ascii_case("tempo") {
-        return Err(PrestoError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
+        return Err(TempoWalletError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
     }
 
     let is_session = challenge.intent.is_session();
@@ -573,13 +573,13 @@ async fn ensure_wallet_configured(
     };
 
     let setup_cmd = if crate::error::is_local_wallet_default() {
-        format!("presto wallet create{network_flag}")
+        format!("tempo-wallet wallet create{network_flag}")
     } else {
-        format!("presto login{network_flag}")
+        format!("tempo-wallet login{network_flag}")
     };
 
     if !creds.as_ref().is_some_and(|c| c.has_wallet()) {
-        anyhow::bail!(PrestoError::ConfigMissing(format!(
+        anyhow::bail!(TempoWalletError::ConfigMissing(format!(
             "No wallet configured. Run '{setup_cmd}'."
         )));
     }
@@ -591,7 +591,7 @@ async fn ensure_wallet_configured(
             .iter()
             .any(|k| k.chain_id == cid || k.chain_id == 0);
         if !has_key {
-            anyhow::bail!(PrestoError::ConfigMissing(format!(
+            anyhow::bail!(TempoWalletError::ConfigMissing(format!(
                 "No key configured for network '{challenge_network}'. Run '{setup_cmd}'."
             )));
         }
@@ -684,7 +684,7 @@ pub fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) ->
     let status = response.status_code;
     handle_regular_response(output_opts, response)?;
     if status >= 400 {
-        anyhow::bail!(PrestoError::Http(format!(
+        anyhow::bail!(TempoWalletError::Http(format!(
             "{} {}",
             status,
             http_status_text(status)
@@ -780,7 +780,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
     for header in &query.headers {
         validate_header_size(header)?;
         if header.contains('\r') || header.contains('\n') {
-            anyhow::bail!(PrestoError::InvalidHeader(
+            anyhow::bail!(TempoWalletError::InvalidHeader(
                 "header contains CR/LF characters".to_string()
             ));
         }
@@ -923,7 +923,7 @@ fn build_request_context(cli: &Cli, query: &QueryArgs) -> Result<RequestContext>
         user_agent: query
             .user_agent
             .clone()
-            .unwrap_or_else(|| format!("presto/{}", env!("CARGO_PKG_VERSION"))),
+            .unwrap_or_else(|| format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION"))),
         insecure: query.insecure,
         proxy: query.proxy.clone(),
         no_proxy: query.no_proxy,

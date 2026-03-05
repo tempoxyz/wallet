@@ -10,9 +10,9 @@ use crate::cli::{Cli, Shell};
 pub fn print_version_json() {
     let json = serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "git_commit": env!("PRESTO_GIT_SHA"),
-        "build_date": env!("PRESTO_BUILD_DATE"),
-        "profile": env!("PRESTO_BUILD_PROFILE"),
+        "git_commit": env!("TEMPO_GIT_SHA"),
+        "build_date": env!("TEMPO_BUILD_DATE"),
+        "profile": env!("TEMPO_BUILD_PROFILE"),
     });
     println!("{}", serde_json::to_string_pretty(&json).unwrap());
 }

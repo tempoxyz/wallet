@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::wallet::credentials::WalletCredentials;
 
 fn is_telemetry_disabled(config: Option<&Config>) -> bool {
-    if std::env::var("PRESTO_NO_TELEMETRY").is_ok() {
+    if std::env::var("TEMPO_NO_TELEMETRY").is_ok() {
         return true;
     }
     // Honor the config that was already loaded by the caller (respects --config)
@@ -93,7 +93,7 @@ impl Analytics {
             }
         }
 
-        // Test hook: if PRESTO_TEST_EVENTS is set, append events to the file for assertions
+        // Test hook: if TEMPO_TEST_EVENTS is set, append events to the file for assertions
         test_tap_event(&event_name, &props);
 
         let handle = tokio::spawn(async move {
@@ -146,7 +146,7 @@ impl Analytics {
 }
 
 fn test_tap_event(name: &str, props: &Value) {
-    if let Ok(path) = std::env::var("PRESTO_TEST_EVENTS") {
+    if let Ok(path) = std::env::var("TEMPO_TEST_EVENTS") {
         if path.is_empty() {
             return;
         }

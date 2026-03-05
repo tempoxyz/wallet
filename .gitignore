@@ -12,14 +12,11 @@
 .DS_Store
 
 # Configuration (contains private keys!)
-presto.toml
 *.toml
-!presto.toml.example
 !Cargo.toml
 !.changelog/config.toml
 
 # Build artifacts
-/presto
 *.tar.gz
 
 # Eval (promptfoo output and old run artifacts)

@@ -317,7 +317,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `Key is not provisioned` | Auto-provisions on first use; if persists, run `tempo-wallet wallets create` |
 | `Key expired` | Run `tempo-wallet keys create` to renew |
 | `Unknown network` | Check `-n` flag value |
-| `401` RPC error | Set `TEMPO_WALLET_RPC_URL` to an authenticated RPC endpoint |
+| `401` RPC error | Set `TEMPO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |
 
 When tempo-wallet fails, read the error message — it tells you which command to run next. Run that command, then retry.

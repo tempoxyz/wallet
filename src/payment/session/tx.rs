@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use mpp::client::tempo::{signing, tx_builder};
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse, RequestContext};
 use crate::network::Network;
 use crate::wallet::credentials::WalletCredentials;
@@ -100,9 +100,9 @@ async fn resolve_and_sign_tx(
                 valid_before,
             )
             .await
-            .map_err(|e| PrestoError::Signing(e.to_string()))?
+            .map_err(|e| TempoWalletError::Signing(e.to_string()))?
         }
-        Err(e) => return Err(PrestoError::Signing(e.to_string()).into()),
+        Err(e) => return Err(TempoWalletError::Signing(e.to_string()).into()),
     };
 
     let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
@@ -122,7 +122,7 @@ async fn resolve_and_sign_tx(
     Ok(
         signing::sign_and_encode_async(tx, &wallet.signer, &wallet.signing_mode)
             .await
-            .map_err(|e| PrestoError::Signing(e.to_string()))?,
+            .map_err(|e| TempoWalletError::Signing(e.to_string()))?,
     )
 }
 

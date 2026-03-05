@@ -9,7 +9,7 @@ use super::keys::{query_all_balances, TokenBalance};
 use super::relay::{self, DepositStatus};
 use super::OutputFormat;
 use crate::config::Config;
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::network::{format_address_link, networks::network_or_default, Network};
 use crate::wallet::credentials::WalletCredentials;
 
@@ -309,7 +309,7 @@ async fn poll_bridge_and_balance(
     loop {
         if start.elapsed() > timeout {
             if ctx.output_format == OutputFormat::Text {
-                eprintln!("Timed out after 10 minutes. Run 'presto whoami' to check later.");
+                eprintln!("Timed out after 10 minutes. Run 'tempo-wallet whoami' to check later.");
             }
             break;
         }
@@ -424,7 +424,7 @@ fn resolve_address(address: Option<String>) -> anyhow::Result<String> {
     let wallet_addr = creds.wallet_address();
 
     if wallet_addr.is_empty() {
-        anyhow::bail!(PrestoError::ConfigMissing(
+        anyhow::bail!(TempoWalletError::ConfigMissing(
             crate::error::no_wallet_message(),
         ));
     }
@@ -450,7 +450,7 @@ async fn wait_for_balance(
         None => {
             if output_format == OutputFormat::Text {
                 eprintln!(
-                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'presto whoami' to check later."
+                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo-wallet whoami' to check later."
                 );
             }
             Some(query_all_balances(config, network_id, address).await)

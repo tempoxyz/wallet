@@ -45,8 +45,8 @@ function parseBashCommands(transcript) {
   return commands;
 }
 
-function findPrestoCommands(bashCmds) {
-  const re = /(^|&&|\|\||;|\|)\s*(presto|cargo\s+run)\s/;
+function findTempoWalletCommands(bashCmds) {
+  const re = /(^|&&|\|\||;|\|)\s*(tempo-wallet|cargo\s+run)\s/;
   return bashCmds.filter((cmd) => re.test(cmd));
 }
 
@@ -59,22 +59,22 @@ function findCurlCommands(bashCmds) {
 // Trigger accuracy
 // ---------------------------------------------------------------------------
 
-function evaluateTrigger(prestoCmds, curlCmds, expect) {
+function evaluateTrigger(tempoWalletCmds, curlCmds, expect) {
   const reasons = [];
   let pass = true;
 
-  const prestoExpect = expect?.presto;
-  if (prestoExpect) {
-    if (prestoExpect.should_invoke === true && prestoCmds.length === 0) {
+  const tempoWalletExpect = expect?.["tempo-wallet"];
+  if (tempoWalletExpect) {
+    if (tempoWalletExpect.should_invoke === true && tempoWalletCmds.length === 0) {
       pass = false;
       reasons.push(
-        "expected presto invocation but none found in Bash commands",
+        "expected tempo-wallet invocation but none found in Bash commands",
       );
     }
-    if (prestoExpect.should_invoke === false && prestoCmds.length > 0) {
+    if (tempoWalletExpect.should_invoke === false && tempoWalletCmds.length > 0) {
       pass = false;
       reasons.push(
-        `presto invoked but should not have been (${prestoCmds.length} calls)`,
+        `tempo-wallet invoked but should not have been (${tempoWalletCmds.length} calls)`,
       );
     }
   }
@@ -97,25 +97,25 @@ function evaluateTrigger(prestoCmds, curlCmds, expect) {
 }
 
 // ---------------------------------------------------------------------------
-// Usage correctness (only when presto was expected AND invoked)
+// Usage correctness (only when tempo-wallet was expected AND invoked)
 // ---------------------------------------------------------------------------
 
-function evaluateUsage(prestoCmds, expect) {
-  const pe = expect?.presto;
-  if (!pe || pe.should_invoke !== true || prestoCmds.length === 0) {
+function evaluateUsage(tempoWalletCmds, expect) {
+  const pe = expect?.["tempo-wallet"];
+  if (!pe || pe.should_invoke !== true || tempoWalletCmds.length === 0) {
     return { pass: true, reasons: [] };
   }
 
   const reasons = [];
   let pass = true;
-  const joined = prestoCmds.join("\n");
+  const joined = tempoWalletCmds.join("\n");
 
   // url_pattern
   if (pe.url_pattern) {
     const re = new RegExp(pe.url_pattern);
-    if (!prestoCmds.some((cmd) => re.test(cmd))) {
+    if (!tempoWalletCmds.some((cmd) => re.test(cmd))) {
       pass = false;
-      reasons.push(`no presto command matched url_pattern: ${pe.url_pattern}`);
+      reasons.push(`no tempo-wallet command matched url_pattern: ${pe.url_pattern}`);
     }
   }
 
@@ -125,7 +125,7 @@ function evaluateUsage(prestoCmds, expect) {
       `(-X|--request)\\s+${pe.method}`,
       "i",
     );
-    if (!prestoCmds.some((cmd) => methodRe.test(cmd))) {
+    if (!tempoWalletCmds.some((cmd) => methodRe.test(cmd))) {
       pass = false;
       reasons.push(`expected method ${pe.method} not found`);
     }
@@ -133,7 +133,7 @@ function evaluateUsage(prestoCmds, expect) {
 
   // has_flag
   if (pe.has_flag) {
-    if (!prestoCmds.some((cmd) => cmd.includes(pe.has_flag))) {
+    if (!tempoWalletCmds.some((cmd) => cmd.includes(pe.has_flag))) {
       pass = false;
       reasons.push(`expected flag ${pe.has_flag} not found`);
     }
@@ -142,7 +142,7 @@ function evaluateUsage(prestoCmds, expect) {
   // argv_contains – at least ONE of the listed strings must appear
   if (Array.isArray(pe.argv_contains) && pe.argv_contains.length > 0) {
     const found = pe.argv_contains.some((needle) =>
-      prestoCmds.some((cmd) => cmd.includes(needle)),
+      tempoWalletCmds.some((cmd) => cmd.includes(needle)),
     );
     if (!found) {
       pass = false;
@@ -181,11 +181,11 @@ function parseExpect(context) {
 
 function checkTrigger(output, context) {
   const bashCmds = parseBashCommands(output);
-  const prestoCmds = findPrestoCommands(bashCmds);
+  const tempoWalletCmds = findTempoWalletCommands(bashCmds);
   const curlCmds = findCurlCommands(bashCmds);
   const expect = parseExpect(context);
 
-  const { pass, reasons } = evaluateTrigger(prestoCmds, curlCmds, expect);
+  const { pass, reasons } = evaluateTrigger(tempoWalletCmds, curlCmds, expect);
 
   return {
     pass,
@@ -198,10 +198,10 @@ function checkTrigger(output, context) {
 
 function checkUsage(output, context) {
   const bashCmds = parseBashCommands(output);
-  const prestoCmds = findPrestoCommands(bashCmds);
+  const tempoWalletCmds = findTempoWalletCommands(bashCmds);
   const expect = parseExpect(context);
 
-  const { pass, reasons } = evaluateUsage(prestoCmds, expect);
+  const { pass, reasons } = evaluateUsage(tempoWalletCmds, expect);
 
   return {
     pass,
@@ -212,14 +212,14 @@ function checkUsage(output, context) {
   };
 }
 
-function validatePrestoUsage(output, context) {
+function validateTempoWalletUsage(output, context) {
   const bashCmds = parseBashCommands(output);
-  const prestoCmds = findPrestoCommands(bashCmds);
+  const tempoWalletCmds = findTempoWalletCommands(bashCmds);
   const curlCmds = findCurlCommands(bashCmds);
   const expect = parseExpect(context);
 
-  const trigger = evaluateTrigger(prestoCmds, curlCmds, expect);
-  const usage = evaluateUsage(prestoCmds, expect);
+  const trigger = evaluateTrigger(tempoWalletCmds, curlCmds, expect);
+  const usage = evaluateUsage(tempoWalletCmds, expect);
 
   const allReasons = [...trigger.reasons, ...usage.reasons];
   const pass = trigger.pass && usage.pass;
@@ -233,4 +233,4 @@ function validatePrestoUsage(output, context) {
   };
 }
 
-module.exports = { validatePrestoUsage, checkTrigger, checkUsage };
+module.exports = { validateTempoWalletUsage, checkTrigger, checkUsage };

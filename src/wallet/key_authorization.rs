@@ -12,7 +12,7 @@ use tempo_primitives::transaction::{
     KeyAuthorization, PrimitiveSignature, SignatureType, SignedKeyAuthorization, TokenLimit,
 };
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::wallet::credentials::{KeyType, StoredTokenLimit};
 
 /// Default key authorization expiry: 30 days.
@@ -58,17 +58,17 @@ pub fn decode(hex_str: &str) -> Option<SignedKeyAuthorization> {
 pub fn validate(
     hex_str: Option<&str>,
     expected_key_id: Address,
-) -> Result<Option<ValidatedKeyAuth>, PrestoError> {
+) -> Result<Option<ValidatedKeyAuth>, TempoWalletError> {
     let hex_str = match hex_str {
         Some(s) => s,
         None => return Ok(None),
     };
 
     let signed = decode(hex_str)
-        .ok_or_else(|| PrestoError::InvalidConfig("Invalid key authorization".to_string()))?;
+        .ok_or_else(|| TempoWalletError::InvalidConfig("Invalid key authorization".to_string()))?;
 
     if signed.authorization.key_id != expected_key_id {
-        return Err(PrestoError::InvalidConfig(format!(
+        return Err(TempoWalletError::InvalidConfig(format!(
             "Key authorization targets {:#x}, expected {:#x}",
             signed.authorization.key_id, expected_key_id
         )));
@@ -111,7 +111,7 @@ pub fn sign(
     wallet_signer: &PrivateKeySigner,
     access_signer: &PrivateKeySigner,
     chain_id: u64,
-) -> Result<ValidatedKeyAuth, PrestoError> {
+) -> Result<ValidatedKeyAuth, TempoWalletError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0))
@@ -122,7 +122,7 @@ pub fn sign(
     let mut token_limits: Vec<TokenLimit> = Vec::with_capacity(token_addrs.len());
     for addr in token_addrs.iter() {
         let token = addr.parse().map_err(|_| {
-            PrestoError::InvalidAddress(format!("Invalid token address constant: {}", addr))
+            TempoWalletError::InvalidAddress(format!("Invalid token address constant: {}", addr))
         })?;
         token_limits.push(TokenLimit { token, limit });
     }
@@ -142,7 +142,7 @@ pub fn sign(
     };
     let sig = wallet_signer
         .sign_hash_sync(&auth.signature_hash())
-        .map_err(|e| PrestoError::Signing(format!("Failed to sign key authorization: {e}")))?;
+        .map_err(|e| TempoWalletError::Signing(format!("Failed to sign key authorization: {e}")))?;
     let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
     let mut buf = Vec::new();
     signed.encode(&mut buf);

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# presto installer script
+# tempo-wallet installer script
 #
 # Usage:
-#   curl -fsSL https://presto-binaries.tempo.xyz/install.sh | bash
+#   curl -fsSL https://tempo-cli.tempo.xyz/install.sh | bash
 #
 # Options:
 #   --wallet=local    Install with local wallet mode (default: passkey)
 #   --from-source     Build and install from source (requires cargo)
-#   --uninstall       Remove presto binary, config, data, and AI skills
+#   --uninstall       Remove tempo-wallet binary, config, data, and AI skills
 #
 # Environment:
-#   PRESTO_WALLET_TYPE=local   Same as --wallet=local
+#   TEMPO_WALLET_TYPE=local   Same as --wallet=local
 
 SCRIPT_DIR=""
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
@@ -20,8 +20,8 @@ if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
 fi
 INSTALL_DIR="${HOME}/.local/bin"
 LEGACY_INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="presto"
-R2_BASE_URL="https://presto-binaries.tempo.xyz"
+BINARY_NAME="tempo-wallet"
+R2_BASE_URL="https://tempo-cli.tempo.xyz"
 
 # Temp directory for downloads (cleaned up on exit)
 TMP_DIR=""
@@ -162,7 +162,7 @@ install_remote() {
     detect_platform
     detect_arch
 
-    local binary_name="presto-${PLATFORM}-${ARCH}"
+    local binary_name="tempo-wallet-${PLATFORM}-${ARCH}"
     local download_url="${R2_BASE_URL}/${binary_name}"
 
     ensure_tmp_dir
@@ -240,7 +240,7 @@ add_to_shell_rc() {
     [[ -f "${rc_file}" ]] || return 0
 
     echo "" >> "${rc_file}"
-    echo "# Added by presto installer" >> "${rc_file}"
+    echo "# Added by tempo-wallet installer" >> "${rc_file}"
     echo "${line}" >> "${rc_file}"
     ok "Added ${INSTALL_DIR} to PATH in ${rc_file/#${HOME}/~}"
 }
@@ -291,7 +291,7 @@ install_ai_skill() {
     local skill_content=""
 
     # Resolve skill content: prefer local file, fall back to R2 download
-    local local_skill="${SCRIPT_DIR}/.agents/skills/presto-${skill_variant}/SKILL.md"
+    local local_skill="${SCRIPT_DIR}/.agents/skills/tempo-wallet-${skill_variant}/SKILL.md"
     if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
         skill_content="${local_skill}"
     else
@@ -310,7 +310,7 @@ install_ai_skill() {
     for entry in "${AGENT_DIRS[@]}"; do
         IFS='|' read -r parent skill_base agent_name <<< "${entry}"
         if [[ -d "${parent}" ]]; then
-            local skill_dir="${skill_base}/presto"
+            local skill_dir="${skill_base}/tempo-wallet"
             mkdir -p "${skill_dir}" 2>/dev/null || continue
             cp "${skill_content}" "${skill_dir}/SKILL.md" 2>/dev/null || continue
             installed_names+=("${agent_name}")
@@ -326,7 +326,7 @@ install_ai_skill() {
 uninstall_ai_skills() {
     for entry in "${AGENT_DIRS[@]}"; do
         IFS='|' read -r _ skill_base _ <<< "${entry}"
-        for name in presto presto-local presto-passkey; do
+        for name in tempo-wallet tempo-wallet-local tempo-wallet-passkey; do
             remove_file "${skill_base}/${name}" "AI skill (${skill_base}/${name})"
         done
     done
@@ -336,17 +336,17 @@ uninstall_ai_skills() {
 # Uninstall
 # ---------------------------------------------------------------------------
 
-uninstall_presto() {
-    echo -e "\n${BOLD}Uninstalling presto${RESET}\n"
+uninstall_tempo_wallet() {
+    echo -e "\n${BOLD}Uninstalling tempo-wallet${RESET}\n"
 
     remove_file "${INSTALL_DIR}/${BINARY_NAME}" "binary"
     remove_file "${LEGACY_INSTALL_DIR}/${BINARY_NAME}" "legacy binary"
 
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        remove_file "${HOME}/Library/Application Support/presto" "data"
+        remove_file "${HOME}/Library/Application Support/tempo-wallet" "data"
     else
-        remove_file "${XDG_CONFIG_HOME:-${HOME}/.config}/presto" "config"
-        remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/presto" "data"
+        remove_file "${XDG_CONFIG_HOME:-${HOME}/.config}/tempo-wallet" "config"
+        remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/tempo-wallet" "data"
     fi
 
     uninstall_ai_skills
@@ -361,17 +361,17 @@ uninstall_presto() {
 
 banner() {
     echo ""
-    echo -e "${BOLD}                          __"
-    echo -e "    ____  ________  _____/ /_____"
-    echo -e "   / __ \\\\/ ___/ _ \\\\/ ___/ __/ __ \\\\"
-    echo -e "  / /_/ / /  /  __(__  ) /_/ /_/ /"
-    echo -e " / .___/_/   \\\\___/____/\\\\__/\\\\____/"
-    echo -e "/_/${RESET}   ${DIM}HTTP client with built-in payments${RESET}"
+    echo -e "${BOLD}   __                                        ____      __"
+    echo -e "  / /____  ____ ___  ____  ____        _    / / /___ _/ /_"
+    echo -e " / __/ _ \\\\/ __ \\\`__ \\\\/ __ \\\\/ __ \\\\ _____| |/|/ / / __ \\\`/ / _ \\\\"
+    echo -e "/ /_/  __/ / / / / / /_/ / /_/ /_____/    / / / /_/ / /  __/"
+    echo -e "\\\\__/\\\\___/_/ /_/ /_/ .___/\\\\____/     /__|__/_/\\\\__,_/_/\\\\___/"
+    echo -e "                 /_/${RESET}   ${DIM}HTTP client with built-in payments${RESET}"
     echo ""
 }
 
 main() {
-    local wallet_type="${PRESTO_WALLET_TYPE:-passkey}"
+    local wallet_type="${TEMPO_WALLET_TYPE:-passkey}"
     local mode=""
 
     for arg in "$@"; do
@@ -388,7 +388,7 @@ main() {
     fi
 
     if [[ "${mode}" == "uninstall" ]]; then
-        uninstall_presto
+        uninstall_tempo_wallet
         exit 0
     fi
 
@@ -407,11 +407,11 @@ main() {
     echo ""
     echo -e "  ${BOLD}Get started:${RESET}"
     if [[ "${wallet_type}" == "local" ]]; then
-        echo -e "    ${DIM}\$${RESET} presto wallet create"
+        echo -e "    ${DIM}\$${RESET} tempo-wallet wallet create"
     else
-        echo -e "    ${DIM}\$${RESET} presto login"
+        echo -e "    ${DIM}\$${RESET} tempo-wallet login"
     fi
-    echo -e "    ${DIM}\$${RESET} presto --help"
+    echo -e "    ${DIM}\$${RESET} tempo-wallet --help"
     echo ""
 }
 

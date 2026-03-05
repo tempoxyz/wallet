@@ -24,21 +24,21 @@ pub enum SessionStateArg {
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
-    env!("PRESTO_GIT_SHA"),
+    env!("TEMPO_GIT_SHA"),
     " ",
-    env!("PRESTO_BUILD_DATE"),
+    env!("TEMPO_BUILD_DATE"),
     " ",
-    env!("PRESTO_BUILD_PROFILE"),
+    env!("TEMPO_BUILD_PROFILE"),
     ")"
 );
 
 #[derive(Parser, Debug)]
-#[command(name = "presto")]
+#[command(name = "tempo-wallet")]
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version = LONG_VERSION)]
 #[command(
     // Match curl-style usage: show HTTP options before the URL and list both forms
-    override_usage = "\n  presto [HTTP OPTIONS] <URL>\n  presto <COMMAND> [OPTIONS]"
+    override_usage = "\n  tempo-wallet [HTTP OPTIONS] <URL>\n  tempo-wallet <COMMAND> [OPTIONS]"
 )]
 #[command(after_help = "\
 \x1b[1;4mHTTP Options\x1b[0m (before <URL>):
@@ -69,7 +69,7 @@ pub struct Cli {
     #[arg(
         long = "private-key",
         value_name = "KEY",
-        env = "PRESTO_PRIVATE_KEY",
+        env = "TEMPO_PRIVATE_KEY",
         global = true,
         hide = true,
         hide_env_values = true
@@ -127,9 +127,9 @@ pub struct Cli {
 #[derive(Parser, Debug, Default)]
 #[command(after_help = "\
 \x1b[1;4mExamples\x1b[0m:
-  presto https://api.example.com/data
-  presto -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
-  presto -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
+  tempo-wallet https://api.example.com/data
+  tempo-wallet -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
+  tempo-wallet -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
 pub struct QueryArgs {
     /// URL to request
     #[arg(value_name = "URL")]
@@ -255,7 +255,7 @@ pub struct QueryArgs {
         long = "rpc",
         visible_alias = "rpc-url",
         value_name = "URL",
-        env = "PRESTO_RPC_URL",
+        env = "TEMPO_RPC_URL",
         hide = true
     )]
     pub rpc_url: Option<String>,
@@ -474,7 +474,7 @@ pub enum Commands {
         search: Option<String>,
     },
 
-    /// Update presto to the latest version
+    /// Update tempo-wallet to the latest version
     #[command(display_order = 8)]
     Update {
         /// Skip confirmation prompt

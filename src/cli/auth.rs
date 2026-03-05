@@ -479,9 +479,9 @@ fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> a
 
     if response.wallet.is_none() && response.key.is_none() {
         let cmd = if crate::error::is_local_wallet_default() {
-            "presto wallet create"
+            "tempo-wallet wallet create"
         } else {
-            "presto login"
+            "tempo-wallet login"
         };
         writeln!(w, "Not logged in. Run `{cmd}` to get started.")?;
         return Ok(());

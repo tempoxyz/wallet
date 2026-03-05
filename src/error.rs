@@ -1,10 +1,10 @@
-//! Error types for the presto library.
+//! Error types for the tempo-wallet library.
 
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 #[allow(dead_code)]
-pub enum PrestoError {
+pub enum TempoWalletError {
     /// Missing required payment field
     #[error("Missing payment requirement: {0}")]
     MissingRequirement(String),
@@ -40,7 +40,7 @@ pub enum PrestoError {
     AccessKeyNotProvisioned { hint: String },
 
     /// Browser-based login expired (device code expired or callback window timed out)
-    #[error("Login expired. Use presto login to try again.")]
+    #[error("Login expired. Use tempo-wallet login to try again.")]
     LoginExpired,
 
     /// Key spending limit exceeded on-chain
@@ -52,7 +52,7 @@ pub enum PrestoError {
     },
 
     /// Insufficient token balance for payment
-    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'presto wallet fund'.")]
+    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo-wallet wallet fund'.")]
     InsufficientBalance {
         token: String,
         available: String,
@@ -151,41 +151,41 @@ pub enum PrestoError {
     Mpp(#[from] mpp::MppError),
 }
 
-/// Check if the default wallet type is local (from `PRESTO_WALLET_TYPE` env var).
+/// Check if the default wallet type is local (from `TEMPO_WALLET_TYPE` env var).
 /// Returns `false` (passkey mode) when the env var is unset or not `"local"`.
 pub fn is_local_wallet_default() -> bool {
-    std::env::var("PRESTO_WALLET_TYPE").as_deref() == Ok("local")
+    std::env::var("TEMPO_WALLET_TYPE").as_deref() == Ok("local")
 }
 
 /// Build the "no wallet configured" error message with the correct follow-up.
 pub fn no_wallet_message() -> String {
     if is_local_wallet_default() {
-        "No wallet configured. Create one with 'presto wallet create'.".to_string()
+        "No wallet configured. Create one with 'tempo-wallet wallet create'.".to_string()
     } else {
-        "No wallet configured. Log in with 'presto login'.".to_string()
+        "No wallet configured. Log in with 'tempo-wallet login'.".to_string()
     }
 }
 
-/// Map mpp validation errors to presto error types.
+/// Map mpp validation errors to tempo-wallet error types.
 pub fn map_mpp_validation_error(
     e: mpp::MppError,
     challenge: &mpp::PaymentChallenge,
-) -> PrestoError {
+) -> TempoWalletError {
     match e {
-        mpp::MppError::UnsupportedPaymentMethod(msg) => PrestoError::UnsupportedPaymentMethod(msg),
+        mpp::MppError::UnsupportedPaymentMethod(msg) => TempoWalletError::UnsupportedPaymentMethod(msg),
         mpp::MppError::PaymentExpired(_) => {
-            PrestoError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
+            TempoWalletError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
         }
         mpp::MppError::InvalidChallenge { reason, .. } => {
-            PrestoError::UnsupportedPaymentIntent(reason.unwrap_or_default())
+            TempoWalletError::UnsupportedPaymentIntent(reason.unwrap_or_default())
         }
-        other => PrestoError::InvalidChallenge(other.to_string()),
+        other => TempoWalletError::InvalidChallenge(other.to_string()),
     }
 }
 
 /// Try to extract `available`, `required`, and `token` from a raw RPC error
 /// string that contains `InsufficientBalance { available: N, required: N, token: 0x... }`.
-fn parse_insufficient_balance_fields(raw: &str) -> PrestoError {
+fn parse_insufficient_balance_fields(raw: &str) -> TempoWalletError {
     // Example: "...InsufficientBalance(InsufficientBalance { available: 0, required: 64467, token: 0x20c...})"
     let extract = |key: &str| -> Option<String> {
         let needle = format!("{key}: ");
@@ -202,14 +202,14 @@ fn parse_insufficient_balance_fields(raw: &str) -> PrestoError {
         let avail_fmt = format_atomic_amount(&avail, decimals);
         let req_fmt = format_atomic_amount(&req, decimals);
 
-        PrestoError::InsufficientBalance {
+        TempoWalletError::InsufficientBalance {
             token: symbol,
             available: avail_fmt,
             required: req_fmt,
         }
     } else {
         // Can't parse — return a clean generic message
-        PrestoError::InsufficientBalance {
+        TempoWalletError::InsufficientBalance {
             token: "USDC".to_string(),
             available: "0".to_string(),
             required: raw.to_string(),
@@ -261,19 +261,19 @@ fn format_atomic_amount(amount: &str, decimals: u8) -> String {
     }
 }
 
-/// Classify an mpp provider error into a PrestoError with actionable context.
-pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
+/// Classify an mpp provider error into a TempoWalletError with actionable context.
+pub fn classify_payment_error(err: mpp::MppError) -> TempoWalletError {
     use mpp::client::TempoClientError;
 
     match err {
         mpp::MppError::Tempo(tempo_err) => match tempo_err {
             TempoClientError::AccessKeyNotProvisioned => {
                 let hint = if is_local_wallet_default() {
-                    "presto wallet create"
+                    "tempo-wallet wallet create"
                 } else {
-                    "presto login"
+                    "tempo-wallet login"
                 };
-                PrestoError::AccessKeyNotProvisioned {
+                TempoWalletError::AccessKeyNotProvisioned {
                     hint: hint.to_string(),
                 }
             }
@@ -281,7 +281,7 @@ pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
                 token,
                 limit,
                 required,
-            } => PrestoError::SpendingLimitExceeded {
+            } => TempoWalletError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
@@ -302,19 +302,19 @@ pub fn classify_payment_error(err: mpp::MppError) -> PrestoError {
                     let (symbol, decimals) = resolve_token_symbol(&token);
                     let avail_fmt = format_atomic_amount(&available, decimals);
                     let req_fmt = format_atomic_amount(&required, decimals);
-                    PrestoError::InsufficientBalance {
+                    TempoWalletError::InsufficientBalance {
                         token: symbol,
                         available: avail_fmt,
                         required: req_fmt,
                     }
                 }
             }
-            TempoClientError::TransactionReverted(msg) => PrestoError::Http(msg),
+            TempoClientError::TransactionReverted(msg) => TempoWalletError::Http(msg),
         },
         other => {
             let raw = other.to_string();
             let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
-            PrestoError::Http(msg)
+            TempoWalletError::Http(msg)
         }
     }
 }
@@ -325,13 +325,13 @@ mod tests {
 
     #[test]
     fn test_missing_requirement_display() {
-        let err = PrestoError::MissingRequirement("network".to_string());
+        let err = TempoWalletError::MissingRequirement("network".to_string());
         assert_eq!(err.to_string(), "Missing payment requirement: network");
     }
 
     #[test]
     fn test_config_missing_display() {
-        let err = PrestoError::ConfigMissing("wallet not configured".to_string());
+        let err = TempoWalletError::ConfigMissing("wallet not configured".to_string());
         assert_eq!(
             err.to_string(),
             "Configuration missing: wallet not configured"
@@ -340,73 +340,73 @@ mod tests {
 
     #[test]
     fn test_invalid_config_display() {
-        let err = PrestoError::InvalidConfig("invalid rpc url".to_string());
+        let err = TempoWalletError::InvalidConfig("invalid rpc url".to_string());
         assert_eq!(err.to_string(), "Invalid configuration: invalid rpc url");
     }
 
     #[test]
     fn test_invalid_key_display() {
-        let err = PrestoError::InvalidKey("wrong format".to_string());
+        let err = TempoWalletError::InvalidKey("wrong format".to_string());
         assert_eq!(err.to_string(), "Invalid private key: wrong format");
     }
 
     #[test]
     fn test_no_config_dir_display() {
-        let err = PrestoError::NoConfigDir;
+        let err = TempoWalletError::NoConfigDir;
         assert_eq!(err.to_string(), "Failed to determine config directory");
     }
 
     #[test]
     fn test_unknown_network_display() {
-        let err = PrestoError::UnknownNetwork("custom-chain".to_string());
+        let err = TempoWalletError::UnknownNetwork("custom-chain".to_string());
         assert_eq!(err.to_string(), "Unknown network: custom-chain");
     }
 
     #[test]
     fn test_http_display() {
-        let err = PrestoError::Http("404 Not Found".to_string());
+        let err = TempoWalletError::Http("404 Not Found".to_string());
         assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
     }
 
     #[test]
     fn test_signing_simple_display() {
-        let err = PrestoError::Signing("Failed to sign transaction".to_string());
+        let err = TempoWalletError::Signing("Failed to sign transaction".to_string());
         assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
     }
 
     #[test]
     fn test_invalid_address_display() {
-        let err = PrestoError::InvalidAddress("Not a valid address".to_string());
+        let err = TempoWalletError::InvalidAddress("Not a valid address".to_string());
         assert_eq!(err.to_string(), "Invalid address: Not a valid address");
     }
 
     #[test]
     fn test_unsupported_payment_method_display() {
-        let err = PrestoError::UnsupportedPaymentMethod("bitcoin".to_string());
+        let err = TempoWalletError::UnsupportedPaymentMethod("bitcoin".to_string());
         assert_eq!(err.to_string(), "Unsupported payment method: bitcoin");
     }
 
     #[test]
     fn test_unsupported_payment_intent_display() {
-        let err = PrestoError::UnsupportedPaymentIntent("subscription".to_string());
+        let err = TempoWalletError::UnsupportedPaymentIntent("subscription".to_string());
         assert_eq!(err.to_string(), "Unsupported payment intent: subscription");
     }
 
     #[test]
     fn test_invalid_challenge_display() {
-        let err = PrestoError::InvalidChallenge("Malformed challenge".to_string());
+        let err = TempoWalletError::InvalidChallenge("Malformed challenge".to_string());
         assert_eq!(err.to_string(), "Invalid challenge: Malformed challenge");
     }
 
     #[test]
     fn test_missing_header_display() {
-        let err = PrestoError::MissingHeader("WWW-Authenticate".to_string());
+        let err = TempoWalletError::MissingHeader("WWW-Authenticate".to_string());
         assert_eq!(err.to_string(), "Missing required header: WWW-Authenticate");
     }
 
     #[test]
     fn test_challenge_expired_display() {
-        let err = PrestoError::ChallengeExpired("Expired 5 minutes ago".to_string());
+        let err = TempoWalletError::ChallengeExpired("Expired 5 minutes ago".to_string());
         assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
     }
 
@@ -418,7 +418,7 @@ mod tests {
             required: "0.010000".to_string(),
         });
         match classify_payment_error(err) {
-            PrestoError::SpendingLimitExceeded {
+            TempoWalletError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
@@ -439,7 +439,7 @@ mod tests {
             required: "1.00".to_string(),
         });
         match classify_payment_error(err) {
-            PrestoError::InsufficientBalance {
+            TempoWalletError::InsufficientBalance {
                 token,
                 available,
                 required,
@@ -457,7 +457,7 @@ mod tests {
         let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
         assert!(matches!(
             classify_payment_error(err),
-            PrestoError::AccessKeyNotProvisioned { .. }
+            TempoWalletError::AccessKeyNotProvisioned { .. }
         ));
     }
 
@@ -470,7 +470,7 @@ mod tests {
             required: "1000".to_string(),
         });
         match classify_payment_error(err) {
-            PrestoError::InsufficientBalance {
+            TempoWalletError::InsufficientBalance {
                 token,
                 available,
                 required,
@@ -491,7 +491,7 @@ mod tests {
             required: "1000000".to_string(),
         });
         match classify_payment_error(err) {
-            PrestoError::InsufficientBalance {
+            TempoWalletError::InsufficientBalance {
                 token,
                 available,
                 required,
@@ -537,7 +537,7 @@ mod tests {
     fn test_classify_unrecognized_falls_through() {
         let err = mpp::MppError::Http("something unexpected".to_string());
         match classify_payment_error(err) {
-            PrestoError::Http(msg) => assert_eq!(msg, "something unexpected"),
+            TempoWalletError::Http(msg) => assert_eq!(msg, "something unexpected"),
             other => panic!("Expected Http passthrough, got: {other}"),
         }
     }

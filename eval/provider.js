@@ -15,7 +15,7 @@ class AgentProvider {
   }
 
   async callApi(prompt) {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'presto-eval-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tempo-wallet-eval-'));
 
     try {
       let cmd, args, env;

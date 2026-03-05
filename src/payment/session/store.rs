@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 
 /// A persisted payment channel session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -107,8 +107,8 @@ impl SessionRecord {
 /// Get the sessions directory, creating it if needed.
 fn sessions_dir() -> Result<PathBuf> {
     let dir = dirs::data_dir()
-        .ok_or(PrestoError::NoConfigDir)?
-        .join("presto")
+        .ok_or(TempoWalletError::NoConfigDir)?
+        .join("tempo-wallet")
         .join("sessions");
     fs::create_dir_all(&dir).context("Failed to create sessions directory")?;
     Ok(dir)

@@ -1,14 +1,14 @@
-# Presto Skill Eval
+# Tempo-wallet Skill Eval
 
-Benchmarks how well AI agents understand and use presto based on its SKILL.md.
+Benchmarks how well AI agents understand and use tempo-wallet based on its SKILL.md.
 
 Powered by [promptfoo](https://promptfoo.dev).
 
 ## How it works
 
 1. **Custom provider** — runs agents (`amp`, `claude`) in isolated temp directories with `--stream-json` output
-2. **Test cases** — prompts with expected behavior (should/shouldn't use presto, correct flags/URLs)
-3. **Assertions** — JavaScript functions parse Bash tool calls for presto/curl invocations and validate arguments
+2. **Test cases** — prompts with expected behavior (should/shouldn't use tempo-wallet, correct flags/URLs)
+3. **Assertions** — JavaScript functions parse Bash tool calls for tempo-wallet/curl invocations and validate arguments
 4. **Reporting** — trigger accuracy, usage correctness, breakdown by category via promptfoo's UI
 
 ## Quick start
@@ -43,8 +43,8 @@ promptfoo view
 
 | Metric | Description |
 |--------|-------------|
-| **Trigger accuracy** | Does the agent correctly decide to use presto? (true positives + true negatives) |
-| **Usage correctness** | When presto is used, are the flags/URL/body correct? |
+| **Trigger accuracy** | Does the agent correctly decide to use tempo-wallet? (true positives + true negatives) |
+| **Usage correctness** | When tempo-wallet is used, are the flags/URL/body correct? |
 | **Overall** | Combined trigger + usage score |
 
 ## Architecture
@@ -53,14 +53,14 @@ promptfoo view
 eval/
 ├── promptfooconfig.yaml  # Config, providers, assertions, and all test cases
 ├── provider.js           # Custom promptfoo provider (runs amp/claude in temp dirs)
-├── assertions.js         # Assertion logic (parses stream-json for presto/curl)
+├── assertions.js         # Assertion logic (parses stream-json for tempo-wallet/curl)
 └── README.md
 ```
 
 ## Test case categories
 
-- `trigger-positive` — prompts where the agent SHOULD use presto
-- `trigger-negative` — prompts where the agent should NOT use presto
+- `trigger-positive` — prompts where the agent SHOULD use tempo-wallet
+- `trigger-negative` — prompts where the agent should NOT use tempo-wallet
 
 ### Case subcategories
 
@@ -83,6 +83,5 @@ Add entries to the `tests` array in `promptfooconfig.yaml`:
 - description: "my-case [trigger-positive]"
   vars:
     prompt: "What to ask the agent"
-    expect: '{"presto":{"should_invoke":true,"url_pattern":"...","method":"POST"}}'
+    expect: '{"tempo-wallet":{"should_invoke":true,"url_pattern":"...","method":"POST"}}'
 ```
-

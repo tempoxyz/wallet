@@ -1,8 +1,8 @@
-//! presto — a command-line HTTP client with automatic payment support.
+//! tempo-wallet — a command-line HTTP client with automatic payment support.
 #![forbid(unsafe_code)]
 #![deny(warnings)]
 //!
-//! Presto works like curl/wget but handles HTTP 402 (Payment Required)
+//! tempo-wallet works like curl/wget but handles HTTP 402 (Payment Required)
 //! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.dev).
 //!
 //! # Payment flow
@@ -50,11 +50,11 @@ use crate::cli::{
 };
 use crate::config::load_config_with_overrides;
 
-/// Entry point for the presto CLI.
+/// Entry point for the tempo-wallet CLI.
 ///
-/// Presto is a command-line HTTP client (like curl/wget) that automatically
+/// tempo-wallet is a command-line HTTP client (like curl/wget) that automatically
 /// handles paid APIs. When a server responds with HTTP 402 Payment Required,
-/// presto detects the payment details from the `WWW-Authenticate` header,
+/// tempo-wallet detects the payment details from the `WWW-Authenticate` header,
 /// submits a transaction through the user's configured wallet using the
 /// Machine Payment Protocol (MPP), and retries the request with a payment
 /// receipt — supporting both one-shot charges and persistent sessions.
@@ -98,8 +98,8 @@ async fn main() {
 
 /// Parse CLI args, treating a bare URL as an implicit `query` subcommand.
 ///
-/// This allows `presto https://example.com` as a shorthand for
-/// `presto query https://example.com`, making the primary use case
+/// This allows `tempo-wallet https://example.com` as a shorthand for
+/// `tempo-wallet query https://example.com`, making the primary use case
 /// as frictionless as curl/wget.
 fn parse_cli() -> Cli {
     match Cli::try_parse() {
@@ -121,8 +121,8 @@ fn parse_cli() -> Cli {
             }
 
             // If normal parsing failed, try again with "query" inserted.
-            // This handles cases like `presto https://example.com` or
-            // `presto -X POST --json '{}' https://example.com`.
+            // This handles cases like `tempo-wallet https://example.com` or
+            // `tempo-wallet -X POST --json '{}' https://example.com`.
             //
             // Skip the fallback if the first non-flag arg is a known
             // subcommand so we don't swallow its parse errors (e.g.,
@@ -152,14 +152,14 @@ fn parse_cli() -> Cli {
                 Ok(cli) => {
                     // Re-parse succeeded. Check if the URL looks like a
                     // mistyped command (no scheme, no dots, no localhost).
-                    // This catches `presto foo` and gives a clean error.
+                    // This catches `tempo-wallet foo` and gives a clean error.
                     if let Some(Commands::Query(ref q)) = cli.command {
                         let url = q.url.clone();
                         if !url.contains("://") && !url.contains("localhost") && !url.contains('.')
                         {
                             // Single-word non-command: still an error
                             if !url.contains(' ') {
-                                eprintln!("error: '{url}' is not a presto command. See 'presto --help' for a list of available commands.");
+                                eprintln!("error: '{url}' is not a tempo-wallet command. See 'tempo-wallet --help' for a list of available commands.");
                                 ExitCode::InvalidUsage.exit();
                             }
                         }
@@ -183,7 +183,7 @@ fn validate_network_flag(network: &str) -> Result<()> {
     // Support comma-separated network lists (e.g. "tempo, tempo-moderato")
     for name in network.split(',').map(|s| s.trim()) {
         network::validate_network_name(name)
-            .map_err(|_| anyhow::anyhow!(error::PrestoError::UnknownNetwork(name.to_string())))?;
+            .map_err(|_| anyhow::anyhow!(error::TempoWalletError::UnknownNetwork(name.to_string())))?;
     }
     Ok(())
 }
@@ -268,8 +268,8 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                         let err_str = e.to_string();
                         let is_login_timeout = err_str.contains("timed out")
                             || e.chain()
-                                .find_map(|cause| cause.downcast_ref::<error::PrestoError>())
-                                .is_some_and(|pe| matches!(pe, error::PrestoError::LoginExpired));
+                                .find_map(|cause| cause.downcast_ref::<error::TempoWalletError>())
+                                .is_some_and(|pe| matches!(pe, error::TempoWalletError::LoginExpired));
 
                         if is_login_timeout {
                             a.track(
@@ -509,7 +509,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 
 // ==================== Simple Commands ====================
 
-const INSTALL_SCRIPT_URL: &str = "https://presto-binaries.tempo.xyz/install.sh";
+const INSTALL_SCRIPT_URL: &str = "https://tempo-cli.tempo.xyz/install.sh";
 
 /// Download and run the install script to update to the latest version.
 fn run_self_update(yes: bool) -> Result<()> {
@@ -527,7 +527,7 @@ fn run_self_update(yes: bool) -> Result<()> {
         }
     }
 
-    eprintln!("Updating presto to the latest version...\n");
+    eprintln!("Updating tempo-wallet to the latest version...\n");
 
     let status = std::process::Command::new("bash")
         .arg("-c")
