@@ -15,6 +15,9 @@
 *.toml
 !Cargo.toml
 !.changelog/config.toml
+!rustfmt.toml
+!.cargo/config.toml
+!.cargo/config
 
 # Build artifacts
 *.tar.gz
