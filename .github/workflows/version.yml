@@ -49,6 +49,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger release workflow
-        run: gh workflow run release.yml -f version=${{ needs.version.outputs.new_version }}
+        run: gh workflow run release.yml --repo ${{ github.repository }} -f version=${{ needs.version.outputs.new_version }}
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
