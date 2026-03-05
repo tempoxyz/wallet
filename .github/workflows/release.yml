@@ -77,6 +77,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ steps.version.outputs.version }}" artifacts/* --clobber
 
+      - name: Sign release binaries
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          pip3 install PyNaCl
+          echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
+          python3 scripts/sign-release.py \
+            --key-file /tmp/release.key \
+            --artifacts-dir artifacts \
+            --version "${{ inputs.version }}" \
+            --base-url https://cli.tempo.xyz \
+            --output artifacts/manifest.json
+          rm /tmp/release.key
+
       - name: Upload binaries to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -88,13 +102,16 @@ jobs:
 
           VERSION="v${{ inputs.version }}"
 
-          for f in artifacts/*; do
+          for f in artifacts/tempo-wallet-*; do
             BASENAME=$(basename "$f")
-            # Upload as latest
+            # Upload as latest (legacy path for install.sh)
             aws s3 cp "$f" "s3://tempo-cli/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
-            # Upload with version prefix
-            aws s3 cp "$f" "s3://tempo-cli/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            # Upload with version prefix under extensions/
+            aws s3 cp "$f" "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
+
+          # Upload signed manifest for tempo CLI auto-install
+          aws s3 cp artifacts/manifest.json "s3://tempo-cli/extensions/tempo-wallet/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "application/json"
 
           # Upload install script and AI skills
           aws s3 cp install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
@@ -105,4 +122,4 @@ jobs:
           echo "${{ inputs.version }}" > VERSION
           aws s3 cp VERSION "s3://tempo-cli/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
-          echo "Uploaded ${VERSION} binaries to R2"
+          echo "Uploaded ${VERSION} binaries and signed manifest to R2"
