@@ -20,15 +20,10 @@ use crate::keys::{parse_private_key_signer, KeyEntry, Keystore, WalletType};
 use crate::network::NetworkId;
 use crate::util::sanitize_error;
 
-pub(crate) async fn run(
-    ctx: &Context,
-    command: Option<WalletCommands>,
-) -> Result<()> {
+pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Result<()> {
     if let Some(subcommand) = command {
         match subcommand {
-            WalletCommands::List => {
-                show_wallet_list(ctx.output_format, &ctx.keys).await
-            }
+            WalletCommands::List => show_wallet_list(ctx.output_format, &ctx.keys).await,
             WalletCommands::Create => {
                 let result = create_local_wallet(&ctx.network, &ctx.keys);
                 if result.is_ok() {
@@ -67,8 +62,15 @@ pub(crate) async fn run(
                         },
                     );
                 }
-                let result =
-                    fund::run(&ctx.config, ctx.output_format, ctx.network, address, no_wait, &ctx.keys).await;
+                let result = fund::run(
+                    &ctx.config,
+                    ctx.output_format,
+                    ctx.network,
+                    address,
+                    no_wait,
+                    &ctx.keys,
+                )
+                .await;
                 if let Some(a) = ctx.analytics.as_ref() {
                     match &result {
                         Ok(()) => {

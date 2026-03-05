@@ -296,7 +296,16 @@ mod tests {
     use super::*;
 
     fn test_client(plan: HttpRequestPlan) -> HttpClient {
-        HttpClient::new(plan, crate::util::Verbosity { level: 0, show_output: false }, None, false).unwrap()
+        HttpClient::new(
+            plan,
+            crate::util::Verbosity {
+                level: 0,
+                show_output: false,
+            },
+            None,
+            false,
+        )
+        .unwrap()
     }
 
     #[tokio::test]

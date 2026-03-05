@@ -82,9 +82,9 @@ fn render_error(err: &anyhow::Error, format: OutputFormat) -> String {
         }
     }
 
-    format.serialize(&obj).unwrap_or_else(|_| {
-        format!("{{\"code\":\"{code}\",\"message\":\"error\"}}")
-    })
+    format
+        .serialize(&obj)
+        .unwrap_or_else(|_| format!("{{\"code\":\"{code}\",\"message\":\"error\"}}"))
 }
 
 #[cfg(test)]

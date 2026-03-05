@@ -19,10 +19,7 @@ use clap::CommandFactory;
 use crate::cli::args::{SessionCommands, SessionStateArg};
 use crate::cli::{Cli, Context};
 
-pub(crate) async fn run(
-    ctx: &Context,
-    command: Option<SessionCommands>,
-) -> Result<()> {
+pub(crate) async fn run(ctx: &Context, command: Option<SessionCommands>) -> Result<()> {
     let output_format = ctx.output_format;
 
     if let Some(subcommand) = command {
@@ -51,7 +48,14 @@ pub(crate) async fn run(
                         selected.push(m);
                     }
                 }
-                list_sessions(&ctx.config, output_format, &selected, ctx.network, &ctx.keys).await
+                list_sessions(
+                    &ctx.config,
+                    output_format,
+                    &selected,
+                    ctx.network,
+                    &ctx.keys,
+                )
+                .await
             }
             SessionCommands::Info { target } => {
                 show_session_info(&ctx.config, output_format, &target, ctx.network).await

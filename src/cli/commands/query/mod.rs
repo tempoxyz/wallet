@@ -16,12 +16,12 @@ use anyhow::{Context as _, Result};
 
 use crate::analytics::{Event, QueryFailurePayload, QueryStartedPayload, QuerySuccessPayload};
 use crate::cli::args::QueryArgs;
-use receipt::write_meta_if_requested;
 use crate::cli::Context;
 use crate::error::PrestoError;
 use crate::payment::dispatch::dispatch_payment;
 use crate::util::{format_token_amount, redact_url, sanitize_error};
 use input::resolve_data;
+use receipt::write_meta_if_requested;
 
 /// Execute an HTTP request with automatic payment handling.
 ///
@@ -32,10 +32,7 @@ use input::resolve_data;
 /// 4. Ensure wallet is available (prompt login if needed)
 /// 5. Dispatch to charge or session payment flow
 /// 6. Display the final response
-pub(crate) async fn run(
-    ctx: &Context,
-    query: QueryArgs,
-) -> Result<()> {
+pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     let mut url = query.url.clone();
 
     // Validate the URL early to give a clear error instead of a cryptic reqwest message.
@@ -236,8 +233,7 @@ pub(crate) async fn run(
         challenge::ensure_wallet_configured(&ctx.keys, challenge_ctx.network)?;
     }
 
-    let pay_analytics =
-        analytics::PaymentAnalytics::from_challenge(&challenge_ctx, &ctx.analytics);
+    let pay_analytics = analytics::PaymentAnalytics::from_challenge(&challenge_ctx, &ctx.analytics);
     pay_analytics.track_started();
 
     let result = dispatch_payment(

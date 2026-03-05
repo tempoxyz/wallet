@@ -362,7 +362,10 @@ async fn test_server_error_500() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success(), " tempo-walletshould fail on 500 error");
+    assert!(
+        !output.status.success(),
+        " tempo-walletshould fail on 500 error"
+    );
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("500"),

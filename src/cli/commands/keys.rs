@@ -15,13 +15,12 @@ use crate::cli::{Cli, Context, OutputFormat};
 use crate::keys::{Keystore, WalletType};
 use crate::network::NetworkId;
 
-pub(crate) async fn run(
-    ctx: &Context,
-    command: Option<KeyCommands>,
-) -> Result<()> {
+pub(crate) async fn run(ctx: &Context, command: Option<KeyCommands>) -> Result<()> {
     let output_format = ctx.output_format;
     match command {
-        Some(KeyCommands::List) => show_keys(&ctx.config, output_format, ctx.network, &ctx.keys).await,
+        Some(KeyCommands::List) => {
+            show_keys(&ctx.config, output_format, ctx.network, &ctx.keys).await
+        }
         Some(KeyCommands::Create { wallet }) => {
             super::wallets::create_access_key(wallet.as_deref(), &ctx.keys)?;
             if let Some(a) = ctx.analytics.as_ref() {
@@ -33,7 +32,8 @@ pub(crate) async fn run(
                 );
             }
             let fresh_keys = ctx.keys.reload()?;
-            super::whoami::show_whoami(&ctx.config, output_format, ctx.network, None, &fresh_keys).await
+            super::whoami::show_whoami(&ctx.config, output_format, ctx.network, None, &fresh_keys)
+                .await
         }
         Some(KeyCommands::Clean { yes }) => run_key_clean(yes),
         None => {
