@@ -1,16 +1,16 @@
 [package]
-name = "tempo-wallet"
-version = "0.1.0"
+name = "presto"
+version = "0.6.2"
 edition = "2021"
 description = "A command-line HTTP client with built-in MPP payment support"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/tempoxyz/wallet"
+repository = "https://github.com/tempoxyz/presto"
 readme = "README.md"
 keywords = ["http", "cli", "payments", "mpp"]
 categories = ["command-line-utilities"]
 
 [[bin]]
-name = "tempo-wallet"
+name = "presto"
 path = "src/main.rs"
 
 [dependencies]

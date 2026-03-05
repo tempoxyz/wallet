@@ -13,35 +13,35 @@ use common::{get_combined_output, seed_local_session, test_command, TestConfigBu
 
 #[test]
 fn test_completions_bash() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "bash"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("_tempo-wallet"))
+        .stdout(predicate::str::contains("_presto"))
         .stdout(predicate::str::contains("complete"));
 }
 
 #[test]
 fn test_completions_zsh() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "zsh"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("#compdef tempo-wallet"));
+        .stdout(predicate::str::contains("#compdef presto"));
 }
 
 #[test]
 fn test_completions_fish() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "fish"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("complete -c tempo-wallet"));
+        .stdout(predicate::str::contains("complete -c presto"));
 }
 
 #[test]
 fn test_completions_powershell() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "powershell"])
         .assert()
         .success()
@@ -50,7 +50,7 @@ fn test_completions_powershell() {
 
 #[test]
 fn test_quiet_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-s"])
         .assert()
         .success();
@@ -58,7 +58,7 @@ fn test_quiet_flag() {
 
 #[test]
 fn test_verbosity_single() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-v"])
         .assert()
         .success();
@@ -66,7 +66,7 @@ fn test_verbosity_single() {
 
 #[test]
 fn test_verbosity_multiple() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-vv"])
         .assert()
         .success();
@@ -74,7 +74,7 @@ fn test_verbosity_multiple() {
 
 #[test]
 fn test_verbosity_long_form() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "--verbose"])
         .assert()
         .success();
@@ -82,7 +82,7 @@ fn test_verbosity_long_form() {
 
 #[test]
 fn test_color_auto() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "--color", "auto"])
         .assert()
         .success();
@@ -90,7 +90,7 @@ fn test_color_auto() {
 
 #[test]
 fn test_color_always() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "--color", "always"])
         .assert()
         .success();
@@ -98,7 +98,7 @@ fn test_color_always() {
 
 #[test]
 fn test_color_never() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "--color", "never"])
         .assert()
         .success();
@@ -106,7 +106,7 @@ fn test_color_never() {
 
 #[test]
 fn test_help_has_display_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
@@ -115,7 +115,7 @@ fn test_help_has_display_options_section() {
 
 #[test]
 fn test_help_has_http_options_section() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
@@ -124,7 +124,7 @@ fn test_help_has_http_options_section() {
 
 #[test]
 fn test_top_level_help_compact_no_hidden_commands() {
-    let output = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .output()
         .unwrap();
@@ -156,15 +156,13 @@ fn test_top_level_help_compact_no_hidden_commands() {
 
 #[test]
 fn test_query_help_has_key_flags() {
-    let output = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Key HTTP flags
-    for flag in [
-        "-X", "-H", "-d,", "--json", "-L", "-i,", "-I", "-m,", "-f,", "-o,",
-    ] {
+    for flag in ["-X", "-H", "-d,", "--json", "-L", "-i,", "-I", "-m,", "-o,"] {
         assert!(stdout.contains(flag), "missing flag {flag} in query help");
     }
     // Examples section
@@ -189,7 +187,7 @@ fn test_query_help_has_key_flags() {
 
 #[test]
 fn test_alias_with_display_options() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-s", "--color", "never"])
         .assert()
         .success();
@@ -197,17 +195,17 @@ fn test_alias_with_display_options() {
 
 #[test]
 fn test_version_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("tempo-wallet"))
+        .stdout(predicate::str::contains("presto"))
         .stdout(predicate::str::is_match(r"[0-9a-f]{7}").unwrap());
 }
 
 #[test]
 fn test_version_includes_build_info() {
-    let output = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--version")
         .output()
         .unwrap();
@@ -226,7 +224,7 @@ fn test_version_includes_build_info() {
 
 #[test]
 fn test_version_json() {
-    let output = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["-j", "--version"])
         .output()
         .unwrap();
@@ -253,7 +251,7 @@ fn test_version_json() {
 
 #[test]
 fn test_login_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["login", "--help"])
         .assert()
         .success()
@@ -262,7 +260,7 @@ fn test_login_help() {
 
 #[test]
 fn test_logout_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["logout", "--help"])
         .assert()
         .success()
@@ -272,7 +270,7 @@ fn test_logout_help() {
 
 #[test]
 fn test_multiple_global_flags_together() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-v", "--color", "never"])
         .assert()
         .success();
@@ -281,19 +279,19 @@ fn test_multiple_global_flags_together() {
 #[test]
 fn test_verbosity_levels() {
     // Single -v
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-v"])
         .assert()
         .success();
 
     // Double -vv
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-vv"])
         .assert()
         .success();
 
     // Triple -vvv
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "-vvv"])
         .assert()
         .success();
@@ -302,7 +300,7 @@ fn test_verbosity_levels() {
 #[test]
 fn test_all_color_modes() {
     for color_mode in ["auto", "always", "never"] {
-        Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+        Command::new(assert_cmd::cargo::cargo_bin!("presto"))
             .args(["completions", "--color", color_mode])
             .assert()
             .success();
@@ -311,7 +309,7 @@ fn test_all_color_modes() {
 
 #[test]
 fn test_completions_no_arg_shows_shells() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("completions")
         .assert()
         .success()
@@ -322,7 +320,7 @@ fn test_completions_no_arg_shows_shells() {
 
 #[test]
 fn test_completions_invalid_shell() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "invalid-shell"])
         .assert()
         .failure();
@@ -330,7 +328,7 @@ fn test_completions_invalid_shell() {
 
 #[test]
 fn test_completions_case_sensitivity() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["completions", "BASH"])
         .assert()
         .failure();
@@ -396,7 +394,7 @@ fn test_key_list_json_has_total() {
 
 #[test]
 fn test_main_help_lists_all_commands() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--help")
         .assert()
         .success()
@@ -409,7 +407,7 @@ fn test_main_help_lists_all_commands() {
 
 #[test]
 fn test_query_alias() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["q", "--help"])
         .assert()
         .success()
@@ -418,7 +416,7 @@ fn test_query_alias() {
 
 #[test]
 fn test_query_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "--help"])
         .assert()
         .success()
@@ -430,7 +428,7 @@ fn test_query_help() {
 
 #[test]
 fn test_whoami_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["whoami", "--help"])
         .assert()
         .success()
@@ -439,7 +437,7 @@ fn test_whoami_help() {
 
 #[test]
 fn test_help_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("-h")
         .assert()
         .success();
@@ -447,7 +445,7 @@ fn test_help_flag() {
 
 #[test]
 fn test_invalid_command() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["sessions", "invalid-subcommand"])
         .assert()
         .failure();
@@ -455,7 +453,7 @@ fn test_invalid_command() {
 
 #[test]
 fn test_invalid_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("--invalid-flag")
         .assert()
         .failure();
@@ -465,8 +463,8 @@ fn test_invalid_flag() {
 
 #[test]
 fn test_bare_url_acts_as_query() {
-    // `tempo-wallet http://example.com` should work like `tempo-wallet query http://example.com`
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    // ` tempo-wallethttp://example.com` should work like ` tempo-walletquery http://example.com`
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .arg("http://example.com")
         .assert()
         .success();
@@ -474,7 +472,7 @@ fn test_bare_url_acts_as_query() {
 
 #[test]
 fn test_bare_url_with_verbose() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["-v", "http://example.com"])
         .assert()
         .success()
@@ -483,7 +481,7 @@ fn test_bare_url_with_verbose() {
 
 #[test]
 fn test_bare_url_with_include_headers() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["-i", "http://example.com"])
         .assert()
         .success()
@@ -493,7 +491,7 @@ fn test_bare_url_with_include_headers() {
 #[test]
 fn test_bare_url_with_method() {
     // `-X HEAD` with a bare URL
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["-X", "HEAD", "http://example.com"])
         .assert()
         .success();
@@ -502,7 +500,7 @@ fn test_bare_url_with_method() {
 #[test]
 fn test_i_alias_for_head() {
     // `-I` should act as HEAD
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["-I", "http://example.com"])
         .assert()
         .success();
@@ -511,7 +509,7 @@ fn test_i_alias_for_head() {
 #[test]
 fn test_explicit_query_still_works() {
     // Explicit `query` subcommand should still work
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["query", "http://example.com"])
         .assert()
         .success();
@@ -520,7 +518,7 @@ fn test_explicit_query_still_works() {
 #[test]
 fn test_typo_subcommand_not_swallowed() {
     // A typo'd subcommand should fail with a clap error, not be treated as query
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["qurey", "http://example.com"])
         .assert()
         .failure()
@@ -529,19 +527,19 @@ fn test_typo_subcommand_not_swallowed() {
 
 #[test]
 fn test_unknown_command_shows_clean_error() {
-    // `tempo-wallet foo` should show a clean "not a command" error, not a URL parse error
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    // ` tempo-walletfoo` should show a clean "not a command" error, not a URL parse error
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["foo"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("is not a tempo-wallet command"))
-        .stderr(predicate::str::contains("tempo-wallet --help"));
+        .stderr(predicate::str::contains("is not a  tempo-walletcommand"))
+        .stderr(predicate::str::contains(" tempo-wallet--help"));
 }
 
 #[test]
 fn test_bare_url_with_dry_run() {
     // `--dry-run` with a bare URL should succeed without making a payment
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["--dry-run", "http://example.com"])
         .assert()
         .success();
@@ -550,7 +548,7 @@ fn test_bare_url_with_dry_run() {
 #[test]
 fn test_no_args_shows_help() {
     // Running with no arguments should show help and succeed
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .assert()
         .success()
         .stdout(predicate::str::contains("Usage"));
@@ -627,7 +625,7 @@ fn test_session_close_all_no_sessions() {
 
 #[test]
 fn test_session_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["sessions", "--help"])
         .assert()
         .success()
@@ -651,9 +649,9 @@ fn test_session_shows_help() {
 fn test_private_key_env_value_hidden_in_help() {
     // --private-key is a hidden global flag — it shouldn't appear in help,
     // and the env var value should never be leaked.
-    let output = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["--help"])
-        .env("TEMPO_PRIVATE_KEY", "0xsecretkey")
+        .env("PRESTO_PRIVATE_KEY", "0xsecretkey")
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1080,18 +1078,18 @@ fn test_rpc_env_var_override() {
         )
         .build();
 
-    // TEMPO_RPC_URL should override config file settings.
+    //  TEMPO_RPC_URLshould override config file settings.
     // Whoami loads config and resolves network — this verifies the env override
     // is applied without error (actual RPC is not called for whoami).
     let output = test_command(&temp)
-        .env("TEMPO_RPC_URL", "https://env-override-rpc.example.com")
+        .env("PRESTO_RPC_URL", "https://env-override-rpc.example.com")
         .arg("whoami")
         .output()
         .unwrap();
 
     assert!(
         output.status.success(),
-        "whoami should succeed with TEMPO_RPC_URL env: {}",
+        "whoami should succeed with  TEMPO_RPC_URLenv: {}",
         get_combined_output(&output)
     );
 }
@@ -1391,7 +1389,7 @@ fn test_sessions_info_single_does_not_print_count() {
 
 #[test]
 fn test_sessions_info_help_annotations() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["sessions", "info", "--help"])
         .assert()
         .success()
@@ -1401,7 +1399,7 @@ fn test_sessions_info_help_annotations() {
 
 #[test]
 fn test_sessions_recover_help_annotations() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["sessions", "recover", "--help"])
         .assert()
         .success()
@@ -1431,7 +1429,7 @@ fn test_sessions_close_json_uses_normalized_origin() {
 
 #[test]
 fn test_services_help() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["services", "--help"])
         .assert()
         .success()
@@ -1443,9 +1441,9 @@ fn test_services_help() {
 
 #[test]
 fn test_services_shows_help_with_no_args() {
-    // `tempo-wallet services` without network hits the API, but `--help` should work offline.
+    // ` tempo-walletservices` without network hits the API, but `--help` should work offline.
     // Test that the bare subcommand is recognized (won't error with "not a command").
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["services", "--help"])
         .assert()
         .success()
@@ -1454,8 +1452,8 @@ fn test_services_shows_help_with_no_args() {
 
 #[test]
 fn test_services_info_missing_id() {
-    // `tempo-wallet services info` without a service ID should fail
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    // ` tempo-walletservices info` without a service ID should fail
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["services", "info"])
         .assert()
         .failure();
@@ -1463,10 +1461,10 @@ fn test_services_info_missing_id() {
 
 #[test]
 fn test_services_bare_id_is_accepted() {
-    // `tempo-wallet services fal` should be parsed as a valid command (shorthand for `services info fal`)
+    // ` tempo-walletservices fal` should be parsed as a valid command (shorthand for `services info fal`)
     // It will fail at runtime (network) but should not fail argument parsing.
     // We test via --help to confirm the positional arg is documented.
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+    Command::new(assert_cmd::cargo::cargo_bin!("presto"))
         .args(["services", "--help"])
         .assert()
         .success()

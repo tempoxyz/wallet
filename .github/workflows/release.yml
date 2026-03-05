@@ -32,13 +32,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            asset: tempo-wallet-linux-amd64
+            asset: presto-linux-amd64
           - os: macos-latest
             target: x86_64-apple-darwin
-            asset: tempo-wallet-darwin-amd64
+            asset: presto-darwin-amd64
           - os: macos-latest
             target: aarch64-apple-darwin
-            asset: tempo-wallet-darwin-arm64
+            asset: presto-darwin-arm64
     steps:
       - uses: actions/checkout@v6
       - name: Configure git for private repos
@@ -50,8 +50,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - run: strip target/${{ matrix.target }}/release/tempo-wallet
-      - run: mv target/${{ matrix.target }}/release/tempo-wallet ${{ matrix.asset }}
+      - run: strip target/${{ matrix.target }}/release/presto
+      - run: mv target/${{ matrix.target }}/release/ tempo-wallet${{ matrix.asset }}
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
@@ -70,7 +70,7 @@ jobs:
 
       - name: Determine version
         id: version
-        run: echo "version=tempo-wallet@${{ inputs.version }}" >> $GITHUB_OUTPUT
+        run: echo "version=presto@${{ inputs.version }}" >> $GITHUB_OUTPUT
 
       - name: Upload binaries to GitHub Release
         env:
@@ -91,18 +91,17 @@ jobs:
           for f in artifacts/*; do
             BASENAME=$(basename "$f")
             # Upload as latest
-            aws s3 cp "$f" "s3://tempo-cli/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://presto-binaries/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
             # Upload with version prefix
-            aws s3 cp "$f" "s3://tempo-cli/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://presto-binaries/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
-          # Upload install script and AI skills
-          aws s3 cp install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
-          aws s3 cp .agents/skills/tempo-wallet-passkey/SKILL.md "s3://tempo-cli/SKILL-passkey.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-          aws s3 cp .agents/skills/tempo-wallet-local/SKILL.md "s3://tempo-cli/SKILL-local.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          # Upload install script and AI skill
+          aws s3 cp install.sh "s3://presto-binaries/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp skills/presto/SKILL.md "s3://presto-binaries/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
 
           # Upload VERSION file for auto-update checks
           echo "${{ inputs.version }}" > VERSION
-          aws s3 cp VERSION "s3://tempo-cli/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp VERSION "s3://presto-binaries/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           echo "Uploaded ${VERSION} binaries to R2"

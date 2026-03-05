@@ -5,7 +5,6 @@
 //! direct channel-by-ID close.
 
 use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
-use alloy::sol;
 use alloy::sol_types::SolCall;
 use anyhow::{Context, Result};
 use tempo_primitives::transaction::Call;
@@ -15,22 +14,15 @@ use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
 use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::{parse_receipt, ChallengeEcho};
 
-use super::channel::{get_channel_on_chain, read_grace_period, resolve_scan_networks};
+use super::channel::{get_channel_on_chain, read_grace_period, IEscrow};
 use super::store as session_store;
 use super::tx::submit_tempo_tx;
 use super::CloseOutcome;
 use crate::analytics::{Analytics, Event};
 use crate::config::Config;
-use crate::network::{resolve_token_meta, Network};
+use crate::keys::{Keystore, Signer};
+use crate::network::NetworkId;
 use crate::util::format_token_amount;
-use crate::wallet::signer::{load_wallet_signer, WalletSigner};
-
-sol! {
-    interface IEscrow {
-        function requestClose(bytes32 channelId) external;
-        function withdraw(bytes32 channelId) external;
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -149,17 +141,19 @@ mod tests {
 
 /// Close a session from a persisted record.
 ///
-/// Used by `tempo-wallet sessions close` to send a close credential to the server.
+/// Used by ` tempo-walletsessions close` to send a close credential to the server.
 /// Tries cooperative (server-side) close first, then falls back to on-chain close.
-pub async fn close_session_from_record(
+pub(crate) async fn close_session_from_record(
     record: &session_store::SessionRecord,
     config: &Config,
     analytics: Option<&Analytics>,
+    keys: &Keystore,
 ) -> Result<CloseOutcome> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
 
-    let wallet = load_wallet_signer(&record.network_name)?;
+    let network_id = record.network_id();
+    let wallet = keys.signer(network_id)?;
 
     let channel_id: B256 = record.channel_id_b256()?;
 
@@ -184,13 +178,18 @@ pub async fn close_session_from_record(
     {
         Ok(tx_url) => {
             if let Some(a) = analytics {
-                a.track(Event::CoopCloseSuccess, crate::analytics::EmptyPayload);
+                a.track(
+                    Event::CoopCloseSuccess,
+                    crate::analytics::CoopClosePayload {
+                        network: network_id.as_str().to_string(),
+                        channel_id: record.channel_id.clone(),
+                    },
+                );
             }
-            let (symbol, decimals) = resolve_token_meta(&record.network_name, &record.currency);
             let amount_display = record
                 .cumulative_amount_u128()
                 .ok()
-                .map(|amt| format_token_amount(amt, symbol, decimals));
+                .map(|amt| format_token_amount(amt, network_id));
             return Ok(CloseOutcome::Closed {
                 tx_url,
                 amount_display,
@@ -198,7 +197,13 @@ pub async fn close_session_from_record(
         }
         Err(coop_err) => {
             if let Some(a) = analytics {
-                a.track(Event::CoopCloseFailure, crate::analytics::EmptyPayload);
+                a.track(
+                    Event::CoopCloseFailure,
+                    crate::analytics::CoopClosePayload {
+                        network: network_id.as_str().to_string(),
+                        channel_id: record.channel_id.clone(),
+                    },
+                );
             }
             tracing::info!("Cooperative close failed: {coop_err:#}")
         }
@@ -222,11 +227,10 @@ pub async fn close_session_from_record(
 
     match outcome {
         CloseOutcome::Closed { tx_url, .. } => {
-            let (symbol, decimals) = resolve_token_meta(&record.network_name, &record.currency);
             let amount_display = record
                 .cumulative_amount_u128()
                 .ok()
-                .map(|amt| format_token_amount(amt, symbol, decimals));
+                .map(|amt| format_token_amount(amt, network_id));
             Ok(CloseOutcome::Closed {
                 tx_url,
                 amount_display,
@@ -240,13 +244,15 @@ pub async fn close_session_from_record(
 ///
 /// Used for best-effort cleanup when reusing a session fails — the result is
 /// typically discarded because the caller will open a new channel regardless.
-pub async fn try_cooperative_close_from_record(
+pub(super) async fn try_cooperative_close_from_record(
     record: &session_store::SessionRecord,
+    keys: &Keystore,
 ) -> Result<()> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
         .context("Failed to parse persisted challenge echo")?;
 
-    let wallet = load_wallet_signer(&record.network_name)?;
+    let network_id = record.network_id();
+    let wallet = keys.signer(network_id)?;
 
     let channel_id: B256 = record.channel_id_b256()?;
 
@@ -301,10 +307,10 @@ async fn try_server_close(
     };
     let echo = fresh_echo.as_ref().unwrap_or(echo);
 
-    let (symbol, token_decimals) = resolve_token_meta(&record.network_name, &record.currency);
-    let spent_fmt = format_token_amount(cumulative_amount, symbol, token_decimals);
+    let network_id = record.network_id();
+    let spent_fmt = format_token_amount(cumulative_amount, network_id);
     let deposit_u = record.deposit_u128().unwrap_or(0);
-    let deposit_fmt = format_token_amount(deposit_u, symbol, token_decimals);
+    let deposit_fmt = format_token_amount(deposit_u, network_id);
     tracing::info!(
         "coop close: spent={}, deposit={}, channel={}, url={}",
         spent_fmt,
@@ -362,17 +368,7 @@ async fn try_server_close(
         .and_then(|receipt_str| {
             let receipt = parse_receipt(receipt_str).ok()?;
             let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-            let explorer = record
-                .network_name
-                .parse::<Network>()
-                .ok()
-                .and_then(|n| n.info().explorer);
-            Some(
-                explorer
-                    .as_ref()
-                    .map(|exp| exp.tx_url(&tx_ref))
-                    .unwrap_or(tx_ref),
-            )
+            Some(record.network_id().tx_url(&tx_ref))
         });
 
     Ok(tx_url)
@@ -380,15 +376,7 @@ async fn try_server_close(
 
 /// Extract a short error message from a JSON or text payload.
 fn summarize_error_message(body: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| {
-            v.get("error")
-                .or_else(|| v.get("message"))
-                .or_else(|| v.get("detail"))
-                .and_then(|s| s.as_str().map(String::from))
-        })
-        .unwrap_or_else(|| body.chars().take(200).collect())
+    crate::payment::extract_json_error(body).unwrap_or_else(|| body.chars().take(200).collect())
 }
 
 /// Submit requestClose() or withdraw() directly on-chain as a Tempo type-0x76 transaction.
@@ -406,16 +394,14 @@ fn summarize_error_message(body: &str) -> String {
 /// - If non-zero but grace period not elapsed: returns `Pending`
 pub(super) async fn close_on_chain(
     config: &Config,
-    wallet: &WalletSigner,
+    wallet: &Signer,
     channel_id: B256,
     escrow_contract: Address,
     chain_id: u64,
     fee_token: Address,
 ) -> Result<CloseOutcome> {
-    let network = Network::require_chain_id(chain_id)?;
-    let network_name = network.as_str();
-    let network_info = config.resolve_network(network_name)?;
-    let rpc_url = Network::parse_rpc_url(&network_info.rpc_url)?;
+    let network_id = NetworkId::require_chain_id(chain_id)?;
+    let rpc_url = config.rpc_url(network_id);
     let provider = alloy::providers::RootProvider::new_http(rpc_url.clone());
     let tempo_provider =
         alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
@@ -446,11 +432,7 @@ pub(super) async fn close_on_chain(
         let tx_hash =
             submit_tempo_tx(&tempo_provider, wallet, chain_id, fee_token, from, calls).await?;
 
-        let explorer = network.info().explorer;
-        let tx_url = explorer
-            .as_ref()
-            .map(|exp| exp.tx_url(&tx_hash))
-            .unwrap_or(tx_hash);
+        let tx_url = network_id.tx_url(&tx_hash);
         tracing::info!("requestClose TX: {}", tx_url);
 
         let grace_secs = read_grace_period(&provider, escrow_contract)
@@ -477,7 +459,7 @@ pub(super) async fn close_on_chain(
         .await
         .unwrap_or(900);
     let now = session_store::now_secs();
-    let ready_at = on_chain.close_requested_at as u64 + grace_period;
+    let ready_at = on_chain.close_requested_at + grace_period;
     if now < ready_at {
         let remaining = ready_at - now;
 
@@ -486,7 +468,7 @@ pub(super) async fn close_on_chain(
         let _ = session_store::update_session_close_state_by_channel_id(
             &channel_id_hex,
             "closing",
-            on_chain.close_requested_at as u64,
+            on_chain.close_requested_at,
             ready_at,
         );
 
@@ -512,18 +494,14 @@ pub(super) async fn close_on_chain(
     let tx_hash =
         submit_tempo_tx(&tempo_provider, wallet, chain_id, fee_token, from, calls).await?;
 
-    let explorer = network.info().explorer;
-    let tx_url = explorer
-        .as_ref()
-        .map(|exp| exp.tx_url(&tx_hash))
-        .unwrap_or(tx_hash);
+    let tx_url = network_id.tx_url(&tx_hash);
     tracing::info!("withdraw TX: {}", tx_url);
 
     // Best-effort local cleanup is handled by callers, but mark state finalizable->finalized if present
     let _ = session_store::update_session_close_state_by_channel_id(
         &channel_id_hex,
         "finalizable",
-        on_chain.close_requested_at as u64,
+        on_chain.close_requested_at,
         now,
     );
 
@@ -539,16 +517,13 @@ pub(super) async fn close_on_chain(
 /// regardless of whether the current key matches the channel's
 /// `authorizedSigner`. This allows closing orphaned channels after key
 /// rotation or expiry.
-pub async fn close_discovered_channel(
+pub(crate) async fn close_discovered_channel(
     channel: &super::channel::DiscoveredChannel,
     config: &Config,
+    keys: &Keystore,
 ) -> Result<CloseOutcome> {
-    let network: Network = channel
-        .network
-        .parse()
-        .map_err(|_| anyhow::anyhow!("Unknown network: {}", channel.network))?;
-
-    let wallet = load_wallet_signer(network.as_str())?;
+    let network_id = channel.network;
+    let wallet = keys.signer(network_id)?;
 
     let channel_id: B256 = channel.channel_id.parse().context("Invalid channel_id")?;
     let escrow_contract: Address = channel
@@ -562,83 +537,62 @@ pub async fn close_discovered_channel(
         &wallet,
         channel_id,
         escrow_contract,
-        network.chain_id(),
+        network_id.chain_id(),
         fee_token,
     )
     .await
 }
 
-/// Close a channel by its on-chain ID, scanning all networks to find it.
+/// Close a channel by its on-chain ID.
 ///
 /// Uses the payer-initiated path (`requestClose` → `withdraw`) which works
 /// regardless of the channel's authorized signer. This allows closing
 /// orphaned channels after key rotation or expiry.
-pub async fn close_channel_by_id(
+pub(crate) async fn close_channel_by_id(
     config: &Config,
     channel_id_hex: &str,
-    network_filter: Option<&str>,
-    wallet_override: Option<&WalletSigner>,
+    network: NetworkId,
+    wallet_override: Option<&Signer>,
+    keys: &Keystore,
 ) -> Result<CloseOutcome> {
     let channel_id: B256 = channel_id_hex
         .parse()
         .context("Invalid channel ID (expected 0x-prefixed bytes32 hex)")?;
 
-    let networks = resolve_scan_networks(network_filter);
+    let rpc_url = config.rpc_url(network);
+    let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
-    let mut had_rpc_errors = false;
+    let escrow: Address = network
+        .escrow_contract()
+        .parse()
+        .context("Invalid escrow contract address")?;
 
-    for network in &networks {
-        let network_info = match config.resolve_network(network.as_str()) {
-            Ok(info) => info,
-            Err(_) => continue,
-        };
-        let rpc_url: url::Url = match network_info.rpc_url.parse() {
-            Ok(u) => u,
-            Err(_) => continue,
-        };
-        let provider = alloy::providers::RootProvider::new_http(rpc_url);
+    let on_chain = get_channel_on_chain(&provider, escrow, channel_id)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Channel {} not found on {}",
+                channel_id_hex,
+                network.as_str()
+            )
+        })?;
 
-        let escrow: Address = match network.escrow_contract().parse() {
-            Ok(a) => a,
-            Err(_) => continue,
-        };
+    let owned_wallet;
+    let wallet = match wallet_override {
+        Some(w) => w,
+        None => {
+            owned_wallet = keys.signer(network)?;
+            &owned_wallet
+        }
+    };
 
-        let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await {
-            Ok(Some(ch)) => ch,
-            Ok(None) => continue,
-            Err(e) => {
-                tracing::debug!(network = network.as_str(), %e, "failed to query channel");
-                had_rpc_errors = true;
-                continue;
-            }
-        };
-
-        let owned_wallet;
-        let wallet = match wallet_override {
-            Some(w) => w,
-            None => {
-                owned_wallet = load_wallet_signer(network.as_str())?;
-                &owned_wallet
-            }
-        };
-
-        return close_on_chain(
-            config,
-            wallet,
-            channel_id,
-            escrow,
-            network.chain_id(),
-            on_chain.token,
-        )
-        .await;
-    }
-
-    if had_rpc_errors {
-        anyhow::bail!(
-            "Channel {} could not be verified — RPC errors prevented checking all networks",
-            channel_id_hex
-        )
-    } else {
-        anyhow::bail!("Channel {} not found on any network", channel_id_hex)
-    }
+    close_on_chain(
+        config,
+        wallet,
+        channel_id,
+        escrow,
+        network.chain_id(),
+        on_chain.token,
+    )
+    .await
 }
