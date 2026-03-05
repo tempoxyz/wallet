@@ -533,7 +533,7 @@ fn test_unknown_command_shows_clean_error() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("is not a tempo-wallet command"))
-        .stderr(predicate::str::contains(" tempo-wallet--help"));
+        .stderr(predicate::str::contains("tempo-wallet --help"));
 }
 
 #[test]

@@ -266,8 +266,8 @@ fn format_endpoint_pricing(ep: &Endpoint) -> String {
 fn format_example_command(method: &str, base_url: &str, path: &str) -> String {
     let url = format!("{}{}", base_url.trim_end_matches('/'), path);
     match method.to_uppercase().as_str() {
-        "GET" => format!(" tempo-wallet{url}"),
-        m => format!(" tempo-wallet-X {m} --json '{{}}' {url}"),
+        "GET" => format!("tempo-wallet {url}"),
+        m => format!("tempo-wallet -X {m} --json '{{}}' {url}"),
     }
 }
 

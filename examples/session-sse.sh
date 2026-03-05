@@ -64,7 +64,7 @@ for i in "${!PROMPTS[@]}"; do
   N=$((i + 1))
   echo "[$N/${#PROMPTS[@]}] Prompt: \"${PROMPT}\""
 
-   tempo-wallet -v -X POST \
+  tempo-wallet -v -X POST \
     --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}],\"stream\":true}" \
     "${ENDPOINT}" 2>"$STDERR_FILE" || true
 

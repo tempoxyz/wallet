@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 #![deny(warnings)]
-//!  tempo-wallet— a command-line HTTP client with automatic payment support.
+//! tempo-wallet — a command-line HTTP client with automatic payment support.
 //!
-//!  Tempo Walletworks like curl/wget but handles HTTP 402 (Payment Required)
+//! tempo-wallet works like curl/wget but handles HTTP 402 (Payment Required)
 //! responses automatically using the [Machine Payments Protocol (MPP)](https://mpp.dev).
 //!
 //! # Payment flow

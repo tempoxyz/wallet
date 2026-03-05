@@ -1,4 +1,4 @@
-# tempo-wallet
+# wallet
 
 tempo-wallet is a command-line HTTP client that pays for API calls automatically. Call services without signing up or managing API keys — tempo-wallet handles payment on the [Tempo](https://tempo.xyz) blockchain using the [Machine Payments Protocol](https://mpp.dev).
 
@@ -26,7 +26,7 @@ tempo-wallet https://openrouter.mpp.tempo.xyz/v1/chat/completions \
 
 ```bash
 git clone https://github.com/tempoxyz/wallet.git
-cd  tempo-wallet&& make install
+cd tempo-wallet && make install
 ```
 
 ## Examples
@@ -48,7 +48,7 @@ tempo-wallet https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
 Preview cost without paying:
 
 ```bash
- tempo-wallet--dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+tempo-wallet --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
@@ -59,7 +59,7 @@ Ready-to-run scripts in [`examples/`](examples/):
 
 | Command | Description |
 |---------|-------------|
-| ` tempo-wallet<URL>` | Make an HTTP request with automatic payment |
+| `tempo-wallet <URL>` | Make an HTTP request with automatic payment |
 | `tempo-wallet login` | Connect your Tempo wallet |
 | `tempo-wallet logout` | Disconnect your wallet |
 | `tempo-wallet whoami` | Show wallet, balances, and keys |
@@ -72,7 +72,7 @@ Ready-to-run scripts in [`examples/`](examples/):
 | `tempo-wallet sessions recover <URL|origin>` | Re-sync a local session's state from chain |
 | `tempo-wallet sessions sync` | Remove stale local sessions (settled on-chain) |
 
-Run ` tempo-wallet--help` or ` tempo-wallet<command> --help` for full flag reference.
+Run `tempo-wallet --help` or `tempo-wallet <command> --help` for full flag reference.
 
 ## Configuration
 

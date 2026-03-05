@@ -32,7 +32,7 @@ const LONG_VERSION: &str = concat!(
 #[command(version = LONG_VERSION)]
 #[command(
     // Match curl-style usage: show HTTP options before the URL and list both forms
-    override_usage = "\n   tempo-wallet[HTTP OPTIONS] <URL>\n   tempo-wallet<COMMAND> [OPTIONS]"
+    override_usage = "\n  tempo-wallet [HTTP OPTIONS] <URL>\n  tempo-wallet <COMMAND> [OPTIONS]"
 )]
 #[command(after_help = "\
 HTTP Options (before <URL>):
@@ -133,8 +133,8 @@ pub(crate) struct Cli {
 #[command(after_help = "\
 Examples:
   tempo-wallet https://api.example.com/data
-   tempo-wallet-X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
-   tempo-wallet-H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
+  tempo-wallet -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
+  tempo-wallet -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
 pub(crate) struct QueryArgs {
     /// URL to request
     #[arg(value_name = "URL")]
@@ -652,7 +652,7 @@ impl Cli {
             if !url.contains("://") && !url.contains("localhost") && !url.contains('.') {
                 eprintln!(
                     "error: '{url}' is not a tempo-wallet command. \
-                     See ' tempo-wallet--help' for a list of available commands."
+                     See 'tempo-wallet --help' for a list of available commands."
                 );
                 super::exit_codes::ExitCode::InvalidUsage.exit();
             }

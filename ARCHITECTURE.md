@@ -29,7 +29,7 @@ main.rs            — entry point; parse CLI, run, handle errors
 Implemented in `payment/charge.rs`. Handles single-request on-chain settlement.
 
 1. The server responds with HTTP 402 and a `WWW-Authenticate` header describing the payment terms.
-2.  Tempo Walletparses the challenge via the `mpp` crate.
+2. Tempo Wallet parses the challenge via the `mpp` crate.
 3. A signed transaction is built using `mpp::TempoProvider` and submitted on-chain.
 4. The request is retried with an `Authorization` header containing the payment credential (transaction hash).
 
