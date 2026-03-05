@@ -271,7 +271,8 @@ mod tests {
 
     #[test]
     fn test_render_error_json_no_cause() {
-        let err: anyhow::Error = crate::error::TempoWalletError::InvalidUrl("bad scheme".into()).into();
+        let err: anyhow::Error =
+            crate::error::TempoWalletError::InvalidUrl("bad scheme".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.get("cause").is_none());
@@ -280,7 +281,8 @@ mod tests {
     #[test]
     fn test_render_error_json_schema_fields() {
         // Verify the JSON always has exactly "code" and "message" (and optionally "cause")
-        let err: anyhow::Error = crate::error::TempoWalletError::UnknownNetwork("custom".into()).into();
+        let err: anyhow::Error =
+            crate::error::TempoWalletError::UnknownNetwork("custom".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         let obj = parsed.as_object().unwrap();

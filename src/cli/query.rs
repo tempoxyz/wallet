@@ -513,7 +513,9 @@ fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> 
 
     // Enforce supported payment protocol (tempo only for now)
     if !challenge.method.eq_ignore_ascii_case("tempo") {
-        return Err(TempoWalletError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
+        return Err(
+            TempoWalletError::UnsupportedPaymentMethod(challenge.method.to_string()).into(),
+        );
     }
 
     let is_session = challenge.intent.is_session();

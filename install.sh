@@ -4,7 +4,7 @@ set -euo pipefail
 # tempo-wallet installer script
 #
 # Usage:
-#   curl -fsSL https://tempo-cli.tempo.xyz/install.sh | bash
+#   curl -fsSL https://cli.tempo.xyz/install.sh | bash
 #
 # Options:
 #   --wallet=local    Install with local wallet mode (default: passkey)
@@ -21,7 +21,7 @@ fi
 INSTALL_DIR="${HOME}/.local/bin"
 LEGACY_INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="tempo-wallet"
-R2_BASE_URL="https://tempo-cli.tempo.xyz"
+R2_BASE_URL="https://cli.tempo.xyz"
 
 # Temp directory for downloads (cleaned up on exit)
 TMP_DIR=""

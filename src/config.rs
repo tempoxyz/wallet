@@ -224,7 +224,7 @@ impl Config {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         const CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
-        const VERSION_URL: &str = "https://tempo-cli.tempo.xyz/VERSION";
+        const VERSION_URL: &str = "https://cli.tempo.xyz/VERSION";
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 

@@ -133,7 +133,9 @@ impl From<&crate::error::TempoWalletError> for ExitCode {
             | TempoWalletError::InvalidAddress(_) => ExitCode::InvalidUsage,
 
             // Invalid arguments / user input
-            TempoWalletError::InvalidUrl(_) | TempoWalletError::InvalidHeader(_) => ExitCode::InvalidUsage,
+            TempoWalletError::InvalidUrl(_) | TempoWalletError::InvalidHeader(_) => {
+                ExitCode::InvalidUsage
+            }
 
             // General errors
             _ => ExitCode::GeneralError,

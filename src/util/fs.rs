@@ -35,7 +35,8 @@ pub fn atomic_write(
 
     temp.write_all(contents.as_bytes())?;
     temp.as_file().sync_all()?;
-    temp.persist(path).map_err(|e| TempoWalletError::Io(e.error))?;
+    temp.persist(path)
+        .map_err(|e| TempoWalletError::Io(e.error))?;
 
     Ok(())
 }

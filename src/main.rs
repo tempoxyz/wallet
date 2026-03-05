@@ -182,8 +182,9 @@ fn parse_cli() -> Cli {
 fn validate_network_flag(network: &str) -> Result<()> {
     // Support comma-separated network lists (e.g. "tempo, tempo-moderato")
     for name in network.split(',').map(|s| s.trim()) {
-        network::validate_network_name(name)
-            .map_err(|_| anyhow::anyhow!(error::TempoWalletError::UnknownNetwork(name.to_string())))?;
+        network::validate_network_name(name).map_err(|_| {
+            anyhow::anyhow!(error::TempoWalletError::UnknownNetwork(name.to_string()))
+        })?;
     }
     Ok(())
 }
@@ -269,7 +270,9 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                         let is_login_timeout = err_str.contains("timed out")
                             || e.chain()
                                 .find_map(|cause| cause.downcast_ref::<error::TempoWalletError>())
-                                .is_some_and(|pe| matches!(pe, error::TempoWalletError::LoginExpired));
+                                .is_some_and(|pe| {
+                                    matches!(pe, error::TempoWalletError::LoginExpired)
+                                });
 
                         if is_login_timeout {
                             a.track(
@@ -509,7 +512,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 
 // ==================== Simple Commands ====================
 
-const INSTALL_SCRIPT_URL: &str = "https://tempo-cli.tempo.xyz/install.sh";
+const INSTALL_SCRIPT_URL: &str = "https://cli.tempo.xyz/install.sh";
 
 /// Download and run the install script to update to the latest version.
 fn run_self_update(yes: bool) -> Result<()> {

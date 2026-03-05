@@ -161,8 +161,9 @@ impl Network {
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
     pub fn require_chain_id(chain_id: u64) -> Result<Self, TempoWalletError> {
-        Self::from_chain_id(chain_id)
-            .ok_or_else(|| TempoWalletError::InvalidConfig(format!("Unsupported chainId: {}", chain_id)))
+        Self::from_chain_id(chain_id).ok_or_else(|| {
+            TempoWalletError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+        })
     }
 
     /// Parse an RPC URL string into a `url::Url`, returning a config error on failure.

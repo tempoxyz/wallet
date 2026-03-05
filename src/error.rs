@@ -172,7 +172,9 @@ pub fn map_mpp_validation_error(
     challenge: &mpp::PaymentChallenge,
 ) -> TempoWalletError {
     match e {
-        mpp::MppError::UnsupportedPaymentMethod(msg) => TempoWalletError::UnsupportedPaymentMethod(msg),
+        mpp::MppError::UnsupportedPaymentMethod(msg) => {
+            TempoWalletError::UnsupportedPaymentMethod(msg)
+        }
         mpp::MppError::PaymentExpired(_) => {
             TempoWalletError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
         }
