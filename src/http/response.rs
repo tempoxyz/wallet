@@ -78,6 +78,19 @@ pub(crate) fn http_status_text(code: u16) -> &'static str {
 }
 
 #[cfg(test)]
+impl HttpResponse {
+    /// Create a test response with the given status and body.
+    pub(crate) fn for_test(status: u16, body: &[u8]) -> Self {
+        Self {
+            status_code: status,
+            headers: Vec::new(),
+            body: body.to_vec(),
+            final_url: None,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -98,18 +111,5 @@ mod tests {
     fn test_http_status_text_unknown_code() {
         assert_eq!(http_status_text(418), "Error");
         assert_eq!(http_status_text(599), "Error");
-    }
-}
-
-#[cfg(test)]
-impl HttpResponse {
-    /// Create a test response with the given status and body.
-    pub(crate) fn for_test(status: u16, body: &[u8]) -> Self {
-        Self {
-            status_code: status,
-            headers: Vec::new(),
-            body: body.to_vec(),
-            final_url: None,
-        }
     }
 }

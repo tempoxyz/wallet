@@ -13,6 +13,41 @@ use serde::{Deserialize, Serialize};
 
 use crate::network::NetworkId;
 
+/// Session lifecycle state.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SessionStatus {
+    #[default]
+    Active,
+    Closing,
+    Finalizable,
+    Finalized,
+    Orphaned,
+}
+
+impl SessionStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Closing => "closing",
+            Self::Finalizable => "finalizable",
+            Self::Finalized => "finalized",
+            Self::Orphaned => "orphaned",
+        }
+    }
+
+    fn from_db_str(value: &str) -> Self {
+        match value {
+            "active" => Self::Active,
+            "closing" => Self::Closing,
+            "finalizable" => Self::Finalizable,
+            "finalized" => Self::Finalized,
+            "orphaned" => Self::Orphaned,
+            _ => Self::Active,
+        }
+    }
+}
+
 /// A persisted payment channel session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct SessionRecord {
@@ -35,9 +70,9 @@ pub(crate) struct SessionRecord {
     pub(crate) cumulative_amount: String,
     pub(crate) challenge_echo: String,
     pub(crate) challenge_id: String,
-    /// Explicit lifecycle state: "active" | "closing" | "finalizable" | "finalized" (tombstones not persisted) | "orphaned" (not persisted here)
+    /// Explicit lifecycle state.
     #[serde(default = "default_state")]
-    pub(crate) state: String,
+    pub(crate) state: SessionStatus,
     /// UNIX time when close was requested (0 if not requested)
     #[serde(default)]
     pub(crate) close_requested_at: u64,
@@ -55,8 +90,8 @@ fn default_version() -> u32 {
     1
 }
 
-fn default_state() -> String {
-    "active".to_string()
+fn default_state() -> SessionStatus {
+    SessionStatus::Active
 }
 
 fn default_token_decimals() -> u8 {
@@ -111,22 +146,22 @@ impl SessionRecord {
 
     /// Compute the display status and optional remaining seconds from the session state.
     ///
-    /// Returns `(status_str, remaining_secs)`:
-    /// - Active sessions: `("active", None)`
-    /// - Closing with time remaining: `("closing", Some(secs))`
-    /// - Closing with grace elapsed: `("finalizable", Some(0))`
-    pub(crate) fn status_at(&self, now: u64) -> (String, Option<u64>) {
-        match self.state.as_str() {
-            "closing" => {
+    /// Returns `(status, remaining_secs)`:
+    /// - Active sessions: `(SessionStatus::Active, None)`
+    /// - Closing with time remaining: `(SessionStatus::Closing, Some(secs))`
+    /// - Closing with grace elapsed: `(SessionStatus::Finalizable, Some(0))`
+    pub(crate) fn status_at(&self, now: u64) -> (SessionStatus, Option<u64>) {
+        match self.state {
+            SessionStatus::Closing => {
                 let rem = self.grace_ready_at.saturating_sub(now);
                 if rem == 0 && self.grace_ready_at > 0 {
-                    ("finalizable".to_string(), Some(0))
+                    (SessionStatus::Finalizable, Some(0))
                 } else {
-                    ("closing".to_string(), Some(rem))
+                    (SessionStatus::Closing, Some(rem))
                 }
             }
-            "finalizable" => ("finalizable".to_string(), Some(0)),
-            _ => ("active".to_string(), None),
+            SessionStatus::Finalizable => (SessionStatus::Finalizable, Some(0)),
+            _ => (SessionStatus::Active, None),
         }
     }
 }
@@ -266,7 +301,7 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             record.cumulative_amount,
             record.challenge_echo,
             record.challenge_id,
-            record.state,
+            record.state.as_str(),
             record.close_requested_at as i64,
             record.grace_ready_at as i64,
             record.token_decimals as i64,
@@ -298,7 +333,10 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         cumulative_amount: row.get(14)?,
         challenge_echo: row.get(15)?,
         challenge_id: row.get(16)?,
-        state: row.get(17).unwrap_or_else(|_| "active".to_string()),
+        state: SessionStatus::from_db_str(
+            &row.get::<_, String>(17)
+                .unwrap_or_else(|_| "active".to_string()),
+        ),
         close_requested_at: u64::try_from(row.get::<_, i64>(18).unwrap_or(0)).unwrap_or(0),
         grace_ready_at: u64::try_from(row.get::<_, i64>(19).unwrap_or(0)).unwrap_or(0),
         token_decimals: u8::try_from(row.get::<_, i64>(20).unwrap_or(6)).unwrap_or(6),
@@ -402,7 +440,7 @@ pub(crate) fn list_sessions() -> Result<Vec<SessionRecord>> {
 /// Update close state fields by channel ID for a local session (no-op if not found).
 pub(crate) fn update_session_close_state_by_channel_id(
     channel_id: &str,
-    state: &str,
+    state: SessionStatus,
     close_requested_at: u64,
     grace_ready_at: u64,
 ) -> Result<()> {
@@ -410,7 +448,7 @@ pub(crate) fn update_session_close_state_by_channel_id(
     let channel_id = channel_id.to_lowercase();
     conn.execute(
         "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
-        params![state, close_requested_at as i64, grace_ready_at as i64, channel_id],
+        params![state.as_str(), close_requested_at as i64, grace_ready_at as i64, channel_id],
     )
     .context("Failed to update session close state")?;
     Ok(())
@@ -466,7 +504,7 @@ mod tests {
             cumulative_amount: "0".into(),
             challenge_echo: "echo".into(),
             challenge_id: "id".into(),
-            state: "active".into(),
+            state: SessionStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             token_decimals: 6,
@@ -632,36 +670,36 @@ mod tests {
     fn test_status_at_active() {
         let record = test_record("https://example.com", "salt");
         let (status, rem) = record.status_at(1000);
-        assert_eq!(status, "active");
+        assert_eq!(status, SessionStatus::Active);
         assert!(rem.is_none());
     }
 
     #[test]
     fn test_status_at_closing_with_remaining() {
         let mut record = test_record("https://example.com", "salt");
-        record.state = "closing".to_string();
+        record.state = SessionStatus::Closing;
         record.grace_ready_at = 2000;
         let (status, rem) = record.status_at(1500);
-        assert_eq!(status, "closing");
+        assert_eq!(status, SessionStatus::Closing);
         assert_eq!(rem, Some(500));
     }
 
     #[test]
     fn test_status_at_closing_grace_elapsed() {
         let mut record = test_record("https://example.com", "salt");
-        record.state = "closing".to_string();
+        record.state = SessionStatus::Closing;
         record.grace_ready_at = 1000;
         let (status, rem) = record.status_at(2000);
-        assert_eq!(status, "finalizable");
+        assert_eq!(status, SessionStatus::Finalizable);
         assert_eq!(rem, Some(0));
     }
 
     #[test]
     fn test_status_at_finalizable() {
         let mut record = test_record("https://example.com", "salt");
-        record.state = "finalizable".to_string();
+        record.state = SessionStatus::Finalizable;
         let (status, rem) = record.status_at(5000);
-        assert_eq!(status, "finalizable");
+        assert_eq!(status, SessionStatus::Finalizable);
         assert_eq!(rem, Some(0));
     }
 

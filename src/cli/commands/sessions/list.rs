@@ -10,6 +10,8 @@ use crate::keys::Keystore;
 use crate::network::NetworkId;
 use crate::payment::session::channel::{find_all_channels_for_payer, read_grace_period};
 use crate::payment::session::store as session_store;
+use crate::payment::session::store::SessionStatus;
+use crate::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
 use super::render::{render_channel_list, ChannelView};
 
@@ -44,88 +46,24 @@ fn view_from_session(session: &session_store::SessionRecord) -> ChannelView {
         deposit: format_units(U256::from(limit_u), decimals).expect("decimals <= 77"),
         spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
         remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-        status,
+        status: status.as_str().to_string(),
         remaining_secs,
         created_at: Some(session.created_at),
         last_used_at: Some(session.last_used_at),
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_record(
-        state: &str,
-        grace_ready_at: u64,
-        last_used_at: u64,
-    ) -> session_store::SessionRecord {
-        session_store::SessionRecord {
-            version: 1,
-            origin: "https://api.example.com".into(),
-            request_url: "https://api.example.com/v1".into(),
-            network_name: "tempo".into(),
-            chain_id: 4217,
-            escrow_contract: "0x00".into(),
-            currency: "0x00".into(),
-            recipient: "0x00".into(),
-            payer: "did:pkh:eip155:4217:0x00".into(),
-            authorized_signer: "0x00".into(),
-            salt: "0x00".into(),
-            channel_id: "0xabc".into(),
-            deposit: "1000000".into(),
-            tick_cost: "100".into(),
-            cumulative_amount: "2000".into(),
-            challenge_echo: "{}".into(),
-            challenge_id: "id".into(),
-            state: state.into(),
-            close_requested_at: if state == "closing" {
-                grace_ready_at.saturating_sub(900)
-            } else {
-                0
-            },
-            grace_ready_at,
-            token_decimals: 6,
-            created_at: last_used_at.saturating_sub(60),
-            last_used_at,
-        }
-    }
-
-    #[test]
-    fn test_view_from_session_active() {
-        let now = session_store::now_secs();
-        let rec = make_record("active", 0, now);
-        let view = super::view_from_session(&rec);
-        assert_eq!(view.status, "active");
-        assert!(view.remaining_secs.is_none());
-    }
-
-    #[test]
-    fn test_view_from_session_closing_and_finalizable() {
-        let now = session_store::now_secs();
-        // Closing with time remaining
-        let rec = make_record("closing", now + 120, now);
-        let view = super::view_from_session(&rec);
-        assert_eq!(view.status, "closing");
-        assert_eq!(view.remaining_secs, Some(120));
-
-        // Finalizable (ready_at <= now)
-        let rec2 = make_record("closing", now, now);
-        let view2 = super::view_from_session(&rec2);
-        assert_eq!(view2.status, "finalizable");
-        assert_eq!(view2.remaining_secs, Some(0));
-    }
-}
-
-/// Resolve the grace period for an escrow contract, falling back to 900s.
+/// Resolve the grace period for an escrow contract, falling back to a default.
 async fn resolve_grace_period(config: &Config, network: NetworkId, escrow_hex: &str) -> u64 {
     let rpc_url = config.rpc_url(network);
     let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
     let escrow: Address = match escrow_hex.parse() {
         Ok(a) => a,
-        Err(_) => return 900,
+        Err(_) => return DEFAULT_GRACE_PERIOD_SECS,
     };
-    read_grace_period(&provider, escrow).await.unwrap_or(900)
+    read_grace_period(&provider, escrow)
+        .await
+        .unwrap_or(DEFAULT_GRACE_PERIOD_SECS)
 }
 
 // ---------------------------------------------------------------------------
@@ -163,12 +101,12 @@ pub(super) async fn list_sessions(
 
     // Build local views and filter by selected states
     for s in &filtered_local {
+        let (status, _) = s.status_at(session_store::now_secs());
         let v = view_from_session(s);
-        let status = v.status.as_str();
         let matches = match status {
-            "active" => selected.contains(&SessionState::Active),
-            "closing" => selected.contains(&SessionState::Closing),
-            "finalizable" => selected.contains(&SessionState::Finalizable),
+            SessionStatus::Active => selected.contains(&SessionState::Active),
+            SessionStatus::Closing => selected.contains(&SessionState::Closing),
+            SessionStatus::Finalizable => selected.contains(&SessionState::Finalizable),
             _ => false,
         };
         if matches {
@@ -217,18 +155,18 @@ pub(super) async fn list_sessions(
                 let ready_at = ch.close_requested_at + grace;
                 let remaining = ready_at.saturating_sub(now);
                 if remaining == 0 {
-                    ("finalizable", Some(0))
+                    (SessionStatus::Finalizable, Some(0))
                 } else {
-                    ("closing", Some(remaining))
+                    (SessionStatus::Closing, Some(remaining))
                 }
             } else {
-                ("orphaned", None)
+                (SessionStatus::Orphaned, None)
             };
 
             let include = match status {
-                "orphaned" => selected.contains(&SessionState::Orphaned),
-                "closing" => selected.contains(&SessionState::Closing),
-                "finalizable" => selected.contains(&SessionState::Finalizable),
+                SessionStatus::Orphaned => selected.contains(&SessionState::Orphaned),
+                SessionStatus::Closing => selected.contains(&SessionState::Closing),
+                SessionStatus::Finalizable => selected.contains(&SessionState::Finalizable),
                 _ => false,
             };
             if !include {
@@ -243,7 +181,7 @@ pub(super) async fn list_sessions(
                 deposit: format_units(U256::from(ch.deposit), decimals).expect("decimals <= 77"),
                 spent: format_units(U256::from(ch.settled), decimals).expect("decimals <= 77"),
                 remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-                status: status.to_string(),
+                status: status.as_str().to_string(),
                 remaining_secs,
                 created_at: None,
                 last_used_at: None,
@@ -266,4 +204,70 @@ pub(super) async fn list_sessions(
     };
 
     render_channel_list(&views, output_format, empty_msg, "session(s) total")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_record(
+        state: SessionStatus,
+        grace_ready_at: u64,
+        last_used_at: u64,
+    ) -> session_store::SessionRecord {
+        session_store::SessionRecord {
+            version: 1,
+            origin: "https://api.example.com".into(),
+            request_url: "https://api.example.com/v1".into(),
+            network_name: "tempo".into(),
+            chain_id: 4217,
+            escrow_contract: "0x00".into(),
+            currency: "0x00".into(),
+            recipient: "0x00".into(),
+            payer: "did:pkh:eip155:4217:0x00".into(),
+            authorized_signer: "0x00".into(),
+            salt: "0x00".into(),
+            channel_id: "0xabc".into(),
+            deposit: "1000000".into(),
+            tick_cost: "100".into(),
+            cumulative_amount: "2000".into(),
+            challenge_echo: "{}".into(),
+            challenge_id: "id".into(),
+            state,
+            close_requested_at: if state == SessionStatus::Closing {
+                grace_ready_at.saturating_sub(DEFAULT_GRACE_PERIOD_SECS)
+            } else {
+                0
+            },
+            grace_ready_at,
+            token_decimals: 6,
+            created_at: last_used_at.saturating_sub(60),
+            last_used_at,
+        }
+    }
+
+    #[test]
+    fn test_view_from_session_active() {
+        let now = session_store::now_secs();
+        let rec = make_record(SessionStatus::Active, 0, now);
+        let view = super::view_from_session(&rec);
+        assert_eq!(view.status, "active");
+        assert!(view.remaining_secs.is_none());
+    }
+
+    #[test]
+    fn test_view_from_session_closing_and_finalizable() {
+        let now = session_store::now_secs();
+        // Closing with time remaining
+        let rec = make_record(SessionStatus::Closing, now + 120, now);
+        let view = super::view_from_session(&rec);
+        assert_eq!(view.status, "closing");
+        assert_eq!(view.remaining_secs, Some(120));
+
+        // Finalizable (ready_at <= now)
+        let rec2 = make_record(SessionStatus::Closing, now, now);
+        let view2 = super::view_from_session(&rec2);
+        assert_eq!(view2.status, "finalizable");
+        assert_eq!(view2.remaining_secs, Some(0));
+    }
 }

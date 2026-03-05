@@ -14,7 +14,9 @@ use crate::payment::session::close::{
     close_channel_by_id, close_discovered_channel, close_session_from_record,
 };
 use crate::payment::session::store as session_store;
+use crate::payment::session::store::SessionStatus;
 use crate::payment::session::CloseOutcome;
+use crate::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
 use super::render::{format_duration, CloseSummary};
 
@@ -470,7 +472,7 @@ async fn finalize_closed_channels(
         if s.network_name != network.as_str() {
             continue;
         }
-        if !(s.state == "closing" && now >= s.grace_ready_at) {
+        if !(s.state == SessionStatus::Closing && now >= s.grace_ready_at) {
             continue;
         }
         let Some(ref wallet) = wallet else {
@@ -562,7 +564,7 @@ async fn finalize_closed_channels(
                 ch.escrow_contract.parse().ok().unwrap_or_default(),
             )
             .await
-            .unwrap_or(900);
+            .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
             let ready_at = ch.close_requested_at + grace;
             if now < ready_at {
                 continue;

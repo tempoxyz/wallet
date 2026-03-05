@@ -6482,6 +6482,7 @@ dependencies = [
  "clap_complete",
  "colored",
  "dirs",
+ "ed25519-dalek",
  "fs2",
  "futures",
  "getrandom 0.2.17",

@@ -16,8 +16,10 @@ use mpp::{parse_receipt, ChallengeEcho};
 
 use super::channel::{get_channel_on_chain, read_grace_period, IEscrow};
 use super::store as session_store;
+use super::store::SessionStatus;
 use super::tx::submit_tempo_tx;
 use super::CloseOutcome;
+use super::DEFAULT_GRACE_PERIOD_SECS;
 use crate::analytics::{Analytics, Event};
 use crate::config::Config;
 use crate::error::TempoWalletError;
@@ -321,14 +323,14 @@ async fn close_on_chain(
 
         let grace_secs = read_grace_period(&provider, escrow_contract)
             .await
-            .unwrap_or(900);
+            .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
         let now = session_store::now_secs();
         let ready_at = now + grace_secs;
 
         // Update local session state if present
         let _ = session_store::update_session_close_state_by_channel_id(
             &channel_id_hex,
-            "closing",
+            SessionStatus::Closing,
             now,
             ready_at,
         );
@@ -341,7 +343,7 @@ async fn close_on_chain(
     // closeRequestedAt is non-zero — check if grace period has elapsed
     let grace_period = read_grace_period(&provider, escrow_contract)
         .await
-        .unwrap_or(900);
+        .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
     let now = session_store::now_secs();
     let ready_at = on_chain.close_requested_at + grace_period;
     if now < ready_at {
@@ -351,7 +353,7 @@ async fn close_on_chain(
         // Update local session state if present
         let _ = session_store::update_session_close_state_by_channel_id(
             &channel_id_hex,
-            "closing",
+            SessionStatus::Closing,
             on_chain.close_requested_at,
             ready_at,
         );
@@ -384,7 +386,7 @@ async fn close_on_chain(
     // Best-effort local cleanup is handled by callers, but mark state finalizable->finalized if present
     let _ = session_store::update_session_close_state_by_channel_id(
         &channel_id_hex,
-        "finalizable",
+        SessionStatus::Finalizable,
         on_chain.close_requested_at,
         now,
     );
@@ -561,7 +563,7 @@ mod tests {
             })
             .unwrap(),
             challenge_id: "abc".into(),
-            state: "active".into(),
+            state: SessionStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             token_decimals: 6,

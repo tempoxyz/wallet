@@ -5,6 +5,8 @@ use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::payment::session::channel::{query_channel_state, read_grace_period};
 use crate::payment::session::store as session_store;
+use crate::payment::session::store::SessionStatus;
+use crate::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
 /// Re-sync a local session's state from on-chain for a given origin.
 ///
@@ -65,11 +67,18 @@ pub(super) async fn recover_session(
 
             if let Some(on_chain) = ch {
                 if on_chain.close_requested_at > 0 {
-                    let grace = read_grace_period(&provider, escrow).await.unwrap_or(900);
+                    let grace = read_grace_period(&provider, escrow)
+                        .await
+                        .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
                     let ready_at = on_chain.close_requested_at + grace;
+                    let status = if ready_at <= session_store::now_secs() {
+                        SessionStatus::Finalizable
+                    } else {
+                        SessionStatus::Closing
+                    };
                     let _ = session_store::update_session_close_state_by_channel_id(
                         &rec.channel_id,
-                        "closing",
+                        status,
                         on_chain.close_requested_at,
                         ready_at,
                     );
@@ -84,13 +93,13 @@ pub(super) async fn recover_session(
                             "{}",
                             output_format.serialize(&serde_json::json!({
                                 "recovered": true,
-                                "status": if ready_at <= session_store::now_secs() {"finalizable"} else {"closing"},
+                                "status": status.as_str(),
                                 "remaining_secs": ready_at.saturating_sub(session_store::now_secs()),
                             }))?
                         ),
                         OutputFormat::Text => println!(
                             "Recovered state: {} ({}s remaining)",
-                            if ready_at <= session_store::now_secs() {"finalizable"} else {"closing"},
+                            status.as_str(),
                             ready_at.saturating_sub(session_store::now_secs())
                         ),
                     }

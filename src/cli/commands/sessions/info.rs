@@ -9,6 +9,8 @@ use crate::error::TempoWalletError;
 use crate::network::NetworkId;
 use crate::payment::session::channel::read_grace_period;
 use crate::payment::session::store as session_store;
+use crate::payment::session::store::SessionStatus;
+use crate::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
 /// Show details for a local session by URL/origin or for a channel by ID.
 pub(super) async fn show_session_info(
@@ -39,7 +41,7 @@ pub(super) async fn show_session_info(
             deposit: format_units(U256::from(dep_u), decimals).expect("decimals <= 77"),
             spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
             remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-            status,
+            status: status.as_str().to_string(),
             remaining_secs,
             created_at: Some(rec.created_at),
             last_used_at: Some(rec.last_used_at),
@@ -104,7 +106,7 @@ async fn show_channel_info(
             deposit: format_units(U256::from(dep_u), decimals).expect("decimals <= 77"),
             spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
             remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-            status,
+            status: status.as_str().to_string(),
             remaining_secs,
             created_at: Some(rec.created_at),
             last_used_at: Some(rec.last_used_at),
@@ -161,14 +163,20 @@ async fn show_channel_info(
     let status;
     let mut remaining_secs = None;
     if on_chain.close_requested_at > 0 {
-        let grace = read_grace_period(&provider, escrow).await.unwrap_or(900);
+        let grace = read_grace_period(&provider, escrow)
+            .await
+            .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
         let now = session_store::now_secs();
         let ready_at = on_chain.close_requested_at + grace;
         let rem = ready_at.saturating_sub(now);
-        status = if rem == 0 { "finalizable" } else { "closing" };
+        status = if rem == 0 {
+            SessionStatus::Finalizable
+        } else {
+            SessionStatus::Closing
+        };
         remaining_secs = Some(rem);
     } else {
-        status = "orphaned";
+        status = SessionStatus::Orphaned;
     }
 
     let view = ChannelView {
@@ -179,7 +187,7 @@ async fn show_channel_info(
         deposit: format_units(U256::from(dep_u), decimals).expect("decimals <= 77"),
         spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
         remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-        status: status.to_string(),
+        status: status.as_str().to_string(),
         remaining_secs,
         created_at: None,
         last_used_at: None,

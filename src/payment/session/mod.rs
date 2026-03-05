@@ -27,6 +27,9 @@ pub(crate) mod store;
 mod streaming;
 mod tx;
 
+/// Fallback grace period (seconds) when escrow grace-period reads fail.
+pub(crate) const DEFAULT_GRACE_PERIOD_SECS: u64 = 900;
+
 use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
 use mpp::protocol::core::extract_tx_hash;
@@ -40,6 +43,7 @@ use crate::http::{HttpClient, HttpResponse};
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
 use crate::payment::session::store::SessionRecord;
+use crate::payment::session::store::SessionStatus;
 use crate::util::format_token_amount;
 
 // ==================== Types ====================
@@ -179,7 +183,7 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
             cumulative_amount: state.cumulative_amount.to_string(),
             challenge_echo: echo_json,
             challenge_id: ctx.echo.id.clone(),
-            state: "active".to_string(),
+            state: SessionStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             token_decimals: dec,
