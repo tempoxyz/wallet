@@ -12,12 +12,12 @@ pub fn init_tracing(cli: &Cli) {
     } else if let Ok(env) = std::env::var("RUST_LOG") {
         EnvFilter::new(env)
     } else {
-        // Map verbosity count to tracing level for the presto crate only;
+        // Map verbosity count to tracing level for the tempo_wallet crate only;
         // keep all other crates at warn to avoid noise from hyper/reqwest/alloy.
         let filter_str = match cli.verbose {
             0 => "warn",
-            1 => "warn,presto=info",
-            2 => "warn,presto=debug,mpp=debug",
+            1 => "warn,tempo_wallet=info",
+            2 => "warn,tempo_wallet=debug,mpp=debug",
             _ => {
                 "trace,hyper=warn,reqwest=warn,h2=warn,rustls=warn,tower=warn,mio=warn,polling=warn"
             }

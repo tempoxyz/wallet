@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 
 use super::model::WalletCredentials;
 use super::overrides::{has_credentials_override, CREDENTIALS_OVERRIDE};
@@ -12,14 +12,14 @@ const KEYS_FILE_NAME: &str = "keys.toml";
 
 impl WalletCredentials {
     /// Get the data directory path.
-    pub fn data_dir() -> Result<PathBuf, PrestoError> {
+    pub fn data_dir() -> Result<PathBuf, TempoWalletError> {
         dirs::data_dir()
-            .ok_or(PrestoError::NoConfigDir)
-            .map(|d| d.join("presto"))
+            .ok_or(TempoWalletError::NoConfigDir)
+            .map(|d| d.join("tempo-wallet"))
     }
 
     /// Get the keys.toml file path.
-    pub fn keys_path() -> Result<PathBuf, PrestoError> {
+    pub fn keys_path() -> Result<PathBuf, TempoWalletError> {
         Ok(Self::data_dir()?.join(KEYS_FILE_NAME))
     }
 
@@ -28,7 +28,7 @@ impl WalletCredentials {
     /// Returns the global credentials override if set (e.g., `--private-key`).
     /// Otherwise reads from disk, returning default (empty) credentials if
     /// the file doesn't exist.
-    pub fn load() -> Result<Self, PrestoError> {
+    pub fn load() -> Result<Self, TempoWalletError> {
         // Return override if set (--private-key), constructing on-demand
         // so the Zeroizing<String> is dropped when the caller drops.
         if let Some(pk) = CREDENTIALS_OVERRIDE.get() {
@@ -58,14 +58,14 @@ impl WalletCredentials {
     ///
     /// No-op when an ephemeral credentials override is active (e.g., `--private-key`),
     /// to avoid overwriting the persistent keys.toml with transient data.
-    pub fn save(&self) -> Result<(), PrestoError> {
+    pub fn save(&self) -> Result<(), TempoWalletError> {
         if has_credentials_override() {
             return Ok(());
         }
         let path = Self::keys_path()?;
         let body = toml::to_string_pretty(self)?;
         let contents = format!(
-            "# presto wallet credentials — managed by `presto`\n\
+            "# tempo-wallet wallet credentials — managed by `tempo-wallet`\n\
              # Do not edit manually.\n\n\
              {body}"
         );

@@ -1,4 +1,4 @@
-//! Configuration management for presto.
+//! Configuration management for tempo-wallet.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -7,7 +7,7 @@ use anyhow::Context;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 
 // ---------------------------------------------------------------------------
 // Output format
@@ -55,17 +55,17 @@ impl OutputFormat {
 
 /// Validates that a path doesn't contain directory traversal sequences.
 /// Returns the validated path or an error if traversal is detected.
-pub fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, PrestoError> {
+pub fn validate_path(path: &str, allow_absolute: bool) -> Result<PathBuf, TempoWalletError> {
     let path = PathBuf::from(path);
 
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(PrestoError::InvalidConfig(
+        return Err(TempoWalletError::InvalidConfig(
             "Path traversal (..) not allowed".to_string(),
         ));
     }
 
     if !allow_absolute && path.is_absolute() {
-        return Err(PrestoError::InvalidConfig(
+        return Err(TempoWalletError::InvalidConfig(
             "Absolute paths not allowed for this option".to_string(),
         ));
     }
@@ -103,7 +103,7 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     /// Enable anonymous telemetry and usage analytics.
-    /// Can be disabled here or via `PRESTO_NO_TELEMETRY=1` env var.
+    /// Can be disabled here or via `TEMPO_NO_TELEMETRY=1` env var.
     #[serde(default = "TelemetryConfig::default_enabled")]
     pub enabled: bool,
 }
@@ -133,7 +133,7 @@ pub struct VersionCheck {
 
 impl Config {
     /// Load config from the specified path or default location
-    pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self, PrestoError> {
+    pub fn load_from(config_path: Option<impl AsRef<Path>>) -> Result<Self, TempoWalletError> {
         let (config_path, explicit) = if let Some(path) = config_path {
             (PathBuf::from(path.as_ref()), true)
         } else {
@@ -144,14 +144,14 @@ impl Config {
             if !explicit {
                 return Ok(Self::default());
             }
-            return Err(PrestoError::ConfigMissing(format!(
+            return Err(TempoWalletError::ConfigMissing(format!(
                 "Config file not found at {}.",
                 config_path.display()
             )));
         }
 
         let content = std::fs::read_to_string(&config_path).map_err(|e| {
-            PrestoError::ConfigMissing(format!(
+            TempoWalletError::ConfigMissing(format!(
                 "Failed to read config file at {}: {}",
                 config_path.display(),
                 e
@@ -159,7 +159,7 @@ impl Config {
         })?;
 
         toml::from_str(&content).map_err(|e| {
-            PrestoError::ConfigMissing(format!(
+            TempoWalletError::ConfigMissing(format!(
                 "Failed to parse config file at {}: {}",
                 config_path.display(),
                 e
@@ -167,20 +167,20 @@ impl Config {
         })
     }
 
-    /// Get the default config file path (~/.config/presto/config.toml)
-    pub fn default_config_path() -> Result<PathBuf, PrestoError> {
+    /// Get the default config file path (~/.config/tempo-wallet/config.toml)
+    pub fn default_config_path() -> Result<PathBuf, TempoWalletError> {
         dirs::config_dir()
-            .map(|c| c.join("presto").join("config.toml"))
-            .ok_or(PrestoError::NoConfigDir)
+            .map(|c| c.join("tempo-wallet").join("config.toml"))
+            .ok_or(TempoWalletError::NoConfigDir)
     }
 
     /// Save config to the default location.
-    pub fn save(&self) -> Result<(), PrestoError> {
+    pub fn save(&self) -> Result<(), TempoWalletError> {
         let config_path = Self::default_config_path()?;
         let body = toml::to_string_pretty(self)?;
         let content = format!(
-            "# presto configuration\n\
-             # Wallet credentials live in keys.toml (set via `presto login`)\n\
+            "# tempo-wallet configuration\n\
+             # Wallet credentials live in keys.toml (set via `tempo-wallet login`)\n\
              # Optional RPC overrides:\n\
              # tempo_rpc = \"https://...\"\n\
              # moderato_rpc = \"https://...\"\n\
@@ -196,7 +196,7 @@ impl Config {
 
     /// Set a global RPC URL override that applies to all built-in networks.
     ///
-    /// This is used by `PRESTO_RPC_URL` env var and the `--rpc` CLI flag.
+    /// This is used by `TEMPO_RPC_URL` env var and the `--rpc` CLI flag.
     /// The override takes precedence over config file settings.
     pub fn set_rpc_override(&mut self, url: String) {
         self.tempo_rpc = Some(url.clone());
@@ -210,7 +210,7 @@ impl Config {
     pub fn resolve_network(
         &self,
         network_id: &str,
-    ) -> Result<crate::network::NetworkInfo, PrestoError> {
+    ) -> Result<crate::network::NetworkInfo, TempoWalletError> {
         crate::network::resolve(network_id, self)
     }
 
@@ -224,7 +224,7 @@ impl Config {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         const CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
-        const VERSION_URL: &str = "https://presto-binaries.tempo.xyz/VERSION";
+        const VERSION_URL: &str = "https://cli.tempo.xyz/VERSION";
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
@@ -273,7 +273,7 @@ impl Config {
         let current = env!("CARGO_PKG_VERSION");
         if Self::version_newer(latest, current) {
             eprintln!(
-                "  Update available: {} → {}. Run `presto update` to upgrade.\n",
+                "  Update available: {} → {}. Run `tempo-wallet update` to upgrade.\n",
                 current, latest,
             );
         }
@@ -308,10 +308,10 @@ pub fn load_config_with_overrides(config_path: Option<&String>) -> anyhow::Resul
     }
     let mut config = Config::load_from(config_path).context("Failed to load configuration")?;
 
-    // Apply PRESTO_RPC_URL env var as a global RPC override.
+    // Apply TEMPO_RPC_URL env var as a global RPC override.
     // This is separate from clap's env handling on QueryArgs because it
     // needs to apply to all commands (balance, whoami, etc.), not just queries.
-    if let Ok(rpc_url) = std::env::var("PRESTO_RPC_URL") {
+    if let Ok(rpc_url) = std::env::var("TEMPO_RPC_URL") {
         config.set_rpc_override(rpc_url);
     }
 

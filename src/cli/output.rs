@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_render_error_json_payment_rejected() {
-        let err: anyhow::Error = crate::error::PrestoError::PaymentRejected {
+        let err: anyhow::Error = crate::error::TempoWalletError::PaymentRejected {
             reason: "insufficient funds".into(),
             status_code: 402,
         }
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn test_render_error_json_missing_header() {
         let err: anyhow::Error =
-            crate::error::PrestoError::MissingHeader("WWW-Authenticate".into()).into();
+            crate::error::TempoWalletError::MissingHeader("WWW-Authenticate".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_PAYMENT");
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn test_render_error_json_unsupported_payment_method() {
         let err: anyhow::Error =
-            crate::error::PrestoError::UnsupportedPaymentMethod("bitcoin".into()).into();
+            crate::error::TempoWalletError::UnsupportedPaymentMethod("bitcoin".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_PAYMENT");
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn test_render_error_json_config_missing() {
         let err: anyhow::Error =
-            crate::error::PrestoError::ConfigMissing("no wallet".into()).into();
+            crate::error::TempoWalletError::ConfigMissing("no wallet".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_USAGE");
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn test_render_error_json_http_error() {
         let err: anyhow::Error =
-            crate::error::PrestoError::Http("500 Internal Server Error".into()).into();
+            crate::error::TempoWalletError::Http("500 Internal Server Error".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["code"], "E_NETWORK");
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn test_render_error_json_has_cause() {
         let inner: anyhow::Error =
-            crate::error::PrestoError::Http("connection refused".into()).into();
+            crate::error::TempoWalletError::Http("connection refused".into()).into();
         let err = inner.context("failed to reach server");
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
@@ -271,7 +271,8 @@ mod tests {
 
     #[test]
     fn test_render_error_json_no_cause() {
-        let err: anyhow::Error = crate::error::PrestoError::InvalidUrl("bad scheme".into()).into();
+        let err: anyhow::Error =
+            crate::error::TempoWalletError::InvalidUrl("bad scheme".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.get("cause").is_none());
@@ -280,7 +281,8 @@ mod tests {
     #[test]
     fn test_render_error_json_schema_fields() {
         // Verify the JSON always has exactly "code" and "message" (and optionally "cause")
-        let err: anyhow::Error = crate::error::PrestoError::UnknownNetwork("custom".into()).into();
+        let err: anyhow::Error =
+            crate::error::TempoWalletError::UnknownNetwork("custom".into()).into();
         let json_str = render_error_structured(&err, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         let obj = parsed.as_object().unwrap();
@@ -299,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_render_error_toon_contains_code_and_message() {
-        let err: anyhow::Error = crate::error::PrestoError::Http("timeout".into()).into();
+        let err: anyhow::Error = crate::error::TempoWalletError::Http("timeout".into()).into();
         let toon_str = render_error_structured(&err, OutputFormat::Toon);
         assert!(
             toon_str.contains("code"),
@@ -322,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_render_error_toon_with_cause() {
-        let inner: anyhow::Error = crate::error::PrestoError::Http("refused".into()).into();
+        let inner: anyhow::Error = crate::error::TempoWalletError::Http("refused".into()).into();
         let err = inner.context("server down");
         let toon_str = render_error_structured(&err, OutputFormat::Toon);
         assert!(
@@ -337,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_render_error_toon_is_not_json() {
-        let err: anyhow::Error = crate::error::PrestoError::Http("fail".into()).into();
+        let err: anyhow::Error = crate::error::TempoWalletError::Http("fail".into()).into();
         let toon_str = render_error_structured(&err, OutputFormat::Toon);
         assert!(
             !toon_str.starts_with('{'),

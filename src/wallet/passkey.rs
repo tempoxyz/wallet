@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 use crate::analytics::{
     Analytics, CallbackReceivedPayload, CallbackWindowOpenedPayload, Event, KeyCreatedPayload,
 };
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::network::networks::network_or_default;
 use crate::wallet::credentials::{WalletCredentials, WalletType};
 
@@ -39,7 +39,7 @@ impl WalletManager {
     pub fn new(network: Option<&str>, analytics: Option<Analytics>) -> Self {
         let network = network_or_default(network).to_string();
 
-        let auth_server_url = std::env::var("PRESTO_AUTH_URL")
+        let auth_server_url = std::env::var("TEMPO_AUTH_URL")
             .ok()
             .unwrap_or_else(|| Self::auth_url_for_network(&network));
 
@@ -69,7 +69,7 @@ impl WalletManager {
     }
 
     /// Open browser for wallet authentication.
-    pub async fn setup_wallet(&self) -> Result<String, PrestoError> {
+    pub async fn setup_wallet(&self) -> Result<String, TempoWalletError> {
         let local_signer = PrivateKeySigner::random();
         let uncompressed = local_signer
             .credential()
@@ -95,7 +95,7 @@ impl WalletManager {
         let code = &device_code_resp.code;
 
         let mut auth_url = Url::parse(&self.auth_server_url)
-            .map_err(|e| PrestoError::Http(format!("Invalid auth server URL: {}", e)))?;
+            .map_err(|e| TempoWalletError::Http(format!("Invalid auth server URL: {}", e)))?;
 
         auth_url.query_pairs_mut().append_pair("code", code);
 
@@ -148,22 +148,22 @@ impl WalletManager {
 
         let callback = loop {
             if wait_start.elapsed() >= timeout {
-                return Err(PrestoError::LoginExpired);
+                return Err(TempoWalletError::LoginExpired);
             }
 
             let poll_resp = poll_device_code(&client, &auth_base_url, code, &code_verifier).await?;
 
             if let Some(err) = &poll_resp.error {
                 if err.to_lowercase().contains("expired") {
-                    return Err(PrestoError::LoginExpired);
+                    return Err(TempoWalletError::LoginExpired);
                 }
-                return Err(PrestoError::Http(err.clone()));
+                return Err(TempoWalletError::Http(err.clone()));
             }
 
             if poll_resp.status == "authorized" {
                 break AuthCallback {
                     account_address: poll_resp.account_address.ok_or_else(|| {
-                        PrestoError::Http(
+                        TempoWalletError::Http(
                             "Missing account_address in authorized response".to_string(),
                         )
                     })?,
@@ -196,7 +196,7 @@ impl WalletManager {
         &self,
         callback: AuthCallback,
         local_signer: PrivateKeySigner,
-    ) -> Result<String, PrestoError> {
+    ) -> Result<String, TempoWalletError> {
         let validated = super::key_authorization::validate(
             callback.key_authorization.as_deref(),
             local_signer.address(),
@@ -294,7 +294,7 @@ async fn create_device_code(
     pub_key: &str,
     key_type: &str,
     code_challenge: &str,
-) -> Result<DeviceCodeResponse, PrestoError> {
+) -> Result<DeviceCodeResponse, TempoWalletError> {
     let url = format!("{}/cli-auth/device-code", base_url);
     let resp = client
         .post(&url)
@@ -305,12 +305,12 @@ async fn create_device_code(
         }))
         .send()
         .await
-        .map_err(|e| PrestoError::Http(format!("Failed to create device code: {}", e)))?;
+        .map_err(|e| TempoWalletError::Http(format!("Failed to create device code: {}", e)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(PrestoError::Http(format!(
+        return Err(TempoWalletError::Http(format!(
             "Device code request failed ({}): {}",
             status, body
         )));
@@ -318,7 +318,7 @@ async fn create_device_code(
 
     resp.json::<DeviceCodeResponse>()
         .await
-        .map_err(|e| PrestoError::Http(format!("Failed to parse device code response: {}", e)))
+        .map_err(|e| TempoWalletError::Http(format!("Failed to parse device code response: {}", e)))
 }
 
 async fn poll_device_code(
@@ -326,7 +326,7 @@ async fn poll_device_code(
     base_url: &str,
     code: &str,
     code_verifier: &str,
-) -> Result<PollResponse, PrestoError> {
+) -> Result<PollResponse, TempoWalletError> {
     let url = format!("{}/cli-auth/poll/{}", base_url, code);
     let resp = client
         .post(&url)
@@ -335,16 +335,16 @@ async fn poll_device_code(
         }))
         .send()
         .await
-        .map_err(|e| PrestoError::Http(format!("Failed to poll device code: {}", e)))?;
+        .map_err(|e| TempoWalletError::Http(format!("Failed to poll device code: {}", e)))?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err(PrestoError::LoginExpired);
+        return Err(TempoWalletError::LoginExpired);
     }
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(PrestoError::Http(format!(
+        return Err(TempoWalletError::Http(format!(
             "Poll request failed ({}): {}",
             status, body
         )));
@@ -352,7 +352,7 @@ async fn poll_device_code(
 
     resp.json::<PollResponse>()
         .await
-        .map_err(|e| PrestoError::Http(format!("Failed to parse poll response: {}", e)))
+        .map_err(|e| TempoWalletError::Http(format!("Failed to parse poll response: {}", e)))
 }
 
 // ==================== PKCE ====================

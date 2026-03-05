@@ -9,7 +9,7 @@ use mpp::protocol::methods::tempo::TempoChargeExt;
 use mpp::PaymentChallenge;
 
 use crate::config::Config;
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse, RequestContext};
 use crate::network::{Network, NetworkInfo};
 use crate::wallet::signer::load_wallet_signer;
@@ -43,7 +43,7 @@ pub async fn dispatch_payment(
 ) -> Result<PaymentResult> {
     let www_auth = response
         .get_header("www-authenticate")
-        .ok_or_else(|| PrestoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
@@ -65,7 +65,7 @@ pub async fn dispatch_payment(
     };
 
     let chain_id = chain_id.ok_or_else(|| {
-        PrestoError::InvalidConfig("Missing chainId in payment request".to_string())
+        TempoWalletError::InvalidConfig("Missing chainId in payment request".to_string())
     })?;
 
     let network = Network::require_chain_id(chain_id)?;

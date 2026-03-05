@@ -1,6 +1,6 @@
 # Architecture
 
-`presto` is a CLI HTTP client with built-in [MPP](https://mpp.dev) payment support. It sends HTTP requests and, when a server responds with `402 Payment Required`, automatically negotiates and executes payment before retrying.
+`tempo-wallet` is a CLI HTTP client with built-in [MPP](https://mpp.dev) payment support. It sends HTTP requests and, when a server responds with `402 Payment Required`, automatically negotiates and executes payment before retrying.
 
 ## Module Layering
 
@@ -27,7 +27,7 @@ main.rs          — entry point; dispatches to cli
 Implemented in `payment/charge.rs`. Handles single-request on-chain settlement.
 
 1. The server responds with HTTP 402 and a `WWW-Authenticate` header describing the payment terms.
-2. Presto parses the challenge via the `mpp` crate.
+2. Tempo Wallet parses the challenge via the `mpp` crate.
 3. A signed transaction is built using `mpp::TempoProvider` and submitted on-chain.
 4. The request is retried with an `Authorization` header containing the payment credential (transaction hash).
 
@@ -37,7 +37,7 @@ This mode requires no persistent state — each request is independently settled
 
 Implemented in `payment/session/`. Provides a persistent payment channel for repeated requests to the same origin.
 
-1. On first request, presto opens an on-chain channel with a deposit.
+1. On first request, tempo-wallet opens an on-chain channel with a deposit.
 2. Subsequent requests exchange off-chain vouchers — signed cumulative amounts — instead of on-chain transactions.
 3. SSE streaming is supported: per-token voucher top-ups are issued as streamed data arrives.
 4. Sessions persist across CLI invocations in a SQLite database (`payment/session/store.rs`).
@@ -47,7 +47,7 @@ Implemented in `payment/session/`. Provides a persistent payment channel for rep
 
 ### Passkey
 
-Browser-based WebAuthn wallet created via Tempo's passkey flow (`wallet/passkey.rs`). Authentication is delegated to the browser; presto stores the resulting wallet address and key authorization.
+Browser-based WebAuthn wallet created via Tempo's passkey flow (`wallet/passkey.rs`). Authentication is delegated to the browser; tempo-wallet stores the resulting wallet address and key authorization.
 
 ### Local
 
@@ -94,5 +94,5 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `src/cli/relay.rs` | Relay bridge client for cross-chain wallet funding |
 | `src/cli/services.rs` | Service directory listing and detail views |
 | `src/services/` | MPP service registry fetching and data model |
-| `src/error.rs` | `PrestoError` enum (thiserror) |
+| `src/error.rs` | `TempoWalletError` enum (thiserror) |
 | `src/util.rs` | Atomic file writes, terminal hyperlinks |

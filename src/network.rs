@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-use crate::error::PrestoError;
+use crate::error::TempoWalletError;
 
 // ==================== Explorer Configuration ====================
 
@@ -160,16 +160,17 @@ impl Network {
     }
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
-    pub fn require_chain_id(chain_id: u64) -> Result<Self, PrestoError> {
-        Self::from_chain_id(chain_id)
-            .ok_or_else(|| PrestoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id)))
+    pub fn require_chain_id(chain_id: u64) -> Result<Self, TempoWalletError> {
+        Self::from_chain_id(chain_id).ok_or_else(|| {
+            TempoWalletError::InvalidConfig(format!("Unsupported chainId: {}", chain_id))
+        })
     }
 
     /// Parse an RPC URL string into a `url::Url`, returning a config error on failure.
-    pub fn parse_rpc_url(rpc_url: &str) -> Result<url::Url, PrestoError> {
+    pub fn parse_rpc_url(rpc_url: &str) -> Result<url::Url, TempoWalletError> {
         rpc_url
             .parse()
-            .map_err(|e| PrestoError::InvalidConfig(format!("invalid RPC URL: {}", e)))
+            .map_err(|e| TempoWalletError::InvalidConfig(format!("invalid RPC URL: {}", e)))
     }
 
     /// Get the default network (parsed from `DEFAULT_NETWORK`).
@@ -292,16 +293,16 @@ pub fn resolve_token_meta(network_name: &str, currency: &str) -> (&'static str, 
 /// 1. Typed overrides (`tempo_rpc`, `moderato_rpc`) for built-in networks
 /// 2. General `[rpc]` table overrides (for any network by id)
 ///
-/// Note: `PRESTO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
+/// Note: `TEMPO_RPC_URL` env var and `--rpc` CLI flag are applied earlier
 /// via `Config::set_rpc_override()`, which sets `tempo_rpc` and `moderato_rpc`
 /// so they flow through this logic.
 pub fn resolve(
     network_id: &str,
     config: &crate::config::Config,
-) -> Result<NetworkInfo, crate::error::PrestoError> {
+) -> Result<NetworkInfo, crate::error::TempoWalletError> {
     let network: Network = network_id
         .parse()
-        .map_err(|_| crate::error::PrestoError::UnknownNetwork(network_id.to_string()))?;
+        .map_err(|_| crate::error::TempoWalletError::UnknownNetwork(network_id.to_string()))?;
     let mut network_info = network.info();
 
     let rpc_override = match network_id {
