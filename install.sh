@@ -342,10 +342,10 @@ uninstall_tempo_wallet() {
     remove_file "${LEGACY_INSTALL_DIR}/${BINARY_NAME}" "legacy binary"
 
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        remove_file "${HOME}/Library/Application Support/tempo-wallet" "data"
+        remove_file "${HOME}/Library/Application Support/tempo/wallet" "data"
     else
-        remove_file "${XDG_CONFIG_HOME:-${HOME}/.config}/tempo-wallet" "config"
-        remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/tempo-wallet" "data"
+        remove_file "${XDG_CONFIG_HOME:-${HOME}/.config}/tempo/wallet" "config"
+        remove_file "${XDG_DATA_HOME:-${HOME}/.local/share}/tempo/wallet" "data"
     fi
 
     uninstall_ai_skills

@@ -1328,7 +1328,7 @@ key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
     // Snapshot keys.toml content before the run
     let keys_path = temp
         .path()
-        .join("Library/Application Support/tempo-wallet/keys.toml");
+        .join("Library/Application Support/tempo/wallet/keys.toml");
     let wallet_before = std::fs::read_to_string(&keys_path).unwrap();
 
     // Use Hardhat #0 via --private-key flag

@@ -212,13 +212,13 @@ new-crate = "1.0"
 ## Data Locations
 
 **macOS:**
-- Config: `~/Library/Application Support/tempo-wallet/config.toml`
-- Wallet keys: `~/Library/Application Support/tempo-wallet/keys.toml`
+- Config: `~/Library/Application Support/tempo/wallet/config.toml`
+- Wallet keys: `~/Library/Application Support/tempo/wallet/keys.toml`
 - Private keys: macOS Keychain
 
 **Linux:**
-- Config: `~/.config/tempo-wallet/config.toml`
-- Wallet keys: `~/.local/share/tempo-wallet/keys.toml`
+- Config: `~/.config/tempo/wallet/config.toml`
+- Wallet keys: `~/.local/share/tempo/wallet/keys.toml`
 - Private keys: not yet supported via OS keychain (unit tests use in-memory keychain)
 
 ## Configuration Structure

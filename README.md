@@ -84,8 +84,8 @@ Credentials are stored in `keys.toml` (signing key inline, permissions `0600`).
 
 | Platform | Config | Keys |
 |----------|--------|------|
-| **macOS** | `~/Library/Application Support/tempo-wallet/config.toml` | `~/Library/Application Support/tempo-wallet/keys.toml` |
-| **Linux** | `~/.config/tempo-wallet/config.toml` | `~/.local/share/tempo-wallet/keys.toml` |
+| **macOS** | `~/Library/Application Support/tempo/wallet/config.toml` | `~/Library/Application Support/tempo/wallet/keys.toml` |
+| **Linux** | `~/.config/tempo/wallet/config.toml` | `~/.local/share/tempo/wallet/keys.toml` |
 
 ## Telemetry
 

@@ -56,7 +56,7 @@ impl TestConfigBuilder {
 /// platform directories without going through `TestConfigBuilder`.
 pub fn write_test_files(root: &std::path::Path, config_toml: &str, keys_toml: Option<&str>) {
     // macOS layout
-    let macos_dir = root.join("Library/Application Support/tempo-wallet");
+    let macos_dir = root.join("Library/Application Support/tempo/wallet");
     fs::create_dir_all(&macos_dir).expect("Failed to create macOS data directory");
     fs::write(macos_dir.join("config.toml"), config_toml).expect("Failed to write macOS config");
     if let Some(keys) = keys_toml {
@@ -64,8 +64,8 @@ pub fn write_test_files(root: &std::path::Path, config_toml: &str, keys_toml: Op
     }
 
     // Linux layout
-    let linux_data = root.join(".local/share/tempo-wallet");
-    let linux_config = root.join(".config/tempo-wallet");
+    let linux_data = root.join(".local/share/tempo/wallet");
+    let linux_config = root.join(".config/tempo/wallet");
     fs::create_dir_all(&linux_data).expect("Failed to create Linux data directory");
     fs::create_dir_all(&linux_config).expect("Failed to create Linux config directory");
     fs::write(linux_config.join("config.toml"), config_toml).expect("Failed to write Linux config");
@@ -129,10 +129,10 @@ pub fn delete_sessions_db(temp_dir: &TempDir) {
     let candidates = [
         temp_dir
             .path()
-            .join("Library/Application Support/tempo-wallet/sessions/sessions.db"),
+            .join("Library/Application Support/tempo/wallet/sessions/sessions.db"),
         temp_dir
             .path()
-            .join(".local/share/tempo-wallet/sessions/sessions.db"),
+            .join(".local/share/tempo/wallet/sessions/sessions.db"),
     ];
 
     for db_path in &candidates {
@@ -160,10 +160,10 @@ pub fn get_combined_output(output: &std::process::Output) -> String {
 pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
     let mac_db = temp_dir
         .path()
-        .join("Library/Application Support/tempo-wallet/sessions/sessions.db");
+        .join("Library/Application Support/tempo/wallet/sessions/sessions.db");
     let lin_db = temp_dir
         .path()
-        .join(".local/share/tempo-wallet/sessions/sessions.db");
+        .join(".local/share/tempo/wallet/sessions/sessions.db");
 
     for db_path in [mac_db, lin_db] {
         if let Some(parent) = db_path.parent() {
