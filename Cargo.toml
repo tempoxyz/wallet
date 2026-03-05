@@ -13,7 +13,12 @@ categories = ["command-line-utilities"]
 name = "tempo-wallet"
 path = "src/main.rs"
 
+[[bin]]
+name = "sign-release"
+path = "src/bin/sign_release.rs"
+
 [dependencies]
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 alloy = { version = "1.6", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
 anyhow = "1.0"
 base64 = "0.22"

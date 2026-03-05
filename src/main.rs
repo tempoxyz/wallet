@@ -72,9 +72,7 @@ async fn main() {
     let output_format = cli.resolve_output_format();
 
     let result = async {
-        let mut config = load_config_with_overrides(cli.config.as_ref())?;
-        config.check_for_updates().await;
-
+        let config = load_config_with_overrides(cli.config.as_ref())?;
         match cli.command.take() {
             Some(command) => handle_command(cli, command, config).await,
             None => Cli::command().print_help().map_err(Into::into),
