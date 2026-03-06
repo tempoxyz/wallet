@@ -463,18 +463,8 @@ pub(crate) enum Commands {
     Completions {
         /// The shell to generate completions for
         #[arg(value_enum)]
-        shell: Option<Shell>,
+        shell: Option<clap_complete::Shell>,
     },
-}
-
-#[derive(clap::ValueEnum, Clone, Copy, Debug)]
-#[allow(clippy::enum_variant_names)]
-pub(crate) enum Shell {
-    Bash,
-    Zsh,
-    Fish,
-    #[value(name = "powershell")]
-    PowerShell,
 }
 
 #[derive(Subcommand, Debug)]
