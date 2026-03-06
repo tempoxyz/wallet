@@ -156,7 +156,6 @@ tempo wallet -t --dry-run -X POST \
 | `tempo wallet services --search <QUERY>` | Search services by name, description, or tags |
 | `tempo wallet services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
 | `tempo wallet sessions` | Manage payment sessions (list, close — use `--help` for details) |
-| `tempo wallet update` | Update tempo wallet to the latest version |
 
 ## Global Options
 

@@ -99,4 +99,3 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `src/analytics.rs` | Opt-out PostHog telemetry |
 | `src/error.rs` | `TempoWalletError` enum (thiserror) |
 | `src/util.rs` | Formatting helpers, terminal hyperlinks |
-| `src/version.rs` | Version checking and self-update logic |

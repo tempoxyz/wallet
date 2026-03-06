@@ -27,7 +27,6 @@ Single binary crate with source organized by module directories:
     - `whoami.rs` - Whoami command
     - `services.rs` - Service directory listing and details
     - `completions.rs` - Shell completions
-    - `update.rs` - Self-update command
 - `src/account/` - Wallet account types (balances, spending limits) and on-chain queries
 - `src/http/` - HTTP client, request planning, response parsing
 - `src/config.rs` - Configuration file handling
@@ -38,7 +37,6 @@ Single binary crate with source organized by module directories:
   - `charge.rs` - One-shot on-chain charge payment
   - `session/` - Session-based payment channels (channel.rs, close.rs, store.rs, streaming.rs, tx.rs)
 - `src/analytics.rs` - Opt-out telemetry (PostHog)
-- `src/version.rs` - Version checking and self-update
 - `src/error.rs` - Error types
 - `src/util.rs` - Shared utilities (formatting, terminal hyperlinks, sanitization)
 - `tests/` - Integration tests (black-box CLI testing via assert_cmd)

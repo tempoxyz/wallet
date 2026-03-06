@@ -65,7 +65,6 @@ Ready-to-run scripts in [`examples/`](examples/):
 | `tempo-wallet whoami` | Show wallet, balances, and keys |
 | `tempo-wallet services` | Browse the MPP service directory |
 | `tempo-wallet services info <ID>` | Show detailed info for a service |
-| `tempo-wallet update` | Update tempo-wallet to the latest version |
 | `tempo-wallet sessions list` | List sessions (active/orphaned/closing) |
 | `tempo-wallet sessions info <URL|channel_id>` | Show details for a session or channel |
 | `tempo-wallet sessions close [--all|--orphaned|--finalize|<URL>|<channel_id>]` | Close sessions or channels |

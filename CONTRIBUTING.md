@@ -79,7 +79,6 @@ src/
 ├── config.rs            # Configuration file handling
 ├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
 ├── util.rs              # Shared utilities (formatting, terminal hyperlinks, sanitization)
-├── version.rs           # Version checking and self-update logic
 ├── analytics.rs         # Opt-out telemetry (PostHog)
 ├── account/             # Wallet account types (balances, spending limits, on-chain queries)
 │   ├── mod.rs           # Types (TokenBalance, KeyInfo, SpendingLimitInfo) and display helpers
@@ -109,7 +108,6 @@ src/
 │       ├── whoami.rs    # Whoami command
 │       ├── keys.rs      # Key listing with balance and spending limit queries
 │       ├── services.rs  # Service directory listing and details
-│       ├── update.rs    # Self-update command
 │       └── completions.rs # Shell completions
 ├── keys/                # Key storage, signing, and authorization
 │   ├── model.rs         # KeyEntry, Keystore, WalletType types
