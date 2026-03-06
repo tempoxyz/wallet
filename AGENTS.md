@@ -203,6 +203,7 @@ new-crate = "1.0"
 | -------- | ----------- |
 | `TEMPO_RPC_URL` | Override RPC endpoint |
 | `TEMPO_AUTH_URL` | Override auth server URL |
+| `TEMPO_SERVICES_URL` | Override service directory API URL |
 | `TEMPO_NO_TELEMETRY` | Disable telemetry |
 | `TEMPO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
 

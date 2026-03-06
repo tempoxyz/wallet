@@ -235,6 +235,22 @@ pub(crate) fn confirm(prompt: &str, yes: bool) -> anyhow::Result<bool> {
     Ok(input.trim().eq_ignore_ascii_case("y"))
 }
 
+/// Truncate a display string to `max` characters, appending `…` if truncated.
+#[allow(dead_code)]
+pub(crate) fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max - 1).collect();
+        format!("{truncated}…")
+    }
+}
+
+/// Print a right-aligned label/value field to stdout.
+pub(crate) fn print_field(label: &str, value: &str) {
+    println!("{:>14}: {value}", label);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,5 +433,20 @@ mod tests {
         let msg = format!("server error: {}secret_api_key_12345", "a]".repeat(100));
         let result = sanitize_error(&msg);
         assert!(!result.contains("secret_api_key_12345"));
+    }
+
+    #[test]
+    fn truncate_short_unchanged() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_exact_length_unchanged() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_long_adds_ellipsis() {
+        assert_eq!(truncate("hello world", 5), "hell…");
     }
 }

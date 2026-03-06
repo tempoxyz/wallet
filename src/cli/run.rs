@@ -50,7 +50,18 @@ impl Cli {
                 service_id,
                 category,
                 search,
-            } => services::run(&ctx, command, service_id, category, search).await,
+            } => {
+                services::run(
+                    &ctx,
+                    services::ServicesArgs {
+                        command,
+                        service_id,
+                        category,
+                        search,
+                    },
+                )
+                .await
+            }
         };
 
         track_result(&ctx.analytics, cmd_name, &result);
