@@ -123,9 +123,9 @@ pub struct Cli {
 #[derive(Parser, Debug, Default)]
 #[command(after_help = "\
 \x1b[1;4mExamples\x1b[0m:
-  tempo-wallet https://api.example.com/data
-  tempo-wallet -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
-  tempo-wallet -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
+  tempo wallet https://api.example.com/data
+  tempo wallet -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
+  tempo wallet -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
 pub struct QueryArgs {
     /// URL to request
     #[arg(value_name = "URL")]

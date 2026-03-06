@@ -65,7 +65,7 @@ impl WalletCredentials {
         let path = Self::keys_path()?;
         let body = toml::to_string_pretty(self)?;
         let contents = format!(
-            "# tempo-wallet wallet credentials — managed by `tempo-wallet`\n\
+            "# tempo-wallet credentials — managed automatically\n\
              # Do not edit manually.\n\n\
              {body}"
         );

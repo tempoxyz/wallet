@@ -1,7 +1,7 @@
 //! Relay bridge client for funding Tempo wallets from other chains.
 //!
 //! Provides a lightweight client for the [Relay](https://relay.link) bridge API,
-//! used by `tempo-wallet fund` to generate deposit addresses and poll for cross-chain
+//! used by `tempo wallet fund` to generate deposit addresses and poll for cross-chain
 //! transfer status.
 
 use anyhow::{Context, Result};
