@@ -599,7 +599,7 @@ pub enum ServicesCommands {
 
 impl Cli {
     /// Returns a `clap::Command` with the usage string derived from the runtime
-    /// binary name (argv[0]). This ensures `tempo wallet help` shows
+    /// binary name (argv\[0\]). This ensures `tempo wallet help` shows
     /// `tempo wallet [HTTP OPTIONS] <URL>` rather than `tempo-wallet`.
     pub fn command_with_usage() -> clap::Command {
         let bin = std::env::args()

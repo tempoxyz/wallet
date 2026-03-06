@@ -159,7 +159,11 @@ fn parse_cli() -> Cli {
                             if !url.contains(' ') {
                                 let bin = std::env::args()
                                     .next()
-                                    .and_then(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string()))
+                                    .and_then(|p| {
+                                        std::path::Path::new(&p)
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                    })
                                     .unwrap_or_else(|| "tempo-wallet".to_string());
                                 eprintln!("error: '{url}' is not a {bin} command. See '{bin} --help' for a list of available commands.");
                                 ExitCode::InvalidUsage.exit();
@@ -389,7 +393,8 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                     }
                 }
             } else {
-                if let Some(session_cmd) = Cli::command_with_usage().find_subcommand_mut("sessions") {
+                if let Some(session_cmd) = Cli::command_with_usage().find_subcommand_mut("sessions")
+                {
                     session_cmd.print_help()?;
                 } else {
                     Cli::command_with_usage().print_help()?;

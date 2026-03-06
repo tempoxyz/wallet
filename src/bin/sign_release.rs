@@ -5,7 +5,7 @@
 //!         --key-file release.key \
 //!         --artifacts-dir artifacts/ \
 //!         --version 0.1.0 \
-//!         --base-url https://cli.tempo.xyz/extensions/tempo-wallet \
+//!         --base-url <https://cli.tempo.xyz/extensions/tempo-wallet> \
 //!         --output manifest.json
 //!
 //! The key file contains the raw 32-byte Ed25519 private seed.
