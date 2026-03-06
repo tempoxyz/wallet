@@ -1,8 +1,11 @@
 //! Session and channel display rendering (text and JSON output).
 
+use alloy::primitives::utils::format_units;
+use alloy::primitives::U256;
 use serde::Serialize;
 
 use crate::cli::OutputFormat;
+use crate::payment::session::store as session_store;
 
 /// Unified channel view used by all list/display functions.
 ///
@@ -260,6 +263,32 @@ pub(super) fn format_duration(secs: u64) -> String {
         }
     } else {
         format!("{secs}s")
+    }
+}
+
+impl From<&session_store::SessionRecord> for ChannelView {
+    fn from(session: &session_store::SessionRecord) -> Self {
+        let t = session.network_id().token();
+
+        let spent_u = session.cumulative_amount_u128().unwrap_or(0);
+        let limit_u = session.deposit_u128().unwrap_or(0);
+        let remaining_u = limit_u.saturating_sub(spent_u);
+
+        let (status, remaining_secs) = session.status_at(session_store::now_secs());
+
+        ChannelView {
+            channel_id: session.channel_id.clone(),
+            network: session.network_name.clone(),
+            origin: Some(session.origin.clone()),
+            symbol: t.symbol,
+            deposit: format_units(U256::from(limit_u), t.decimals).expect("decimals <= 77"),
+            spent: format_units(U256::from(spent_u), t.decimals).expect("decimals <= 77"),
+            remaining: format_units(U256::from(remaining_u), t.decimals).expect("decimals <= 77"),
+            status: status.as_str().to_string(),
+            remaining_secs,
+            created_at: Some(session.created_at),
+            last_used_at: Some(session.last_used_at),
+        }
     }
 }
 

@@ -248,7 +248,8 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     match result {
         Ok(result) => {
-            ctx.keys.mark_provisioned(challenge_ctx.network);
+            ctx.keys
+                .mark_provisioned(challenge_ctx.network, ctx.keys.wallet_address());
             pay_analytics.track_success(
                 result.tx_hash,
                 result.session_id.clone(),

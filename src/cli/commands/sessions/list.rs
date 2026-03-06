@@ -27,32 +27,6 @@ pub(super) enum SessionState {
     Orphaned,
 }
 
-/// Build a `ChannelView` from a local session record.
-fn view_from_session(session: &session_store::SessionRecord) -> ChannelView {
-    let t = session.network_id().token();
-    let (symbol, decimals) = (t.symbol, t.decimals);
-
-    let spent_u = session.cumulative_amount_u128().unwrap_or(0);
-    let limit_u = session.deposit_u128().unwrap_or(0);
-    let remaining_u = limit_u.saturating_sub(spent_u);
-
-    let (status, remaining_secs) = session.status_at(session_store::now_secs());
-
-    ChannelView {
-        channel_id: session.channel_id.clone(),
-        network: session.network_name.clone(),
-        origin: Some(session.origin.clone()),
-        symbol,
-        deposit: format_units(U256::from(limit_u), decimals).expect("decimals <= 77"),
-        spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
-        remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-        status: status.as_str().to_string(),
-        remaining_secs,
-        created_at: Some(session.created_at),
-        last_used_at: Some(session.last_used_at),
-    }
-}
-
 /// Resolve the grace period for an escrow contract, falling back to a default.
 async fn resolve_grace_period(config: &Config, network: NetworkId, escrow_hex: &str) -> u64 {
     let rpc_url = config.rpc_url(network);
@@ -102,7 +76,7 @@ pub(super) async fn list_sessions(
     // Build local views and filter by selected states
     for s in &filtered_local {
         let (status, _) = s.status_at(session_store::now_secs());
-        let v = view_from_session(s);
+        let v = ChannelView::from(*s);
         let matches = match status {
             SessionStatus::Active => selected.contains(&SessionState::Active),
             SessionStatus::Closing => selected.contains(&SessionState::Closing),
@@ -250,7 +224,7 @@ mod tests {
     fn test_view_from_session_active() {
         let now = session_store::now_secs();
         let rec = make_record(SessionStatus::Active, 0, now);
-        let view = super::view_from_session(&rec);
+        let view = ChannelView::from(&rec);
         assert_eq!(view.status, "active");
         assert!(view.remaining_secs.is_none());
     }
@@ -260,13 +234,13 @@ mod tests {
         let now = session_store::now_secs();
         // Closing with time remaining
         let rec = make_record(SessionStatus::Closing, now + 120, now);
-        let view = super::view_from_session(&rec);
+        let view = ChannelView::from(&rec);
         assert_eq!(view.status, "closing");
         assert_eq!(view.remaining_secs, Some(120));
 
         // Finalizable (ready_at <= now)
         let rec2 = make_record(SessionStatus::Closing, now, now);
-        let view2 = super::view_from_session(&rec2);
+        let view2 = ChannelView::from(&rec2);
         assert_eq!(view2.status, "finalizable");
         assert_eq!(view2.remaining_secs, Some(0));
     }

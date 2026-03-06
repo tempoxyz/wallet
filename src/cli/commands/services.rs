@@ -13,6 +13,7 @@ use crate::error::TempoWalletError;
 // Data model (service registry)
 // ---------------------------------------------------------------------------
 
+// Protection-bypass token is a public API key for unauthenticated access.
 const SERVICES_API_URL: &str =
     "https://mpp.sh/api/services?x-vercel-protection-bypass=iGDnLnmF0nK6LWloAotUbTo3urEsaIkB";
 

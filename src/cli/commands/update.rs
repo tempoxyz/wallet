@@ -7,8 +7,8 @@ use crate::cli::Context;
 use crate::util::sanitize_error;
 
 /// Run the update command with analytics tracking.
-pub(crate) async fn run(ctx: &Context, yes: bool) -> Result<()> {
-    let result = crate::version::run_update(yes);
+pub(crate) async fn run(ctx: &Context) -> Result<()> {
+    let result = crate::version::run_update();
     if let Some(ref a) = ctx.analytics {
         match &result {
             Ok(()) => {

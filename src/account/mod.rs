@@ -237,6 +237,7 @@ fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String, usize, us
 
     let locked_raw: u128 = sessions
         .iter()
+        .filter(|s| chain_id.is_none_or(|cid| s.chain_id == cid))
         .filter_map(|s| {
             let deposit = s.deposit_u128().ok()?;
             let spent = s.cumulative_amount_u128().ok()?;
@@ -250,7 +251,11 @@ fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String, usize, us
 
     let locked_str = format_units(U256::from(locked_raw), decimals as u8).expect("decimals <= 77");
 
-    Some((locked_str, sessions.len(), decimals))
+    let count = sessions
+        .iter()
+        .filter(|s| chain_id.is_none_or(|cid| s.chain_id == cid))
+        .count();
+    Some((locked_str, count, decimals))
 }
 
 #[cfg(test)]

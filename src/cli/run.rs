@@ -3,7 +3,9 @@
 use anyhow::Result;
 use clap::ValueEnum;
 
-use super::commands::*;
+use super::commands::{
+    completions, keys, login, logout, query, services, sessions, update, wallets, whoami,
+};
 use super::{Cli, Commands, Context};
 use crate::analytics::{self, Analytics};
 use crate::cli::args::{KeyCommands, ServicesCommands, SessionCommands, WalletCommands};
@@ -49,7 +51,7 @@ impl Cli {
                 category,
                 search,
             } => services::run(&ctx, command, service_id, category, search).await,
-            Commands::Update => update::run(&ctx, false).await,
+            Commands::Update => update::run(&ctx).await,
         };
 
         track_result(&ctx.analytics, cmd_name, &result);

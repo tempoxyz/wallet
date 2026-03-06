@@ -139,9 +139,7 @@ impl SessionRecord {
 
     /// Parse the network name into a `NetworkId`.
     pub(crate) fn network_id(&self) -> NetworkId {
-        self.network_name
-            .parse()
-            .expect("session has valid network")
+        self.network_name.parse().unwrap_or_default()
     }
 
     /// Compute the display status and optional remaining seconds from the session state.

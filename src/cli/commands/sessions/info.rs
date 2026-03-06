@@ -26,26 +26,7 @@ pub(super) async fn show_session_info(
     // Treat as URL/origin; normalize to origin key
     let key = session_store::session_key(target);
     if let Some(rec) = session_store::load_session(&key)? {
-        let t = rec.network_id().token();
-        let (symbol, decimals) = (t.symbol, t.decimals);
-        let spent_u = rec.cumulative_amount_u128().unwrap_or(0);
-        let dep_u = rec.deposit_u128().unwrap_or(0);
-        let remaining_u = dep_u.saturating_sub(spent_u);
-        let (status, remaining_secs) = rec.status_at(session_store::now_secs());
-
-        let view = ChannelView {
-            channel_id: rec.channel_id,
-            network: rec.network_name,
-            origin: Some(rec.origin),
-            symbol,
-            deposit: format_units(U256::from(dep_u), decimals).expect("decimals <= 77"),
-            spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
-            remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-            status: status.as_str().to_string(),
-            remaining_secs,
-            created_at: Some(rec.created_at),
-            last_used_at: Some(rec.last_used_at),
-        };
+        let view = ChannelView::from(&rec);
         match output_format {
             OutputFormat::Text => {
                 render_channel_text(&view);
@@ -91,26 +72,7 @@ async fn show_channel_info(
         .into_iter()
         .find(|s| s.channel_id.eq_ignore_ascii_case(channel_id_hex))
     {
-        let t = rec.network_id().token();
-        let (symbol, decimals) = (t.symbol, t.decimals);
-        let spent_u = rec.cumulative_amount_u128().unwrap_or(0);
-        let dep_u = rec.deposit_u128().unwrap_or(0);
-        let remaining_u = dep_u.saturating_sub(spent_u);
-        let (status, remaining_secs) = rec.status_at(session_store::now_secs());
-
-        let view = ChannelView {
-            channel_id: rec.channel_id,
-            network: rec.network_name,
-            origin: Some(rec.origin),
-            symbol,
-            deposit: format_units(U256::from(dep_u), decimals).expect("decimals <= 77"),
-            spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
-            remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-            status: status.as_str().to_string(),
-            remaining_secs,
-            created_at: Some(rec.created_at),
-            last_used_at: Some(rec.last_used_at),
-        };
+        let view = ChannelView::from(&rec);
         return render_channel_list(&[view], output_format, "", "session(s)");
     }
 

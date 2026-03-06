@@ -84,8 +84,6 @@ pub(super) fn ensure_wallet_configured(
     keys: &Keystore,
     challenge_network: NetworkId,
 ) -> Result<()> {
-    let chain_id = Some(challenge_network.chain_id());
-
     let setup_cmd = "tempo-wallet login";
 
     if !keys.has_wallet() {
@@ -94,17 +92,11 @@ pub(super) fn ensure_wallet_configured(
         )));
     }
 
-    if let Some(cid) = chain_id {
-        let has_key = keys
-            .keys
-            .iter()
-            .any(|k| k.chain_id == cid || k.chain_id == 0);
-        if !has_key {
-            anyhow::bail!(TempoWalletError::ConfigMissing(format!(
-                "No key configured for network '{}'. Run '{setup_cmd}'.",
-                challenge_network.as_str()
-            )));
-        }
+    if keys.key_for_network(challenge_network).is_none() {
+        anyhow::bail!(TempoWalletError::ConfigMissing(format!(
+            "No key configured for network '{}'. Run '{setup_cmd}'.",
+            challenge_network.as_str()
+        )));
     }
 
     Ok(())

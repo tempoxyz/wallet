@@ -98,7 +98,11 @@ impl Keystore {
     /// Reloads from disk, sets `provisioned = true` on the matching entry,
     /// and saves. No-op if already provisioned, the network is unknown,
     /// or this is an ephemeral keystore (e.g., `--private-key`).
-    pub(crate) fn mark_provisioned(&self, network: crate::network::NetworkId) {
+    pub(crate) fn mark_provisioned(
+        &self,
+        network: crate::network::NetworkId,
+        wallet_address: &str,
+    ) {
         if self.ephemeral {
             return;
         }
@@ -106,7 +110,9 @@ impl Keystore {
         let Ok(mut keys) = Self::load_from_disk() else {
             return;
         };
-        let Some(entry) = keys.keys.iter_mut().find(|k| k.chain_id == chain_id) else {
+        let Some(entry) = keys.keys.iter_mut().find(|k| {
+            k.chain_id == chain_id && k.wallet_address.eq_ignore_ascii_case(wallet_address)
+        }) else {
             return;
         };
         if entry.provisioned {

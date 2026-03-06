@@ -1,6 +1,5 @@
 //! Version checking and self-update logic.
 
-use std::io::{self, Write};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -52,21 +51,8 @@ pub(crate) async fn check_for_updates(config: &mut Config) {
 }
 
 /// Download and run the install script to update to the latest version.
-pub(crate) fn run_update(yes: bool) -> Result<()> {
+pub(crate) fn run_update() -> Result<()> {
     let install_url = format!("{BINARIES_BASE_URL}/install.sh");
-
-    if !yes {
-        eprintln!("This will run a remote install script: {install_url}\n");
-        eprint!("Proceed? [y/N]: ");
-        io::stderr().flush().ok();
-        let mut line = String::new();
-        io::stdin().read_line(&mut line).ok();
-        let ans = line.trim().to_ascii_lowercase();
-        if ans != "y" && ans != "yes" {
-            eprintln!("Aborted.");
-            return Ok(());
-        }
-    }
 
     eprintln!("Updating tempo-wallet to the latest version...\n");
 

@@ -108,12 +108,15 @@ impl NetworkId {
     /// Get the default RPC URL for this network.
     pub(crate) const fn default_rpc_url(&self) -> &'static str {
         match self {
+            // Basic-auth credentials are public rate-limit tokens, not secrets.
             NetworkId::Tempo => "https://beautiful-tesla:great-benz@rpc.mainnet.tempo.xyz",
             NetworkId::TempoModerato => "https://rpc.moderato.tempo.xyz",
         }
     }
 
     /// Get the auth server URL for browser-based wallet authentication.
+    ///
+    /// The `auth=` parameter is a public routing token, not a secret.
     pub(crate) const fn auth_url(&self) -> &'static str {
         match self {
             NetworkId::Tempo => {

@@ -116,8 +116,11 @@ pub(crate) fn sign(
         .as_secs();
     let expiry_secs = now + DEFAULT_EXPIRY_SECS;
     let limit = alloy::primitives::U256::from(DEFAULT_LIMIT);
-    // Currently authorizes only the canonical stablecoin per network.
-    let token_addrs = [crate::network::USDCE_TOKEN];
+    // Authorize the canonical stablecoin for this network.
+    let network = crate::network::NetworkId::from_chain_id(chain_id).ok_or_else(|| {
+        TempoWalletError::InvalidConfig(format!("Unsupported chainId: {chain_id}"))
+    })?;
+    let token_addrs = [network.token().address];
     let mut token_limits: Vec<TokenLimit> = Vec::with_capacity(token_addrs.len());
     for addr in token_addrs.iter() {
         let token = addr.parse().map_err(|_| {
@@ -245,5 +248,26 @@ mod tests {
     fn test_validate_invalid_rlp() {
         let result = validate(Some("0xdeadbeef"), Address::ZERO);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sign_uses_per_network_token() {
+        let wallet = PrivateKeySigner::random();
+        let access = PrivateKeySigner::random();
+
+        let tempo_auth = sign(&wallet, &access, 4217).unwrap();
+        let moderato_auth = sign(&wallet, &access, 42431).unwrap();
+
+        // Different networks should authorize different token addresses
+        assert_ne!(
+            tempo_auth.limits[0].currency,
+            moderato_auth.limits[0].currency
+        );
+        // Verify correct tokens
+        assert_eq!(tempo_auth.limits[0].currency, crate::network::USDCE_TOKEN);
+        assert_eq!(
+            moderato_auth.limits[0].currency,
+            "0x20c0000000000000000000000000000000000000"
+        );
     }
 }
