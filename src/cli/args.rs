@@ -1,6 +1,6 @@
 //! CLI argument definitions and parsing.
 
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 
 pub use crate::config::OutputFormat;
 
@@ -36,10 +36,6 @@ const LONG_VERSION: &str = concat!(
 #[command(name = "tempo-wallet")]
 #[command(about = "A command-line HTTP client with built-in MPP payment support", long_about = None)]
 #[command(version = LONG_VERSION)]
-#[command(
-    // Match curl-style usage: show HTTP options before the URL and list both forms
-    override_usage = "\n  tempo-wallet [HTTP OPTIONS] <URL>\n  tempo-wallet <COMMAND> [OPTIONS]"
-)]
 #[command(after_help = "\
 \x1b[1;4mHTTP Options\x1b[0m (before <URL>):
   -X, --request <METHOD>        Custom request method (GET, POST, PUT, DELETE, ...)
@@ -602,6 +598,24 @@ pub enum ServicesCommands {
 }
 
 impl Cli {
+    /// Returns a `clap::Command` with the usage string derived from the runtime
+    /// binary name (argv\[0\]). This ensures `tempo wallet help` shows
+    /// `tempo wallet [HTTP OPTIONS] <URL>` rather than `tempo-wallet`.
+    pub fn command_with_usage() -> clap::Command {
+        let bin = std::env::args()
+            .next()
+            .and_then(|p| {
+                std::path::Path::new(&p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| "tempo-wallet".to_string());
+        let usage = format!("\n  {bin} [HTTP OPTIONS] <URL>\n  {bin} <COMMAND> [OPTIONS]");
+        <Self as CommandFactory>::command()
+            .bin_name(&bin)
+            .override_usage(usage)
+    }
+
     /// Verbosity level (0=warn, 1=info, 2=debug, 3+=trace). Returns 0 when silent.
     pub fn verbosity(&self) -> u8 {
         if self.silent || self.verbose == 0 {
