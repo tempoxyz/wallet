@@ -89,6 +89,7 @@ jobs:
             --artifacts-dir artifacts \
             --version "${{ inputs.version }}" \
             --base-url https://cli.tempo.xyz/extensions/tempo-wallet \
+            --skill "https://cli.tempo.xyz/extensions/tempo-wallet/v${{ inputs.version }}/SKILL.md" \
             --output artifacts/manifest.json
           rm /tmp/release.key
 
@@ -114,6 +115,10 @@ jobs:
           # Upload signed manifest for tempo CLI auto-install (latest + versioned)
           aws s3 cp artifacts/manifest.json "s3://tempo-cli/extensions/tempo-wallet/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "application/json"
           aws s3 cp artifacts/manifest.json "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "application/json"
+
+          # Upload SKILL.md for tempo CLI auto-install (latest + versioned)
+          aws s3 cp .agents/skills/tempo-wallet/SKILL.md "s3://tempo-cli/extensions/tempo-wallet/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          aws s3 cp .agents/skills/tempo-wallet/SKILL.md "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
 
           # Upload install script and AI skills
           aws s3 cp install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
