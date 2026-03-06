@@ -86,17 +86,16 @@ pub(super) fn ensure_wallet_configured(
 ) -> Result<()> {
     let setup_cmd = "tempo-wallet login";
 
-    if !keys.has_wallet() {
-        anyhow::bail!(TempoWalletError::ConfigMissing(format!(
-            "No wallet configured. Run '{setup_cmd}'."
-        )));
-    }
-
-    if keys.key_for_network(challenge_network).is_none() {
-        anyhow::bail!(TempoWalletError::ConfigMissing(format!(
-            "No key configured for network '{}'. Run '{setup_cmd}'.",
-            challenge_network.as_str()
-        )));
+    if !keys.has_key_for_network(challenge_network) {
+        let msg = if !keys.has_wallet() {
+            format!("No wallet configured. Run '{setup_cmd}'.")
+        } else {
+            format!(
+                "No key configured for network '{}'. Run '{setup_cmd}'.",
+                challenge_network.as_str()
+            )
+        };
+        anyhow::bail!(TempoWalletError::ConfigMissing(msg));
     }
 
     Ok(())

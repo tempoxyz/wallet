@@ -31,7 +31,6 @@ pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Resul
                         a.track(
                             crate::analytics::Event::WalletCreated,
                             crate::analytics::WalletCreatedPayload {
-                                network: ctx.network.as_str().to_string(),
                                 wallet_type: "local".to_string(),
                             },
                         );
@@ -39,14 +38,7 @@ pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Resul
                 }
                 let wallet_addr = result?;
                 let fresh_keys = ctx.keys.reload()?;
-                super::whoami::show_whoami(
-                    &ctx.config,
-                    ctx.output_format,
-                    ctx.network,
-                    Some(&wallet_addr),
-                    &fresh_keys,
-                )
-                .await
+                super::whoami::show_whoami(ctx, Some(&fresh_keys), Some(&wallet_addr)).await
             }
             WalletCommands::Fund { address, no_wait } => {
                 let method = match ctx.network {
@@ -272,10 +264,7 @@ async fn show_wallet_list(output_format: OutputFormat, keys: &Keystore) -> anyho
         let key = entry.wallet_address.to_lowercase();
         let wallet = wallets.entry(key).or_insert_with(|| WalletListEntry {
             address: entry.wallet_address.clone(),
-            wallet_type: match entry.wallet_type {
-                WalletType::Passkey => "passkey".to_string(),
-                WalletType::Local => "local".to_string(),
-            },
+            wallet_type: entry.wallet_type.as_str().to_string(),
             networks: Vec::new(),
         });
         if let Some(net) = NetworkId::from_chain_id(entry.chain_id) {

@@ -12,7 +12,7 @@ use alloy::primitives::U256;
 use serde::Serialize;
 
 use crate::config::Config;
-use crate::keys::{KeyEntry, WalletType};
+use crate::keys::KeyEntry;
 use crate::network::NetworkId;
 
 // ---------------------------------------------------------------------------
@@ -40,13 +40,20 @@ pub(crate) struct SpendingLimitInfo {
 pub(crate) struct KeyInfo {
     pub(crate) label: String,
     pub(crate) address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) wallet_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) wallet_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) currency: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) balance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) spending_limit: Option<SpendingLimitInfo>,
     /// Key expiry as an ISO-8601 UTC timestamp (JSON).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) expires_at: Option<String>,
 }
 
@@ -82,10 +89,7 @@ pub(crate) async fn build_key_info(
         .clone()
         .unwrap_or_else(|| "none".to_string());
 
-    let wt = match entry.wallet_type {
-        WalletType::Passkey => "passkey",
-        WalletType::Local => "local",
-    };
+    let wt = entry.wallet_type.as_str();
 
     let on_current_chain = current_chain_id.is_some_and(|cid| cid == entry.chain_id);
     let key_token_info = if on_current_chain {

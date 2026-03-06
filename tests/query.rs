@@ -2406,7 +2406,7 @@ async fn test_services_info_json_structure() {
     let ep = &endpoints[0];
     assert!(ep["method"].is_string(), "endpoint missing 'method'");
     assert!(ep["path"].is_string(), "endpoint missing 'path'");
-    assert!(ep["pricing"].is_string(), "endpoint missing 'pricing'");
+    assert!(ep["payment"].is_object(), "endpoint missing 'payment'");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2437,7 +2437,7 @@ async fn test_services_info_toon_structure() {
     let ep = &endpoints[0];
     assert!(ep["method"].is_string(), "endpoint missing 'method'");
     assert!(ep["path"].is_string(), "endpoint missing 'path'");
-    assert!(ep["pricing"].is_string(), "endpoint missing 'pricing'");
+    assert!(ep["payment"].is_object(), "endpoint missing 'payment'");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -39,7 +39,7 @@ impl Cli {
         let result = match command {
             Commands::Query(q) => query::run(&ctx, *q).await,
             Commands::Login => login::run(&ctx).await,
-            Commands::Logout { yes } => logout::run(&ctx, yes).await,
+            Commands::Logout { yes } => logout::run(&ctx, yes),
             Commands::Completions { shell } => completions::run(&ctx, shell),
             Commands::Sessions { command } => sessions::run(&ctx, command).await,
             Commands::Wallets { command } => wallets::run(&ctx, command).await,

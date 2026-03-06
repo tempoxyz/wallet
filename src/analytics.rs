@@ -125,6 +125,10 @@ impl Analytics {
         Some(analytics)
     }
 
+    pub(crate) fn track_event(&self, event: Event) {
+        self.track(event, EmptyPayload);
+    }
+
     pub(crate) fn track<P: EventPayload>(&self, event: Event, payload: P) {
         let client = self.client.clone();
         let distinct_id = self.distinct_id.clone();
@@ -288,19 +292,8 @@ pub(crate) trait EventPayload: Serialize + Send + Sync + 'static {}
 pub(crate) struct EmptyPayload;
 impl EventPayload for EmptyPayload {}
 
-/// Payload containing only a network identifier.
-///
-/// Used by: `LoginStarted`, `LoginSuccess`, `LoginTimeout`, `KeyCreated`,
-/// `CallbackWindowOpened`.
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct NetworkPayload {
-    pub network: String,
-}
-impl EventPayload for NetworkPayload {}
-
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct LoginFailurePayload {
-    pub network: String,
     pub error: String,
 }
 impl EventPayload for LoginFailurePayload {}
@@ -374,14 +367,12 @@ impl EventPayload for CommandFailurePayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CallbackReceivedPayload {
-    pub network: String,
     pub duration_secs: u64,
 }
 impl EventPayload for CallbackReceivedPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct WalletCreatedPayload {
-    pub network: String,
     pub wallet_type: String,
 }
 impl EventPayload for WalletCreatedPayload {}

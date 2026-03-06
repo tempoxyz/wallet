@@ -83,10 +83,7 @@ pub(super) async fn recover_session(
                         ready_at,
                     );
                     if let Some(a) = analytics {
-                        a.track(
-                            crate::analytics::Event::SessionRecovered,
-                            crate::analytics::EmptyPayload,
-                        );
+                        a.track_event(crate::analytics::Event::SessionRecovered);
                     }
                     match output_format {
                         OutputFormat::Json | OutputFormat::Toon => println!(

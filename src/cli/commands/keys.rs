@@ -12,7 +12,7 @@ use crate::account::{
 };
 use crate::cli::args::KeyCommands;
 use crate::cli::{Cli, Context, OutputFormat};
-use crate::keys::{Keystore, WalletType};
+use crate::keys::Keystore;
 use crate::network::NetworkId;
 
 pub(crate) async fn run(ctx: &Context, command: Option<KeyCommands>) -> Result<()> {
@@ -24,16 +24,10 @@ pub(crate) async fn run(ctx: &Context, command: Option<KeyCommands>) -> Result<(
         Some(KeyCommands::Create { wallet }) => {
             super::wallets::create_access_key(wallet.as_deref(), &ctx.keys)?;
             if let Some(a) = ctx.analytics.as_ref() {
-                a.track(
-                    crate::analytics::Event::KeyCreated,
-                    crate::analytics::NetworkPayload {
-                        network: ctx.network.as_str().to_string(),
-                    },
-                );
+                a.track_event(crate::analytics::Event::KeyCreated);
             }
             let fresh_keys = ctx.keys.reload()?;
-            super::whoami::show_whoami(&ctx.config, output_format, ctx.network, None, &fresh_keys)
-                .await
+            super::whoami::show_whoami(ctx, Some(&fresh_keys), None).await
         }
         Some(KeyCommands::Clean { yes }) => run_key_clean(yes),
         None => {
@@ -104,10 +98,7 @@ async fn show_keys(
     let mut keys = Vec::new();
 
     for entry in &keystore.keys {
-        let label = match entry.wallet_type {
-            WalletType::Passkey => "passkey",
-            WalletType::Local => "local",
-        };
+        let label = entry.wallet_type.as_str();
         let entry_network = NetworkId::from_chain_id(entry.chain_id).unwrap_or(network);
         let entry_chain_id = Some(entry.chain_id);
         keys.push(

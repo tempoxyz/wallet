@@ -1,25 +1,26 @@
 //! Whoami / wallet status display.
 
+use std::collections::HashMap;
+use std::io::Write;
+
 use serde::Serialize;
 
 use crate::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits_to, query_all_balances, KeyInfo,
 };
-use crate::analytics::{self, Event};
+use crate::analytics::Event;
 use crate::cli::{Context, OutputFormat};
 use crate::config::Config;
-use crate::keys::{Keystore, WalletType};
+use crate::keys::Keystore;
 use crate::network::NetworkId;
 
-// ---------------------------------------------------------------------------
-// Whoami / Status
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 struct StatusResponse {
     ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     wallet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     wallet_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     symbol: Option<String>,
@@ -31,8 +32,11 @@ struct StatusResponse {
     available: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     active_sessions: Option<usize>,
-    network: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     chain_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     key: Option<KeyInfo>,
     /// Key expiry as a Unix timestamp (used for text display only, not serialized).
     #[serde(skip)]
@@ -41,33 +45,22 @@ struct StatusResponse {
 
 pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
     if let Some(ref a) = ctx.analytics {
-        a.track(Event::WhoamiViewed, analytics::EmptyPayload);
+        a.track_event(Event::WhoamiViewed);
     }
-    show_whoami(&ctx.config, ctx.output_format, ctx.network, None, &ctx.keys).await
+    show_whoami(ctx, None, None).await
 }
 
 pub(super) async fn show_whoami(
-    config: &Config,
-    output_format: OutputFormat,
-    network: NetworkId,
+    ctx: &Context,
+    keys: Option<&Keystore>,
     wallet_address: Option<&str>,
-    keys: &Keystore,
 ) -> anyhow::Result<()> {
-    let response = build_whoami_response(config, keys, network, wallet_address).await;
-
-    match output_format {
-        OutputFormat::Json | OutputFormat::Toon => {
-            println!("{}", output_format.serialize(&response)?);
-        }
-        OutputFormat::Text => {
-            print_whoami_text(&response, &mut std::io::stdout())?;
-        }
-    }
-
-    Ok(())
+    let keys = keys.unwrap_or(&ctx.keys);
+    let response = build_response(&ctx.config, keys, ctx.network, wallet_address).await;
+    response.print(ctx.output_format)
 }
 
-async fn build_whoami_response(
+async fn build_response(
     config: &Config,
     keys: &Keystore,
     network: NetworkId,
@@ -75,170 +68,133 @@ async fn build_whoami_response(
 ) -> StatusResponse {
     let mut response = StatusResponse {
         ready: keys.has_wallet(),
-        wallet: None,
-        wallet_type: None,
-        symbol: None,
-        balance: None,
-        locked: None,
-        available: None,
-        active_sessions: None,
-        network: String::new(),
-        chain_id: None,
-        key: None,
-        key_expiry: None,
+        ..Default::default()
     };
 
-    if keys.has_wallet() {
-        let active_entry = if let Some(addr) = wallet_address {
-            keys.key_for_wallet_and_network(addr, network)
-        } else {
-            keys.key_for_network(network)
-        };
+    if !keys.has_wallet() {
+        return response;
+    }
 
-        response.network = network.as_str().to_string();
-        let chain_id = Some(network.chain_id());
-        response.chain_id = chain_id;
-
-        if let Some(key_entry) = active_entry {
-            if !key_entry.wallet_address.is_empty() {
-                response.wallet = Some(key_entry.wallet_address.clone());
-            }
-
-            let wt = match key_entry.wallet_type {
-                WalletType::Passkey => "passkey",
-                WalletType::Local => "local",
-            };
-            response.wallet_type = Some(wt.to_string());
-
-            let wallet_addr = response.wallet.as_deref().unwrap_or("");
-            let balance_cache = vec![(
-                (wallet_addr.to_string(), key_entry.chain_id),
-                query_all_balances(config, network, wallet_addr).await,
-            )]
-            .into_iter()
-            .collect();
-
-            let mut key_info =
-                build_key_info(config, network, chain_id, wt, key_entry, &balance_cache).await;
-            // whoami shows wallet/type/balance at the top level, not per-key
-            key_info.wallet_address = None;
-            key_info.wallet_type = None;
-            response.symbol = key_info.symbol.clone();
-            response.balance = key_info.balance.take();
-
-            // Compute locked balance from active sessions
-            if let (Some(bal_str), Some(sym)) = (response.balance.clone(), response.symbol.clone())
-            {
-                compute_locked_balance(&mut response, &bal_str, &sym);
-            }
-
-            if key_info.address == "none" {
-                response.ready = false;
-            }
-            response.key = Some(key_info);
-            response.key_expiry = key_expiry_timestamp(key_entry);
-
-            // Readiness requires: key present, wallet connected, and either
-            // already provisioned or has a key_authorization (will auto-provision on first use).
-            let has_wallet_addr = response.wallet.as_deref().is_some_and(|s| !s.is_empty());
-            let is_provisioned = key_entry.provisioned;
-            let has_key_auth = key_entry.key_authorization.is_some();
-            response.ready = response.ready && has_wallet_addr && (is_provisioned || has_key_auth);
-        } else {
-            response.wallet = None;
-            response.wallet_type = None;
-            response.ready = false;
-        }
+    let active_entry = if let Some(addr) = wallet_address {
+        keys.key_for_wallet_and_network(addr, network)
     } else {
+        keys.key_for_network(network)
+    };
+
+    response.network = Some(network.as_str().to_string());
+    let chain_id = Some(network.chain_id());
+    response.chain_id = chain_id;
+
+    let Some(key_entry) = active_entry else {
+        response.ready = false;
+        return response;
+    };
+
+    if !key_entry.wallet_address.is_empty() {
+        response.wallet = Some(key_entry.wallet_address.clone());
+    }
+
+    let wt = key_entry.wallet_type.as_str();
+    response.wallet_type = Some(wt.to_string());
+
+    let wallet_addr = response.wallet.as_deref().unwrap_or("");
+    let balance_cache = HashMap::from([(
+        (wallet_addr.to_string(), key_entry.chain_id),
+        query_all_balances(config, network, wallet_addr).await,
+    )]);
+
+    let mut key_info =
+        build_key_info(config, network, chain_id, wt, key_entry, &balance_cache).await;
+    // whoami shows wallet/type/balance at the top level, not per-key
+    key_info.wallet_address = None;
+    key_info.wallet_type = None;
+    response.symbol = key_info.symbol.clone();
+    response.balance = key_info.balance.take();
+
+    // Compute locked balance from active sessions
+    if let Some(bb) = response
+        .balance
+        .as_deref()
+        .zip(response.symbol.as_deref())
+        .and_then(|(bal, sym)| balance_breakdown(bal, sym, response.chain_id))
+    {
+        response.balance = Some(bb.total);
+        response.available = Some(bb.available);
+        response.locked = Some(bb.locked);
+        response.active_sessions = Some(bb.session_count);
+    }
+
+    if key_entry.key_address.is_none() {
         response.ready = false;
     }
+    response.key = Some(key_info);
+    response.key_expiry = key_expiry_timestamp(key_entry);
+
+    // Readiness requires: key present, wallet connected, and either
+    // already provisioned or has a key_authorization (will auto-provision on first use).
+    response.ready = response.ready
+        && response.wallet.is_some()
+        && (key_entry.provisioned || key_entry.key_authorization.is_some());
 
     response
 }
 
-/// Show whoami output on stderr (for use during interactive login when stdout may be piped).
-pub(super) async fn show_whoami_stderr(
-    config: &Config,
-    network: NetworkId,
-    wallet_address: Option<&str>,
-    keys: &Keystore,
-) -> anyhow::Result<()> {
-    let response = build_whoami_response(config, keys, network, wallet_address).await;
-    print_whoami_text(&response, &mut std::io::stderr())?;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Display helpers
-// ---------------------------------------------------------------------------
-
-/// Compute the locked and total balances from active sessions.
-///
-/// `bal_str` is the wallet's on-chain `balanceOf` (i.e., the available amount).
-/// Locked = sum of (deposit - spent) for sessions with remaining deposits.
-/// Total balance = available + locked.
-fn compute_locked_balance(response: &mut StatusResponse, bal_str: &str, sym: &str) {
-    let bb = match balance_breakdown(bal_str, sym, response.chain_id) {
-        Some(v) => v,
-        None => return,
-    };
-
-    response.balance = Some(bb.total);
-    response.available = Some(bb.available);
-    response.locked = Some(bb.locked);
-    response.active_sessions = Some(bb.session_count);
-}
-
-fn print_whoami_text(response: &StatusResponse, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
-    let explorer = response.chain_id.and_then(NetworkId::from_chain_id);
-
-    if response.wallet.is_none() && response.key.is_none() {
-        writeln!(w, "Not logged in. Run `tempo-wallet login` to get started.")?;
-        return Ok(());
-    }
-
-    if let Some(wallet) = &response.wallet {
-        let wt = response.wallet_type.as_deref().unwrap_or("unknown");
-        let wallet_link = explorer.unwrap_or_default().address_link(wallet);
-        writeln!(w, "{:>10}: {} ({})", "Wallet", wallet_link, wt)?;
-    }
-
-    // Wallet balance
-    if let Some(bal) = &response.balance {
-        let sym = response.symbol.as_deref().unwrap_or("tokens");
-        writeln!(w, "{:>10}: {} {}", "Balance", bal, sym)?;
-        if let (Some(locked), Some(available), Some(count)) = (
-            &response.locked,
-            &response.available,
-            response.active_sessions,
-        ) {
-            let session_label = if count == 1 { "session" } else { "sessions" };
-            writeln!(
-                w,
-                "{:>10}: {} {} ({} active {})",
-                "Locked", locked, sym, count, session_label
-            )?;
-            writeln!(w, "{:>10}: {} {}", "Available", available, sym)?;
+impl StatusResponse {
+    fn print(&self, format: OutputFormat) -> anyhow::Result<()> {
+        if format.is_structured() {
+            println!("{}", format.serialize(self)?);
+            return Ok(());
         }
-    }
 
-    if let Some(key) = &response.key {
-        writeln!(w)?;
-        let key_link = explorer.unwrap_or_default().address_link(&key.address);
-        writeln!(w, "{:>10}: {}", "Key", key_link)?;
-        if !response.network.is_empty() {
-            writeln!(w, "{:>10}: {}", "Chain", response.network)?;
-        }
-        if let Some(expiry_ts) = response.key_expiry {
-            writeln!(
-                w,
-                "{:>10}: {}",
-                "Expires",
-                format_expiry_countdown(expiry_ts)
-            )?;
-        }
-        print_key_limits_to(key, w)?;
-    }
+        let w = &mut std::io::stdout();
+        let explorer = self.chain_id.and_then(NetworkId::from_chain_id);
 
-    Ok(())
+        if self.wallet.is_none() && self.key.is_none() {
+            writeln!(w, "Not logged in. Run `tempo-wallet login` to get started.")?;
+            return Ok(());
+        }
+
+        if let Some(wallet) = &self.wallet {
+            let wt = self.wallet_type.as_deref().unwrap_or("unknown");
+            let wallet_link = explorer.unwrap_or_default().address_link(wallet);
+            writeln!(w, "{:>10}: {} ({})", "Wallet", wallet_link, wt)?;
+        }
+
+        // Wallet balance
+        if let Some(bal) = &self.balance {
+            let sym = self.symbol.as_deref().unwrap_or("tokens");
+            writeln!(w, "{:>10}: {} {}", "Balance", bal, sym)?;
+            if let (Some(locked), Some(available), Some(count)) =
+                (&self.locked, &self.available, self.active_sessions)
+            {
+                let session_label = if count == 1 { "session" } else { "sessions" };
+                writeln!(
+                    w,
+                    "{:>10}: {} {} ({} active {})",
+                    "Locked", locked, sym, count, session_label
+                )?;
+                writeln!(w, "{:>10}: {} {}", "Available", available, sym)?;
+            }
+        }
+
+        if let Some(key) = &self.key {
+            writeln!(w)?;
+            let key_link = explorer.unwrap_or_default().address_link(&key.address);
+            writeln!(w, "{:>10}: {}", "Key", key_link)?;
+            if let Some(network) = &self.network {
+                writeln!(w, "{:>10}: {}", "Chain", network)?;
+            }
+            if let Some(expiry_ts) = self.key_expiry {
+                writeln!(
+                    w,
+                    "{:>10}: {}",
+                    "Expires",
+                    format_expiry_countdown(expiry_ts)
+                )?;
+            }
+            print_key_limits_to(key, w)?;
+        }
+
+        Ok(())
+    }
 }

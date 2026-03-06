@@ -79,7 +79,9 @@ impl Config {
                     config_path.display()
                 )));
             }
-            Self::default()
+            let config = Self::default();
+            let _ = Self::write_default(&config_path, &config);
+            config
         } else {
             let content = std::fs::read_to_string(&config_path).map_err(|e| {
                 TempoWalletError::InvalidConfig(format!(
@@ -114,10 +116,9 @@ impl Config {
             .ok_or(TempoWalletError::NoConfigDir)
     }
 
-    /// Save config to the default location.
-    pub(crate) fn save(&self) -> Result<(), TempoWalletError> {
-        let config_path = Self::default_config_path()?;
-        let body = toml::to_string_pretty(self)?;
+    /// Write a default config file with helpful comments.
+    fn write_default(config_path: &Path, config: &Config) -> Result<(), TempoWalletError> {
+        let body = toml::to_string_pretty(config)?;
         let content = format!(
             "# tempo-wallet configuration\n\
              # Wallet keys live in keys.toml (set via `tempo-wallet login`)\n\

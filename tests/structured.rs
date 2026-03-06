@@ -22,8 +22,7 @@ provisioned = true
     let stdout = String::from_utf8_lossy(&output.stdout);
     let v: Value = serde_json::from_str(stdout.trim()).expect("valid json");
     // Snapshot-ish: check stable keys exist
-    assert!(v.get("wallet").is_some(), "missing wallet");
-    assert!(v.get("key").is_some(), "missing key");
+    assert!(v.get("ready").is_some(), "missing ready");
 
     // TOON
     let output = test_command(&temp).args(["-t", "whoami"]).output().unwrap();
@@ -31,8 +30,7 @@ provisioned = true
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Decode TOON to JSON to check shape
     let decoded: Value = toon_format::decode_default(&stdout).expect("toon decode");
-    assert!(decoded.get("wallet").is_some());
-    assert!(decoded.get("key").is_some());
+    assert!(decoded.get("ready").is_some());
 }
 
 #[test]

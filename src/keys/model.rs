@@ -8,7 +8,7 @@ use crate::error::TempoWalletError;
 use crate::network::NetworkId;
 
 /// Wallet type: local (self-custodial EOA in OS keychain) or passkey (browser auth).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum WalletType {
     #[default]
@@ -16,8 +16,17 @@ pub(crate) enum WalletType {
     Passkey,
 }
 
+impl WalletType {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Passkey => "passkey",
+        }
+    }
+}
+
 /// Cryptographic key type for key authorizations.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum KeyType {
     #[default]
@@ -152,6 +161,11 @@ impl Keystore {
         self.primary_key().is_some_and(|a| {
             !a.wallet_address.is_empty() && a.key.as_ref().is_some_and(|k| !k.is_empty())
         })
+    }
+
+    /// Check if a wallet is connected with a key for the given network.
+    pub(crate) fn has_key_for_network(&self, network: NetworkId) -> bool {
+        self.has_wallet() && self.keys.iter().any(|k| k.chain_id == network.chain_id())
     }
 
     /// Get the wallet address of the primary key.
