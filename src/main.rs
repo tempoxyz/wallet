@@ -40,7 +40,7 @@ mod util;
 mod wallet;
 
 use anyhow::Result;
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use colored::control;
 
 use crate::analytics::Analytics;
@@ -75,7 +75,7 @@ async fn main() {
         let config = load_config_with_overrides(cli.config.as_ref())?;
         match cli.command.take() {
             Some(command) => handle_command(cli, command, config).await,
-            None => Cli::command().print_help().map_err(Into::into),
+            None => Cli::command_with_usage().print_help().map_err(Into::into),
         }
     }
     .await;
@@ -126,7 +126,7 @@ fn parse_cli() -> Cli {
             // subcommand so we don't swallow its parse errors (e.g.,
             // missing required args) as an implicit query.
             let args: Vec<String> = std::env::args().collect();
-            let mut subcommands: Vec<String> = Cli::command()
+            let mut subcommands: Vec<String> = Cli::command_with_usage()
                 .get_subcommands()
                 .flat_map(|c| {
                     let mut names = vec![c.get_name().to_string()];
@@ -157,7 +157,11 @@ fn parse_cli() -> Cli {
                         {
                             // Single-word non-command: still an error
                             if !url.contains(' ') {
-                                eprintln!("error: '{url}' is not a tempo-wallet command. See 'tempo-wallet --help' for a list of available commands.");
+                                let bin = std::env::args()
+                                    .next()
+                                    .and_then(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string()))
+                                    .unwrap_or_else(|| "tempo-wallet".to_string());
+                                eprintln!("error: '{url}' is not a {bin} command. See '{bin} --help' for a list of available commands.");
                                 ExitCode::InvalidUsage.exit();
                             }
                         }
@@ -385,10 +389,10 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                     }
                 }
             } else {
-                if let Some(session_cmd) = Cli::command().find_subcommand_mut("sessions") {
+                if let Some(session_cmd) = Cli::command_with_usage().find_subcommand_mut("sessions") {
                     session_cmd.print_help()?;
                 } else {
-                    Cli::command().print_help()?;
+                    Cli::command_with_usage().print_help()?;
                 }
                 Ok(())
             }
@@ -422,10 +426,10 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                     }
                 }
             } else {
-                if let Some(wallet_cmd) = Cli::command().find_subcommand_mut("wallets") {
+                if let Some(wallet_cmd) = Cli::command_with_usage().find_subcommand_mut("wallets") {
                     wallet_cmd.print_help()?;
                 } else {
-                    Cli::command().print_help()?;
+                    Cli::command_with_usage().print_help()?;
                 }
                 Ok(())
             }
@@ -454,10 +458,10 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
                 }
                 Some(KeyCommands::Clean { yes }) => cli::keys::run_key_clean(yes),
                 None => {
-                    if let Some(key_cmd) = Cli::command().find_subcommand_mut("keys") {
+                    if let Some(key_cmd) = Cli::command_with_usage().find_subcommand_mut("keys") {
                         key_cmd.print_help()?;
                     } else {
-                        Cli::command().print_help()?;
+                        Cli::command_with_usage().print_help()?;
                     }
                     Ok(())
                 }
