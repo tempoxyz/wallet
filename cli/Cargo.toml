@@ -1,0 +1,24 @@
+[package]
+name = "tempo-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Tempo CLI"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+homepage = "https://tempo.xyz"
+keywords = ["cli", "extension", "tempo"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "tempo"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+dirs = "6.0"
+ed25519-dalek = "2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"

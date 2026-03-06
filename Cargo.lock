@@ -4875,6 +4875,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2 0.4.13",
@@ -6423,6 +6424,20 @@ dependencies = [
  "tempo-contracts",
  "tempo-primitives",
  "tracing",
+]
+
+[[package]]
+name = "tempo-cli"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "dirs",
+ "ed25519-dalek",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]
