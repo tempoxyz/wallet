@@ -575,9 +575,9 @@ async fn ensure_wallet_configured(
     };
 
     let setup_cmd = if crate::error::is_local_wallet_default() {
-        format!("tempo-wallet wallet create{network_flag}")
+        format!("tempo wallet create{network_flag}")
     } else {
-        format!("tempo-wallet login{network_flag}")
+        format!("tempo wallet login{network_flag}")
     };
 
     if !creds.as_ref().is_some_and(|c| c.has_wallet()) {

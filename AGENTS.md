@@ -51,19 +51,18 @@ make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
 make check              # Run fmt check, clippy, tests, and build (linting handled in CI)
 make fix                # Auto-fix formatting and clippy warnings
-make install            # Install CLI to /usr/local/bin
+make install            # Install CLI to ~/.local/bin
 make uninstall          # Uninstall CLI
-make reinstall          # Rebuild and reinstall CLI
 make run ARGS="<url>"   # Run CLI with arguments
 ```
 
 ## Agent Suggestions
 
-When the user explicitly says "ask the oracle" to check a value, run `tempo-wallet` against OpenRouter and explicitly tell the user which model was used in the response.
+When the user explicitly says "ask the oracle" to check a value, run `tempo wallet` against OpenRouter and explicitly tell the user which model was used in the response.
 
 Example:
 ```bash
-tempo-wallet -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+tempo wallet -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements

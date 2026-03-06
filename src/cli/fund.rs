@@ -309,7 +309,7 @@ async fn poll_bridge_and_balance(
     loop {
         if start.elapsed() > timeout {
             if ctx.output_format == OutputFormat::Text {
-                eprintln!("Timed out after 10 minutes. Run 'tempo-wallet whoami' to check later.");
+                eprintln!("Timed out after 10 minutes. Run 'tempo wallet whoami' to check later.");
             }
             break;
         }
@@ -450,7 +450,7 @@ async fn wait_for_balance(
         None => {
             if output_format == OutputFormat::Text {
                 eprintln!(
-                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo-wallet whoami' to check later."
+                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo wallet whoami' to check later."
                 );
             }
             Some(query_all_balances(config, network_id, address).await)

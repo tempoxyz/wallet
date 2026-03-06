@@ -166,7 +166,7 @@ impl Config {
         let body = toml::to_string_pretty(self)?;
         let content = format!(
             "# tempo-wallet configuration\n\
-             # Wallet credentials live in keys.toml (set via `tempo-wallet login`)\n\
+             # Wallet credentials live in keys.toml (set via `tempo wallet login`)\n\
              # Optional RPC overrides:\n\
              # tempo_rpc = \"https://...\"\n\
              # moderato_rpc = \"https://...\"\n\

@@ -10,11 +10,13 @@ run:
 release:
 	cargo build --release
 
-install:
-	./install.sh --from-source $(if $(WALLET),--wallet=$(WALLET))
+install: release
+	mkdir -p $(HOME)/.local/bin
+	cp target/release/tempo-wallet $(HOME)/.local/bin/tempo-wallet
+	chmod +x $(HOME)/.local/bin/tempo-wallet
 
 uninstall:
-	./install.sh --uninstall
+	rm -f $(HOME)/.local/bin/tempo-wallet
 
 clean:
 	cargo clean

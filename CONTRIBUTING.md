@@ -36,9 +36,8 @@ make check              # fmt + clippy + test + build
 make fix                # Auto-fix formatting and clippy warnings
 make e2e                # Run live tests against mpp-proxy (requires funded wallet)
 make coverage           # Generate code coverage (requires cargo-llvm-cov)
-make install            # Install to /usr/local/bin
+make install            # Install to ~/.local/bin
 make uninstall          # Uninstall CLI
-make reinstall          # Rebuild and reinstall CLI
 make run ARGS="<url>"   # Run with arguments
 make clean              # cargo clean
 ```

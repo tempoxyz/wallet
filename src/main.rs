@@ -224,7 +224,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             Commands::Whoami => "whoami",
             Commands::Keys { .. } => "keys",
             Commands::Services { .. } => "services",
-            Commands::Update { .. } => "update",
+            Commands::Update => "update",
         };
         a.track(
             analytics::Event::SessionStarted,
@@ -507,7 +507,7 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
             }
         }
 
-        Commands::Update { yes } => run_self_update(yes),
+        Commands::Update => run_self_update(),
     };
 
     if let Some(ref a) = analytics {
@@ -519,31 +519,22 @@ async fn handle_command(cli: Cli, command: Commands, config: config::Config) -> 
 
 // ==================== Simple Commands ====================
 
-const INSTALL_SCRIPT_URL: &str = "https://cli.tempo.xyz/install.sh";
-
-/// Download and run the install script to update to the latest version.
-fn run_self_update(yes: bool) -> Result<()> {
-    if !yes {
-        use std::io::{self, Write};
-        eprintln!("This will run a remote install script: {INSTALL_SCRIPT_URL}\n");
-        eprint!("Proceed? [y/N]: ");
-        io::stderr().flush().ok();
-        let mut line = String::new();
-        io::stdin().read_line(&mut line).ok();
-        let ans = line.trim().to_ascii_lowercase();
-        if ans != "y" && ans != "yes" {
-            eprintln!("Aborted.");
-            return Ok(());
-        }
-    }
-
+/// Update to the latest version via the tempo CLI.
+fn run_self_update() -> Result<()> {
     eprintln!("Updating tempo-wallet to the latest version...\n");
 
-    let status = std::process::Command::new("bash")
-        .arg("-c")
-        .arg(format!("curl -fsSL {INSTALL_SCRIPT_URL} | bash"))
+    let status = std::process::Command::new("tempo")
+        .args(["update", "wallet"])
         .status()
-        .map_err(|e| anyhow::anyhow!("failed to run update script: {e}"))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!(
+                    "tempo CLI not found. Install it first, then run: tempo update wallet"
+                )
+            } else {
+                anyhow::anyhow!("failed to run tempo: {e}")
+            }
+        })?;
 
     if !status.success() {
         anyhow::bail!("update failed (exit code {})", status.code().unwrap_or(1));
