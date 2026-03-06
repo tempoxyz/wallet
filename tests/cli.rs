@@ -1259,14 +1259,14 @@ fn test_session_close_all_json_schema() {
 fn test_session_close_closed_text_empty() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["sessions", "close", "--closed"])
+        .args(["sessions", "close", "--finalize"])
         .output()
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("No channels pending finalization"),
-        "close --closed on empty should report none: {stdout}"
+        "close --finalize on empty should report none: {stdout}"
     );
 }
 
@@ -1274,7 +1274,7 @@ fn test_session_close_closed_text_empty() {
 fn test_session_close_closed_json_schema() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["-j", "sessions", "close", "--closed"])
+        .args(["-j", "sessions", "close", "--finalize"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1288,7 +1288,7 @@ fn test_session_close_closed_json_schema() {
 
 #[test]
 fn test_session_close_no_target_error_message() {
-    // `session close` without URL/--all/--orphaned/--closed should fail with guidance
+    // `session close` without URL/--all/--orphaned/--finalize should fail with guidance
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
         .args(["sessions", "close"])

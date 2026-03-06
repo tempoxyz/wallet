@@ -59,22 +59,12 @@ fn run_key_clean(yes: bool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if !yes {
-        use std::io::IsTerminal;
-        if !std::io::stdin().is_terminal() {
-            anyhow::bail!("Use --yes for non-interactive key clean");
-        }
-
-        print!("Delete all local key state at {}? [y/N] ", path.display());
-        use std::io::{self, Write};
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !crate::util::confirm(
+        &format!("Delete all local key state at {}?", path.display()),
+        yes,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     std::fs::remove_file(&path)?;

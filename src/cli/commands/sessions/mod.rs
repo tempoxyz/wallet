@@ -64,22 +64,8 @@ pub(crate) async fn run(ctx: &Context, command: Option<SessionCommands>) -> Resu
                 url,
                 all,
                 orphaned,
-                closed,
-            } => {
-                close_sessions(
-                    &ctx.config,
-                    url,
-                    all,
-                    orphaned,
-                    closed,
-                    output_format,
-                    show_output,
-                    ctx.network,
-                    ctx.analytics.as_ref(),
-                    &ctx.keys,
-                )
-                .await
-            }
+                finalize,
+            } => close_sessions(ctx, url, all, orphaned, finalize).await,
             SessionCommands::Recover { origin } => {
                 recover_session(&ctx.config, output_format, &origin, ctx.analytics.as_ref()).await
             }

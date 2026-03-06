@@ -31,20 +31,21 @@ fn print_tx_url(tx_url: &Option<String>) {
 ///
 /// When `--all` is used, this first closes local sessions, then scans on-chain
 /// for any orphaned channels belonging to the current wallet and closes those too.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn close_sessions(
-    config: &Config,
+    ctx: &crate::cli::Context,
     url: Option<String>,
     all: bool,
     orphaned: bool,
-    closed: bool,
-    output_format: OutputFormat,
-    show_output: bool,
-    network: NetworkId,
-    analytics: Option<&Analytics>,
-    keys: &Keystore,
+    finalize: bool,
 ) -> Result<()> {
-    if closed {
+    let config = &ctx.config;
+    let output_format = ctx.output_format;
+    let show_output = ctx.cli.verbosity().show_output;
+    let network = ctx.network;
+    let analytics = ctx.analytics.as_ref();
+    let keys = &ctx.keys;
+
+    if finalize {
         return finalize_closed_channels(config, output_format, show_output, network, keys).await;
     }
     if orphaned {
@@ -58,8 +59,7 @@ pub(super) async fn close_sessions(
     if let Some(ref target) = url {
         // If the target looks like a channel ID (0x-prefixed hex), close on-chain directly
         if target.starts_with("0x") && target.len() == 66 {
-            return close_by_channel_id(config, target, output_format, show_output, network, keys)
-                .await;
+            return close_by_channel_id(config, target, output_format, network, keys).await;
         }
 
         // Otherwise treat as a URL — close the local session
@@ -67,7 +67,7 @@ pub(super) async fn close_sessions(
     }
 
     anyhow::bail!(TempoWalletError::InvalidUrl(
-        "Specify a URL, channel ID (0x...), or use --all/--orphaned/--closed to close sessions"
+        "Specify a URL, channel ID (0x...), or use --all/--orphaned/--finalize to close sessions"
             .to_string()
     ));
 }
@@ -83,8 +83,13 @@ async fn close_all_sessions(
 ) -> Result<()> {
     let mut summary = CloseSummary::new();
 
-    // Phase 1: close local sessions
-    let sessions = session_store::list_sessions()?;
+    // Phase 1: close local sessions (scoped to current network)
+    let all_sessions = session_store::list_sessions()?;
+    let net = network.as_str();
+    let sessions: Vec<_> = all_sessions
+        .iter()
+        .filter(|s| s.network_name == net)
+        .collect();
     for session in &sessions {
         let key = session_store::session_key(&session.origin);
         match close_session_from_record(session, config, analytics, keys).await {
@@ -145,7 +150,8 @@ async fn close_all_sessions(
     }
 
     // Phase 2: scan on-chain for orphaned channels
-    let local_channel_ids: HashSet<&str> = sessions.iter().map(|s| s.channel_id.as_str()).collect();
+    let local_channel_ids: HashSet<&str> =
+        all_sessions.iter().map(|s| s.channel_id.as_str()).collect();
 
     if let Some(wallet_addr) = keys
         .has_wallet()
@@ -222,7 +228,6 @@ async fn close_by_channel_id(
     config: &Config,
     target: &str,
     output_format: OutputFormat,
-    _show_output: bool,
     network: NetworkId,
     keys: &Keystore,
 ) -> Result<()> {

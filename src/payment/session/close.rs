@@ -562,11 +562,9 @@ mod tests {
                 opaque: None,
             })
             .unwrap(),
-            challenge_id: "abc".into(),
             state: SessionStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
-            token_decimals: 6,
             created_at: 0,
             last_used_at: 0,
         };

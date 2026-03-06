@@ -84,7 +84,7 @@ jobs:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
-          SKILL_SHA256=$(sha256sum .agents/skills/tempo-wallet/SKILL.md | cut -d' ' -f1)
+          SKILL_SHA256=$(sha256sum skills/tempo-wallet/SKILL.md | cut -d' ' -f1)
           cargo run --bin sign-release -- \
             --key-file /tmp/release.key \
             --artifacts-dir artifacts \

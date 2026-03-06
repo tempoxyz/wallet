@@ -17,13 +17,13 @@ use crate::network::NetworkId;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct Config {
     #[serde(default)]
-    pub rpc: RpcConfig,
+    pub(crate) rpc: RpcConfig,
     /// Telemetry configuration
     #[serde(default)]
-    pub telemetry: TelemetryConfig,
+    pub(crate) telemetry: TelemetryConfig,
     /// Version check cache (managed automatically)
     #[serde(default)]
-    pub version: VersionConfig,
+    pub(crate) version: VersionConfig,
 }
 
 /// RPC URL overrides keyed by network id (e.g. `tempo`, `tempo-moderato`).
@@ -35,7 +35,7 @@ pub(crate) struct TelemetryConfig {
     /// Enable anonymous telemetry and usage analytics.
     /// Can be disabled here or via `TEMPO_NO_TELEMETRY=1` env var.
     #[serde(default = "TelemetryConfig::default_enabled")]
-    pub enabled: bool,
+    pub(crate) enabled: bool,
 }
 
 impl TelemetryConfig {
@@ -55,10 +55,10 @@ impl Default for TelemetryConfig {
 pub(crate) struct VersionConfig {
     /// Unix timestamp of the last update check.
     #[serde(default)]
-    pub last_check: u64,
+    pub(crate) last_check: u64,
     /// Latest version seen from the release CDN.
     #[serde(default)]
-    pub latest_version: String,
+    pub(crate) latest_version: String,
 }
 
 impl Config {

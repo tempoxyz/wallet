@@ -166,9 +166,9 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             let _ = fs::create_dir_all(parent);
         }
         let conn = Connection::open(&db_path).expect("open sessions.db");
-        // Public baseline schema v2 (removed redundant `did` column)
+        // Schema v3 (removed challenge_id and token_decimals columns)
         conn.execute_batch(
-            "PRAGMA user_version=2;\n
+            "PRAGMA user_version=3;\n
              CREATE TABLE IF NOT EXISTS sessions (
                 key               TEXT PRIMARY KEY,
                 version           INTEGER NOT NULL DEFAULT 1,
@@ -187,11 +187,9 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
                 tick_cost         TEXT NOT NULL,
                 cumulative_amount TEXT NOT NULL,
                 challenge_echo    TEXT NOT NULL,
-                challenge_id      TEXT NOT NULL,
                 state             TEXT NOT NULL DEFAULT 'active',
                 close_requested_at INTEGER NOT NULL DEFAULT 0,
                 grace_ready_at     INTEGER NOT NULL DEFAULT 0,
-                token_decimals     INTEGER NOT NULL DEFAULT 6,
                 created_at        INTEGER NOT NULL,
                 last_used_at      INTEGER NOT NULL
             );",
@@ -223,10 +221,10 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
                 key, version, origin, request_url, network_name, chain_id,
                 escrow_contract, currency, recipient, payer, authorized_signer,
                 salt, channel_id, deposit, tick_cost, cumulative_amount,
-                challenge_echo, challenge_id, state, close_requested_at,
-                grace_ready_at, token_decimals, created_at, last_used_at
+                challenge_echo, state, close_requested_at,
+                grace_ready_at, created_at, last_used_at
             ) VALUES (?1, 1, ?2, ?3, 'tempo', 4217, ?4, ?5, ?6, ?7, ?8, ?9,
-                      ?10, ?11, ?12, ?13, ?14, ?15, 'active', 0, 0, 6, ?16, ?17)",
+                      ?10, ?11, ?12, ?13, ?14, 'active', 0, 0, ?15, ?16)",
             rusqlite::params![
                 key,
                 origin,
@@ -242,7 +240,6 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
                 "100",
                 "0",
                 "{}",
-                "id",
                 now,
                 now,
             ],

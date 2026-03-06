@@ -13,12 +13,12 @@ use crate::version;
 /// Shared application context built once in [`Cli::run`] and threaded
 /// to all command handlers.
 pub(crate) struct Context {
-    pub(crate) cli: Cli,
-    pub(crate) config: Config,
-    pub(crate) network: NetworkId,
-    pub(crate) keys: Keystore,
-    pub(crate) analytics: Option<Analytics>,
-    pub(crate) output_format: OutputFormat,
+    pub(in crate::cli) cli: Cli,
+    pub(in crate::cli) config: Config,
+    pub(in crate::cli) network: NetworkId,
+    pub(in crate::cli) keys: Keystore,
+    pub(in crate::cli) analytics: Option<Analytics>,
+    pub(in crate::cli) output_format: OutputFormat,
 }
 
 impl Context {

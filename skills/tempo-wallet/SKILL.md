@@ -255,7 +255,7 @@ tempo wallet -t sessions close <URL>
 tempo wallet -t sessions close --all
 
 # Finalize channels ready to withdraw
-tempo wallet -t sessions close --closed
+tempo wallet -t sessions close --finalize
 
 # Close orphaned on-chain channels (no local record)
 tempo wallet -t sessions close --orphaned

@@ -509,7 +509,7 @@ pub(crate) enum SessionCommands {
         orphaned: bool,
         /// Finalize channels pending close (grace period elapsed)
         #[arg(long)]
-        closed: bool,
+        finalize: bool,
     },
     /// Re-sync a local session's state from on-chain for a given origin.
     ///

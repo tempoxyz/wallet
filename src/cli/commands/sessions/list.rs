@@ -48,7 +48,7 @@ async fn resolve_grace_period(config: &Config, network: NetworkId, escrow_hex: &
 ///
 /// By default lists local active sessions. With `--all`, shows a unified view
 /// of active, orphaned, and closing channels. With `--orphaned`, scans on-chain
-/// for channels without a local session. With `--closed`, shows channels
+/// for channels without a local session. With `--finalize`, shows channels
 /// pending finalization (requestClose submitted, awaiting grace period).
 pub(super) async fn list_sessions(
     config: &Config,
@@ -206,7 +206,6 @@ mod tests {
             tick_cost: "100".into(),
             cumulative_amount: "2000".into(),
             challenge_echo: "{}".into(),
-            challenge_id: "id".into(),
             state,
             close_requested_at: if state == SessionStatus::Closing {
                 grace_ready_at.saturating_sub(DEFAULT_GRACE_PERIOD_SECS)
@@ -214,7 +213,6 @@ mod tests {
                 0
             },
             grace_ready_at,
-            token_decimals: 6,
             created_at: last_used_at.saturating_sub(60),
             last_used_at,
         }

@@ -164,7 +164,6 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
         rec.touch();
         rec
     } else {
-        let dec = ctx.network_id.token().decimals;
         SessionRecord {
             version: 1,
             origin: ctx.origin.to_string(),
@@ -182,11 +181,9 @@ fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()>
             tick_cost: ctx.tick_cost.to_string(),
             cumulative_amount: state.cumulative_amount.to_string(),
             challenge_echo: echo_json,
-            challenge_id: ctx.echo.id.clone(),
             state: SessionStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
-            token_decimals: dec,
             created_at: now,
             last_used_at: now,
         }

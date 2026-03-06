@@ -69,7 +69,6 @@ pub(crate) struct SessionRecord {
     pub(crate) tick_cost: String,
     pub(crate) cumulative_amount: String,
     pub(crate) challenge_echo: String,
-    pub(crate) challenge_id: String,
     /// Explicit lifecycle state.
     #[serde(default = "default_state")]
     pub(crate) state: SessionStatus,
@@ -79,9 +78,6 @@ pub(crate) struct SessionRecord {
     /// UNIX time when channel is ready to finalize (0 if not applicable)
     #[serde(default)]
     pub(crate) grace_ready_at: u64,
-    /// Token decimals used to format deposit/spent/remaining
-    #[serde(default = "default_token_decimals")]
-    pub(crate) token_decimals: u8,
     pub(crate) created_at: u64,
     pub(crate) last_used_at: u64,
 }
@@ -92,10 +88,6 @@ fn default_version() -> u32 {
 
 fn default_state() -> SessionStatus {
     SessionStatus::Active
-}
-
-fn default_token_decimals() -> u8 {
-    6
 }
 
 pub(crate) fn now_secs() -> u64 {
@@ -139,7 +131,7 @@ impl SessionRecord {
 
     /// Parse the network name into a `NetworkId`.
     pub(crate) fn network_id(&self) -> NetworkId {
-        self.network_name.parse().unwrap_or_default()
+        NetworkId::from_chain_id(self.chain_id).unwrap_or_default()
     }
 
     /// Compute the display status and optional remaining seconds from the session state.
@@ -159,7 +151,9 @@ impl SessionRecord {
                 }
             }
             SessionStatus::Finalizable => (SessionStatus::Finalizable, Some(0)),
-            _ => (SessionStatus::Active, None),
+            SessionStatus::Finalized => (SessionStatus::Finalized, None),
+            SessionStatus::Orphaned => (SessionStatus::Orphaned, None),
+            SessionStatus::Active => (SessionStatus::Active, None),
         }
     }
 }
@@ -202,14 +196,14 @@ fn open_db() -> Result<rusqlite::Connection> {
 }
 
 fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
-    // Enforce our public baseline schema as user_version=2. Any pre-release DBs are discarded.
+    // Enforce our public baseline schema as user_version=3. Any pre-release DBs are discarded.
     if path.exists() {
         if let Ok(conn) = rusqlite::Connection::open(path) {
             let uv: u32 = conn
                 .pragma_query_value(None, "user_version", |row| row.get(0))
                 .unwrap_or(0);
             drop(conn);
-            if uv != 2 {
+            if uv != 3 {
                 let _ = std::fs::remove_file(path);
             }
         } else {
@@ -230,7 +224,7 @@ fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
 }
 
 fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
-    // Public baseline: user_version == 2 (removed redundant `did` column).
+    // Public baseline: user_version == 3 (removed challenge_id, token_decimals).
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
             key               TEXT PRIMARY KEY,
@@ -250,18 +244,16 @@ fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
             tick_cost         TEXT NOT NULL,
             cumulative_amount TEXT NOT NULL,
             challenge_echo    TEXT NOT NULL,
-            challenge_id      TEXT NOT NULL,
             state             TEXT NOT NULL DEFAULT 'active',
             close_requested_at INTEGER NOT NULL DEFAULT 0,
             grace_ready_at     INTEGER NOT NULL DEFAULT 0,
-            token_decimals     INTEGER NOT NULL DEFAULT 6,
             created_at        INTEGER NOT NULL,
             last_used_at      INTEGER NOT NULL
         );",
     )
     .context("Failed to create sessions table")?;
 
-    conn.pragma_update(None, "user_version", 2)
+    conn.pragma_update(None, "user_version", 3)
         .context("Failed to set database version")?;
 
     Ok(())
@@ -278,8 +270,8 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             key, version, origin, request_url, network_name, chain_id,
             escrow_contract, currency, recipient, payer, authorized_signer,
             salt, channel_id, deposit, tick_cost, cumulative_amount,
-            challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+            challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         params![
             key,
             record.version,
@@ -298,11 +290,9 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             record.tick_cost,
             record.cumulative_amount,
             record.challenge_echo,
-            record.challenge_id,
             record.state.as_str(),
             record.close_requested_at as i64,
             record.grace_ready_at as i64,
-            record.token_decimals as i64,
             record.created_at as i64,
             record.last_used_at as i64,
         ],
@@ -330,16 +320,14 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         tick_cost: row.get(13)?,
         cumulative_amount: row.get(14)?,
         challenge_echo: row.get(15)?,
-        challenge_id: row.get(16)?,
         state: SessionStatus::from_db_str(
-            &row.get::<_, String>(17)
+            &row.get::<_, String>(16)
                 .unwrap_or_else(|_| "active".to_string()),
         ),
-        close_requested_at: u64::try_from(row.get::<_, i64>(18).unwrap_or(0)).unwrap_or(0),
-        grace_ready_at: u64::try_from(row.get::<_, i64>(19).unwrap_or(0)).unwrap_or(0),
-        token_decimals: u8::try_from(row.get::<_, i64>(20).unwrap_or(6)).unwrap_or(6),
-        created_at: u64::try_from(row.get::<_, i64>(21)?).unwrap_or(0),
-        last_used_at: u64::try_from(row.get::<_, i64>(22)?).unwrap_or(0),
+        close_requested_at: u64::try_from(row.get::<_, i64>(17).unwrap_or(0)).unwrap_or(0),
+        grace_ready_at: u64::try_from(row.get::<_, i64>(18).unwrap_or(0)).unwrap_or(0),
+        created_at: u64::try_from(row.get::<_, i64>(19)?).unwrap_or(0),
+        last_used_at: u64::try_from(row.get::<_, i64>(20)?).unwrap_or(0),
     })
 }
 
@@ -349,7 +337,7 @@ fn load_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<Option<Se
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
              FROM sessions WHERE key = ?1",
         )
         .context("Failed to prepare load query")?;
@@ -385,7 +373,7 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
             "SELECT version, origin, request_url, network_name, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
                     salt, channel_id, deposit, tick_cost, cumulative_amount,
-                    challenge_echo, challenge_id, state, close_requested_at, grace_ready_at, token_decimals, created_at, last_used_at
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
              FROM sessions ORDER BY last_used_at DESC",
         )
         .context("Failed to prepare list query")?;
@@ -501,11 +489,9 @@ mod tests {
             tick_cost: "100".into(),
             cumulative_amount: "0".into(),
             challenge_echo: "echo".into(),
-            challenge_id: "id".into(),
             state: SessionStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
-            token_decimals: 6,
             created_at: now,
             last_used_at: now,
         }
@@ -702,23 +688,20 @@ mod tests {
     }
 
     #[test]
-    fn test_token_decimals_schema_default_is_6() {
-        let (_tmp, conn) = test_db();
-        let mut stmt = conn
-            .prepare("PRAGMA table_info('sessions')")
-            .expect("pragma should work");
-        let mut rows = stmt.query([]).unwrap();
-        let mut found = false;
-        while let Some(row) = rows.next().unwrap() {
-            let name: String = row.get(1).unwrap();
-            if name == "token_decimals" {
-                // dflt_value column index 4
-                let dflt: Option<String> = row.get(4).unwrap();
-                assert!(dflt.as_deref() == Some("6") || dflt.as_deref() == Some("'6'"));
-                found = true;
-                break;
-            }
-        }
-        assert!(found, "token_decimals column should exist");
+    fn test_status_at_finalized() {
+        let mut record = test_record("https://example.com", "salt");
+        record.state = SessionStatus::Finalized;
+        let (status, rem) = record.status_at(1000);
+        assert_eq!(status, SessionStatus::Finalized);
+        assert!(rem.is_none());
+    }
+
+    #[test]
+    fn test_status_at_orphaned() {
+        let mut record = test_record("https://example.com", "salt");
+        record.state = SessionStatus::Orphaned;
+        let (status, rem) = record.status_at(1000);
+        assert_eq!(status, SessionStatus::Orphaned);
+        assert!(rem.is_none());
     }
 }

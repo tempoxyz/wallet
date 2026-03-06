@@ -12,32 +12,19 @@ pub(crate) async fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
         }
     };
 
-    if !yes {
-        use std::io::IsTerminal;
-        if !std::io::stdin().is_terminal() {
-            anyhow::bail!("Use --yes for non-interactive logout");
-        }
-
-        let wallet_addr = &passkey_wallet_address;
-        let short_addr = if wallet_addr.len() > 10 {
-            format!(
-                "{}...{}",
-                &wallet_addr[..6],
-                &wallet_addr[wallet_addr.len() - 4..]
-            )
-        } else {
-            wallet_addr.to_string()
-        };
-        print!("Disconnect wallet {}? [y/N] ", short_addr);
-        use std::io::{self, Write};
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    let wallet_addr = &passkey_wallet_address;
+    let short_addr = if wallet_addr.len() > 10 {
+        format!(
+            "{}...{}",
+            &wallet_addr[..6],
+            &wallet_addr[wallet_addr.len() - 4..]
+        )
+    } else {
+        wallet_addr.to_string()
+    };
+    if !crate::util::confirm(&format!("Disconnect wallet {short_addr}?"), yes)? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let mut keys = ctx.keys.clone();

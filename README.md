@@ -68,7 +68,7 @@ Ready-to-run scripts in [`examples/`](examples/):
 | `tempo-wallet update` | Update tempo-wallet to the latest version |
 | `tempo-wallet sessions list` | List sessions (active/orphaned/closing) |
 | `tempo-wallet sessions info <URL|channel_id>` | Show details for a session or channel |
-| `tempo-wallet sessions close [--all|--orphaned|--closed|<URL>|<channel_id>]` | Close sessions or channels |
+| `tempo-wallet sessions close [--all|--orphaned|--finalize|<URL>|<channel_id>]` | Close sessions or channels |
 | `tempo-wallet sessions recover <URL|origin>` | Re-sync a local session's state from chain |
 | `tempo-wallet sessions sync` | Remove stale local sessions (settled on-chain) |
 
