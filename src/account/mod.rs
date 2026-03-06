@@ -111,7 +111,7 @@ pub(crate) async fn build_key_info(
         (Some(entry.wallet_address.clone()), bal)
     };
 
-    let expires_at = key_expiry_timestamp(entry).map(format_expiry_iso);
+    let expires_at = key_expiry_timestamp(entry).map(crate::util::format_utc_timestamp);
 
     KeyInfo {
         label: label.to_string(),
@@ -158,11 +158,6 @@ pub(crate) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> 
 /// Returns `None` for keys without an authorization or without an expiry (unlimited).
 pub(crate) fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
     key_entry.expiry.filter(|&e| e > 0)
-}
-
-/// Format an expiry timestamp as an ISO-8601 UTC string for JSON output.
-pub(crate) fn format_expiry_iso(timestamp: u64) -> String {
-    crate::util::format_utc_timestamp(timestamp)
 }
 
 /// Format an expiry timestamp as a human-readable countdown for text output.
@@ -290,21 +285,6 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(key_expiry_timestamp(&entry), None);
-    }
-
-    // ==================== format_expiry_iso ====================
-
-    #[test]
-    fn test_format_expiry_iso_known_date() {
-        // 1750032000 == 2025-06-16T00:00:00Z
-        let result = format_expiry_iso(1750032000);
-        assert_eq!(result, "2025-06-16T00:00:00Z");
-    }
-
-    #[test]
-    fn test_format_expiry_iso_epoch() {
-        let result = format_expiry_iso(0);
-        assert_eq!(result, "1970-01-01T00:00:00Z");
     }
 
     // ==================== format_expiry_countdown ====================

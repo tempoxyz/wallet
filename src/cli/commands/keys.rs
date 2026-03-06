@@ -136,22 +136,18 @@ async fn show_keys(
                 return Ok(());
             }
             for key in &response.keys {
-                let explorer = keystore
+                let entry = keystore
                     .keys
                     .iter()
-                    .find(|e| e.key_address.as_deref() == Some(&key.address))
-                    .and_then(|e| NetworkId::from_chain_id(e.chain_id));
+                    .find(|e| e.key_address.as_deref() == Some(&key.address));
+                let explorer = entry.and_then(|e| NetworkId::from_chain_id(e.chain_id));
 
                 if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
                     let wallet_link = explorer.unwrap_or_default().address_link(wallet);
                     println!("{:>10}: {} ({})", "Wallet", wallet_link, wt);
                 }
                 if let (Some(bal), Some(sym)) = (&key.balance, &key.symbol) {
-                    let chain_id = keystore
-                        .keys
-                        .iter()
-                        .find(|e| e.key_address.as_deref() == Some(&key.address))
-                        .map(|e| e.chain_id);
+                    let chain_id = entry.map(|e| e.chain_id);
                     if let Some(bb) = balance_breakdown(bal, sym, chain_id) {
                         let session_label = if bb.session_count == 1 {
                             "session"
@@ -170,11 +166,7 @@ async fn show_keys(
                 }
                 let key_link = explorer.unwrap_or_default().address_link(&key.address);
                 println!("{:>10}: {}", "Key", key_link);
-                if let Some(entry) = keystore
-                    .keys
-                    .iter()
-                    .find(|e| e.key_address.as_deref() == Some(&key.address))
-                {
+                if let Some(entry) = entry {
                     if let Some(net) = NetworkId::from_chain_id(entry.chain_id) {
                         println!("{:>10}: {}", "Chain", net.as_str());
                     }

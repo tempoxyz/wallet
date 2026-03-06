@@ -18,25 +18,25 @@ use crate::network::NetworkId;
 
 #[derive(Debug, Serialize)]
 struct StatusResponse {
-    pub ready: bool,
-    pub wallet: Option<String>,
-    pub wallet_type: Option<String>,
+    ready: bool,
+    wallet: Option<String>,
+    wallet_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub symbol: Option<String>,
+    symbol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub balance: Option<String>,
+    balance: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub locked: Option<String>,
+    locked: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub available: Option<String>,
+    available: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_sessions: Option<usize>,
-    pub network: String,
-    pub chain_id: Option<u64>,
-    pub key: Option<KeyInfo>,
+    active_sessions: Option<usize>,
+    network: String,
+    chain_id: Option<u64>,
+    key: Option<KeyInfo>,
     /// Key expiry as a Unix timestamp (used for text display only, not serialized).
     #[serde(skip)]
-    pub key_expiry: Option<u64>,
+    key_expiry: Option<u64>,
 }
 
 pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {

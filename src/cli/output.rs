@@ -43,12 +43,12 @@ impl OutputFormat {
 /// presentation concerns.
 #[derive(Clone, Debug)]
 pub(crate) struct OutputOptions {
-    pub output_format: OutputFormat,
-    pub include_headers: bool,
-    pub output_file: Option<String>,
-    pub verbosity: crate::util::Verbosity,
-    pub dump_headers: Option<String>,
-    pub write_meta: Option<String>,
+    pub(crate) output_format: OutputFormat,
+    pub(crate) include_headers: bool,
+    pub(crate) output_file: Option<String>,
+    pub(crate) verbosity: crate::util::Verbosity,
+    pub(crate) dump_headers: Option<String>,
+    pub(crate) write_meta: Option<String>,
 }
 
 impl OutputOptions {

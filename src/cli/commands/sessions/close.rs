@@ -260,7 +260,7 @@ async fn close_by_channel_id(
             }
         }
         Err(e) => {
-            // "not found on any network" means the channel is already
+            // "not found on" means the channel is already
             // fully closed on-chain. Clean up stale local records.
             let err_msg = e.to_string();
             if err_msg.contains("not found on") {

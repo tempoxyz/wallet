@@ -13,10 +13,10 @@ use crate::network;
 /// A supported source chain for bridging USDC to Tempo.
 #[derive(Debug)]
 pub(super) struct SourceChain {
-    pub name: &'static str,
-    pub chain_id: u64,
-    pub usdc_address: &'static str,
-    pub relay_api: &'static str,
+    pub(super) name: &'static str,
+    pub(super) chain_id: u64,
+    pub(super) usdc_address: &'static str,
+    pub(super) relay_api: &'static str,
 }
 
 const RELAY_API: &str = "https://api.relay.link";
@@ -60,8 +60,8 @@ pub(super) fn source_chains() -> &'static [SourceChain] {
 /// Result of creating a deposit address via the Relay API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct DepositAddressResult {
-    pub deposit_address: String,
-    pub request_id: String,
+    pub(super) deposit_address: String,
+    pub(super) request_id: String,
 }
 
 /// Creates a deposit address for bridging USDC from a source chain to Tempo.
@@ -147,13 +147,13 @@ pub(super) async fn create_deposit_address(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct DepositStatus {
     /// One of: waiting, pending, submitted, success, failure, refunded.
-    pub status: String,
+    pub(super) status: String,
     /// Transaction hashes on the source chain.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub in_tx_hashes: Option<Vec<String>>,
+    pub(super) in_tx_hashes: Option<Vec<String>>,
     /// Transaction hashes on the destination chain.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub out_tx_hashes: Option<Vec<String>>,
+    pub(super) out_tx_hashes: Option<Vec<String>>,
 }
 
 /// Polls the Relay intent status API for a given request ID.

@@ -115,11 +115,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     }
 
     if http.log_enabled() {
-        eprintln!(
-            "Making {} request to: {}",
-            http.plan.method,
-            crate::util::redact_url(&url)
-        );
+        eprintln!("Making {} request to: {}", http.plan.method, sanitized_url);
     }
 
     // Streaming/SSE mode: perform a streaming request and return.
