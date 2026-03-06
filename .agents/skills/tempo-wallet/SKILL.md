@@ -1,6 +1,6 @@
 ---
 name: tempo-wallet
-description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it. tempo-wallet pays automatically via the Tempo blockchain. Use `tempo-wallet -t services` to discover available services and endpoints."
+description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it. tempo-wallet pays automatically via the Tempo blockchain. Use `tempo wallet -t services` to discover available services and endpoints."
 ---
 
 # tempo-wallet
@@ -18,10 +18,10 @@ Connect your Tempo wallet via browser authentication:
 
 ```bash
 # Sign up or log in (opens browser for passkey auth)
-tempo-wallet login
+tempo wallet login
 
 # Check wallet status
-tempo-wallet whoami
+tempo wallet whoami
 ```
 
 ## Agent Usage
@@ -30,12 +30,12 @@ Use `-t` to get TOON output (compact, token-efficient) or `-j` for JSON:
 
 ```bash
 # Preferred pattern: TOON output (saves tokens)
-tempo-wallet -t -X POST \
+tempo wallet -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Check wallet readiness before making requests
-tempo-wallet -t whoami
+tempo wallet -t whoami
 ```
 
 ### Preflight Check
@@ -43,14 +43,14 @@ tempo-wallet -t whoami
 Before making paid requests, verify the wallet is ready:
 
 ```bash
-tempo-wallet -t whoami
+tempo wallet -t whoami
 ```
 
 Check these fields in the response:
 - `ready` — `true` means the wallet is connected, provisioned, and has a key
 - `balance` — the wallet's USDC balance (top-level field)
 
-If `ready` is `false`, run `tempo-wallet login` and retry.
+If `ready` is `false`, run `tempo wallet login` and retry.
 
 ### whoami JSON Response Schema
 
@@ -105,40 +105,40 @@ If `ready` is `false`, run `tempo-wallet login` and retry.
 
 ## Available Services
 
-Use `tempo-wallet services` to discover available services, their endpoints, and pricing:
+Use `tempo wallet services` to discover available services, their endpoints, and pricing:
 
 ```bash
 # List all available services
-tempo-wallet -t services
+tempo wallet -t services
 
 # Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
-tempo-wallet -t services --category ai
+tempo wallet -t services --category ai
 
 # Search by name, description, or tags
-tempo-wallet -t services --search <QUERY>
+tempo wallet -t services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
-tempo-wallet -t services info <SERVICE_ID>
+tempo wallet -t services info <SERVICE_ID>
 ```
 
-Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo-wallet services`). When you don't know which service or endpoint to use, run `tempo-wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). When you don't know which service or endpoint to use, run `tempo wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
 ```bash
 # Connect your Tempo wallet
-tempo-wallet login
+tempo wallet login
 
 # Discover available services
-tempo-wallet -t services
+tempo wallet -t services
 
 # Make a paid request (payment handled automatically on 402)
-tempo-wallet -t -X POST \
+tempo wallet -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
-tempo-wallet -t --dry-run -X POST \
+tempo wallet -t --dry-run -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -147,16 +147,16 @@ tempo-wallet -t --dry-run -X POST \
 
 | Command | Description |
 |---------|-------------|
-| `tempo-wallet <URL>` | Make an HTTP request with automatic payment |
-| `tempo-wallet login` | Sign up or log in to your Tempo wallet |
-| `tempo-wallet logout` | Log out and disconnect your wallet |
-| `tempo-wallet whoami` | Show wallet address, balances, keys, and readiness |
-| `tempo-wallet services` | List available MPP services |
-| `tempo-wallet services --category ai` | Filter services by category |
-| `tempo-wallet services --search <QUERY>` | Search services by name, description, or tags |
-| `tempo-wallet services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
-| `tempo-wallet sessions` | Manage payment sessions (list, close — use `--help` for details) |
-| `tempo-wallet update` | Update tempo-wallet to the latest version |
+| `tempo wallet <URL>` | Make an HTTP request with automatic payment |
+| `tempo wallet login` | Sign up or log in to your Tempo wallet |
+| `tempo wallet logout` | Log out and disconnect your wallet |
+| `tempo wallet whoami` | Show wallet address, balances, keys, and readiness |
+| `tempo wallet services` | List available MPP services |
+| `tempo wallet services --category ai` | Filter services by category |
+| `tempo wallet services --search <QUERY>` | Search services by name, description, or tags |
+| `tempo wallet services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
+| `tempo wallet sessions` | Manage payment sessions (list, close — use `--help` for details) |
+| `tempo wallet update` | Update tempo-wallet to the latest version |
 
 ## Global Options
 
@@ -171,7 +171,7 @@ These options are available on all commands:
 
 ## Query Options
 
-These options apply when making HTTP requests (`tempo-wallet <URL>`):
+These options apply when making HTTP requests (`tempo wallet <URL>`):
 
 ### Payment Options
 
@@ -200,32 +200,32 @@ These options apply when making HTTP requests (`tempo-wallet <URL>`):
 | `-o, --output <FILE>` | Write output to file |
 | `-i, --include` | Include HTTP response headers in output |
 
-Run `tempo-wallet <URL> --help` for the full list of curl-compatible options (`-u`, `--proxy`, `--bearer`, `--compressed`, `--http2`, etc.).
+Run `tempo wallet <URL> --help` for the full list of curl-compatible options (`-u`, `--proxy`, `--bearer`, `--compressed`, `--http2`, etc.).
 
 ## Real-World Examples
 
 ### Making a Request
 
-Use `tempo-wallet services` to find the service URL and endpoint, then make the request:
+Use `tempo wallet services` to find the service URL and endpoint, then make the request:
 
 ```bash
 # 1. Find the right service and endpoint
-tempo-wallet -t services info <SERVICE_ID>
+tempo wallet -t services info <SERVICE_ID>
 
 # 2. Make the request (payment handled automatically on 402)
-tempo-wallet -t -X POST \
+tempo wallet -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ## Sessions
 
-Sessions open a payment channel on-chain once, then use off-chain vouchers for subsequent requests — no gas per request. Tempo-wallet creates sessions automatically when a service requests one.
+Sessions open a payment channel on-chain once, then use off-chain vouchers for subsequent requests — no gas per request. tempo-wallet creates sessions automatically when a service requests one.
 
 ```bash
 # First request to an origin opens a channel; subsequent requests reuse it
-tempo-wallet -t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
-tempo-wallet -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+tempo wallet -t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+tempo wallet -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ### Session States
@@ -241,31 +241,31 @@ tempo-wallet -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PAT
 
 ```bash
 # List active sessions
-tempo-wallet -t sessions list
+tempo wallet -t sessions list
 
 # List all sessions (including closing/finalizable)
-tempo-wallet -t sessions list --state all
+tempo wallet -t sessions list --state all
 
 # Show details for a session by URL or channel ID
-tempo-wallet -t sessions info <URL|channel_id>
+tempo wallet -t sessions info <URL|channel_id>
 
 # Close a specific session
-tempo-wallet -t sessions close <URL>
+tempo wallet -t sessions close <URL>
 
 # Close all sessions
-tempo-wallet -t sessions close --all
+tempo wallet -t sessions close --all
 
 # Finalize channels ready to withdraw
-tempo-wallet -t sessions close --closed
+tempo wallet -t sessions close --closed
 
 # Close orphaned on-chain channels (no local record)
-tempo-wallet -t sessions close --orphaned
+tempo wallet -t sessions close --orphaned
 
 # Re-sync a session from on-chain state (after crash/manual edit)
-tempo-wallet -t sessions recover <URL>
+tempo wallet -t sessions recover <URL>
 
 # Remove stale local records (already settled on-chain)
-tempo-wallet -t sessions sync
+tempo wallet -t sessions sync
 ```
 
 ## Error Recovery
@@ -278,22 +278,22 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 |------|---------|--------------|
 | 0 | Success | — |
 | 1 | General error | Retry or report |
-| 3 | Config error | Run `tempo-wallet login` |
+| 3 | Config error | Run `tempo wallet login` |
 | 4 | Network error | Check connectivity, retry |
 | 5 | Payment failed | Check error message, retry |
 | 6 | Insufficient funds | Report to user — wallet needs funding |
-| 8 | Auth/signing error | Run `tempo-wallet login` |
+| 8 | Auth/signing error | Run `tempo wallet login` |
 | 10 | Timeout | Retry with longer `--timeout` |
 
 ### Common Errors and Fixes
 
 | Error message contains | Action |
 |------------------------|--------|
-| `No wallet configured` | Run `tempo-wallet login`, then retry |
-| `Run 'tempo-wallet login'` | Run `tempo-wallet login`, then retry |
+| `No wallet configured` | Run `tempo wallet login`, then retry |
+| `Run 'tempo-wallet login'` | Run `tempo wallet login`, then retry |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
 | `Insufficient balance` | Report to user — wallet needs more funds |
-| `Key is not provisioned` | Run `tempo-wallet login`, then retry |
+| `Key is not provisioned` | Run `tempo wallet login`, then retry |
 | `Unknown network` | Check `-n` flag value |
 | `401` RPC error | Set `TEMPO_RPC_URL` to an authenticated RPC endpoint |
 | `timeout` | Retry with `-m <seconds>` |

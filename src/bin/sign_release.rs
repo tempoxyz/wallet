@@ -1,12 +1,17 @@
 //! Generate a signed release manifest for tempo CLI auto-install.
 //!
 //! Usage:
-//!     sign-release \
-//!         --key-file release.key \
-//!         --artifacts-dir artifacts/ \
-//!         --version 0.1.0 \
-//!         --base-url <https://cli.tempo.xyz/extensions/tempo-wallet> \
-//!         --output manifest.json
+//!
+//! ```text
+//! sign-release \
+//!     --key-file release.key \
+//!     --artifacts-dir artifacts/ \
+//!     --version 0.1.0 \
+//!     --base-url https://cli.tempo.xyz/extensions/tempo-wallet \
+//!     --skill https://cli.tempo.xyz/extensions/tempo-wallet/v0.1.0/SKILL.md \
+//!     --skill-sha256 <SHA256> \
+//!     --output manifest.json
+//! ```
 //!
 //! The key file contains the raw 32-byte Ed25519 private seed.
 //! Generate one with: sign-release --generate-key release.key
@@ -44,6 +49,7 @@ fn main() {
     let base_url =
         find_flag_value(&args, "--base-url").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
     let skill = find_flag_value(&args, "--skill");
+    let skill_sha256 = find_flag_value(&args, "--skill-sha256");
     let output = find_flag_value(&args, "--output").unwrap_or_else(|| "manifest.json".to_string());
 
     let (Some(key_file), Some(artifacts_dir), Some(version)) = (key_file, artifacts_dir, version)
@@ -66,6 +72,7 @@ fn main() {
         &version,
         &base_url,
         skill.as_deref(),
+        skill_sha256.as_deref(),
         &signing_key,
     );
 
@@ -178,6 +185,7 @@ fn build_manifest(
     version: &str,
     base_url: &str,
     skill: Option<&str>,
+    skill_sha256: Option<&str>,
     signing_key: &SigningKey,
 ) -> serde_json::Value {
     let base_url = base_url.trim_end_matches('/');
@@ -230,6 +238,9 @@ fn build_manifest(
     });
     if let Some(skill_url) = skill {
         manifest["skill"] = json!(skill_url);
+    }
+    if let Some(sha256) = skill_sha256 {
+        manifest["skill_sha256"] = json!(sha256);
     }
     manifest
 }

@@ -472,11 +472,7 @@ pub enum Commands {
 
     /// Update tempo-wallet to the latest version
     #[command(display_order = 8)]
-    Update {
-        /// Skip confirmation prompt
-        #[arg(long)]
-        yes: bool,
-    },
+    Update,
 
     /// Generate shell completions script
     #[command(hide = true)]
