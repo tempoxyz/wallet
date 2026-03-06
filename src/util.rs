@@ -246,9 +246,14 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-/// Print a right-aligned label/value field to stdout.
+/// Print a right-aligned label/value field to stdout with a custom label width.
+pub(crate) fn print_field_w(width: usize, label: &str, value: &str) {
+    println!("{:>width$}: {value}", label);
+}
+
+/// Print a right-aligned label/value field to stdout (14-char label width).
 pub(crate) fn print_field(label: &str, value: &str) {
-    println!("{:>14}: {value}", label);
+    print_field_w(14, label, value);
 }
 
 #[cfg(test)]

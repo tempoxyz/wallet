@@ -145,7 +145,7 @@ impl Config {
             }
             temp.write_all(content.as_bytes())?;
             temp.as_file().sync_all()?;
-            temp.persist(&config_path)
+            temp.persist(config_path)
                 .map_err(|e| TempoWalletError::Io(e.error))?;
         }
 

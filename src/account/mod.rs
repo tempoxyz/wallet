@@ -60,7 +60,14 @@ pub(crate) struct KeyInfo {
 #[derive(Debug, Serialize)]
 pub(crate) struct KeysResponse {
     pub(crate) keys: Vec<KeyInfo>,
-    pub(crate) total: usize,
+    total: usize,
+}
+
+impl KeysResponse {
+    pub(crate) fn new(keys: Vec<KeyInfo>) -> Self {
+        let total = keys.len();
+        Self { keys, total }
+    }
 }
 
 /// Balance breakdown with locked/available/total.
@@ -134,6 +141,9 @@ pub(crate) async fn build_key_info(
 // Display helpers
 // ---------------------------------------------------------------------------
 
+/// Label width used by keys/whoami text rendering.
+const LABEL_WIDTH: usize = 10;
+
 /// Print spending limits in compact format to stdout.
 pub(crate) fn print_key_limits(key: &KeyInfo) {
     let _ = print_key_limits_to(key, &mut std::io::stdout());
@@ -144,14 +154,15 @@ pub(crate) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> 
     let sym = key.symbol.as_deref().unwrap_or("tokens");
     if let Some(sl) = &key.spending_limit {
         if sl.unlimited {
-            writeln!(w, "{:>10}: unlimited {sym}", "Limit")?;
+            writeln!(w, "{:>width$}: unlimited {sym}", "Limit", width = LABEL_WIDTH)?;
         } else if let Some(remaining) = &sl.remaining {
             let limit = sl.limit.as_deref().unwrap_or("?");
             let spent = sl.spent.as_deref().unwrap_or("0");
             writeln!(
                 w,
-                "{:>10}: {spent} / {limit} {sym} ({remaining} remaining)",
-                "Limit"
+                "{:>width$}: {spent} / {limit} {sym} ({remaining} remaining)",
+                "Limit",
+                width = LABEL_WIDTH,
             )?;
         }
     }
