@@ -149,7 +149,7 @@ mod tests {
 
 /// Close a session from a persisted record.
 ///
-/// Used by `tempo-wallet sessions close` to send a close credential to the server.
+/// Used by `tempo wallet sessions close` to send a close credential to the server.
 /// Tries cooperative (server-side) close first, then falls back to on-chain close.
 pub async fn close_session_from_record(
     record: &session_store::SessionRecord,

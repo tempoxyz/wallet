@@ -12,7 +12,7 @@
 #
 # Prerequisites:
 #   - tempo-wallet installed (`make install`)
-#   - Run `tempo-wallet login` to connect your Tempo wallet
+#   - Run `tempo wallet login` to connect your Tempo wallet
 #
 # Usage:
 #   ./examples/session-sse.sh
@@ -39,21 +39,21 @@ echo "Requests: ${#PROMPTS[@]}"
 echo ""
 
 # Ensure wallet is configured
-if ! tempo-wallet whoami 2>/dev/null | grep -q "Wallet:"; then
-  echo "No wallet configured. Running 'tempo-wallet login'..."
-  tempo-wallet login
+if ! tempo wallet whoami 2>/dev/null | grep -q "Wallet:"; then
+  echo "No wallet configured. Running 'tempo wallet login'..."
+  tempo wallet login
   echo ""
 fi
 
 # Clear any existing session for this endpoint
-tempo-wallet session close "${ENDPOINT}" 2>/dev/null || true
+tempo wallet session close "${ENDPOINT}" 2>/dev/null || true
 
 echo "--- Wallet ---"
-tempo-wallet whoami 2>/dev/null
+tempo wallet whoami 2>/dev/null
 echo ""
 
 echo "--- Balance (before) ---"
-tempo-wallet balance 2>/dev/null || echo "(could not fetch balance)"
+tempo wallet balance 2>/dev/null || echo "(could not fetch balance)"
 echo ""
 
 echo "--- Streaming ${#PROMPTS[@]} requests over a single session ---"
@@ -64,7 +64,7 @@ for i in "${!PROMPTS[@]}"; do
   N=$((i + 1))
   echo "[$N/${#PROMPTS[@]}] Prompt: \"${PROMPT}\""
 
-  tempo-wallet -v -X POST \
+  tempo wallet -v -X POST \
     --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}],\"stream\":true}" \
     "${ENDPOINT}" 2>"$STDERR_FILE" || true
 
@@ -96,7 +96,7 @@ for i in "${!PROMPTS[@]}"; do
 done
 
 echo "--- Closing session ---"
-tempo-wallet session close "${ENDPOINT}" 2>"$STDERR_FILE" || true
+tempo wallet session close "${ENDPOINT}" 2>"$STDERR_FILE" || true
 CLOSE_STDERR=$(cat "$STDERR_FILE")
 CLEAN_CLOSE=$(echo "$CLOSE_STDERR" | sed $'s/\x1b[^m]*m//g' | sed $'s/\x1b\\][^\x1b]*\x1b\\\\//g')
 CLOSE_TX=$(echo "$CLEAN_CLOSE" | grep "Channel settled:" | awk '{print $NF}' || true)
@@ -114,6 +114,6 @@ fi
 echo ""
 
 echo "--- Balance (after) ---"
-tempo-wallet balance 2>/dev/null || echo "(could not fetch balance)"
+tempo wallet balance 2>/dev/null || echo "(could not fetch balance)"
 echo ""
 echo "=== Done ==="

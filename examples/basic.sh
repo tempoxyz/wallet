@@ -14,7 +14,7 @@
 #
 # Prerequisites:
 #   - tempo-wallet installed (`make install`)
-#   - Run `tempo-wallet login` to connect your Tempo wallet
+#   - Run `tempo wallet login` to connect your Tempo wallet
 #
 # Usage:
 #   ./examples/basic.sh [PROMPT]
@@ -36,15 +36,15 @@ echo "Prompt:   \"${PROMPT}\""
 echo ""
 
 # Ensure wallet is configured
-if ! tempo-wallet whoami 2>/dev/null | grep -q "Wallet:"; then
-  echo "No wallet configured. Running 'tempo-wallet login'..."
-  tempo-wallet login
+if ! tempo wallet whoami 2>/dev/null | grep -q "Wallet:"; then
+  echo "No wallet configured. Running 'tempo wallet login'..."
+  tempo wallet login
   echo ""
 fi
 
 echo "--- Sending paid request ---"
 
-RESPONSE=$(tempo-wallet -v -X POST \
+RESPONSE=$(tempo wallet -v -X POST \
   --json "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"${PROMPT}\"}]}" \
   "${ENDPOINT}" 2>"$STDERR_FILE")
 

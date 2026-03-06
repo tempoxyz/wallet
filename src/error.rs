@@ -40,7 +40,7 @@ pub enum TempoWalletError {
     AccessKeyNotProvisioned { hint: String },
 
     /// Browser-based login expired (device code expired or callback window timed out)
-    #[error("Login expired. Use tempo-wallet login to try again.")]
+    #[error("Login expired. Use 'tempo wallet login' to try again.")]
     LoginExpired,
 
     /// Key spending limit exceeded on-chain
@@ -52,7 +52,7 @@ pub enum TempoWalletError {
     },
 
     /// Insufficient token balance for payment
-    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo-wallet wallet fund'.")]
+    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo wallet fund'.")]
     InsufficientBalance {
         token: String,
         available: String,
@@ -160,9 +160,9 @@ pub fn is_local_wallet_default() -> bool {
 /// Build the "no wallet configured" error message with the correct follow-up.
 pub fn no_wallet_message() -> String {
     if is_local_wallet_default() {
-        "No wallet configured. Create one with 'tempo-wallet wallet create'.".to_string()
+        "No wallet configured. Create one with 'tempo wallet create'.".to_string()
     } else {
-        "No wallet configured. Log in with 'tempo-wallet login'.".to_string()
+        "No wallet configured. Log in with 'tempo wallet login'.".to_string()
     }
 }
 
@@ -271,9 +271,9 @@ pub fn classify_payment_error(err: mpp::MppError) -> TempoWalletError {
         mpp::MppError::Tempo(tempo_err) => match tempo_err {
             TempoClientError::AccessKeyNotProvisioned => {
                 let hint = if is_local_wallet_default() {
-                    "tempo-wallet wallet create"
+                    "tempo wallet create"
                 } else {
-                    "tempo-wallet login"
+                    "tempo wallet login"
                 };
                 TempoWalletError::AccessKeyNotProvisioned {
                     hint: hint.to_string(),

@@ -290,7 +290,7 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | Error message contains | Action |
 |------------------------|--------|
 | `No wallet configured` | Run `tempo wallet login`, then retry |
-| `Run 'tempo-wallet login'` | Run `tempo wallet login`, then retry |
+| `Run 'tempo wallet login'` | Run `tempo wallet login`, then retry |
 | `Spending limit exceeded` | Report to user — key spending limit reached |
 | `Insufficient balance` | Report to user — wallet needs more funds |
 | `Key is not provisioned` | Run `tempo wallet login`, then retry |
