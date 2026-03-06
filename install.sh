@@ -287,17 +287,16 @@ ensure_in_path() {
 # ---------------------------------------------------------------------------
 
 install_ai_skill() {
-    local skill_variant="${1:-passkey}"
     local skill_content=""
 
     # Resolve skill content: prefer local file, fall back to R2 download
-    local local_skill="${SCRIPT_DIR}/.agents/skills/tempo-wallet-${skill_variant}/SKILL.md"
+    local local_skill="${SCRIPT_DIR}/.agents/skills/tempo-wallet/SKILL.md"
     if [[ -n "${SCRIPT_DIR}" && -f "${local_skill}" ]]; then
         skill_content="${local_skill}"
     else
         ensure_tmp_dir
         local tmp_skill="${TMP_DIR}/SKILL.md"
-        local skill_url="${R2_BASE_URL}/SKILL-${skill_variant}.md"
+        local skill_url="${R2_BASE_URL}/SKILL.md"
         if curl -fsSL "${skill_url}" -o "${tmp_skill}" 2>/dev/null; then
             skill_content="${tmp_skill}"
         else
@@ -326,7 +325,7 @@ install_ai_skill() {
 uninstall_ai_skills() {
     for entry in "${AGENT_DIRS[@]}"; do
         IFS='|' read -r _ skill_base _ <<< "${entry}"
-        for name in tempo-wallet tempo-wallet-local tempo-wallet-passkey; do
+        for name in tempo-wallet; do
             remove_file "${skill_base}/${name}" "AI skill (${skill_base}/${name})"
         done
     done
@@ -449,7 +448,7 @@ main() {
     clean_legacy_install
     clean_legacy_presto
     ensure_in_path
-    install_ai_skill "${wallet_type}"
+    install_ai_skill
 
     echo ""
     echo -e "  ${BOLD}Get started:${RESET}"

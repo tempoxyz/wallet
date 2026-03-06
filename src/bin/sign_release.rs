@@ -43,6 +43,7 @@ fn main() {
     let version = find_flag_value(&args, "--version");
     let base_url =
         find_flag_value(&args, "--base-url").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+    let skill = find_flag_value(&args, "--skill");
     let output = find_flag_value(&args, "--output").unwrap_or_else(|| "manifest.json".to_string());
 
     let (Some(key_file), Some(artifacts_dir), Some(version)) = (key_file, artifacts_dir, version)
@@ -60,7 +61,13 @@ fn main() {
     println!("  Artifacts: {artifacts_dir}");
     println!();
 
-    let manifest = build_manifest(&artifacts_dir, &version, &base_url, &signing_key);
+    let manifest = build_manifest(
+        &artifacts_dir,
+        &version,
+        &base_url,
+        skill.as_deref(),
+        &signing_key,
+    );
 
     let json = serde_json::to_string_pretty(&manifest).unwrap_or_else(|err| {
         eprintln!("error: failed to serialize manifest: {err}");
@@ -107,9 +114,7 @@ fn generate_key(path: &str) {
     println!("  Private seed: {path}");
     println!("  Public key (base64): {public_key_b64}");
     println!();
-    println!(
-        "Bake this public key into the tempo CLI launcher (src/launcher.rs PUBLIC_KEY constant)."
-    );
+    println!("Bake this public key into the Tempo CLI (src/launcher.rs PUBLIC_KEY constant).");
     println!("Keep {path} secret — it signs release binaries.");
 }
 
@@ -172,6 +177,7 @@ fn build_manifest(
     artifacts_dir: &str,
     version: &str,
     base_url: &str,
+    skill: Option<&str>,
     signing_key: &SigningKey,
 ) -> serde_json::Value {
     let base_url = base_url.trim_end_matches('/');
@@ -218,10 +224,14 @@ fn build_manifest(
         );
     }
 
-    json!({
+    let mut manifest = json!({
         "version": version_prefix,
         "binaries": binaries,
-    })
+    });
+    if let Some(skill_url) = skill {
+        manifest["skill"] = json!(skill_url);
+    }
+    manifest
 }
 
 fn find_flag_value(args: &[String], flag: &str) -> Option<String> {
