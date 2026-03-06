@@ -211,6 +211,7 @@ mod tests {
             Config {
                 rpc: self.rpc,
                 telemetry: Default::default(),
+                version: Default::default(),
             }
         }
     }
@@ -304,6 +305,7 @@ mod tests {
                 ),
             ]),
             telemetry: Default::default(),
+            version: Default::default(),
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");

@@ -1,6 +1,6 @@
 //! CLI argument definitions and parsing.
 
-use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
 use super::output::OutputFormat;
 use super::run::ColorMode;
