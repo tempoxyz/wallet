@@ -23,13 +23,13 @@ clean:
 
 # Run all tests (uses mocks, no network required)
 test:
-	cargo test -- --quiet
+	cargo test --workspace -- --quiet
 
 check:
-	cargo fmt --check
-	cargo clippy -- -D warnings
+	cargo fmt --all --check
+	cargo clippy --workspace -- -D warnings
 	cargo doc --no-deps
-	cargo test -- --quiet
+	cargo test --workspace -- --quiet
 	cargo build
 
 fix:
