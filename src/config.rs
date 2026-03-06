@@ -21,9 +21,6 @@ pub(crate) struct Config {
     /// Telemetry configuration
     #[serde(default)]
     pub(crate) telemetry: TelemetryConfig,
-    /// Version check cache (managed automatically)
-    #[serde(default)]
-    pub(crate) version: VersionConfig,
 }
 
 /// RPC URL overrides keyed by network id (e.g. `tempo`, `tempo-moderato`).
@@ -48,17 +45,6 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self { enabled: true }
     }
-}
-
-/// Cached update check state (written automatically, not user-facing).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct VersionConfig {
-    /// Unix timestamp of the last update check.
-    #[serde(default)]
-    pub(crate) last_check: u64,
-    /// Latest version seen from the release CDN.
-    #[serde(default)]
-    pub(crate) latest_version: String,
 }
 
 impl Config {
@@ -211,7 +197,6 @@ mod tests {
             Config {
                 rpc: self.rpc,
                 telemetry: Default::default(),
-                version: Default::default(),
             }
         }
     }
@@ -305,7 +290,6 @@ mod tests {
                 ),
             ]),
             telemetry: Default::default(),
-            version: Default::default(),
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");

@@ -46,7 +46,7 @@ pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
     show_whoami(&ctx.config, ctx.output_format, ctx.network, None, &ctx.keys).await
 }
 
-pub(crate) async fn show_whoami(
+pub(super) async fn show_whoami(
     config: &Config,
     output_format: OutputFormat,
     network: NetworkId,
@@ -110,11 +110,6 @@ async fn build_whoami_response(
             };
             response.wallet_type = Some(wt.to_string());
 
-            let key_label = match key_entry.wallet_type {
-                WalletType::Passkey => "passkey".to_string(),
-                WalletType::Local => "local".to_string(),
-            };
-
             let wallet_addr = response.wallet.as_deref().unwrap_or("");
             let balance_cache = vec![(
                 (wallet_addr.to_string(), key_entry.chain_id),
@@ -123,15 +118,8 @@ async fn build_whoami_response(
             .into_iter()
             .collect();
 
-            let mut key_info = build_key_info(
-                config,
-                network,
-                chain_id,
-                &key_label,
-                key_entry,
-                &balance_cache,
-            )
-            .await;
+            let mut key_info =
+                build_key_info(config, network, chain_id, wt, key_entry, &balance_cache).await;
             // whoami shows wallet/type/balance at the top level, not per-key
             key_info.wallet_address = None;
             key_info.wallet_type = None;

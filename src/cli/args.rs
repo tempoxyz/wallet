@@ -458,10 +458,6 @@ pub(crate) enum Commands {
         search: Option<String>,
     },
 
-    /// Update tempo-wallet to the latest version
-    #[command(display_order = 8)]
-    Update,
-
     /// Generate shell completions script
     #[command(hide = true)]
     Completions {
@@ -517,7 +513,7 @@ pub(crate) enum SessionCommands {
     /// on-chain, or removes the local record if the channel has been settled.
     ///
     /// Useful after crashes or manual DB edits. Does not recreate missing
-    /// sessions; use `sessions list --orphaned` and `sessions close --orphaned`
+    /// sessions; use `sessions list --state orphaned` and `sessions close --orphaned`
     /// to manage on-chain-only channels.
     Recover {
         /// URL or origin (scheme://host\[:port\]) to recover

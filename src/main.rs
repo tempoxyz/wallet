@@ -39,7 +39,6 @@ mod keys;
 mod network;
 mod payment;
 mod util;
-mod version;
 
 use crate::cli::exit_codes::ExitCode;
 use crate::cli::{Cli, OutputFormat};

@@ -7,6 +7,5 @@ pub(super) mod logout;
 pub(super) mod query;
 pub(super) mod services;
 pub(super) mod sessions;
-pub(super) mod update;
 pub(super) mod wallets;
 pub(super) mod whoami;

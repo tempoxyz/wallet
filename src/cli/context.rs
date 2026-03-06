@@ -8,7 +8,6 @@ use crate::analytics::Analytics;
 use crate::config::Config;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
-use crate::version;
 
 /// Shared application context built once in [`Cli::run`] and threaded
 /// to all command handlers.
@@ -24,8 +23,7 @@ pub(crate) struct Context {
 impl Context {
     /// Build the shared application context from CLI args.
     pub(super) async fn build(cli: Cli) -> Result<Self> {
-        let mut config = Config::load(cli.config.as_ref(), cli.rpc_url.as_deref())?;
-        version::check_for_updates(&mut config).await;
+        let config = Config::load(cli.config.as_ref(), cli.rpc_url.as_deref())?;
 
         let network = NetworkId::resolve(cli.network.as_deref())?;
         let keys = Keystore::load(cli.private_key.as_deref())?;

@@ -34,7 +34,7 @@ pub(super) async fn recover_session(
             OutputFormat::Text => {
                 println!("No local session for {origin_input}");
                 println!(
-                    "Use 'tempo-wallet sessions list --orphaned' to view on-chain channels and 'tempo-wallet sessions close --orphaned' to close them."
+                    "Use 'tempo-wallet sessions list --state orphaned' to view on-chain channels and 'tempo-wallet sessions close --orphaned' to close them."
                 );
             }
         }

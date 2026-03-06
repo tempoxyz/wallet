@@ -51,7 +51,7 @@ pub(super) async fn show_session_info(
             OutputFormat::Text => {
                 println!("No local session for {}", target);
                 println!(
-                    "Hint: use 'tempo-wallet sessions list --orphaned' to view on-chain channels for your wallet."
+                    "Hint: use 'tempo-wallet sessions list --state orphaned' to view on-chain channels for your wallet."
                 );
             }
         }

@@ -17,9 +17,8 @@ use crate::error::TempoWalletError;
 const SERVICES_API_URL: &str =
     "https://mpp.sh/api/services?x-vercel-protection-bypass=iGDnLnmF0nK6LWloAotUbTo3urEsaIkB";
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 struct ServiceRegistry {
-    version: u32,
     services: Vec<Service>,
 }
 
@@ -70,8 +69,6 @@ struct ServiceDocs {
 struct PaymentMethod {
     #[serde(default)]
     intents: Vec<String>,
-    #[serde(default)]
-    assets: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -89,15 +86,10 @@ struct Endpoint {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct EndpointPayment {
     intent: String,
-    method: String,
     #[serde(default)]
     amount: Option<String>,
     #[serde(default)]
-    currency: Option<String>,
-    #[serde(default)]
     decimals: Option<u32>,
-    #[serde(default)]
-    recipient: Option<String>,
     #[serde(default, rename = "unitType")]
     unit_type: Option<String>,
     #[serde(default)]

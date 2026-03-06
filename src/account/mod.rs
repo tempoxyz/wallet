@@ -21,9 +21,9 @@ use crate::network::NetworkId;
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct TokenBalance {
-    pub symbol: String,
-    pub currency: String,
-    pub balance: String,
+    pub(crate) symbol: String,
+    pub(crate) currency: String,
+    pub(crate) balance: String,
 }
 
 /// Spending limit for the key's authorized token.
@@ -38,30 +38,30 @@ pub(crate) struct SpendingLimitInfo {
 /// Key details for JSON output.
 #[derive(Debug, Serialize)]
 pub(crate) struct KeyInfo {
-    pub label: String,
-    pub address: String,
-    pub wallet_address: Option<String>,
-    pub wallet_type: Option<String>,
-    pub symbol: Option<String>,
-    pub currency: Option<String>,
-    pub balance: Option<String>,
-    pub spending_limit: Option<SpendingLimitInfo>,
+    pub(crate) label: String,
+    pub(crate) address: String,
+    pub(crate) wallet_address: Option<String>,
+    pub(crate) wallet_type: Option<String>,
+    pub(crate) symbol: Option<String>,
+    pub(crate) currency: Option<String>,
+    pub(crate) balance: Option<String>,
+    pub(crate) spending_limit: Option<SpendingLimitInfo>,
     /// Key expiry as an ISO-8601 UTC timestamp (JSON).
-    pub expires_at: Option<String>,
+    pub(crate) expires_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct KeysResponse {
-    pub keys: Vec<KeyInfo>,
-    pub total: usize,
+    pub(crate) keys: Vec<KeyInfo>,
+    pub(crate) total: usize,
 }
 
 /// Balance breakdown with locked/available/total.
 pub(crate) struct BalanceBreakdown {
-    pub total: String,
-    pub locked: String,
-    pub available: String,
-    pub session_count: usize,
+    pub(crate) total: String,
+    pub(crate) locked: String,
+    pub(crate) available: String,
+    pub(crate) session_count: usize,
 }
 
 // ---------------------------------------------------------------------------

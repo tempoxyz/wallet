@@ -238,9 +238,6 @@ pub(crate) enum Event {
     WalletFundSuccess,
     WalletFundFailure,
 
-    UpdateSuccess,
-    UpdateFailure,
-
     SessionRecovered,
 
     CommandRun,
@@ -272,8 +269,6 @@ impl Event {
             Self::WalletFundStarted => "wallet_fund_started",
             Self::WalletFundSuccess => "wallet_fund_success",
             Self::WalletFundFailure => "wallet_fund_failure",
-            Self::UpdateSuccess => "update_success",
-            Self::UpdateFailure => "update_failure",
             Self::SessionRecovered => "session_recovered",
             Self::CommandRun => "command_run",
             Self::CommandSuccess => "command_success",
@@ -412,9 +407,3 @@ pub(crate) struct CoopClosePayload {
     pub channel_id: String,
 }
 impl EventPayload for CoopClosePayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct UpdateFailurePayload {
-    pub error: String,
-}
-impl EventPayload for UpdateFailurePayload {}

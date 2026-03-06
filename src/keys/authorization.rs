@@ -22,11 +22,11 @@ const DEFAULT_LIMIT: u64 = 100_000_000;
 /// Decoded and validated key authorization.
 #[derive(Debug, PartialEq)]
 pub(crate) struct ValidatedKeyAuth {
-    pub hex: String,
-    pub expiry: u64,
-    pub chain_id: u64,
-    pub key_type: KeyType,
-    pub limits: Vec<StoredTokenLimit>,
+    pub(crate) hex: String,
+    pub(crate) expiry: u64,
+    pub(crate) chain_id: u64,
+    pub(crate) key_type: KeyType,
+    pub(crate) limits: Vec<StoredTokenLimit>,
 }
 
 /// Decode a hex-encoded SignedKeyAuthorization.

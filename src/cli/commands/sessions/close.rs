@@ -237,7 +237,7 @@ async fn close_by_channel_id(
             if output_format.is_structured() {
                 println!(
                     "{}",
-                    serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]})
+                    output_format.serialize(&serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]}))?
                 );
             } else {
                 println!("Closed {target}");
@@ -250,7 +250,7 @@ async fn close_by_channel_id(
             if output_format.is_structured() {
                 println!(
                     "{}",
-                    serde_json::json!({"closed": 0, "pending": 1, "failed": 0, "results": [{"channel_id": target, "status": "pending", "remaining_secs": remaining_secs}]})
+                    output_format.serialize(&serde_json::json!({"closed": 0, "pending": 1, "failed": 0, "results": [{"channel_id": target, "status": "pending", "remaining_secs": remaining_secs}]}))?
                 );
             } else {
                 println!(
@@ -268,7 +268,7 @@ async fn close_by_channel_id(
                 if output_format.is_structured() {
                     println!(
                         "{}",
-                        serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]})
+                        output_format.serialize(&serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"channel_id": target, "status": "closed"}]}))?
                     );
                 } else {
                     println!("Channel {target} already closed.");
@@ -276,7 +276,7 @@ async fn close_by_channel_id(
             } else if output_format.is_structured() {
                 println!(
                     "{}",
-                    serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"channel_id": target, "status": "error", "error": err_msg}]})
+                    output_format.serialize(&serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"channel_id": target, "status": "error", "error": err_msg}]}))?
                 );
             } else {
                 return Err(e);
@@ -312,7 +312,7 @@ async fn close_by_url(
                 if output_format.is_structured() {
                     println!(
                         "{}",
-                        serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"origin": record.origin, "channel_id": record.channel_id, "status": "closed"}]})
+                        output_format.serialize(&serde_json::json!({"closed": 1, "pending": 0, "failed": 0, "results": [{"origin": record.origin, "channel_id": record.channel_id, "status": "closed"}]}))?
                     );
                 } else {
                     println!("Closed {}", record.origin);
@@ -329,7 +329,7 @@ async fn close_by_url(
                 if output_format.is_structured() {
                     println!(
                         "{}",
-                        serde_json::json!({"closed": 0, "pending": 1, "failed": 0, "results": [{"origin": record.origin, "channel_id": record.channel_id, "status": "pending", "remaining_secs": remaining_secs}]})
+                        output_format.serialize(&serde_json::json!({"closed": 0, "pending": 1, "failed": 0, "results": [{"origin": record.origin, "channel_id": record.channel_id, "status": "pending", "remaining_secs": remaining_secs}]}))?
                     );
                 } else {
                     println!(
@@ -343,7 +343,7 @@ async fn close_by_url(
                 if output_format.is_structured() {
                     println!(
                         "{}",
-                        serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"origin": record.origin, "channel_id": record.channel_id, "status": "error", "error": e.to_string()}]})
+                        output_format.serialize(&serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"origin": record.origin, "channel_id": record.channel_id, "status": "error", "error": e.to_string()}]}))?
                     );
                 } else {
                     return Err(e);
@@ -353,7 +353,7 @@ async fn close_by_url(
     } else if output_format.is_structured() {
         println!(
             "{}",
-            serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"origin": target, "status": "error", "error": "no active session"}]})
+            output_format.serialize(&serde_json::json!({"closed": 0, "pending": 0, "failed": 1, "results": [{"origin": target, "status": "error", "error": "no active session"}]}))?
         );
     } else {
         println!("No active session for {target}");

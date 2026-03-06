@@ -46,10 +46,10 @@ async fn resolve_grace_period(config: &Config, network: NetworkId, escrow_hex: &
 
 /// List payment sessions.
 ///
-/// By default lists local active sessions. With `--all`, shows a unified view
-/// of active, orphaned, and closing channels. With `--orphaned`, scans on-chain
-/// for channels without a local session. With `--finalize`, shows channels
-/// pending finalization (requestClose submitted, awaiting grace period).
+/// By default lists local active sessions. With `--state all`, shows a unified
+/// view of active, orphaned, and closing channels. With `--state orphaned`,
+/// scans on-chain for channels without a local session. With `--state finalizable`,
+/// shows channels pending finalization (requestClose submitted, awaiting grace period).
 pub(super) async fn list_sessions(
     config: &Config,
     output_format: OutputFormat,
