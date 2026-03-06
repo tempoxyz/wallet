@@ -1078,7 +1078,7 @@ fn test_rpc_env_var_override() {
         )
         .build();
 
-    //  TEMPO_RPC_URLshould override config file settings.
+    // TEMPO_RPC_URL should override config file settings.
     // Whoami loads config and resolves network — this verifies the env override
     // is applied without error (actual RPC is not called for whoami).
     let output = test_command(&temp)
@@ -1089,7 +1089,7 @@ fn test_rpc_env_var_override() {
 
     assert!(
         output.status.success(),
-        "whoami should succeed with  TEMPO_RPC_URLenv: {}",
+        "whoami should succeed with TEMPO_RPC_URL env: {}",
         get_combined_output(&output)
     );
 }

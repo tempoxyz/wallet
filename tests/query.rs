@@ -1171,7 +1171,7 @@ async fn test_402_charge_flow_with_private_key_flag() {
     );
 }
 
-/// --private-key via  TEMPO_PRIVATE_KEYenv var works.
+/// --private-key via TEMPO_PRIVATE_KEY env var works.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_env() {
     let rpc = MockRpcServer::start(42431).await;
@@ -1195,7 +1195,7 @@ async fn test_402_charge_flow_with_private_key_env() {
     let combined = get_combined_output(&output);
     assert!(
         output.status.success(),
-        "expected  TEMPO_PRIVATE_KEYcharge flow to succeed: {combined}"
+        "expected TEMPO_PRIVATE_KEY charge flow to succeed: {combined}"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -2050,7 +2050,7 @@ async fn test_analytics_private_key_env_not_leaked() {
     let temp = TestConfigBuilder::new().build();
     let events_path = temp.path().join("events_pk.log");
 
-    //  TEMPO_PRIVATE_KEYis used for payment signing, not for the HTTP request itself,
+    // TEMPO_PRIVATE_KEY is used for payment signing, not for the HTTP request itself,
     // but verify it never appears in analytics output
     let output = test_command(&temp)
         .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
