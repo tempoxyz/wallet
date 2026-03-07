@@ -90,7 +90,7 @@ impl Launcher {
                 Ok(0)
             }
             "-V" | "--version" | "version" => {
-                println!("tempo {}", env!("CARGO_PKG_VERSION"));
+                println!("tempo {} ({})", env!("CARGO_PKG_VERSION"), env!("TEMPO_GIT_SHA"));
                 Ok(0)
             }
             "add" | "update" | "remove" => self.handle_management(first, &args[2..]),
@@ -180,7 +180,7 @@ impl Launcher {
     }
 
     fn print_help(&self) {
-        println!("Tempo CLI {}\n", env!("CARGO_PKG_VERSION"));
+        println!("Tempo CLI {} ({})\n", env!("CARGO_PKG_VERSION"), env!("TEMPO_GIT_SHA"));
         println!("Usage: tempo <command> [args...]\n");
         println!("Management:");
         println!("  add <name>    Install an extension");

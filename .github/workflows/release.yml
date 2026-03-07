@@ -49,7 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - run: cargo build --release --target ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }} -p tempo-wallet
       - run: strip target/${{ matrix.target }}/release/tempo-wallet
       - run: mv target/${{ matrix.target }}/release/tempo-wallet ${{ matrix.asset }}
       - uses: actions/upload-artifact@v7
@@ -115,7 +115,7 @@ jobs:
           done
 
           # Upload install script
-          aws s3 cp install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp scripts/install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           # Upload AI skill and VERSION file
           aws s3 cp crates/tempo-wallet/SKILL.md "s3://tempo-cli/extensions/tempo-wallet/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
