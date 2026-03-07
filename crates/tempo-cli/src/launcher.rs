@@ -172,10 +172,6 @@ impl Launcher {
     }
 
     fn handle_no_args(&self) -> Result<i32, LauncherError> {
-        if let Some(core) = self.find_binary(CORE_BINARY) {
-            return run_child(core, &[], "tempo");
-        }
-
         self.print_help();
         Ok(0)
     }
@@ -214,16 +210,9 @@ impl Launcher {
                 Ok(None) => {}
                 Err(err) => {
                     eprintln!("warn: failed to install tempo-{extension}: {err}");
-                    if let Some(core) = self.find_binary(CORE_BINARY) {
-                        return run_child(core, core_args, "tempo");
-                    }
                     return Err(err);
                 }
             }
-        }
-
-        if let Some(core) = self.find_binary(CORE_BINARY) {
-            return run_child(core, core_args, "tempo");
         }
 
         print_missing_install_hint(extension);
