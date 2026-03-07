@@ -16,10 +16,10 @@ use crate::keys::Keystore;
 use crate::network::NetworkId;
 use crate::util::print_field_w;
 
-pub(crate) async fn run(ctx: &Context, command: Option<KeyCommands>) -> Result<()> {
+pub(crate) async fn run(ctx: &Context, command: KeyCommands) -> Result<()> {
     match command {
-        Some(KeyCommands::List) => list_keys(ctx).await,
-        Some(KeyCommands::Create { wallet }) => {
+        KeyCommands::List => list_keys(ctx).await,
+        KeyCommands::Create { wallet } => {
             super::wallets::create_access_key(wallet.as_deref(), &ctx.keys)?;
             if let Some(a) = ctx.analytics.as_ref() {
                 a.track_event(Event::KeyCreated);
@@ -27,16 +27,7 @@ pub(crate) async fn run(ctx: &Context, command: Option<KeyCommands>) -> Result<(
             let fresh_keys = ctx.keys.reload()?;
             super::whoami::show_whoami(ctx, Some(&fresh_keys), None).await
         }
-        Some(KeyCommands::Clean { yes }) => clean_keys(yes),
-        None => {
-            use clap::CommandFactory;
-            if let Some(key_cmd) = crate::cli::Cli::command().find_subcommand_mut("keys") {
-                key_cmd.print_help()?;
-            } else {
-                crate::cli::Cli::command().print_help()?;
-            }
-            Ok(())
-        }
+        KeyCommands::Clean { yes } => clean_keys(yes),
     }
 }
 

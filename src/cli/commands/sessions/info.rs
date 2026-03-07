@@ -1,16 +1,16 @@
 use alloy::primitives::{Address, B256};
 use anyhow::{Context as _, Result};
 
-use super::display::{render_channel_list, ChannelView};
-use super::{session_store, DEFAULT_GRACE_PERIOD_SECS};
+use super::render::{render_channel_list, ChannelView};
+use super::session_store;
 use crate::cli::Context;
-use crate::payment::session::channel::{get_channel_on_chain, read_grace_period};
+use crate::payment::session::channel::get_channel_on_chain;
 
 /// Show details for a local session by URL/origin or for a channel by ID.
 pub(super) async fn show_session_info(ctx: &Context, target: &str) -> Result<()> {
     let output_format = ctx.output_format;
 
-    if target.starts_with("0x") && target.len() == 66 {
+    if super::is_channel_id(target) {
         return show_channel_info(ctx, target).await;
     }
 
@@ -60,8 +60,7 @@ async fn show_channel_info(ctx: &Context, channel_id_hex: &str) -> Result<()> {
     let channel_id: B256 = channel_id_hex
         .parse()
         .context("Invalid channel ID (expected 0x-prefixed bytes32 hex)")?;
-    let rpc_url = config.rpc_url(network);
-    let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+    let provider = super::make_provider(config, network);
     let escrow: Address = network
         .escrow_contract()
         .parse()
@@ -88,9 +87,7 @@ async fn show_channel_info(ctx: &Context, channel_id_hex: &str) -> Result<()> {
         }
     };
 
-    let grace = read_grace_period(&provider, escrow)
-        .await
-        .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
+    let grace = super::resolve_grace_period(config, network, network.escrow_contract()).await;
 
     let view = ChannelView::from_on_chain(
         &format!("{:#x}", channel_id),

@@ -19,10 +19,10 @@ use crate::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, W
 use crate::network::NetworkId;
 use crate::util::{print_field_w, sanitize_error};
 
-pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Result<()> {
+pub(crate) async fn run(ctx: &Context, command: WalletCommands) -> Result<()> {
     match command {
-        Some(WalletCommands::List) => list_wallets(ctx),
-        Some(WalletCommands::Create) => {
+        WalletCommands::List => list_wallets(ctx),
+        WalletCommands::Create => {
             let result = create_local_wallet(&ctx.network, &ctx.keys);
             if result.is_ok() {
                 if let Some(a) = ctx.analytics.as_ref() {
@@ -38,7 +38,7 @@ pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Resul
             let fresh_keys = ctx.keys.reload()?;
             super::whoami::show_whoami(ctx, Some(&fresh_keys), Some(&wallet_addr)).await
         }
-        Some(WalletCommands::Fund { address, no_wait }) => {
+        WalletCommands::Fund { address, no_wait } => {
             let method = match ctx.network {
                 NetworkId::TempoModerato => "faucet",
                 NetworkId::Tempo => "bridge",
@@ -47,15 +47,6 @@ pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Resul
             let result = fund::run(ctx, address, no_wait).await;
             track_fund_result(ctx, method, &result);
             result
-        }
-        None => {
-            use clap::CommandFactory;
-            if let Some(wallet_cmd) = crate::cli::Cli::command().find_subcommand_mut("wallets") {
-                wallet_cmd.print_help()?;
-            } else {
-                crate::cli::Cli::command().print_help()?;
-            }
-            Ok(())
         }
     }
 }

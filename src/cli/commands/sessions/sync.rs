@@ -1,11 +1,9 @@
 use anyhow::{Context as _, Result};
 
-use super::{session_store, SessionStatus, DEFAULT_GRACE_PERIOD_SECS};
+use super::{session_store, SessionStatus};
 use crate::analytics::Event;
 use crate::cli::Context;
-use crate::payment::session::channel::{
-    get_channel_on_chain, query_channel_state, read_grace_period,
-};
+use crate::payment::session::channel::{get_channel_on_chain, query_channel_state};
 
 /// Reconcile local session records with on-chain state.
 ///
@@ -89,8 +87,6 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
 async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
     let config = &ctx.config;
     let output_format = ctx.output_format;
-    let analytics = ctx.analytics.as_ref();
-
     let key = session_store::session_key(origin_input);
     let Some(rec) = session_store::load_session(&key)? else {
         if output_format.is_structured() {
@@ -112,8 +108,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
 
     // Query on-chain state for this channel on its recorded network
     let network_id = rec.network_id();
-    let rpc_url = config.rpc_url(network_id);
-    let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
+    let provider = super::make_provider(config, network_id);
     let escrow: alloy::primitives::Address = rec
         .escrow_contract
         .parse()
@@ -157,9 +152,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
     };
 
     if on_chain.close_requested_at > 0 {
-        let grace = read_grace_period(&provider, escrow)
-            .await
-            .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
+        let grace = super::resolve_grace_period(config, network_id, &rec.escrow_contract).await;
         let ready_at = on_chain.close_requested_at + grace;
         let status = if ready_at <= session_store::now_secs() {
             SessionStatus::Finalizable
@@ -172,7 +165,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             on_chain.close_requested_at,
             ready_at,
         );
-        if let Some(a) = analytics {
+        if let Some(a) = ctx.analytics.as_ref() {
             a.track_event(Event::SessionRecovered);
         }
         if output_format.is_structured() {

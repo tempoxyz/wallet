@@ -420,7 +420,11 @@ pub(crate) enum Commands {
     Whoami,
     /// Manage keys
     #[command(display_order = 5, name = "keys", hide = true)]
-    #[command(args_conflicts_with_subcommands = true)]
+    #[command(
+        args_conflicts_with_subcommands = true,
+        subcommand_required = true,
+        arg_required_else_help = true
+    )]
     Keys {
         #[command(subcommand)]
         command: Option<KeyCommands>,
@@ -438,7 +442,11 @@ pub(crate) enum Commands {
     },
     /// Manage wallets
     #[command(display_order = 5, name = "wallets", hide = true)]
-    #[command(args_conflicts_with_subcommands = true)]
+    #[command(
+        args_conflicts_with_subcommands = true,
+        subcommand_required = true,
+        arg_required_else_help = true
+    )]
     Wallets {
         #[command(subcommand)]
         command: Option<WalletCommands>,

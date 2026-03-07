@@ -1,31 +1,12 @@
 use std::collections::HashMap;
 
-use alloy::primitives::Address;
 use anyhow::Result;
 
-use super::display::{render_channel_list, ChannelView};
-use super::{session_store, SessionStatus, DEFAULT_GRACE_PERIOD_SECS};
+use super::render::{render_channel_list, ChannelView};
+use super::{session_store, SessionStatus};
 use crate::cli::args::SessionStateArg;
 use crate::cli::Context;
-use crate::network::NetworkId;
-use crate::payment::session::channel::{find_all_channels_for_payer, read_grace_period};
-
-/// Resolve the grace period for an escrow contract, falling back to a default.
-async fn resolve_grace_period(
-    config: &crate::config::Config,
-    network: NetworkId,
-    escrow_hex: &str,
-) -> u64 {
-    let rpc_url = config.rpc_url(network);
-    let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
-    let escrow: Address = match escrow_hex.parse() {
-        Ok(a) => a,
-        Err(_) => return DEFAULT_GRACE_PERIOD_SECS,
-    };
-    read_grace_period(&provider, escrow)
-        .await
-        .unwrap_or(DEFAULT_GRACE_PERIOD_SECS)
-}
+use crate::payment::session::channel::find_all_channels_for_payer;
 
 /// List payment sessions.
 ///
@@ -107,7 +88,8 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
             let grace = match grace_cache.get(&ch.escrow_contract) {
                 Some(&g) => g,
                 None => {
-                    let g = resolve_grace_period(config, ch.network, &ch.escrow_contract).await;
+                    let g =
+                        super::resolve_grace_period(config, ch.network, &ch.escrow_contract).await;
                     grace_cache.insert(ch.escrow_contract.clone(), g);
                     g
                 }
@@ -157,6 +139,7 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
 #[cfg(test)]
 mod tests {
+    use super::super::DEFAULT_GRACE_PERIOD_SECS;
     use super::*;
 
     fn make_record(

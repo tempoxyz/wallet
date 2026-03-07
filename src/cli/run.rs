@@ -41,10 +41,16 @@ impl Cli {
             Commands::Login => login::run(&ctx).await,
             Commands::Logout { yes } => logout::run(&ctx, yes),
             Commands::Completions { shell } => completions::run(&ctx, shell),
-            Commands::Sessions { command } => sessions::run(&ctx, command).await,
-            Commands::Wallets { command } => wallets::run(&ctx, command).await,
+            Commands::Sessions { command } => {
+                sessions::run(&ctx, command.expect("sessions subcommand required")).await
+            }
+            Commands::Wallets { command } => {
+                wallets::run(&ctx, command.expect("wallets subcommand required")).await
+            }
             Commands::Whoami => whoami::run(&ctx).await,
-            Commands::Keys { command } => keys::run(&ctx, command).await,
+            Commands::Keys { command } => {
+                keys::run(&ctx, command.expect("keys subcommand required")).await
+            }
             Commands::Services {
                 command,
                 service_id,
@@ -170,7 +176,7 @@ fn command_name(command: &Commands) -> &'static str {
             Some(WalletCommands::List) => "wallets list",
             Some(WalletCommands::Create) => "wallets create",
             Some(WalletCommands::Fund { .. }) => "wallets fund",
-            None => "wallets",
+            None => unreachable!("wallets subcommand required"),
         },
         Commands::Sessions { command } => match command {
             Some(SessionCommands::List { .. }) => "sessions list",
@@ -184,7 +190,7 @@ fn command_name(command: &Commands) -> &'static str {
             Some(KeyCommands::List) => "keys list",
             Some(KeyCommands::Create { .. }) => "keys create",
             Some(KeyCommands::Clean { .. }) => "keys clean",
-            None => "keys",
+            None => unreachable!("keys subcommand required"),
         },
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",
