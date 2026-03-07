@@ -167,6 +167,7 @@ impl Launcher {
                 }
                 Ok(None) => {}
                 Err(err) => {
+                    eprintln!("warn: failed to install tempo-{extension}: {err}");
                     if let Some(core) = self.find_binary(CORE_BINARY) {
                         return run_child(core, core_args, "tempo");
                     }

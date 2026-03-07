@@ -125,6 +125,16 @@ fn write_extension_manifest_with_skill(
             r#",
   "skill": "{url}""#
         ));
+        // Sign the skill content for signature verification.
+        let skill_path = url
+            .strip_prefix("file://")
+            .expect("skill url should be file://");
+        let skill_bytes = fs::read(skill_path).expect("read skill for signing");
+        let skill_sig = BASE64_STANDARD.encode(signing_key.sign(&skill_bytes).to_bytes());
+        skill_fields.push_str(&format!(
+            r#",
+  "skill_signature": "{skill_sig}""#
+        ));
     }
     if let Some(sha) = skill_sha256 {
         skill_fields.push_str(&format!(

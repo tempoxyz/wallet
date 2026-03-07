@@ -157,6 +157,7 @@ struct ReleaseManifest {
     binaries: HashMap<String, ReleaseBinary>,
     skill: Option<String>,
     skill_sha256: Option<String>,
+    skill_signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,6 +173,8 @@ struct ResolvedInstall {
     dst: PathBuf,
     skill_url: Option<String>,
     skill_sha256: Option<String>,
+    skill_signature: Option<String>,
+    verifying_key: VerifyingKey,
     _download_dir: TempDir,
 }
 
@@ -203,6 +206,8 @@ impl Installer {
                 extension,
                 skill_url,
                 resolved.skill_sha256.as_deref(),
+                resolved.skill_signature.as_deref(),
+                &resolved.verifying_key,
                 dry_run,
                 quiet,
             );
@@ -268,6 +273,8 @@ impl Installer {
             dst,
             skill_url: manifest.skill.clone(),
             skill_sha256: manifest.skill_sha256.clone(),
+            skill_signature: manifest.skill_signature.clone(),
+            verifying_key,
             _download_dir: download_dir,
         })
     }
@@ -583,6 +590,8 @@ fn install_skill(
     extension: &str,
     url: &str,
     expected_sha256: Option<&str>,
+    encoded_signature: Option<&str>,
+    verifying_key: &VerifyingKey,
     dry_run: bool,
     quiet: bool,
 ) {
@@ -600,6 +609,24 @@ fn install_skill(
             return;
         }
     };
+
+    let skill_name = format!("tempo-{extension} skill");
+    match encoded_signature {
+        Some(sig) => {
+            if let Err(err) = verify_signature(&skill_name, content.as_bytes(), sig, verifying_key)
+            {
+                eprintln!("warn: {err}, skipping skill install");
+                return;
+            }
+            debug_log(&format!("skill signature ok for tempo-{extension}"));
+        }
+        None => {
+            eprintln!(
+                "warn: skill signature missing for tempo-{extension}, skipping skill install"
+            );
+            return;
+        }
+    }
 
     if let Some(expected) = expected_sha256 {
         let actual = sha256_of_bytes(content.as_bytes());
