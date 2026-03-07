@@ -23,7 +23,10 @@ fn tempo_bin() -> String {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             // In a workspace, target is at the workspace root, not the crate dir
-            let workspace_root = manifest_dir.parent().unwrap_or(&manifest_dir);
+            let workspace_root = manifest_dir
+                .parent()
+                .and_then(|p| p.parent())
+                .unwrap_or(&manifest_dir);
             workspace_root.join("target")
         });
     target_root
