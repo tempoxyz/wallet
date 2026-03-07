@@ -6,9 +6,9 @@ use anyhow::Result;
 use futures::StreamExt;
 
 use crate::error::TempoWalletError;
-use crate::http::{HttpClient, HttpResponse};
+use crate::http::HttpClient;
 
-use super::receipt::write_meta_if_requested;
+use super::receipt::{print_headers, write_meta_if_requested};
 use crate::cli::output::OutputOptions;
 use crate::http::http_status_text;
 
@@ -45,11 +45,7 @@ pub(super) async fn execute_streaming(
         .collect();
 
     if output_opts.include_headers {
-        println!("HTTP {}", status);
-        for (k, v) in &headers {
-            println!("{k}: {v}");
-        }
-        println!();
+        print_headers(status, &headers);
     }
 
     let mut bytes_written: usize = 0;
@@ -62,9 +58,9 @@ pub(super) async fn execute_streaming(
             buf.extend_from_slice(&chunk);
             // Process complete lines
             while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-                let line = String::from_utf8_lossy(&buf[..=pos]).into_owned();
-                buf.drain(..=pos);
-                let st = line.trim_end_matches(['\r', '\n']);
+                let line: Vec<u8> = buf.drain(..=pos).collect();
+                let s = String::from_utf8_lossy(&line);
+                let st = s.trim_end_matches(['\r', '\n']);
                 if st.is_empty() {
                     continue;
                 }
@@ -99,12 +95,8 @@ pub(super) async fn execute_streaming(
     // Write meta if requested
     if let Err(e) = write_meta_if_requested(
         output_opts,
-        &HttpResponse {
-            status_code: status,
-            headers,
-            body: Vec::new(),
-            final_url: None,
-        },
+        status,
+        &headers,
         start.elapsed().as_millis(),
         bytes_written,
         &final_url_string,
@@ -121,9 +113,10 @@ pub(super) async fn execute_streaming(
                 "ts": crate::util::now_utc(),
             });
             let out = serde_json::to_string(&obj)?;
-            std::io::stdout().write_all(out.as_bytes())?;
-            std::io::stdout().write_all(b"\n")?;
-            std::io::stdout().flush().ok();
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(out.as_bytes())?;
+            stdout.write_all(b"\n")?;
+            stdout.flush().ok();
         }
         anyhow::bail!(TempoWalletError::Http(msg));
     }

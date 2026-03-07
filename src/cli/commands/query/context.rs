@@ -5,10 +5,10 @@ use base64::Engine;
 
 use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpRequestPlan};
-use crate::network;
+use crate::network::NetworkId;
 
 use super::input::{
-    has_header, parse_data_urlencode, parse_headers, resolve_method_and_body,
+    has_header, join_form_pairs, parse_data_urlencode, parse_headers, resolve_method_and_body,
     should_auto_add_json_content_type, validate_header_size,
 };
 
@@ -35,7 +35,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
     let network = cli
         .network
         .as_deref()
-        .and_then(|s| s.parse::<network::NetworkId>().ok());
+        .and_then(|s| s.parse::<NetworkId>().ok());
 
     let verbosity = cli.verbosity();
 
@@ -83,7 +83,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
     if query.compressed && !has_header(&query.headers, "accept-encoding") {
         headers.push(("accept-encoding".to_string(), "gzip, br".to_string()));
     }
-    if !query.head {
+    if !suppress_body {
         if should_auto_add_json_content_type(&query.headers, json, toon, data) {
             headers.push(("content-type".to_string(), "application/json".to_string()));
         } else if !query.data_urlencode.is_empty() && !has_header(&query.headers, "content-type") {
@@ -96,22 +96,9 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
 
     // If not using -G, merge --data-urlencode into body (form-encoded)
     let body = if !query.get && !query.data_urlencode.is_empty() {
-        // Start with existing body bytes, then append &encoded
         let mut base = body.unwrap_or_default();
         let enc_pairs = parse_data_urlencode(&query.data_urlencode)?;
-        let mut form = String::new();
-        for (i, (name, val)) in enc_pairs.into_iter().enumerate() {
-            if i > 0 {
-                form.push('&');
-            }
-            if let Some(n) = name {
-                form.push_str(&n);
-                form.push('=');
-                form.push_str(&val);
-            } else {
-                form.push_str(&val);
-            }
-        }
+        let form = join_form_pairs(&enc_pairs);
         if !base.is_empty() {
             base.push(b'&');
         }

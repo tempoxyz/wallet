@@ -47,11 +47,7 @@ fn handle_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
         }
         OutputFormat::Text => {
             if opts.include_headers {
-                println!("HTTP {}", response.status_code);
-                for (name, value) in &response.headers {
-                    println!("{name}: {value}");
-                }
-                println!();
+                print_headers(response.status_code, &response.headers);
             }
 
             write_body(opts, &response.body)?;
@@ -74,20 +70,20 @@ fn write_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
 /// Write response metadata (JSON) if requested via `--write-meta`.
 pub(super) fn write_meta_if_requested(
     opts: &OutputOptions,
-    response: &HttpResponse,
+    status_code: u16,
+    headers: &[(String, String)],
     elapsed_ms: u128,
     bytes: usize,
     effective_url: &str,
 ) -> Result<()> {
     if let Some(ref path) = opts.write_meta {
-        let hdr_obj: serde_json::Value = response
-            .headers
+        let hdr_obj: serde_json::Value = headers
             .iter()
             .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
             .collect::<serde_json::Map<_, _>>()
             .into();
         let obj = serde_json::json!({
-            "status": response.status_code,
+            "status": status_code,
             "url": effective_url,
             "elapsed_ms": elapsed_ms,
             "bytes": bytes,
@@ -131,18 +127,12 @@ pub(super) fn display_receipt(
 
     // Try to extract a transaction reference/link if the server provided a receipt header
     let mut link: Option<String> = None;
-    let mut parsed_receipt: Option<mpp::Receipt> = None;
+    let parsed_receipt = response
+        .header("payment-receipt")
+        .and_then(|h| mpp::parse_receipt(h).ok());
     if let Some(receipt_header) = response.header("payment-receipt") {
-        // Prefer explicit tx hash; fall back to parsed reference
-        let tx_ref = if let Some(hash) = mpp::protocol::core::extract_tx_hash(receipt_header) {
-            Some(hash)
-        } else if let Ok(receipt) = mpp::parse_receipt(receipt_header) {
-            let reference = receipt.reference.clone();
-            parsed_receipt = Some(receipt);
-            Some(reference)
-        } else {
-            None
-        };
+        let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header)
+            .or_else(|| parsed_receipt.as_ref().map(|r| r.reference.clone()));
 
         if let Some(tx) = tx_ref {
             let url = network.tx_url(&tx);
@@ -156,7 +146,7 @@ pub(super) fn display_receipt(
         eprintln!("Paid {amount_display}");
     }
 
-    // Extended receipt details at -v (only if we successfully parsed the receipt)
+    // Extended receipt details at -v
     if output_opts.log_enabled() {
         if let Some(receipt) = parsed_receipt {
             eprintln!("  Status: {}", receipt.status);
@@ -167,10 +157,26 @@ pub(super) fn display_receipt(
 }
 
 // ---------------------------------------------------------------------------
+// Shared display helpers
+// ---------------------------------------------------------------------------
+
+/// Print HTTP status line and headers to stdout.
+pub(super) fn print_headers(status: u16, headers: &[(String, String)]) {
+    println!("HTTP {status}");
+    for (name, value) in headers {
+        println!("{name}: {value}");
+    }
+    println!();
+}
+
+// ---------------------------------------------------------------------------
 // File output helpers
 // ---------------------------------------------------------------------------
 
 /// Write bytes to a file, handling `-` as stdout and validating the path.
+///
+/// Absolute paths are intentionally allowed (matching curl behaviour);
+/// only `..` traversal components are rejected.
 fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result<()> {
     if output_file == "-" {
         std::io::stdout()
@@ -194,7 +200,6 @@ fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::OutputFormat;
 
     fn test_opts(show_output: bool) -> OutputOptions {
         OutputOptions {

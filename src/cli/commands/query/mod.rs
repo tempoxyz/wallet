@@ -20,7 +20,7 @@ use crate::cli::Context;
 use crate::error::TempoWalletError;
 use crate::payment::dispatch::{dispatch_payment, PaymentResult};
 use crate::util::{format_token_amount, redact_url, sanitize_error};
-use input::resolve_data;
+use input::{join_form_pairs, resolve_data};
 use receipt::write_meta_if_requested;
 
 /// Execute an HTTP request with automatic payment handling.
@@ -72,20 +72,11 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         }
         // Encoded data from --data-urlencode
         let enc_pairs = input::parse_data_urlencode(&query.data_urlencode)?;
-        let mut enc_joined: Vec<String> = Vec::new();
-        for (name, val) in enc_pairs {
-            if let Some(n) = name {
-                enc_joined.push(format!("{}={}", n, val));
-            } else {
-                enc_joined.push(val);
-            }
-        }
-        let appended = if raw.is_empty() {
-            enc_joined.join("&")
-        } else if enc_joined.is_empty() {
-            raw
-        } else {
-            format!("{}&{}", raw, enc_joined.join("&"))
+        let enc_joined = join_form_pairs(&enc_pairs);
+        let appended = match (raw.is_empty(), enc_joined.is_empty()) {
+            (true, _) => enc_joined,
+            (_, true) => raw,
+            _ => format!("{raw}&{enc_joined}"),
         };
         let new_query = match parsed_url.query() {
             Some(q) if !q.is_empty() => format!("{q}&{appended}"),
@@ -96,20 +87,18 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     let http = context::build_http_client(&ctx.cli, &query)?;
     let output_opts = context::build_output_options(&ctx.cli, &query, &parsed_url);
-    let target_url: String = parsed_url.into();
+    let target_url = String::from(parsed_url);
     let method_str = http.plan.method.to_string();
 
     let sanitized_url = redact_url(&target_url);
 
-    if let Some(ref a) = ctx.analytics {
-        a.track(
-            Event::QueryStarted,
-            QueryStartedPayload {
-                url: sanitized_url.clone(),
-                method: method_str.clone(),
-            },
-        );
-    }
+    ctx.track(
+        Event::QueryStarted,
+        QueryStartedPayload {
+            url: sanitized_url.clone(),
+            method: method_str.clone(),
+        },
+    );
 
     if http.log_enabled() {
         eprintln!("Making {} request to: {}", http.plan.method, sanitized_url);
@@ -126,23 +115,22 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     let response = match http.execute(&target_url, &[]).await {
         Ok(r) => r,
         Err(e) => {
-            if let Some(ref a) = ctx.analytics {
-                a.track(
-                    Event::QueryFailure,
-                    QueryFailurePayload {
-                        url: sanitized_url.clone(),
-                        method: method_str.clone(),
-                        error: sanitize_error(&e.to_string()),
-                    },
-                );
-            }
+            ctx.track(
+                Event::QueryFailure,
+                QueryFailurePayload {
+                    url: sanitized_url.clone(),
+                    method: method_str.clone(),
+                    error: sanitize_error(&e.to_string()),
+                },
+            );
             return Err(e);
         }
     };
     // Write meta for immediate response (non-402) if requested
     if let Err(e) = write_meta_if_requested(
         &output_opts,
-        &response,
+        response.status_code,
+        &response.headers,
         start.elapsed().as_millis(),
         response.body.len(),
         response.final_url.as_deref().unwrap_or(&target_url),
@@ -151,16 +139,14 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     }
 
     if response.status_code != 402 {
-        if let Some(ref a) = ctx.analytics {
-            a.track(
-                Event::QuerySuccess,
-                QuerySuccessPayload {
-                    url: sanitized_url,
-                    method: method_str,
-                    status_code: response.status_code,
-                },
-            );
-        }
+        ctx.track(
+            Event::QuerySuccess,
+            QuerySuccessPayload {
+                url: sanitized_url,
+                method: method_str,
+                status_code: response.status_code,
+            },
+        );
         receipt::finalize_response(&output_opts, response)?;
         return Ok(());
     }

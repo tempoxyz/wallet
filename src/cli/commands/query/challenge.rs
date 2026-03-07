@@ -1,6 +1,6 @@
 //! Parsing and validation of 402 payment challenges.
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 
@@ -80,7 +80,7 @@ pub(super) fn ensure_wallet_configured(
     keys: &Keystore,
     challenge_network: NetworkId,
 ) -> Result<()> {
-    let setup_cmd = "tempo-wallet login";
+    let setup_cmd = concat!(env!("CARGO_PKG_NAME"), " login");
 
     if !keys.has_key_for_network(challenge_network) {
         let msg = if !keys.has_wallet() {

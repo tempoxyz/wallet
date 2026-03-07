@@ -184,11 +184,6 @@ pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<Strin
     Ok(pairs)
 }
 
-fn is_json_data(data: &str) -> bool {
-    let trimmed = data.trim();
-    trimmed.starts_with('{') || trimmed.starts_with('[')
-}
-
 /// Determine if we should automatically add a JSON Content-Type header.
 ///
 /// Returns true if:
@@ -211,9 +206,25 @@ pub(super) fn should_auto_add_json_content_type(
         if data.starts_with('@') {
             return false;
         }
-        return is_json_data(data);
+        let trimmed = data.trim();
+        return trimmed.starts_with('{') || trimmed.starts_with('[');
     }
     false
+}
+
+/// Join parsed form pairs into a single query/form string.
+///
+/// Each pair is rendered as `name=value` (if named) or just `value`,
+/// separated by `&`.
+pub(super) fn join_form_pairs(pairs: &[(Option<String>, String)]) -> String {
+    pairs
+        .iter()
+        .map(|(name, val)| match name {
+            Some(n) => format!("{n}={val}"),
+            None => val.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 #[cfg(test)]
@@ -290,12 +301,18 @@ mod tests {
     }
 
     #[test]
-    fn test_is_json_data() {
-        assert!(is_json_data(r#"{"key": "value"}"#));
-        assert!(is_json_data(r#"[1, 2, 3]"#));
-        assert!(is_json_data("  {\"key\": \"value\"}"));
-        assert!(!is_json_data("plain text"));
-        assert!(!is_json_data("key=value"));
+    fn test_json_data_auto_detected() {
+        let no_h: Vec<String> = vec![];
+        let json_obj = vec![r#"{"key": "value"}"#.to_string()];
+        let json_arr = vec!["[1, 2, 3]".to_string()];
+        let json_ws = vec!["  {\"key\": \"value\"}".to_string()];
+        let plain = vec!["plain text".to_string()];
+        let kv = vec!["key=value".to_string()];
+        assert!(should_auto_add_json_content_type(&no_h, None, None, &json_obj));
+        assert!(should_auto_add_json_content_type(&no_h, None, None, &json_arr));
+        assert!(should_auto_add_json_content_type(&no_h, None, None, &json_ws));
+        assert!(!should_auto_add_json_content_type(&no_h, None, None, &plain));
+        assert!(!should_auto_add_json_content_type(&no_h, None, None, &kv));
     }
 
     #[test]
