@@ -12,8 +12,8 @@ use crate::http::{format_http_error, print_headers, HttpResponse};
 use crate::network::NetworkId;
 use crate::util::hyperlink;
 
-/// Finalize a response: display output, optionally save the payment receipt, and fail on HTTP errors.
-pub(super) fn finalize_and_save(
+/// Render a response: display output, optionally save the payment receipt, and fail on HTTP errors.
+pub(super) fn render_and_save(
     output_opts: &OutputOptions,
     response: HttpResponse,
     save_receipt_path: Option<&str>,
@@ -242,29 +242,29 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
-    // finalize_and_save
+    // render_and_save
     // ---------------------------------------------------------------------------
 
     #[test]
-    fn test_finalize_and_save_success_status() {
+    fn test_render_and_save_success_status() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(200, b"ok");
-        assert!(finalize_and_save(&opts, resp, None).is_ok());
+        assert!(render_and_save(&opts, resp, None).is_ok());
     }
 
     #[test]
-    fn test_finalize_and_save_4xx_fails() {
+    fn test_render_and_save_4xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(404, b"not found");
-        let err = finalize_and_save(&opts, resp, None).unwrap_err();
+        let err = render_and_save(&opts, resp, None).unwrap_err();
         assert!(err.to_string().contains("404"));
     }
 
     #[test]
-    fn test_finalize_and_save_5xx_fails() {
+    fn test_render_and_save_5xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(500, b"internal error");
-        let err = finalize_and_save(&opts, resp, None).unwrap_err();
+        let err = render_and_save(&opts, resp, None).unwrap_err();
         assert!(err.to_string().contains("Internal Server Error"));
     }
 

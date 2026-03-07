@@ -9,8 +9,8 @@ use crate::http::HttpResponse;
 use crate::network::NetworkId;
 use crate::util::format_token_amount;
 
-/// Parsed payment challenge context extracted from a 402 response.
-pub(super) struct ChallengeContext {
+/// Parsed payment challenge extracted from a 402 response.
+pub(super) struct ParsedChallenge {
     pub(super) is_session: bool,
     pub(super) network: NetworkId,
     pub(super) amount: String,
@@ -18,7 +18,7 @@ pub(super) struct ChallengeContext {
     pub(super) challenge: mpp::PaymentChallenge,
 }
 
-impl ChallengeContext {
+impl ParsedChallenge {
     pub(super) fn intent_str(&self) -> &'static str {
         if self.is_session {
             "session"
@@ -39,7 +39,7 @@ impl ChallengeContext {
 
 /// Parse the WWW-Authenticate header from a 402 response and extract all
 /// payment-related context needed for routing and analytics.
-pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<ChallengeContext> {
+pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedChallenge> {
     let www_auth = response
         .header("www-authenticate")
         .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate".to_string()))?;
@@ -76,7 +76,7 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<Challen
             .into());
         };
 
-    Ok(ChallengeContext {
+    Ok(ParsedChallenge {
         is_session,
         network,
         amount,
@@ -107,9 +107,9 @@ mod tests {
         mpp::PaymentChallenge::new("test-id", "test-realm", "tempo", intent, request)
     }
 
-    fn make_ctx(is_session: bool, amount: &str) -> ChallengeContext {
+    fn make_ctx(is_session: bool, amount: &str) -> ParsedChallenge {
         let intent = if is_session { "session" } else { "charge" };
-        ChallengeContext {
+        ParsedChallenge {
             is_session,
             network: NetworkId::default(),
             amount: amount.to_string(),
