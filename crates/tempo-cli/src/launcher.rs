@@ -3,7 +3,7 @@
 //! add/update/remove).
 
 use crate::installer::{
-    binary_candidates, debug_log, executable_name, fetch_manifest_version,
+    binary_candidates, debug_log, executable_name, fetch_manifest_version, platform_tuple,
     set_executable_permissions, InstallSource, Installer, InstallerError,
 };
 use crate::state::State;
@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const EXTENSIONS_BASE_URL: &str = "https://cli.tempo.xyz/extensions";
+const BASE_URL: &str = "https://cli.tempo.xyz";
 const PUBLIC_KEY: &str = "bDpt6MpqpvjiIPBB2NroGZQ/2HrfV+roj2qUa2b+vjI=";
 
 const CORE_BINARY: &str = "tempo-core";
@@ -103,6 +103,12 @@ impl Launcher {
     }
 
     fn handle_management(&self, action: &str, args: &[String]) -> Result<i32, LauncherError> {
+        // `tempo update` with no extension: self-update the tempo binary.
+        if action == "update" && args.iter().all(|a| a.starts_with('-')) {
+            let dry_run = args.iter().any(|a| a == "--dry-run");
+            return self.self_update(dry_run);
+        }
+
         let parsed = parse_management_args(args)?;
         let installer = Installer::from_env()?;
 
@@ -122,6 +128,41 @@ impl Launcher {
             _ => unreachable!(),
         };
 
+        Ok(0)
+    }
+
+    /// Download the latest `tempo` binary from R2 and replace the current one.
+    fn self_update(&self, dry_run: bool) -> Result<i32, LauncherError> {
+        let (os, arch) = platform_tuple();
+        let base = base_url();
+        let base = base.trim_end_matches('/');
+        let url = format!("{base}/tempo/tempo-{os}-{arch}");
+
+        if dry_run {
+            println!("dry-run: download tempo from {url}");
+            return Ok(0);
+        }
+
+        debug_log(&format!("self-update: downloading from {url}"));
+        let installer = Installer::from_env()?;
+
+        let download_dir = tempfile::TempDir::new()?;
+        let tmp_path = download_dir.path().join("tempo");
+
+        let mut response = reqwest::blocking::get(&url)
+            .map_err(InstallerError::from)?
+            .error_for_status()
+            .map_err(InstallerError::from)?;
+        let mut file = fs::File::create(&tmp_path)?;
+        std::io::copy(&mut response, &mut file)?;
+
+        let dst = installer.bin_dir.join(executable_name("tempo"));
+        let staging = dst.with_extension("tmp");
+        fs::copy(&tmp_path, &staging)?;
+        set_executable_permissions(&staging)?;
+        fs::rename(&staging, &dst)?;
+
+        println!("Updated tempo");
         Ok(0)
     }
 
@@ -192,9 +233,10 @@ impl Launcher {
         );
         println!("Usage: tempo <command> [args...]\n");
         println!("Management:");
-        println!("  add <name>    Install an extension");
-        println!("  update <name> Update an extension");
-        println!("  remove <name> Remove an extension\n");
+        println!("  update          Update the tempo launcher itself");
+        println!("  add <name>      Install an extension");
+        println!("  update <name>   Update an extension");
+        println!("  remove <name>   Remove an extension\n");
         println!("Run any installed extension as: tempo <name> [args...]");
         println!("Extensions are auto-installed on first use when available.");
     }
@@ -436,8 +478,8 @@ fn parse_management_args(args: &[String]) -> Result<ManagementArgs, LauncherErro
     })
 }
 
-fn extensions_base_url() -> String {
-    env::var("TEMPO_EXTENSIONS_URL").unwrap_or_else(|_| EXTENSIONS_BASE_URL.to_string())
+fn base_url() -> String {
+    env::var("TEMPO_BASE_URL").unwrap_or_else(|_| BASE_URL.to_string())
 }
 
 fn release_public_key() -> String {
@@ -445,7 +487,7 @@ fn release_public_key() -> String {
 }
 
 fn manifest_url(extension: &str, version: Option<&str>) -> String {
-    let base = extensions_base_url();
+    let base = base_url();
     let base = base.trim_end_matches('/');
     match version {
         Some(v) => {
@@ -535,7 +577,7 @@ mod tests {
     #[test]
     fn runtime_manifest_url_policy_enforces_https_or_local() {
         assert!(is_secure_or_local_manifest_location(
-            "https://cli.tempo.xyz/extensions/tempo-wallet/manifest.json"
+            "https://cli.tempo.xyz/tempo-wallet/manifest.json"
         ));
         assert!(is_secure_or_local_manifest_location(
             "file:///tmp/manifest.json"
@@ -550,17 +592,17 @@ mod tests {
     fn manifest_url_uses_expected_format() {
         assert_eq!(
             manifest_url("wallet", None),
-            "https://cli.tempo.xyz/extensions/tempo-wallet/manifest.json"
+            "https://cli.tempo.xyz/tempo-wallet/manifest.json"
         );
 
         assert_eq!(
             manifest_url("wallet", Some("0.2.0")),
-            "https://cli.tempo.xyz/extensions/tempo-wallet/v0.2.0/manifest.json"
+            "https://cli.tempo.xyz/tempo-wallet/v0.2.0/manifest.json"
         );
 
         assert_eq!(
             manifest_url("wallet", Some("v0.2.0")),
-            "https://cli.tempo.xyz/extensions/tempo-wallet/v0.2.0/manifest.json",
+            "https://cli.tempo.xyz/tempo-wallet/v0.2.0/manifest.json",
             "v-prefix should not be doubled"
         );
     }

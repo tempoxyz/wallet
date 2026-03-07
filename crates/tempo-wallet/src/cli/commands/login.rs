@@ -13,20 +13,18 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
-use crate::analytics::{self, Event};
 use crate::cli::{Context, OutputFormat};
-use crate::error::TempoWalletError;
-use crate::keys::{Keystore, WalletType};
-use crate::network::NetworkId;
-use crate::util::sanitize_error;
+use tempo_common::analytics::{self, Event};
+use tempo_common::error::TempoError;
+use tempo_common::keys::{Keystore, WalletType};
+use tempo_common::network::NetworkId;
+use tempo_common::util::sanitize_error;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
 pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
-    if let Some(ref a) = ctx.analytics {
-        a.track_event(Event::LoginStarted);
-    }
+    ctx.track_event(Event::LoginStarted);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
 
@@ -36,7 +34,6 @@ pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
         if let Some(ref a) = ctx.analytics {
             track_login_result(a, &result);
         }
-
         result?;
     }
 
@@ -59,7 +56,7 @@ fn track_login_result(a: &analytics::Analytics, result: &anyhow::Result<()>) {
         Err(e) => {
             let is_timeout = e
                 .chain()
-                .any(|cause| matches!(cause.downcast_ref(), Some(TempoWalletError::LoginExpired)));
+                .any(|cause| matches!(cause.downcast_ref(), Some(TempoError::LoginExpired)));
             if is_timeout {
                 a.track_event(Event::LoginTimeout);
             } else {
@@ -79,7 +76,7 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
 
     let parsed_url = Url::parse(&auth_server_url)
-        .map_err(|e| TempoWalletError::InvalidUrl(format!("auth server: {e}")))?;
+        .map_err(|e| TempoError::InvalidUrl(format!("auth server: {e}")))?;
     let auth_base_url = parsed_url.origin().ascii_serialization();
 
     let local_signer = PrivateKeySigner::random();
@@ -102,31 +99,27 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
         prompt_and_open_browser(&code, &url_str);
     }
 
-    if let Some(ref a) = ctx.analytics {
-        a.track_event(Event::CallbackWindowOpened);
-    }
+    ctx.track_event(Event::CallbackWindowOpened);
 
     let callback = poll_until_authorized(&client, &auth_base_url, &code, &code_verifier).await?;
 
-    if let Some(ref a) = ctx.analytics {
-        a.track(
-            Event::CallbackReceived,
-            analytics::CallbackReceivedPayload {
-                duration_secs: callback.duration_secs,
-            },
-        );
-    }
+    ctx.track(
+        Event::CallbackReceived,
+        analytics::CallbackReceivedPayload {
+            duration_secs: callback.duration_secs,
+        },
+    );
 
     save_keys(ctx.network, &ctx.keys, callback, local_signer)?;
 
+    ctx.track(
+        Event::WalletCreated,
+        analytics::WalletCreatedPayload {
+            wallet_type: "passkey".to_string(),
+        },
+    );
+    ctx.track_event(Event::KeyCreated);
     if let Some(ref a) = ctx.analytics {
-        a.track(
-            Event::WalletCreated,
-            analytics::WalletCreatedPayload {
-                wallet_type: "passkey".to_string(),
-            },
-        );
-        a.track_event(Event::KeyCreated);
         a.identify(&ctx.keys);
     }
 
@@ -182,30 +175,28 @@ async fn poll_until_authorized(
     base_url: &str,
     code: &str,
     code_verifier: &str,
-) -> Result<AuthCallback, TempoWalletError> {
+) -> Result<AuthCallback, TempoError> {
     let start = Instant::now();
     let timeout = Duration::from_secs(CALLBACK_TIMEOUT_SECS);
 
     loop {
         if start.elapsed() >= timeout {
-            return Err(TempoWalletError::LoginExpired);
+            return Err(TempoError::LoginExpired);
         }
 
         let resp = poll_device_code(client, base_url, code, code_verifier).await?;
 
         if let Some(err) = &resp.error {
             if err.to_lowercase().contains("expired") {
-                return Err(TempoWalletError::LoginExpired);
+                return Err(TempoError::LoginExpired);
             }
-            return Err(TempoWalletError::Http(err.clone()));
+            return Err(TempoError::Http(err.clone()));
         }
 
         if resp.status == PollStatus::Authorized {
             return Ok(AuthCallback {
                 account_address: resp.account_address.ok_or_else(|| {
-                    TempoWalletError::Http(
-                        "Missing account_address in authorized response".to_string(),
-                    )
+                    TempoError::Http("Missing account_address in authorized response".to_string())
                 })?,
                 key_authorization: resp.key_authorization,
                 duration_secs: start.elapsed().as_secs(),
@@ -222,8 +213,8 @@ fn save_keys(
     keys: &Keystore,
     callback: AuthCallback,
     local_signer: PrivateKeySigner,
-) -> Result<(), TempoWalletError> {
-    let validated = crate::keys::authorization::validate(
+) -> Result<(), TempoError> {
+    let validated = tempo_common::keys::authorization::validate(
         callback.key_authorization.as_deref(),
         local_signer.address(),
     )?;
@@ -285,7 +276,7 @@ async fn create_device_code(
     base_url: &str,
     pub_key: &str,
     code_challenge: &str,
-) -> Result<String, TempoWalletError> {
+) -> Result<String, TempoError> {
     let url = format!("{}/cli-auth/device-code", base_url);
     let resp = client
         .post(&url)
@@ -296,12 +287,12 @@ async fn create_device_code(
         }))
         .send()
         .await
-        .map_err(|e| TempoWalletError::Http(format!("Failed to create device code: {}", e)))?;
+        .map_err(|e| TempoError::Http(format!("Failed to create device code: {}", e)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(TempoWalletError::Http(format!(
+        return Err(TempoError::Http(format!(
             "Device code request failed ({}): {}",
             status, body
         )));
@@ -315,7 +306,7 @@ async fn create_device_code(
     resp.json::<DeviceCodeResponse>()
         .await
         .map(|r| r.code)
-        .map_err(|e| TempoWalletError::Http(format!("Failed to parse device code response: {}", e)))
+        .map_err(|e| TempoError::Http(format!("Failed to parse device code response: {}", e)))
 }
 
 async fn poll_device_code(
@@ -323,7 +314,7 @@ async fn poll_device_code(
     base_url: &str,
     code: &str,
     code_verifier: &str,
-) -> Result<PollResponse, TempoWalletError> {
+) -> Result<PollResponse, TempoError> {
     let url = format!("{}/cli-auth/poll/{}", base_url, code);
     let resp = client
         .post(&url)
@@ -332,16 +323,16 @@ async fn poll_device_code(
         }))
         .send()
         .await
-        .map_err(|e| TempoWalletError::Http(format!("Failed to poll device code: {}", e)))?;
+        .map_err(|e| TempoError::Http(format!("Failed to poll device code: {}", e)))?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err(TempoWalletError::LoginExpired);
+        return Err(TempoError::LoginExpired);
     }
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(TempoWalletError::Http(format!(
+        return Err(TempoError::Http(format!(
             "Poll request failed ({}): {}",
             status, body
         )));
@@ -349,7 +340,7 @@ async fn poll_device_code(
 
     resp.json::<PollResponse>()
         .await
-        .map_err(|e| TempoWalletError::Http(format!("Failed to parse poll response: {}", e)))
+        .map_err(|e| TempoError::Http(format!("Failed to parse poll response: {}", e)))
 }
 
 fn generate_pkce_pair() -> (String, String) {

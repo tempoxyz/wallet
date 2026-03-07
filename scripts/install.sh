@@ -30,6 +30,7 @@ trap cleanup EXIT
 
 EXTENSIONS=(
     "wallet|tempo-wallet"
+    "mpp|tempo-mpp"
 )
 
 # ---------------------------------------------------------------------------
@@ -153,7 +154,7 @@ install_tempo_remote() {
     detect_arch
 
     local binary_name="tempo-${PLATFORM}-${ARCH}"
-    local download_url="${R2_BASE_URL}/${binary_name}"
+    local download_url="${R2_BASE_URL}/tempo/${binary_name}"
 
     TMP_DIR=$(mktemp -d)
     chmod 700 "${TMP_DIR}"

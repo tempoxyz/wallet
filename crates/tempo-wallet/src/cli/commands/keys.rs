@@ -5,17 +5,17 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::Result;
 use futures::future::join_all;
 
-use crate::account::{
+use crate::cli::args::KeyCommands;
+use crate::cli::Context;
+use tempo_common::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits, query_all_balances, KeysResponse, TokenBalance,
 };
-use crate::analytics::Event;
-use crate::cli::args::KeyCommands;
-use crate::cli::output;
-use crate::cli::Context;
-use crate::keys::Keystore;
-use crate::network::NetworkId;
-use crate::util::{address_link, print_field_w};
+use tempo_common::analytics::Event;
+use tempo_common::keys::Keystore;
+use tempo_common::network::NetworkId;
+use tempo_common::output;
+use tempo_common::util::{address_link, print_field_w};
 
 #[derive(serde::Serialize)]
 struct CleanKeysResponse {
@@ -31,9 +31,7 @@ pub(crate) async fn run(ctx: &Context, command: KeyCommands) -> Result<()> {
         KeyCommands::List => list_keys(ctx).await,
         KeyCommands::Create { wallet } => {
             super::wallets::create_access_key(wallet.as_deref(), &ctx.keys)?;
-            if let Some(a) = ctx.analytics.as_ref() {
-                a.track_event(Event::KeyCreated);
-            }
+            ctx.track_event(Event::KeyCreated);
             let fresh_keys = ctx.keys.reload()?;
             super::whoami::show_whoami(ctx, Some(&fresh_keys), None).await
         }
@@ -65,7 +63,7 @@ fn clean_keys(ctx: &Context, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    if !crate::util::confirm(
+    if !tempo_common::util::confirm(
         &format!("Delete all local key state at {}?", path.display()),
         yes,
     )? {

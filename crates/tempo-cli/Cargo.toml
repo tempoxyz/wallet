@@ -14,11 +14,11 @@ name = "tempo"
 path = "src/main.rs"
 
 [dependencies]
-base64 = "0.22"
-dirs = "6.0"
-ed25519-dalek = "2"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
-tempfile = "3"
+base64.workspace = true
+dirs.workspace = true
+ed25519-dalek.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
+serde = { workspace = true }
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
