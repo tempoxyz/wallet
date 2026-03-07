@@ -154,7 +154,12 @@ pub(crate) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> 
     let sym = key.symbol.as_deref().unwrap_or("tokens");
     if let Some(sl) = &key.spending_limit {
         if sl.unlimited {
-            writeln!(w, "{:>width$}: unlimited {sym}", "Limit", width = LABEL_WIDTH)?;
+            writeln!(
+                w,
+                "{:>width$}: unlimited {sym}",
+                "Limit",
+                width = LABEL_WIDTH
+            )?;
         } else if let Some(remaining) = &sl.remaining {
             let limit = sl.limit.as_deref().unwrap_or("?");
             let spent = sl.spent.as_deref().unwrap_or("0");

@@ -1,6 +1,6 @@
 //! Key management commands — listing, cleanup, balance and spending limit queries.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use anyhow::Result;
 use futures::future::join_all;
@@ -9,6 +9,7 @@ use crate::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits, query_all_balances, KeysResponse, TokenBalance,
 };
+use crate::analytics::Event;
 use crate::cli::args::KeyCommands;
 use crate::cli::{Context, OutputFormat};
 use crate::keys::Keystore;
@@ -21,7 +22,7 @@ pub(crate) async fn run(ctx: &Context, command: Option<KeyCommands>) -> Result<(
         Some(KeyCommands::Create { wallet }) => {
             super::wallets::create_access_key(wallet.as_deref(), &ctx.keys)?;
             if let Some(a) = ctx.analytics.as_ref() {
-                a.track_event(crate::analytics::Event::KeyCreated);
+                a.track_event(Event::KeyCreated);
             }
             let fresh_keys = ctx.keys.reload()?;
             super::whoami::show_whoami(ctx, Some(&fresh_keys), None).await
@@ -70,7 +71,7 @@ async fn list_keys(ctx: &Context) -> Result<()> {
     let keystore = &ctx.keys;
 
     // Pre-fetch balances for each unique (wallet, chain_id) pair.
-    let mut seen = HashSet::new();
+    let mut seen = BTreeSet::new();
     let mut balance_tasks = Vec::new();
     for entry in &keystore.keys {
         if entry.wallet_address.is_empty() {

@@ -2,15 +2,15 @@
 
 use std::time::{Duration, Instant};
 
+use qrcode::render::unicode;
+
 use crate::account::{query_all_balances, TokenBalance};
-use crate::cli::OutputFormat;
-use crate::config::Config;
-use crate::network::NetworkId;
+use crate::cli::{Context, OutputFormat};
 
 use super::relay::{
     create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
 };
-use super::{has_balance_changed, print_balance_diff, FundResponse, POLL_INTERVAL_SECS};
+use super::{has_balance_changed, render_balance_diff, FundResponse, POLL_INTERVAL_SECS};
 
 /// Default source chain for bridging (Base).
 const DEFAULT_SOURCE_CHAIN_ID: u64 = 8453;
@@ -18,39 +18,8 @@ const DEFAULT_SOURCE_CHAIN_ID: u64 = 8453;
 /// Timeout for polling bridge deposit status (seconds).
 const BRIDGE_POLL_TIMEOUT_SECS: u64 = 600;
 
-pub(super) async fn run_mainnet_fund(
-    config: &Config,
-    output_format: OutputFormat,
-    network_id: NetworkId,
-    address: &str,
-    wait: bool,
-) -> anyhow::Result<()> {
-    let balances_before = Some(query_all_balances(config, network_id, address).await);
-
-    run_relay_bridge(
-        config,
-        output_format,
-        network_id,
-        address,
-        wait,
-        balances_before,
-    )
-    .await
-}
-
-// ---------------------------------------------------------------------------
-// Relay bridge flow
-// ---------------------------------------------------------------------------
-
-async fn run_relay_bridge(
-    config: &Config,
-    output_format: OutputFormat,
-    network_id: NetworkId,
-    address: &str,
-    wait: bool,
-    balances_before: Option<Vec<TokenBalance>>,
-) -> anyhow::Result<()> {
-    let net = network_id;
+pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Result<()> {
+    let balances_before = query_all_balances(&ctx.config, ctx.network, address).await;
 
     // Use Base as default source chain
     let source_chain = source_chains()
@@ -58,94 +27,88 @@ async fn run_relay_bridge(
         .find(|c| c.chain_id == DEFAULT_SOURCE_CHAIN_ID)
         .expect("Default source chain (Base) missing from source_chains config");
 
-    if output_format == OutputFormat::Text {
+    if ctx.output_format == OutputFormat::Text {
         eprintln!("Generating deposit address on {}...", source_chain.name);
     }
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
+        .user_agent(format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")))
         .build()?;
-    let deposit = create_deposit_address(&client, source_chain, address, net.chain_id()).await?;
+    let deposit =
+        create_deposit_address(&client, source_chain, address, ctx.network.chain_id()).await?;
 
-    if output_format == OutputFormat::Text {
+    if ctx.output_format == OutputFormat::Text {
         let qr_uri = format!("ethereum:{}", deposit.deposit_address);
-        print_qr_code(&qr_uri);
+        render_qr_code(&qr_uri);
         eprintln!();
-        let deposit_link = net.address_link(&deposit.deposit_address);
+        let deposit_link = ctx.network.address_link(&deposit.deposit_address);
         eprintln!("Send USDC on {} to: {}", source_chain.name, deposit_link);
         eprintln!("Funds will be bridged automatically to your Tempo wallet.");
         eprintln!();
     }
 
     if !wait {
-        if output_format.is_structured() {
+        if ctx.output_format.is_structured() {
             let response = FundResponse {
-                network: network_id.as_str().to_string(),
+                network: ctx.network.as_str().to_string(),
                 address: address.to_string(),
                 action: "bridge",
                 success: false,
                 deposit_address: Some(deposit.deposit_address),
                 source_chain: Some(source_chain.name.to_string()),
                 bridge_status: None,
-                balances_before,
+                balances_before: Some(balances_before),
                 balances_after: None,
             };
-            println!("{}", output_format.serialize(&response)?);
+            println!("{}", ctx.output_format.serialize(&response)?);
         }
         return Ok(());
     }
 
     // Poll both: Relay status (source chain) and Tempo balance (target chain)
-    if output_format == OutputFormat::Text {
-        let deposit_link = net.address_link(&deposit.deposit_address);
+    if ctx.output_format == OutputFormat::Text {
+        let deposit_link = ctx.network.address_link(&deposit.deposit_address);
         eprintln!("Deposit address ({}): {}", source_chain.name, deposit_link);
         eprintln!("Watching for deposit...");
     }
 
-    let ctx = BridgePollContext {
-        config,
-        output_format,
-        network_id,
+    let poll_ctx = BridgePollContext {
+        ctx,
         wallet_address: address,
         source_chain,
         request_id: &deposit.request_id,
         client: &client,
     };
-    let final_status =
-        poll_bridge_and_balance(&ctx, balances_before.as_deref().unwrap_or(&[])).await;
+    let final_status = poll_bridge_and_balance(&poll_ctx, &balances_before).await;
 
-    let balances_after = Some(query_all_balances(config, network_id, address).await);
+    let balances_after = query_all_balances(&ctx.config, ctx.network, address).await;
 
-    if output_format.is_structured() {
+    if ctx.output_format.is_structured() {
         let success = final_status
             .as_ref()
             .is_some_and(|s| s.status == relay_status::SUCCESS)
-            || balances_after
-                .as_ref()
-                .zip(balances_before.as_ref())
-                .is_some_and(|(after, before)| has_balance_changed(before, after));
+            || has_balance_changed(&balances_before, &balances_after);
 
         let response = FundResponse {
-            network: network_id.as_str().to_string(),
+            network: ctx.network.as_str().to_string(),
             address: address.to_string(),
             action: "bridge",
             success,
             deposit_address: Some(deposit.deposit_address),
             source_chain: Some(source_chain.name.to_string()),
             bridge_status: final_status,
-            balances_before,
-            balances_after,
+            balances_before: Some(balances_before),
+            balances_after: Some(balances_after),
         };
-        println!("{}", output_format.serialize(&response)?);
+        println!("{}", ctx.output_format.serialize(&response)?);
     }
 
     Ok(())
 }
 
 struct BridgePollContext<'a> {
-    config: &'a Config,
-    output_format: OutputFormat,
-    network_id: NetworkId,
+    ctx: &'a Context,
     wallet_address: &'a str,
     source_chain: &'a SourceChain,
     request_id: &'a str,
@@ -153,9 +116,9 @@ struct BridgePollContext<'a> {
 }
 
 /// Poll both Relay status and Tempo balance concurrently.
-/// Prints status transitions as they happen.
+/// Renders status transitions as they happen.
 async fn poll_bridge_and_balance(
-    ctx: &BridgePollContext<'_>,
+    poll: &BridgePollContext<'_>,
     initial_balances: &[TokenBalance],
 ) -> Option<DepositStatus> {
     let timeout = Duration::from_secs(BRIDGE_POLL_TIMEOUT_SECS);
@@ -167,7 +130,7 @@ async fn poll_bridge_and_balance(
 
     loop {
         if start.elapsed() > timeout {
-            if ctx.output_format == OutputFormat::Text {
+            if poll.ctx.output_format == OutputFormat::Text {
                 eprintln!("Timed out after 10 minutes. Run 'tempo-wallet whoami' to check later.");
             }
             break;
@@ -177,15 +140,15 @@ async fn poll_bridge_and_balance(
 
         // Poll Relay status and Tempo balance concurrently
         let (relay_result, current_balances) = tokio::join!(
-            poll_deposit_status(ctx.client, ctx.source_chain.relay_api, ctx.request_id),
-            query_all_balances(ctx.config, ctx.network_id, ctx.wallet_address),
+            poll_deposit_status(poll.client, poll.source_chain.relay_api, poll.request_id),
+            query_all_balances(&poll.ctx.config, poll.ctx.network, poll.wallet_address),
         );
 
         // Process Relay status
         match relay_result {
             Ok(Some(status)) if status.status != last_relay_status => {
-                if ctx.output_format == OutputFormat::Text {
-                    print_relay_status_change(ctx.source_chain.name, &status);
+                if poll.ctx.output_format == OutputFormat::Text {
+                    render_relay_status(poll.source_chain.name, &status);
                 }
                 last_relay_status.clone_from(&status.status);
 
@@ -193,10 +156,10 @@ async fn poll_bridge_and_balance(
                     status.status.as_str(),
                     relay_status::FAILURE | relay_status::REFUNDED | relay_status::REFUND
                 ) {
-                    if ctx.output_format == OutputFormat::Text {
+                    if poll.ctx.output_format == OutputFormat::Text {
                         eprintln!(
                             "Bridge failed. Funds may be refunded on {}.",
-                            ctx.source_chain.name
+                            poll.source_chain.name
                         );
                     }
                     final_status = Some(status);
@@ -213,9 +176,9 @@ async fn poll_bridge_and_balance(
 
         // Check for balance change on Tempo
         if has_balance_changed(initial_balances, &current_balances) {
-            if ctx.output_format == OutputFormat::Text {
+            if poll.ctx.output_format == OutputFormat::Text {
                 eprintln!("  Funds arrived on Tempo!");
-                print_balance_diff(initial_balances, &current_balances);
+                render_balance_diff(initial_balances, &current_balances);
             }
             break;
         }
@@ -225,39 +188,44 @@ async fn poll_bridge_and_balance(
 }
 
 mod relay_status {
+    pub(super) const WAITING: &str = "waiting";
+    pub(super) const PENDING: &str = "pending";
+    pub(super) const SUBMITTED: &str = "submitted";
     pub(super) const SUCCESS: &str = "success";
+    pub(super) const DELAYED: &str = "delayed";
     pub(super) const FAILURE: &str = "failure";
     pub(super) const REFUNDED: &str = "refunded";
     pub(super) const REFUND: &str = "refund";
 }
 
-fn print_relay_status_change(source_chain: &str, status: &DepositStatus) {
+/// Truncate a transaction hash for display (first 10 chars + "...").
+fn truncate_tx_hash(hash: &str) -> &str {
+    &hash[..10.min(hash.len())]
+}
+
+fn render_relay_status(source_chain: &str, status: &DepositStatus) {
     match status.status.as_str() {
-        "waiting" => {
+        relay_status::WAITING => {
             eprintln!("  Waiting for deposit on {source_chain}...");
         }
-        "pending" => {
+        relay_status::PENDING => {
             eprint!("  Deposit detected on {source_chain}");
-            if let Some(txs) = &status.in_tx_hashes {
-                if let Some(hash) = txs.first() {
-                    eprint!(" (tx: {}...)", &hash[..10.min(hash.len())]);
-                }
+            if let Some(hash) = status.in_tx_hashes.as_deref().and_then(|t| t.first()) {
+                eprint!(" (tx: {}...)", truncate_tx_hash(hash));
             }
             eprintln!();
         }
-        "submitted" => {
+        relay_status::SUBMITTED => {
             eprintln!("  Bridging to Tempo...");
         }
-        "success" => {
+        relay_status::SUCCESS => {
             eprint!("  Bridge complete");
-            if let Some(txs) = &status.out_tx_hashes {
-                if let Some(hash) = txs.first() {
-                    eprint!(" (tx: {}...)", &hash[..10.min(hash.len())]);
-                }
+            if let Some(hash) = status.out_tx_hashes.as_deref().and_then(|t| t.first()) {
+                eprint!(" (tx: {}...)", truncate_tx_hash(hash));
             }
             eprintln!();
         }
-        "delayed" => {
+        relay_status::DELAYED => {
             eprintln!("  Bridge delayed, still processing...");
         }
         other => {
@@ -267,7 +235,7 @@ fn print_relay_status_change(source_chain: &str, status: &DepositStatus) {
 }
 
 /// Generate a QR code and display it as compact Unicode to stderr.
-fn print_qr_code(data: &str) {
+fn render_qr_code(data: &str) {
     let code = match qrcode::QrCode::new(data) {
         Ok(c) => c,
         Err(e) => {
@@ -276,7 +244,6 @@ fn print_qr_code(data: &str) {
         }
     };
 
-    use qrcode::render::unicode;
     let terminal_qr = code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)

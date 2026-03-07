@@ -9,16 +9,12 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use crate::account::TokenBalance;
-use crate::cli::OutputFormat;
-use crate::config::Config;
+use crate::cli::Context;
 use crate::error::TempoWalletError;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
 
 use relay::DepositStatus;
-
-/// Timeout for polling faucet balance changes (seconds).
-const FAUCET_POLL_TIMEOUT_SECS: u64 = 120;
 
 /// Interval between balance/status poll attempts (seconds).
 const POLL_INTERVAL_SECS: u64 = 3;
@@ -50,23 +46,16 @@ pub(super) struct FundResponse {
 // ---------------------------------------------------------------------------
 
 pub(super) async fn run(
-    config: &Config,
-    output_format: OutputFormat,
-    network_id: NetworkId,
+    ctx: &Context,
     address: Option<String>,
     no_wait: bool,
-    keys: &Keystore,
 ) -> anyhow::Result<()> {
-    let wallet_address = resolve_address(address, keys)?;
+    let wallet_address = resolve_address(address, &ctx.keys)?;
 
-    match network_id {
-        NetworkId::TempoModerato => {
-            faucet::run_faucet(config, output_format, network_id, &wallet_address, !no_wait).await
-        }
-        NetworkId::Tempo => {
-            bridge::run_mainnet_fund(config, output_format, network_id, &wallet_address, !no_wait)
-                .await
-        }
+    let wait = !no_wait;
+    match ctx.network {
+        NetworkId::TempoModerato => faucet::run(ctx, &wallet_address, wait).await,
+        NetworkId::Tempo => bridge::run(ctx, &wallet_address, wait).await,
     }
 }
 
@@ -74,6 +63,7 @@ pub(super) async fn run(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+/// Resolve the target wallet address from an explicit arg or the keystore default.
 fn resolve_address(address: Option<String>, keys: &Keystore) -> anyhow::Result<String> {
     if let Some(addr) = address {
         return Ok(addr);
@@ -83,7 +73,8 @@ fn resolve_address(address: Option<String>, keys: &Keystore) -> anyhow::Result<S
 
     if wallet_addr.is_empty() {
         anyhow::bail!(TempoWalletError::ConfigMissing(
-            "No wallet configured. Log in with 'tempo-wallet login'.".to_string(),
+            "No wallet configured. Run 'tempo-wallet login' or 'tempo-wallet wallets create'."
+                .to_string(),
         ));
     }
 
@@ -113,6 +104,7 @@ where
     }
 }
 
+/// Returns `true` if any token balance differs between `initial` and `current`.
 pub(super) fn has_balance_changed(initial: &[TokenBalance], current: &[TokenBalance]) -> bool {
     if current.len() != initial.len() {
         return true;
@@ -132,12 +124,13 @@ pub(super) fn has_balance_changed(initial: &[TokenBalance], current: &[TokenBala
 /// representations (e.g. "1.0" vs "1.000000").
 fn balances_equal(a: &str, b: &str) -> bool {
     match (a.parse::<f64>(), b.parse::<f64>()) {
-        (Ok(va), Ok(vb)) => (va - vb).abs() < f64::EPSILON,
+        (Ok(va), Ok(vb)) => (va - vb).abs() < 1e-9,
         _ => a == b,
     }
 }
 
-fn print_balance_diff(before: &[TokenBalance], after: &[TokenBalance]) {
+/// Render per-token balance changes to stderr.
+pub(super) fn render_balance_diff(before: &[TokenBalance], after: &[TokenBalance]) {
     for cur in after {
         let prev = before
             .iter()

@@ -12,7 +12,7 @@
 //! - Release builds use `OsKeychain`
 
 #[cfg(test)]
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 #[cfg(test)]
 use std::sync::Mutex;
 
@@ -22,7 +22,12 @@ use anyhow::Result;
 use zeroize::Zeroizing;
 
 #[cfg(not(target_os = "macos"))]
-use crate::error::TempoWalletError;
+fn unsupported() -> anyhow::Error {
+    crate::error::TempoWalletError::Keychain(
+        "OS keychain not supported on this platform".to_string(),
+    )
+    .into()
+}
 
 /// Global keychain backend. Initialised lazily via [`keychain()`].
 static KEYCHAIN_BACKEND: OnceLock<Box<dyn KeychainBackend>> = OnceLock::new();
@@ -69,7 +74,6 @@ pub(super) trait KeychainBackend: Send + Sync {
 #[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 struct OsKeychain;
 
-#[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 impl KeychainBackend for OsKeychain {
     fn get(&self, profile: &str) -> Result<Option<Zeroizing<String>>> {
         #[cfg(target_os = "macos")]
@@ -79,9 +83,7 @@ impl KeychainBackend for OsKeychain {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = profile;
-            anyhow::bail!(TempoWalletError::Keychain(
-                "OS keychain not supported on this platform".to_string()
-            ))
+            Err(unsupported())
         }
     }
 
@@ -93,9 +95,7 @@ impl KeychainBackend for OsKeychain {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (profile, secret_hex);
-            anyhow::bail!(TempoWalletError::Keychain(
-                "OS keychain not supported on this platform".to_string()
-            ))
+            Err(unsupported())
         }
     }
 
@@ -107,9 +107,7 @@ impl KeychainBackend for OsKeychain {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = profile;
-            anyhow::bail!(TempoWalletError::Keychain(
-                "OS keychain not supported on this platform".to_string()
-            ))
+            Err(unsupported())
         }
     }
 
@@ -120,9 +118,7 @@ impl KeychainBackend for OsKeychain {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            anyhow::bail!(TempoWalletError::Keychain(
-                "OS keychain not supported on this platform".to_string()
-            ))
+            Err(unsupported())
         }
     }
 }
@@ -179,6 +175,7 @@ mod macos {
         let mut cur_acct: Option<String> = None;
         let mut cur_is_ours = false;
 
+        let svce_marker = format!("\"svce\"<blob>=\"{SERVICE}\"");
         for line in stdout.lines() {
             let trimmed = line.trim();
             // New item boundary — flush previous block.
@@ -200,7 +197,7 @@ mod macos {
             {
                 cur_acct = Some(acct.to_string());
             }
-            if trimmed.contains(&format!("\"svce\"<blob>=\"{SERVICE}\"")) {
+            if trimmed.contains(&svce_marker) {
                 cur_is_ours = true;
             }
         }
@@ -230,17 +227,17 @@ mod macos {
 
 /// In-memory keychain backend for testing.
 ///
-/// Thread-safe via `Mutex<HashMap>`. All operations are synchronous and infallible.
+/// Thread-safe via `Mutex<BTreeMap>`. All operations are synchronous and infallible.
 #[cfg(test)]
 struct InMemoryKeychain {
-    store: Mutex<HashMap<String, String>>,
+    store: Mutex<BTreeMap<String, String>>,
 }
 
 #[cfg(test)]
 impl InMemoryKeychain {
     fn new() -> Self {
         Self {
-            store: Mutex::new(HashMap::new()),
+            store: Mutex::new(BTreeMap::new()),
         }
     }
 }

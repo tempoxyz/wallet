@@ -178,7 +178,7 @@ fn format_amount(amount: &str, decimals: Option<u32>) -> String {
 // Rendering (free functions, separated from data model)
 // ---------------------------------------------------------------------------
 
-fn print_service_list(
+fn render_service_list(
     services: &[Service],
     output_format: OutputFormat,
     category: Option<&str>,
@@ -294,7 +294,7 @@ fn render_table(services: &[&Service]) {
     println!("\n{} service(s).", services.len());
 }
 
-fn print_service_detail(service: &Service, output_format: OutputFormat) -> Result<()> {
+fn render_service_detail(service: &Service, output_format: OutputFormat) -> Result<()> {
     match output_format {
         OutputFormat::Json | OutputFormat::Toon => {
             println!("{}", output_format.serialize(service)?);
@@ -456,11 +456,11 @@ pub(crate) async fn run(ctx: &Context, args: ServicesArgs) -> Result<()> {
         let Some(service) = registry.find(id) else {
             bail!("service '{id}' not found");
         };
-        return print_service_detail(service, output_format);
+        return render_service_detail(service, output_format);
     }
 
     // `services list` or `services` (with optional --category / --search)
-    print_service_list(
+    render_service_list(
         &registry.services,
         output_format,
         args.category.as_deref(),

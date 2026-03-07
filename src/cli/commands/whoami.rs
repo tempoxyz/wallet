@@ -57,7 +57,7 @@ pub(super) async fn show_whoami(
 ) -> anyhow::Result<()> {
     let keys = keys.unwrap_or(&ctx.keys);
     let response = build_response(&ctx.config, keys, ctx.network, wallet_address).await;
-    response.print(ctx.output_format)
+    response.render(ctx.output_format)
 }
 
 async fn build_response(
@@ -140,7 +140,7 @@ async fn build_response(
 }
 
 impl StatusResponse {
-    fn print(&self, format: OutputFormat) -> anyhow::Result<()> {
+    fn render(&self, format: OutputFormat) -> anyhow::Result<()> {
         if format.is_structured() {
             println!("{}", format.serialize(self)?);
             return Ok(());

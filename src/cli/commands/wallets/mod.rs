@@ -3,101 +3,105 @@
 mod fund;
 mod keychain;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
-use clap::CommandFactory;
 use serde::Serialize;
 use zeroize::Zeroizing;
 
 use self::keychain::keychain;
+use crate::analytics::{Event, WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload};
 use crate::cli::args::WalletCommands;
-use crate::cli::{Cli, Context, OutputFormat};
+use crate::cli::{Context, OutputFormat};
 use crate::error::TempoWalletError;
-use crate::keys::authorization;
-use crate::keys::{parse_private_key_signer, KeyEntry, Keystore, WalletType};
+use crate::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, WalletType};
 use crate::network::NetworkId;
-use crate::util::sanitize_error;
+use crate::util::{print_field_w, sanitize_error};
 
 pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Result<()> {
-    if let Some(subcommand) = command {
-        match subcommand {
-            WalletCommands::List => show_wallet_list(ctx.output_format, &ctx.keys).await,
-            WalletCommands::Create => {
-                let result = create_local_wallet(&ctx.network, &ctx.keys);
-                if result.is_ok() {
-                    if let Some(a) = ctx.analytics.as_ref() {
-                        a.track(
-                            crate::analytics::Event::WalletCreated,
-                            crate::analytics::WalletCreatedPayload {
-                                wallet_type: "local".to_string(),
-                            },
-                        );
-                    }
-                }
-                let wallet_addr = result?;
-                let fresh_keys = ctx.keys.reload()?;
-                super::whoami::show_whoami(ctx, Some(&fresh_keys), Some(&wallet_addr)).await
-            }
-            WalletCommands::Fund { address, no_wait } => {
-                let method = match ctx.network {
-                    NetworkId::TempoModerato => "faucet",
-                    NetworkId::Tempo => "bridge",
-                };
+    match command {
+        Some(WalletCommands::List) => list_wallets(ctx),
+        Some(WalletCommands::Create) => {
+            let result = create_local_wallet(&ctx.network, &ctx.keys);
+            if result.is_ok() {
                 if let Some(a) = ctx.analytics.as_ref() {
                     a.track(
-                        crate::analytics::Event::WalletFundStarted,
-                        crate::analytics::WalletFundPayload {
-                            network: ctx.network.as_str().to_string(),
-                            method: method.to_string(),
+                        Event::WalletCreated,
+                        WalletCreatedPayload {
+                            wallet_type: "local".to_string(),
                         },
                     );
                 }
-                let result = fund::run(
-                    &ctx.config,
-                    ctx.output_format,
-                    ctx.network,
-                    address,
-                    no_wait,
-                    &ctx.keys,
-                )
-                .await;
-                if let Some(a) = ctx.analytics.as_ref() {
-                    match &result {
-                        Ok(()) => {
-                            a.track(
-                                crate::analytics::Event::WalletFundSuccess,
-                                crate::analytics::WalletFundPayload {
-                                    network: ctx.network.as_str().to_string(),
-                                    method: method.to_string(),
-                                },
-                            );
-                        }
-                        Err(e) => {
-                            a.track(
-                                crate::analytics::Event::WalletFundFailure,
-                                crate::analytics::WalletFundFailurePayload {
-                                    network: ctx.network.as_str().to_string(),
-                                    method: method.to_string(),
-                                    error: sanitize_error(&e.to_string()),
-                                },
-                            );
-                        }
-                    }
-                }
-                result
             }
+            let wallet_addr = result?;
+            let fresh_keys = ctx.keys.reload()?;
+            super::whoami::show_whoami(ctx, Some(&fresh_keys), Some(&wallet_addr)).await
         }
-    } else {
-        if let Some(wallet_cmd) = Cli::command().find_subcommand_mut("wallets") {
-            wallet_cmd.print_help()?;
-        } else {
-            Cli::command().print_help()?;
+        Some(WalletCommands::Fund { address, no_wait }) => {
+            let method = match ctx.network {
+                NetworkId::TempoModerato => "faucet",
+                NetworkId::Tempo => "bridge",
+            };
+            track_fund_start(ctx, method);
+            let result = fund::run(ctx, address, no_wait).await;
+            track_fund_result(ctx, method, &result);
+            result
         }
-        Ok(())
+        None => {
+            use clap::CommandFactory;
+            if let Some(wallet_cmd) = crate::cli::Cli::command().find_subcommand_mut("wallets") {
+                wallet_cmd.print_help()?;
+            } else {
+                crate::cli::Cli::command().print_help()?;
+            }
+            Ok(())
+        }
     }
 }
+
+fn track_fund_start(ctx: &Context, method: &str) {
+    if let Some(a) = ctx.analytics.as_ref() {
+        a.track(
+            Event::WalletFundStarted,
+            WalletFundPayload {
+                network: ctx.network.as_str().to_string(),
+                method: method.to_string(),
+            },
+        );
+    }
+}
+
+fn track_fund_result(ctx: &Context, method: &str, result: &Result<()>) {
+    let Some(a) = ctx.analytics.as_ref() else {
+        return;
+    };
+    match result {
+        Ok(()) => {
+            a.track(
+                Event::WalletFundSuccess,
+                WalletFundPayload {
+                    network: ctx.network.as_str().to_string(),
+                    method: method.to_string(),
+                },
+            );
+        }
+        Err(e) => {
+            a.track(
+                Event::WalletFundFailure,
+                WalletFundFailurePayload {
+                    network: ctx.network.as_str().to_string(),
+                    method: method.to_string(),
+                    error: sanitize_error(&e.to_string()),
+                },
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
 
 /// Create a local EOA wallet with a signing key.
 ///
@@ -105,7 +109,7 @@ pub(crate) async fn run(ctx: &Context, command: Option<WalletCommands>) -> Resul
 /// 2. Generate random key → store inline in keys.toml
 /// 3. Sign key_authorization for the target chain
 /// 4. Do not provision; auto-provisions on first payment
-/// 5. Print the fundable wallet address
+/// 5. Return the fundable wallet address
 fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
     if keys.ephemeral {
         anyhow::bail!(TempoWalletError::InvalidConfig(
@@ -160,7 +164,7 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
 ///
 /// 1. Load the wallet EOA key from the OS keychain
 /// 2. Generate a new random key → store inline in keys.toml
-/// 3. Sign a fresh key_authorization (30-day expiry, $100 limit)
+/// 3. Sign a fresh key_authorization
 /// 4. Clear provisioned flag (new key must re-provision)
 pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -> Result<()> {
     if keys.ephemeral {
@@ -182,19 +186,18 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
                 ))
             })?
     } else {
-        let local_indices: Vec<_> = keys
+        let mut local_iter = keys
             .keys
             .iter()
             .enumerate()
             .filter(|(_, k)| k.wallet_type == WalletType::Local)
-            .map(|(i, _)| i)
-            .collect();
-        match local_indices.len() {
-            0 => anyhow::bail!(TempoWalletError::ConfigMissing(
+            .map(|(i, _)| i);
+        match (local_iter.next(), local_iter.next()) {
+            (None, _) => anyhow::bail!(TempoWalletError::ConfigMissing(
                 "No local wallet found.".to_string()
             )),
-            1 => local_indices[0],
-            _ => anyhow::bail!(TempoWalletError::InvalidConfig(
+            (Some(i), None) => i,
+            (Some(_), Some(_)) => anyhow::bail!(TempoWalletError::InvalidConfig(
                 "Multiple local wallets found. Specify --wallet <address>.".to_string()
             )),
         }
@@ -229,6 +232,7 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
     entry.key_address = Some(access_key_address);
     entry.key = Some(access_key_hex);
     entry.key_authorization = Some(auth.hex);
+    entry.key_type = auth.key_type;
     entry.provisioned = false;
     entry.expiry = Some(auth.expiry);
     entry.limits = auth.limits;
@@ -254,24 +258,33 @@ struct WalletListResponse {
     total: usize,
 }
 
-async fn show_wallet_list(output_format: OutputFormat, keys: &Keystore) -> anyhow::Result<()> {
+impl WalletListResponse {
+    fn new(wallets: Vec<WalletListEntry>) -> Self {
+        let total = wallets.len();
+        Self { wallets, total }
+    }
+}
+
+fn list_wallets(ctx: &Context) -> Result<()> {
     // Group keys by wallet address (case-insensitive).
-    let mut wallets: BTreeMap<String, WalletListEntry> = BTreeMap::new();
-    for entry in &keys.keys {
+    let mut wallets: BTreeMap<String, (WalletListEntry, BTreeSet<String>)> = BTreeMap::new();
+    for entry in &ctx.keys.keys {
         if entry.wallet_address.is_empty() {
             continue;
         }
         let key = entry.wallet_address.to_lowercase();
-        let wallet = wallets.entry(key).or_insert_with(|| WalletListEntry {
-            address: entry.wallet_address.clone(),
-            wallet_type: entry.wallet_type.as_str().to_string(),
-            networks: Vec::new(),
+        let (_, networks) = wallets.entry(key).or_insert_with(|| {
+            (
+                WalletListEntry {
+                    address: entry.wallet_address.clone(),
+                    wallet_type: entry.wallet_type.as_str().to_string(),
+                    networks: Vec::new(),
+                },
+                BTreeSet::new(),
+            )
         });
         if let Some(net) = NetworkId::from_chain_id(entry.chain_id) {
-            let name = net.as_str().to_string();
-            if !wallet.networks.contains(&name) {
-                wallet.networks.push(name);
-            }
+            networks.insert(net.as_str().to_string());
         }
     }
 
@@ -279,43 +292,59 @@ async fn show_wallet_list(output_format: OutputFormat, keys: &Keystore) -> anyho
     if let Ok(keychain_addrs) = keychain().list() {
         for addr in keychain_addrs {
             let key = addr.to_lowercase();
-            wallets.entry(key).or_insert_with(|| WalletListEntry {
-                address: addr,
-                wallet_type: "local".to_string(),
-                networks: Vec::new(),
+            wallets.entry(key).or_insert_with(|| {
+                (
+                    WalletListEntry {
+                        address: addr,
+                        wallet_type: "local".to_string(),
+                        networks: Vec::new(),
+                    },
+                    BTreeSet::new(),
+                )
             });
         }
     }
 
-    let wallets: Vec<_> = wallets.into_values().collect();
-    let total = wallets.len();
-    let response = WalletListResponse { wallets, total };
+    let wallets: Vec<_> = wallets
+        .into_values()
+        .map(|(mut entry, networks)| {
+            entry.networks = networks.into_iter().collect();
+            entry
+        })
+        .collect();
+    let response = WalletListResponse::new(wallets);
 
-    match output_format {
+    match ctx.output_format {
         OutputFormat::Json | OutputFormat::Toon => {
-            println!("{}", output_format.serialize(&response)?);
+            println!("{}", ctx.output_format.serialize(&response)?);
         }
-        OutputFormat::Text => {
-            if response.wallets.is_empty() {
-                println!("No wallets configured.");
-                return Ok(());
-            }
-            for wallet in &response.wallets {
-                let network = wallet
-                    .networks
-                    .first()
-                    .and_then(|n| NetworkId::resolve(Some(n)).ok())
-                    .unwrap_or_default();
-                let addr_link = network.address_link(&wallet.address);
-                println!("{:>10}: {} ({})", "Wallet", addr_link, wallet.wallet_type);
-                if !wallet.networks.is_empty() {
-                    println!("{:>10}: {}", "Networks", wallet.networks.join(", "));
-                }
-                println!();
-            }
-            println!("{} wallet(s) total.", response.total);
-        }
+        OutputFormat::Text => render_wallets(&response),
     }
 
     Ok(())
+}
+
+fn render_wallets(response: &WalletListResponse) {
+    if response.wallets.is_empty() {
+        println!("No wallets configured.");
+        return;
+    }
+    for wallet in &response.wallets {
+        let network = wallet
+            .networks
+            .first()
+            .and_then(|n| NetworkId::resolve(Some(n)).ok())
+            .unwrap_or_default();
+        let addr_link = network.address_link(&wallet.address);
+        print_field_w(
+            10,
+            "Wallet",
+            &format!("{addr_link} ({})", wallet.wallet_type),
+        );
+        if !wallet.networks.is_empty() {
+            print_field_w(10, "Networks", &wallet.networks.join(", "));
+        }
+        println!();
+    }
+    println!("{} wallet(s) total.", response.wallets.len());
 }

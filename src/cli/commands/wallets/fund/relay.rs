@@ -1,10 +1,17 @@
 //! Relay bridge API client — deposit address creation and status polling.
 
+use alloy::primitives::Address;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::error::TempoWalletError;
 use crate::network;
+
+/// Truncate a response body for error messages (max 500 chars).
+fn truncate_response(text: &str) -> &str {
+    const MAX_LEN: usize = 500;
+    &text[..text.floor_char_boundary(MAX_LEN)]
+}
 
 // ---------------------------------------------------------------------------
 // Source chain configuration
@@ -58,7 +65,7 @@ pub(super) fn source_chains() -> &'static [SourceChain] {
 // ---------------------------------------------------------------------------
 
 /// Result of creating a deposit address via the Relay API.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug)]
 pub(super) struct DepositAddressResult {
     pub(super) deposit_address: String,
     pub(super) request_id: String,
@@ -74,7 +81,7 @@ pub(super) async fn create_deposit_address(
     let url = format!("{}/quote/v2", source_chain.relay_api);
 
     let body = serde_json::json!({
-        "user": "0x0000000000000000000000000000000000000000",
+        "user": Address::ZERO.to_string(),
         "originChainId": source_chain.chain_id,
         "originCurrency": source_chain.usdc_address,
         "destinationChainId": destination_chain_id,
@@ -99,11 +106,7 @@ pub(super) async fn create_deposit_address(
     let text = resp.text().await.context("Failed to read Relay response")?;
 
     if !status.is_success() {
-        let truncated = if text.len() > 500 {
-            &text[..500]
-        } else {
-            &text
-        };
+        let truncated = truncate_response(&text);
         anyhow::bail!(TempoWalletError::Http(format!(
             "Relay API returned {status}: {truncated}"
         )));
@@ -144,15 +147,19 @@ pub(super) async fn create_deposit_address(
 // ---------------------------------------------------------------------------
 
 /// Status of a cross-chain deposit tracked by Relay.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct DepositStatus {
     /// One of: waiting, pending, submitted, success, failure, refunded.
     pub(super) status: String,
     /// Transaction hashes on the source chain.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "inTxHashes",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub(super) in_tx_hashes: Option<Vec<String>>,
     /// Transaction hashes on the destination chain.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "txHashes", skip_serializing_if = "Option::is_none")]
     pub(super) out_tx_hashes: Option<Vec<String>>,
 }
 
@@ -174,46 +181,24 @@ pub(super) async fn poll_deposit_status(
     let text = resp.text().await.context("Failed to read Relay response")?;
 
     if !status.is_success() {
-        let truncated = if text.len() > 500 {
-            &text[..500]
-        } else {
-            &text
-        };
+        let truncated = truncate_response(&text);
         anyhow::bail!(TempoWalletError::Http(format!(
             "Relay API returned {status}: {truncated}"
         )));
     }
 
-    let json: serde_json::Value =
+    let deposit_status: DepositStatus =
         serde_json::from_str(&text).context("Failed to parse Relay status response")?;
 
-    let status_str = match json["status"].as_str() {
-        Some(s) => s.to_string(),
-        None => return Ok(None),
-    };
+    if deposit_status.status.is_empty() {
+        return Ok(None);
+    }
 
-    let in_tx_hashes = json["inTxHashes"]
-        .as_array()
-        .map(|txs| {
-            txs.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect::<Vec<_>>()
-        })
-        .filter(|v| !v.is_empty());
-
-    let out_tx_hashes = json["txHashes"]
-        .as_array()
-        .map(|txs| {
-            txs.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect::<Vec<_>>()
-        })
-        .filter(|v| !v.is_empty());
-
+    // Filter out empty tx hash vecs to normalize the response.
     Ok(Some(DepositStatus {
-        status: status_str,
-        in_tx_hashes,
-        out_tx_hashes,
+        in_tx_hashes: deposit_status.in_tx_hashes.filter(|v| !v.is_empty()),
+        out_tx_hashes: deposit_status.out_tx_hashes.filter(|v| !v.is_empty()),
+        ..deposit_status
     }))
 }
 
