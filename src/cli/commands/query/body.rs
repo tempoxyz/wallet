@@ -1,4 +1,4 @@
-//! URL handling, body/data resolution, and form encoding for query inputs.
+//! Request body resolution and form encoding for query inputs.
 
 use anyhow::{Context as _, Result};
 
@@ -6,18 +6,6 @@ use crate::error::TempoWalletError;
 
 /// Maximum request body size (100 MB)
 const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
-
-/// Parse and validate a URL, ensuring it uses http or https.
-pub(super) fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
-    let parsed = url::Url::parse(raw).map_err(|e| TempoWalletError::InvalidUrl(e.to_string()))?;
-    let scheme = parsed.scheme();
-    if scheme != "http" && scheme != "https" {
-        anyhow::bail!(TempoWalletError::InvalidUrl(format!(
-            "unsupported scheme '{scheme}'"
-        )));
-    }
-    Ok(parsed)
-}
 
 /// Append `-d` data and `--data-urlencode` values to a URL's query string.
 ///
