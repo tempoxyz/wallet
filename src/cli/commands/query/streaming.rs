@@ -25,13 +25,16 @@ pub(super) async fn execute_streaming(
 ) -> Result<()> {
     let start = std::time::Instant::now();
     let mut req = http.client().request(http.plan.method.clone(), url);
+    for (name, value) in &http.plan.headers {
+        req = req.header(name.as_str(), value.as_str());
+    }
     if let Some(ref body) = http.plan.body {
         req = req.body(body.clone());
     }
     let resp = req.send().await?;
     let status = resp.status().as_u16();
     let final_url_string = resp.url().to_string();
-    let header_map_for_meta: Vec<(String, String)> = resp
+    let headers: Vec<(String, String)> = resp
         .headers()
         .iter()
         .filter_map(|(k, v)| {
@@ -43,15 +46,14 @@ pub(super) async fn execute_streaming(
 
     if output_opts.include_headers {
         println!("HTTP {}", status);
-        for (k, v) in resp.headers() {
-            if let Ok(s) = v.to_str() {
-                println!("{}: {}", k.as_str().to_lowercase(), s);
-            }
+        for (k, v) in &headers {
+            println!("{k}: {v}");
         }
         println!();
     }
 
     let mut bytes_written: usize = 0;
+    let mut stdout = std::io::stdout().lock();
     if sse_json {
         // Convert SSE to NDJSON objects with event/data/ts schema
         let mut buf: Vec<u8> = Vec::new();
@@ -60,12 +62,13 @@ pub(super) async fn execute_streaming(
             buf.extend_from_slice(&chunk);
             // Process complete lines
             while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-                let line = buf.drain(..=pos).collect::<Vec<u8>>();
-                let s = String::from_utf8_lossy(&line);
-                let st = s.trim_end_matches(['\r', '\n']);
+                let line = String::from_utf8_lossy(&buf[..=pos]).into_owned();
+                buf.drain(..=pos);
+                let st = line.trim_end_matches(['\r', '\n']);
                 if st.is_empty() {
                     continue;
                 }
+                // Only data: fields are extracted; event:/id:/retry: are intentionally skipped.
                 if let Some(rest) = st.strip_prefix("data:") {
                     let content = rest.trim_start();
                     let data_value = serde_json::from_str::<serde_json::Value>(content)
@@ -76,36 +79,38 @@ pub(super) async fn execute_streaming(
                         "ts": crate::util::now_utc(),
                     });
                     let out = serde_json::to_string(&obj)?;
-                    std::io::stdout().write_all(out.as_bytes())?;
-                    std::io::stdout().write_all(b"\n")?;
+                    stdout.write_all(out.as_bytes())?;
+                    stdout.write_all(b"\n")?;
                     bytes_written = bytes_written.saturating_add(out.len() + 1);
                 }
             }
-            std::io::stdout().flush().ok();
+            stdout.flush().ok();
         }
     } else {
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await.transpose()? {
             bytes_written = bytes_written.saturating_add(chunk.len());
-            std::io::stdout().write_all(&chunk)?;
-            std::io::stdout().flush().ok();
+            stdout.write_all(&chunk)?;
+            stdout.flush().ok();
         }
     }
+    drop(stdout);
 
     // Write meta if requested
-    let meta_resp = HttpResponse {
-        status_code: status,
-        headers: header_map_for_meta,
-        body: Vec::new(),
-        final_url: Some(final_url_string.clone()),
-    };
-    let _ = write_meta_if_requested(
+    if let Err(e) = write_meta_if_requested(
         output_opts,
-        &meta_resp,
+        &HttpResponse {
+            status_code: status,
+            headers,
+            body: Vec::new(),
+            final_url: None,
+        },
         start.elapsed().as_millis(),
         bytes_written,
         &final_url_string,
-    );
+    ) {
+        tracing::warn!("failed to write response metadata: {e}");
+    }
 
     if status >= 400 {
         let msg = format!("{} {}", status, http_status_text(status));

@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
-use mpp::PaymentProtocol;
 
 use crate::error::TempoWalletError;
 use crate::http::HttpResponse;
@@ -26,9 +25,6 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<Challen
         .header("www-authenticate")
         .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate".to_string()))?;
 
-    let _protocol = PaymentProtocol::detect(Some(www_auth))
-        .ok_or_else(|| TempoWalletError::MissingHeader("WWW-Authenticate: Payment".to_string()))?;
-
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
@@ -45,9 +41,9 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<Challen
         let cid = chain_id.ok_or_else(|| {
             TempoWalletError::InvalidChallenge("missing chainId in payment request".to_string())
         })?;
-        Ok(NetworkId::from_chain_id(cid).ok_or_else(|| {
-            TempoWalletError::InvalidChallenge(format!("unsupported chainId: {cid}"))
-        })?)
+        NetworkId::from_chain_id(cid).ok_or_else(|| {
+            TempoWalletError::InvalidChallenge(format!("unsupported chainId: {cid}")).into()
+        })
     };
 
     let (network, amount, currency) =

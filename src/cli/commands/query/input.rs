@@ -149,25 +149,29 @@ pub(super) fn resolve_method_and_body(
 }
 
 /// Parse --data-urlencode items into (name, value) tuples with URL-encoding applied.
-pub(super) fn parse_data_urlencode(items: &[String]) -> Vec<(Option<String>, String)> {
+pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<String>, String)>> {
     let mut pairs = Vec::new();
     for it in items {
         if let Some(rest) = it.strip_prefix('@') {
             // @filename — read file contents
-            if let Ok(content) = std::fs::read(rest) {
-                let enc = urlencoding::encode_binary(&content).to_string();
-                pairs.push((None, enc));
-            }
+            let content = std::fs::read(rest).map_err(|e| RequestError::ReadFile {
+                path: rest.to_string(),
+                source: e,
+            })?;
+            let enc = urlencoding::encode_binary(&content).to_string();
+            pairs.push((None, enc));
             continue;
         }
         if let Some(pos) = it.find("=@") {
-            // name@filename pattern (curl-style)
+            // name=@filename pattern (curl-style)
             let (name, file) = it.split_at(pos);
             let file = &file[2..];
-            if let Ok(content) = std::fs::read(file) {
-                let enc = urlencoding::encode_binary(&content).to_string();
-                pairs.push((Some(name.to_string()), enc));
-            }
+            let content = std::fs::read(file).map_err(|e| RequestError::ReadFile {
+                path: file.to_string(),
+                source: e,
+            })?;
+            let enc = urlencoding::encode_binary(&content).to_string();
+            pairs.push((Some(name.to_string()), enc));
             continue;
         }
         if let Some((name, val)) = it.split_once('=') {
@@ -177,7 +181,7 @@ pub(super) fn parse_data_urlencode(items: &[String]) -> Vec<(Option<String>, Str
             pairs.push((None, urlencoding::encode(it).to_string()));
         }
     }
-    pairs
+    Ok(pairs)
 }
 
 fn is_json_data(data: &str) -> bool {
@@ -474,7 +478,7 @@ mod tests {
     #[test]
     fn test_parse_data_urlencode_simple() {
         let items = vec!["key=hello world".to_string()];
-        let result = parse_data_urlencode(&items);
+        let result = parse_data_urlencode(&items).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, Some("key".to_string()));
         assert_eq!(result[0].1, "hello%20world");
@@ -483,9 +487,25 @@ mod tests {
     #[test]
     fn test_parse_data_urlencode_raw() {
         let items = vec!["hello world".to_string()];
-        let result = parse_data_urlencode(&items);
+        let result = parse_data_urlencode(&items).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, None);
         assert_eq!(result[0].1, "hello%20world");
+    }
+
+    #[test]
+    fn test_parse_data_urlencode_file_not_found() {
+        let items = vec!["@nonexistent_file_12345.txt".to_string()];
+        let err = parse_data_urlencode(&items).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("failed to read file"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_parse_data_urlencode_named_file_not_found() {
+        let items = vec!["field=@nonexistent_file_12345.txt".to_string()];
+        let err = parse_data_urlencode(&items).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("failed to read file"), "got: {msg}");
     }
 }

@@ -9,18 +9,18 @@ use super::challenge::ChallengeContext;
 ///
 /// Created once after parsing the 402 challenge, then used to track
 /// started/success/failure events identically for both charge and session flows.
-pub(super) struct PaymentAnalytics {
-    analytics: Option<Analytics>,
+pub(super) struct PaymentAnalytics<'a> {
+    analytics: &'a Option<Analytics>,
     network: String,
     amount: String,
     currency: String,
     intent: String,
 }
 
-impl PaymentAnalytics {
-    pub(super) fn from_challenge(ctx: &ChallengeContext, analytics: &Option<Analytics>) -> Self {
+impl<'a> PaymentAnalytics<'a> {
+    pub(super) fn from_challenge(ctx: &ChallengeContext, analytics: &'a Option<Analytics>) -> Self {
         Self {
-            analytics: analytics.clone(),
+            analytics,
             network: ctx.network.as_str().to_string(),
             amount: ctx.amount.clone(),
             currency: ctx.currency.clone(),

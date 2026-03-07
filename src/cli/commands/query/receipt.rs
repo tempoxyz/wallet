@@ -1,5 +1,7 @@
 //! Payment receipt display and response finalization.
 
+use std::fmt::Write as _;
+use std::io::Write;
 use std::path::{Component, Path};
 
 use anyhow::{Context as _, Result};
@@ -81,10 +83,8 @@ pub(super) fn write_meta_if_requested(
         let hdr_obj: serde_json::Value = response
             .headers
             .iter()
-            .fold(serde_json::Map::new(), |mut map, (k, v)| {
-                map.insert(k.clone(), serde_json::Value::String(v.clone()));
-                map
-            })
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect::<serde_json::Map<_, _>>()
             .into();
         let obj = serde_json::json!({
             "status": response.status_code,
@@ -102,9 +102,9 @@ pub(super) fn write_meta_if_requested(
 /// Write response headers to a file (HTTP status line + headers + blank line).
 fn write_headers_file(opts: &OutputOptions, path: &str, response: &HttpResponse) -> Result<()> {
     let mut content = String::new();
-    content.push_str(&format!("HTTP {}\n", response.status_code));
+    writeln!(content, "HTTP {}", response.status_code).unwrap();
     for (name, value) in &response.headers {
-        content.push_str(&format!("{}: {}\n", name, value));
+        writeln!(content, "{name}: {value}").unwrap();
     }
     content.push('\n');
     write_to_file(opts, path, content.as_bytes())
@@ -134,19 +134,19 @@ pub(super) fn display_receipt(
     let mut parsed_receipt: Option<mpp::Receipt> = None;
     if let Some(receipt_header) = response.header("payment-receipt") {
         // Prefer explicit tx hash; fall back to parsed reference
-        let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header).or_else(|| {
-            mpp::parse_receipt(receipt_header).ok().map(|r| {
-                parsed_receipt = Some(r.clone());
-                r.reference
-            })
-        });
+        let tx_ref = if let Some(hash) = mpp::protocol::core::extract_tx_hash(receipt_header) {
+            Some(hash)
+        } else if let Ok(receipt) = mpp::parse_receipt(receipt_header) {
+            let reference = receipt.reference.clone();
+            parsed_receipt = Some(receipt);
+            Some(reference)
+        } else {
+            None
+        };
 
         if let Some(tx) = tx_ref {
-            let tx_link = {
-                let url = network.tx_url(&tx);
-                hyperlink(&tx, &url)
-            };
-            link = Some(tx_link);
+            let url = network.tx_url(&tx);
+            link = Some(hyperlink(&tx, &url));
         }
     }
 
@@ -173,15 +173,14 @@ pub(super) fn display_receipt(
 /// Write bytes to a file, handling `-` as stdout and validating the path.
 fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result<()> {
     if output_file == "-" {
-        use std::io::Write;
         std::io::stdout()
             .write_all(data)
             .context("Failed to write to stdout")?;
     } else {
         let path = Path::new(output_file);
         if path.components().any(|c| matches!(c, Component::ParentDir)) {
-            anyhow::bail!(TempoWalletError::InvalidUrl(
-                "Invalid output path: path traversal (..) not allowed".to_string()
+            anyhow::bail!(TempoWalletError::InvalidConfig(
+                "invalid output path: path traversal (..) not allowed".to_string()
             ));
         }
         std::fs::write(output_file, data).context("Failed to write output file")?;

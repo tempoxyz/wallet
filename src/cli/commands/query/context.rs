@@ -30,7 +30,6 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         }
     }
 
-    // Network was already validated in run(), so parse is infallible here.
     // Kept as Option so the payment dispatch only enforces network matching
     // when the user explicitly passed --network.
     let network = cli
@@ -40,35 +39,28 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
 
     let verbosity = cli.verbosity();
 
-    // Determine method/body. If -I (HEAD) is provided, override method and ignore body inputs.
-    let (method, body) = if query.head {
-        resolve_method_and_body(Some("HEAD"), &[], None, None)?
-    } else if query.method.is_some() {
-        // Respect explicit -X even with -G; body still follows normal rules unless -G set
-        if query.get {
-            resolve_method_and_body(query.method.as_deref(), &[], None, None)?
-        } else {
-            resolve_method_and_body(
-                query.method.as_deref(),
-                &query.data,
-                query.json.as_deref(),
-                query.toon.as_deref(),
-            )?
-        }
-    } else if query.get {
-        // Force GET with no body when -G is used without -X
-        resolve_method_and_body(Some("GET"), &[], None, None)?
+    // Determine method/body. HEAD and -G modes suppress the body; otherwise use full inputs.
+    let suppress_body = query.head || query.get;
+    let method_override = if query.head {
+        Some("HEAD")
+    } else if query.get && query.method.is_none() {
+        Some("GET")
     } else {
-        resolve_method_and_body(
-            query.method.as_deref(),
-            &query.data,
+        query.method.as_deref()
+    };
+    let (data, json, toon) = if suppress_body {
+        (&[][..], None, None)
+    } else {
+        (
+            query.data.as_slice(),
             query.json.as_deref(),
             query.toon.as_deref(),
-        )?
+        )
     };
+    let (method, body) = resolve_method_and_body(method_override, data, json, toon)?;
 
     let mut headers = parse_headers(&query.headers);
-    // Add Authorization: Basic ... if -u/--user provided and not explicitly overriden by -H
+    // Add Authorization: Basic ... if -u/--user provided and not explicitly overridden by -H
     if let Some(ref user) = query.user {
         if !has_header(&query.headers, "authorization") {
             let encoded = base64::engine::general_purpose::STANDARD.encode(user);
@@ -92,12 +84,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         headers.push(("accept-encoding".to_string(), "gzip, br".to_string()));
     }
     if !query.head {
-        if should_auto_add_json_content_type(
-            &query.headers,
-            query.json.as_deref(),
-            query.toon.as_deref(),
-            &query.data,
-        ) {
+        if should_auto_add_json_content_type(&query.headers, json, toon, data) {
             headers.push(("content-type".to_string(), "application/json".to_string()));
         } else if !query.data_urlencode.is_empty() && !has_header(&query.headers, "content-type") {
             headers.push((
@@ -111,7 +98,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
     let body = if !query.get && !query.data_urlencode.is_empty() {
         // Start with existing body bytes, then append &encoded
         let mut base = body.unwrap_or_default();
-        let enc_pairs = parse_data_urlencode(&query.data_urlencode);
+        let enc_pairs = parse_data_urlencode(&query.data_urlencode)?;
         let mut form = String::new();
         for (i, (name, val)) in enc_pairs.into_iter().enumerate() {
             if i > 0 {
@@ -138,10 +125,8 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
     let mut retry_codes: Vec<u16> = query
         .retry_http
         .as_deref()
-        .unwrap_or("")
-        .split(',')
-        .filter_map(|s| s.trim().parse::<u16>().ok())
-        .collect();
+        .map(|s| s.split(',').filter_map(|s| s.trim().parse().ok()).collect())
+        .unwrap_or_default();
     // Curl parity: when --retries is set but no explicit --retry-http, use default transient set
     if query.retries.is_some() && retry_codes.is_empty() {
         retry_codes = vec![408, 429, 500, 502, 503, 504];
@@ -178,24 +163,25 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
 }
 
 /// Build `OutputOptions` from CLI arguments + config.
-pub(super) fn build_output_options(cli: &Cli, query: &QueryArgs) -> OutputOptions {
+///
+/// Accepts the already-parsed URL to avoid redundant parsing.
+pub(super) fn build_output_options(
+    cli: &Cli,
+    query: &QueryArgs,
+    parsed_url: &url::Url,
+) -> OutputOptions {
     OutputOptions {
         output_format: cli.resolve_output_format(),
         // -I (HEAD) implies showing headers, even if -i wasn't explicitly set
         include_headers: query.include_headers || query.head,
         output_file: if query.output.is_none() && query.remote_name {
             // Derive a filename from the URL's last path segment; fallback to 'index.html'
-            let url = &query.url;
-            if let Ok(u) = url::Url::parse(url) {
-                let seg = u
-                    .path_segments()
-                    .and_then(|mut s| s.next_back())
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or("index.html");
-                Some(seg.to_string())
-            } else {
-                None
-            }
+            let seg = parsed_url
+                .path_segments()
+                .and_then(|mut s| s.next_back())
+                .filter(|v| !v.is_empty())
+                .unwrap_or("index.html");
+            Some(seg.to_string())
         } else {
             query.output.clone()
         },
