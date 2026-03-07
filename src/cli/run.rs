@@ -41,16 +41,10 @@ impl Cli {
             Commands::Login => login::run(&ctx).await,
             Commands::Logout { yes } => logout::run(&ctx, yes),
             Commands::Completions { shell } => completions::run(&ctx, shell),
-            Commands::Sessions { command } => {
-                sessions::run(&ctx, command.expect("sessions subcommand required")).await
-            }
-            Commands::Wallets { command } => {
-                wallets::run(&ctx, command.expect("wallets subcommand required")).await
-            }
+            Commands::Sessions { command } => sessions::run(&ctx, command).await,
+            Commands::Wallets { command } => wallets::run(&ctx, command).await,
             Commands::Whoami => whoami::run(&ctx).await,
-            Commands::Keys { command } => {
-                keys::run(&ctx, command.expect("keys subcommand required")).await
-            }
+            Commands::Keys { command } => keys::run(&ctx, command).await,
             Commands::Services {
                 command,
                 service_id,
@@ -173,24 +167,21 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",
         Commands::Wallets { command } => match command {
-            Some(WalletCommands::List) => "wallets list",
-            Some(WalletCommands::Create) => "wallets create",
-            Some(WalletCommands::Fund { .. }) => "wallets fund",
-            None => unreachable!("wallets subcommand required"),
+            WalletCommands::List => "wallets list",
+            WalletCommands::Create => "wallets create",
+            WalletCommands::Fund { .. } => "wallets fund",
         },
         Commands::Sessions { command } => match command {
-            Some(SessionCommands::List { .. }) => "sessions list",
-            Some(SessionCommands::Info { .. }) => "sessions info",
-            Some(SessionCommands::Close { .. }) => "sessions close",
-            Some(SessionCommands::Sync { .. }) => "sessions sync",
-            None => unreachable!("sessions subcommand required"),
+            SessionCommands::List { .. } => "sessions list",
+            SessionCommands::Info { .. } => "sessions info",
+            SessionCommands::Close { .. } => "sessions close",
+            SessionCommands::Sync { .. } => "sessions sync",
         },
         Commands::Whoami => "whoami",
         Commands::Keys { command } => match command {
-            Some(KeyCommands::List) => "keys list",
-            Some(KeyCommands::Create { .. }) => "keys create",
-            Some(KeyCommands::Clean { .. }) => "keys clean",
-            None => unreachable!("keys subcommand required"),
+            KeyCommands::List => "keys list",
+            KeyCommands::Create { .. } => "keys create",
+            KeyCommands::Clean { .. } => "keys clean",
         },
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",

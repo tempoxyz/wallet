@@ -44,7 +44,7 @@ use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
 use crate::payment::session::store::SessionRecord;
 use crate::payment::session::store::SessionStatus;
-use crate::util::format_token_amount;
+use crate::util::{address_link, format_token_amount};
 
 // ==================== Types ====================
 
@@ -368,10 +368,13 @@ pub(in crate::payment) async fn handle_session_request(
         );
         println!(
             "Currency: {}",
-            resolved.network_id.address_link(&session_req.currency)
+            address_link(resolved.network_id, &session_req.currency)
         );
         if let Some(ref recipient) = session_req.recipient {
-            println!("Recipient: {}", resolved.network_id.address_link(recipient));
+            println!(
+                "Recipient: {}",
+                address_link(resolved.network_id, recipient)
+            );
         }
         if let Some(ref deposit) = session_req.suggested_deposit {
             let deposit_val: u128 = deposit.parse().unwrap_or(0);

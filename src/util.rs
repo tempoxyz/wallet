@@ -120,6 +120,12 @@ pub(crate) fn hyperlink(text: &str, url: &str) -> String {
     }
 }
 
+/// Format an address as a clickable hyperlink for the given network.
+pub(crate) fn address_link(network: NetworkId, address: &str) -> String {
+    let url = network.address_url(address);
+    hyperlink(address, &url)
+}
+
 /// Check if the current terminal supports OSC 8 hyperlinks.
 fn supports_hyperlinks() -> bool {
     static SUPPORTS: OnceLock<bool> = OnceLock::new();
@@ -288,7 +294,6 @@ pub(crate) fn confirm(prompt: &str, yes: bool) -> anyhow::Result<bool> {
 }
 
 /// Truncate a display string to `max` characters, appending `…` if truncated.
-#[allow(dead_code)]
 pub(crate) fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()

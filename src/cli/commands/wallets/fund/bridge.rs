@@ -7,6 +7,7 @@ use qrcode::render::unicode;
 use crate::account::{query_all_balances, TokenBalance};
 use crate::cli::output;
 use crate::cli::{Context, OutputFormat};
+use crate::util::address_link;
 
 use super::relay::{
     create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
@@ -43,7 +44,7 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
         let qr_uri = format!("ethereum:{}", deposit.deposit_address);
         render_qr_code(&qr_uri);
         eprintln!();
-        let deposit_link = ctx.network.address_link(&deposit.deposit_address);
+        let deposit_link = address_link(ctx.network, &deposit.deposit_address);
         eprintln!("Send USDC on {} to: {}", source_chain.name, deposit_link);
         eprintln!("Funds will be bridged automatically to your Tempo wallet.");
         eprintln!();
@@ -67,7 +68,7 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
 
     // Poll both: Relay status (source chain) and Tempo balance (target chain)
     if ctx.output_format == OutputFormat::Text {
-        let deposit_link = ctx.network.address_link(&deposit.deposit_address);
+        let deposit_link = address_link(ctx.network, &deposit.deposit_address);
         eprintln!("Deposit address ({}): {}", source_chain.name, deposit_link);
         eprintln!("Watching for deposit...");
     }

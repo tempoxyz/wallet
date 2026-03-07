@@ -49,11 +49,11 @@ Implemented in `payment/session/`. Provides a persistent payment channel for rep
 
 ### Passkey
 
-Browser-based WebAuthn wallet created via Tempo's passkey flow (`cli/commands/login/passkey.rs`). Authentication is delegated to the browser; tempo-wallet stores the resulting wallet address and key authorization.
+Browser-based WebAuthn wallet created via Tempo's passkey flow (`cli/commands/login.rs`). Authentication is delegated to the browser; tempo-wallet stores the resulting wallet address and key authorization.
 
 ### Local
 
-Locally generated or imported secp256k1 private key (`cli/commands/wallets/`). The private key is stored in the OS keychain on macOS (`cli/commands/wallets/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
+Locally generated or imported secp256k1 private key (`cli/commands/wallets/`). The private key is stored in the OS keychain on macOS (`keys/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
 
 ### Signing Modes
 
@@ -83,13 +83,13 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `src/cli/output.rs` | `OutputFormat`, `OutputOptions` |
 | `src/account/` | Wallet account types (balances, spending limits), on-chain queries |
 | `src/cli/commands/query/` | Primary query flow: HTTP → 402 detection → payment → retry |
-| `src/cli/commands/login/` | Login command and passkey authentication flow |
+| `src/cli/commands/login.rs` | Login command and passkey authentication flow |
 | `src/cli/commands/logout.rs` | Logout command |
 | `src/cli/commands/whoami.rs` | Whoami command |
 | `src/cli/commands/keys.rs` | Key listing with balance and spending limit queries |
-| `src/cli/commands/sessions/` | Session management commands (list/info/close/recover/sync) |
-| `src/cli/commands/wallets/` | Wallet management (create, renew, list, fund, keychain) |
-| `src/cli/commands/services.rs` | Service directory listing and detail views |
+| `src/cli/commands/sessions/` | Session management commands (list/info/close/sync) |
+| `src/cli/commands/wallets/` | Wallet management (create, renew, list, fund) |
+| `src/cli/commands/services/` | Service directory listing and detail views |
 | `src/http/` | `HttpClient` (reqwest wrapper with retry logic), `HttpRequestPlan`, header/body helpers |
 | `src/keys/` | Key storage (model, I/O), signer resolution, authorization |
 | `src/payment/charge.rs` | One-shot on-chain charge payment |

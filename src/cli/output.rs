@@ -97,7 +97,7 @@ fn quote_toon_ambiguous_hex_literals(input: &str) -> String {
                 end += 1;
             }
 
-            if is_right_boundary((end < chars.len()).then_some(chars[end])) {
+            if is_right_boundary(chars.get(end).copied()) {
                 out.push('"');
                 for c in &chars[i..end] {
                     out.push(*c);

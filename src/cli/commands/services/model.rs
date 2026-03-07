@@ -1,0 +1,280 @@
+//! Service directory data model and formatting helpers.
+
+use std::collections::{BTreeSet, HashMap};
+
+use serde::{Deserialize, Serialize};
+
+// Protection-bypass token is a public API key for unauthenticated access.
+pub(super) const SERVICES_API_URL: &str =
+    "https://mpp.sh/api/services?x-vercel-protection-bypass=iGDnLnmF0nK6LWloAotUbTo3urEsaIkB";
+
+#[derive(Deserialize)]
+pub(super) struct ServiceRegistry {
+    pub(super) services: Vec<Service>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct Service {
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) url: String,
+    #[serde(default, rename = "serviceUrl")]
+    pub(super) service_url: Option<String>,
+    #[serde(default)]
+    pub(super) description: Option<String>,
+    #[serde(default)]
+    pub(super) icon: Option<String>,
+    #[serde(default)]
+    pub(super) categories: Vec<String>,
+    #[serde(default)]
+    pub(super) integration: Option<String>,
+    #[serde(default)]
+    pub(super) tags: Vec<String>,
+    #[serde(default)]
+    pub(super) status: Option<String>,
+    #[serde(default)]
+    pub(super) docs: Option<ServiceDocs>,
+    #[serde(default)]
+    pub(super) methods: HashMap<String, PaymentMethod>,
+    #[serde(default)]
+    pub(super) realm: Option<String>,
+    #[serde(default)]
+    pub(super) endpoints: Vec<Endpoint>,
+    #[serde(default)]
+    pub(super) provider: Option<Provider>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ServiceDocs {
+    #[serde(default)]
+    pub(super) homepage: Option<String>,
+    #[serde(default, rename = "llmsTxt")]
+    pub(super) llms_txt: Option<String>,
+    #[serde(default)]
+    pub(super) openapi: Option<String>,
+    #[serde(default, rename = "apiReference")]
+    pub(super) api_reference: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct PaymentMethod {
+    #[serde(default)]
+    pub(super) intents: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct Endpoint {
+    pub(super) method: String,
+    pub(super) path: String,
+    #[serde(default)]
+    pub(super) description: Option<String>,
+    #[serde(default)]
+    pub(super) payment: Option<EndpointPayment>,
+    #[serde(default)]
+    pub(super) docs: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct EndpointPayment {
+    pub(super) intent: String,
+    #[serde(default)]
+    pub(super) amount: Option<String>,
+    #[serde(default)]
+    pub(super) decimals: Option<u32>,
+    #[serde(default, rename = "unitType")]
+    pub(super) unit_type: Option<String>,
+    #[serde(default)]
+    pub(super) description: Option<String>,
+    #[serde(default)]
+    pub(super) dynamic: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct Provider {
+    #[serde(default)]
+    pub(super) name: Option<String>,
+    #[serde(default)]
+    pub(super) url: Option<String>,
+    #[serde(default)]
+    pub(super) icon: Option<String>,
+}
+
+impl ServiceRegistry {
+    pub(super) fn find(&self, id: &str) -> Option<&Service> {
+        self.services.iter().find(|s| s.id.eq_ignore_ascii_case(id))
+    }
+}
+
+impl Service {
+    pub(super) fn payment_intents(&self) -> BTreeSet<&str> {
+        self.methods
+            .values()
+            .flat_map(|m| m.intents.iter().map(|i| i.as_str()))
+            .collect()
+    }
+
+    pub(super) fn format_categories(&self) -> String {
+        if self.categories.is_empty() {
+            "—".to_string()
+        } else {
+            self.categories.join(", ")
+        }
+    }
+
+    pub(super) fn format_payment_intents(&self) -> String {
+        let intents = self.payment_intents();
+        if intents.is_empty() {
+            "—".to_string()
+        } else {
+            intents.into_iter().collect::<Vec<_>>().join(", ")
+        }
+    }
+}
+
+impl Endpoint {
+    pub(super) fn format_pricing(&self) -> String {
+        match &self.payment {
+            None => "free".to_string(),
+            Some(p) => {
+                let mut parts = Vec::new();
+                if p.dynamic == Some(true) {
+                    parts.push("dynamic".to_string());
+                } else if let Some(amount) = &p.amount {
+                    parts.push(format_amount(amount, p.decimals));
+                }
+                parts.push(p.intent.clone());
+                parts.join(" ")
+            }
+        }
+    }
+}
+
+/// Format a token amount string with the given decimal places as a dollar value.
+pub(super) fn format_amount(amount: &str, decimals: Option<u32>) -> String {
+    match decimals {
+        Some(dec) if dec > 0 => match amount.parse::<u128>() {
+            Ok(v) => {
+                let dec = dec as usize;
+                let padded = format!("{:0>width$}", v, width = dec + 1);
+                let (int, frac) = padded.split_at(padded.len() - dec);
+                format!("${int}.{frac}")
+            }
+            Err(_) => amount.to_string(),
+        },
+        _ => amount.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_amount_with_decimals() {
+        assert_eq!(format_amount("1000000", Some(6)), "$1.000000");
+        assert_eq!(format_amount("500", Some(2)), "$5.00");
+    }
+
+    #[test]
+    fn format_amount_zero_decimals() {
+        assert_eq!(format_amount("42", Some(0)), "42");
+        assert_eq!(format_amount("42", None), "42");
+    }
+
+    #[test]
+    fn format_amount_unparseable() {
+        assert_eq!(format_amount("not-a-number", Some(6)), "not-a-number");
+    }
+
+    #[test]
+    fn format_amount_small_value_pads() {
+        // 123 with 6 decimals → $0.000123
+        assert_eq!(format_amount("123", Some(6)), "$0.000123");
+    }
+
+    #[test]
+    fn format_pricing_free() {
+        let ep = Endpoint {
+            method: "GET".into(),
+            path: "/v1/test".into(),
+            description: None,
+            payment: None,
+            docs: None,
+        };
+        assert_eq!(ep.format_pricing(), "free");
+    }
+
+    #[test]
+    fn format_pricing_dynamic() {
+        let ep = Endpoint {
+            method: "POST".into(),
+            path: "/v1/test".into(),
+            description: None,
+            payment: Some(EndpointPayment {
+                intent: "charge".into(),
+                amount: None,
+                decimals: None,
+                unit_type: None,
+                description: None,
+                dynamic: Some(true),
+            }),
+            docs: None,
+        };
+        assert_eq!(ep.format_pricing(), "dynamic charge");
+    }
+
+    #[test]
+    fn format_pricing_fixed_amount() {
+        let ep = Endpoint {
+            method: "POST".into(),
+            path: "/v1/test".into(),
+            description: None,
+            payment: Some(EndpointPayment {
+                intent: "session".into(),
+                amount: Some("1000000".into()),
+                decimals: Some(6),
+                unit_type: None,
+                description: None,
+                dynamic: None,
+            }),
+            docs: None,
+        };
+        assert_eq!(ep.format_pricing(), "$1.000000 session");
+    }
+
+    #[test]
+    fn payment_intents_deduplicates() {
+        let mut methods = HashMap::new();
+        methods.insert(
+            "a".into(),
+            PaymentMethod {
+                intents: vec!["charge".into(), "session".into()],
+            },
+        );
+        methods.insert(
+            "b".into(),
+            PaymentMethod {
+                intents: vec!["session".into()],
+            },
+        );
+        let s = Service {
+            id: "test".into(),
+            name: "Test".into(),
+            url: "https://example.com".into(),
+            service_url: None,
+            description: None,
+            icon: None,
+            categories: vec![],
+            integration: None,
+            tags: vec![],
+            status: None,
+            docs: None,
+            methods,
+            realm: None,
+            endpoints: vec![],
+            provider: None,
+        };
+        let intents: Vec<&str> = s.payment_intents().into_iter().collect();
+        assert_eq!(intents, vec!["charge", "session"]);
+    }
+}

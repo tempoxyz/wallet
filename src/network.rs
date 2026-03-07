@@ -146,12 +146,6 @@ impl NetworkId {
         format!("{}/address/{}", self.explorer_base_url(), addr)
     }
 
-    /// Format an address as a clickable hyperlink (or plain text if no terminal support).
-    pub(crate) fn address_link(&self, address: &str) -> String {
-        let url = self.address_url(address);
-        crate::util::hyperlink(address, &url)
-    }
-
     /// Get the default escrow contract address for this network.
     ///
     /// These match the addresses in `mpp::client::channel_ops::default_escrow_contract`.

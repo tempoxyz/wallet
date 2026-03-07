@@ -15,7 +15,7 @@ use crate::cli::output;
 use crate::cli::Context;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
-use crate::util::print_field_w;
+use crate::util::{address_link, print_field_w};
 
 #[derive(serde::Serialize)]
 struct CleanKeysResponse {
@@ -174,7 +174,7 @@ fn render_keys(response: &KeysResponse, keystore: &Keystore) {
         let explorer = NetworkId::from_chain_id(entry.chain_id);
 
         if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
-            let wallet_link = explorer.unwrap_or_default().address_link(wallet);
+            let wallet_link = address_link(explorer.unwrap_or_default(), wallet);
             print_field_w(10, "Wallet", &format!("{wallet_link} ({wt})"));
         }
         if let (Some(bal), Some(sym)) = (&key.balance, &key.symbol) {
@@ -198,7 +198,7 @@ fn render_keys(response: &KeysResponse, keystore: &Keystore) {
                 print_field_w(10, "Balance", &format!("{bal} {sym}"));
             }
         }
-        let key_link = explorer.unwrap_or_default().address_link(&key.address);
+        let key_link = address_link(explorer.unwrap_or_default(), &key.address);
         print_field_w(10, "Key", &key_link);
         if let Some(net) = explorer {
             print_field_w(10, "Chain", net.as_str());

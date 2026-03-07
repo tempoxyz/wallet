@@ -18,7 +18,7 @@ use crate::cli::Context;
 use crate::error::TempoWalletError;
 use crate::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, WalletType};
 use crate::network::NetworkId;
-use crate::util::{print_field_w, sanitize_error};
+use crate::util::{address_link, print_field_w, sanitize_error};
 
 pub(crate) async fn run(ctx: &Context, command: WalletCommands) -> Result<()> {
     match command {
@@ -92,15 +92,15 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<()>) {
 }
 
 // ---------------------------------------------------------------------------
-// Commands
+// Wallet + key management
 // ---------------------------------------------------------------------------
 
 /// Create a local EOA wallet with a signing key.
 ///
-/// 1. Generate random EOA key → store in OS keychain (wallet owner key)
-/// 2. Generate random key → store inline in keys.toml
+/// 1. Generate random EOA key and store it in OS keychain (wallet owner key)
+/// 2. Generate a random access key and store inline in keys.toml
 /// 3. Sign key_authorization for the target chain
-/// 4. Do not provision; auto-provisions on first payment
+/// 4. Do not provision yet; first paid request auto-provisions
 /// 5. Return the fundable wallet address
 fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
     if keys.ephemeral {
@@ -111,7 +111,7 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
 
     let mut keys = keys.clone();
 
-    // Generate wallet EOA key and store in OS keychain
+    // Generate wallet EOA key and store in OS keychain.
     let wallet_signer = PrivateKeySigner::random();
     let wallet_key_hex = Zeroizing::new(format!("0x{}", hex::encode(wallet_signer.to_bytes())));
     let wallet_address = wallet_signer.address().to_string();
@@ -120,12 +120,12 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
         .set(&wallet_address, &wallet_key_hex)
         .map_err(|e| TempoWalletError::Keychain(format!("Failed to store wallet key: {e}")))?;
 
-    // Generate key
+    // Generate access key.
     let access_signer = PrivateKeySigner::random();
     let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(access_signer.to_bytes())));
     let access_key_address = access_signer.address().to_string();
 
-    // Sign key_authorization for the target chain
+    // Sign key_authorization for the target chain.
     let chain_id = network.chain_id();
     let auth = authorization::sign(&wallet_signer, &access_signer, chain_id)?;
 
@@ -142,6 +142,7 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
         provisioned: false,
     };
     keys.keys.push(key_entry);
+
     if let Err(e) = keys.save() {
         if let Err(del_err) = keychain().delete(&wallet_address) {
             tracing::warn!("Failed to clean up keychain entry for {wallet_address}: {del_err}");
@@ -152,10 +153,10 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
     Ok(wallet_address)
 }
 
-/// Renew the key for an existing local wallet.
+/// Renew the access key for an existing local wallet.
 ///
 /// 1. Load the wallet EOA key from the OS keychain
-/// 2. Generate a new random key → store inline in keys.toml
+/// 2. Generate a new random access key and store inline in keys.toml
 /// 3. Sign a fresh key_authorization
 /// 4. Clear provisioned flag (new key must re-provision)
 pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -> Result<()> {
@@ -184,6 +185,7 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
             .enumerate()
             .filter(|(_, k)| k.wallet_type == WalletType::Local)
             .map(|(i, _)| i);
+
         match (local_iter.next(), local_iter.next()) {
             (None, _) => anyhow::bail!(TempoWalletError::ConfigMissing(
                 "No local wallet found.".to_string()
@@ -197,7 +199,7 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
 
     let key_entry = &keys.keys[idx];
 
-    // Load wallet EOA key from OS keychain
+    // Load wallet EOA key from OS keychain.
     let wallet_key_hex = keychain()
         .get(&key_entry.wallet_address)
         .map_err(|e| TempoWalletError::Keychain(format!("Failed to load wallet key: {e}")))?
@@ -207,19 +209,20 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
                 key_entry.wallet_address
             ))
         })?;
+
     let wallet_signer: PrivateKeySigner = parse_private_key_signer(&wallet_key_hex)
         .map_err(|e| TempoWalletError::Keychain(format!("Invalid wallet key in keychain: {e}")))?;
 
-    // Generate new key
+    // Generate new access key.
     let access_signer = PrivateKeySigner::random();
     let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(access_signer.to_bytes())));
     let access_key_address = access_signer.address().to_string();
 
-    // Sign key_authorization with fresh expiry
+    // Sign key_authorization with fresh expiry.
     let chain_id = key_entry.chain_id;
     let auth = authorization::sign(&wallet_signer, &access_signer, chain_id)?;
 
-    // Update the key entry in-place
+    // Update key entry in-place.
     let entry = &mut keys.keys[idx];
     entry.key_address = Some(access_key_address);
     entry.key = Some(access_key_hex);
@@ -325,7 +328,7 @@ fn render_wallets(response: &WalletListResponse) {
             .first()
             .and_then(|n| NetworkId::resolve(Some(n)).ok())
             .unwrap_or_default();
-        let addr_link = network.address_link(&wallet.address);
+        let addr_link = address_link(network, &wallet.address);
         print_field_w(
             10,
             "Wallet",

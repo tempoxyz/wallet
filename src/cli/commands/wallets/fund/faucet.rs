@@ -8,6 +8,7 @@ use crate::account::{query_all_balances, TokenBalance};
 use crate::cli::output;
 use crate::cli::{Context, OutputFormat};
 use crate::error::TempoWalletError;
+use crate::util::address_link;
 
 use super::{
     has_balance_changed, poll_until, render_balance_diff, FundResponse, POLL_INTERVAL_SECS,
@@ -35,7 +36,7 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
     tracing::debug!("Faucet RPC response: {result}");
 
     if ctx.output_format == OutputFormat::Text {
-        let addr_link = ctx.network.address_link(address);
+        let addr_link = address_link(ctx.network, address);
         eprintln!(
             "Requested faucet funds for {addr_link} on {}.",
             ctx.network.as_str()

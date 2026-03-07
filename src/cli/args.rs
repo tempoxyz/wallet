@@ -436,7 +436,7 @@ pub(crate) enum Commands {
     )]
     Keys {
         #[command(subcommand)]
-        command: Option<KeyCommands>,
+        command: KeyCommands,
     },
     /// Manage payment sessions
     #[command(display_order = 6, name = "sessions")]
@@ -447,7 +447,7 @@ pub(crate) enum Commands {
     )]
     Sessions {
         #[command(subcommand)]
-        command: Option<SessionCommands>,
+        command: SessionCommands,
     },
     /// Manage wallets
     #[command(display_order = 5, name = "wallets", hide = true)]
@@ -458,7 +458,7 @@ pub(crate) enum Commands {
     )]
     Wallets {
         #[command(subcommand)]
-        command: Option<WalletCommands>,
+        command: WalletCommands,
     },
     /// Browse the MPP service directory
     #[command(display_order = 7, name = "services")]

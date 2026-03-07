@@ -15,6 +15,7 @@ use crate::cli::{Context, OutputFormat};
 use crate::config::Config;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
+use crate::util::address_link;
 
 #[derive(Debug, Default, Serialize)]
 struct StatusResponse {
@@ -153,7 +154,7 @@ impl StatusResponse {
 
             if let Some(wallet) = &self.wallet {
                 let wt = self.wallet_type.as_deref().unwrap_or("unknown");
-                let wallet_link = explorer.unwrap_or_default().address_link(wallet);
+                let wallet_link = address_link(explorer.unwrap_or_default(), wallet);
                 writeln!(w, "{:>10}: {} ({})", "Wallet", wallet_link, wt)?;
             }
 
@@ -176,7 +177,7 @@ impl StatusResponse {
 
             if let Some(key) = &self.key {
                 writeln!(w)?;
-                let key_link = explorer.unwrap_or_default().address_link(&key.address);
+                let key_link = address_link(explorer.unwrap_or_default(), &key.address);
                 writeln!(w, "{:>10}: {}", "Key", key_link)?;
                 if let Some(network) = &self.network {
                     writeln!(w, "{:>10}: {}", "Chain", network)?;
