@@ -1,16 +1,10 @@
 name: Release
 
 on:
-  workflow_call:
-    inputs:
-      version:
-        description: 'Version to release (e.g., 1.2.3)'
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 1.2.3)'
+        description: 'Version to release (e.g., 0.1.0)'
         required: true
         type: string
 
@@ -25,20 +19,37 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.target }})
+    name: Build ${{ matrix.package }} (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          # tempo-wallet builds
+          - package: tempo-wallet
+            os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             asset: tempo-wallet-linux-amd64
-          - os: macos-latest
+          - package: tempo-wallet
+            os: macos-latest
             target: x86_64-apple-darwin
             asset: tempo-wallet-darwin-amd64
-          - os: macos-latest
+          - package: tempo-wallet
+            os: macos-latest
             target: aarch64-apple-darwin
             asset: tempo-wallet-darwin-arm64
+          # tempo-mpp builds
+          - package: tempo-mpp
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: tempo-mpp-linux-amd64
+          - package: tempo-mpp
+            os: macos-latest
+            target: x86_64-apple-darwin
+            asset: tempo-mpp-darwin-amd64
+          - package: tempo-mpp
+            os: macos-latest
+            target: aarch64-apple-darwin
+            asset: tempo-mpp-darwin-arm64
     steps:
       - uses: actions/checkout@v6
       - name: Configure git for private repos
@@ -49,9 +60,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - run: cargo build --release --target ${{ matrix.target }} -p tempo-wallet
-      - run: strip target/${{ matrix.target }}/release/tempo-wallet
-      - run: mv target/${{ matrix.target }}/release/tempo-wallet ${{ matrix.asset }}
+      - run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
+      - run: strip target/${{ matrix.target }}/release/${{ matrix.package }}
+      - run: mv target/${{ matrix.target }}/release/${{ matrix.package }} ${{ matrix.asset }}
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
@@ -70,21 +81,20 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Determine version
-        id: version
-        run: echo "version=tempo-wallet@${{ inputs.version }}" >> $GITHUB_OUTPUT
-
-      - name: Upload binaries to GitHub Release
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ steps.version.outputs.version }}" artifacts/* --clobber
+        run: |
+          TAG="v${{ inputs.version }}"
+          gh release create "$TAG" artifacts/* --title "$TAG" --generate-notes || \
+          gh release upload "$TAG" artifacts/* --clobber
 
       - name: Sign release binaries
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
-          SKILL_SHA256=$(sha256sum crates/tempo-wallet/SKILL.md | cut -d' ' -f1)
+          SKILL_SHA256=$(sha256sum crates/tempo-mpp/SKILL.md | cut -d' ' -f1)
           cargo run -p tempo-sign -- \
             --key-file /tmp/release.key \
             --artifacts-dir artifacts \
@@ -95,30 +105,31 @@ jobs:
             --output artifacts/manifest.json
           rm /tmp/release.key
 
-      - name: Upload binaries to R2
+      - name: Upload to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          # Disable multipart uploads (R2 may reject CreateMultipartUpload)
           aws configure set default.s3.multipart_threshold 200MB
 
           VERSION="v${{ inputs.version }}"
 
-          for f in artifacts/tempo-wallet-*; do
-            BASENAME=$(basename "$f")
-            # Upload as latest
-            aws s3 cp "$f" "s3://tempo-cli/extensions/tempo-wallet/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
-            # Upload with version prefix
-            aws s3 cp "$f" "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+          # Upload extension binaries (tempo-wallet and tempo-mpp)
+          for pkg in tempo-wallet tempo-mpp; do
+            for f in artifacts/${pkg}-*; do
+              [ -f "$f" ] || continue
+              BASENAME=$(basename "$f")
+              aws s3 cp "$f" "s3://tempo-cli/extensions/${pkg}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+              aws s3 cp "$f" "s3://tempo-cli/extensions/${pkg}/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            done
           done
 
           # Upload install script
-          aws s3 cp scripts/install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp scripts/install.sh "s3://tempo-cli/install" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           # Upload AI skill and VERSION file
-          aws s3 cp crates/tempo-wallet/SKILL.md "s3://tempo-cli/extensions/tempo-wallet/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          aws s3 cp crates/tempo-mpp/SKILL.md "s3://tempo-cli/extensions/tempo-wallet/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
           echo "${{ inputs.version }}" > VERSION
           aws s3 cp VERSION "s3://tempo-cli/extensions/tempo-wallet/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 

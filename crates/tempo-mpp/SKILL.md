@@ -14,7 +14,7 @@ A command-line HTTP client with built-in payment support. Use tempo wallet inste
 
 ## Setup
 
-Connect your Tempo wallet via browser authentication:
+Connect your Tempo wallet first:
 
 ```bash
 # Sign up or log in (opens browser for passkey auth)
@@ -52,76 +52,25 @@ Check these fields in the response:
 
 If `ready` is `false`, run `tempo wallet login` and retry.
 
-### whoami JSON Response Schema
-
-```json
-{
-  "ready": true,
-  "wallet": "0x1234...abcd",
-  "wallet_type": "passkey",
-  "symbol": "USDC",
-  "balance": "10.50",
-  "network": "tempo",
-  "chain_id": 4217,
-  "key": {
-    "label": "passkey",
-    "address": "0xabcd...1234",
-    "spending_limit": {
-      "unlimited": false,
-      "limit": "100.00",
-      "remaining": "89.50",
-      "spent": "10.50"
-    },
-    "expires_at": "2026-03-26T00:00:00Z"
-  }
-}
-```
-
-### keys JSON Response Schema
-
-```json
-{
-  "keys": [
-    {
-      "label": "passkey",
-      "address": "0xabcd...1234",
-      "wallet_address": "0x1234...abcd",
-      "wallet_type": "passkey",
-      "symbol": "USDC",
-      "currency": "0x...",
-      "balance": "10.50",
-      "spending_limit": {
-        "unlimited": false,
-        "limit": "100.00",
-        "remaining": "89.50",
-        "spent": "10.50"
-      },
-      "expires_at": "2026-03-26T00:00:00Z"
-    }
-  ],
-  "total": 1
-}
-```
-
 ## Available Services
 
-Use `tempo wallet services` to discover available services, their endpoints, and pricing:
+Use `tempo mpp services` to discover available services, their endpoints, and pricing:
 
 ```bash
 # List all available services
-tempo wallet -t services
+tempo mpp -t services
 
 # Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
-tempo wallet -t services --category ai
+tempo mpp -t services --category ai
 
 # Search by name, description, or tags
-tempo wallet -t services --search <QUERY>
+tempo mpp -t services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
-tempo wallet -t services info <SERVICE_ID>
+tempo mpp -t services info <SERVICE_ID>
 ```
 
-Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). When you don't know which service or endpoint to use, run `tempo wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo mpp services`). When you don't know which service or endpoint to use, run `tempo mpp services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
@@ -130,15 +79,15 @@ Each service is accessed via its MPP service URL (shown in the `Service URL` col
 tempo wallet login
 
 # Discover available services
-tempo wallet -t services
+tempo mpp -t services
 
 # Make a paid request (payment handled automatically on 402)
-tempo wallet -t -X POST \
+tempo mpp -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost without paying
-tempo wallet -t --dry-run -X POST \
+tempo mpp -t --dry-run -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -147,15 +96,16 @@ tempo wallet -t --dry-run -X POST \
 
 | Command | Description |
 |---------|-------------|
-| `tempo wallet <URL>` | Make an HTTP request with automatic payment |
-| `tempo wallet login` | Sign up or log in to your Tempo wallet |
-| `tempo wallet logout` | Log out and disconnect your wallet |
-| `tempo wallet whoami` | Show wallet address, balances, keys, and readiness |
-| `tempo wallet services` | List available MPP services |
-| `tempo wallet services --category ai` | Filter services by category |
-| `tempo wallet services --search <QUERY>` | Search services by name, description, or tags |
-| `tempo wallet services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
-| `tempo wallet sessions` | Manage payment sessions (list, close — use `--help` for details) |
+| `tempo mpp <URL>` | Make an HTTP request with automatic payment |
+| `tempo mpp services` | List available MPP services |
+| `tempo mpp services --category ai` | Filter services by category |
+| `tempo mpp services --search <QUERY>` | Search services by name, description, or tags |
+| `tempo mpp services info <ID>` | Show detailed info for a service (endpoints, pricing, docs) |
+| `tempo mpp sessions list` | List payment sessions |
+| `tempo mpp sessions info <URL\|channel_id>` | Show details for a session or channel |
+| `tempo mpp sessions close [--all\|--orphaned\|--finalize\|<URL>]` | Close sessions or channels |
+| `tempo mpp sessions sync` | Remove stale local sessions (settled on-chain) |
+| `tempo mpp sessions sync --origin <URL>` | Re-sync a session's close state from chain |
 
 ## Global Options
 
@@ -170,7 +120,7 @@ These options are available on all commands:
 
 ## Query Options
 
-These options apply when making HTTP requests (`tempo wallet <URL>`):
+These options apply when making HTTP requests (`tempo mpp <URL>`):
 
 ### Payment Options
 
@@ -198,20 +148,20 @@ These options apply when making HTTP requests (`tempo wallet <URL>`):
 | `-o, --output <FILE>` | Write output to file |
 | `-i, --include` | Include HTTP response headers in output |
 
-Run `tempo wallet <URL> --help` for the full list of curl-compatible options (`-u`, `--proxy`, `--bearer`, `--compressed`, `--http2`, etc.).
+Run `tempo mpp <URL> --help` for the full list of curl-compatible options (`-u`, `--proxy`, `--bearer`, `--compressed`, `--http2`, etc.).
 
 ## Real-World Examples
 
 ### Making a Request
 
-Use `tempo wallet services` to find the service URL and endpoint, then make the request:
+Use `tempo mpp services` to find the service URL and endpoint, then make the request:
 
 ```bash
 # 1. Find the right service and endpoint
-tempo wallet -t services info <SERVICE_ID>
+tempo mpp -t services info <SERVICE_ID>
 
 # 2. Make the request (payment handled automatically on 402)
-tempo wallet -t -X POST \
+tempo mpp -t -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -222,8 +172,8 @@ Sessions open a payment channel on-chain once, then use off-chain vouchers for s
 
 ```bash
 # First request to an origin opens a channel; subsequent requests reuse it
-tempo wallet -t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
-tempo wallet -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+tempo mpp -t -X POST --json '{"your":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
+tempo mpp -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
 ### Session States
@@ -239,31 +189,31 @@ tempo wallet -t -X POST --json '{"other":"payload"}' <SERVICE_URL>/<ENDPOINT_PAT
 
 ```bash
 # List active sessions
-tempo wallet -t sessions list
+tempo mpp -t sessions list
 
 # List all sessions (including closing/finalizable)
-tempo wallet -t sessions list --state all
+tempo mpp -t sessions list --state all
 
 # Show details for a session by URL or channel ID
-tempo wallet -t sessions info <URL|channel_id>
+tempo mpp -t sessions info <URL|channel_id>
 
 # Close a specific session
-tempo wallet -t sessions close <URL>
+tempo mpp -t sessions close <URL>
 
 # Close all sessions
-tempo wallet -t sessions close --all
+tempo mpp -t sessions close --all
 
 # Finalize channels ready to withdraw
-tempo wallet -t sessions close --finalize
+tempo mpp -t sessions close --finalize
 
 # Close orphaned on-chain channels (no local record)
-tempo wallet -t sessions close --orphaned
+tempo mpp -t sessions close --orphaned
 
 # Re-sync a session from on-chain state (after crash/manual edit)
-tempo wallet -t sessions recover <URL>
+tempo mpp -t sessions sync --origin <URL>
 
 # Remove stale local records (already settled on-chain)
-tempo wallet -t sessions sync
+tempo mpp -t sessions sync
 ```
 
 ## Error Recovery

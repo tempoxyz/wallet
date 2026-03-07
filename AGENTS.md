@@ -2,63 +2,82 @@
 
 ## Repository Overview
 
-This is a Cargo workspace containing 3 crates under `crates/`, providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, a top-level CLI launcher, and a release signing tool.
+This is a Cargo workspace containing 5 crates under `crates/`, providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, wallet identity management, a top-level CLI launcher, and a release signing tool.
 
 **Supported Payment Protocols:**
 - [Machine Payments Protocol (MPP)](https://mpp.dev) - Open protocol for HTTP-native machine-to-machine payments
 
 ### Workspace Structure
 
-The root `Cargo.toml` is workspace-only (no package). All crates live under `crates/`:
+The root `Cargo.toml` is workspace-only (no package). All dependencies are declared as `[workspace.dependencies]` in the root and consumed via `dep.workspace = true` in each crate. All crates live under `crates/`:
 
-#### `crates/tempo-wallet/` — package `tempo-wallet`, binary `tempo-wallet`
+#### `crates/tempo-common/` — package `tempo-common` (library)
 
-The main wallet HTTP client with MPP payment support. Source organized by module directories:
-- `crates/tempo-wallet/src/main.rs` - CLI entry point, module declarations, error rendering
-- `crates/tempo-wallet/src/cli/` - CLI argument parsing and command dispatch
-  - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
-  - `run.rs` - Application lifecycle: tracing, color, context building, command dispatch, analytics
-  - `context.rs` - `Context` struct (Cli, Config, NetworkId, Keystore, Analytics, OutputFormat)
-  - `output.rs` - `OutputFormat`, `OutputOptions`
-  - `exit_codes.rs` - Process exit codes
-  - `commands/` - All command implementations (take `&Context` as first arg)
-    - `query/` - Query command (request → 402 → payment → response)
-    - `sessions/` - Session management (list, info, close, recover, sync)
-    - `wallets/` - Wallet management (create/list, fund/, keychain.rs)
-    - `keys.rs` - Key listing, balance and spending limit queries
-    - `login/` - Login command (mod.rs, passkey.rs)
-    - `logout.rs` - Logout command
-    - `whoami.rs` - Whoami command
-    - `services.rs` - Service directory listing and details
-    - `completions.rs` - Shell completions
-- `crates/tempo-wallet/src/account/` - Wallet account types (balances, spending limits) and on-chain queries
-- `crates/tempo-wallet/src/http/` - HTTP client, request planning, response parsing
-- `crates/tempo-wallet/src/config.rs` - Configuration file handling
-- `crates/tempo-wallet/src/network.rs` - Network definitions (`NetworkId`), explorer config, RPC
-- `crates/tempo-wallet/src/keys/` - Key storage (model, I/O), signer resolution, authorization
-- `crates/tempo-wallet/src/payment/` - Payment protocol implementations
+Shared library used by `tempo-wallet` and `tempo-mpp`. Contains all core logic:
+- `crates/tempo-common/src/lib.rs` - Module declarations
+- `crates/tempo-common/src/cli.rs` - Shared CLI infrastructure (`GlobalArgs`, `dispatch::track_command`, `dispatch::track_result`, `run_main`)
+- `crates/tempo-common/src/context.rs` - `Context` struct (Config, NetworkId, Keystore, Analytics, OutputFormat) and `ContextArgs`
+- `crates/tempo-common/src/config.rs` - Configuration file handling
+- `crates/tempo-common/src/error.rs` - `TempoError` enum (thiserror)
+- `crates/tempo-common/src/exit_codes.rs` - Process exit codes
+- `crates/tempo-common/src/output.rs` - `OutputFormat`, structured output helpers
+- `crates/tempo-common/src/runtime.rs` - Tracing, color mode, error rendering
+- `crates/tempo-common/src/network.rs` - Network definitions (`NetworkId`), explorer config, RPC
+- `crates/tempo-common/src/analytics.rs` - Opt-out telemetry (PostHog)
+- `crates/tempo-common/src/util.rs` - Shared utilities (formatting, terminal hyperlinks, sanitization)
+- `crates/tempo-common/src/account/` - Wallet account types (balances, spending limits) and on-chain queries
+- `crates/tempo-common/src/http/` - HTTP client, request planning, response parsing
+- `crates/tempo-common/src/keys/` - Key storage (model, I/O), signer resolution, authorization
+- `crates/tempo-common/src/payment/` - Payment protocol implementations
   - `dispatch.rs` - Payment dispatch (route 402 flows to charge or session)
   - `charge.rs` - One-shot on-chain charge payment
   - `session/` - Session-based payment channels (channel.rs, close.rs, store.rs, streaming.rs, tx.rs)
-- `crates/tempo-wallet/src/analytics.rs` - Opt-out telemetry (PostHog)
-- `crates/tempo-wallet/src/error.rs` - Error types
-- `crates/tempo-wallet/src/util.rs` - Shared utilities (formatting, terminal hyperlinks, sanitization)
+
+#### `crates/tempo-wallet/` — package `tempo-wallet`, binary `tempo-wallet`
+
+Wallet identity and custody extension. Source organized by module directories:
+- `crates/tempo-wallet/src/main.rs` - CLI entry point, calls `tempo_common::cli::run_main()`
+- `crates/tempo-wallet/src/cli/` - CLI argument parsing and command dispatch
+  - `args.rs` - clap definitions (`Cli` with `#[command(flatten)] pub global: GlobalArgs`)
+  - `dispatch.rs` - Command dispatch: tracing, color, context building, command routing, analytics
+  - `mod.rs` - CLI module declarations
+  - `commands/` - Command implementations (all take `&Context` as first arg)
+    - `login.rs` - Login command (passkey authentication flow)
+    - `logout.rs` - Logout command
+    - `whoami.rs` - Whoami command
+    - `keys.rs` - Key listing, balance and spending limit queries
+    - `wallets/` - Wallet management (create, list, fund/, keychain.rs)
+    - `completions.rs` - Shell completions
 - `crates/tempo-wallet/tests/` - Integration tests (black-box CLI testing via assert_cmd)
-- `crates/tempo-wallet/build.rs` - Build script
+
+#### `crates/tempo-mpp/` — package `tempo-mpp`, binary `tempo-mpp`
+
+HTTP client with MPP payment support. Handles queries, sessions, and service discovery:
+- `crates/tempo-mpp/src/main.rs` - CLI entry point, calls `tempo_common::cli::run_main()`
+- `crates/tempo-mpp/src/cli/` - CLI argument parsing and command dispatch
+  - `args.rs` - clap definitions (`Cli` with `#[command(flatten)] pub global: GlobalArgs`, `QueryArgs`)
+  - `dispatch.rs` - Command dispatch: tracing, color, context building, command routing, analytics
+  - `output.rs` - `OutputOptions` and query-specific output types
+  - `mod.rs` - CLI module declarations
+  - `commands/` - Command implementations (all take `&Context` as first arg)
+    - `query/` - Query command (request → 402 → payment → response)
+    - `sessions/` - Session management (list, info, close, recover, sync)
+    - `services/` - Service directory listing and details
+    - `completions.rs` - Shell completions
+- `crates/tempo-mpp/tests/` - Integration tests
 
 #### `crates/tempo-cli/` — package `tempo-cli`, binary `tempo`
 
-Top-level launcher and extension manager. Dispatches to `tempo-*` binaries (e.g., `tempo wallet ...` invokes `tempo-wallet`).
-- `crates/tempo-cli/src/` - Launcher source
+Top-level launcher and extension manager. Dispatches to `tempo-*` binaries (e.g., `tempo wallet ...` invokes `tempo-wallet`, `tempo mpp ...` invokes `tempo-mpp`).
+- `crates/tempo-cli/src/` - Launcher source (main.rs, launcher.rs, installer.rs, state.rs)
 - `crates/tempo-cli/tests/` - Integration tests
 
-#### `crates/sign-release/` — package `sign-release`, binary `sign-release`
+#### `crates/tempo-sign/` — package `tempo-sign`, binary `tempo-sign`
 
 Lightweight release manifest signing tool for authenticating build artifacts.
-- `crates/sign-release/src/` - Signing tool source
-- `crates/sign-release/tests/` - Tests
+- `crates/tempo-sign/src/main.rs` - Signing tool source
 
-**Packages:** `tempo-wallet`, `tempo-cli`, `sign-release`
+**Packages:** `tempo-common`, `tempo-wallet`, `tempo-mpp`, `tempo-cli`, `tempo-sign`
 
 ## Commands
 
@@ -66,20 +85,20 @@ Lightweight release manifest signing tool for authenticating build artifacts.
 make build              # Build debug binary
 make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
-make check              # Run fmt check, clippy, tests, and doc (linting handled in CI)
+make check              # Run fmt check, clippy, tests, and doc
 make fix                # Auto-fix formatting and clippy warnings
-make install            # Install CLI to ~/.local/bin
-make uninstall          # Uninstall CLI
-make run ARGS="<url>"   # Run CLI with arguments
+make install            # Install CLI binaries to ~/.local/bin
+make uninstall          # Uninstall CLI binaries
+make run ARGS="<url>"   # Run tempo-mpp with arguments
 ```
 
 ## Agent Suggestions
 
-When the user explicitly says "ask the oracle" to check a value, run `tempo wallet` against OpenRouter and explicitly tell the user which model was used in the response.
+When the user explicitly says "ask the oracle" to check a value, run `tempo-mpp` against OpenRouter and explicitly tell the user which model was used in the response.
 
 Example:
 ```bash
-tempo wallet -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+tempo-mpp -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements
@@ -109,7 +128,7 @@ Example summary format:
 ### Rust Conventions
 
 - **Edition**: Rust 2021
-- **Error handling**: Use `thiserror` for error types, `anyhow` for propagation
+- **Error handling**: Use `thiserror` for error types (`TempoError`), `anyhow` for propagation
 - **Async runtime**: Tokio (minimal features: macros, rt-multi-thread, signal)
 - **Serialization**: Serde with derive macros
 
@@ -117,6 +136,7 @@ Example summary format:
 
 - Group imports: std → external crates → crate modules
 - Use `use crate::` for internal module imports
+- Use `use tempo_common::` for shared library imports
 
 ```rust
 use std::path::PathBuf;
@@ -124,8 +144,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 
-use crate::config::Config;
-use crate::error::TempoWalletError;
+use tempo_common::config::Config;
+use tempo_common::error::TempoError;
 ```
 
 ### Error Handling Pattern
@@ -134,7 +154,7 @@ use crate::error::TempoWalletError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum MyError {
+pub enum TempoError {
     #[error("failed to parse: {0}")]
     ParseError(String),
     #[error(transparent)]
@@ -146,7 +166,9 @@ pub enum MyError {
 
 - Each module should have a clear single responsibility
 - Use `mod.rs` for modules with submodules
-- CLI commands go in `crates/tempo-wallet/src/cli/commands/` (e.g., `query/`, `sessions/`, `login/`)
+- Shared logic goes in `crates/tempo-common/src/`
+- Wallet commands go in `crates/tempo-wallet/src/cli/commands/`
+- MPP commands go in `crates/tempo-mpp/src/cli/commands/`
 
 ### Testing
 
@@ -170,13 +192,18 @@ fn test_something() {
 ### CLI Patterns (clap)
 
 - Use derive macros for argument parsing
+- Flatten `GlobalArgs` from `tempo_common::cli` for shared flags
 - Group related args with `help_heading`
 - Support short aliases (`-v`) and long aliases (`--verbose`)
+
 ```rust
 #[derive(Parser, Debug)]
 pub struct Cli {
-    #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true)]
-    pub verbose: u8,
+    #[command(flatten)]
+    pub global: GlobalArgs,
+    
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 }
 ```
 
@@ -188,9 +215,10 @@ pub struct Cli {
 
 ### Adding New Features
 
-1. Add core logic in appropriate module under `crates/tempo-wallet/src/`
-2. Add CLI flags in `crates/tempo-wallet/src/cli/args.rs`, implement commands in `crates/tempo-wallet/src/cli/`
-3. Add tests: unit tests in source files, integration tests in each crate's `tests/`
+1. Add shared logic in `crates/tempo-common/src/`
+2. Add CLI flags in the appropriate binary's `src/cli/args.rs`
+3. Implement commands in the appropriate binary's `src/cli/commands/`
+4. Add tests: unit tests in source files, integration tests in each crate's `tests/`
 
 ## Dependencies
 
@@ -207,11 +235,16 @@ pub struct Cli {
 
 ### Adding Dependencies
 
-Add dependencies directly to `Cargo.toml`:
+Add to `[workspace.dependencies]` in the root `Cargo.toml`, then reference with `dep.workspace = true` in the crate's `Cargo.toml`:
 
 ```toml
-[dependencies]
+# Root Cargo.toml
+[workspace.dependencies]
 new-crate = "1.0"
+
+# Crate Cargo.toml
+[dependencies]
+new-crate.workspace = true
 ```
 
 ## Environment Variables

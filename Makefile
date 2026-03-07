@@ -1,22 +1,24 @@
-.PHONY: build release clean check test fix install uninstall e2e
+.PHONY: build release clean check test fix install uninstall
 
 build:
 	cargo build
 
 # make run ARGS="http://localhost:3000/api/data"
 run:
-	cargo run -q -p tempo-wallet -- $(ARGS)
+	cargo run -q -p tempo-mpp -- $(ARGS)
 
 release:
 	cargo build --release
 
 install: release
 	mkdir -p $(HOME)/.local/bin
+	cp target/release/tempo $(HOME)/.local/bin/tempo
 	cp target/release/tempo-wallet $(HOME)/.local/bin/tempo-wallet
-	chmod +x $(HOME)/.local/bin/tempo-wallet
+	cp target/release/tempo-mpp $(HOME)/.local/bin/tempo-mpp
+	chmod +x $(HOME)/.local/bin/tempo $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-mpp
 
 uninstall:
-	rm -f $(HOME)/.local/bin/tempo-wallet
+	rm -f $(HOME)/.local/bin/tempo $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-mpp
 
 clean:
 	cargo clean
@@ -35,9 +37,6 @@ fix:
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
 
-# Run e2e tests against live mpp-proxy (requires funded wallet)
-e2e: build
-	cargo test -p tempo-wallet --test live -- --ignored --nocapture
 # Generate coverage locally (requires cargo-llvm-cov and llvm-tools-preview)
 # Install once: `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
 coverage:

@@ -7,7 +7,7 @@ use super::{Cli, Commands};
 use tempo_common::cli::dispatch::{track_command, track_result};
 use tempo_common::context::{Context, ContextArgs};
 
-use crate::cli::args::{KeyCommands, WalletCommands};
+use crate::cli::args::KeyCommands;
 
 impl Cli {
     /// Application entry point: build context, dispatch command, flush analytics.
@@ -43,7 +43,9 @@ impl Cli {
             Commands::Login => login::run(&ctx).await,
             Commands::Logout { yes } => logout::run(&ctx, yes),
             Commands::Completions { shell } => completions::run(&ctx, shell),
-            Commands::Wallets { command } => wallets::run(&ctx, command).await,
+            Commands::List => wallets::list(&ctx),
+            Commands::Create => wallets::create(&ctx).await,
+            Commands::Fund { address, no_wait } => wallets::fund(&ctx, address, no_wait).await,
             Commands::Whoami => whoami::run(&ctx).await,
             Commands::Keys { command } => keys::run(&ctx, command).await,
         };
@@ -62,11 +64,9 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Login => "login",
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",
-        Commands::Wallets { command } => match command {
-            WalletCommands::List => "wallets list",
-            WalletCommands::Create => "wallets create",
-            WalletCommands::Fund { .. } => "wallets fund",
-        },
+        Commands::List => "list",
+        Commands::Create => "create",
+        Commands::Fund { .. } => "fund",
         Commands::Whoami => "whoami",
         Commands::Keys { command } => match command {
             KeyCommands::List => "keys list",

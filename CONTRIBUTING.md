@@ -1,6 +1,6 @@
-# Contributing to Tempo Wallet
+# Contributing to Tempo CLI
 
-Thanks for your interest in contributing to Tempo Wallet! This guide covers everything you need to build, test, and submit changes.
+Thanks for your interest in contributing! This guide covers everything you need to build, test, and submit changes.
 
 ## Table of Contents
 
@@ -12,7 +12,6 @@ Thanks for your interest in contributing to Tempo Wallet! This guide covers ever
 - [Adding a New Feature](#adding-a-new-feature)
 - [Testing](#testing)
 - [Writing Documentation](#writing-documentation)
-- [Changelogs](#changelogs)
 - [Environment Variables](#environment-variables)
 
 ## Prerequisites
@@ -34,11 +33,10 @@ make release            # Optimized release build
 make test               # Run all tests (uses mocks, no network required)
 make check              # fmt + clippy + test + doc
 make fix                # Auto-fix formatting and clippy warnings
-make e2e                # Run live tests against mpp-proxy (requires funded wallet)
 make coverage           # Generate code coverage (requires cargo-llvm-cov)
-make install            # Install to ~/.local/bin
-make uninstall          # Uninstall CLI
-make run ARGS="<url>"   # Run with arguments
+make install            # Install binaries to ~/.local/bin
+make uninstall          # Uninstall binaries
+make run ARGS="<url>"   # Run tempo-mpp with arguments
 make clean              # cargo clean
 ```
 
@@ -74,75 +72,64 @@ let value = something.unwrap();
 
 ```
 crates/
-├── tempo-wallet/        # Main wallet HTTP client with MPP payment support
+├── tempo-common/        # Shared library for all extension binaries
+│   └── src/
+│       ├── lib.rs               # Module declarations
+│       ├── cli.rs               # GlobalArgs, dispatch tracking, run_main()
+│       ├── context.rs           # Context struct (shared app state for all commands)
+│       ├── config.rs            # Configuration file handling
+│       ├── error.rs             # TempoError enum (thiserror)
+│       ├── exit_codes.rs        # Process exit codes
+│       ├── output.rs            # OutputFormat, structured output helpers
+│       ├── runtime.rs           # Tracing, color mode, error rendering
+│       ├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
+│       ├── analytics.rs         # Opt-out telemetry (PostHog)
+│       ├── util.rs              # Shared utilities (formatting, terminal hyperlinks, sanitization)
+│       ├── account/             # Wallet account types (balances, spending limits, on-chain queries)
+│       ├── http/                # HTTP client, request building, response parsing
+│       ├── keys/                # Key storage, signing, authorization
+│       └── payment/             # Payment protocol logic (charge + session channels)
+├── tempo-wallet/        # Wallet identity and custody extension
 │   ├── src/
-│   │   ├── main.rs              # CLI entry point, module declarations, error rendering
-│   │   ├── error.rs             # Error types (thiserror)
-│   │   ├── config.rs            # Configuration file handling
-│   │   ├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
-│   │   ├── util.rs              # Shared utilities (formatting, terminal hyperlinks, sanitization)
-│   │   ├── analytics.rs         # Opt-out telemetry (PostHog)
-│   │   ├── account/             # Wallet account types (balances, spending limits, on-chain queries)
-│   │   │   ├── mod.rs           # Types (TokenBalance, KeyInfo, SpendingLimitInfo) and display helpers
-│   │   │   └── query.rs         # On-chain balance and spending-limit queries
-│   │   ├── http/                # HTTP client, request building, response parsing
-│   │   │   ├── client.rs        # HttpClient, HttpRequestPlan, retry logic
-│   │   │   └── response.rs      # HttpResponse type
-│   │   ├── cli/                 # Argument parsing (clap) and command dispatch
-│   │   │   ├── args.rs          # CLI argument definitions (Cli, QueryArgs, Commands)
-│   │   │   ├── run.rs           # Application lifecycle: tracing, color, context, dispatch, analytics
-│   │   │   ├── context.rs       # Context struct (shared app state threaded to all commands)
-│   │   │   ├── output.rs        # OutputFormat, OutputOptions
-│   │   │   ├── exit_codes.rs    # Process exit codes
-│   │   │   └── commands/        # Command implementations (all take &Context)
-│   │   │       ├── query/       # Query command (request → 402 → payment → response)
-│   │   │       │   ├── mod.rs       # Main query flow
-│   │   │       │   ├── context.rs   # HTTP client and output options building
-│   │   │       │   ├── input.rs     # Header and body parsing helpers
-│   │   │       │   ├── challenge.rs # 402 challenge parsing and wallet checks
-│   │   │       │   ├── receipt.rs   # Payment receipt display and response output
-│   │   │       │   ├── streaming.rs # SSE and streaming response handling
-│   │   │       │   └── analytics.rs # Query-specific analytics tracking
-│   │   │       ├── login/       # Login command and passkey authentication flow
-│   │   │       ├── sessions/    # Session management (list, info, close, recover, sync)
-│   │   │       ├── wallets/     # Wallet management (create, list, fund/, keychain.rs)
-│   │   │       ├── logout.rs    # Logout command
-│   │   │       ├── whoami.rs    # Whoami command
-│   │   │       ├── keys.rs      # Key listing with balance and spending limit queries
-│   │   │       ├── services.rs  # Service directory listing and details
-│   │   │       └── completions.rs # Shell completions
-│   │   ├── keys/                # Key storage, signing, and authorization
-│   │   │   ├── model.rs         # KeyEntry, Keystore, WalletType types
-│   │   │   ├── io.rs            # File I/O for keys.toml (load, save, keys_path)
-│   │   │   ├── signer.rs        # Signing mode resolution (direct EOA vs keychain)
-│   │   │   └── authorization.rs # Key authorization decoding and signing
-│   │   └── payment/             # Payment protocol logic (MPP - https://mpp.dev)
-│   │       ├── dispatch.rs      # Payment dispatch (route 402 flows to charge or session)
-│   │       ├── charge.rs        # One-shot on-chain charge payment
-│   │       └── session/         # Session-based payment channels
-│   │           ├── channel.rs   # Channel open/query operations
-│   │           ├── close.rs     # Channel close and finalization
-│   │           ├── store.rs     # SQLite session persistence
-│   │           ├── streaming.rs # Per-token voucher streaming
-│   │           └── tx.rs        # Transaction building
-│   └── tests/                   # Integration tests (black-box CLI testing via assert_cmd)
+│   │   ├── main.rs              # CLI entry point (calls run_main)
+│   │   └── cli/
+│   │       ├── args.rs          # Cli struct (flattens GlobalArgs)
+│   │       ├── dispatch.rs      # Command dispatch: init, build Context, route, analytics
+│   │       └── commands/        # Command implementations
+│   │           ├── login.rs         # Login (passkey auth flow)
+│   │           ├── logout.rs        # Logout
+│   │           ├── whoami.rs        # Whoami
+│   │           ├── keys.rs          # Key listing with balance/spending limit queries
+│   │           ├── wallets/         # Wallet management (create, list, fund)
+│   │           └── completions.rs   # Shell completions
+│   └── tests/                   # Integration tests (assert_cmd)
+├── tempo-mpp/           # HTTP client with MPP payment support
+│   ├── src/
+│   │   ├── main.rs              # CLI entry point (calls run_main)
+│   │   └── cli/
+│   │       ├── args.rs          # Cli struct (flattens GlobalArgs, QueryArgs)
+│   │       ├── dispatch.rs      # Command dispatch: init, build Context, route, analytics
+│   │       ├── output.rs        # OutputOptions and query-specific output types
+│   │       └── commands/        # Command implementations
+│   │           ├── query/           # HTTP query flow (request → 402 → payment → response)
+│   │           ├── sessions/        # Session management (list, info, close, recover, sync)
+│   │           ├── services/        # Service directory listing and details
+│   │           └── completions.rs   # Shell completions
+│   └── tests/                   # Integration tests (assert_cmd)
 ├── tempo-cli/           # Launcher and extension manager
-│   ├── src/
+│   ├── src/                     # main.rs, launcher.rs, installer.rs, state.rs
 │   └── tests/
-├── sign-release/        # Release manifest signing tool
-│   ├── src/
-│   └── tests/
-examples/                # Runnable example scripts
-.changelog/              # Changelog entries (see Changelogs section)
+└── tempo-sign/          # Release manifest signing tool
+    └── src/main.rs
 ```
 
 ### Scope: CLI-Only
 
-This repository is a Cargo workspace with three binary crates (`tempo-wallet`, `tempo-cli`, `sign-release`). Internal modules are crate-private and not a stable public API. Please do not depend on any crate as a library — all supported behavior is exposed via the CLI.
+This repository is a Cargo workspace with binary crates and one internal shared library (`tempo-common`). Internal modules are crate-private and not a stable public API. Please do not depend on any crate as a library — all supported behavior is exposed via the CLI.
 
 ### Key Conventions
 
-**Imports** — group as std → external crates → crate modules:
+**Imports** — group as std → external crates → crate/tempo_common modules:
 
 ```rust
 use std::path::PathBuf;
@@ -150,19 +137,22 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 
-use crate::config::Config;
+use tempo_common::config::Config;
+use tempo_common::error::TempoError;
 ```
 
-**Error handling** — use `thiserror` for error types, `anyhow` for propagation.
+**Error handling** — `TempoError` (thiserror) for typed errors, `anyhow` for propagation.
 
-**Modules** — each module has a single responsibility. CLI commands go in `crates/tempo-wallet/src/cli/commands/`. Use `mod.rs` for modules with submodules.
+**Modules** — each module has a single responsibility. Shared logic goes in `tempo-common`. Wallet commands go in `tempo-wallet/src/cli/commands/`. MPP commands go in `tempo-mpp/src/cli/commands/`.
+
+**Dependencies** — declared in `[workspace.dependencies]` in root `Cargo.toml`, referenced with `dep.workspace = true` in each crate.
 
 ## Adding a New Feature
 
-1. Add core logic in the appropriate module under `crates/tempo-wallet/src/`
-2. Add CLI flags/commands in `crates/tempo-wallet/src/cli/args.rs`, implement in `crates/tempo-wallet/src/cli/`
-3. Add tests: unit tests in source files, integration tests in the relevant crate's `tests/` directory
-4. Add a changelog entry (see [Changelogs](#changelogs))
+1. Add shared logic in `crates/tempo-common/src/` if used by multiple binaries
+2. Add CLI flags/commands in the appropriate binary's `src/cli/args.rs`
+3. Implement commands in the appropriate binary's `src/cli/commands/`
+4. Add tests: unit tests in source files, integration tests in the relevant crate's `tests/` directory
 5. Run `make check` — zero warnings required
 
 ## Testing
@@ -170,7 +160,6 @@ use crate::config::Config;
 - **Unit tests** live in source files (`#[cfg(test)] mod tests`)
 - **Integration tests** in each crate's `tests/` directory use `assert_cmd` for black-box CLI testing
 - Use `TestConfigBuilder` and `test_command()` helpers to set up test configurations
-- **Live tests:** `make e2e` runs tests against a live mpp-proxy (requires a funded wallet)
 - **Coverage:** `make coverage` generates an lcov report (requires `cargo-llvm-cov` and `llvm-tools-preview`)
 
 > **Note:** Tests use an in-memory keychain backend automatically (`InMemoryKeychain` via `#[cfg(test)]`), so they never touch the real OS keychain.
@@ -179,31 +168,9 @@ use crate::config::Config;
 
 Keep documentation in sync with the CLI. After changing flags, commands, or behavior:
 
-1. Run `cargo run -- --help` (and `cargo run -- <subcommand> --help`) to verify help text is accurate
-2. Update `README.md` if user-facing behavior changed (usage and examples only; repository-specific contributor guidance belongs here in CONTRIBUTING)
+1. Run `cargo run -p <crate> -- --help` (and subcommand `--help`) to verify help text is accurate
+2. Update `README.md` if user-facing behavior changed
 3. Check that `AGENTS.md` still reflects the current module layout and conventions
-
-## Changelogs
-
-This project uses [changelogs-rs](https://github.com/wevm/changelogs-rs) to manage changelog entries. Each PR that changes user-facing behavior should include a changelog entry.
-
-### Adding an entry
-
-Create a markdown file in `.changelog/` with a descriptive name and version-bump frontmatter:
-
-```markdown
----
-tempo-wallet: patch
----
-
-Fixed a bug where session close would hang on timeout.
-```
-
-Valid bump levels: `major`, `minor`, `patch`.
-
-### Configuration
-
-Changelog settings live in `.changelog/config.toml`. The project uses a single root `CHANGELOG.md` (not per-crate). The [wevm/changelogs-rs](https://github.com/wevm/changelogs-rs) GitHub Action consumes these entries on release.
 
 ## Environment Variables
 
@@ -211,6 +178,7 @@ Changelog settings live in `.changelog/config.toml`. The project uses a single r
 |----------|-------------|
 | `TEMPO_RPC_URL` | Override RPC endpoint |
 | `TEMPO_AUTH_URL` | Override auth server URL |
+| `TEMPO_SERVICES_URL` | Override service directory API URL |
 | `TEMPO_NO_TELEMETRY` | Disable telemetry |
 | `RUST_LOG` | Override tracing filter (e.g., `debug`, `info`) |
 | `NO_COLOR` | Disable colored output (also disabled when stdout is not a terminal) |

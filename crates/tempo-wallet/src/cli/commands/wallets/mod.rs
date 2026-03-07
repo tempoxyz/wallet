@@ -11,7 +11,6 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 
 use self::keychain::keychain;
-use crate::cli::args::WalletCommands;
 use crate::cli::Context;
 use tempo_common::analytics::{
     Event, WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload,
@@ -22,34 +21,34 @@ use tempo_common::network::NetworkId;
 use tempo_common::output;
 use tempo_common::util::{address_link, print_field_w, sanitize_error};
 
-pub(crate) async fn run(ctx: &Context, command: WalletCommands) -> Result<()> {
-    match command {
-        WalletCommands::List => list_wallets(ctx),
-        WalletCommands::Create => {
-            let result = create_local_wallet(&ctx.network, &ctx.keys);
-            if result.is_ok() {
-                ctx.track(
-                    Event::WalletCreated,
-                    WalletCreatedPayload {
-                        wallet_type: "local".to_string(),
-                    },
-                );
-            }
-            let wallet_addr = result?;
-            let fresh_keys = ctx.keys.reload()?;
-            super::whoami::show_whoami(ctx, Some(&fresh_keys), Some(&wallet_addr)).await
-        }
-        WalletCommands::Fund { address, no_wait } => {
-            let method = match ctx.network {
-                NetworkId::TempoModerato => "faucet",
-                NetworkId::Tempo => "bridge",
-            };
-            track_fund_start(ctx, method);
-            let result = fund::run(ctx, address, no_wait).await;
-            track_fund_result(ctx, method, &result);
-            result
-        }
+pub(crate) fn list(ctx: &Context) -> Result<()> {
+    list_wallets(ctx)
+}
+
+pub(crate) async fn create(ctx: &Context) -> Result<()> {
+    let result = create_local_wallet(&ctx.network, &ctx.keys);
+    if result.is_ok() {
+        ctx.track(
+            Event::WalletCreated,
+            WalletCreatedPayload {
+                wallet_type: "local".to_string(),
+            },
+        );
     }
+    let wallet_addr = result?;
+    let fresh_keys = ctx.keys.reload()?;
+    super::whoami::show_whoami(ctx, Some(&fresh_keys), Some(&wallet_addr)).await
+}
+
+pub(crate) async fn fund(ctx: &Context, address: Option<String>, no_wait: bool) -> Result<()> {
+    let method = match ctx.network {
+        NetworkId::TempoModerato => "faucet",
+        NetworkId::Tempo => "bridge",
+    };
+    track_fund_start(ctx, method);
+    let result = fund::run(ctx, address, no_wait).await;
+    track_fund_result(ctx, method, &result);
+    result
 }
 
 fn track_fund_start(ctx: &Context, method: &str) {

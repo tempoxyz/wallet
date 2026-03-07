@@ -4,7 +4,7 @@
 
 use crate::installer::{
     binary_candidates, debug_log, executable_name, fetch_manifest_version,
-    set_executable_permissions, InstallSource, Installer, InstallerError,
+    platform_tuple, set_executable_permissions, InstallSource, Installer, InstallerError,
 };
 use crate::state::State;
 use std::env;
@@ -103,6 +103,12 @@ impl Launcher {
     }
 
     fn handle_management(&self, action: &str, args: &[String]) -> Result<i32, LauncherError> {
+        // `tempo update` with no extension: self-update the tempo binary.
+        if action == "update" && args.iter().all(|a| a.starts_with('-')) {
+            let dry_run = args.iter().any(|a| a == "--dry-run");
+            return self.self_update(dry_run);
+        }
+
         let parsed = parse_management_args(args)?;
         let installer = Installer::from_env()?;
 
@@ -122,6 +128,42 @@ impl Launcher {
             _ => unreachable!(),
         };
 
+        Ok(0)
+    }
+
+    /// Download the latest `tempo` binary from R2 and replace the current one.
+    fn self_update(&self, dry_run: bool) -> Result<i32, LauncherError> {
+        let (os, arch) = platform_tuple();
+        let base = env::var("TEMPO_EXTENSIONS_URL")
+            .unwrap_or_else(|_| "https://cli.tempo.xyz".to_string());
+        let base = base.trim_end_matches('/').trim_end_matches("/extensions");
+        let url = format!("{base}/tempo-{os}-{arch}");
+
+        if dry_run {
+            println!("dry-run: download tempo from {url}");
+            return Ok(0);
+        }
+
+        debug_log(&format!("self-update: downloading from {url}"));
+        let installer = Installer::from_env()?;
+
+        let download_dir = tempfile::TempDir::new()?;
+        let tmp_path = download_dir.path().join("tempo");
+
+        let mut response = reqwest::blocking::get(&url)
+            .map_err(InstallerError::from)?
+            .error_for_status()
+            .map_err(InstallerError::from)?;
+        let mut file = fs::File::create(&tmp_path)?;
+        std::io::copy(&mut response, &mut file)?;
+
+        let dst = installer.bin_dir.join(executable_name("tempo"));
+        let staging = dst.with_extension("tmp");
+        fs::copy(&tmp_path, &staging)?;
+        set_executable_permissions(&staging)?;
+        fs::rename(&staging, &dst)?;
+
+        println!("Updated tempo");
         Ok(0)
     }
 
@@ -192,9 +234,10 @@ impl Launcher {
         );
         println!("Usage: tempo <command> [args...]\n");
         println!("Management:");
-        println!("  add <name>    Install an extension");
-        println!("  update <name> Update an extension");
-        println!("  remove <name> Remove an extension\n");
+        println!("  update          Update the tempo launcher itself");
+        println!("  add <name>      Install an extension");
+        println!("  update <name>   Update an extension");
+        println!("  remove <name>   Remove an extension\n");
         println!("Run any installed extension as: tempo <name> [args...]");
         println!("Extensions are auto-installed on first use when available.");
     }

@@ -496,7 +496,7 @@ fn platform_binary_name(extension: &str) -> String {
     format!("tempo-{extension}-{os}-{arch}")
 }
 
-fn platform_tuple() -> (&'static str, &'static str) {
+pub(crate) fn platform_tuple() -> (&'static str, &'static str) {
     let os = if cfg!(target_os = "macos") {
         "darwin"
     } else if cfg!(target_os = "linux") {

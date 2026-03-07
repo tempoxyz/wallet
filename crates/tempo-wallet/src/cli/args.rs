@@ -55,33 +55,14 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: KeyCommands,
     },
-    /// Manage wallets
-    #[command(display_order = 5, name = "wallets")]
-    #[command(
-        args_conflicts_with_subcommands = true,
-        subcommand_required = true,
-        arg_required_else_help = true
-    )]
-    Wallets {
-        #[command(subcommand)]
-        command: WalletCommands,
-    },
-    /// Generate shell completions script
-    #[command(hide = true)]
-    Completions {
-        /// The shell to generate completions for
-        #[arg(value_enum)]
-        shell: Option<clap_complete::Shell>,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum WalletCommands {
     /// List configured wallets
+    #[command(display_order = 5, name = "list")]
     List,
     /// Create a new local wallet
+    #[command(display_order = 6, name = "create")]
     Create,
     /// Fund your wallet (testnet faucet or mainnet bridge)
+    #[command(display_order = 7, name = "fund")]
     Fund {
         /// Wallet address to fund (defaults to current wallet)
         #[arg(long)]
@@ -89,6 +70,13 @@ pub(crate) enum WalletCommands {
         /// Skip waiting for balance confirmation
         #[arg(long)]
         no_wait: bool,
+    },
+    /// Generate shell completions script
+    #[command(hide = true)]
+    Completions {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Option<clap_complete::Shell>,
     },
 }
 
