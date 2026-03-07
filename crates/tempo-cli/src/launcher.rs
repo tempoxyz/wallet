@@ -110,6 +110,11 @@ impl Launcher {
         }
 
         let parsed = parse_management_args(args)?;
+
+        if parsed.extension == "core" {
+            return self.try_auto_install_core().map(|_| 0);
+        }
+
         let installer = Installer::from_env()?;
 
         match action {
@@ -306,7 +311,24 @@ impl Launcher {
             .status()
         {
             Ok(status) => status,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                debug_log("tempoup not found, installing via https://tempo.xyz/install");
+                let install_status = Command::new("sh")
+                    .arg("-c")
+                    .arg("curl -fsSL https://tempo.xyz/install | bash")
+                    .status()?;
+                if !install_status.success() {
+                    return Ok(None);
+                }
+                // Now run the freshly installed tempoup.
+                match Command::new("tempoup")
+                    .env("TEMPO_BIN_DIR", &installer.bin_dir)
+                    .status()
+                {
+                    Ok(status) => status,
+                    Err(_) => return Ok(None),
+                }
+            }
             Err(err) => return Err(LauncherError::Io(err)),
         };
 
@@ -521,7 +543,7 @@ fn is_core_subcommand(name: &str) -> bool {
 fn print_missing_install_hint(extension: &str) {
     eprintln!("Unknown command '{extension}' and no compatible extension found.");
     if is_core_subcommand(extension) {
-        eprintln!("Run: tempoup");
+        eprintln!("Run: curl -L https://tempo.xyz/install | bash");
     } else {
         eprintln!("Run: tempo add {extension}");
     }
