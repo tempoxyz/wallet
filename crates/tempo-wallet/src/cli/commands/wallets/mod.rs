@@ -11,14 +11,16 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 
 use self::keychain::keychain;
-use crate::analytics::{Event, WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload};
 use crate::cli::args::WalletCommands;
-use crate::cli::output;
 use crate::cli::Context;
-use crate::error::TempoWalletError;
-use crate::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, WalletType};
-use crate::network::NetworkId;
-use crate::util::{address_link, print_field_w, sanitize_error};
+use tempo_common::analytics::{
+    Event, WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload,
+};
+use tempo_common::error::TempoError;
+use tempo_common::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, WalletType};
+use tempo_common::network::NetworkId;
+use tempo_common::output;
+use tempo_common::util::{address_link, print_field_w, sanitize_error};
 
 pub(crate) async fn run(ctx: &Context, command: WalletCommands) -> Result<()> {
     match command {
@@ -26,14 +28,12 @@ pub(crate) async fn run(ctx: &Context, command: WalletCommands) -> Result<()> {
         WalletCommands::Create => {
             let result = create_local_wallet(&ctx.network, &ctx.keys);
             if result.is_ok() {
-                if let Some(a) = ctx.analytics.as_ref() {
-                    a.track(
-                        Event::WalletCreated,
-                        WalletCreatedPayload {
-                            wallet_type: "local".to_string(),
-                        },
-                    );
-                }
+                ctx.track(
+                    Event::WalletCreated,
+                    WalletCreatedPayload {
+                        wallet_type: "local".to_string(),
+                    },
+                );
             }
             let wallet_addr = result?;
             let fresh_keys = ctx.keys.reload()?;
@@ -53,24 +53,19 @@ pub(crate) async fn run(ctx: &Context, command: WalletCommands) -> Result<()> {
 }
 
 fn track_fund_start(ctx: &Context, method: &str) {
-    if let Some(a) = ctx.analytics.as_ref() {
-        a.track(
-            Event::WalletFundStarted,
-            WalletFundPayload {
-                network: ctx.network.as_str().to_string(),
-                method: method.to_string(),
-            },
-        );
-    }
+    ctx.track(
+        Event::WalletFundStarted,
+        WalletFundPayload {
+            network: ctx.network.as_str().to_string(),
+            method: method.to_string(),
+        },
+    );
 }
 
 fn track_fund_result(ctx: &Context, method: &str, result: &Result<()>) {
-    let Some(a) = ctx.analytics.as_ref() else {
-        return;
-    };
     match result {
         Ok(()) => {
-            a.track(
+            ctx.track(
                 Event::WalletFundSuccess,
                 WalletFundPayload {
                     network: ctx.network.as_str().to_string(),
@@ -79,7 +74,7 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<()>) {
             );
         }
         Err(e) => {
-            a.track(
+            ctx.track(
                 Event::WalletFundFailure,
                 WalletFundFailurePayload {
                     network: ctx.network.as_str().to_string(),
@@ -104,7 +99,7 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<()>) {
 /// 5. Return the fundable wallet address
 fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
     if keys.ephemeral {
-        anyhow::bail!(TempoWalletError::InvalidConfig(
+        anyhow::bail!(TempoError::InvalidConfig(
             "Cannot create wallets with --private-key flag".to_string()
         ));
     }
@@ -118,7 +113,7 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
 
     keychain()
         .set(&wallet_address, &wallet_key_hex)
-        .map_err(|e| TempoWalletError::Keychain(format!("Failed to store wallet key: {e}")))?;
+        .map_err(|e| TempoError::Keychain(format!("Failed to store wallet key: {e}")))?;
 
     // Generate access key.
     let access_signer = PrivateKeySigner::random();
@@ -161,7 +156,7 @@ fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Result<String> {
 /// 4. Clear provisioned flag (new key must re-provision)
 pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -> Result<()> {
     if keys.ephemeral {
-        anyhow::bail!(TempoWalletError::InvalidConfig(
+        anyhow::bail!(TempoError::InvalidConfig(
             "Cannot renew wallets with --private-key flag".to_string()
         ));
     }
@@ -174,9 +169,7 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
                 k.wallet_address.eq_ignore_ascii_case(addr) && k.wallet_type == WalletType::Local
             })
             .ok_or_else(|| {
-                TempoWalletError::ConfigMissing(format!(
-                    "No local wallet found for address '{addr}'."
-                ))
+                TempoError::ConfigMissing(format!("No local wallet found for address '{addr}'."))
             })?
     } else {
         let mut local_iter = keys
@@ -187,11 +180,11 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
             .map(|(i, _)| i);
 
         match (local_iter.next(), local_iter.next()) {
-            (None, _) => anyhow::bail!(TempoWalletError::ConfigMissing(
+            (None, _) => anyhow::bail!(TempoError::ConfigMissing(
                 "No local wallet found.".to_string()
             )),
             (Some(i), None) => i,
-            (Some(_), Some(_)) => anyhow::bail!(TempoWalletError::InvalidConfig(
+            (Some(_), Some(_)) => anyhow::bail!(TempoError::InvalidConfig(
                 "Multiple local wallets found. Specify --wallet <address>.".to_string()
             )),
         }
@@ -202,16 +195,16 @@ pub(super) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -
     // Load wallet EOA key from OS keychain.
     let wallet_key_hex = keychain()
         .get(&key_entry.wallet_address)
-        .map_err(|e| TempoWalletError::Keychain(format!("Failed to load wallet key: {e}")))?
+        .map_err(|e| TempoError::Keychain(format!("Failed to load wallet key: {e}")))?
         .ok_or_else(|| {
-            TempoWalletError::Keychain(format!(
+            TempoError::Keychain(format!(
                 "Wallet key not found in keychain for '{}'. The wallet may need to be re-created.",
                 key_entry.wallet_address
             ))
         })?;
 
     let wallet_signer: PrivateKeySigner = parse_private_key_signer(&wallet_key_hex)
-        .map_err(|e| TempoWalletError::Keychain(format!("Invalid wallet key in keychain: {e}")))?;
+        .map_err(|e| TempoError::Keychain(format!("Invalid wallet key in keychain: {e}")))?;
 
     // Generate new access key.
     let access_signer = PrivateKeySigner::random();

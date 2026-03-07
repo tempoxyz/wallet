@@ -6088,17 +6088,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "sign-release"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "ed25519-dalek",
- "getrandom 0.2.17",
- "serde_json",
- "sha2",
-]
-
-[[package]]
 name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6443,6 +6432,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempo-common"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "clap",
+ "clap_complete",
+ "colored",
+ "dirs",
+ "ed25519-dalek",
+ "fs2",
+ "futures",
+ "getrandom 0.2.17",
+ "hex",
+ "hostname",
+ "mpp",
+ "posthog-rs",
+ "qrcode",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "tempfile",
+ "tempo-primitives",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "toml",
+ "toon-format",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "url",
+ "urlencoding",
+ "webbrowser",
+ "zeroize",
+]
+
+[[package]]
 name = "tempo-contracts"
 version = "1.4.0"
 source = "git+https://github.com/tempoxyz/tempo#b9e1d9d64d626a74fedbe8e62f6a817dc81a0911"
@@ -6450,6 +6482,52 @@ dependencies = [
  "alloy-contract",
  "alloy-primitives",
  "alloy-sol-types",
+]
+
+[[package]]
+name = "tempo-mpp"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "assert_cmd",
+ "axum",
+ "base64 0.22.1",
+ "clap",
+ "clap_complete",
+ "colored",
+ "dirs",
+ "ed25519-dalek",
+ "fs2",
+ "futures",
+ "getrandom 0.2.17",
+ "hex",
+ "hostname",
+ "mpp",
+ "posthog-rs",
+ "predicates",
+ "qrcode",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "tempfile",
+ "tempo-common",
+ "tempo-primitives",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "toml",
+ "toon-format",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "url",
+ "urlencoding",
+ "webbrowser",
+ "zeroize",
 ]
 
 [[package]]
@@ -6476,6 +6554,17 @@ dependencies = [
  "reth-rpc-convert",
  "revm",
  "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "tempo-sign"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "getrandom 0.2.17",
  "serde_json",
  "sha2",
 ]
@@ -6511,6 +6600,7 @@ dependencies = [
  "serial_test",
  "sha2",
  "tempfile",
+ "tempo-common",
  "tempo-primitives",
  "thiserror 2.0.18",
  "time",

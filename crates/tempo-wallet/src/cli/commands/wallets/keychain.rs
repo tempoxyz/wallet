@@ -24,7 +24,7 @@ use zeroize::Zeroizing;
 #[cfg(not(target_os = "macos"))]
 #[cfg_attr(test, allow(dead_code))]
 fn unsupported() -> anyhow::Error {
-    crate::error::TempoWalletError::Keychain(
+    tempo_common::error::TempoError::Keychain(
         "OS keychain not supported on this platform".to_string(),
     )
     .into()

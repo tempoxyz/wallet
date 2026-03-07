@@ -1,0 +1,18 @@
+[package]
+name = "tempo-sign"
+version = "0.1.0"
+edition = "2021"
+description = "Generate signed release manifests for Tempo CLI extensions"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "tempo-sign"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

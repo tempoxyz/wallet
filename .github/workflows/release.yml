@@ -85,7 +85,7 @@ jobs:
         run: |
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
           SKILL_SHA256=$(sha256sum crates/tempo-wallet/SKILL.md | cut -d' ' -f1)
-          cargo run -p sign-release -- \
+          cargo run -p tempo-sign -- \
             --key-file /tmp/release.key \
             --artifacts-dir artifacts \
             --version "${{ inputs.version }}" \

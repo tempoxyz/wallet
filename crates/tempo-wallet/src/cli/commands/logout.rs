@@ -1,8 +1,8 @@
 //! Logout command — disconnect your wallet.
 
-use crate::analytics::Event;
-use crate::cli::output;
 use crate::cli::Context;
+use tempo_common::analytics::Event;
+use tempo_common::output;
 
 #[derive(serde::Serialize)]
 struct LogoutResponse {
@@ -44,7 +44,7 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
     } else {
         wallet_addr.to_string()
     };
-    if !crate::util::confirm(&format!("Disconnect wallet {short_addr}?"), yes)? {
+    if !tempo_common::util::confirm(&format!("Disconnect wallet {short_addr}?"), yes)? {
         output::emit_by_format(
             ctx.output_format,
             &LogoutResponse {
@@ -65,9 +65,7 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
     keys.delete_passkey_wallet(&wallet_addr)?;
     keys.save()?;
 
-    if let Some(ref a) = ctx.analytics {
-        a.track_event(Event::Logout);
-    }
+    ctx.track_event(Event::Logout);
 
     output::emit_by_format(
         ctx.output_format,

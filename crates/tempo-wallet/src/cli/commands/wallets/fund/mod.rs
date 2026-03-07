@@ -8,11 +8,11 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::account::TokenBalance;
 use crate::cli::Context;
-use crate::error::TempoWalletError;
-use crate::keys::Keystore;
-use crate::network::NetworkId;
+use tempo_common::account::TokenBalance;
+use tempo_common::error::TempoError;
+use tempo_common::keys::Keystore;
+use tempo_common::network::NetworkId;
 
 use relay::DepositStatus;
 
@@ -72,7 +72,7 @@ fn resolve_address(address: Option<String>, keys: &Keystore) -> anyhow::Result<S
     let wallet_addr = keys.wallet_address();
 
     if wallet_addr.is_empty() {
-        anyhow::bail!(TempoWalletError::ConfigMissing(
+        anyhow::bail!(TempoError::ConfigMissing(
             "No wallet configured. Run 'tempo-wallet login' or 'tempo-wallet wallets create'."
                 .to_string(),
         ));
