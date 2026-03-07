@@ -3,6 +3,9 @@
 use anyhow::Result;
 use base64::Engine;
 
+/// Default HTTP status codes considered transient/retryable (curl parity).
+const DEFAULT_RETRY_STATUS_CODES: &[u16] = &[408, 429, 500, 502, 503, 504];
+
 use crate::cli::args::QueryArgs;
 use crate::cli::output::OutputOptions;
 use crate::cli::Cli;
@@ -83,7 +86,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         .unwrap_or_default();
     // Curl parity: when --retries is set but no explicit --retry-http, use default transient set
     if query.retries.is_some() && retry_codes.is_empty() {
-        retry_codes = vec![408, 429, 500, 502, 503, 504];
+        retry_codes = DEFAULT_RETRY_STATUS_CODES.to_vec();
     }
 
     let plan = HttpRequestPlan {

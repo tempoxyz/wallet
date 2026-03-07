@@ -10,7 +10,7 @@ use crate::error::TempoWalletError;
 use crate::http::{extract_headers, format_http_error, print_headers, HttpClient};
 use crate::util::now_utc;
 
-use super::response;
+use super::response::write_meta_if_requested;
 
 /// Parse a single SSE line and, if it's a `data:` field, write the NDJSON
 /// object to `writer`. Returns the number of bytes written (0 if skipped).
@@ -90,7 +90,9 @@ pub(super) async fn execute_streaming(
         }
     }
 
-    // Build error once for both SSE event and bail
+    // Errors are checked *after* the stream is fully consumed so that partial
+    // output is still delivered to the caller (important for long-running SSE
+    // streams where the server may send useful data before a late error).
     let error: Option<TempoWalletError> = if status == 402 {
         Some(TempoWalletError::StreamingPaymentUnsupported)
     } else if status >= 400 {
@@ -116,7 +118,7 @@ pub(super) async fn execute_streaming(
     drop(stdout);
 
     // Write meta if requested
-    if let Err(e) = response::write_meta_if_requested(
+    if let Err(e) = write_meta_if_requested(
         output_opts,
         status,
         &headers,

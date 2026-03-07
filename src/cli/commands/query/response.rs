@@ -187,8 +187,11 @@ pub(super) fn display_receipt(
 
 /// Write bytes to a file, handling `-` as stdout and validating the path.
 ///
-/// Absolute paths are intentionally allowed (matching curl behaviour);
-/// only `..` traversal components are rejected.
+/// Absolute paths are intentionally allowed (matching curl behaviour).
+/// `..` traversal components are rejected lexically. For relative paths,
+/// symlinks in the parent directory are resolved to prevent escaping the
+/// working directory. Absolute paths bypass the symlink check (also
+/// matching curl behaviour — the caller explicitly chose the destination).
 fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<()> {
     if output_file == "-" {
         std::io::stdout()
@@ -200,6 +203,17 @@ fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<()> {
             anyhow::bail!(TempoWalletError::InvalidOutputPath(
                 "path traversal (..) not allowed".to_string()
             ));
+        }
+        // Resolve symlinks in the parent to prevent escaping the intended directory
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            if let Ok(canonical) = parent.canonicalize() {
+                let cwd = std::env::current_dir().unwrap_or_default();
+                if !path.is_absolute() && !canonical.starts_with(&cwd) {
+                    anyhow::bail!(TempoWalletError::InvalidOutputPath(
+                        "resolved path escapes working directory".to_string()
+                    ));
+                }
+            }
         }
         std::fs::write(output_file, data).context("Failed to write output file")?;
         if verbose {
