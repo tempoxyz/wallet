@@ -64,4 +64,4 @@ jobs:
           for f in artifacts/tempo-*; do
             aws s3 cp "$f" "s3://tempo-cli/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
           done
-          aws s3 cp install "s3://tempo-cli/install" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp scripts/install.sh "s3://tempo-cli/install" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
