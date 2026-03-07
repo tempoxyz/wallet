@@ -6,12 +6,12 @@
 //! prompting, and displays the final response.
 
 mod analytics;
-mod body;
 mod challenge;
 mod headers;
-mod request;
-mod response;
-mod streaming;
+mod output;
+mod payload;
+mod prepare;
+mod sse;
 
 use anyhow::Result;
 
@@ -21,9 +21,7 @@ use crate::error::TempoWalletError;
 use crate::payment::dispatch::{dispatch_payment, PaymentResult};
 use crate::util::redact_url;
 
-use body::append_data_to_query;
-use request::{build_client, parse_and_validate_url};
-use response::{build_output_options, write_meta_if_requested};
+use output::{build_output_options, write_meta_if_requested};
 
 /// Execute an HTTP request with automatic payment handling.
 ///
@@ -40,34 +38,31 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         anyhow::bail!(TempoWalletError::OfflineMode);
     }
 
-    let mut parsed_url = parse_and_validate_url(&query.url)?;
-
-    // Support -G/--get: append -d and --data-urlencode to query string and force GET if no explicit -X
-    if query.get && (!query.data.is_empty() || !query.data_urlencode.is_empty()) {
-        append_data_to_query(&mut parsed_url, &query.data, &query.data_urlencode)?;
-    }
-
-    let http = build_client(&ctx.cli, &query)?;
-    let output_opts = build_output_options(&ctx.cli, &query, &parsed_url);
-    let target_url = parsed_url.to_string();
-    let method_str = http.plan.method.to_string();
+    let prepared = prepare::prepare(&ctx.cli, &query)?;
+    let output_opts = build_output_options(&ctx.cli, &query, &prepared.url);
+    let target_url = prepared.url.to_string();
+    let method_str = prepared.http.plan.method.to_string();
 
     let sanitized_url = redact_url(&target_url);
 
     analytics::track_query_started(ctx, &sanitized_url, &method_str);
 
-    if http.log_enabled() {
+    if prepared.http.log_enabled() {
         eprintln!("Making {method_str} request to: {sanitized_url}");
     }
 
     // Streaming/SSE mode: perform a streaming request and return.
     if query.is_streaming() {
-        return streaming::run_streaming(&http, &target_url, &output_opts, query.sse_json).await;
+        return sse::run(&prepared.http, &target_url, &output_opts, query.sse_json).await;
     }
 
     // Single execution; retry policy is handled inside HttpClient
     let start = std::time::Instant::now();
-    let response = match http.execute(&target_url, /* extra_headers */ &[]).await {
+    let response = match prepared
+        .http
+        .execute(&target_url, /* extra_headers */ &[])
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             analytics::track_query_failure(ctx, &sanitized_url, &method_str, &e.to_string());
@@ -88,7 +83,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     if response.status_code != 402 {
         analytics::track_query_success(ctx, &sanitized_url, &method_str, response.status_code);
-        response::render_and_save(&output_opts, response, None)?;
+        output::handle_response(&output_opts, response, None)?;
         return Ok(());
     }
 
@@ -104,7 +99,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     let challenge = challenge::parse_payment_challenge(&response)?;
 
     // Dry-run price output for agents
-    if http.dry_run && query.price_json {
+    if prepared.http.dry_run && query.price_json {
         let obj = serde_json::json!({
             "intent": challenge.intent_str(),
             "network": challenge.network.as_str(),
@@ -115,7 +110,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         return Ok(());
     }
 
-    if http.log_enabled() {
+    if prepared.http.log_enabled() {
         eprintln!(
             "Payment required: intent={} network={} amount={}",
             challenge.intent_str(),
@@ -143,7 +138,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     }
 
     // Skip wallet login for dry-run or when a private key is provided directly
-    if !http.dry_run && !ctx.keys.ephemeral {
+    if !prepared.http.dry_run && !ctx.keys.ephemeral {
         ctx.keys.ensure_key_for_network(challenge.network)?;
     }
 
@@ -163,7 +158,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     let result = dispatch_payment(
         &ctx.config,
-        &http,
+        &prepared.http,
         is_session,
         &effective_url,
         challenge.challenge,
@@ -184,7 +179,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
             if let Some(resp) = response {
                 // Display receipt summary for charge responses
                 if !is_session {
-                    response::display_receipt(
+                    output::display_receipt(
                         &output_opts,
                         &resp,
                         challenge_network,
@@ -192,7 +187,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
                     );
                 }
 
-                response::render_and_save(&output_opts, resp, query.save_receipt.as_deref())?;
+                output::handle_response(&output_opts, resp, query.save_receipt.as_deref())?;
             }
             Ok(())
         }

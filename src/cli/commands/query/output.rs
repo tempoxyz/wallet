@@ -43,8 +43,8 @@ pub(super) fn build_output_options(
     }
 }
 
-/// Render a response: display output, optionally save the payment receipt, and fail on HTTP errors.
-pub(super) fn render_and_save(
+/// Handle a final response: render output, optionally save the payment receipt, and fail on HTTP errors.
+pub(super) fn handle_response(
     output_opts: &OutputOptions,
     response: HttpResponse,
     save_receipt_path: Option<&str>,
@@ -273,29 +273,29 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
-    // render_and_save
+    // handle_response
     // ---------------------------------------------------------------------------
 
     #[test]
-    fn test_render_and_save_success_status() {
+    fn test_handle_response_success_status() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(200, b"ok");
-        assert!(render_and_save(&opts, resp, None).is_ok());
+        assert!(handle_response(&opts, resp, None).is_ok());
     }
 
     #[test]
-    fn test_render_and_save_4xx_fails() {
+    fn test_handle_response_4xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(404, b"not found");
-        let err = render_and_save(&opts, resp, None).unwrap_err();
+        let err = handle_response(&opts, resp, None).unwrap_err();
         assert!(err.to_string().contains("404"));
     }
 
     #[test]
-    fn test_render_and_save_5xx_fails() {
+    fn test_handle_response_5xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(500, b"internal error");
-        let err = render_and_save(&opts, resp, None).unwrap_err();
+        let err = handle_response(&opts, resp, None).unwrap_err();
         assert!(err.to_string().contains("Internal Server Error"));
     }
 

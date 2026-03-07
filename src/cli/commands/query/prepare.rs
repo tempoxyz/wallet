@@ -1,4 +1,4 @@
-//! CLI → domain conversion: URL parsing, HTTP client construction, output options.
+//! CLI → domain conversion: URL parsing, HTTP client construction, request planning.
 
 use anyhow::Result;
 use base64::Engine;
@@ -9,16 +9,40 @@ use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
 use crate::network::NetworkId;
 
-use super::body::{join_form_pairs, parse_data_urlencode, resolve_method_and_body};
 use super::headers::{
     has_header, parse_headers, should_auto_add_json_content_type, validate_header_size,
+};
+use super::payload::{
+    append_data_to_query, join_form_pairs, parse_data_urlencode, resolve_method_and_body,
 };
 
 /// Default HTTP status codes considered transient/retryable (curl parity).
 const DEFAULT_RETRY_STATUS_CODES: &[u16] = &[408, 429, 500, 502, 503, 504];
 
+/// Fully prepared request: parsed URL and configured HTTP client.
+pub(super) struct PreparedRequest {
+    pub(super) url: url::Url,
+    pub(super) http: HttpClient,
+}
+
+/// Parse, validate, and build the HTTP client from CLI arguments.
+///
+/// Handles URL parsing, `-G/--get` query-string appending, and client
+/// construction — everything needed before execution.
+pub(super) fn prepare(cli: &Cli, query: &QueryArgs) -> Result<PreparedRequest> {
+    let mut url = parse_and_validate_url(&query.url)?;
+
+    // Support -G/--get: append -d and --data-urlencode to query string and force GET if no explicit -X
+    if query.get && (!query.data.is_empty() || !query.data_urlencode.is_empty()) {
+        append_data_to_query(&mut url, &query.data, &query.data_urlencode)?;
+    }
+
+    let http = build_client(cli, query)?;
+    Ok(PreparedRequest { url, http })
+}
+
 /// Parse and validate a URL, ensuring it uses http or https.
-pub(super) fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
+fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
     let parsed = url::Url::parse(raw).map_err(|e| TempoWalletError::InvalidUrl(e.to_string()))?;
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
@@ -33,7 +57,7 @@ pub(super) fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
 ///
 /// This is the boundary where CLI-specific types are converted into
 /// domain types used by the HTTP and payment layers.
-pub(super) fn build_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClient> {
+fn build_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClient> {
     let plan = build_request_plan(query)?;
 
     let verbosity = cli.verbosity();

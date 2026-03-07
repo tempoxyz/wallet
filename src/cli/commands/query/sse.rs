@@ -10,7 +10,7 @@ use crate::error::TempoWalletError;
 use crate::http::{extract_headers, format_http_error, print_headers, HttpClient};
 use crate::util::now_utc;
 
-use super::response::write_meta_if_requested;
+use super::output::write_meta_if_requested;
 
 /// Parse a single SSE line and, if it's a `data:` field, write the NDJSON
 /// object to `writer`. Returns the number of bytes written (0 if skipped).
@@ -55,7 +55,7 @@ fn drain_sse_lines(buf: &mut Vec<u8>, writer: &mut impl Write) -> Result<usize> 
 /// Bypasses [`HttpClient::execute()`] and uses the raw reqwest client directly
 /// because streaming requires access to `reqwest::Response::bytes_stream()`,
 /// which `execute()` does not expose (it consumes the response into `HttpResponse`).
-pub(super) async fn run_streaming(
+pub(super) async fn run(
     http: &HttpClient,
     url: &str,
     output_opts: &OutputOptions,
