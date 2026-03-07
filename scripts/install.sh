@@ -115,6 +115,23 @@ banner() {
 }
 
 # ---------------------------------------------------------------------------
+# File install helper (with sudo fallback)
+# ---------------------------------------------------------------------------
+
+install_bin() {
+    local src="$1"
+    local dst="$2"
+
+    if cp "$src" "$dst" 2>/dev/null; then
+        chmod +x "$dst"
+    elif sudo cp "$src" "$dst" 2>/dev/null; then
+        sudo chmod +x "$dst"
+    else
+        fail "Failed to install to ${dst} (try running with sudo)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Extension helpers
 # ---------------------------------------------------------------------------
 
@@ -145,6 +162,41 @@ report_installed_skills() {
 }
 
 # ---------------------------------------------------------------------------
+# Migrate legacy tempo-core binary
+# ---------------------------------------------------------------------------
+
+# If a "tempo" binary already exists and is the node (not our launcher),
+# move it to "tempo-core" so the launcher can find and dispatch to it.
+migrate_legacy_core() {
+    local core_path="${BIN_DIR}/tempo-core"
+
+    if [[ -f "${core_path}" ]]; then
+        return 0
+    fi
+
+    local search_dirs=("${BIN_DIR}" "/usr/local/bin")
+
+    for dir in "${search_dirs[@]}"; do
+        local existing="${dir}/tempo"
+        [[ -f "${existing}" ]] || continue
+
+        # Our launcher prints "tempo <ver> (<git-sha>)" with a git SHA in parens.
+        # The node binary prints "Tempo v<semver>" without a SHA.
+        local version_output
+        version_output=$("${existing}" --version 2>&1 || true)
+        if echo "${version_output}" | grep -qE '^tempo .+ \([0-9a-f]+\)$'; then
+            continue
+        fi
+
+        # It's the legacy node binary — copy to BIN_DIR as tempo-core
+        mkdir -p "${BIN_DIR}"
+        install_bin "${existing}" "${core_path}"
+        ok "Migrated legacy tempo to ${core_path}"
+        return 0
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Install tempo CLI
 # ---------------------------------------------------------------------------
 
@@ -169,7 +221,7 @@ install_tempo_remote() {
     fi
 
     mkdir -p "${BIN_DIR}"
-    mv "${tmp_file}" "${BIN_DIR}/tempo"
+    install_bin "${tmp_file}" "${BIN_DIR}/tempo"
     ok "Installed tempo to ${BIN_DIR}"
 }
 
@@ -178,8 +230,7 @@ install_tempo_from_source() {
     cd "${SCRIPT_DIR}"
     cargo build --release --bin tempo 2>&1 | grep -v "Finished\|Compiling\|Downloading\|Downloaded" || true
     mkdir -p "${BIN_DIR}"
-    cp "${SCRIPT_DIR}/target/release/tempo" "${BIN_DIR}/tempo"
-    chmod +x "${BIN_DIR}/tempo"
+    install_bin "${SCRIPT_DIR}/target/release/tempo" "${BIN_DIR}/tempo"
     ok "Installed tempo to ${BIN_DIR}"
 }
 
@@ -280,6 +331,8 @@ main() {
         do_uninstall
         exit 0
     fi
+
+    migrate_legacy_core
 
     # Build from source if running from checkout, otherwise download
     if [[ "${mode}" == "from-source" || (-n "${SCRIPT_DIR}" && -f "${SCRIPT_DIR}/Cargo.toml") ]]; then

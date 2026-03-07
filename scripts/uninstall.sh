@@ -24,8 +24,11 @@ echo -e "${BOLD}Removing binaries...${RESET}"
 for dir in ~/.tempo/bin ~/.cargo/bin ~/.local/bin /usr/local/bin; do
   for bin in tempo tempo-wallet tempo-mpp tempo-core tempo-sign presto; do
     if [[ -f "$dir/$bin" ]]; then
-      rm -f "$dir/$bin"
-      ok "Removed $dir/$bin"
+      if rm -f "$dir/$bin" 2>/dev/null || sudo rm -f "$dir/$bin" 2>/dev/null; then
+        ok "Removed $dir/$bin"
+      else
+        fail "Failed to remove $dir/$bin (try running with sudo)"
+      fi
     fi
   done
 done
@@ -38,8 +41,11 @@ for dir in \
   ~/.config/tempo \
   ~/.local/share/tempo; do
   if [[ -d "$dir" ]]; then
-    rm -rf "$dir"
-    ok "Removed $dir"
+    if rm -rf "$dir" 2>/dev/null || sudo rm -rf "$dir" 2>/dev/null; then
+      ok "Removed $dir"
+    else
+      fail "Failed to remove $dir (try running with sudo)"
+    fi
   else
     skip "$dir (not found)"
   fi
