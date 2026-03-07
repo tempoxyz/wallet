@@ -8,6 +8,9 @@ use tracing::warn;
 use super::response::HttpResponse;
 use crate::network::NetworkId;
 
+/// Default User-Agent header value for requests.
+pub(crate) const DEFAULT_USER_AGENT: &str = concat!("tempo-wallet/", env!("CARGO_PKG_VERSION"));
+
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Debug)]
 pub(crate) struct HttpRequestPlan {
@@ -43,7 +46,7 @@ impl Default for HttpRequestPlan {
             connect_timeout_secs: None,
             follow_redirects: false,
             follow_redirects_limit: None,
-            user_agent: format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")),
+            user_agent: DEFAULT_USER_AGENT.to_string(),
             insecure: false,
             proxy: None,
             no_proxy: false,

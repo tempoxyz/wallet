@@ -7,7 +7,7 @@ use crate::cli::args::QueryArgs;
 use crate::cli::output::OutputOptions;
 use crate::cli::Cli;
 use crate::error::TempoWalletError;
-use crate::http::{HttpClient, HttpRequestPlan};
+use crate::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
 use crate::network::NetworkId;
 
 use super::input::{
@@ -97,7 +97,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         user_agent: query
             .user_agent
             .clone()
-            .unwrap_or_else(|| HttpRequestPlan::default().user_agent),
+            .unwrap_or_else(|| DEFAULT_USER_AGENT.to_string()),
         insecure: query.insecure,
         proxy: query.proxy.clone(),
         no_proxy: query.no_proxy,

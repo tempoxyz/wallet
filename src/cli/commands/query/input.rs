@@ -327,13 +327,14 @@ mod tests {
     }
 
     #[test]
-    fn test_json_data_auto_detected() {
+    fn test_json_content_type_auto_detection() {
         let no_h: Vec<String> = vec![];
         let json_obj = vec![r#"{"key": "value"}"#.to_string()];
         let json_arr = vec!["[1, 2, 3]".to_string()];
         let json_ws = vec!["  {\"key\": \"value\"}".to_string()];
         let plain = vec!["plain text".to_string()];
         let kv = vec!["key=value".to_string()];
+        // JSON-looking data triggers auto-add
         assert!(should_auto_add_json_content_type(
             &no_h, None, None, &json_obj
         ));
@@ -343,63 +344,37 @@ mod tests {
         assert!(should_auto_add_json_content_type(
             &no_h, None, None, &json_ws
         ));
+        // Non-JSON data does not
         assert!(!should_auto_add_json_content_type(
             &no_h, None, None, &plain
         ));
         assert!(!should_auto_add_json_content_type(&no_h, None, None, &kv));
-    }
-
-    #[test]
-    fn test_should_auto_add_json_content_type_with_json_flag() {
-        let headers: Vec<String> = vec![];
+        // --json flag triggers auto-add
         assert!(should_auto_add_json_content_type(
-            &headers,
+            &no_h,
             Some(r#"{"key":"value"}"#),
             None,
             &[]
         ));
-    }
-
-    #[test]
-    fn test_should_not_auto_add_content_type_when_present() {
-        let data = vec![r#"{"key":"value"}"#.to_string()];
-        // Exact case
-        assert!(!should_auto_add_json_content_type(
-            &["Content-Type: application/json".to_string()],
-            None,
-            None,
-            &data,
-        ));
-        // Lowercase
-        assert!(!should_auto_add_json_content_type(
-            &["content-type: application/json".to_string()],
-            None,
-            None,
-            &data,
-        ));
-        // Uppercase
-        assert!(!should_auto_add_json_content_type(
-            &["CONTENT-TYPE: application/json".to_string()],
-            None,
-            None,
-            &data,
-        ));
-        // Different content-type value — still suppressed
-        assert!(!should_auto_add_json_content_type(
-            &["Content-Type: text/plain".to_string()],
-            None,
-            None,
-            &data,
-        ));
-    }
-
-    #[test]
-    fn test_should_auto_add_content_type_with_other_headers() {
-        let headers = vec!["Authorization: Bearer token".to_string()];
-        let data = vec![r#"{"key":"value"}"#.to_string()];
+        // Unrelated headers don't suppress auto-add
+        let auth = vec!["Authorization: Bearer token".to_string()];
         assert!(should_auto_add_json_content_type(
-            &headers, None, None, &data
+            &auth, None, None, &json_obj
         ));
+        // Existing Content-Type suppresses auto-add (case-insensitive)
+        for ct in [
+            "Content-Type: application/json",
+            "content-type: application/json",
+            "CONTENT-TYPE: application/json",
+            "Content-Type: text/plain",
+        ] {
+            assert!(!should_auto_add_json_content_type(
+                &[ct.to_string()],
+                None,
+                None,
+                &json_obj
+            ));
+        }
     }
 
     #[test]
