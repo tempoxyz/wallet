@@ -7,7 +7,7 @@ use futures::StreamExt;
 
 use crate::cli::output::OutputOptions;
 use crate::error::TempoWalletError;
-use crate::http::{extract_headers, format_http_error, print_headers, HttpClient};
+use crate::http::{format_http_error, headers_from_reqwest, print_headers, HttpClient};
 use crate::util::now_utc;
 
 use super::output::write_meta_if_requested;
@@ -65,7 +65,7 @@ pub(super) async fn run(
     let resp = http.build_raw_request(url).send().await?;
     let status = resp.status().as_u16();
     let final_url_string = resp.url().to_string();
-    let headers = extract_headers(resp.headers());
+    let headers = headers_from_reqwest(resp.headers());
 
     if output_opts.include_headers {
         print_headers(status, &headers);

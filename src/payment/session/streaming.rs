@@ -11,7 +11,9 @@ use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
-use super::{build_voucher_credential, persist_session, SessionContext, SessionState};
+use super::persist_session;
+use super::state::{SessionContext, SessionState};
+use super::voucher::build_voucher_credential;
 
 /// Post a voucher to the server in a background task.
 ///

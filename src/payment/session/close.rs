@@ -15,10 +15,10 @@ use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::{parse_receipt, ChallengeEcho};
 
 use super::channel::{get_channel_on_chain, read_grace_period, IEscrow};
+use super::state::CloseOutcome;
 use super::store as session_store;
 use super::store::SessionStatus;
 use super::tx::submit_tempo_tx;
-use super::CloseOutcome;
 use super::DEFAULT_GRACE_PERIOD_SECS;
 use crate::analytics::{Analytics, Event};
 use crate::config::Config;
@@ -241,7 +241,7 @@ async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        let reason = crate::payment::extract_json_error(&body)
+        let reason = crate::payment::error::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(200).collect());
         return Err(TempoWalletError::PaymentRejected {
             reason,

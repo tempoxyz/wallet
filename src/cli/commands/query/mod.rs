@@ -6,10 +6,10 @@
 //! prompting, and displays the final response.
 
 mod analytics;
-mod challenge;
 mod headers;
 mod output;
 mod payload;
+mod payment_challenge;
 mod prepare;
 mod sse;
 
@@ -97,7 +97,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         .unwrap_or(&target_url)
         .to_string();
 
-    let challenge = challenge::parse_payment_challenge(&response)?;
+    let challenge = payment_challenge::parse_payment_challenge(&response)?;
 
     // Dry-run price output for agents
     if prepared.http.dry_run && query.price_json {
@@ -166,6 +166,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         is_session,
         &effective_url,
         challenge.challenge,
+        challenge_network,
         &ctx.keys,
     )
     .await;

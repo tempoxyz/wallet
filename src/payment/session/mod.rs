@@ -20,130 +20,40 @@
 //! - [`streaming`] — SSE streaming with voucher top-ups
 //! - [`close`] — Channel close operations (cooperative and on-chain)
 //! - [`tx`] — Tempo transaction building and submission
+//! - [`state`] — Types and helpers for session state
+//! - [`voucher`] — Credential construction (open payloads, vouchers)
 
 pub(crate) mod channel;
 pub(crate) mod close;
+pub(crate) mod state;
 pub(crate) mod store;
 mod streaming;
 mod tx;
+mod voucher;
 
 /// Fallback grace period (seconds) when escrow grace-period reads fail.
 pub(crate) const DEFAULT_GRACE_PERIOD_SECS: u64 = 900;
 
+pub(crate) use state::CloseOutcome;
+
 use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
+use mpp::parse_receipt;
 use mpp::protocol::core::extract_tx_hash;
-use mpp::protocol::methods::tempo::session::{SessionCredentialPayload, TempoSessionExt};
+use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
-use mpp::{parse_receipt, ChallengeEcho};
 
-use super::dispatch::{map_mpp_validation_error, PaymentResult};
+use super::dispatch::PaymentResult;
+use super::error::map_mpp_validation_error;
 use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::{Keystore, Signer};
-use crate::network::NetworkId;
 use crate::payment::session::store::SessionRecord;
 use crate::payment::session::store::SessionStatus;
 use crate::util::{address_link, format_token_amount};
 
-// ==================== Types ====================
-
-/// Outcome of an on-chain close attempt.
-pub(crate) enum CloseOutcome {
-    /// Channel fully closed (withdrawn or cooperatively settled).
-    Closed {
-        tx_url: Option<String>,
-        /// Formatted settlement amount (e.g., "0.002 USDC"), if available.
-        amount_display: Option<String>,
-    },
-    /// `requestClose()` submitted or already pending; waiting for grace period.
-    Pending { remaining_secs: u64 },
-}
-
-/// State for an active session channel.
-struct SessionState {
-    channel_id: B256,
-    escrow_contract: Address,
-    chain_id: u64,
-    cumulative_amount: u128,
-}
-
-/// Shared context for session operations (streaming, closing).
-struct SessionContext<'a> {
-    signer: &'a alloy::signers::local::PrivateKeySigner,
-    echo: &'a ChallengeEcho,
-    did: &'a str,
-    http: &'a HttpClient,
-    url: &'a str,
-    network_id: NetworkId,
-    origin: &'a str,
-    tick_cost: u128,
-    deposit: u128,
-    salt: String,
-    recipient: String,
-    currency: String,
-    /// Shared reqwest client for connection pooling across session requests.
-    reqwest_client: &'a reqwest::Client,
-}
-
-// ==================== Helpers ====================
-
-/// Extract the origin (scheme://host\[:port\]) from a URL.
-fn extract_origin(url: &str) -> String {
-    url::Url::parse(url)
-        .map(|u| u.origin().ascii_serialization())
-        .unwrap_or_else(|_| url.to_string())
-}
-
-/// Build a `SessionCredentialPayload::Open` with the given transaction bytes.
-fn build_open_payload(
-    channel_id: B256,
-    transaction: String,
-    authorized_signer: Address,
-    cumulative_amount: u128,
-    voucher_sig: &[u8],
-) -> SessionCredentialPayload {
-    SessionCredentialPayload::Open {
-        payload_type: "transaction".to_string(),
-        channel_id: format!("{:#x}", channel_id),
-        transaction,
-        authorized_signer: Some(format!("{:#x}", authorized_signer)),
-        cumulative_amount: cumulative_amount.to_string(),
-        signature: format!("0x{}", hex::encode(voucher_sig)),
-    }
-}
-
-// ==================== Voucher ====================
-
-/// Build a voucher credential for an existing session.
-async fn build_voucher_credential(
-    signer: &alloy::signers::local::PrivateKeySigner,
-    echo: &ChallengeEcho,
-    did: &str,
-    state: &SessionState,
-) -> Result<mpp::PaymentCredential> {
-    let sig = sign_voucher(
-        signer,
-        state.channel_id,
-        state.cumulative_amount,
-        state.escrow_contract,
-        state.chain_id,
-    )
-    .await
-    .context("Failed to sign voucher")?;
-
-    let payload = SessionCredentialPayload::Voucher {
-        channel_id: format!("{:#x}", state.channel_id),
-        cumulative_amount: state.cumulative_amount.to_string(),
-        signature: format!("0x{}", hex::encode(&sig)),
-    };
-
-    Ok(mpp::PaymentCredential::with_source(
-        echo.clone(),
-        did.to_string(),
-        payload,
-    ))
-}
+use state::{SessionContext, SessionState};
+use voucher::{build_open_payload, build_voucher_credential};
 
 // ==================== Persistence ====================
 
@@ -235,7 +145,7 @@ async fn send_session_request(
     let status = response.status();
     if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
         let body = response.text().await.unwrap_or_default();
-        let reason = crate::payment::extract_json_error(&body)
+        let reason = crate::payment::error::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(500).collect::<String>());
         return Err(TempoWalletError::PaymentRejected {
             reason,
@@ -395,7 +305,7 @@ pub(in crate::payment) async fn handle_session_request(
 
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
-    let origin = extract_origin(url);
+    let origin = state::extract_origin(url);
     let session_key = store::session_key(url);
 
     // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).

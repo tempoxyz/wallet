@@ -10,9 +10,8 @@ use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::Signer;
 
-use super::dispatch::{
-    classify_payment_error, map_mpp_validation_error, PaymentResult, ResolvedChallenge,
-};
+use super::dispatch::{PaymentResult, ResolvedChallenge};
+use super::error::{classify_payment_error, map_mpp_validation_error};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").
 ///
@@ -87,7 +86,7 @@ pub(super) async fn handle_charge_request(
 /// Parse a non-200 response after payment submission into a descriptive error.
 fn parse_payment_rejection(response: &HttpResponse) -> TempoWalletError {
     let reason = if let Ok(body) = response.body_string() {
-        if let Some(msg) = super::extract_json_error(&body) {
+        if let Some(msg) = super::error::extract_json_error(&body) {
             msg
         } else if serde_json::from_str::<serde_json::Value>(&body).is_ok() {
             // Valid JSON but no known error field

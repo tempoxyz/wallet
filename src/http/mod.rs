@@ -4,7 +4,9 @@
 //! requests with retry logic, and managing runtime configuration.
 
 mod client;
+mod fmt;
 mod response;
 
 pub(crate) use client::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
-pub(crate) use response::{extract_headers, format_http_error, print_headers, HttpResponse};
+pub(crate) use fmt::{format_http_error, print_headers};
+pub(crate) use response::{headers_from_reqwest, HttpResponse};
