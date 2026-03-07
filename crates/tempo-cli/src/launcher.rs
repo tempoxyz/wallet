@@ -191,27 +191,33 @@ impl Launcher {
             return run_child(binary, extension_args, &display_name);
         }
 
+        // (2) For core subcommands, try tempo-core if it exists locally.
         if is_core_subcommand(extension) {
-            debug_log("classified as core subcommand");
-            if self.find_binary(CORE_BINARY).is_none() {
-                debug_log("tempo-core missing, attempting tempoup auto-install");
-                match self.try_auto_install_core() {
-                    Ok(Some(core)) => return run_child(core, core_args, "tempo"),
-                    Ok(None) => {}
-                    Err(err) => return Err(err),
-                }
+            if let Some(core) = self.find_binary(CORE_BINARY) {
+                debug_log("dispatching to tempo-core");
+                return run_child(core, core_args, "tempo");
             }
-        } else {
-            debug_log("classified as extension");
-            match self.try_auto_install_extension(extension) {
-                Ok(Some(binary)) => {
-                    return run_child(binary, extension_args, &display_name);
-                }
+        }
+
+        // (3) Try to auto-install as an extension (works for both core and non-core).
+        debug_log("attempting extension auto-install");
+        match self.try_auto_install_extension(extension) {
+            Ok(Some(binary)) => {
+                return run_child(binary, extension_args, &display_name);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                debug_log(&format!("extension auto-install failed: {err}"));
+            }
+        }
+
+        // (4) For core subcommands, fall back to tempoup to install tempo-core.
+        if is_core_subcommand(extension) {
+            debug_log("falling back to tempoup auto-install");
+            match self.try_auto_install_core() {
+                Ok(Some(core)) => return run_child(core, core_args, "tempo"),
                 Ok(None) => {}
-                Err(err) => {
-                    eprintln!("warn: failed to install tempo-{extension}: {err}");
-                    return Err(err);
-                }
+                Err(err) => return Err(err),
             }
         }
 
