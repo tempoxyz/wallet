@@ -3,11 +3,33 @@
 use crate::analytics::Event;
 use crate::cli::Context;
 
+#[derive(serde::Serialize)]
+struct LogoutResponse {
+    logged_in: bool,
+    disconnected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wallet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
 pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
     let wallet_addr = match ctx.keys.find_passkey_wallet() {
         Some(entry) => entry.wallet_address.clone(),
         None => {
-            eprintln!("Not logged in.");
+            if ctx.output_format.is_structured() {
+                println!(
+                    "{}",
+                    ctx.output_format.serialize(&LogoutResponse {
+                        logged_in: false,
+                        disconnected: false,
+                        wallet: None,
+                        message: Some("not logged in".to_string()),
+                    })?
+                );
+            } else {
+                eprintln!("Not logged in.");
+            }
             return Ok(());
         }
     };
@@ -22,7 +44,19 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
         wallet_addr.to_string()
     };
     if !crate::util::confirm(&format!("Disconnect wallet {short_addr}?"), yes)? {
-        eprintln!("Cancelled.");
+        if ctx.output_format.is_structured() {
+            println!(
+                "{}",
+                ctx.output_format.serialize(&LogoutResponse {
+                    logged_in: true,
+                    disconnected: false,
+                    wallet: Some(wallet_addr),
+                    message: Some("cancelled".to_string()),
+                })?
+            );
+        } else {
+            eprintln!("Cancelled.");
+        }
         return Ok(());
     }
 
@@ -34,6 +68,18 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
         a.track_event(Event::Logout);
     }
 
-    eprintln!("Wallet disconnected.");
+    if ctx.output_format.is_structured() {
+        println!(
+            "{}",
+            ctx.output_format.serialize(&LogoutResponse {
+                logged_in: true,
+                disconnected: true,
+                wallet: Some(wallet_addr),
+                message: Some("wallet disconnected".to_string()),
+            })?
+        );
+    } else {
+        eprintln!("Wallet disconnected.");
+    }
     Ok(())
 }

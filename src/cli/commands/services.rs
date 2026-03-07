@@ -214,7 +214,7 @@ fn render_service_list(
         }
         OutputFormat::Text => {
             if filtered.is_empty() {
-                eprintln!("No services found.");
+                println!("No services found.");
                 return Ok(());
             }
             render_table(&filtered);

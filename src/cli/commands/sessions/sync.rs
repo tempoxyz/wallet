@@ -136,20 +136,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             }
             return Ok(());
         }
-        Err(e) => {
-            if output_format.is_structured() {
-                println!(
-                    "{}",
-                    output_format.serialize(&serde_json::json!({
-                        "recovered": false,
-                        "error": e.to_string(),
-                    }))?
-                );
-            } else {
-                return Err(e);
-            }
-            return Ok(());
-        }
+        Err(e) => return Err(e),
     };
 
     if on_chain.close_requested_at > 0 {

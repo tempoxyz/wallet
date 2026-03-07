@@ -602,16 +602,34 @@ impl Cli {
         }
     }
 
-    /// Print JSON version info if `-j` was passed alongside `--version`.
+    /// Print structured version info for JSON/TOON output formats.
     fn handle_version(args: &[String]) {
-        if args.iter().any(|a| a == "-j" || a == "--json-output") {
-            let json = serde_json::json!({
+        let format = if args.iter().any(|a| a == "-j" || a == "--json-output") {
+            Some(OutputFormat::Json)
+        } else if args.iter().any(|a| a == "-t" || a == "--toon-output") {
+            Some(OutputFormat::Toon)
+        } else {
+            None
+        };
+
+        if let Some(output_format) = format {
+            let payload = serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
                 "git_commit": env!("TEMPO_GIT_SHA"),
                 "build_date": env!("TEMPO_BUILD_DATE"),
                 "profile": env!("TEMPO_BUILD_PROFILE"),
             });
-            println!("{}", serde_json::to_string_pretty(&json).unwrap());
+
+            let rendered = match output_format {
+                OutputFormat::Json => serde_json::to_string_pretty(&payload)
+                    .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
+                OutputFormat::Toon => output_format
+                    .serialize(&payload)
+                    .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
+                OutputFormat::Text => unreachable!("text version output is handled by clap"),
+            };
+
+            println!("{rendered}");
             std::process::exit(0);
         }
     }

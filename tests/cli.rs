@@ -250,6 +250,27 @@ fn test_version_json() {
 }
 
 #[test]
+fn test_version_toon() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
+        .args(["-t", "--version"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let decoded: serde_json::Value = toon_format::decode_default(stdout.trim()).unwrap();
+    assert!(decoded.get("version").is_some(), "missing 'version' field");
+    assert!(
+        decoded.get("git_commit").is_some(),
+        "missing 'git_commit' field"
+    );
+    assert!(
+        decoded.get("build_date").is_some(),
+        "missing 'build_date' field"
+    );
+    assert!(decoded.get("profile").is_some(), "missing 'profile' field");
+}
+
+#[test]
 fn test_login_help() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
         .args(["login", "--help"])
@@ -613,6 +634,58 @@ fn test_logout_noninteractive_without_yes() {
         combined.contains("not logged in"),
         "Expected 'not logged in' message, got: {combined}"
     );
+}
+
+#[test]
+fn test_logout_json_without_wallet() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-j", "logout", "--yes"]);
+    let output = cmd.output().expect("Failed to run command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["logged_in"], false);
+    assert_eq!(parsed["disconnected"], false);
+}
+
+#[test]
+fn test_logout_toon_without_wallet() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["-t", "logout", "--yes"]);
+    let output = cmd.output().expect("Failed to run command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = toon_format::decode_default(stdout.trim()).unwrap();
+    assert_eq!(parsed["logged_in"], false);
+    assert_eq!(parsed["disconnected"], false);
+}
+
+#[test]
+fn test_keys_clean_json_when_missing_file() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["keys", "clean", "-j", "--yes"]);
+    let output = cmd.output().expect("Failed to run command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["cleaned"], false);
+    assert!(parsed.get("path").is_some());
+}
+
+#[test]
+fn test_keys_clean_toon_when_missing_file() {
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["keys", "clean", "-t", "--yes"]);
+    let output = cmd.output().expect("Failed to run command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = toon_format::decode_default(stdout.trim()).unwrap();
+    assert_eq!(parsed["cleaned"], false);
+    assert!(parsed.get("path").is_some());
 }
 
 #[test]

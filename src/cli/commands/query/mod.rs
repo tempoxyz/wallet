@@ -106,7 +106,13 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
             "amount": challenge.amount,
             "currency": challenge.currency,
         });
-        println!("{}", serde_json::to_string_pretty(&obj)?);
+        match output_opts.output_format {
+            crate::cli::OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&obj)?),
+            crate::cli::OutputFormat::Toon => {
+                println!("{}", output_opts.output_format.serialize(&obj)?)
+            }
+            crate::cli::OutputFormat::Text => println!("{}", serde_json::to_string_pretty(&obj)?),
+        }
         return Ok(());
     }
 

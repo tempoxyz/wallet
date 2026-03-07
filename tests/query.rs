@@ -1511,6 +1511,38 @@ async fn test_dry_run_price_json() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_dry_run_price_json_toon_output() {
+    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+    let www_auth = format!(
+        r#"Payment id="price-test", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
+    );
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", &www_auth)],
+        "Payment Required",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-t", "--dry-run", "--price-json", &server.url("/api")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "dry-run TOON output should succeed"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        toon_format::decode_default(stdout.trim()).expect("valid TOON payload");
+    assert!(parsed.get("intent").is_some(), "missing 'intent' field");
+    assert!(parsed.get("amount").is_some(), "missing 'amount' field");
+    assert!(parsed.get("currency").is_some(), "missing 'currency' field");
+    assert!(parsed.get("network").is_some(), "missing 'network' field");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_referer_header() {
     let server = MockServer::start_echo_headers().await;
     let temp = TestConfigBuilder::new().build();
