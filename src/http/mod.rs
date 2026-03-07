@@ -7,4 +7,4 @@ mod client;
 mod response;
 
 pub(crate) use client::{HttpClient, HttpRequestPlan};
-pub(crate) use response::{extract_headers, http_status_text, print_headers, HttpResponse};
+pub(crate) use response::{extract_headers, format_http_error, print_headers, HttpResponse};

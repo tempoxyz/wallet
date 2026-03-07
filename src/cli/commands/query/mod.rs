@@ -8,8 +8,8 @@
 mod analytics;
 mod challenge;
 mod input;
-mod receipt;
 mod request;
+mod response;
 mod streaming;
 
 use anyhow::Result;
@@ -20,7 +20,7 @@ use crate::error::TempoWalletError;
 use crate::payment::dispatch::{dispatch_payment, PaymentResult};
 use crate::util::redact_url;
 use input::{append_data_to_query, parse_and_validate_url};
-use receipt::write_meta_if_requested;
+use response::write_meta_if_requested;
 
 /// Execute an HTTP request with automatic payment handling.
 ///
@@ -86,7 +86,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     if response.status_code != 402 {
         analytics::track_query_success(ctx, &sanitized_url, &method_str, response.status_code);
-        receipt::finalize_and_save(&output_opts, response, None)?;
+        response::finalize_and_save(&output_opts, response, None)?;
         return Ok(());
     }
 
@@ -183,7 +183,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
             if let Some(resp) = response {
                 // Display receipt summary for charge responses
                 if !is_session {
-                    receipt::display_receipt(
+                    response::display_receipt(
                         &output_opts,
                         &resp,
                         challenge_network,
@@ -191,7 +191,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
                     );
                 }
 
-                receipt::finalize_and_save(&output_opts, resp, query.save_receipt.as_deref())?;
+                response::finalize_and_save(&output_opts, resp, query.save_receipt.as_deref())?;
             }
             Ok(())
         }

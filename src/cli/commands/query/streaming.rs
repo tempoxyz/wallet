@@ -7,10 +7,10 @@ use futures::StreamExt;
 
 use crate::cli::output::OutputOptions;
 use crate::error::TempoWalletError;
-use crate::http::{extract_headers, print_headers, HttpClient};
+use crate::http::{extract_headers, format_http_error, print_headers, HttpClient};
 use crate::util::now_utc;
 
-use super::receipt::write_meta_if_requested;
+use super::response;
 
 /// Parse a single SSE line and, if it's a `data:` field, write the NDJSON
 /// object to `writer`. Returns the number of bytes written (0 if skipped).
@@ -90,21 +90,21 @@ pub(super) async fn execute_streaming(
         }
     }
 
-    // Build error message once for both SSE event and bail
-    let error_msg = (status >= 400).then(|| {
-        if status == 402 {
-            "402 Payment Required (payment is not supported in streaming mode)".to_string()
-        } else {
-            super::receipt::format_http_error(status)
-        }
-    });
+    // Build error once for both SSE event and bail
+    let error: Option<TempoWalletError> = if status == 402 {
+        Some(TempoWalletError::StreamingPaymentUnsupported)
+    } else if status >= 400 {
+        Some(TempoWalletError::Http(format_http_error(status)))
+    } else {
+        None
+    };
 
     // Emit error event before releasing the lock
-    if let Some(ref msg) = error_msg {
+    if let Some(ref err) = error {
         if sse_json {
             let obj = serde_json::json!({
                 "event": "error",
-                "message": msg,
+                "message": err.to_string(),
                 "ts": now_utc(),
             });
             let out = serde_json::to_string(&obj)?;
@@ -116,7 +116,7 @@ pub(super) async fn execute_streaming(
     drop(stdout);
 
     // Write meta if requested
-    if let Err(e) = write_meta_if_requested(
+    if let Err(e) = response::write_meta_if_requested(
         output_opts,
         status,
         &headers,
@@ -127,8 +127,8 @@ pub(super) async fn execute_streaming(
         tracing::warn!("failed to write response metadata: {e}");
     }
 
-    if let Some(msg) = error_msg {
-        anyhow::bail!(TempoWalletError::Http(msg));
+    if let Some(err) = error {
+        return Err(err.into());
     }
 
     Ok(())

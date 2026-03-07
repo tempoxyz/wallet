@@ -29,8 +29,6 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         }
     }
 
-    let raw_headers = &query.headers;
-
     // Kept as Option so the payment dispatch only enforces network matching
     // when the user explicitly passed --network.
     let network = cli
@@ -61,7 +59,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
     };
     let (method, body) = resolve_method_and_body(method_override, data, json, toon)?;
 
-    let headers = build_extra_headers(query, raw_headers, suppress_body, json, toon, data);
+    let headers = build_extra_headers(query, suppress_body, data);
 
     // If not using -G, merge --data-urlencode into body (form-encoded)
     let body = if !query.get && !query.data_urlencode.is_empty() {
@@ -96,9 +94,10 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         connect_timeout_secs: query.connect_timeout,
         follow_redirects: query.location,
         follow_redirects_limit: query.max_redirs.map(|v| v as usize),
-        user_agent: query.user_agent.clone().unwrap_or_else(|| {
-            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")).to_string()
-        }),
+        user_agent: query
+            .user_agent
+            .clone()
+            .unwrap_or_else(|| HttpRequestPlan::default().user_agent),
         insecure: query.insecure,
         proxy: query.proxy.clone(),
         no_proxy: query.no_proxy,
@@ -150,12 +149,10 @@ pub(super) fn build_output_options(
 /// the raw user-supplied headers.
 fn build_extra_headers(
     query: &QueryArgs,
-    raw_headers: &[String],
     suppress_body: bool,
-    json: Option<&str>,
-    toon: Option<&str>,
     data: &[String],
 ) -> Vec<(String, String)> {
+    let raw_headers = &query.headers;
     let mut headers = parse_headers(raw_headers);
     // Add Authorization: Basic ... if -u/--user provided and not explicitly overridden by -H
     if let Some(ref user) = query.user {
@@ -181,7 +178,12 @@ fn build_extra_headers(
         headers.push(("accept-encoding".to_string(), "gzip, br".to_string()));
     }
     if !suppress_body {
-        if should_auto_add_json_content_type(raw_headers, json, toon, data) {
+        if should_auto_add_json_content_type(
+            raw_headers,
+            query.json.as_deref(),
+            query.toon.as_deref(),
+            data,
+        ) {
             headers.push(("content-type".to_string(), "application/json".to_string()));
         } else if !query.data_urlencode.is_empty() && !has_header(raw_headers, "content-type") {
             headers.push((

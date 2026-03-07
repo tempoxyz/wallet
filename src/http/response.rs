@@ -64,6 +64,11 @@ impl HttpResponse {
     }
 }
 
+/// Format an HTTP status code + reason for error messages.
+pub(crate) fn format_http_error(status: u16) -> String {
+    format!("{} {}", status, http_status_text(status))
+}
+
 /// Map an HTTP status code to a short human-readable reason phrase.
 pub(crate) fn http_status_text(code: u16) -> &'static str {
     match code {

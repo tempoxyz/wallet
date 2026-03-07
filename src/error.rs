@@ -112,6 +112,10 @@ pub(crate) enum TempoWalletError {
     #[error("HTTP error: {0}")]
     Http(String),
 
+    /// 402 received in streaming mode (payment not supported)
+    #[error("402 Payment Required (payment is not supported in streaming mode)")]
+    StreamingPaymentUnsupported,
+
     /// Offline mode — no network access allowed
     #[error("Network access is disabled (--offline mode)")]
     OfflineMode,

@@ -1,4 +1,4 @@
-//! Payment receipt display and response finalization.
+//! Response rendering, receipt display, and file output.
 
 use std::fmt::Write as _;
 use std::io::Write;
@@ -8,14 +8,9 @@ use anyhow::{Context as _, Result};
 
 use crate::cli::output::{OutputFormat, OutputOptions};
 use crate::error::TempoWalletError;
-use crate::http::{http_status_text, print_headers, HttpResponse};
+use crate::http::{format_http_error, print_headers, HttpResponse};
 use crate::network::NetworkId;
 use crate::util::hyperlink;
-
-/// Format an HTTP status code + reason for error messages.
-pub(super) fn format_http_error(status: u16) -> String {
-    format!("{} {}", status, http_status_text(status))
-}
 
 /// Finalize a response: display output, optionally save the payment receipt, and fail on HTTP errors.
 pub(super) fn finalize_and_save(

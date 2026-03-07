@@ -96,6 +96,7 @@ impl From<&crate::error::TempoWalletError> for ExitCode {
             // Network/provider errors
             TempoWalletError::UnknownNetwork(_)
             | TempoWalletError::Http(_)
+            | TempoWalletError::StreamingPaymentUnsupported
             | TempoWalletError::Reqwest(_)
             | TempoWalletError::OfflineMode => ExitCode::NetworkError,
 
