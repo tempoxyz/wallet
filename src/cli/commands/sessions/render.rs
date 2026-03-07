@@ -24,6 +24,7 @@ pub(super) struct ChannelView {
     /// When `None`, channel_id is the header and no Channel line is shown.
     pub(super) origin: Option<String>,
     pub(super) symbol: &'static str,
+    pub(super) unlimited: bool,
     pub(super) deposit: String,
     pub(super) spent: String,
     pub(super) remaining: String,
@@ -34,11 +35,6 @@ pub(super) struct ChannelView {
 }
 
 impl ChannelView {
-    /// Whether the session has no spending limit (deposit is zero).
-    pub(super) fn is_unlimited(&self) -> bool {
-        self.deposit.trim_end_matches('0').trim_end_matches('.') == "0"
-    }
-
     /// Build a view from on-chain channel data (used by list and info for
     /// channels that don't have a local session record).
     pub(super) fn from_on_chain(
@@ -70,6 +66,7 @@ impl ChannelView {
             network: network.as_str().to_string(),
             origin: None,
             symbol: t.symbol,
+            unlimited: deposit == 0,
             deposit: format_units(U256::from(deposit), t.decimals).expect("decimals <= 77"),
             spent: format_units(U256::from(settled), t.decimals).expect("decimals <= 77"),
             remaining: format_units(U256::from(remaining), t.decimals).expect("decimals <= 77"),
@@ -96,6 +93,7 @@ impl From<&session_store::SessionRecord> for ChannelView {
             network: session.network_name.clone(),
             origin: Some(session.origin.clone()),
             symbol: t.symbol,
+            unlimited: limit_u == 0,
             deposit: format_units(U256::from(limit_u), t.decimals).expect("decimals <= 77"),
             spent: format_units(U256::from(spent_u), t.decimals).expect("decimals <= 77"),
             remaining: format_units(U256::from(remaining_u), t.decimals).expect("decimals <= 77"),
@@ -168,11 +166,10 @@ pub(super) fn render_channel_list(
                 "total": items.len(),
             }))?
         );
+    } else if views.is_empty() {
+        println!("{empty_msg}");
+        return Ok(());
     } else {
-        if views.is_empty() {
-            println!("{empty_msg}");
-            return Ok(());
-        }
         for v in views {
             render_channel_text(v);
         }
@@ -196,7 +193,7 @@ fn render_channel_text(v: &ChannelView) {
         println!("{:>10}: {}", "Channel", v.channel_id);
     }
     // Amounts
-    if v.is_unlimited() {
+    if v.unlimited {
         println!("{:>10}: unlimited", "Deposit");
     } else {
         let w = [v.deposit.len(), v.spent.len(), v.remaining.len()]
@@ -245,6 +242,7 @@ mod tests {
             network: "tempo".to_string(),
             origin: Some("https://api.example.com".to_string()),
             symbol: "USDC",
+            unlimited: false,
             deposit: "10.000000".to_string(),
             spent: "3.500000".to_string(),
             remaining: "6.500000".to_string(),
@@ -253,26 +251,6 @@ mod tests {
             created_at: None,
             last_used_at: None,
         }
-    }
-
-    #[test]
-    fn test_channel_view_is_unlimited_zero_deposit() {
-        let mut v = make_channel_view(SessionStatus::Active, None);
-        v.deposit = "0.000000".to_string();
-        assert!(v.is_unlimited());
-    }
-
-    #[test]
-    fn test_channel_view_is_unlimited_nonzero_deposit() {
-        let v = make_channel_view(SessionStatus::Active, None);
-        assert!(!v.is_unlimited());
-    }
-
-    #[test]
-    fn test_channel_view_is_unlimited_invalid_deposit() {
-        let mut v = make_channel_view(SessionStatus::Active, None);
-        v.deposit = "not-a-number".to_string();
-        assert!(!v.is_unlimited());
     }
 
     // ==================== render_channel_list ====================

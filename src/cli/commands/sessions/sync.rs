@@ -1,3 +1,4 @@
+use alloy::primitives::Address;
 use anyhow::{Context as _, Result};
 
 use super::{session_store, SessionStatus};
@@ -109,7 +110,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
     // Query on-chain state for this channel on its recorded network
     let network_id = rec.network_id();
     let provider = super::make_provider(config, network_id);
-    let escrow: alloy::primitives::Address = rec
+    let escrow: Address = rec
         .escrow_contract
         .parse()
         .context("invalid escrow address in local record")?;

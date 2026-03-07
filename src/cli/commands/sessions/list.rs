@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 
@@ -73,7 +73,7 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
         let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
 
         // Avoid duplicates by skipping any with a local session
-        let local_ids: std::collections::HashSet<String> = filtered_local
+        let local_ids: HashSet<String> = filtered_local
             .iter()
             .map(|s| s.channel_id.to_lowercase())
             .collect();

@@ -93,9 +93,6 @@ async fn close_all_sessions(ctx: &Context) -> Result<()> {
 async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<()> {
     let mut summary = CloseSummary::new();
     let result = close_channel_by_id(&ctx.config, target, ctx.network, None, &ctx.keys).await;
-    if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-        let _ = session_store::delete_session_by_channel_id(target);
-    }
     summary.record_finalize_outcome(result, target, true);
     summary.print(ctx.output_format, "No channel to close.", "closed")
 }
