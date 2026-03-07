@@ -427,7 +427,11 @@ pub(crate) enum Commands {
     },
     /// Manage payment sessions
     #[command(display_order = 6, name = "sessions")]
-    #[command(args_conflicts_with_subcommands = true)]
+    #[command(
+        args_conflicts_with_subcommands = true,
+        subcommand_required = true,
+        arg_required_else_help = true
+    )]
     Sessions {
         #[command(subcommand)]
         command: Option<SessionCommands>,

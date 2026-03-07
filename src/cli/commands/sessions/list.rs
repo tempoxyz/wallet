@@ -3,18 +3,19 @@ use std::collections::HashMap;
 use alloy::primitives::Address;
 use anyhow::Result;
 
+use super::display::{render_channel_list, ChannelView};
+use super::{session_store, SessionStatus, DEFAULT_GRACE_PERIOD_SECS};
 use crate::cli::args::SessionStateArg;
 use crate::cli::Context;
 use crate::network::NetworkId;
 use crate::payment::session::channel::{find_all_channels_for_payer, read_grace_period};
-use crate::payment::session::store as session_store;
-use crate::payment::session::store::SessionStatus;
-use crate::payment::session::DEFAULT_GRACE_PERIOD_SECS;
-
-use super::view::{render_channel_list, ChannelView};
 
 /// Resolve the grace period for an escrow contract, falling back to a default.
-async fn resolve_grace_period(config: &crate::config::Config, network: NetworkId, escrow_hex: &str) -> u64 {
+async fn resolve_grace_period(
+    config: &crate::config::Config,
+    network: NetworkId,
+    escrow_hex: &str,
+) -> u64 {
     let rpc_url = config.rpc_url(network);
     let provider = alloy::providers::RootProvider::<alloy::network::Ethereum>::new_http(rpc_url);
     let escrow: Address = match escrow_hex.parse() {
@@ -85,9 +86,8 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
         || selected.contains(&SessionStateArg::Finalizable);
 
     if let Some(wallet_addr) = need_orphaned
-        .then(|| keys.wallet_address().parse::<Address>().ok())
+        .then(|| keys.wallet_address_parsed())
         .flatten()
-        .filter(|_| keys.has_wallet())
     {
         let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
 
@@ -121,12 +121,13 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
                 ch.close_requested_at,
                 grace,
             );
+            // Show the "Channel" line in text output (origin presence triggers it)
             v.origin = Some(String::new());
 
-            let include = match v.status.as_str() {
-                "orphaned" => selected.contains(&SessionStateArg::Orphaned),
-                "closing" => selected.contains(&SessionStateArg::Closing),
-                "finalizable" => selected.contains(&SessionStateArg::Finalizable),
+            let include = match v.status {
+                SessionStatus::Orphaned => selected.contains(&SessionStateArg::Orphaned),
+                SessionStatus::Closing => selected.contains(&SessionStateArg::Closing),
+                SessionStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
                 _ => false,
             };
             if !include {
@@ -197,7 +198,7 @@ mod tests {
         let now = session_store::now_secs();
         let rec = make_record(SessionStatus::Active, 0, now);
         let view = ChannelView::from(&rec);
-        assert_eq!(view.status, "active");
+        assert_eq!(view.status, SessionStatus::Active);
         assert!(view.remaining_secs.is_none());
     }
 
@@ -207,13 +208,13 @@ mod tests {
         // Closing with time remaining
         let rec = make_record(SessionStatus::Closing, now + 120, now);
         let view = ChannelView::from(&rec);
-        assert_eq!(view.status, "closing");
+        assert_eq!(view.status, SessionStatus::Closing);
         assert_eq!(view.remaining_secs, Some(120));
 
         // Finalizable (ready_at <= now)
         let rec2 = make_record(SessionStatus::Closing, now, now);
         let view2 = ChannelView::from(&rec2);
-        assert_eq!(view2.status, "finalizable");
+        assert_eq!(view2.status, SessionStatus::Finalizable);
         assert_eq!(view2.remaining_secs, Some(0));
     }
 }

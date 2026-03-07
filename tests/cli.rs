@@ -641,8 +641,8 @@ fn test_session_shows_help() {
     let mut cmd = test_command(&temp);
     cmd.arg("sessions");
     cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Manage payment sessions"));
+        .code(2)
+        .stderr(predicate::str::contains("Manage payment sessions"));
 }
 
 #[test]

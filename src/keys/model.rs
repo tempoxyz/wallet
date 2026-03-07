@@ -1,5 +1,6 @@
 //! Data types for wallet keys.
 
+use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -173,6 +174,14 @@ impl Keystore {
         self.primary_key()
             .map(|a| a.wallet_address.as_str())
             .unwrap_or("")
+    }
+
+    /// Parse the wallet address as an [`Address`], returning `None` if no wallet is configured
+    /// or the address is invalid.
+    pub(crate) fn wallet_address_parsed(&self) -> Option<Address> {
+        self.has_wallet()
+            .then(|| self.wallet_address().parse().ok())
+            .flatten()
     }
 
     /// Check if a network's key is provisioned on-chain.

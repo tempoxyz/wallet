@@ -177,7 +177,7 @@ fn command_name(command: &Commands) -> &'static str {
             Some(SessionCommands::Info { .. }) => "sessions info",
             Some(SessionCommands::Close { .. }) => "sessions close",
             Some(SessionCommands::Sync { .. }) => "sessions sync",
-            None => "sessions",
+            None => unreachable!("sessions subcommand required"),
         },
         Commands::Whoami => "whoami",
         Commands::Keys { command } => match command {
