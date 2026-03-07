@@ -4,7 +4,6 @@ use anyhow::Result;
 use base64::Engine;
 
 use crate::cli::args::QueryArgs;
-use crate::cli::output::OutputOptions;
 use crate::cli::Cli;
 use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
@@ -139,35 +138,6 @@ fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan> {
     })
 }
 
-/// Build `OutputOptions` from CLI arguments + config.
-///
-/// Accepts the already-parsed URL to avoid redundant parsing.
-pub(super) fn build_output_options(
-    cli: &Cli,
-    query: &QueryArgs,
-    parsed_url: &url::Url,
-) -> OutputOptions {
-    OutputOptions {
-        output_format: cli.resolve_output_format(),
-        // -I (HEAD) implies showing headers, even if -i wasn't explicitly set
-        include_headers: query.include_headers || query.head,
-        output_file: if query.output.is_none() && query.remote_name {
-            // Derive a filename from the URL's last path segment; fallback to 'index.html'
-            let seg = parsed_url
-                .path_segments()
-                .and_then(|mut s| s.next_back())
-                .filter(|v| !v.is_empty())
-                .unwrap_or("index.html");
-            Some(seg.to_string())
-        } else {
-            query.output.clone()
-        },
-        verbosity: cli.verbosity(),
-        dump_headers: query.dump_header.clone(),
-        write_meta: query.write_meta.clone(),
-    }
-}
-
 /// Build extra headers (auth, referer, compressed, content-type) on top of
 /// the raw user-supplied headers.
 fn build_extra_headers(
@@ -216,84 +186,4 @@ fn build_extra_headers(
         }
     }
     headers
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-    use url::Url;
-
-    use crate::cli::args::Commands;
-    use crate::cli::output::OutputFormat;
-
-    /// Parse a CLI invocation into both `Cli` and `QueryArgs` for testing.
-    fn parse(args: &[&str]) -> (Cli, QueryArgs) {
-        let all: Vec<&str> = std::iter::once("tempo-wallet")
-            .chain(std::iter::once("query"))
-            .chain(args.iter().copied())
-            .collect();
-        let mut cli = Cli::try_parse_from(all).unwrap();
-        let query = match cli.command.take() {
-            Some(Commands::Query(q)) => *q,
-            _ => panic!("expected Query command"),
-        };
-        (cli, query)
-    }
-
-    #[test]
-    fn remote_name_derives_filename_from_url() {
-        let (c, q) = parse(&["-O", "https://example.com/path/file.txt"]);
-        let url = Url::parse(&q.url).unwrap();
-
-        let opts = build_output_options(&c, &q, &url);
-        assert_eq!(opts.output_file.as_deref(), Some("file.txt"));
-    }
-
-    #[test]
-    fn remote_name_falls_back_to_index_html() {
-        let (c, q) = parse(&["-O", "https://example.com/"]);
-        let url = Url::parse(&q.url).unwrap();
-
-        let opts = build_output_options(&c, &q, &url);
-        assert_eq!(opts.output_file.as_deref(), Some("index.html"));
-    }
-
-    #[test]
-    fn head_implies_include_headers() {
-        let (c, q) = parse(&["-I", "https://example.com"]);
-        let url = Url::parse(&q.url).unwrap();
-
-        let opts = build_output_options(&c, &q, &url);
-        assert!(opts.include_headers);
-    }
-
-    #[test]
-    fn explicit_output_file_overrides_remote_name() {
-        let (c, q) = parse(&["-o", "custom.txt", "https://example.com/path/file.txt"]);
-        let url = Url::parse(&q.url).unwrap();
-
-        let opts = build_output_options(&c, &q, &url);
-        assert_eq!(opts.output_file.as_deref(), Some("custom.txt"));
-    }
-
-    #[test]
-    fn no_output_flags_means_no_file() {
-        let (c, q) = parse(&["https://example.com/path/file.txt"]);
-        let url = Url::parse(&q.url).unwrap();
-
-        let opts = build_output_options(&c, &q, &url);
-        assert!(opts.output_file.is_none());
-        assert!(!opts.include_headers);
-        assert_eq!(opts.output_format, OutputFormat::Text);
-    }
-
-    #[test]
-    fn json_output_flag() {
-        let (c, q) = parse(&["-j", "https://example.com"]);
-        let url = Url::parse(&q.url).unwrap();
-
-        let opts = build_output_options(&c, &q, &url);
-        assert_eq!(opts.output_format, OutputFormat::Json);
-    }
 }

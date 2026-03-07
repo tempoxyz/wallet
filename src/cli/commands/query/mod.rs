@@ -22,8 +22,8 @@ use crate::payment::dispatch::{dispatch_payment, PaymentResult};
 use crate::util::redact_url;
 
 use body::append_data_to_query;
-use request::{build_client, build_output_options, parse_and_validate_url};
-use response::write_meta_if_requested;
+use request::{build_client, parse_and_validate_url};
+use response::{build_output_options, write_meta_if_requested};
 
 /// Execute an HTTP request with automatic payment handling.
 ///
