@@ -185,7 +185,8 @@ jobs:
             echo "${{ needs.version.outputs.version }}" | aws s3 cp - "s3://tempo-cli/${pkg}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
           done
 
-          # Install script
+          # Install / uninstall scripts
           aws s3 cp scripts/install.sh "s3://tempo-cli/install" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+          aws s3 cp scripts/uninstall.sh "s3://tempo-cli/uninstall" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           echo "Released ${VERSION}"
