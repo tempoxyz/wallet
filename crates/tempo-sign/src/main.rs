@@ -7,8 +7,8 @@
 //!     --key-file release.key \
 //!     --artifacts-dir artifacts/ \
 //!     --version 0.1.0 \
-//!     --base-url https://cli.tempo.xyz/extensions/tempo-wallet \
-//!     --skill https://cli.tempo.xyz/extensions/tempo-wallet/v0.1.0/SKILL.md \
+//!     --base-url https://cli.tempo.xyz/tempo-wallet \
+//!     --skill https://cli.tempo.xyz/tempo-wallet/v0.1.0/SKILL.md \
 //!     --skill-sha256 <SHA256> \
 //!     --output manifest.json
 //! ```

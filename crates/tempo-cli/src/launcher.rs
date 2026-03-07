@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn runtime_manifest_url_policy_enforces_https_or_local() {
         assert!(is_secure_or_local_manifest_location(
-            "https://cli.tempo.xyz/extensions/tempo-wallet/manifest.json"
+            "https://cli.tempo.xyz/tempo-wallet/manifest.json"
         ));
         assert!(is_secure_or_local_manifest_location(
             "file:///tmp/manifest.json"
