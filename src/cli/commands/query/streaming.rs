@@ -5,12 +5,12 @@ use std::io::Write;
 use anyhow::Result;
 use futures::StreamExt;
 
+use crate::cli::output::OutputOptions;
 use crate::error::TempoWalletError;
-use crate::http::HttpClient;
+use crate::http::{extract_headers, http_status_text, HttpClient};
+use crate::util::now_utc;
 
 use super::receipt::{print_headers, write_meta_if_requested};
-use crate::cli::output::OutputOptions;
-use crate::http::http_status_text;
 
 /// Execute a streaming request and write the body to stdout incrementally.
 ///
@@ -24,25 +24,10 @@ pub(super) async fn execute_streaming(
     sse_json: bool,
 ) -> Result<()> {
     let start = std::time::Instant::now();
-    let mut req = http.client().request(http.plan.method.clone(), url);
-    for (name, value) in &http.plan.headers {
-        req = req.header(name.as_str(), value.as_str());
-    }
-    if let Some(ref body) = http.plan.body {
-        req = req.body(body.clone());
-    }
-    let resp = req.send().await?;
+    let resp = http.build_raw_request(url).send().await?;
     let status = resp.status().as_u16();
     let final_url_string = resp.url().to_string();
-    let headers: Vec<(String, String)> = resp
-        .headers()
-        .iter()
-        .filter_map(|(k, v)| {
-            v.to_str()
-                .ok()
-                .map(|s| (k.as_str().to_lowercase(), s.to_string()))
-        })
-        .collect();
+    let headers = extract_headers(resp.headers());
 
     if output_opts.include_headers {
         print_headers(status, &headers);
@@ -72,7 +57,7 @@ pub(super) async fn execute_streaming(
                     let obj = serde_json::json!({
                         "event": "data",
                         "data": data_value,
-                        "ts": crate::util::now_utc(),
+                        "ts": now_utc(),
                     });
                     let out = serde_json::to_string(&obj)?;
                     stdout.write_all(out.as_bytes())?;
@@ -110,7 +95,7 @@ pub(super) async fn execute_streaming(
             let obj = serde_json::json!({
                 "event": "error",
                 "message": msg,
-                "ts": crate::util::now_utc(),
+                "ts": now_utc(),
             });
             let out = serde_json::to_string(&obj)?;
             let mut stdout = std::io::stdout().lock();

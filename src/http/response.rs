@@ -16,19 +16,24 @@ pub(crate) struct HttpResponse {
     pub(crate) final_url: Option<String>,
 }
 
+/// Extract response headers as lowercased name-value pairs, skipping non-UTF-8 values.
+pub(crate) fn extract_headers(headers: &reqwest::header::HeaderMap) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|s| (k.as_str().to_lowercase(), s.to_string()))
+        })
+        .collect()
+}
+
 impl HttpResponse {
     /// Convert a reqwest response into an `HttpResponse`.
     pub(crate) async fn from_reqwest(response: reqwest::Response) -> Result<Self> {
         let status_code = response.status().as_u16();
         let final_url = Some(response.url().to_string());
-
-        let mut headers = Vec::new();
-        for (key, value) in response.headers() {
-            if let Ok(value_str) = value.to_str() {
-                headers.push((key.as_str().to_lowercase(), value_str.to_string()));
-            }
-        }
-
+        let headers = extract_headers(response.headers());
         let body = response.bytes().await?.to_vec();
 
         Ok(Self {

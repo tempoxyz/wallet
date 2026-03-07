@@ -67,6 +67,26 @@ pub(crate) enum TempoWalletError {
     ChannelNotFound { channel_id: String, network: String },
 
     // ==================== Input Validation Errors ====================
+    /// Request body exceeds maximum size
+    #[error("Request body exceeds maximum size of {0} bytes")]
+    BodyTooLarge(usize),
+
+    /// Request header exceeds maximum size
+    #[error("Request header exceeds maximum size of {0} bytes")]
+    HeaderTooLarge(usize),
+
+    /// Failed to read from stdin
+    #[error("failed to read stdin: {0}")]
+    ReadStdin(#[source] std::io::Error),
+
+    /// Failed to read a file
+    #[error("failed to read file '{path}': {source}")]
+    ReadFile {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+
     /// Signing error
     #[error("Signing error: {0}")]
     Signing(String),

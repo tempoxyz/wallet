@@ -10,7 +10,7 @@ use crate::cli::output::{OutputFormat, OutputOptions};
 use crate::error::TempoWalletError;
 use crate::http::HttpResponse;
 use crate::network::NetworkId;
-use crate::util::{format_token_amount, hyperlink};
+use crate::util::hyperlink;
 
 /// Finalize a regular response: display output and fail on HTTP errors.
 pub(super) fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) -> Result<()> {
@@ -27,6 +27,10 @@ pub(super) fn finalize_response(output_opts: &OutputOptions, response: HttpRespo
 }
 
 /// Render and output an HTTP response (headers, body, dump-headers).
+///
+/// Note: `include_headers` only applies to `Text` format; structured formats
+/// (JSON/TOON) omit the status line and headers from stdout to keep output
+/// machine-parseable. Use `--dump-header` to capture headers separately.
 fn handle_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     match opts.output_format {
         OutputFormat::Json | OutputFormat::Toon => {
@@ -37,7 +41,7 @@ fn handle_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
                     _ => opts.output_format.serialize(&json_value)?,
                 };
                 if let Some(ref output_file) = opts.output_file {
-                    write_to_file(opts, output_file, output.as_bytes())?;
+                    write_to_file(output_file, output.as_bytes(), opts.log_enabled())?;
                 } else {
                     println!("{output}");
                 }
@@ -55,7 +59,7 @@ fn handle_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     }
 
     if let Some(ref path) = opts.dump_headers {
-        write_headers_file(opts, path, &response)?;
+        write_headers_file(opts, path, response.status_code, &response.headers)?;
     }
 
     Ok(())
@@ -64,7 +68,7 @@ fn handle_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
 /// Write raw response bytes to stdout or file (no trailing newline).
 fn write_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
     let dest = opts.output_file.as_deref().unwrap_or("-");
-    write_to_file(opts, dest, body)
+    write_to_file(dest, body, opts.log_enabled())
 }
 
 /// Write response metadata (JSON) if requested via `--write-meta`.
@@ -90,20 +94,25 @@ pub(super) fn write_meta_if_requested(
             "headers": hdr_obj,
         });
         let s = serde_json::to_string_pretty(&obj)?;
-        write_to_file(opts, path, s.as_bytes())?;
+        write_to_file(path, s.as_bytes(), opts.log_enabled())?;
     }
     Ok(())
 }
 
 /// Write response headers to a file (HTTP status line + headers + blank line).
-fn write_headers_file(opts: &OutputOptions, path: &str, response: &HttpResponse) -> Result<()> {
+fn write_headers_file(
+    opts: &OutputOptions,
+    path: &str,
+    status_code: u16,
+    headers: &[(String, String)],
+) -> Result<()> {
     let mut content = String::new();
-    writeln!(content, "HTTP {}", response.status_code).unwrap();
-    for (name, value) in &response.headers {
+    writeln!(content, "HTTP {status_code}").unwrap();
+    for (name, value) in headers {
         writeln!(content, "{name}: {value}").unwrap();
     }
     content.push('\n');
-    write_to_file(opts, path, content.as_bytes())
+    write_to_file(path, content.as_bytes(), opts.log_enabled())
 }
 
 /// Display receipt information from response with optional clickable explorer links.
@@ -111,26 +120,18 @@ pub(super) fn display_receipt(
     output_opts: &OutputOptions,
     response: &HttpResponse,
     network: NetworkId,
-    amount: &str,
+    amount_display: &str,
 ) {
     // Always show payment summary when money moved (unless --quiet)
     if !output_opts.payment_log_enabled() {
         return;
     }
 
-    // Format amount regardless of whether a receipt header is present
-    let amount_display = amount
-        .parse::<u128>()
-        .ok()
-        .map(|a| format_token_amount(a, network))
-        .unwrap_or_else(|| format!("{} {}", amount, network.token().symbol));
-
     // Try to extract a transaction reference/link if the server provided a receipt header
     let mut link: Option<String> = None;
-    let parsed_receipt = response
-        .header("payment-receipt")
-        .and_then(|h| mpp::parse_receipt(h).ok());
+    let mut parsed_receipt = None;
     if let Some(receipt_header) = response.header("payment-receipt") {
+        parsed_receipt = mpp::parse_receipt(receipt_header).ok();
         let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header)
             .or_else(|| parsed_receipt.as_ref().map(|r| r.reference.clone()));
 
@@ -177,7 +178,7 @@ pub(super) fn print_headers(status: u16, headers: &[(String, String)]) {
 ///
 /// Absolute paths are intentionally allowed (matching curl behaviour);
 /// only `..` traversal components are rejected.
-fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result<()> {
+fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<()> {
     if output_file == "-" {
         std::io::stdout()
             .write_all(data)
@@ -190,7 +191,7 @@ fn write_to_file(opts: &OutputOptions, output_file: &str, data: &[u8]) -> Result
             ));
         }
         std::fs::write(output_file, data).context("Failed to write output file")?;
-        if opts.log_enabled() {
+        if verbose {
             eprintln!("Saved to: {output_file}");
         }
     }

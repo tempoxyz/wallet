@@ -8,6 +8,7 @@ use crate::error::TempoWalletError;
 use crate::http::HttpResponse;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
+use crate::util::format_token_amount;
 
 /// Parsed payment challenge context extracted from a 402 response.
 pub(super) struct ChallengeContext {
@@ -16,6 +17,25 @@ pub(super) struct ChallengeContext {
     pub(super) amount: String,
     pub(super) currency: String,
     pub(super) challenge: mpp::PaymentChallenge,
+}
+
+impl ChallengeContext {
+    pub(super) fn intent_str(&self) -> &'static str {
+        if self.is_session {
+            "session"
+        } else {
+            "charge"
+        }
+    }
+
+    /// Format the payment amount for human display, falling back to raw value + symbol.
+    pub(super) fn amount_display(&self) -> String {
+        self.amount
+            .parse::<u128>()
+            .ok()
+            .map(|a| format_token_amount(a, self.network))
+            .unwrap_or_else(|| format!("{} {}", self.amount, self.network.token().symbol))
+    }
 }
 
 /// Parse the WWW-Authenticate header from a 402 response and extract all
@@ -36,15 +56,6 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<Challen
     }
 
     let is_session = challenge.intent.is_session();
-
-    let require_chain = |chain_id: Option<u64>| -> Result<NetworkId> {
-        let cid = chain_id.ok_or_else(|| {
-            TempoWalletError::InvalidChallenge("missing chainId in payment request".to_string())
-        })?;
-        NetworkId::from_chain_id(cid).ok_or_else(|| {
-            TempoWalletError::InvalidChallenge(format!("unsupported chainId: {cid}")).into()
-        })
-    };
 
     let (network, amount, currency) =
         if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
@@ -72,6 +83,16 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<Challen
         amount,
         currency,
         challenge,
+    })
+}
+
+/// Resolve a chain ID to a known `NetworkId`, or fail with a clear error.
+fn require_chain(chain_id: Option<u64>) -> Result<NetworkId> {
+    let cid = chain_id.ok_or_else(|| {
+        TempoWalletError::InvalidChallenge("missing chainId in payment request".to_string())
+    })?;
+    NetworkId::from_chain_id(cid).ok_or_else(|| {
+        TempoWalletError::InvalidChallenge(format!("unsupported chainId: {cid}")).into()
     })
 }
 

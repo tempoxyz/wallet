@@ -3,6 +3,9 @@
 use anyhow::Result;
 use base64::Engine;
 
+use crate::cli::args::QueryArgs;
+use crate::cli::output::OutputOptions;
+use crate::cli::Cli;
 use crate::error::TempoWalletError;
 use crate::http::{HttpClient, HttpRequestPlan};
 use crate::network::NetworkId;
@@ -11,10 +14,6 @@ use super::input::{
     has_header, join_form_pairs, parse_data_urlencode, parse_headers, resolve_method_and_body,
     should_auto_add_json_content_type, validate_header_size,
 };
-
-use crate::cli::args::QueryArgs;
-use crate::cli::output::OutputOptions;
-use crate::cli::Cli;
 
 /// Build a `HttpClient` from CLI arguments.
 ///
@@ -130,7 +129,7 @@ pub(super) fn build_http_client(cli: &Cli, query: &QueryArgs) -> Result<HttpClie
         user_agent: query
             .user_agent
             .clone()
-            .unwrap_or_else(|| format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION"))),
+            .unwrap_or_else(|| format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))),
         insecure: query.insecure,
         proxy: query.proxy.clone(),
         no_proxy: query.no_proxy,

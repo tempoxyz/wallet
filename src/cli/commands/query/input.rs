@@ -1,9 +1,8 @@
 //! CLI input processing: header parsing, body resolution, method selection, and content-type detection.
 
-use std::io::Read;
+use anyhow::{Context as _, Result};
 
-use anyhow::Result;
-use thiserror::Error;
+use crate::error::TempoWalletError;
 
 /// Maximum request body size (100 MB)
 const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
@@ -11,27 +10,59 @@ const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 /// Maximum header size (8 KB)
 const MAX_HEADER_SIZE: usize = 8 * 1024;
 
-#[derive(Error, Debug)]
-enum RequestError {
-    #[error("Request body exceeds maximum size of {max} bytes")]
-    BodyTooLarge { max: usize },
+/// Parse and validate a URL, ensuring it uses http or https.
+pub(super) fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
+    let parsed = url::Url::parse(raw).map_err(|e| TempoWalletError::InvalidUrl(e.to_string()))?;
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        anyhow::bail!(TempoWalletError::InvalidUrl(format!(
+            "unsupported scheme '{scheme}'"
+        )));
+    }
+    Ok(parsed)
+}
 
-    #[error("Header exceeds maximum size of {max} bytes")]
-    HeaderTooLarge { max: usize },
-
-    #[error("failed to read stdin: {0}")]
-    ReadStdin(#[source] std::io::Error),
-
-    #[error("failed to read file '{path}': {source}")]
-    ReadFile {
-        path: String,
-        source: std::io::Error,
-    },
+/// Append `-d` data and `--data-urlencode` values to a URL's query string.
+///
+/// Used for `-G/--get` mode where request data is sent as query parameters
+/// instead of the body.
+pub(super) fn append_data_to_query(
+    url: &mut url::Url,
+    data: &[String],
+    data_urlencode: &[String],
+) -> Result<()> {
+    // Raw -d data (verbatim, joined by '&')
+    let mut raw = String::new();
+    if !data.is_empty() {
+        let mut combined: Vec<u8> = Vec::new();
+        for item in data {
+            let bytes = resolve_data(item)?;
+            if !combined.is_empty() {
+                combined.push(b'&');
+            }
+            combined.extend(bytes);
+        }
+        raw = String::from_utf8(combined).context("data is not valid UTF-8 for --get")?;
+    }
+    // Encoded data from --data-urlencode
+    let enc_pairs = parse_data_urlencode(data_urlencode)?;
+    let enc_joined = join_form_pairs(&enc_pairs);
+    let appended = match (raw.is_empty(), enc_joined.is_empty()) {
+        (true, _) => enc_joined,
+        (_, true) => raw,
+        _ => format!("{raw}&{enc_joined}"),
+    };
+    let new_query = match url.query() {
+        Some(q) if !q.is_empty() => format!("{q}&{appended}"),
+        _ => appended,
+    };
+    url.set_query(Some(&new_query));
+    Ok(())
 }
 
 fn validate_body_size(len: usize) -> Result<()> {
     if len > MAX_BODY_SIZE {
-        return Err(RequestError::BodyTooLarge { max: MAX_BODY_SIZE }.into());
+        anyhow::bail!(TempoWalletError::BodyTooLarge(MAX_BODY_SIZE));
     }
     Ok(())
 }
@@ -45,14 +76,15 @@ fn validate_body_size(len: usize) -> Result<()> {
 pub(super) fn resolve_data(data: &str) -> Result<Vec<u8>> {
     if let Some(path) = data.strip_prefix('@') {
         if path == "-" {
+            use std::io::Read;
             let mut buf = Vec::new();
             std::io::stdin()
                 .read_to_end(&mut buf)
-                .map_err(RequestError::ReadStdin)?;
+                .map_err(TempoWalletError::ReadStdin)?;
             validate_body_size(buf.len())?;
             Ok(buf)
         } else {
-            let buf = std::fs::read(path).map_err(|e| RequestError::ReadFile {
+            let buf = std::fs::read(path).map_err(|e| TempoWalletError::ReadFile {
                 path: path.to_string(),
                 source: e,
             })?;
@@ -69,10 +101,7 @@ pub(super) fn resolve_data(data: &str) -> Result<Vec<u8>> {
 /// Reject a raw header string that exceeds the maximum allowed size.
 pub(super) fn validate_header_size(header: &str) -> Result<()> {
     if header.len() > MAX_HEADER_SIZE {
-        return Err(RequestError::HeaderTooLarge {
-            max: MAX_HEADER_SIZE,
-        }
-        .into());
+        anyhow::bail!(TempoWalletError::HeaderTooLarge(MAX_HEADER_SIZE));
     }
     Ok(())
 }
@@ -154,7 +183,7 @@ pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<Strin
     for it in items {
         if let Some(rest) = it.strip_prefix('@') {
             // @filename — read file contents
-            let content = std::fs::read(rest).map_err(|e| RequestError::ReadFile {
+            let content = std::fs::read(rest).map_err(|e| TempoWalletError::ReadFile {
                 path: rest.to_string(),
                 source: e,
             })?;
@@ -166,7 +195,7 @@ pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<Strin
             // name=@filename pattern (curl-style)
             let (name, file) = it.split_at(pos);
             let file = &file[2..];
-            let content = std::fs::read(file).map_err(|e| RequestError::ReadFile {
+            let content = std::fs::read(file).map_err(|e| TempoWalletError::ReadFile {
                 path: file.to_string(),
                 source: e,
             })?;
@@ -308,10 +337,18 @@ mod tests {
         let json_ws = vec!["  {\"key\": \"value\"}".to_string()];
         let plain = vec!["plain text".to_string()];
         let kv = vec!["key=value".to_string()];
-        assert!(should_auto_add_json_content_type(&no_h, None, None, &json_obj));
-        assert!(should_auto_add_json_content_type(&no_h, None, None, &json_arr));
-        assert!(should_auto_add_json_content_type(&no_h, None, None, &json_ws));
-        assert!(!should_auto_add_json_content_type(&no_h, None, None, &plain));
+        assert!(should_auto_add_json_content_type(
+            &no_h, None, None, &json_obj
+        ));
+        assert!(should_auto_add_json_content_type(
+            &no_h, None, None, &json_arr
+        ));
+        assert!(should_auto_add_json_content_type(
+            &no_h, None, None, &json_ws
+        ));
+        assert!(!should_auto_add_json_content_type(
+            &no_h, None, None, &plain
+        ));
         assert!(!should_auto_add_json_content_type(&no_h, None, None, &kv));
     }
 

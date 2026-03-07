@@ -156,10 +156,24 @@ impl HttpClient {
 
     /// The underlying reqwest client.
     ///
-    /// Used by streaming and session flows that need direct access to
-    /// reqwest's request builder or streaming API.
+    /// Used by session flows that need direct access to the reqwest client.
     pub(crate) fn client(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    /// Build a raw reqwest request from the plan for streaming use.
+    ///
+    /// This encapsulates plan field access so callers don't need to
+    /// reach into `plan.method`, `plan.headers`, and `plan.body` directly.
+    pub(crate) fn build_raw_request(&self, url: &str) -> reqwest::RequestBuilder {
+        let mut req = self.client.request(self.plan.method.clone(), url);
+        for (name, value) in &self.plan.headers {
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if let Some(ref body) = self.plan.body {
+            req = req.body(body.clone());
+        }
+        req
     }
 
     /// Whether agent-level log messages should be printed (`-v`).
