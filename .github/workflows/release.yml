@@ -49,7 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - run: cargo build --release --target ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }} -p tempo-wallet
       - run: strip target/${{ matrix.target }}/release/tempo-wallet
       - run: mv target/${{ matrix.target }}/release/tempo-wallet ${{ matrix.asset }}
       - uses: actions/upload-artifact@v7
@@ -84,8 +84,8 @@ jobs:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
-          SKILL_SHA256=$(sha256sum .agents/skills/tempo-wallet/SKILL.md | cut -d' ' -f1)
-          cargo run --bin sign-release -- \
+          SKILL_SHA256=$(sha256sum crates/tempo-wallet/SKILL.md | cut -d' ' -f1)
+          cargo run -p sign-release -- \
             --key-file /tmp/release.key \
             --artifacts-dir artifacts \
             --version "${{ inputs.version }}" \
@@ -108,14 +108,18 @@ jobs:
 
           for f in artifacts/tempo-wallet-*; do
             BASENAME=$(basename "$f")
+            # Upload as latest
+            aws s3 cp "$f" "s3://tempo-cli/extensions/tempo-wallet/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            # Upload with version prefix
             aws s3 cp "$f" "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
           done
 
-          # Upload signed manifest (latest + versioned)
-          aws s3 cp artifacts/manifest.json "s3://tempo-cli/extensions/tempo-wallet/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "application/json"
-          aws s3 cp artifacts/manifest.json "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "application/json"
+          # Upload install script
+          aws s3 cp scripts/install.sh "s3://tempo-cli/install.sh" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
-          # Upload SKILL.md (referenced by manifest.json skill URL)
-          aws s3 cp .agents/skills/tempo-wallet/SKILL.md "s3://tempo-cli/extensions/tempo-wallet/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          # Upload AI skill and VERSION file
+          aws s3 cp crates/tempo-wallet/SKILL.md "s3://tempo-cli/extensions/tempo-wallet/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          echo "${{ inputs.version }}" > VERSION
+          aws s3 cp VERSION "s3://tempo-cli/extensions/tempo-wallet/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           echo "Uploaded ${VERSION} binaries and signed manifest to R2"

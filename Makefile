@@ -5,7 +5,7 @@ build:
 
 # make run ARGS="http://localhost:3000/api/data"
 run:
-	cargo run -q -- $(ARGS)
+	cargo run -q -p tempo-wallet -- $(ARGS)
 
 release:
 	cargo build --release
@@ -27,10 +27,9 @@ test:
 
 check:
 	cargo fmt --all --check
-	cargo clippy --workspace -- -D warnings
-	cargo doc --no-deps
+	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace -- --quiet
-	cargo build
+	cargo doc --no-deps
 
 fix:
 	cargo fmt
@@ -38,7 +37,7 @@ fix:
 
 # Run e2e tests against live mpp-proxy (requires funded wallet)
 e2e: build
-	cargo test --test live -- --ignored --nocapture
+	cargo test -p tempo-wallet --test live -- --ignored --nocapture
 # Generate coverage locally (requires cargo-llvm-cov and llvm-tools-preview)
 # Install once: `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
 coverage:

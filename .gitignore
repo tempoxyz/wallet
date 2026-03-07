@@ -11,13 +11,9 @@
 *~
 .DS_Store
 
-# Configuration (contains private keys!)
-*.toml
-!Cargo.toml
-!.changelog/config.toml
-!rustfmt.toml
-!.cargo/config.toml
-!.cargo/config
+# Configuration (contains private keys)
+config.toml
+keys.toml
 
 # Build artifacts
 *.tar.gz
