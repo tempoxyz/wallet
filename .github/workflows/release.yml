@@ -144,6 +144,7 @@ jobs:
               SIGN_ARGS+=(
                 --skill "https://cli.tempo.xyz/${pkg}/v${VERSION}/SKILL.md"
                 --skill-sha256 "$SKILL_SHA256"
+                --skill-file "crates/${pkg}/SKILL.md"
               )
             fi
 

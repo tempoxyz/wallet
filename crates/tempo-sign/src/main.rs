@@ -10,6 +10,7 @@
 //!     --base-url https://cli.tempo.xyz/tempo-wallet \
 //!     --skill https://cli.tempo.xyz/tempo-wallet/v0.1.0/SKILL.md \
 //!     --skill-sha256 <SHA256> \
+//!     --skill-file crates/tempo-wallet/SKILL.md \
 //!     --output manifest.json
 //! ```
 //!
@@ -50,6 +51,7 @@ fn main() {
         find_flag_value(&args, "--base-url").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
     let skill = find_flag_value(&args, "--skill");
     let skill_sha256 = find_flag_value(&args, "--skill-sha256");
+    let skill_file = find_flag_value(&args, "--skill-file");
     let output = find_flag_value(&args, "--output").unwrap_or_else(|| "manifest.json".to_string());
 
     let (Some(key_file), Some(artifacts_dir), Some(version)) = (key_file, artifacts_dir, version)
@@ -73,6 +75,7 @@ fn main() {
         &base_url,
         skill.as_deref(),
         skill_sha256.as_deref(),
+        skill_file.as_deref(),
         &signing_key,
     );
 
@@ -186,6 +189,7 @@ fn build_manifest(
     base_url: &str,
     skill: Option<&str>,
     skill_sha256: Option<&str>,
+    skill_file: Option<&str>,
     signing_key: &SigningKey,
 ) -> serde_json::Value {
     let base_url = base_url.trim_end_matches('/');
@@ -241,6 +245,12 @@ fn build_manifest(
     }
     if let Some(sha256) = skill_sha256 {
         manifest["skill_sha256"] = json!(sha256);
+    }
+    if let Some(path) = skill_file {
+        let skill_path = Path::new(path);
+        let signature = sign_file(skill_path, signing_key);
+        manifest["skill_signature"] = json!(signature);
+        println!("  signed SKILL.md");
     }
     manifest
 }
