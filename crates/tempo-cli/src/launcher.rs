@@ -172,10 +172,6 @@ impl Launcher {
     }
 
     fn handle_no_args(&self) -> Result<i32, LauncherError> {
-        if let Some(core) = self.find_binary(CORE_BINARY) {
-            return run_child(core, &[], "tempo");
-        }
-
         self.print_help();
         Ok(0)
     }
