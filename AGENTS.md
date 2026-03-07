@@ -2,16 +2,20 @@
 
 ## Repository Overview
 
-This is `tempo-wallet` - a pure binary crate providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support.
+This is a Cargo workspace containing 3 crates under `crates/`, providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, a top-level CLI launcher, and a release signing tool.
 
 **Supported Payment Protocols:**
 - [Machine Payments Protocol (MPP)](https://mpp.dev) - Open protocol for HTTP-native machine-to-machine payments
 
-### Crate Structure
+### Workspace Structure
 
-Single binary crate with source organized by module directories:
-- `src/main.rs` - CLI entry point, module declarations, error rendering
-- `src/cli/` - CLI argument parsing and command dispatch
+The root `Cargo.toml` is workspace-only (no package). All crates live under `crates/`:
+
+#### `crates/tempo-wallet/` — package `tempo-wallet`, binary `tempo-wallet`
+
+The main wallet HTTP client with MPP payment support. Source organized by module directories:
+- `crates/tempo-wallet/src/main.rs` - CLI entry point, module declarations, error rendering
+- `crates/tempo-wallet/src/cli/` - CLI argument parsing and command dispatch
   - `args.rs` - clap definitions (`Cli`, `QueryArgs`, `Commands`)
   - `run.rs` - Application lifecycle: tracing, color, context building, command dispatch, analytics
   - `context.rs` - `Context` struct (Cli, Config, NetworkId, Keystore, Analytics, OutputFormat)
@@ -27,21 +31,34 @@ Single binary crate with source organized by module directories:
     - `whoami.rs` - Whoami command
     - `services.rs` - Service directory listing and details
     - `completions.rs` - Shell completions
-- `src/account/` - Wallet account types (balances, spending limits) and on-chain queries
-- `src/http/` - HTTP client, request planning, response parsing
-- `src/config.rs` - Configuration file handling
-- `src/network.rs` - Network definitions (`NetworkId`), explorer config, RPC
-- `src/keys/` - Key storage (model, I/O), signer resolution, authorization
-- `src/payment/` - Payment protocol implementations
+- `crates/tempo-wallet/src/account/` - Wallet account types (balances, spending limits) and on-chain queries
+- `crates/tempo-wallet/src/http/` - HTTP client, request planning, response parsing
+- `crates/tempo-wallet/src/config.rs` - Configuration file handling
+- `crates/tempo-wallet/src/network.rs` - Network definitions (`NetworkId`), explorer config, RPC
+- `crates/tempo-wallet/src/keys/` - Key storage (model, I/O), signer resolution, authorization
+- `crates/tempo-wallet/src/payment/` - Payment protocol implementations
   - `dispatch.rs` - Payment dispatch (route 402 flows to charge or session)
   - `charge.rs` - One-shot on-chain charge payment
   - `session/` - Session-based payment channels (channel.rs, close.rs, store.rs, streaming.rs, tx.rs)
-- `src/analytics.rs` - Opt-out telemetry (PostHog)
-- `src/error.rs` - Error types
-- `src/util.rs` - Shared utilities (formatting, terminal hyperlinks, sanitization)
-- `tests/` - Integration tests (black-box CLI testing via assert_cmd)
+- `crates/tempo-wallet/src/analytics.rs` - Opt-out telemetry (PostHog)
+- `crates/tempo-wallet/src/error.rs` - Error types
+- `crates/tempo-wallet/src/util.rs` - Shared utilities (formatting, terminal hyperlinks, sanitization)
+- `crates/tempo-wallet/tests/` - Integration tests (black-box CLI testing via assert_cmd)
+- `crates/tempo-wallet/build.rs` - Build script
 
-**Package:** `tempo-wallet` | **Binary:** `tempo-wallet`
+#### `crates/tempo-cli/` — package `tempo-cli`, binary `tempo`
+
+Top-level launcher and extension manager. Dispatches to `tempo-*` binaries (e.g., `tempo wallet ...` invokes `tempo-wallet`).
+- `crates/tempo-cli/src/` - Launcher source
+- `crates/tempo-cli/tests/` - Integration tests
+
+#### `crates/sign-release/` — package `sign-release`, binary `sign-release`
+
+Lightweight release manifest signing tool for authenticating build artifacts.
+- `crates/sign-release/src/` - Signing tool source
+- `crates/sign-release/tests/` - Tests
+
+**Packages:** `tempo-wallet`, `tempo-cli`, `sign-release`
 
 ## Commands
 
@@ -49,7 +66,7 @@ Single binary crate with source organized by module directories:
 make build              # Build debug binary
 make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
-make check              # Run fmt check, clippy, tests, and build (linting handled in CI)
+make check              # Run fmt check, clippy, tests, and doc (linting handled in CI)
 make fix                # Auto-fix formatting and clippy warnings
 make install            # Install CLI to ~/.local/bin
 make uninstall          # Uninstall CLI
@@ -58,11 +75,11 @@ make run ARGS="<url>"   # Run CLI with arguments
 
 ## Agent Suggestions
 
-When the user explicitly says "ask the oracle" to check a value, run `tempo-wallet` against OpenRouter and explicitly tell the user which model was used in the response.
+When the user explicitly says "ask the oracle" to check a value, run `tempo wallet` against OpenRouter and explicitly tell the user which model was used in the response.
 
 Example:
 ```bash
-tempo-wallet -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+tempo wallet -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements
@@ -129,7 +146,7 @@ pub enum MyError {
 
 - Each module should have a clear single responsibility
 - Use `mod.rs` for modules with submodules
-- CLI commands go in `src/cli/commands/` (e.g., `query/`, `sessions/`, `login/`)
+- CLI commands go in `crates/tempo-wallet/src/cli/commands/` (e.g., `query/`, `sessions/`, `login/`)
 
 ### Testing
 
@@ -171,9 +188,9 @@ pub struct Cli {
 
 ### Adding New Features
 
-1. Add core logic in appropriate module under `src/`
-2. Add CLI flags in `src/cli/args.rs`, implement commands in `src/cli/`
-3. Add tests: unit tests in source files, integration tests in `tests/`
+1. Add core logic in appropriate module under `crates/tempo-wallet/src/`
+2. Add CLI flags in `crates/tempo-wallet/src/cli/args.rs`, implement commands in `crates/tempo-wallet/src/cli/`
+3. Add tests: unit tests in source files, integration tests in each crate's `tests/`
 
 ## Dependencies
 

@@ -1,6 +1,6 @@
-# Contributing to tempo-wallet
+# Contributing to Tempo Wallet
 
-Thanks for your interest in contributing to tempo-wallet! This guide covers everything you need to build, test, and submit changes.
+Thanks for your interest in contributing to Tempo Wallet! This guide covers everything you need to build, test, and submit changes.
 
 ## Table of Contents
 
@@ -32,7 +32,7 @@ make test
 make build              # Debug build
 make release            # Optimized release build
 make test               # Run all tests (uses mocks, no network required)
-make check              # fmt + clippy + test + build
+make check              # fmt + clippy + test + doc
 make fix                # Auto-fix formatting and clippy warnings
 make e2e                # Run live tests against mpp-proxy (requires funded wallet)
 make coverage           # Generate code coverage (requires cargo-llvm-cov)
@@ -50,7 +50,7 @@ Before every commit, run:
 make check
 ```
 
-This runs `cargo fmt --check`, `cargo clippy -D warnings`, all tests, and a build. Everything must pass with **zero warnings**.
+This runs `cargo fmt --check`, `cargo clippy -D warnings`, all tests, and doc generation. Everything must pass with **zero warnings**.
 
 ## Linting
 
@@ -73,64 +73,72 @@ let value = something.unwrap();
 ## Project Structure
 
 ```
-src/
-├── main.rs              # CLI entry point, module declarations, error rendering
-├── error.rs             # Error types (thiserror)
-├── config.rs            # Configuration file handling
-├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
-├── util.rs              # Shared utilities (formatting, terminal hyperlinks, sanitization)
-├── analytics.rs         # Opt-out telemetry (PostHog)
-├── account/             # Wallet account types (balances, spending limits, on-chain queries)
-│   ├── mod.rs           # Types (TokenBalance, KeyInfo, SpendingLimitInfo) and display helpers
-│   └── query.rs         # On-chain balance and spending-limit queries
-├── http/                # HTTP client, request building, response parsing
-│   ├── client.rs        # HttpClient, HttpRequestPlan, retry logic
-│   └── response.rs      # HttpResponse type
-├── cli/                 # Argument parsing (clap) and command dispatch
-│   ├── args.rs          # CLI argument definitions (Cli, QueryArgs, Commands)
-│   ├── run.rs           # Application lifecycle: tracing, color, context, dispatch, analytics
-│   ├── context.rs       # Context struct (shared app state threaded to all commands)
-│   ├── output.rs        # OutputFormat, OutputOptions
-│   ├── exit_codes.rs    # Process exit codes
-│   └── commands/        # Command implementations (all take &Context)
-│       ├── query/       # Query command (request → 402 → payment → response)
-│       │   ├── mod.rs       # Main query flow
-│       │   ├── context.rs   # HTTP client and output options building
-│       │   ├── input.rs     # Header and body parsing helpers
-│       │   ├── challenge.rs # 402 challenge parsing and wallet checks
-│       │   ├── receipt.rs   # Payment receipt display and response output
-│       │   ├── streaming.rs # SSE and streaming response handling
-│       │   └── analytics.rs # Query-specific analytics tracking
-│       ├── login/       # Login command and passkey authentication flow
-│       ├── sessions/    # Session management (list, info, close, recover, sync)
-│       ├── wallets/     # Wallet management (create, list, fund/, keychain.rs)
-│       ├── logout.rs    # Logout command
-│       ├── whoami.rs    # Whoami command
-│       ├── keys.rs      # Key listing with balance and spending limit queries
-│       ├── services.rs  # Service directory listing and details
-│       └── completions.rs # Shell completions
-├── keys/                # Key storage, signing, and authorization
-│   ├── model.rs         # KeyEntry, Keystore, WalletType types
-│   ├── io.rs            # File I/O for keys.toml (load, save, keys_path)
-│   ├── signer.rs        # Signing mode resolution (direct EOA vs keychain)
-│   └── authorization.rs # Key authorization decoding and signing
-├── payment/             # Payment protocol logic (MPP - https://mpp.dev)
-│   ├── dispatch.rs      # Payment dispatch (route 402 flows to charge or session)
-│   ├── charge.rs        # One-shot on-chain charge payment
-│   └── session/         # Session-based payment channels
-│       ├── channel.rs   # Channel open/query operations
-│       ├── close.rs     # Channel close and finalization
-│       ├── store.rs     # SQLite session persistence
-│       ├── streaming.rs # Per-token voucher streaming
-│       └── tx.rs        # Transaction building
-tests/                   # Integration tests (black-box CLI testing via assert_cmd)
+crates/
+├── tempo-wallet/        # Main wallet HTTP client with MPP payment support
+│   ├── src/
+│   │   ├── main.rs              # CLI entry point, module declarations, error rendering
+│   │   ├── error.rs             # Error types (thiserror)
+│   │   ├── config.rs            # Configuration file handling
+│   │   ├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
+│   │   ├── util.rs              # Shared utilities (formatting, terminal hyperlinks, sanitization)
+│   │   ├── analytics.rs         # Opt-out telemetry (PostHog)
+│   │   ├── account/             # Wallet account types (balances, spending limits, on-chain queries)
+│   │   │   ├── mod.rs           # Types (TokenBalance, KeyInfo, SpendingLimitInfo) and display helpers
+│   │   │   └── query.rs         # On-chain balance and spending-limit queries
+│   │   ├── http/                # HTTP client, request building, response parsing
+│   │   │   ├── client.rs        # HttpClient, HttpRequestPlan, retry logic
+│   │   │   └── response.rs      # HttpResponse type
+│   │   ├── cli/                 # Argument parsing (clap) and command dispatch
+│   │   │   ├── args.rs          # CLI argument definitions (Cli, QueryArgs, Commands)
+│   │   │   ├── run.rs           # Application lifecycle: tracing, color, context, dispatch, analytics
+│   │   │   ├── context.rs       # Context struct (shared app state threaded to all commands)
+│   │   │   ├── output.rs        # OutputFormat, OutputOptions
+│   │   │   ├── exit_codes.rs    # Process exit codes
+│   │   │   └── commands/        # Command implementations (all take &Context)
+│   │   │       ├── query/       # Query command (request → 402 → payment → response)
+│   │   │       │   ├── mod.rs       # Main query flow
+│   │   │       │   ├── context.rs   # HTTP client and output options building
+│   │   │       │   ├── input.rs     # Header and body parsing helpers
+│   │   │       │   ├── challenge.rs # 402 challenge parsing and wallet checks
+│   │   │       │   ├── receipt.rs   # Payment receipt display and response output
+│   │   │       │   ├── streaming.rs # SSE and streaming response handling
+│   │   │       │   └── analytics.rs # Query-specific analytics tracking
+│   │   │       ├── login/       # Login command and passkey authentication flow
+│   │   │       ├── sessions/    # Session management (list, info, close, recover, sync)
+│   │   │       ├── wallets/     # Wallet management (create, list, fund/, keychain.rs)
+│   │   │       ├── logout.rs    # Logout command
+│   │   │       ├── whoami.rs    # Whoami command
+│   │   │       ├── keys.rs      # Key listing with balance and spending limit queries
+│   │   │       ├── services.rs  # Service directory listing and details
+│   │   │       └── completions.rs # Shell completions
+│   │   ├── keys/                # Key storage, signing, and authorization
+│   │   │   ├── model.rs         # KeyEntry, Keystore, WalletType types
+│   │   │   ├── io.rs            # File I/O for keys.toml (load, save, keys_path)
+│   │   │   ├── signer.rs        # Signing mode resolution (direct EOA vs keychain)
+│   │   │   └── authorization.rs # Key authorization decoding and signing
+│   │   └── payment/             # Payment protocol logic (MPP - https://mpp.dev)
+│   │       ├── dispatch.rs      # Payment dispatch (route 402 flows to charge or session)
+│   │       ├── charge.rs        # One-shot on-chain charge payment
+│   │       └── session/         # Session-based payment channels
+│   │           ├── channel.rs   # Channel open/query operations
+│   │           ├── close.rs     # Channel close and finalization
+│   │           ├── store.rs     # SQLite session persistence
+│   │           ├── streaming.rs # Per-token voucher streaming
+│   │           └── tx.rs        # Transaction building
+│   └── tests/                   # Integration tests (black-box CLI testing via assert_cmd)
+├── tempo-cli/           # Launcher and extension manager
+│   ├── src/
+│   └── tests/
+├── sign-release/        # Release manifest signing tool
+│   ├── src/
+│   └── tests/
 examples/                # Runnable example scripts
 .changelog/              # Changelog entries (see Changelogs section)
 ```
 
 ### Scope: CLI-Only
 
-This repository is a single binary crate. Internal modules are crate-private and not a stable public API. Please do not depend on tempo-wallet as a library — all supported behavior is exposed via the CLI.
+This repository is a Cargo workspace with three binary crates (`tempo-wallet`, `tempo-cli`, `sign-release`). Internal modules are crate-private and not a stable public API. Please do not depend on any crate as a library — all supported behavior is exposed via the CLI.
 
 ### Key Conventions
 
@@ -147,20 +155,20 @@ use crate::config::Config;
 
 **Error handling** — use `thiserror` for error types, `anyhow` for propagation.
 
-**Modules** — each module has a single responsibility. CLI commands go in `src/cli/commands/`. Use `mod.rs` for modules with submodules.
+**Modules** — each module has a single responsibility. CLI commands go in `crates/tempo-wallet/src/cli/commands/`. Use `mod.rs` for modules with submodules.
 
 ## Adding a New Feature
 
-1. Add core logic in the appropriate module under `src/`
-2. Add CLI flags/commands in `src/cli/args.rs`, implement in `src/cli/`
-3. Add tests: unit tests in source files, integration tests in `tests/`
+1. Add core logic in the appropriate module under `crates/tempo-wallet/src/`
+2. Add CLI flags/commands in `crates/tempo-wallet/src/cli/args.rs`, implement in `crates/tempo-wallet/src/cli/`
+3. Add tests: unit tests in source files, integration tests in the relevant crate's `tests/` directory
 4. Add a changelog entry (see [Changelogs](#changelogs))
 5. Run `make check` — zero warnings required
 
 ## Testing
 
 - **Unit tests** live in source files (`#[cfg(test)] mod tests`)
-- **Integration tests** in `tests/` use `assert_cmd` for black-box CLI testing
+- **Integration tests** in each crate's `tests/` directory use `assert_cmd` for black-box CLI testing
 - Use `TestConfigBuilder` and `test_command()` helpers to set up test configurations
 - **Live tests:** `make e2e` runs tests against a live mpp-proxy (requires a funded wallet)
 - **Coverage:** `make coverage` generates an lcov report (requires `cargo-llvm-cov` and `llvm-tools-preview`)
