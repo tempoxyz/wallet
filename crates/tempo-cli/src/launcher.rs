@@ -3,8 +3,8 @@
 //! add/update/remove).
 
 use crate::installer::{
-    binary_candidates, debug_log, executable_name, fetch_manifest_version,
-    platform_tuple, set_executable_permissions, InstallSource, Installer, InstallerError,
+    binary_candidates, debug_log, executable_name, fetch_manifest_version, platform_tuple,
+    set_executable_permissions, InstallSource, Installer, InstallerError,
 };
 use crate::state::State;
 use std::env;

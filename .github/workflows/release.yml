@@ -164,7 +164,7 @@ jobs:
 
           for pkg in tempo tempo-wallet tempo-mpp; do
             # Binaries (latest + versioned)
-            for f in artifacts/${pkg}-*; do
+            for f in artifacts/${pkg}-linux-* artifacts/${pkg}-darwin-*; do
               [ -f "$f" ] || continue
               BASENAME=$(basename "$f")
               aws s3 cp "$f" "s3://tempo-cli/${pkg}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
