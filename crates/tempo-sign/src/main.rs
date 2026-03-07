@@ -27,7 +27,7 @@ use std::io::Read;
 use std::path::Path;
 use std::process;
 
-const DEFAULT_BASE_URL: &str = "https://cli.tempo.xyz/extensions/tempo-wallet";
+const DEFAULT_BASE_URL: &str = "https://cli.tempo.xyz/tempo-wallet";
 const SKIP_EXTENSIONS: &[&str] = &[".json", ".md", ".sh", ".txt", ".py"];
 
 fn main() {

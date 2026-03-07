@@ -127,32 +127,28 @@ jobs:
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
           VERSION="${{ needs.version.outputs.version }}"
 
-          # Split artifacts per extension for separate manifests
-          mkdir -p artifacts-wallet artifacts-mpp
-          cp artifacts/tempo-wallet-* artifacts-wallet/
-          cp artifacts/tempo-mpp-* artifacts-mpp/
+          for pkg in tempo tempo-wallet tempo-mpp; do
+            mkdir -p "artifacts-${pkg}"
+            cp artifacts/${pkg}-* "artifacts-${pkg}/"
 
-          # Sign tempo-wallet
-          WALLET_SKILL_SHA256=$(sha256sum crates/tempo-wallet/SKILL.md | cut -d' ' -f1)
-          cargo run -p tempo-sign -- \
-            --key-file /tmp/release.key \
-            --artifacts-dir artifacts-wallet \
-            --version "$VERSION" \
-            --base-url https://cli.tempo.xyz/extensions/tempo-wallet \
-            --skill "https://cli.tempo.xyz/extensions/tempo-wallet/v${VERSION}/SKILL.md" \
-            --skill-sha256 "$WALLET_SKILL_SHA256" \
-            --output artifacts/wallet-manifest.json
+            SIGN_ARGS=(
+              --key-file /tmp/release.key
+              --artifacts-dir "artifacts-${pkg}"
+              --version "$VERSION"
+              --base-url "https://cli.tempo.xyz/${pkg}"
+              --output "artifacts/${pkg}-manifest.json"
+            )
 
-          # Sign tempo-mpp
-          MPP_SKILL_SHA256=$(sha256sum crates/tempo-mpp/SKILL.md | cut -d' ' -f1)
-          cargo run -p tempo-sign -- \
-            --key-file /tmp/release.key \
-            --artifacts-dir artifacts-mpp \
-            --version "$VERSION" \
-            --base-url https://cli.tempo.xyz/extensions/tempo-mpp \
-            --skill "https://cli.tempo.xyz/extensions/tempo-mpp/v${VERSION}/SKILL.md" \
-            --skill-sha256 "$MPP_SKILL_SHA256" \
-            --output artifacts/mpp-manifest.json
+            if [ -f "crates/${pkg}/SKILL.md" ]; then
+              SKILL_SHA256=$(sha256sum "crates/${pkg}/SKILL.md" | cut -d' ' -f1)
+              SIGN_ARGS+=(
+                --skill "https://cli.tempo.xyz/${pkg}/v${VERSION}/SKILL.md"
+                --skill-sha256 "$SKILL_SHA256"
+              )
+            fi
+
+            cargo run -p tempo-sign -- "${SIGN_ARGS[@]}"
+          done
 
           rm /tmp/release.key
 
@@ -166,36 +162,30 @@ jobs:
 
           VERSION="v${{ needs.version.outputs.version }}"
 
-          # Upload tempo-cli binaries (top-level, no versioned path)
-          for f in artifacts/tempo-linux-* artifacts/tempo-darwin-*; do
-            [ -f "$f" ] || continue
-            aws s3 cp "$f" "s3://tempo-cli/$(basename "$f")" --endpoint-url "$AWS_ENDPOINT_URL"
-          done
-
-          # Upload extension binaries and per-extension manifests
-          for pkg in tempo-wallet tempo-mpp; do
-            SHORT="${pkg#tempo-}"
-
+          for pkg in tempo tempo-wallet tempo-mpp; do
+            # Binaries (latest + versioned)
             for f in artifacts/${pkg}-*; do
               [ -f "$f" ] || continue
               BASENAME=$(basename "$f")
-              aws s3 cp "$f" "s3://tempo-cli/extensions/${pkg}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
-              aws s3 cp "$f" "s3://tempo-cli/extensions/${pkg}/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+              aws s3 cp "$f" "s3://tempo-cli/${pkg}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+              aws s3 cp "$f" "s3://tempo-cli/${pkg}/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
             done
 
             # Signed manifest (latest + versioned)
-            aws s3 cp "artifacts/${SHORT}-manifest.json" "s3://tempo-cli/extensions/${pkg}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
-            aws s3 cp "artifacts/${SHORT}-manifest.json" "s3://tempo-cli/extensions/${pkg}/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${pkg}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${pkg}/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
 
-            # SKILL.md (latest + versioned)
-            aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/extensions/${pkg}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-            aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/extensions/${pkg}/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+            # SKILL.md (latest + versioned, if exists)
+            if [ -f "crates/${pkg}/SKILL.md" ]; then
+              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${pkg}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${pkg}/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+            fi
 
             # VERSION
-            echo "${{ needs.version.outputs.version }}" | aws s3 cp - "s3://tempo-cli/extensions/${pkg}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+            echo "${{ needs.version.outputs.version }}" | aws s3 cp - "s3://tempo-cli/${pkg}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
           done
 
-          # Upload install script
+          # Install script
           aws s3 cp scripts/install.sh "s3://tempo-cli/install" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
 
           echo "Released ${VERSION}"

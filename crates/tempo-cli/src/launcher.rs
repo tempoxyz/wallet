@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const EXTENSIONS_BASE_URL: &str = "https://cli.tempo.xyz/extensions";
+const BASE_URL: &str = "https://cli.tempo.xyz";
 const PUBLIC_KEY: &str = "bDpt6MpqpvjiIPBB2NroGZQ/2HrfV+roj2qUa2b+vjI=";
 
 const CORE_BINARY: &str = "tempo-core";
@@ -134,10 +134,9 @@ impl Launcher {
     /// Download the latest `tempo` binary from R2 and replace the current one.
     fn self_update(&self, dry_run: bool) -> Result<i32, LauncherError> {
         let (os, arch) = platform_tuple();
-        let base = env::var("TEMPO_EXTENSIONS_URL")
-            .unwrap_or_else(|_| "https://cli.tempo.xyz".to_string());
-        let base = base.trim_end_matches('/').trim_end_matches("/extensions");
-        let url = format!("{base}/tempo-{os}-{arch}");
+        let base = base_url();
+        let base = base.trim_end_matches('/');
+        let url = format!("{base}/tempo/tempo-{os}-{arch}");
 
         if dry_run {
             println!("dry-run: download tempo from {url}");
@@ -479,8 +478,8 @@ fn parse_management_args(args: &[String]) -> Result<ManagementArgs, LauncherErro
     })
 }
 
-fn extensions_base_url() -> String {
-    env::var("TEMPO_EXTENSIONS_URL").unwrap_or_else(|_| EXTENSIONS_BASE_URL.to_string())
+fn base_url() -> String {
+    env::var("TEMPO_BASE_URL").unwrap_or_else(|_| BASE_URL.to_string())
 }
 
 fn release_public_key() -> String {
@@ -488,7 +487,7 @@ fn release_public_key() -> String {
 }
 
 fn manifest_url(extension: &str, version: Option<&str>) -> String {
-    let base = extensions_base_url();
+    let base = base_url();
     let base = base.trim_end_matches('/');
     match version {
         Some(v) => {
@@ -593,17 +592,17 @@ mod tests {
     fn manifest_url_uses_expected_format() {
         assert_eq!(
             manifest_url("wallet", None),
-            "https://cli.tempo.xyz/extensions/tempo-wallet/manifest.json"
+            "https://cli.tempo.xyz/tempo-wallet/manifest.json"
         );
 
         assert_eq!(
             manifest_url("wallet", Some("0.2.0")),
-            "https://cli.tempo.xyz/extensions/tempo-wallet/v0.2.0/manifest.json"
+            "https://cli.tempo.xyz/tempo-wallet/v0.2.0/manifest.json"
         );
 
         assert_eq!(
             manifest_url("wallet", Some("v0.2.0")),
-            "https://cli.tempo.xyz/extensions/tempo-wallet/v0.2.0/manifest.json",
+            "https://cli.tempo.xyz/tempo-wallet/v0.2.0/manifest.json",
             "v-prefix should not be doubled"
         );
     }
