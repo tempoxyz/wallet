@@ -4,8 +4,6 @@ use crate::analytics;
 use crate::cli::Context;
 use crate::util::sanitize_error;
 
-use super::challenge::ChallengeContext;
-
 // ---------------------------------------------------------------------------
 // Pre-402 query tracking (no payment context needed)
 // ---------------------------------------------------------------------------
@@ -52,20 +50,26 @@ pub(super) fn track_query_success(ctx: &Context, url: &str, method: &str, status
 /// started/success/failure events identically for both charge and session flows.
 pub(super) struct PaymentAnalytics<'a> {
     ctx: &'a Context,
-    network: String,
-    amount: String,
-    currency: String,
-    intent: String,
+    network: &'a str,
+    amount: &'a str,
+    currency: &'a str,
+    intent: &'static str,
 }
 
 impl<'a> PaymentAnalytics<'a> {
-    pub(super) fn from_challenge(challenge: &ChallengeContext, ctx: &'a Context) -> Self {
+    pub(super) fn new(
+        ctx: &'a Context,
+        network: &'a str,
+        amount: &'a str,
+        currency: &'a str,
+        intent: &'static str,
+    ) -> Self {
         Self {
             ctx,
-            network: challenge.network.as_str().to_string(),
-            amount: challenge.amount.clone(),
-            currency: challenge.currency.clone(),
-            intent: challenge.intent_str().to_string(),
+            network,
+            amount,
+            currency,
+            intent,
         }
     }
 
@@ -73,14 +77,18 @@ impl<'a> PaymentAnalytics<'a> {
         self.ctx.track(
             analytics::Event::PaymentStarted,
             analytics::PaymentStartedPayload {
-                network: self.network.clone(),
-                amount: self.amount.clone(),
-                currency: self.currency.clone(),
-                intent: self.intent.clone(),
+                network: self.network.to_string(),
+                amount: self.amount.to_string(),
+                currency: self.currency.to_string(),
+                intent: self.intent.to_string(),
             },
         );
     }
 
+    /// Track a successful payment.
+    ///
+    /// Also fires a `QuerySuccess` event so the overall request is counted as
+    /// successful (the non-402 path fires this directly from `mod.rs`).
     pub(super) fn track_success(
         &self,
         tx_hash: String,
@@ -92,10 +100,10 @@ impl<'a> PaymentAnalytics<'a> {
         self.ctx.track(
             analytics::Event::PaymentSuccess,
             analytics::PaymentSuccessPayload {
-                network: self.network.clone(),
-                amount: self.amount.clone(),
-                currency: self.currency.clone(),
-                intent: self.intent.clone(),
+                network: self.network.to_string(),
+                amount: self.amount.to_string(),
+                currency: self.currency.to_string(),
+                intent: self.intent.to_string(),
                 tx_hash,
                 session_id,
             },
@@ -107,10 +115,10 @@ impl<'a> PaymentAnalytics<'a> {
         self.ctx.track(
             analytics::Event::PaymentFailure,
             analytics::PaymentFailurePayload {
-                network: self.network.clone(),
-                amount: self.amount.clone(),
-                currency: self.currency.clone(),
-                intent: self.intent.clone(),
+                network: self.network.to_string(),
+                amount: self.amount.to_string(),
+                currency: self.currency.to_string(),
+                intent: self.intent.to_string(),
                 error: sanitize_error(&err.to_string()),
             },
         );

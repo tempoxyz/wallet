@@ -2,6 +2,7 @@
 
 use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -167,6 +168,27 @@ impl Keystore {
     /// Check if a wallet is connected with a key for the given network.
     pub(crate) fn has_key_for_network(&self, network: NetworkId) -> bool {
         self.has_wallet() && self.keys.iter().any(|k| k.chain_id == network.chain_id())
+    }
+
+    /// Ensure a wallet with a key for the given network is available.
+    ///
+    /// Returns an error with a helpful message if no wallet or key is configured.
+    pub(crate) fn ensure_key_for_network(&self, network: NetworkId) -> Result<()> {
+        let setup_cmd = concat!(env!("CARGO_PKG_NAME"), " login");
+
+        if !self.has_key_for_network(network) {
+            let msg = if !self.has_wallet() {
+                format!("No wallet configured. Run '{setup_cmd}'.")
+            } else {
+                format!(
+                    "No key configured for network '{}'. Run '{setup_cmd}'.",
+                    network.as_str()
+                )
+            };
+            anyhow::bail!(TempoWalletError::ConfigMissing(msg));
+        }
+
+        Ok(())
     }
 
     /// Get the wallet address of the primary key.

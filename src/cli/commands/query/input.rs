@@ -34,14 +34,7 @@ pub(super) fn append_data_to_query(
     // Raw -d data (verbatim, joined by '&')
     let mut raw = String::new();
     if !data.is_empty() {
-        let mut combined: Vec<u8> = Vec::new();
-        for item in data {
-            let bytes = resolve_data(item)?;
-            if !combined.is_empty() {
-                combined.push(b'&');
-            }
-            combined.extend(bytes);
-        }
+        let combined = resolve_and_join_data(data)?;
         raw = String::from_utf8(combined).context("data is not valid UTF-8 for --get")?;
     }
     // Encoded data from --data-urlencode
@@ -73,10 +66,11 @@ fn validate_body_size(len: usize) -> Result<()> {
 /// - `@filename` — read the file as binary
 /// - `@-` — read stdin as binary
 /// - anything else — treat as a literal UTF-8 string
-pub(super) fn resolve_data(data: &str) -> Result<Vec<u8>> {
+fn resolve_data(data: &str) -> Result<Vec<u8>> {
+    use std::io::Read;
+
     if let Some(path) = data.strip_prefix('@') {
         if path == "-" {
-            use std::io::Read;
             let mut buf = Vec::new();
             std::io::stdin()
                 .read_to_end(&mut buf)
@@ -96,6 +90,19 @@ pub(super) fn resolve_data(data: &str) -> Result<Vec<u8>> {
         validate_body_size(bytes.len())?;
         Ok(bytes)
     }
+}
+
+/// Resolve and join multiple `-d` data items with `&` separators.
+fn resolve_and_join_data(data: &[String]) -> Result<Vec<u8>> {
+    let mut combined = Vec::new();
+    for item in data {
+        let bytes = resolve_data(item)?;
+        if !combined.is_empty() {
+            combined.push(b'&');
+        }
+        combined.extend(bytes);
+    }
+    Ok(combined)
 }
 
 /// Reject a raw header string that exceeds the maximum allowed size.
@@ -137,42 +144,32 @@ pub(super) fn resolve_method_and_body(
     toon: Option<&str>,
 ) -> Result<(reqwest::Method, Option<Vec<u8>>)> {
     let body = if let Some(toon_data) = toon {
-        // Decode TOON to JSON value, then serialize as JSON bytes for the request body
         let value: serde_json::Value = toon_format::decode_default(toon_data)
             .map_err(|e| anyhow::anyhow!("failed to decode TOON input: {e}"))?;
-        let bytes = serde_json::to_string(&value)?.into_bytes();
-        validate_body_size(bytes.len())?;
-        Some(bytes)
+        Some(serde_json::to_string(&value)?.into_bytes())
     } else if let Some(json) = json {
-        let bytes = json.as_bytes().to_vec();
-        validate_body_size(bytes.len())?;
-        Some(bytes)
+        Some(json.as_bytes().to_vec())
     } else if !data.is_empty() {
-        let mut combined = Vec::new();
-        for item in data {
-            let resolved = resolve_data(item)?;
-            if !combined.is_empty() {
-                combined.push(b'&');
-            }
-            combined.extend(resolved);
-        }
-        validate_body_size(combined.len())?;
-        Some(combined)
+        Some(resolve_and_join_data(data)?)
     } else {
         None
     };
 
-    let method = method
-        .map(|m| {
-            reqwest::Method::from_bytes(m.to_uppercase().as_bytes()).unwrap_or(reqwest::Method::GET)
-        })
-        .unwrap_or_else(|| {
+    if let Some(ref b) = body {
+        validate_body_size(b.len())?;
+    }
+
+    let method = match method {
+        Some(m) => reqwest::Method::from_bytes(m.to_uppercase().as_bytes())
+            .map_err(|_| anyhow::anyhow!("invalid HTTP method: {m}"))?,
+        None => {
             if body.is_some() {
                 reqwest::Method::POST
             } else {
                 reqwest::Method::GET
             }
-        });
+        }
+    };
 
     Ok((method, body))
 }

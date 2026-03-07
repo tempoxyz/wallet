@@ -6,7 +6,6 @@ use mpp::protocol::methods::tempo::TempoChargeExt;
 
 use crate::error::TempoWalletError;
 use crate::http::HttpResponse;
-use crate::keys::Keystore;
 use crate::network::NetworkId;
 use crate::util::format_token_amount;
 
@@ -96,24 +95,83 @@ fn require_chain(chain_id: Option<u64>) -> Result<NetworkId> {
     })
 }
 
-/// Ensure a wallet with a key for the challenge network is available.
-pub(super) fn ensure_wallet_configured(
-    keys: &Keystore,
-    challenge_network: NetworkId,
-) -> Result<()> {
-    let setup_cmd = concat!(env!("CARGO_PKG_NAME"), " login");
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    if !keys.has_key_for_network(challenge_network) {
-        let msg = if !keys.has_wallet() {
-            format!("No wallet configured. Run '{setup_cmd}'.")
-        } else {
-            format!(
-                "No key configured for network '{}'. Run '{setup_cmd}'.",
-                challenge_network.as_str()
-            )
-        };
-        anyhow::bail!(TempoWalletError::ConfigMissing(msg));
+    fn make_challenge(intent: &str) -> mpp::PaymentChallenge {
+        let request = mpp::Base64UrlJson::from_value(
+            &serde_json::json!({"amount": "1000", "currency": "USDC"}),
+        )
+        .unwrap();
+        mpp::PaymentChallenge::new("test-id", "test-realm", "tempo", intent, request)
     }
 
-    Ok(())
+    fn make_ctx(is_session: bool, amount: &str) -> ChallengeContext {
+        let intent = if is_session { "session" } else { "charge" };
+        ChallengeContext {
+            is_session,
+            network: NetworkId::default(),
+            amount: amount.to_string(),
+            currency: "USDC".to_string(),
+            challenge: make_challenge(intent),
+        }
+    }
+
+    #[test]
+    fn test_intent_str_session() {
+        let ctx = make_ctx(true, "1000");
+        assert_eq!(ctx.intent_str(), "session");
+    }
+
+    #[test]
+    fn test_intent_str_charge() {
+        let ctx = make_ctx(false, "1000");
+        assert_eq!(ctx.intent_str(), "charge");
+    }
+
+    #[test]
+    fn test_amount_display_valid_numeric() {
+        let ctx = make_ctx(false, "1000000");
+        let display = ctx.amount_display();
+        assert!(!display.is_empty());
+    }
+
+    #[test]
+    fn test_amount_display_non_numeric_fallback() {
+        let ctx = make_ctx(false, "not-a-number");
+        let display = ctx.amount_display();
+        assert!(display.contains("not-a-number"));
+    }
+
+    #[test]
+    fn test_require_chain_known_network() {
+        let result = require_chain(Some(4217));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_require_chain_unknown_network() {
+        let result = require_chain(Some(99999));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported chainId"));
+    }
+
+    #[test]
+    fn test_require_chain_missing() {
+        let result = require_chain(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing chainId"));
+    }
+
+    #[test]
+    fn test_parse_payment_challenge_missing_header() {
+        let response = HttpResponse::for_test(402, b"");
+        let result = parse_payment_challenge(&response);
+        let err = result.err().expect("should be an error");
+        assert!(err.to_string().contains("WWW-Authenticate"));
+    }
 }

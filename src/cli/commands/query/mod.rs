@@ -7,9 +7,9 @@
 
 mod analytics;
 mod challenge;
-mod context;
 mod input;
 mod receipt;
+mod request;
 mod streaming;
 
 use anyhow::Result;
@@ -44,9 +44,9 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         append_data_to_query(&mut parsed_url, &query.data, &query.data_urlencode)?;
     }
 
-    let http = context::build_http_client(&ctx.cli, &query)?;
-    let output_opts = context::build_output_options(&ctx.cli, &query, &parsed_url);
-    let target_url = String::from(parsed_url);
+    let http = request::build_http_client(&ctx.cli, &query)?;
+    let output_opts = request::build_output_options(&ctx.cli, &query, &parsed_url);
+    let target_url = parsed_url.to_string();
     let method_str = http.plan.method.to_string();
 
     let sanitized_url = redact_url(&target_url);
@@ -54,18 +54,18 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     analytics::track_query_started(ctx, &sanitized_url, &method_str);
 
     if http.log_enabled() {
-        eprintln!("Making {} request to: {}", http.plan.method, sanitized_url);
+        eprintln!("Making {method_str} request to: {sanitized_url}");
     }
 
     // Streaming/SSE mode: perform a streaming request and return.
-    if query.stream || query.sse || query.sse_json {
+    if query.is_streaming() {
         return streaming::execute_streaming(&http, &target_url, &output_opts, query.sse_json)
             .await;
     }
 
     // Single execution; retry policy is handled inside HttpClient
     let start = std::time::Instant::now();
-    let response = match http.execute(&target_url, &[]).await {
+    let response = match http.execute(&target_url, /* extra_headers */ &[]).await {
         Ok(r) => r,
         Err(e) => {
             analytics::track_query_failure(ctx, &sanitized_url, &method_str, &e.to_string());
@@ -86,7 +86,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     if response.status_code != 402 {
         analytics::track_query_success(ctx, &sanitized_url, &method_str, response.status_code);
-        receipt::finalize_response(&output_opts, response)?;
+        receipt::finalize_and_save(&output_opts, response, None)?;
         return Ok(());
     }
 
@@ -123,10 +123,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     }
 
     // Enforce client-side price cap if configured
-    if let Some(max) = &query.max_pay {
-        let max_val: u128 = max.parse().map_err(|_| {
-            TempoWalletError::InvalidConfig(format!("invalid --max-pay value: {max}"))
-        })?;
+    if let Some(max_val) = query.max_pay {
         if let Ok(req_val) = challenge_ctx.amount.parse::<u128>() {
             // Optional currency match if provided
             let currency_ok = query.max_pay_currency.as_ref().is_none_or(|cur| {
@@ -146,16 +143,22 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
 
     // Skip wallet login for dry-run or when a private key is provided directly
     if !http.dry_run && !ctx.keys.ephemeral {
-        challenge::ensure_wallet_configured(&ctx.keys, challenge_ctx.network)?;
+        ctx.keys.ensure_key_for_network(challenge_ctx.network)?;
     }
-
-    let pay_analytics = analytics::PaymentAnalytics::from_challenge(&challenge_ctx, ctx);
-    pay_analytics.track_started();
 
     // Capture display values before `challenge` is moved into dispatch_payment.
     let is_session = challenge_ctx.is_session;
     let challenge_network = challenge_ctx.network;
     let amount_display = challenge_ctx.amount_display();
+
+    let pay_analytics = analytics::PaymentAnalytics::new(
+        ctx,
+        challenge_network.as_str(),
+        &challenge_ctx.amount,
+        &challenge_ctx.currency,
+        challenge_ctx.intent_str(),
+    );
+    pay_analytics.track_started();
 
     let result = dispatch_payment(
         &ctx.config,
@@ -188,26 +191,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
                     );
                 }
 
-                // Capture receipt header before consuming response for output
-                let receipt_hdr = query
-                    .save_receipt
-                    .as_ref()
-                    .and_then(|_| resp.header("payment-receipt").map(|s| s.to_string()));
-
-                receipt::finalize_response(&output_opts, resp)?;
-
-                // Optionally save receipt JSON if present
-                if let (Some(path), Some(h)) = (query.save_receipt.as_ref(), receipt_hdr.as_ref()) {
-                    match mpp::parse_receipt(h) {
-                        Ok(receipt) => {
-                            let s = serde_json::to_string_pretty(&receipt)?;
-                            std::fs::write(path, s)?;
-                        }
-                        Err(e) => {
-                            tracing::warn!("failed to parse receipt for --save-receipt: {e}");
-                        }
-                    }
-                }
+                receipt::finalize_and_save(&output_opts, resp, query.save_receipt.as_deref())?;
             }
             Ok(())
         }

@@ -75,6 +75,10 @@ pub(crate) enum TempoWalletError {
     #[error("Request header exceeds maximum size of {0} bytes")]
     HeaderTooLarge(usize),
 
+    /// Output file path is invalid (e.g. path traversal)
+    #[error("Invalid output path: {0}")]
+    InvalidOutputPath(String),
+
     /// Failed to read from stdin
     #[error("failed to read stdin: {0}")]
     ReadStdin(#[source] std::io::Error),

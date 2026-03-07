@@ -8,21 +8,46 @@ use anyhow::{Context as _, Result};
 
 use crate::cli::output::{OutputFormat, OutputOptions};
 use crate::error::TempoWalletError;
-use crate::http::HttpResponse;
+use crate::http::{http_status_text, print_headers, HttpResponse};
 use crate::network::NetworkId;
 use crate::util::hyperlink;
 
-/// Finalize a regular response: display output and fail on HTTP errors.
-pub(super) fn finalize_response(output_opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+/// Format an HTTP status code + reason for error messages.
+pub(super) fn format_http_error(status: u16) -> String {
+    format!("{} {}", status, http_status_text(status))
+}
+
+/// Finalize a response: display output, optionally save the payment receipt, and fail on HTTP errors.
+pub(super) fn finalize_and_save(
+    output_opts: &OutputOptions,
+    response: HttpResponse,
+    save_receipt_path: Option<&str>,
+) -> Result<()> {
     let status = response.status_code;
-    handle_response(output_opts, response)?;
-    if status >= 400 {
-        anyhow::bail!(TempoWalletError::Http(format!(
-            "{} {}",
-            status,
-            crate::http::http_status_text(status)
-        )));
+
+    // Capture receipt header before consuming response for output
+    let receipt_hdr =
+        save_receipt_path.and_then(|_| response.header("payment-receipt").map(|s| s.to_string()));
+
+    render_response(output_opts, response)?;
+
+    // Optionally save receipt JSON if present
+    if let (Some(path), Some(h)) = (save_receipt_path, receipt_hdr.as_ref()) {
+        match mpp::parse_receipt(h) {
+            Ok(receipt) => {
+                let s = serde_json::to_string_pretty(&receipt)?;
+                std::fs::write(path, s)?;
+            }
+            Err(e) => {
+                tracing::warn!("failed to parse receipt for --save-receipt: {e}");
+            }
+        }
     }
+
+    if status >= 400 {
+        anyhow::bail!(TempoWalletError::Http(format_http_error(status)));
+    }
+
     Ok(())
 }
 
@@ -31,7 +56,7 @@ pub(super) fn finalize_response(output_opts: &OutputOptions, response: HttpRespo
 /// Note: `include_headers` only applies to `Text` format; structured formats
 /// (JSON/TOON) omit the status line and headers from stdout to keep output
 /// machine-parseable. Use `--dump-header` to capture headers separately.
-fn handle_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+fn render_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     match opts.output_format {
         OutputFormat::Json | OutputFormat::Toon => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
@@ -59,7 +84,12 @@ fn handle_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     }
 
     if let Some(ref path) = opts.dump_headers {
-        write_headers_file(opts, path, response.status_code, &response.headers)?;
+        write_headers_file(
+            path,
+            response.status_code,
+            &response.headers,
+            opts.log_enabled(),
+        )?;
     }
 
     Ok(())
@@ -101,10 +131,10 @@ pub(super) fn write_meta_if_requested(
 
 /// Write response headers to a file (HTTP status line + headers + blank line).
 fn write_headers_file(
-    opts: &OutputOptions,
     path: &str,
     status_code: u16,
     headers: &[(String, String)],
+    verbose: bool,
 ) -> Result<()> {
     let mut content = String::new();
     writeln!(content, "HTTP {status_code}").unwrap();
@@ -112,7 +142,7 @@ fn write_headers_file(
         writeln!(content, "{name}: {value}").unwrap();
     }
     content.push('\n');
-    write_to_file(path, content.as_bytes(), opts.log_enabled())
+    write_to_file(path, content.as_bytes(), verbose)
 }
 
 /// Display receipt information from response with optional clickable explorer links.
@@ -128,18 +158,17 @@ pub(super) fn display_receipt(
     }
 
     // Try to extract a transaction reference/link if the server provided a receipt header
-    let mut link: Option<String> = None;
-    let mut parsed_receipt = None;
-    if let Some(receipt_header) = response.header("payment-receipt") {
-        parsed_receipt = mpp::parse_receipt(receipt_header).ok();
-        let tx_ref = mpp::protocol::core::extract_tx_hash(receipt_header)
-            .or_else(|| parsed_receipt.as_ref().map(|r| r.reference.clone()));
+    let receipt_header = response.header("payment-receipt");
+    let parsed_receipt = receipt_header.and_then(|h| mpp::parse_receipt(h).ok());
 
-        if let Some(tx) = tx_ref {
+    let link = receipt_header.and_then(|h| {
+        let tx_ref = mpp::protocol::core::extract_tx_hash(h)
+            .or_else(|| parsed_receipt.as_ref().map(|r| r.reference.clone()));
+        tx_ref.map(|tx| {
             let url = network.tx_url(&tx);
-            link = Some(hyperlink(&tx, &url));
-        }
-    }
+            hyperlink(&tx, &url)
+        })
+    });
 
     if let Some(l) = link {
         eprintln!("Paid {amount_display} · {l}");
@@ -158,19 +187,6 @@ pub(super) fn display_receipt(
 }
 
 // ---------------------------------------------------------------------------
-// Shared display helpers
-// ---------------------------------------------------------------------------
-
-/// Print HTTP status line and headers to stdout.
-pub(super) fn print_headers(status: u16, headers: &[(String, String)]) {
-    println!("HTTP {status}");
-    for (name, value) in headers {
-        println!("{name}: {value}");
-    }
-    println!();
-}
-
-// ---------------------------------------------------------------------------
 // File output helpers
 // ---------------------------------------------------------------------------
 
@@ -186,8 +202,8 @@ fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<()> {
     } else {
         let path = Path::new(output_file);
         if path.components().any(|c| matches!(c, Component::ParentDir)) {
-            anyhow::bail!(TempoWalletError::InvalidConfig(
-                "invalid output path: path traversal (..) not allowed".to_string()
+            anyhow::bail!(TempoWalletError::InvalidOutputPath(
+                "path traversal (..) not allowed".to_string()
             ));
         }
         std::fs::write(output_file, data).context("Failed to write output file")?;
@@ -216,35 +232,39 @@ mod tests {
         }
     }
 
-    // ==================== finalize_response ====================
+    // ---------------------------------------------------------------------------
+    // finalize_and_save
+    // ---------------------------------------------------------------------------
 
     #[test]
-    fn test_finalize_response_success_status() {
+    fn test_finalize_and_save_success_status() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(200, b"ok");
-        assert!(finalize_response(&opts, resp).is_ok());
+        assert!(finalize_and_save(&opts, resp, None).is_ok());
     }
 
     #[test]
-    fn test_finalize_response_4xx_fails() {
+    fn test_finalize_and_save_4xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(404, b"not found");
-        let err = finalize_response(&opts, resp).unwrap_err();
+        let err = finalize_and_save(&opts, resp, None).unwrap_err();
         assert!(err.to_string().contains("404"));
     }
 
     #[test]
-    fn test_finalize_response_5xx_fails() {
+    fn test_finalize_and_save_5xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(500, b"internal error");
-        let err = finalize_response(&opts, resp).unwrap_err();
+        let err = finalize_and_save(&opts, resp, None).unwrap_err();
         assert!(err.to_string().contains("Internal Server Error"));
     }
 
-    // ==================== display_receipt (silent mode) ====================
+    // ---------------------------------------------------------------------------
+    // display_receipt
+    // ---------------------------------------------------------------------------
 
     #[test]
-    fn test_display_receipt_silent_mode_no_panic() {
+    fn test_display_receipt_quiet_mode_suppresses_output() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(200, b"ok");
         // Should not panic even with missing receipt header
@@ -252,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_receipt_no_receipt_header_no_panic() {
+    fn test_display_receipt_missing_header_shows_amount_only() {
         let opts = test_opts(true);
         let resp = HttpResponse::for_test(200, b"ok");
         // Should print amount without link, no panic

@@ -107,6 +107,7 @@ impl From<&crate::error::TempoWalletError> for ExitCode {
             // Invalid arguments / user input
             TempoWalletError::InvalidUrl(_)
             | TempoWalletError::InvalidHeader(_)
+            | TempoWalletError::InvalidOutputPath(_)
             | TempoWalletError::BodyTooLarge(_)
             | TempoWalletError::HeaderTooLarge(_) => ExitCode::InvalidUsage,
 

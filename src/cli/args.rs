@@ -323,7 +323,7 @@ pub(crate) struct QueryArgs {
         value_name = "AMOUNT",
         help_heading = "Payment Options"
     )]
-    pub max_pay: Option<String>,
+    pub max_pay: Option<u128>,
 
     /// Currency for --max-pay (symbol or address)
     #[arg(
@@ -398,6 +398,13 @@ pub(crate) struct QueryArgs {
         help_heading = "HTTP Options"
     )]
     pub data_urlencode: Vec<String>,
+}
+
+impl QueryArgs {
+    /// Whether the request should use streaming mode (raw, SSE passthrough, or SSE→NDJSON).
+    pub(crate) fn is_streaming(&self) -> bool {
+        self.stream || self.sse || self.sse_json
+    }
 }
 
 #[derive(Subcommand, Debug)]

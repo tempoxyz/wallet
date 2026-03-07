@@ -82,6 +82,15 @@ pub(crate) fn http_status_text(code: u16) -> &'static str {
     }
 }
 
+/// Print HTTP status line and headers to stdout.
+pub(crate) fn print_headers(status: u16, headers: &[(String, String)]) {
+    println!("HTTP {status}");
+    for (name, value) in headers {
+        println!("{name}: {value}");
+    }
+    println!();
+}
+
 #[cfg(test)]
 impl HttpResponse {
     /// Create a test response with the given status and body.
