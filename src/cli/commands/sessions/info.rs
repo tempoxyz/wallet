@@ -1,24 +1,22 @@
-use alloy::primitives::utils::format_units;
-use alloy::primitives::{Address, B256, U256};
-use anyhow::{Context, Result};
+use alloy::primitives::{Address, B256};
+use anyhow::{Context as _, Result};
 
-use super::render::{render_channel_list, render_channel_text, ChannelView};
+use super::view::{render_channel_list, ChannelView};
 use crate::cli::OutputFormat;
-use crate::config::Config;
 use crate::error::TempoWalletError;
-use crate::network::NetworkId;
-use crate::payment::session::channel::read_grace_period;
+use crate::payment::session::channel::{get_channel_on_chain, read_grace_period};
 use crate::payment::session::store as session_store;
-use crate::payment::session::store::SessionStatus;
 use crate::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
 /// Show details for a local session by URL/origin or for a channel by ID.
 pub(super) async fn show_session_info(
-    config: &Config,
-    output_format: OutputFormat,
+    ctx: &crate::cli::Context,
     target: &str,
-    network: NetworkId,
 ) -> Result<()> {
+    let config = &ctx.config;
+    let output_format = ctx.output_format;
+    let network = ctx.network;
+
     if target.starts_with("0x") && target.len() == 66 {
         return show_channel_info(config, output_format, target, network).await;
     }
@@ -27,14 +25,7 @@ pub(super) async fn show_session_info(
     let key = session_store::session_key(target);
     if let Some(rec) = session_store::load_session(&key)? {
         let view = ChannelView::from(&rec);
-        match output_format {
-            OutputFormat::Text => {
-                render_channel_text(&view);
-            }
-            _ => {
-                render_channel_list(&[view], output_format, "", "session(s)")?;
-            }
-        }
+        render_channel_list(&[view], output_format, "", "")?;
     } else {
         // No local record — give a helpful message
         match output_format {
@@ -61,10 +52,10 @@ pub(super) async fn show_session_info(
 }
 
 async fn show_channel_info(
-    config: &Config,
+    config: &crate::config::Config,
     output_format: OutputFormat,
     channel_id_hex: &str,
-    network: NetworkId,
+    network: crate::network::NetworkId,
 ) -> Result<()> {
     // Prefer local session if available
     let sessions = session_store::list_sessions()?;
@@ -73,7 +64,7 @@ async fn show_channel_info(
         .find(|s| s.channel_id.eq_ignore_ascii_case(channel_id_hex))
     {
         let view = ChannelView::from(&rec);
-        return render_channel_list(&[view], output_format, "", "session(s)");
+        return render_channel_list(&[view], output_format, "", "");
     }
 
     // Fallback: query single network to locate channel on-chain
@@ -86,79 +77,45 @@ async fn show_channel_info(
         .escrow_contract()
         .parse()
         .context("Invalid escrow contract address")?;
-    let on_chain =
-        match crate::payment::session::channel::get_channel_on_chain(&provider, escrow, channel_id)
-            .await
-        {
-            Ok(Some(ch)) => ch,
-            Ok(None) => {
-                match output_format {
-                    OutputFormat::Json | OutputFormat::Toon => {
-                        println!(
-                            "{}",
-                            output_format.serialize(&serde_json::json!({
-                                "sessions": [],
-                                "total": 0,
-                                "message": format!("channel not found on {}", network)
-                            }))?
-                        );
-                    }
-                    OutputFormat::Text => {
-                        println!("Channel {channel_id_hex} not found on {network}")
-                    }
+    let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await {
+        Ok(Some(ch)) => ch,
+        Ok(None) => {
+            match output_format {
+                OutputFormat::Json | OutputFormat::Toon => {
+                    println!(
+                        "{}",
+                        output_format.serialize(&serde_json::json!({
+                            "sessions": [],
+                            "total": 0,
+                            "message": format!("channel not found on {}", network)
+                        }))?
+                    );
                 }
-                return Ok(());
+                OutputFormat::Text => {
+                    println!("Channel {channel_id_hex} not found on {network}")
+                }
             }
-            Err(e) => {
-                anyhow::bail!(TempoWalletError::Http(format!(
-                    "Failed to query channel on {}: {e}",
-                    network
-                )))
-            }
-        };
-
-    let t = network.token();
-    let (symbol, decimals) = (t.symbol, t.decimals);
-    let dep_u = on_chain.deposit;
-    let spent_u = on_chain.settled;
-    let remaining_u = dep_u.saturating_sub(spent_u);
-    let status;
-    let mut remaining_secs = None;
-    if on_chain.close_requested_at > 0 {
-        let grace = read_grace_period(&provider, escrow)
-            .await
-            .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
-        let now = session_store::now_secs();
-        let ready_at = on_chain.close_requested_at + grace;
-        let rem = ready_at.saturating_sub(now);
-        status = if rem == 0 {
-            SessionStatus::Finalizable
-        } else {
-            SessionStatus::Closing
-        };
-        remaining_secs = Some(rem);
-    } else {
-        status = SessionStatus::Orphaned;
-    }
-
-    let view = ChannelView {
-        channel_id: format!("{:#x}", channel_id),
-        network: network.as_str().to_string(),
-        origin: None,
-        symbol,
-        deposit: format_units(U256::from(dep_u), decimals).expect("decimals <= 77"),
-        spent: format_units(U256::from(spent_u), decimals).expect("decimals <= 77"),
-        remaining: format_units(U256::from(remaining_u), decimals).expect("decimals <= 77"),
-        status: status.as_str().to_string(),
-        remaining_secs,
-        created_at: None,
-        last_used_at: None,
-    };
-    match output_format {
-        OutputFormat::Text => {
-            render_channel_text(&view);
-            Ok(())
+            return Ok(());
         }
-        _ => render_channel_list(&[view], output_format, "", "session(s)"),
-    }
+        Err(e) => {
+            anyhow::bail!(TempoWalletError::Http(format!(
+                "Failed to query channel on {}: {e}",
+                network
+            )))
+        }
+    };
+
+    let grace = read_grace_period(&provider, escrow)
+        .await
+        .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
+
+    let view = ChannelView::from_on_chain(
+        &format!("{:#x}", channel_id),
+        network,
+        on_chain.deposit,
+        on_chain.settled,
+        on_chain.close_requested_at,
+        grace,
+    );
+    render_channel_list(&[view], output_format, "", "")
 }

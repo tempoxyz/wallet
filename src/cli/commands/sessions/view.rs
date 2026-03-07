@@ -1,4 +1,4 @@
-//! Session and channel display rendering (text and JSON output).
+//! Session view model and display rendering (text and JSON output).
 
 use alloy::primitives::utils::format_units;
 use alloy::primitives::U256;
@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::cli::OutputFormat;
 use crate::payment::session::store as session_store;
+use crate::util::{format_duration, format_relative_time};
 
 /// Unified channel view used by all list/display functions.
 ///
@@ -31,7 +32,60 @@ pub(super) struct ChannelView {
 impl ChannelView {
     /// Whether the session has no spending limit (deposit is zero).
     pub(super) fn is_unlimited(&self) -> bool {
-        self.deposit.parse::<f64>().is_ok_and(|v| v == 0.0)
+        self.deposit.trim_end_matches('0').trim_end_matches('.') == "0"
+    }
+
+    /// Build a view from on-chain channel data (used by list and info for
+    /// channels that don't have a local session record).
+    pub(super) fn from_on_chain(
+        channel_id: &str,
+        network: crate::network::NetworkId,
+        deposit: u128,
+        settled: u128,
+        close_requested_at: u64,
+        grace_period: u64,
+    ) -> Self {
+        let t = network.token();
+        let remaining = deposit.saturating_sub(settled);
+
+        let (status, remaining_secs) = if close_requested_at > 0 {
+            let now = crate::payment::session::store::now_secs();
+            let ready_at = close_requested_at + grace_period;
+            let rem = ready_at.saturating_sub(now);
+            if rem == 0 {
+                (crate::payment::session::store::SessionStatus::Finalizable, Some(0))
+            } else {
+                (crate::payment::session::store::SessionStatus::Closing, Some(rem))
+            }
+        } else {
+            (crate::payment::session::store::SessionStatus::Orphaned, None)
+        };
+
+        ChannelView {
+            channel_id: channel_id.to_string(),
+            network: network.as_str().to_string(),
+            origin: None,
+            symbol: t.symbol,
+            deposit: alloy::primitives::utils::format_units(
+                alloy::primitives::U256::from(deposit),
+                t.decimals,
+            )
+            .expect("decimals <= 77"),
+            spent: alloy::primitives::utils::format_units(
+                alloy::primitives::U256::from(settled),
+                t.decimals,
+            )
+            .expect("decimals <= 77"),
+            remaining: alloy::primitives::utils::format_units(
+                alloy::primitives::U256::from(remaining),
+                t.decimals,
+            )
+            .expect("decimals <= 77"),
+            status: status.as_str().to_string(),
+            remaining_secs,
+            created_at: None,
+            last_used_at: None,
+        }
     }
 }
 
@@ -56,18 +110,6 @@ struct SessionItem<'a> {
     created_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_used_at: Option<u64>,
-}
-
-/// Tracks the result of batch close operations for consistent output.
-///
-/// Used by `close_sessions --all`, `close_orphaned_channels`, and
-/// `finalize_closed_channels` to accumulate results and render them
-/// in a consistent format.
-pub(super) struct CloseSummary {
-    closed: u32,
-    pending: u32,
-    failed: u32,
-    results: Vec<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -118,14 +160,16 @@ pub(super) fn render_channel_list(
             for v in views {
                 render_channel_text(v);
             }
-            println!("{} {count_label}.", views.len());
+            if !count_label.is_empty() {
+                println!("{} {count_label}.", views.len());
+            }
         }
     }
     Ok(())
 }
 
 /// Render a single channel in text format.
-pub(super) fn render_channel_text(v: &ChannelView) {
+fn render_channel_text(v: &ChannelView) {
     // Header: use origin if available and non-empty, otherwise channel_id
     match &v.origin {
         Some(origin) if !origin.is_empty() => println!("{origin}"),
@@ -168,104 +212,6 @@ pub(super) fn render_channel_text(v: &ChannelView) {
     println!();
 }
 
-impl CloseSummary {
-    pub(super) fn new() -> Self {
-        Self {
-            closed: 0,
-            pending: 0,
-            failed: 0,
-            results: Vec::new(),
-        }
-    }
-
-    pub(super) fn record_closed(&mut self, result: serde_json::Value) {
-        self.closed += 1;
-        self.results.push(result);
-    }
-
-    pub(super) fn record_pending(&mut self, result: serde_json::Value) {
-        self.pending += 1;
-        self.results.push(result);
-    }
-
-    pub(super) fn record_failed(&mut self, result: serde_json::Value) {
-        self.failed += 1;
-        self.results.push(result);
-    }
-
-    pub(super) fn print(
-        &self,
-        output_format: OutputFormat,
-        empty_msg: &str,
-        closed_label: &str,
-    ) -> anyhow::Result<()> {
-        match output_format {
-            OutputFormat::Json | OutputFormat::Toon => println!(
-                "{}",
-                output_format.serialize(&serde_json::json!({
-                    "closed": self.closed,
-                    "pending": self.pending,
-                    "failed": self.failed,
-                    "results": self.results
-                }))?
-            ),
-            OutputFormat::Text => {
-                let total = self.closed + self.pending + self.failed;
-                if total == 0 {
-                    println!("{empty_msg}");
-                } else {
-                    let mut parts = Vec::new();
-                    if self.closed > 0 {
-                        parts.push(format!("{} {closed_label}", self.closed));
-                    }
-                    if self.pending > 0 {
-                        parts.push(format!("{} pending", self.pending));
-                    }
-                    if self.failed > 0 {
-                        parts.push(format!("{} failed", self.failed));
-                    }
-                    println!("{}", parts.join(", "));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Format a Unix timestamp as a human-readable relative time (e.g., "5m ago", "2h ago", "3d ago").
-fn format_relative_time(ts: u64) -> String {
-    use crate::payment::session::store as session_store;
-    let now = session_store::now_secs();
-    if ts == 0 || ts > now {
-        return "just now".to_string();
-    }
-    let ago = now - ts;
-    if ago < 60 {
-        format!("{ago}s ago")
-    } else if ago < 3600 {
-        format!("{}m ago", ago / 60)
-    } else if ago < 86400 {
-        format!("{}h ago", ago / 3600)
-    } else {
-        format!("{}d ago", ago / 86400)
-    }
-}
-
-/// Format seconds as a human-readable duration (e.g., "15m 0s", "2m 30s").
-pub(super) fn format_duration(secs: u64) -> String {
-    if secs >= 60 {
-        let m = secs / 60;
-        let s = secs % 60;
-        if s == 0 {
-            format!("{m}m")
-        } else {
-            format!("{m}m {s}s")
-        }
-    } else {
-        format!("{secs}s")
-    }
-}
-
 impl From<&session_store::SessionRecord> for ChannelView {
     fn from(session: &session_store::SessionRecord) -> Self {
         let t = session.network_id().token();
@@ -295,37 +241,6 @@ impl From<&session_store::SessionRecord> for ChannelView {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_format_duration_zero() {
-        assert_eq!(format_duration(0), "0s");
-    }
-
-    #[test]
-    fn test_format_duration_seconds() {
-        assert_eq!(format_duration(1), "1s");
-        assert_eq!(format_duration(59), "59s");
-    }
-
-    #[test]
-    fn test_format_duration_exact_minutes() {
-        assert_eq!(format_duration(60), "1m");
-        assert_eq!(format_duration(120), "2m");
-        assert_eq!(format_duration(900), "15m");
-    }
-
-    #[test]
-    fn test_format_duration_minutes_and_seconds() {
-        assert_eq!(format_duration(61), "1m 1s");
-        assert_eq!(format_duration(90), "1m 30s");
-        assert_eq!(format_duration(125), "2m 5s");
-    }
-
-    #[test]
-    fn test_format_duration_large() {
-        assert_eq!(format_duration(3600), "60m");
-        assert_eq!(format_duration(3661), "61m 1s");
-    }
 
     // ==================== ChannelView ====================
 
@@ -458,60 +373,4 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // ==================== CloseSummary ====================
-
-    #[test]
-    fn test_close_summary_empty_text() {
-        let summary = CloseSummary::new();
-        // Should print empty message, not panic
-        summary
-            .print(OutputFormat::Text, "No sessions to close.", "closed")
-            .unwrap();
-    }
-
-    #[test]
-    fn test_close_summary_empty_json() {
-        let summary = CloseSummary::new();
-        summary
-            .print(OutputFormat::Json, "No sessions to close.", "closed")
-            .unwrap();
-    }
-
-    #[test]
-    fn test_close_summary_counts() {
-        let mut summary = CloseSummary::new();
-        summary.record_closed(serde_json::json!({"channel_id": "0x1", "status": "closed"}));
-        summary.record_closed(serde_json::json!({"channel_id": "0x2", "status": "closed"}));
-        summary.record_pending(serde_json::json!({"channel_id": "0x3", "status": "pending"}));
-        summary.record_failed(serde_json::json!({"channel_id": "0x4", "status": "error"}));
-
-        assert_eq!(summary.closed, 2);
-        assert_eq!(summary.pending, 1);
-        assert_eq!(summary.failed, 1);
-        assert_eq!(summary.results.len(), 4);
-    }
-
-    #[test]
-    fn test_close_summary_json_output_no_panic() {
-        let mut summary = CloseSummary::new();
-        summary.record_closed(serde_json::json!({"channel_id": "0x1", "status": "closed"}));
-        summary.record_pending(
-            serde_json::json!({"channel_id": "0x2", "status": "pending", "remaining_secs": 60}),
-        );
-        summary.record_failed(
-            serde_json::json!({"channel_id": "0x3", "status": "error", "error": "timeout"}),
-        );
-        summary
-            .print(OutputFormat::Json, "No sessions.", "closed")
-            .unwrap();
-    }
-
-    #[test]
-    fn test_close_summary_text_output_no_panic() {
-        let mut summary = CloseSummary::new();
-        summary.record_closed(serde_json::json!({"status": "closed"}));
-        summary
-            .print(OutputFormat::Text, "No sessions.", "closed")
-            .unwrap();
-    }
 }

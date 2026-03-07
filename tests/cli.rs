@@ -632,7 +632,7 @@ fn test_session_help() {
         .stdout(predicate::str::contains("list"))
         .stdout(predicate::str::contains("close"))
         .stdout(predicate::str::contains("info"))
-        .stdout(predicate::str::contains("recover"));
+        .stdout(predicate::str::contains("sync"));
 }
 
 #[test]
@@ -1398,12 +1398,13 @@ fn test_sessions_info_help_annotations() {
 }
 
 #[test]
-fn test_sessions_recover_help_annotations() {
+fn test_sessions_sync_help_annotations() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
-        .args(["sessions", "recover", "--help"])
+        .args(["sessions", "sync", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Re-sync a local session's state"));
+        .stdout(predicate::str::contains("Sync local sessions"))
+        .stdout(predicate::str::contains("--origin"));
 }
 
 #[test]

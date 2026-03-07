@@ -62,6 +62,10 @@ pub(crate) enum TempoWalletError {
     #[error("Transaction reverted: {0}")]
     TransactionReverted(String),
 
+    /// Channel not found on-chain (already settled or never existed)
+    #[error("Channel {channel_id} not found on {network}")]
+    ChannelNotFound { channel_id: String, network: String },
+
     // ==================== Input Validation Errors ====================
     /// Signing error
     #[error("Signing error: {0}")]

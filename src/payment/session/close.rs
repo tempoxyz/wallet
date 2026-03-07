@@ -455,12 +455,9 @@ pub(crate) async fn close_channel_by_id(
 
     let on_chain = get_channel_on_chain(&provider, escrow, channel_id)
         .await?
-        .ok_or_else(|| {
-            TempoWalletError::InvalidChallenge(format!(
-                "Channel {} not found on {}",
-                channel_id_hex,
-                network.as_str()
-            ))
+        .ok_or_else(|| TempoWalletError::ChannelNotFound {
+            channel_id: channel_id_hex.to_string(),
+            network: network.as_str().to_string(),
         })?;
 
     let owned_wallet;

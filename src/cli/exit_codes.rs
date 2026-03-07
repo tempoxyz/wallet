@@ -84,6 +84,7 @@ impl From<&crate::error::TempoWalletError> for ExitCode {
             | TempoWalletError::InsufficientBalance { .. }
             | TempoWalletError::PaymentRejected { .. }
             | TempoWalletError::TransactionReverted(_)
+            | TempoWalletError::ChannelNotFound { .. }
             | TempoWalletError::AccessKeyNotProvisioned { .. }
             | TempoWalletError::InvalidChallenge(_)
             | TempoWalletError::MissingHeader(_)

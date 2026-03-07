@@ -497,20 +497,16 @@ pub(crate) enum SessionCommands {
         #[arg(long)]
         finalize: bool,
     },
-    /// Re-sync a local session's state from on-chain for a given origin.
+    /// Sync local sessions with on-chain state
     ///
-    /// Updates local lifecycle fields (state, close timing) if a close was requested
-    /// on-chain, or removes the local record if the channel has been settled.
-    ///
-    /// Useful after crashes or manual DB edits. Does not recreate missing
-    /// sessions; use `sessions list --state orphaned` and `sessions close --orphaned`
-    /// to manage on-chain-only channels.
-    Recover {
-        /// URL or origin (scheme://host\[:port\]) to recover
-        origin: String,
+    /// Without flags, removes stale local records for settled channels.
+    /// With `--origin`, re-syncs close timing for a specific session from
+    /// on-chain state. Useful after crashes or manual DB edits.
+    Sync {
+        /// Re-sync a specific origin's close state from on-chain
+        #[arg(long)]
+        origin: Option<String>,
     },
-    /// Sync local sessions with on-chain state (remove stale records)
-    Sync,
 }
 
 #[derive(Subcommand, Debug)]
