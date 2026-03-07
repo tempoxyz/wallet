@@ -5,6 +5,7 @@ use std::time::Duration;
 use alloy::providers::{Provider, ProviderBuilder};
 
 use crate::account::{query_all_balances, TokenBalance};
+use crate::cli::output;
 use crate::cli::{Context, OutputFormat};
 use crate::error::TempoWalletError;
 
@@ -49,26 +50,24 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
         None
     };
 
-    if ctx.output_format.is_structured() {
-        let success = balances_after
-            .as_ref()
-            .zip(balances_before.as_ref())
-            .map(|(after, before)| has_balance_changed(before, after))
-            .unwrap_or(true);
+    let success = balances_after
+        .as_ref()
+        .zip(balances_before.as_ref())
+        .map(|(after, before)| has_balance_changed(before, after))
+        .unwrap_or(true);
 
-        let response = FundResponse {
-            network: ctx.network.as_str().to_string(),
-            address: address.to_string(),
-            action: "faucet",
-            success,
-            deposit_address: None,
-            source_chain: None,
-            bridge_status: None,
-            balances_before,
-            balances_after,
-        };
-        println!("{}", ctx.output_format.serialize(&response)?);
-    }
+    let response = FundResponse {
+        network: ctx.network.as_str().to_string(),
+        address: address.to_string(),
+        action: "faucet",
+        success,
+        deposit_address: None,
+        source_chain: None,
+        bridge_status: None,
+        balances_before,
+        balances_after,
+    };
+    let _ = output::emit_structured_if_selected(ctx.output_format, &response)?;
 
     Ok(())
 }

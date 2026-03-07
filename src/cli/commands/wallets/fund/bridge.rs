@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use qrcode::render::unicode;
 
 use crate::account::{query_all_balances, TokenBalance};
+use crate::cli::output;
 use crate::cli::{Context, OutputFormat};
 
 use super::relay::{
@@ -49,20 +50,18 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
     }
 
     if !wait {
-        if ctx.output_format.is_structured() {
-            let response = FundResponse {
-                network: ctx.network.as_str().to_string(),
-                address: address.to_string(),
-                action: "bridge",
-                success: false,
-                deposit_address: Some(deposit.deposit_address),
-                source_chain: Some(source_chain.name.to_string()),
-                bridge_status: None,
-                balances_before: Some(balances_before),
-                balances_after: None,
-            };
-            println!("{}", ctx.output_format.serialize(&response)?);
-        }
+        let response = FundResponse {
+            network: ctx.network.as_str().to_string(),
+            address: address.to_string(),
+            action: "bridge",
+            success: false,
+            deposit_address: Some(deposit.deposit_address),
+            source_chain: Some(source_chain.name.to_string()),
+            bridge_status: None,
+            balances_before: Some(balances_before),
+            balances_after: None,
+        };
+        let _ = output::emit_structured_if_selected(ctx.output_format, &response)?;
         return Ok(());
     }
 
@@ -84,25 +83,23 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
 
     let balances_after = query_all_balances(&ctx.config, ctx.network, address).await;
 
-    if ctx.output_format.is_structured() {
-        let success = final_status
-            .as_ref()
-            .is_some_and(|s| s.status == relay_status::SUCCESS)
-            || has_balance_changed(&balances_before, &balances_after);
+    let success = final_status
+        .as_ref()
+        .is_some_and(|s| s.status == relay_status::SUCCESS)
+        || has_balance_changed(&balances_before, &balances_after);
 
-        let response = FundResponse {
-            network: ctx.network.as_str().to_string(),
-            address: address.to_string(),
-            action: "bridge",
-            success,
-            deposit_address: Some(deposit.deposit_address),
-            source_chain: Some(source_chain.name.to_string()),
-            bridge_status: final_status,
-            balances_before: Some(balances_before),
-            balances_after: Some(balances_after),
-        };
-        println!("{}", ctx.output_format.serialize(&response)?);
-    }
+    let response = FundResponse {
+        network: ctx.network.as_str().to_string(),
+        address: address.to_string(),
+        action: "bridge",
+        success,
+        deposit_address: Some(deposit.deposit_address),
+        source_chain: Some(source_chain.name.to_string()),
+        bridge_status: final_status,
+        balances_before: Some(balances_before),
+        balances_after: Some(balances_after),
+    };
+    let _ = output::emit_structured_if_selected(ctx.output_format, &response)?;
 
     Ok(())
 }

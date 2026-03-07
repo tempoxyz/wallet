@@ -3,8 +3,30 @@ use anyhow::{Context as _, Result};
 
 use super::render::{render_channel_list, ChannelView};
 use super::session_store;
+use crate::cli::output;
 use crate::cli::Context;
 use crate::payment::session::channel::get_channel_on_chain;
+
+#[derive(serde::Serialize)]
+struct SessionInfoResponse {
+    sessions: Vec<SessionInfoItem>,
+    total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct SessionInfoItem;
+
+impl SessionInfoResponse {
+    fn with_message(message: impl Into<String>) -> Self {
+        Self {
+            sessions: Vec::new(),
+            total: 0,
+            message: Some(message.into()),
+        }
+    }
+}
 
 /// Show details for a local session by URL/origin or for a channel by ID.
 pub(super) async fn show_session_info(ctx: &Context, target: &str) -> Result<()> {
@@ -21,21 +43,17 @@ pub(super) async fn show_session_info(ctx: &Context, target: &str) -> Result<()>
         render_channel_list(&[view], output_format, "", "")?;
     } else {
         // No local record — give a helpful message
-        if output_format.is_structured() {
-            println!(
-                "{}",
-                output_format.serialize(&serde_json::json!({
-                    "sessions": [],
-                    "total": 0,
-                    "message": "no local session for origin"
-                }))?
-            );
-        } else {
-            println!("No local session for {}", target);
-            println!(
-                "Hint: use 'tempo-wallet sessions list --state orphaned' to view on-chain channels for your wallet."
-            );
-        }
+        output::emit_by_format(
+            output_format,
+            &SessionInfoResponse::with_message("no local session for origin"),
+            || {
+                println!("No local session for {}", target);
+                println!(
+                    "Hint: use 'tempo-wallet sessions list --state orphaned' to view on-chain channels for your wallet."
+                );
+                Ok(())
+            },
+        )?;
     }
 
     Ok(())
@@ -68,18 +86,14 @@ async fn show_channel_info(ctx: &Context, channel_id_hex: &str) -> Result<()> {
     let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await {
         Ok(Some(ch)) => ch,
         Ok(None) => {
-            if output_format.is_structured() {
-                println!(
-                    "{}",
-                    output_format.serialize(&serde_json::json!({
-                        "sessions": [],
-                        "total": 0,
-                        "message": format!("channel not found on {}", network)
-                    }))?
-                );
-            } else {
-                println!("Channel {channel_id_hex} not found on {network}")
-            }
+            output::emit_by_format(
+                output_format,
+                &SessionInfoResponse::with_message(format!("channel not found on {}", network)),
+                || {
+                    println!("Channel {channel_id_hex} not found on {network}");
+                    Ok(())
+                },
+            )?;
             return Ok(());
         }
         Err(e) => {

@@ -2,6 +2,8 @@
 
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
+use crate::cli::output;
+
 use super::output::OutputFormat;
 use super::run::ColorMode;
 
@@ -620,16 +622,10 @@ impl Cli {
                 "profile": env!("TEMPO_BUILD_PROFILE"),
             });
 
-            let rendered = match output_format {
-                OutputFormat::Json => serde_json::to_string_pretty(&payload)
-                    .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
-                OutputFormat::Toon => output_format
-                    .serialize(&payload)
-                    .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
-                OutputFormat::Text => unreachable!("text version output is handled by clap"),
-            };
-
-            println!("{rendered}");
+            output::emit_formatted_or_fallback(
+                || output::format_structured_pretty_json(output_format, &payload),
+                || env!("CARGO_PKG_VERSION").to_string(),
+            );
             std::process::exit(0);
         }
     }

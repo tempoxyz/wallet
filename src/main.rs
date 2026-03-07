@@ -52,8 +52,11 @@ async fn main() {
     if let Err(e) = result {
         match output_format {
             OutputFormat::Json | OutputFormat::Toon => {
-                let output = render_error(&e, output_format);
-                println!("{output}");
+                let payload = render_error_payload(&e);
+                crate::cli::output::emit_formatted_or_fallback(
+                    || crate::cli::output::format_structured(output_format, &payload),
+                    || render_error_fallback(&e),
+                );
             }
             _ => {
                 eprintln!("Error: {e:#}");
@@ -66,7 +69,7 @@ async fn main() {
 /// Render a structured error object for agent consumption.
 ///
 /// Schema: `{ code, message, cause? }`
-fn render_error(err: &anyhow::Error, format: OutputFormat) -> String {
+fn render_error_payload(err: &anyhow::Error) -> serde_json::Value {
     let code = ExitCode::from(err).label();
     let message = err.to_string();
     let cause = err.chain().nth(1).map(|c| c.to_string());
@@ -82,9 +85,27 @@ fn render_error(err: &anyhow::Error, format: OutputFormat) -> String {
         }
     }
 
-    format
-        .serialize(&obj)
-        .unwrap_or_else(|_| format!("{{\"code\":\"{code}\",\"message\":\"error\"}}"))
+    obj
+}
+
+/// Render a structured error object for agent consumption.
+///
+/// Schema: `{ code, message, cause? }`
+#[cfg(test)]
+fn render_error(err: &anyhow::Error, format: OutputFormat) -> String {
+    let obj = render_error_payload(err);
+    let code = ExitCode::from(err).label();
+
+    crate::cli::output::format_structured(format, &obj)
+        .unwrap_or_else(|_| render_error_fallback_code(code))
+}
+
+fn render_error_fallback(err: &anyhow::Error) -> String {
+    render_error_fallback_code(ExitCode::from(err).label())
+}
+
+fn render_error_fallback_code(code: &'static str) -> String {
+    format!("{{\"code\":\"{code}\",\"message\":\"error\"}}")
 }
 
 #[cfg(test)]

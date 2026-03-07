@@ -6,6 +6,7 @@ use anyhow::{bail, Context as _, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::args::ServicesCommands;
+use crate::cli::output;
 use crate::cli::{Context, OutputFormat};
 use crate::util::{print_field, truncate};
 
@@ -208,18 +209,14 @@ fn render_service_list(
         })
         .collect();
 
-    match output_format {
-        OutputFormat::Json | OutputFormat::Toon => {
-            println!("{}", output_format.serialize(&filtered)?);
+    output::emit_by_format(output_format, &filtered, || {
+        if filtered.is_empty() {
+            println!("No services found.");
+            return Ok(());
         }
-        OutputFormat::Text => {
-            if filtered.is_empty() {
-                println!("No services found.");
-                return Ok(());
-            }
-            render_table(&filtered);
-        }
-    }
+        render_table(&filtered);
+        Ok(())
+    })?;
 
     Ok(())
 }
@@ -295,12 +292,10 @@ fn render_table(services: &[&Service]) {
 }
 
 fn render_service_detail(service: &Service, output_format: OutputFormat) -> Result<()> {
-    match output_format {
-        OutputFormat::Json | OutputFormat::Toon => {
-            println!("{}", output_format.serialize(service)?);
-        }
-        OutputFormat::Text => render_detail(service),
-    }
+    output::emit_by_format(output_format, service, || {
+        render_detail(service);
+        Ok(())
+    })?;
     Ok(())
 }
 

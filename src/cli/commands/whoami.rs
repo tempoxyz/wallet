@@ -10,6 +10,7 @@ use crate::account::{
     print_key_limits_to, query_all_balances, KeyInfo,
 };
 use crate::analytics::Event;
+use crate::cli::output;
 use crate::cli::{Context, OutputFormat};
 use crate::config::Config;
 use crate::keys::Keystore;
@@ -141,60 +142,57 @@ async fn build_response(
 
 impl StatusResponse {
     fn render(&self, format: OutputFormat) -> anyhow::Result<()> {
-        if format.is_structured() {
-            println!("{}", format.serialize(self)?);
-            return Ok(());
-        }
+        output::emit_by_format(format, self, || {
+            let w = &mut std::io::stdout();
+            let explorer = self.chain_id.and_then(NetworkId::from_chain_id);
 
-        let w = &mut std::io::stdout();
-        let explorer = self.chain_id.and_then(NetworkId::from_chain_id);
-
-        if self.wallet.is_none() && self.key.is_none() {
-            writeln!(w, "Not logged in. Run `tempo-wallet login` to get started.")?;
-            return Ok(());
-        }
-
-        if let Some(wallet) = &self.wallet {
-            let wt = self.wallet_type.as_deref().unwrap_or("unknown");
-            let wallet_link = explorer.unwrap_or_default().address_link(wallet);
-            writeln!(w, "{:>10}: {} ({})", "Wallet", wallet_link, wt)?;
-        }
-
-        // Wallet balance
-        if let Some(bal) = &self.balance {
-            let sym = self.symbol.as_deref().unwrap_or("tokens");
-            writeln!(w, "{:>10}: {} {}", "Balance", bal, sym)?;
-            if let (Some(locked), Some(available), Some(count)) =
-                (&self.locked, &self.available, self.active_sessions)
-            {
-                let session_label = if count == 1 { "session" } else { "sessions" };
-                writeln!(
-                    w,
-                    "{:>10}: {} {} ({} active {})",
-                    "Locked", locked, sym, count, session_label
-                )?;
-                writeln!(w, "{:>10}: {} {}", "Available", available, sym)?;
+            if self.wallet.is_none() && self.key.is_none() {
+                writeln!(w, "Not logged in. Run `tempo-wallet login` to get started.")?;
+                return Ok(());
             }
-        }
 
-        if let Some(key) = &self.key {
-            writeln!(w)?;
-            let key_link = explorer.unwrap_or_default().address_link(&key.address);
-            writeln!(w, "{:>10}: {}", "Key", key_link)?;
-            if let Some(network) = &self.network {
-                writeln!(w, "{:>10}: {}", "Chain", network)?;
+            if let Some(wallet) = &self.wallet {
+                let wt = self.wallet_type.as_deref().unwrap_or("unknown");
+                let wallet_link = explorer.unwrap_or_default().address_link(wallet);
+                writeln!(w, "{:>10}: {} ({})", "Wallet", wallet_link, wt)?;
             }
-            if let Some(expiry_ts) = self.key_expiry {
-                writeln!(
-                    w,
-                    "{:>10}: {}",
-                    "Expires",
-                    format_expiry_countdown(expiry_ts)
-                )?;
-            }
-            print_key_limits_to(key, w)?;
-        }
 
-        Ok(())
+            // Wallet balance
+            if let Some(bal) = &self.balance {
+                let sym = self.symbol.as_deref().unwrap_or("tokens");
+                writeln!(w, "{:>10}: {} {}", "Balance", bal, sym)?;
+                if let (Some(locked), Some(available), Some(count)) =
+                    (&self.locked, &self.available, self.active_sessions)
+                {
+                    let session_label = if count == 1 { "session" } else { "sessions" };
+                    writeln!(
+                        w,
+                        "{:>10}: {} {} ({} active {})",
+                        "Locked", locked, sym, count, session_label
+                    )?;
+                    writeln!(w, "{:>10}: {} {}", "Available", available, sym)?;
+                }
+            }
+
+            if let Some(key) = &self.key {
+                writeln!(w)?;
+                let key_link = explorer.unwrap_or_default().address_link(&key.address);
+                writeln!(w, "{:>10}: {}", "Key", key_link)?;
+                if let Some(network) = &self.network {
+                    writeln!(w, "{:>10}: {}", "Chain", network)?;
+                }
+                if let Some(expiry_ts) = self.key_expiry {
+                    writeln!(
+                        w,
+                        "{:>10}: {}",
+                        "Expires",
+                        format_expiry_countdown(expiry_ts)
+                    )?;
+                }
+                print_key_limits_to(key, w)?;
+            }
+
+            Ok(())
+        })
     }
 }

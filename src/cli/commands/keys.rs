@@ -11,7 +11,8 @@ use crate::account::{
 };
 use crate::analytics::Event;
 use crate::cli::args::KeyCommands;
-use crate::cli::{Context, OutputFormat};
+use crate::cli::output;
+use crate::cli::Context;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
 use crate::util::print_field_w;
@@ -49,18 +50,18 @@ fn clean_keys(ctx: &Context, yes: bool) -> Result<()> {
     let path_str = path.display().to_string();
 
     if !path.exists() {
-        if ctx.output_format.is_structured() {
-            println!(
-                "{}",
-                ctx.output_format.serialize(&CleanKeysResponse {
-                    cleaned: false,
-                    path: Some(path_str),
-                    message: Some("nothing to clean".to_string()),
-                })?
-            );
-        } else {
-            eprintln!("Nothing to clean (no keys.toml found).");
-        }
+        output::emit_by_format(
+            ctx.output_format,
+            &CleanKeysResponse {
+                cleaned: false,
+                path: Some(path_str),
+                message: Some("nothing to clean".to_string()),
+            },
+            || {
+                eprintln!("Nothing to clean (no keys.toml found).");
+                Ok(())
+            },
+        )?;
         return Ok(());
     }
 
@@ -68,34 +69,34 @@ fn clean_keys(ctx: &Context, yes: bool) -> Result<()> {
         &format!("Delete all local key state at {}?", path.display()),
         yes,
     )? {
-        if ctx.output_format.is_structured() {
-            println!(
-                "{}",
-                ctx.output_format.serialize(&CleanKeysResponse {
-                    cleaned: false,
-                    path: Some(path_str),
-                    message: Some("cancelled".to_string()),
-                })?
-            );
-        } else {
-            println!("Cancelled.");
-        }
+        output::emit_by_format(
+            ctx.output_format,
+            &CleanKeysResponse {
+                cleaned: false,
+                path: Some(path_str),
+                message: Some("cancelled".to_string()),
+            },
+            || {
+                println!("Cancelled.");
+                Ok(())
+            },
+        )?;
         return Ok(());
     }
 
     std::fs::remove_file(&path)?;
-    if ctx.output_format.is_structured() {
-        println!(
-            "{}",
-            ctx.output_format.serialize(&CleanKeysResponse {
-                cleaned: true,
-                path: Some(path_str),
-                message: Some("removed".to_string()),
-            })?
-        );
-    } else {
-        eprintln!("Removed {}", path.display());
-    }
+    output::emit_by_format(
+        ctx.output_format,
+        &CleanKeysResponse {
+            cleaned: true,
+            path: Some(path_str),
+            message: Some("removed".to_string()),
+        },
+        || {
+            eprintln!("Removed {}", path.display());
+            Ok(())
+        },
+    )?;
     Ok(())
 }
 
@@ -151,12 +152,10 @@ async fn list_keys(ctx: &Context) -> Result<()> {
 
     let response = KeysResponse::new(keys);
 
-    match ctx.output_format {
-        OutputFormat::Json | OutputFormat::Toon => {
-            println!("{}", ctx.output_format.serialize(&response)?);
-        }
-        OutputFormat::Text => render_keys(&response, keystore),
-    }
+    output::emit_by_format(ctx.output_format, &response, || {
+        render_keys(&response, keystore);
+        Ok(())
+    })?;
 
     Ok(())
 }

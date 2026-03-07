@@ -5,6 +5,7 @@ use alloy::primitives::U256;
 use serde::Serialize;
 
 use super::{session_store, SessionStatus};
+use crate::cli::output;
 use crate::cli::OutputFormat;
 use crate::util::{format_duration, format_relative_time};
 
@@ -128,6 +129,12 @@ struct SessionItem<'a> {
     last_used_at: Option<u64>,
 }
 
+#[derive(Serialize)]
+struct SessionListResponse<'a> {
+    sessions: Vec<SessionItem<'a>>,
+    total: usize,
+}
+
 // ---------------------------------------------------------------------------
 // Channel list rendering
 // ---------------------------------------------------------------------------
@@ -139,45 +146,43 @@ pub(super) fn render_channel_list(
     empty_msg: &str,
     count_label: &str,
 ) -> anyhow::Result<()> {
-    if output_format.is_structured() {
-        let items: Vec<SessionItem> = views
-            .iter()
-            .map(|v| SessionItem {
-                channel_id: &v.channel_id,
-                network: &v.network,
-                origin: match &v.origin {
-                    Some(o) if !o.is_empty() => Some(o.as_str()),
-                    _ => None,
-                },
-                symbol: v.symbol,
-                deposit: &v.deposit,
-                spent: &v.spent,
-                remaining: &v.remaining,
-                status: v.status.as_str(),
-                remaining_secs: v.remaining_secs,
-                created_at: v.created_at,
-                last_used_at: v.last_used_at,
-            })
-            .collect();
-        println!(
-            "{}",
-            output_format.serialize(&serde_json::json!({
-                "sessions": items,
-                "total": items.len(),
-            }))?
-        );
-    } else if views.is_empty() {
-        println!("{empty_msg}");
-        return Ok(());
-    } else {
+    let items: Vec<SessionItem> = views
+        .iter()
+        .map(|v| SessionItem {
+            channel_id: &v.channel_id,
+            network: &v.network,
+            origin: match &v.origin {
+                Some(o) if !o.is_empty() => Some(o.as_str()),
+                _ => None,
+            },
+            symbol: v.symbol,
+            deposit: &v.deposit,
+            spent: &v.spent,
+            remaining: &v.remaining,
+            status: v.status.as_str(),
+            remaining_secs: v.remaining_secs,
+            created_at: v.created_at,
+            last_used_at: v.last_used_at,
+        })
+        .collect();
+    let structured_payload = SessionListResponse {
+        total: views.len(),
+        sessions: items,
+    };
+
+    output::emit_by_format(output_format, &structured_payload, || {
+        if views.is_empty() {
+            println!("{empty_msg}");
+            return Ok(());
+        }
         for v in views {
             render_channel_text(v);
         }
         if !count_label.is_empty() {
             println!("{} {count_label}.", views.len());
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Render a single channel in text format.

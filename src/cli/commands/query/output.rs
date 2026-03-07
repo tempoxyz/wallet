@@ -7,6 +7,7 @@ use std::path::{Component, Path};
 use anyhow::{Context as _, Result};
 
 use crate::cli::args::QueryArgs;
+use crate::cli::output;
 use crate::cli::output::{OutputFormat, OutputOptions};
 use crate::cli::Cli;
 use crate::error::TempoWalletError;
@@ -86,11 +87,8 @@ fn render_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     match opts.output_format {
         OutputFormat::Json | OutputFormat::Toon => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
-                // Pretty-print JSON responses; TOON is always compact.
-                let output = match opts.output_format {
-                    OutputFormat::Json => serde_json::to_string_pretty(&json_value)?,
-                    _ => opts.output_format.serialize(&json_value)?,
-                };
+                let output =
+                    output::format_structured_pretty_json(opts.output_format, &json_value)?;
                 if let Some(ref output_file) = opts.output_file {
                     write_to_file(output_file, output.as_bytes(), opts.log_enabled())?;
                 } else {

@@ -13,7 +13,8 @@ use zeroize::Zeroizing;
 use self::keychain::keychain;
 use crate::analytics::{Event, WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload};
 use crate::cli::args::WalletCommands;
-use crate::cli::{Context, OutputFormat};
+use crate::cli::output;
+use crate::cli::Context;
 use crate::error::TempoWalletError;
 use crate::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, WalletType};
 use crate::network::NetworkId;
@@ -305,12 +306,10 @@ fn list_wallets(ctx: &Context) -> Result<()> {
         .collect();
     let response = WalletListResponse::new(wallets);
 
-    match ctx.output_format {
-        OutputFormat::Json | OutputFormat::Toon => {
-            println!("{}", ctx.output_format.serialize(&response)?);
-        }
-        OutputFormat::Text => render_wallets(&response),
-    }
+    output::emit_by_format(ctx.output_format, &response, || {
+        render_wallets(&response);
+        Ok(())
+    })?;
 
     Ok(())
 }

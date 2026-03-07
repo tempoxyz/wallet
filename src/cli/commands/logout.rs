@@ -1,6 +1,7 @@
 //! Logout command — disconnect your wallet.
 
 use crate::analytics::Event;
+use crate::cli::output;
 use crate::cli::Context;
 
 #[derive(serde::Serialize)]
@@ -17,19 +18,19 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
     let wallet_addr = match ctx.keys.find_passkey_wallet() {
         Some(entry) => entry.wallet_address.clone(),
         None => {
-            if ctx.output_format.is_structured() {
-                println!(
-                    "{}",
-                    ctx.output_format.serialize(&LogoutResponse {
-                        logged_in: false,
-                        disconnected: false,
-                        wallet: None,
-                        message: Some("not logged in".to_string()),
-                    })?
-                );
-            } else {
-                eprintln!("Not logged in.");
-            }
+            output::emit_by_format(
+                ctx.output_format,
+                &LogoutResponse {
+                    logged_in: false,
+                    disconnected: false,
+                    wallet: None,
+                    message: Some("not logged in".to_string()),
+                },
+                || {
+                    eprintln!("Not logged in.");
+                    Ok(())
+                },
+            )?;
             return Ok(());
         }
     };
@@ -44,19 +45,19 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
         wallet_addr.to_string()
     };
     if !crate::util::confirm(&format!("Disconnect wallet {short_addr}?"), yes)? {
-        if ctx.output_format.is_structured() {
-            println!(
-                "{}",
-                ctx.output_format.serialize(&LogoutResponse {
-                    logged_in: true,
-                    disconnected: false,
-                    wallet: Some(wallet_addr),
-                    message: Some("cancelled".to_string()),
-                })?
-            );
-        } else {
-            eprintln!("Cancelled.");
-        }
+        output::emit_by_format(
+            ctx.output_format,
+            &LogoutResponse {
+                logged_in: true,
+                disconnected: false,
+                wallet: Some(wallet_addr),
+                message: Some("cancelled".to_string()),
+            },
+            || {
+                eprintln!("Cancelled.");
+                Ok(())
+            },
+        )?;
         return Ok(());
     }
 
@@ -68,18 +69,18 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
         a.track_event(Event::Logout);
     }
 
-    if ctx.output_format.is_structured() {
-        println!(
-            "{}",
-            ctx.output_format.serialize(&LogoutResponse {
-                logged_in: true,
-                disconnected: true,
-                wallet: Some(wallet_addr),
-                message: Some("wallet disconnected".to_string()),
-            })?
-        );
-    } else {
-        eprintln!("Wallet disconnected.");
-    }
+    output::emit_by_format(
+        ctx.output_format,
+        &LogoutResponse {
+            logged_in: true,
+            disconnected: true,
+            wallet: Some(wallet_addr),
+            message: Some("wallet disconnected".to_string()),
+        },
+        || {
+            eprintln!("Wallet disconnected.");
+            Ok(())
+        },
+    )?;
     Ok(())
 }

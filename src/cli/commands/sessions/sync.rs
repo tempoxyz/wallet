@@ -3,8 +3,46 @@ use anyhow::{Context as _, Result};
 
 use super::{session_store, SessionStatus};
 use crate::analytics::Event;
+use crate::cli::output;
 use crate::cli::Context;
 use crate::payment::session::channel::{get_channel_on_chain, query_channel_state};
+
+#[derive(serde::Serialize)]
+struct SyncSessionsResponse {
+    synced: usize,
+    removed: usize,
+}
+
+#[derive(serde::Serialize)]
+struct SyncOriginResponse {
+    recovered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remaining_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+impl SyncOriginResponse {
+    fn recovered(status: &'static str, remaining_secs: u64) -> Self {
+        Self {
+            recovered: true,
+            status: Some(status),
+            remaining_secs: Some(remaining_secs),
+            message: None,
+        }
+    }
+
+    fn not_recovered(message: impl Into<String>) -> Self {
+        Self {
+            recovered: false,
+            status: None,
+            remaining_secs: None,
+            message: Some(message.into()),
+        }
+    }
+}
 
 /// Reconcile local session records with on-chain state.
 ///
@@ -21,17 +59,17 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
     let sessions = session_store::list_sessions()?;
 
     if sessions.is_empty() {
-        if output_format.is_structured() {
-            println!(
-                "{}",
-                output_format.serialize(&serde_json::json!({
-                    "synced": 0,
-                    "removed": 0,
-                }))?
-            );
-        } else {
-            println!("No sessions to sync.");
-        }
+        output::emit_by_format(
+            output_format,
+            &SyncSessionsResponse {
+                synced: 0,
+                removed: 0,
+            },
+            || {
+                println!("No sessions to sync.");
+                Ok(())
+            },
+        )?;
         return Ok(());
     }
 
@@ -67,19 +105,21 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
     }
 
     let total = sessions.len();
-    if output_format.is_structured() {
-        println!(
-            "{}",
-            output_format.serialize(&serde_json::json!({
-                "synced": total,
-                "removed": removed,
-            }))?
-        );
-    } else if removed > 0 {
-        println!("Synced {total} session(s), removed {removed} stale.");
-    } else {
-        println!("All {total} session(s) are up to date.");
-    }
+    output::emit_by_format(
+        output_format,
+        &SyncSessionsResponse {
+            synced: total,
+            removed,
+        },
+        || {
+            if removed > 0 {
+                println!("Synced {total} session(s), removed {removed} stale.");
+            } else {
+                println!("All {total} session(s) are up to date.");
+            }
+            Ok(())
+        },
+    )?;
 
     Ok(())
 }
@@ -90,20 +130,17 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
     let output_format = ctx.output_format;
     let key = session_store::session_key(origin_input);
     let Some(rec) = session_store::load_session(&key)? else {
-        if output_format.is_structured() {
-            println!(
-                "{}",
-                output_format.serialize(&serde_json::json!({
-                    "recovered": false,
-                    "message": "no local session for origin; cannot recover",
-                }))?
-            );
-        } else {
-            println!("No local session for {origin_input}");
-            println!(
-                "Use 'tempo-wallet sessions list --state orphaned' to view on-chain channels and 'tempo-wallet sessions close --orphaned' to close them."
-            );
-        }
+        output::emit_by_format(
+            output_format,
+            &SyncOriginResponse::not_recovered("no local session for origin; cannot recover"),
+            || {
+                println!("No local session for {origin_input}");
+                println!(
+                    "Use 'tempo-wallet sessions list --state orphaned' to view on-chain channels and 'tempo-wallet sessions close --orphaned' to close them."
+                );
+                Ok(())
+            },
+        )?;
         return Ok(());
     };
 
@@ -120,20 +157,19 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
         Ok(None) => {
             // Channel settled — clean up local record
             let _ = session_store::delete_session(&key);
-            if output_format.is_structured() {
-                println!(
-                    "{}",
-                    output_format.serialize(&serde_json::json!({
-                        "recovered": false,
-                        "message": "channel already settled — removed local record",
-                    }))?
-                );
-            } else {
-                println!(
-                    "Channel settled on-chain — removed local record for {}",
-                    rec.origin
-                );
-            }
+            output::emit_by_format(
+                output_format,
+                &SyncOriginResponse::not_recovered(
+                    "channel already settled — removed local record",
+                ),
+                || {
+                    println!(
+                        "Channel settled on-chain — removed local record for {}",
+                        rec.origin
+                    );
+                    Ok(())
+                },
+            )?;
             return Ok(());
         }
         Err(e) => return Err(e),
@@ -156,35 +192,29 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
         if let Some(a) = ctx.analytics.as_ref() {
             a.track_event(Event::SessionRecovered);
         }
-        if output_format.is_structured() {
-            println!(
-                "{}",
-                output_format.serialize(&serde_json::json!({
-                    "recovered": true,
-                    "status": status.as_str(),
-                    "remaining_secs": ready_at.saturating_sub(session_store::now_secs()),
-                }))?
-            );
-        } else {
-            println!(
-                "Recovered state: {} ({}s remaining)",
-                status.as_str(),
-                ready_at.saturating_sub(session_store::now_secs())
-            );
-        }
+        let remaining_secs = ready_at.saturating_sub(session_store::now_secs());
+        output::emit_by_format(
+            output_format,
+            &SyncOriginResponse::recovered(status.as_str(), remaining_secs),
+            || {
+                println!(
+                    "Recovered state: {} ({}s remaining)",
+                    status.as_str(),
+                    remaining_secs
+                );
+                Ok(())
+            },
+        )?;
     } else {
         // No pending close; nothing to recover
-        if output_format.is_structured() {
-            println!(
-                "{}",
-                output_format.serialize(&serde_json::json!({
-                    "recovered": false,
-                    "message": "no pending close to recover",
-                }))?
-            );
-        } else {
-            println!("No pending close to recover for {}", rec.origin);
-        }
+        output::emit_by_format(
+            output_format,
+            &SyncOriginResponse::not_recovered("no pending close to recover"),
+            || {
+                println!("No pending close to recover for {}", rec.origin);
+                Ok(())
+            },
+        )?;
     }
 
     Ok(())

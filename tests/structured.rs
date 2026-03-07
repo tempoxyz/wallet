@@ -39,6 +39,10 @@ fn assert_clean_stderr(output: &Output) {
     );
 }
 
+fn assert_json_toon_equivalent(json: &Value, toon: &Value) {
+    assert_eq!(json, toon, "JSON and TOON decoded payloads diverged");
+}
+
 fn keys_fixture() -> &'static str {
     r#"[[keys]]
 wallet_address = "0x0000000000000000000000000000000000000001"
@@ -59,6 +63,7 @@ fn whoami_json_and_toon_have_expected_shape() {
     assert_clean_stderr(&toon_out);
     assert!(json.get("ready").is_some());
     assert!(toon.get("ready").is_some());
+    assert_json_toon_equivalent(&json, &toon);
 }
 
 #[test]
@@ -124,6 +129,7 @@ fn sessions_list_json_and_toon_have_expected_shape() {
     assert!(json.get("total").is_some());
     assert!(toon.get("sessions").is_some());
     assert!(toon.get("total").is_some());
+    assert_json_toon_equivalent(&json, &toon);
 }
 
 #[test]

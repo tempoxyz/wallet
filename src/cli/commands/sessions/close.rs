@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use anyhow::Result;
 
 use super::{session_store, SessionStatus};
+use crate::cli::output;
 use crate::cli::Context;
 use crate::cli::OutputFormat;
 use crate::error::TempoWalletError;
@@ -12,6 +13,58 @@ use crate::payment::session::close::{
 };
 use crate::payment::session::CloseOutcome;
 use crate::util::format_duration;
+
+#[derive(serde::Serialize)]
+struct CloseSummaryResponse {
+    closed: u32,
+    pending: u32,
+    failed: u32,
+    results: Vec<CloseResult>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct CloseResult {
+    channel_id: String,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remaining_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+impl CloseResult {
+    fn closed(channel_id: &str, origin: Option<&str>) -> Self {
+        Self {
+            channel_id: channel_id.to_string(),
+            status: "closed",
+            origin: origin.map(ToString::to_string),
+            remaining_secs: None,
+            error: None,
+        }
+    }
+
+    fn pending(channel_id: &str, origin: Option<&str>, remaining_secs: u64) -> Self {
+        Self {
+            channel_id: channel_id.to_string(),
+            status: "pending",
+            origin: origin.map(ToString::to_string),
+            remaining_secs: Some(remaining_secs),
+            error: None,
+        }
+    }
+
+    fn failed(channel_id: &str, origin: Option<&str>, error: impl Into<String>) -> Self {
+        Self {
+            channel_id: channel_id.to_string(),
+            status: "error",
+            origin: origin.map(ToString::to_string),
+            remaining_secs: None,
+            error: Some(error.into()),
+        }
+    }
+}
 
 /// Close a session by URL or close all sessions.
 ///
@@ -75,10 +128,10 @@ async fn close_all_sessions(ctx: &Context) -> Result<()> {
         }
         summary.record_outcome(
             result,
+            Some(&session.origin),
             &session.origin,
             &session.channel_id,
             show_output,
-            serde_json::json!({"origin": session.origin}),
         );
     }
 
@@ -118,20 +171,24 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<()> {
         }
         summary.record_outcome(
             result,
+            Some(&record.origin),
             &record.origin,
             &record.channel_id,
             show_output,
-            serde_json::json!({"origin": record.origin}),
         );
-    } else if output_format.is_structured() {
-        summary.record_failed(serde_json::json!({
-            "origin": target,
-            "status": "error",
-            "error": "no active session",
-        }));
     } else {
-        println!("No active session for {target}");
-        return Ok(());
+        let emitted_text = output::run_text_only(output_format, || {
+            println!("No active session for {target}");
+            Ok(())
+        })?;
+        if emitted_text {
+            return Ok(());
+        }
+        summary.record_failed(CloseResult::failed(
+            target,
+            Some(target),
+            "no active session",
+        ));
     }
 
     summary.print(output_format, "No active session.", "closed")
@@ -171,13 +228,7 @@ async fn close_orphaned_into_summary(
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
             let _ = session_store::delete_session_by_channel_id(&ch.channel_id);
         }
-        summary.record_outcome(
-            result,
-            &ch.channel_id,
-            &ch.channel_id,
-            show_output,
-            serde_json::json!({}),
-        );
+        summary.record_outcome(result, None, &ch.channel_id, &ch.channel_id, show_output);
     }
 }
 
@@ -225,11 +276,11 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
             continue;
         }
         let Some(ref wallet) = wallet else {
-            summary.record_failed(serde_json::json!({
-                "channel_id": s.channel_id,
-                "status": "error",
-                "error": "no wallet available",
-            }));
+            summary.record_failed(CloseResult::failed(
+                &s.channel_id,
+                None,
+                "no wallet available",
+            ));
             continue;
         };
         let result = close_channel_by_id(
@@ -251,11 +302,11 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
                 continue;
             }
             let Some(ref wallet) = wallet else {
-                summary.record_failed(serde_json::json!({
-                    "channel_id": ch.channel_id,
-                    "status": "error",
-                    "error": "no wallet available",
-                }));
+                summary.record_failed(CloseResult::failed(
+                    &ch.channel_id,
+                    None,
+                    "no wallet available",
+                ));
                 continue;
             };
             // Check grace readiness from on-chain constant
@@ -294,7 +345,7 @@ struct CloseSummary {
     closed: u32,
     pending: u32,
     failed: u32,
-    results: Vec<serde_json::Value>,
+    results: Vec<CloseResult>,
 }
 
 impl CloseSummary {
@@ -310,14 +361,13 @@ impl CloseSummary {
     /// Record a `CloseOutcome`, logging progress to stderr.
     ///
     /// `label` is the display name for the channel (origin URL or channel ID).
-    /// `extra_json` is merged into the JSON result object (e.g. `"origin"` field).
     fn record_outcome(
         &mut self,
         result: Result<CloseOutcome>,
+        origin: Option<&str>,
         label: &str,
         channel_id: &str,
         show_output: bool,
-        extra_json: serde_json::Value,
     ) {
         match result {
             Ok(CloseOutcome::Closed {
@@ -334,10 +384,7 @@ impl CloseSummary {
                         }
                     }
                 }
-                let mut json = extra_json;
-                json["channel_id"] = serde_json::json!(channel_id);
-                json["status"] = serde_json::json!("closed");
-                self.record_closed(json);
+                self.record_closed(CloseResult::closed(channel_id, origin));
             }
             Ok(CloseOutcome::Pending { remaining_secs }) => {
                 if show_output {
@@ -346,22 +393,14 @@ impl CloseSummary {
                         format_duration(remaining_secs)
                     );
                 }
-                let mut json = extra_json;
-                json["channel_id"] = serde_json::json!(channel_id);
-                json["status"] = serde_json::json!("pending");
-                json["remaining_secs"] = serde_json::json!(remaining_secs);
-                self.record_pending(json);
+                self.record_pending(CloseResult::pending(channel_id, origin, remaining_secs));
             }
             Err(e) => {
                 if show_output {
                     eprintln!("Failed to close {label}");
                     eprintln!("  {e:#}");
                 }
-                let mut json = extra_json;
-                json["channel_id"] = serde_json::json!(channel_id);
-                json["status"] = serde_json::json!("error");
-                json["error"] = serde_json::json!(format!("{e:#}"));
-                self.record_failed(json);
+                self.record_failed(CloseResult::failed(channel_id, origin, format!("{e:#}")));
             }
         }
     }
@@ -382,37 +421,28 @@ impl CloseSummary {
                 if show_output {
                     eprintln!("Finalized {channel_id} (already settled)");
                 }
-                self.record_closed(serde_json::json!({
-                    "channel_id": channel_id,
-                    "status": "closed",
-                }));
+                self.record_closed(CloseResult::closed(channel_id, None));
             }
             other => {
                 if matches!(other, Ok(CloseOutcome::Closed { .. })) {
                     let _ = session_store::delete_session_by_channel_id(channel_id);
                 }
-                self.record_outcome(
-                    other,
-                    channel_id,
-                    channel_id,
-                    show_output,
-                    serde_json::json!({}),
-                );
+                self.record_outcome(other, None, channel_id, channel_id, show_output);
             }
         }
     }
 
-    fn record_closed(&mut self, result: serde_json::Value) {
+    fn record_closed(&mut self, result: CloseResult) {
         self.closed += 1;
         self.results.push(result);
     }
 
-    fn record_pending(&mut self, result: serde_json::Value) {
+    fn record_pending(&mut self, result: CloseResult) {
         self.pending += 1;
         self.results.push(result);
     }
 
-    fn record_failed(&mut self, result: serde_json::Value) {
+    fn record_failed(&mut self, result: CloseResult) {
         self.failed += 1;
         self.results.push(result);
     }
@@ -423,17 +453,13 @@ impl CloseSummary {
         empty_msg: &str,
         closed_label: &str,
     ) -> Result<()> {
-        if output_format.is_structured() {
-            println!(
-                "{}",
-                output_format.serialize(&serde_json::json!({
-                    "closed": self.closed,
-                    "pending": self.pending,
-                    "failed": self.failed,
-                    "results": self.results
-                }))?
-            );
-        } else {
+        let structured_payload = CloseSummaryResponse {
+            closed: self.closed,
+            pending: self.pending,
+            failed: self.failed,
+            results: self.results.clone(),
+        };
+        output::emit_by_format(output_format, &structured_payload, || {
             let total = self.closed + self.pending + self.failed;
             if total == 0 {
                 println!("{empty_msg}");
@@ -450,8 +476,8 @@ impl CloseSummary {
                 }
                 println!("{}", parts.join(", "));
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
 
@@ -479,10 +505,10 @@ mod tests {
     #[test]
     fn test_close_summary_counts() {
         let mut summary = CloseSummary::new();
-        summary.record_closed(serde_json::json!({"channel_id": "0x1", "status": "closed"}));
-        summary.record_closed(serde_json::json!({"channel_id": "0x2", "status": "closed"}));
-        summary.record_pending(serde_json::json!({"channel_id": "0x3", "status": "pending"}));
-        summary.record_failed(serde_json::json!({"channel_id": "0x4", "status": "error"}));
+        summary.record_closed(CloseResult::closed("0x1", None));
+        summary.record_closed(CloseResult::closed("0x2", None));
+        summary.record_pending(CloseResult::pending("0x3", None, 60));
+        summary.record_failed(CloseResult::failed("0x4", None, "timeout"));
 
         assert_eq!(summary.closed, 2);
         assert_eq!(summary.pending, 1);
@@ -493,13 +519,9 @@ mod tests {
     #[test]
     fn test_close_summary_json_output_no_panic() {
         let mut summary = CloseSummary::new();
-        summary.record_closed(serde_json::json!({"channel_id": "0x1", "status": "closed"}));
-        summary.record_pending(
-            serde_json::json!({"channel_id": "0x2", "status": "pending", "remaining_secs": 60}),
-        );
-        summary.record_failed(
-            serde_json::json!({"channel_id": "0x3", "status": "error", "error": "timeout"}),
-        );
+        summary.record_closed(CloseResult::closed("0x1", None));
+        summary.record_pending(CloseResult::pending("0x2", None, 60));
+        summary.record_failed(CloseResult::failed("0x3", None, "timeout"));
         summary
             .print(OutputFormat::Json, "No sessions.", "closed")
             .unwrap();
@@ -508,7 +530,7 @@ mod tests {
     #[test]
     fn test_close_summary_text_output_no_panic() {
         let mut summary = CloseSummary::new();
-        summary.record_closed(serde_json::json!({"status": "closed"}));
+        summary.record_closed(CloseResult::closed("0x1", None));
         summary
             .print(OutputFormat::Text, "No sessions.", "closed")
             .unwrap();

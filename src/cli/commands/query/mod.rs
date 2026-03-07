@@ -16,6 +16,7 @@ mod sse;
 use anyhow::Result;
 
 use crate::cli::args::QueryArgs;
+use crate::cli::output as cli_output;
 use crate::cli::Context;
 use crate::error::TempoWalletError;
 use crate::payment::dispatch::{dispatch_payment, PaymentResult};
@@ -106,13 +107,10 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
             "amount": challenge.amount,
             "currency": challenge.currency,
         });
-        match output_opts.output_format {
-            crate::cli::OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&obj)?),
-            crate::cli::OutputFormat::Toon => {
-                println!("{}", output_opts.output_format.serialize(&obj)?)
-            }
-            crate::cli::OutputFormat::Text => println!("{}", serde_json::to_string_pretty(&obj)?),
-        }
+        cli_output::emit_by_format(output_opts.output_format, &obj, || {
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+            Ok(())
+        })?;
         return Ok(());
     }
 
