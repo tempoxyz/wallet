@@ -11,9 +11,8 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 
 use self::keychain::keychain;
-use tempo_common::analytics::{
-    Event, WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload,
-};
+use crate::analytics::{WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload};
+use tempo_common::analytics::Event;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::error::{ConfigError, KeyError};

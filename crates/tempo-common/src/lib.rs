@@ -10,7 +10,6 @@ pub mod fmt;
 pub mod http;
 pub mod keys;
 pub mod network;
-pub mod paths;
 pub mod payment;
 pub mod redact;
 pub mod terminal;

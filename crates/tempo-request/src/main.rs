@@ -2,6 +2,7 @@
 #![deny(warnings)]
 #![warn(unreachable_pub)]
 
+pub(crate) mod analytics;
 mod cli;
 
 use crate::cli::Cli;

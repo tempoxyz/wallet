@@ -3,6 +3,7 @@
 #![warn(unreachable_pub)]
 
 pub(crate) mod account;
+pub(crate) mod analytics;
 mod cli;
 pub(crate) mod prompt;
 

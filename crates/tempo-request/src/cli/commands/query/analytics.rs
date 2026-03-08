@@ -1,6 +1,10 @@
 //! Payment analytics tracking for query command flows.
 
-use tempo_common::analytics;
+use crate::analytics::{
+    PaymentFailurePayload, PaymentStartedPayload, PaymentSuccessPayload, QueryFailurePayload,
+    QueryStartedPayload, QuerySuccessPayload,
+};
+use tempo_common::analytics::Event;
 use tempo_common::cli::context::Context;
 use tempo_common::redact::sanitize_error;
 
@@ -10,8 +14,8 @@ use tempo_common::redact::sanitize_error;
 
 pub(super) fn track_query_started(ctx: &Context, url: &str, method: &str) {
     ctx.track(
-        analytics::Event::QueryStarted,
-        analytics::QueryStartedPayload {
+        Event::QueryStarted,
+        QueryStartedPayload {
             url: url.to_string(),
             method: method.to_string(),
         },
@@ -20,8 +24,8 @@ pub(super) fn track_query_started(ctx: &Context, url: &str, method: &str) {
 
 pub(super) fn track_query_failure(ctx: &Context, url: &str, method: &str, error: &str) {
     ctx.track(
-        analytics::Event::QueryFailure,
-        analytics::QueryFailurePayload {
+        Event::QueryFailure,
+        QueryFailurePayload {
             url: url.to_string(),
             method: method.to_string(),
             error: sanitize_error(error),
@@ -31,8 +35,8 @@ pub(super) fn track_query_failure(ctx: &Context, url: &str, method: &str, error:
 
 pub(super) fn track_query_success(ctx: &Context, url: &str, method: &str, status_code: u16) {
     ctx.track(
-        analytics::Event::QuerySuccess,
-        analytics::QuerySuccessPayload {
+        Event::QuerySuccess,
+        QuerySuccessPayload {
             url: url.to_string(),
             method: method.to_string(),
             status_code,
@@ -75,8 +79,8 @@ impl<'a> PaymentAnalytics<'a> {
 
     pub(super) fn track_started(&self) {
         self.ctx.track(
-            analytics::Event::PaymentStarted,
-            analytics::PaymentStartedPayload {
+            Event::PaymentStarted,
+            PaymentStartedPayload {
                 network: self.network.to_string(),
                 amount: self.amount.to_string(),
                 currency: self.currency.to_string(),
@@ -98,8 +102,8 @@ impl<'a> PaymentAnalytics<'a> {
         status_code: u16,
     ) {
         self.ctx.track(
-            analytics::Event::PaymentSuccess,
-            analytics::PaymentSuccessPayload {
+            Event::PaymentSuccess,
+            PaymentSuccessPayload {
                 network: self.network.to_string(),
                 amount: self.amount.to_string(),
                 currency: self.currency.to_string(),
@@ -113,8 +117,8 @@ impl<'a> PaymentAnalytics<'a> {
 
     pub(super) fn track_failure(&self, err: &anyhow::Error) {
         self.ctx.track(
-            analytics::Event::PaymentFailure,
-            analytics::PaymentFailurePayload {
+            Event::PaymentFailure,
+            PaymentFailurePayload {
                 network: self.network.to_string(),
                 amount: self.amount.to_string(),
                 currency: self.currency.to_string(),

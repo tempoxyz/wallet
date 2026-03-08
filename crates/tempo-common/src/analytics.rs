@@ -293,66 +293,6 @@ pub struct EmptyPayload;
 impl EventPayload for EmptyPayload {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct LoginFailurePayload {
-    pub error: String,
-}
-impl EventPayload for LoginFailurePayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct QueryStartedPayload {
-    pub url: String,
-    pub method: String,
-}
-impl EventPayload for QueryStartedPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct QuerySuccessPayload {
-    pub url: String,
-    pub method: String,
-    pub status_code: u16,
-}
-impl EventPayload for QuerySuccessPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct QueryFailurePayload {
-    pub url: String,
-    pub method: String,
-    pub error: String,
-}
-impl EventPayload for QueryFailurePayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PaymentStartedPayload {
-    pub network: String,
-    pub amount: String,
-    pub currency: String,
-    pub intent: String,
-}
-impl EventPayload for PaymentStartedPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PaymentSuccessPayload {
-    pub network: String,
-    pub amount: String,
-    pub currency: String,
-    pub tx_hash: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    pub intent: String,
-}
-impl EventPayload for PaymentSuccessPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PaymentFailurePayload {
-    pub network: String,
-    pub amount: String,
-    pub currency: String,
-    pub error: String,
-    pub intent: String,
-}
-impl EventPayload for PaymentFailurePayload {}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct CommandRunPayload {
     pub command: String,
 }
@@ -364,33 +304,6 @@ pub struct CommandFailurePayload {
     pub error: String,
 }
 impl EventPayload for CommandFailurePayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CallbackReceivedPayload {
-    pub duration_secs: u64,
-}
-impl EventPayload for CallbackReceivedPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct WalletCreatedPayload {
-    pub wallet_type: String,
-}
-impl EventPayload for WalletCreatedPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct WalletFundPayload {
-    pub network: String,
-    pub method: String,
-}
-impl EventPayload for WalletFundPayload {}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct WalletFundFailurePayload {
-    pub network: String,
-    pub method: String,
-    pub error: String,
-}
-impl EventPayload for WalletFundFailurePayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CoopClosePayload {

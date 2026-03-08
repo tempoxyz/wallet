@@ -13,6 +13,7 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
+use crate::analytics::{CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
 use tempo_common::analytics::{self, Event};
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output::OutputFormat;
@@ -66,7 +67,7 @@ fn track_login_result(a: &analytics::Analytics, result: &anyhow::Result<()>) {
             } else {
                 a.track(
                     Event::LoginFailure,
-                    analytics::LoginFailurePayload {
+                    LoginFailurePayload {
                         error: sanitize_error(&e.to_string()),
                     },
                 );
@@ -109,7 +110,7 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
 
     ctx.track(
         Event::CallbackReceived,
-        analytics::CallbackReceivedPayload {
+        CallbackReceivedPayload {
             duration_secs: callback.duration_secs,
         },
     );
@@ -118,7 +119,7 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
 
     ctx.track(
         Event::WalletCreated,
-        analytics::WalletCreatedPayload {
+        WalletCreatedPayload {
             wallet_type: "passkey".to_string(),
         },
     );
