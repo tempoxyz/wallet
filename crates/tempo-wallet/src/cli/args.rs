@@ -17,10 +17,10 @@ const LONG_VERSION: &str = concat!(
 );
 
 #[derive(Parser, Debug)]
-#[command(name = "tempo-wallet")]
+#[command(name = "tempo wallet")]
 #[command(about = "Wallet identity and custody operations", long_about = None)]
 #[command(version = LONG_VERSION)]
-#[command(override_usage = "\n  tempo-wallet <COMMAND> [OPTIONS]")]
+#[command(override_usage = "\n  tempo wallet <COMMAND> [OPTIONS]")]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,

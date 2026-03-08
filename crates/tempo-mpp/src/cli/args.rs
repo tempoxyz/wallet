@@ -26,10 +26,10 @@ const LONG_VERSION: &str = concat!(
 );
 
 #[derive(Parser, Debug)]
-#[command(name = "tempo-mpp")]
+#[command(name = "tempo mpp")]
 #[command(about = "MPP session and service operations", long_about = None)]
 #[command(version = LONG_VERSION)]
-#[command(override_usage = "\n  tempo-mpp <COMMAND> [OPTIONS]")]
+#[command(override_usage = "\n  tempo mpp <COMMAND> [OPTIONS]")]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,

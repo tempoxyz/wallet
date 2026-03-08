@@ -174,7 +174,7 @@ impl Keystore {
     ///
     /// Returns an error with a helpful message if no wallet or key is configured.
     pub fn ensure_key_for_network(&self, network: NetworkId) -> Result<()> {
-        let setup_cmd = concat!(env!("CARGO_PKG_NAME"), " login");
+        let setup_cmd = "tempo wallet login";
 
         if !self.has_key_for_network(network) {
             let msg = if !self.has_wallet() {

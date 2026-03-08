@@ -17,15 +17,15 @@ const LONG_VERSION: &str = concat!(
 );
 
 #[derive(Parser, Debug)]
-#[command(name = "tempo-request")]
+#[command(name = "tempo request")]
 #[command(about = "Make HTTP requests with automatic MPP payment", long_about = None)]
 #[command(version = LONG_VERSION)]
-#[command(override_usage = "\n  tempo-request [OPTIONS] <URL>")]
+#[command(override_usage = "\n  tempo request [OPTIONS] <URL>")]
 #[command(after_help = "\
 Examples:
-  tempo-request https://api.example.com/data
-  tempo-request -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
-  tempo-request -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
+  tempo request https://api.example.com/data
+  tempo request -X POST --json '{\"prompt\":\"hello\"}' https://api.example.com/v1/chat
+  tempo request -H 'Accept: text/plain' -o out.txt https://api.example.com/data")]
 pub(crate) struct Cli {
     #[command(flatten)]
     pub query: QueryArgs,
