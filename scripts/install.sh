@@ -20,7 +20,7 @@ if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
 fi
 
 TMP_DIR=""
-cleanup() { [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]] && rm -rf "${TMP_DIR}"; }
+cleanup() { [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]] && rm -rf "${TMP_DIR}" || true; }
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
@@ -31,6 +31,7 @@ trap cleanup EXIT
 EXTENSIONS=(
     "wallet|tempo-wallet"
     "mpp|tempo-mpp"
+    "request|tempo-request"
 )
 
 # ---------------------------------------------------------------------------
@@ -227,10 +228,11 @@ install_tempo_remote() {
 
 install_tempo_from_source() {
     command -v cargo >/dev/null 2>&1 || fail "cargo is required (https://rustup.rs/)"
-    cd "${SCRIPT_DIR}"
+    local repo_root="${SCRIPT_DIR}/.."
+    cd "${repo_root}"
     cargo build --release --bin tempo 2>&1 | grep -v "Finished\|Compiling\|Downloading\|Downloaded" || true
     mkdir -p "${BIN_DIR}"
-    install_bin "${SCRIPT_DIR}/target/release/tempo" "${BIN_DIR}/tempo"
+    install_bin "${repo_root}/target/release/tempo" "${BIN_DIR}/tempo"
     ok "Installed tempo to ${BIN_DIR}"
 }
 
@@ -335,7 +337,7 @@ main() {
     migrate_legacy_core
 
     # Build from source if running from checkout, otherwise download
-    if [[ "${mode}" == "from-source" || (-n "${SCRIPT_DIR}" && -f "${SCRIPT_DIR}/Cargo.toml") ]]; then
+    if [[ "${mode}" == "from-source" || (-n "${SCRIPT_DIR}" && -f "${SCRIPT_DIR}/../Cargo.toml") ]]; then
         install_tempo_from_source
     else
         install_tempo_remote

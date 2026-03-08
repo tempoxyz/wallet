@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use super::commands::{completions, query, services, sessions};
+use super::commands::{completions, services, sessions};
 use super::{Cli, Commands};
 use tempo_common::cli::dispatch::{track_command, track_result};
 use tempo_common::context::ContextArgs;
@@ -41,7 +41,6 @@ impl Cli {
         track_command(&ctx.analytics, cmd_name);
 
         let result = match command {
-            Commands::Query(q) => query::run(&ctx, *q).await,
             Commands::Completions { shell } => completions::run(&ctx, shell),
             Commands::Sessions { command } => sessions::run(&ctx, command).await,
             Commands::Services {
@@ -74,7 +73,6 @@ impl Cli {
 /// Derive a short analytics-friendly name from a parsed command.
 fn command_name(command: &Commands) -> &'static str {
     match command {
-        Commands::Query(_) => "query",
         Commands::Completions { .. } => "completions",
         Commands::Sessions { command } => match command {
             SessionCommands::List { .. } => "sessions list",

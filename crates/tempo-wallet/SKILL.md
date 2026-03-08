@@ -1,11 +1,11 @@
 ---
 name: tempo wallet
-description: "Wallet identity and custody — manage Tempo wallets, keys, and balances. Use `tempo wallet login` to connect, `tempo wallet whoami` to check readiness."
+description: "Wallet identity and custody — manage Tempo wallets, keys, and balances. Use `tempo wallet login` to connect, `tempo mpp services` to discover endpoints, `tempo request <URL>` to make requests."
 ---
 
 # tempo wallet
 
-Wallet identity and custody extension for the Tempo CLI. Manages wallet creation, authentication, key lifecycle, and funding. This binary handles all identity operations — for making HTTP requests with automatic payment, use `tempo mpp`.
+Wallet identity and custody extension for the Tempo CLI. Manages wallet creation, authentication, key lifecycle, and funding. This binary handles all identity operations — for making HTTP requests with automatic payment, use `tempo request`.
 
 **Use tempo wallet when you need to:**
 - Connect or disconnect a wallet (`login` / `logout`)
@@ -40,7 +40,7 @@ tempo wallet -t keys list
 
 ### Preflight Check
 
-Before making paid requests with `tempo mpp`, verify the wallet is ready:
+Before making paid requests with `tempo request`, verify the wallet is ready:
 
 ```bash
 tempo wallet -t whoami

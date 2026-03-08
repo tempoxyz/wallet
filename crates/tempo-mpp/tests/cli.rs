@@ -13,18 +13,10 @@ fn mpp_help_includes_mpp_commands() {
 }
 
 #[test]
-fn mpp_accepts_implicit_query_url() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-mpp"))
-        .arg("http://example.com")
-        .assert()
-        .success();
-}
-
-#[test]
-fn mpp_rejects_whoami_with_migration_hint() {
+fn mpp_rejects_unknown_subcommand() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-mpp"))
         .arg("whoami")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not a tempo-mpp command"));
+        .stderr(predicate::str::contains("unrecognized"));
 }
