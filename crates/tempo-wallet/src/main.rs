@@ -4,10 +4,12 @@
 
 pub(crate) mod account;
 pub(crate) mod analytics;
-mod cli;
+mod args;
+mod commands;
+mod dispatch;
 pub(crate) mod prompt;
 
-use crate::cli::Cli;
+use crate::args::Cli;
 
 #[tokio::main]
 async fn main() {

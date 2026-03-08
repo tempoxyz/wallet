@@ -1,8 +1,0 @@
-//! CLI command implementations.
-
-pub(super) mod completions;
-pub(super) mod keys;
-pub(super) mod login;
-pub(super) mod logout;
-pub(super) mod wallets;
-pub(super) mod whoami;

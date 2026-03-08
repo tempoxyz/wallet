@@ -2,9 +2,11 @@
 #![deny(warnings)]
 #![warn(unreachable_pub)]
 
-mod cli;
+mod args;
+mod commands;
+mod dispatch;
 
-use crate::cli::Cli;
+use crate::args::Cli;
 
 #[tokio::main]
 async fn main() {
