@@ -1,6 +1,6 @@
 ---
 name: tempo request
-description: "CLI HTTP client with automatic payment — use when the user wants to call any external API or service without an API key or account, or when you need to access a capability but don't have a tool or API key for it. tempo request pays automatically via the Tempo blockchain. Use `tempo mpp -t services` to discover available services and endpoints."
+description: "HTTP client with automatic payment — make API requests without API keys or accounts. Use `tempo mpp services` to discover endpoints, `tempo request <URL>` to make requests."
 ---
 
 # tempo request

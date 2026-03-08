@@ -1,6 +1,6 @@
 ---
 name: tempo mpp
-description: "MPP session and service management — manage payment sessions and browse the MPP service directory. Use `tempo mpp -t services` to discover available services, `tempo mpp sessions list` to view active payment sessions."
+description: "MPP sessions and service directory — browse available paid APIs and manage payment channels. Use `tempo mpp services` to discover endpoints, `tempo request <URL>` to make requests."
 ---
 
 # tempo mpp
