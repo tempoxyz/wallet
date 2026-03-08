@@ -2,10 +2,11 @@
 
 pub mod authorization;
 mod io;
-mod model;
+mod keystore;
 mod signer;
+mod types;
 
-pub use model::parse_private_key_signer;
-pub use model::{KeyEntry, Keystore, WalletType};
-use model::{KeyType, StoredTokenLimit};
 pub use signer::Signer;
+pub use types::parse_private_key_signer;
+pub use types::{KeyEntry, Keystore, WalletType};
+use types::{KeyType, StoredTokenLimit};

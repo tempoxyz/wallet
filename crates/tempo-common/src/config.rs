@@ -1,4 +1,4 @@
-//! Configuration management for tempo-wallet.
+//! Configuration management for Tempo CLI.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};

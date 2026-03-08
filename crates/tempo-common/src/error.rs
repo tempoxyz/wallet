@@ -1,4 +1,4 @@
-//! Error types for the tempo-wallet CLI.
+//! Shared error types for Tempo CLI.
 
 use thiserror::Error;
 

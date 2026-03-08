@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
-use crate::cli::output;
-use crate::cli::OutputFormat;
+use tempo_common::output;
+use tempo_common::output::OutputFormat;
 use tempo_common::util::{print_field, truncate};
 
 use super::model::Service;

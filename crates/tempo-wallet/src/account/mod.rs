@@ -2,7 +2,7 @@
 
 mod query;
 
-pub use query::query_all_balances;
+pub(crate) use query::query_all_balances;
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,16 +11,16 @@ use alloy::primitives::utils::format_units;
 use alloy::primitives::U256;
 use serde::Serialize;
 
-use crate::config::Config;
-use crate::keys::KeyEntry;
-use crate::network::NetworkId;
+use tempo_common::config::Config;
+use tempo_common::keys::KeyEntry;
+use tempo_common::network::NetworkId;
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TokenBalance {
+pub(crate) struct TokenBalance {
     pub symbol: String,
     pub currency: String,
     pub balance: String,
@@ -28,7 +28,7 @@ pub struct TokenBalance {
 
 /// Spending limit for the key's authorized token.
 #[derive(Debug, Serialize)]
-pub struct SpendingLimitInfo {
+pub(crate) struct SpendingLimitInfo {
     pub unlimited: bool,
     pub limit: Option<String>,
     pub remaining: Option<String>,
@@ -37,7 +37,7 @@ pub struct SpendingLimitInfo {
 
 /// Key details for JSON output.
 #[derive(Debug, Serialize)]
-pub struct KeyInfo {
+pub(crate) struct KeyInfo {
     pub label: String,
     pub address: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,20 +58,20 @@ pub struct KeyInfo {
 }
 
 #[derive(Debug, Serialize)]
-pub struct KeysResponse {
+pub(crate) struct KeysResponse {
     pub keys: Vec<KeyInfo>,
     total: usize,
 }
 
 impl KeysResponse {
-    pub fn new(keys: Vec<KeyInfo>) -> Self {
+    pub(crate) fn new(keys: Vec<KeyInfo>) -> Self {
         let total = keys.len();
         Self { keys, total }
     }
 }
 
 /// Balance breakdown with locked/available/total.
-pub struct BalanceBreakdown {
+pub(crate) struct BalanceBreakdown {
     pub total: String,
     pub locked: String,
     pub available: String,
@@ -83,7 +83,7 @@ pub struct BalanceBreakdown {
 // ---------------------------------------------------------------------------
 
 /// Build a `KeyInfo` from a key entry, querying on-chain data if on the current network.
-pub async fn build_key_info(
+pub(crate) async fn build_key_info(
     config: &Config,
     network: NetworkId,
     current_chain_id: Option<u64>,
@@ -122,7 +122,7 @@ pub async fn build_key_info(
         (Some(entry.wallet_address.clone()), bal)
     };
 
-    let expires_at = key_expiry_timestamp(entry).map(crate::util::format_utc_timestamp);
+    let expires_at = key_expiry_timestamp(entry).map(tempo_common::util::format_utc_timestamp);
 
     KeyInfo {
         label: label.to_string(),
@@ -145,12 +145,12 @@ pub async fn build_key_info(
 const LABEL_WIDTH: usize = 10;
 
 /// Print spending limits in compact format to stdout.
-pub fn print_key_limits(key: &KeyInfo) {
+pub(crate) fn print_key_limits(key: &KeyInfo) {
     let _ = print_key_limits_to(key, &mut std::io::stdout());
 }
 
 /// Print spending limits to a writer.
-pub fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+pub(crate) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
     let sym = key.symbol.as_deref().unwrap_or("tokens");
     if let Some(sl) = &key.spending_limit {
         if sl.unlimited {
@@ -176,12 +176,12 @@ pub fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> anyhow:
 
 /// Extract the expiry timestamp from a key entry's authorization, if present.
 /// Returns `None` for keys without an authorization or without an expiry (unlimited).
-pub fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
+pub(crate) fn key_expiry_timestamp(key_entry: &KeyEntry) -> Option<u64> {
     key_entry.expiry.filter(|&e| e > 0)
 }
 
 /// Format an expiry timestamp as a human-readable countdown for text output.
-pub fn format_expiry_countdown(timestamp: u64) -> String {
+pub(crate) fn format_expiry_countdown(timestamp: u64) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -210,7 +210,7 @@ pub fn format_expiry_countdown(timestamp: u64) -> String {
 ///
 /// `available_str` is the wallet's on-chain `balanceOf`.
 /// Locked = sum of (deposit - spent) for sessions with remaining deposits.
-pub fn balance_breakdown(
+pub(crate) fn balance_breakdown(
     available_str: &str,
     sym: &str,
     chain_id: Option<u64>,
@@ -235,7 +235,7 @@ pub fn balance_breakdown(
 /// Includes expired sessions because funds remain locked in the channel
 /// contract until the channel is settled on-chain.
 fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String, usize, usize)> {
-    use crate::payment::session::store as session_store;
+    use tempo_common::payment::session::store as session_store;
 
     let sessions = session_store::list_sessions().ok()?;
 

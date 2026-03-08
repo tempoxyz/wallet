@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use qrcode::render::unicode;
 
+use crate::account::{query_all_balances, TokenBalance};
 use crate::cli::{Context, OutputFormat};
-use tempo_common::account::{query_all_balances, TokenBalance};
 use tempo_common::output;
 use tempo_common::util::address_link;
 

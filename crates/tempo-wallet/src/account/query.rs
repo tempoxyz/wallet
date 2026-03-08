@@ -6,14 +6,14 @@ use alloy::providers::ProviderBuilder;
 use mpp::client::tempo::signing::keychain::query_key_spending_limit;
 use tracing::debug;
 
-use crate::config::Config;
-use crate::keys::KeyEntry;
-use crate::network::NetworkId;
+use tempo_common::config::Config;
+use tempo_common::keys::KeyEntry;
+use tempo_common::network::NetworkId;
 
 use super::{SpendingLimitInfo, TokenBalance};
 
 /// Query all token balances for a wallet address on the given network.
-pub async fn query_all_balances(
+pub(crate) async fn query_all_balances(
     config: &Config,
     network: NetworkId,
     wallet_address: &str,
@@ -34,7 +34,7 @@ pub async fn query_all_balances(
         Err(_) => return Vec::new(),
     };
 
-    let balance = match crate::payment::session::channel::query_token_balance(
+    let balance = match tempo_common::payment::session::channel::query_token_balance(
         &provider,
         token_address,
         account,
@@ -61,7 +61,7 @@ pub async fn query_all_balances(
 ///
 /// Each key is authorized for a single token. We check the local key
 /// authorization first, then fall back to querying the network token on-chain.
-pub async fn query_spending_limit(
+pub(super) async fn query_spending_limit(
     config: &Config,
     network: NetworkId,
     key_entry: &KeyEntry,
@@ -74,7 +74,7 @@ pub async fn query_spending_limit(
     let local_auth = key_entry
         .key_authorization
         .as_deref()
-        .and_then(crate::keys::authorization::decode);
+        .and_then(tempo_common::keys::authorization::decode);
 
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 

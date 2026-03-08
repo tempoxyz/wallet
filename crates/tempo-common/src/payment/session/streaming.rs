@@ -11,7 +11,7 @@ use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
-use super::persist_session;
+use super::persist::persist_session;
 use super::state::{SessionContext, SessionState};
 use super::voucher::build_voucher_credential;
 

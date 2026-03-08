@@ -202,6 +202,69 @@ pub mod dispatch {
     }
 }
 
+/// Parse a CLI struct, handling structured version output for JSON/TOON formats.
+///
+/// Wraps `clap::Parser::try_parse` to intercept `DisplayVersion` and emit
+/// structured version info when `-j` or `-t` is present. Eliminates the
+/// identical `parse()` method duplicated across extension binaries.
+pub fn parse_cli<T: clap::Parser>() -> T {
+    match T::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            if matches!(err.kind(), clap::error::ErrorKind::DisplayVersion) {
+                let args: Vec<String> = std::env::args().collect();
+                GlobalArgs::emit_structured_version(&args);
+            }
+            err.exit()
+        }
+    }
+}
+
+/// Run a CLI command with shared setup and teardown.
+///
+/// Handles the boilerplate that every extension binary repeats:
+/// 1. Initialize tracing and color support
+/// 2. Build the shared `Context`
+/// 3. Track the command run event
+/// 4. Run the handler
+/// 5. Track success/failure and flush analytics
+///
+/// The handler receives the `Context` and returns a `(&str, Result)` tuple
+/// where the `&str` is the analytics command name. This lets the handler
+/// resolve the command name from its parsed subcommand enum.
+///
+/// ```ignore
+/// cli::run_cli(&global, &["tempo_wallet"], |ctx| async move {
+///     let cmd_name = command_name(&command);
+///     (cmd_name, do_work(&ctx, command).await)
+/// }).await
+/// ```
+pub async fn run_cli<F, Fut>(
+    global: &GlobalArgs,
+    target_crates: &[&str],
+    handler: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(crate::context::Context) -> Fut,
+    Fut: std::future::Future<Output = (&'static str, anyhow::Result<()>)>,
+{
+    crate::runtime::init_tracing(global.silent, global.verbose, target_crates);
+    crate::runtime::init_color_support(global.color);
+
+    let ctx = global.build_context().await?;
+    let analytics = ctx.analytics.clone();
+
+    let (cmd_name, result) = handler(ctx).await;
+
+    dispatch::track_command(&analytics, cmd_name);
+    dispatch::track_result(&analytics, cmd_name, &result);
+    if let Some(ref a) = analytics {
+        a.flush().await;
+    }
+
+    result
+}
+
 /// Run a CLI binary with shared error handling.
 ///
 /// Handles structured error output for JSON/TOON formats and sets the process

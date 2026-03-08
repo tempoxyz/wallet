@@ -1,5 +1,5 @@
 ---
-name: tempo request
+name: tempo-request
 description: "HTTP client with automatic payment — make API requests without API keys or accounts. Use `tempo mpp services` to discover endpoints, `tempo request <URL>` to make requests."
 ---
 

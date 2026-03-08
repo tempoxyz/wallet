@@ -1,5 +1,5 @@
 ---
-name: tempo wallet
+name: tempo-wallet
 description: "Wallet identity and custody — manage Tempo wallets, keys, and balances. Use `tempo wallet login` to connect, `tempo mpp services` to discover endpoints, `tempo request <URL>` to make requests."
 ---
 

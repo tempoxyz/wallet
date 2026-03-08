@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use alloy::providers::{Provider, ProviderBuilder};
 
+use crate::account::{query_all_balances, TokenBalance};
 use crate::cli::{Context, OutputFormat};
-use tempo_common::account::{query_all_balances, TokenBalance};
 use tempo_common::error::TempoError;
 use tempo_common::output;
 use tempo_common::util::address_link;

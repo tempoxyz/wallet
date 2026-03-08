@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use anyhow::Result;
 
 use super::{session_store, SessionStatus};
-use crate::cli::output;
 use crate::cli::Context;
-use crate::cli::OutputFormat;
 use tempo_common::error::TempoError;
+use tempo_common::output;
+use tempo_common::output::OutputFormat;
 use tempo_common::payment::session::channel::find_all_channels_for_payer;
 use tempo_common::payment::session::close::{
     close_channel_by_id, close_discovered_channel, close_session_from_record,
@@ -484,7 +484,7 @@ impl CloseSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::OutputFormat;
+    use tempo_common::output::OutputFormat;
 
     #[test]
     fn test_close_summary_empty_text() {

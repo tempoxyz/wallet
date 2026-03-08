@@ -5,8 +5,8 @@ use alloy::primitives::U256;
 use serde::Serialize;
 
 use super::{session_store, SessionStatus};
-use crate::cli::output;
-use crate::cli::OutputFormat;
+use tempo_common::output;
+use tempo_common::output::OutputFormat;
 use tempo_common::util::{format_duration, format_relative_time};
 
 // ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ fn render_channel_text(v: &ChannelView) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::OutputFormat;
+    use tempo_common::output::OutputFormat;
 
     fn make_channel_view(status: SessionStatus, remaining_secs: Option<u64>) -> ChannelView {
         ChannelView {

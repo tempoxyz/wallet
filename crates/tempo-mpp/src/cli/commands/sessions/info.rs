@@ -3,8 +3,8 @@ use anyhow::{Context as _, Result};
 
 use super::render::{render_channel_list, ChannelView};
 use super::session_store;
-use crate::cli::output;
 use crate::cli::Context;
+use tempo_common::output;
 use tempo_common::payment::session::channel::get_channel_on_chain;
 
 #[derive(serde::Serialize)]

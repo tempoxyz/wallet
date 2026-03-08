@@ -1,118 +1,13 @@
-//! Data types for wallet keys.
+//! Keystore query, selection, and mutation logic.
 
 use alloy::primitives::Address;
-use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::error::TempoError;
 use crate::network::NetworkId;
 
-/// Wallet type: local (self-custodial EOA in OS keychain) or passkey (browser auth).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum WalletType {
-    #[default]
-    Local,
-    Passkey,
-}
-
-impl WalletType {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Local => "local",
-            Self::Passkey => "passkey",
-        }
-    }
-}
-
-/// Cryptographic key type for key authorizations.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum KeyType {
-    #[default]
-    Secp256k1,
-    P256,
-    WebAuthn,
-}
-
-/// Token spending limit stored in keys.toml.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct StoredTokenLimit {
-    /// Token contract address.
-    pub currency: String,
-    /// Spending limit amount (as string to avoid precision issues).
-    pub limit: String,
-}
-
-/// A single key entry.
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct KeyEntry {
-    /// Wallet type: "local" or "passkey".
-    #[serde(default)]
-    pub wallet_type: WalletType,
-    /// On-chain wallet address (the fundable address).
-    #[serde(default)]
-    pub wallet_address: String,
-    /// Chain ID this key is authorized for.
-    #[serde(default)]
-    pub chain_id: u64,
-    /// Cryptographic key type.
-    #[serde(default)]
-    pub key_type: KeyType,
-    /// Public address of the key (derived from the key private key).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key_address: Option<String>,
-    /// Key private key, stored inline in keys.toml.
-    /// Wrapped in [`Zeroizing`] so the secret is scrubbed from memory on drop.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<Zeroizing<String>>,
-    /// Key authorization (RLP-encoded SignedKeyAuthorization hex).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key_authorization: Option<String>,
-    /// Key expiry as unix timestamp.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expiry: Option<u64>,
-    /// Token spending limits for this key.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub limits: Vec<StoredTokenLimit>,
-    /// Whether this key has been provisioned on-chain.
-    #[serde(default)]
-    pub provisioned: bool,
-}
-
-impl std::fmt::Debug for KeyEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KeyEntry")
-            .field("wallet_type", &self.wallet_type)
-            .field("wallet_address", &self.wallet_address)
-            .field("chain_id", &self.chain_id)
-            .field("key_type", &self.key_type)
-            .field("key_address", &self.key_address)
-            .field("key", &self.key.as_ref().map(|_| "<redacted>"))
-            .field("key_authorization", &self.key_authorization)
-            .field("expiry", &self.expiry)
-            .field("limits", &self.limits)
-            .field("provisioned", &self.provisioned)
-            .finish()
-    }
-}
-
-/// Wallet keys stored in keys.toml.
-///
-/// Supports multiple key entries via `[[keys]]` array of tables.
-/// Key selection is deterministic: passkey > first key with key > first key.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Keystore {
-    #[serde(default)]
-    pub keys: Vec<KeyEntry>,
-
-    /// Whether this keystore was built from an ephemeral `--private-key`
-    /// override. Ephemeral keystores are never written to disk.
-    #[serde(skip)]
-    pub ephemeral: bool,
-}
+use super::types::{parse_private_key_signer, KeyEntry, Keystore, WalletType};
 
 impl Keystore {
     /// Create ephemeral keys from a raw private key (for `--private-key`).
@@ -302,20 +197,6 @@ impl Keystore {
     }
 }
 
-/// Parse a private key hex string into a PrivateKeySigner.
-pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoError> {
-    let key = pk_str.trim();
-    let key_hex = key.strip_prefix("0x").unwrap_or(key);
-    let bytes = hex::decode(key_hex)
-        .map_err(|_| TempoError::InvalidKey("Invalid private key format".to_string()))?;
-    if bytes.len() != 32 {
-        return Err(TempoError::InvalidKey(
-            "Invalid private key format".to_string(),
-        ));
-    }
-    PrivateKeySigner::from_slice(&bytes).map_err(|e| TempoError::InvalidKey(e.to_string()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,7 +261,6 @@ mod tests {
         assert!(!keys.is_provisioned(NetworkId::TempoModerato));
     }
 
-    // Tests for current wallet format only
     #[test]
     fn test_serialization_with_key() {
         let mut keys = Keystore::default();
@@ -407,7 +287,6 @@ mod tests {
 
     #[test]
     fn test_not_ready_when_no_signing_key() {
-        // wallet_address alone (no key) → not ready
         let mut keys = Keystore::default();
         let key_entry = KeyEntry {
             wallet_address: "0xtest".to_string(),
@@ -419,7 +298,6 @@ mod tests {
 
     #[test]
     fn test_new_format_loads_correctly() {
-        // New format with key inline using [[keys]] array
         let toml_str = r#"
 [[keys]]
 wallet_address = "0xtest"
@@ -437,7 +315,6 @@ provisioned = true
 
     #[test]
     fn test_wallet_address_only_not_enough() {
-        // wallet_address alone without key is not enough
         let toml_str = r#"
 [[keys]]
 wallet_address = "0xtest"
@@ -481,24 +358,20 @@ key_address = "0xsigner2"
 provisioned = true
 "#;
         let keys: Keystore = toml::from_str(toml_str).unwrap();
-        // primary_key() picks first entry (no passkey, no key → first)
         assert_eq!(keys.wallet_address(), "0xAAA");
         assert!(keys.is_provisioned(NetworkId::Tempo));
-        // second key is provisioned on moderato (42431), found via key_for_network
         assert!(keys.is_provisioned(NetworkId::TempoModerato));
     }
 
     #[test]
     fn test_delete_passkey() {
         let mut keys = Keystore::default();
-        // Local wallet entry
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
             wallet_address: "0xAAA".to_string(),
             key: Some(Zeroizing::new("0xaccess".to_string())),
             ..Default::default()
         });
-        // Passkey entry
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Passkey,
             wallet_address: "0xBBB".to_string(),
@@ -533,37 +406,7 @@ provisioned = true
             wallet_address: "0xtest".to_string(),
             ..Default::default()
         });
-        // No passkey type or key, but it's the only key so primary_key() finds it
         assert_eq!(keys.primary_key().unwrap().wallet_address, "0xtest");
-    }
-
-    #[test]
-    fn test_parse_private_key_signer_valid() {
-        let signer = parse_private_key_signer(TEST_PRIVATE_KEY).unwrap();
-        assert_eq!(
-            format!("{}", signer.address()).to_lowercase(),
-            TEST_ADDRESS.to_lowercase()
-        );
-    }
-
-    #[test]
-    fn test_parse_private_key_signer_no_prefix() {
-        let no_prefix = TEST_PRIVATE_KEY.strip_prefix("0x").unwrap();
-        let signer = parse_private_key_signer(no_prefix).unwrap();
-        assert_eq!(
-            format!("{}", signer.address()).to_lowercase(),
-            TEST_ADDRESS.to_lowercase()
-        );
-    }
-
-    #[test]
-    fn test_parse_private_key_signer_invalid_hex() {
-        assert!(parse_private_key_signer("not-hex").is_err());
-    }
-
-    #[test]
-    fn test_parse_private_key_signer_wrong_length() {
-        assert!(parse_private_key_signer("0xdeadbeef").is_err());
     }
 
     #[test]
@@ -592,7 +435,6 @@ provisioned = true
             ..Default::default()
         });
 
-        // Upsert same address + chain — should update in-place
         let entry = keys.upsert_by_wallet_and_chain("0xABC", 4217);
         entry.key_address = Some("0xsigner2".to_string());
         entry.key = Some(Zeroizing::new("0xaccesskey2".to_string()));
@@ -612,7 +454,6 @@ provisioned = true
         entry.key_address = Some("0xsigner1".to_string());
         entry.key = Some(Zeroizing::new("0xkey1".to_string()));
 
-        // Same wallet, different chain — should create a second entry
         let entry2 = keys.upsert_by_wallet_and_chain("0xABC", 42431);
         entry2.wallet_type = WalletType::Passkey;
         entry2.key_address = Some("0xsigner2".to_string());
@@ -647,17 +488,12 @@ provisioned = true
             chain_id: 4217,
             ..Default::default()
         });
-        // Exact chain_id match
         assert!(keys.key_for_network(NetworkId::Tempo).is_some());
-        // No chain_id match, but passkey fallback kicks in
         assert!(keys.key_for_network(NetworkId::TempoModerato).is_some());
     }
 
-    // ==================== Multi-key selection rules ====================
-
     #[test]
     fn test_primary_key_passkey_beats_local_with_key() {
-        // Passkey entry should win even when a local entry has an inline key.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -676,7 +512,6 @@ provisioned = true
 
     #[test]
     fn test_primary_key_passkey_without_key_still_wins() {
-        // Passkey entry wins priority even without an inline key.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -689,15 +524,12 @@ provisioned = true
             wallet_address: "0xPasskey".to_string(),
             ..Default::default()
         });
-        // Passkey takes priority even without a key
         assert_eq!(keys.primary_key().unwrap().wallet_address, "0xPasskey");
-        // But has_wallet() is false because passkey has no inline key
         assert!(!keys.has_wallet());
     }
 
     #[test]
     fn test_primary_key_inline_key_over_no_key() {
-        // Among local entries, one with an inline key wins over one without.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -715,7 +547,6 @@ provisioned = true
 
     #[test]
     fn test_primary_key_empty_key_treated_as_no_key() {
-        // An empty key string is treated the same as no key.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -734,7 +565,6 @@ provisioned = true
 
     #[test]
     fn test_primary_key_first_entry_fallback_no_keys() {
-        // When no entries have passkey type or inline key, first entry is returned.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -757,11 +587,8 @@ provisioned = true
         assert_eq!(keys.wallet_address(), "");
     }
 
-    // ==================== has_wallet edge cases ====================
-
     #[test]
     fn test_has_wallet_empty_address_with_key() {
-        // A key entry with a key but empty wallet_address is not a wallet.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_address: String::new(),
@@ -771,11 +598,8 @@ provisioned = true
         assert!(!keys.has_wallet());
     }
 
-    // ==================== key_for_network selection ====================
-
     #[test]
     fn test_key_for_network_chain_id_priority_over_passkey() {
-        // Exact chain_id match should take priority over passkey fallback.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -791,42 +615,35 @@ provisioned = true
             key: Some(Zeroizing::new("0xpasskey_key".to_string())),
             ..Default::default()
         });
-        // tempo-moderato (42431) → local entry via chain_id match
         let entry = keys.key_for_network(NetworkId::TempoModerato).unwrap();
         assert_eq!(entry.wallet_address, "0xLocal");
-        // tempo (4217) → passkey entry via chain_id match
         let entry = keys.key_for_network(NetworkId::Tempo).unwrap();
         assert_eq!(entry.wallet_address, "0xPasskey");
     }
 
     #[test]
     fn test_key_for_network_direct_eoa_fallback() {
-        // A local key where wallet_address == key_address works on any network.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
             wallet_address: TEST_ADDRESS.to_string(),
             key_address: Some(TEST_ADDRESS.to_string()),
             key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
-            chain_id: 0, // no specific chain
+            chain_id: 0,
             ..Default::default()
         });
-        // Direct EOA should match any valid network
         assert!(keys.key_for_network(NetworkId::Tempo).is_some());
         assert!(keys.key_for_network(NetworkId::TempoModerato).is_some());
     }
 
     #[test]
     fn test_key_for_network_no_match() {
-        // No keys at all → None
         let keys = Keystore::default();
         assert!(keys.key_for_network(NetworkId::Tempo).is_none());
     }
 
     #[test]
     fn test_key_for_network_local_wrong_chain_no_fallback() {
-        // A local key (wallet != key_address) on the wrong chain with no
-        // passkey or direct EOA → no match.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Local,
@@ -836,15 +653,12 @@ provisioned = true
             chain_id: 4217,
             ..Default::default()
         });
-        // tempo (4217) matches by chain_id
         assert!(keys.key_for_network(NetworkId::Tempo).is_some());
-        // tempo-moderato (42431) has no chain_id match, no passkey, no direct EOA
         assert!(keys.key_for_network(NetworkId::TempoModerato).is_none());
     }
 
     #[test]
     fn test_key_for_network_passkey_without_key_no_fallback() {
-        // A passkey entry without an inline key does NOT match as a fallback.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Passkey,
@@ -852,13 +666,9 @@ provisioned = true
             chain_id: 4217,
             ..Default::default()
         });
-        // tempo (4217) matches by chain_id
         assert!(keys.key_for_network(NetworkId::Tempo).is_some());
-        // tempo-moderato (42431): passkey without key → no fallback
         assert!(keys.key_for_network(NetworkId::TempoModerato).is_none());
     }
-
-    // ==================== Expiry field ====================
 
     #[test]
     fn test_expiry_field_round_trip() {
@@ -872,7 +682,6 @@ expiry = 1750000000
         let entry = keys.primary_key().unwrap();
         assert_eq!(entry.expiry, Some(1750000000));
 
-        // Round-trip: serialize and deserialize
         let serialized = toml::to_string_pretty(&keys).unwrap();
         let parsed: Keystore = toml::from_str(&serialized).unwrap();
         assert_eq!(parsed.primary_key().unwrap().expiry, Some(1750000000));
@@ -901,8 +710,6 @@ expiry = 0
         assert_eq!(keys.primary_key().unwrap().expiry, Some(0));
     }
 
-    // ==================== Provisioned marker ====================
-
     #[test]
     fn test_provisioned_defaults_to_false() {
         let toml_str = r#"
@@ -917,7 +724,6 @@ chain_id = 4217
 
     #[test]
     fn test_provisioned_per_network_isolation() {
-        // Two keys on different networks, only one provisioned.
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_address: "0xAAA".to_string(),
@@ -934,8 +740,6 @@ chain_id = 4217
         assert!(keys.is_provisioned(NetworkId::Tempo));
         assert!(!keys.is_provisioned(NetworkId::TempoModerato));
     }
-
-    // ==================== Token limits serialization ====================
 
     #[test]
     fn test_limits_round_trip() {
@@ -960,7 +764,6 @@ limit = "50000000"
         assert_eq!(entry.limits[1].currency, "0xPATH");
         assert_eq!(entry.limits[1].limit, "50000000");
 
-        // Round-trip
         let serialized = toml::to_string_pretty(&keys).unwrap();
         let parsed: Keystore = toml::from_str(&serialized).unwrap();
         assert_eq!(parsed.primary_key().unwrap().limits.len(), 2);
@@ -975,8 +778,6 @@ wallet_address = "0xtest"
         let keys: Keystore = toml::from_str(toml_str).unwrap();
         assert!(keys.primary_key().unwrap().limits.is_empty());
     }
-
-    // ==================== Error paths ====================
 
     #[test]
     fn test_delete_passkey_when_none_exists() {
@@ -998,7 +799,6 @@ wallet_address = "0xtest"
             chain_id: 4217,
             ..Default::default()
         });
-        // Upsert with different casing should update in place
         let entry = keys.upsert_by_wallet_and_chain("0xABCD", 4217);
         entry.provisioned = true;
         assert_eq!(keys.keys.len(), 1);

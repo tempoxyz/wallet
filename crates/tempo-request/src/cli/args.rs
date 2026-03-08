@@ -311,16 +311,7 @@ impl QueryArgs {
 
 impl Cli {
     pub(crate) fn parse() -> Self {
-        match Self::try_parse() {
-            Ok(cli) => cli,
-            Err(err) => {
-                if matches!(err.kind(), clap::error::ErrorKind::DisplayVersion) {
-                    let args: Vec<String> = std::env::args().collect();
-                    tempo_common::cli::GlobalArgs::emit_structured_version(&args);
-                }
-                err.exit()
-            }
-        }
+        tempo_common::cli::parse_cli()
     }
 
     /// Resolve the effective output format: CLI flag > default (text).
