@@ -8,11 +8,23 @@ use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
-use crate::error::TempoError;
+use crate::error::{ConfigError, KeyError, TempoError};
 use crate::network::NetworkId;
 
 use super::authorization;
 use super::Keystore;
+
+/// Parse a private key hex string into a PrivateKeySigner.
+pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoError> {
+    let key = pk_str.trim();
+    let key_hex = key.strip_prefix("0x").unwrap_or(key);
+    let bytes = hex::decode(key_hex)
+        .map_err(|_| KeyError::InvalidKey("Invalid private key format".to_string()))?;
+    if bytes.len() != 32 {
+        return Err(KeyError::InvalidKey("Invalid private key format".to_string()).into());
+    }
+    PrivateKeySigner::from_slice(&bytes).map_err(|e| KeyError::InvalidKey(e.to_string()).into())
+}
 
 /// A loaded wallet signer ready for transaction signing.
 ///
@@ -32,23 +44,27 @@ impl Keystore {
     /// key authorization), and returns a ready-to-use [`Signer`].
     pub fn signer(&self, network: NetworkId) -> Result<Signer, TempoError> {
         let key_entry = self.key_for_network(network).ok_or_else(|| {
-            TempoError::ConfigMissing(format!(
+            TempoError::from(ConfigError::Missing(format!(
                 "No key configured for network '{}'.",
                 network.as_str()
-            ))
+            )))
         })?;
 
         let pk = key_entry
             .key
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| TempoError::ConfigMissing("No key configured.".to_string()))?;
-        let signer = super::parse_private_key_signer(pk)?;
+            .ok_or_else(|| {
+                TempoError::from(ConfigError::Missing("No key configured.".to_string()))
+            })?;
+        let signer = parse_private_key_signer(pk)?;
 
-        let wallet_address: Address = key_entry
-            .wallet_address
-            .parse()
-            .map_err(|e| TempoError::InvalidConfig(format!("Invalid wallet address: {}", e)))?;
+        let wallet_address: Address = key_entry.wallet_address.parse().map_err(|e| {
+            TempoError::from(ConfigError::Invalid(format!(
+                "Invalid wallet address: {}",
+                e
+            )))
+        })?;
 
         let signing_mode = if wallet_address == signer.address() {
             TempoSigningMode::Direct
@@ -163,5 +179,34 @@ mod tests {
             ..Default::default()
         });
         assert!(keys.signer(NetworkId::Tempo).is_err());
+    }
+
+    #[test]
+    fn test_parse_private_key_signer_valid() {
+        let signer = parse_private_key_signer(TEST_PRIVATE_KEY).unwrap();
+        assert_eq!(
+            format!("{}", signer.address()).to_lowercase(),
+            TEST_ADDRESS.to_lowercase()
+        );
+    }
+
+    #[test]
+    fn test_parse_private_key_signer_no_prefix() {
+        let no_prefix = TEST_PRIVATE_KEY.strip_prefix("0x").unwrap();
+        let signer = parse_private_key_signer(no_prefix).unwrap();
+        assert_eq!(
+            format!("{}", signer.address()).to_lowercase(),
+            TEST_ADDRESS.to_lowercase()
+        );
+    }
+
+    #[test]
+    fn test_parse_private_key_signer_invalid_hex() {
+        assert!(parse_private_key_signer("not-hex").is_err());
+    }
+
+    #[test]
+    fn test_parse_private_key_signer_wrong_length() {
+        assert!(parse_private_key_signer("0xdeadbeef").is_err());
     }
 }

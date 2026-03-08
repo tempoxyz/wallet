@@ -2,7 +2,7 @@
 
 use anyhow::{Context as _, Result};
 
-use tempo_common::error::TempoError;
+use tempo_common::error::InputError;
 
 /// Maximum request body size (100 MB)
 const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
@@ -40,7 +40,7 @@ pub(super) fn append_data_to_query(
 
 fn validate_body_size(len: usize) -> Result<()> {
     if len > MAX_BODY_SIZE {
-        anyhow::bail!(TempoError::BodyTooLarge(MAX_BODY_SIZE));
+        anyhow::bail!(InputError::BodyTooLarge(MAX_BODY_SIZE));
     }
     Ok(())
 }
@@ -59,11 +59,11 @@ fn resolve_data(data: &str) -> Result<Vec<u8>> {
             let mut buf = Vec::new();
             std::io::stdin()
                 .read_to_end(&mut buf)
-                .map_err(TempoError::ReadStdin)?;
+                .map_err(InputError::ReadStdin)?;
             validate_body_size(buf.len())?;
             Ok(buf)
         } else {
-            let buf = std::fs::read(path).map_err(|e| TempoError::ReadFile {
+            let buf = std::fs::read(path).map_err(|e| InputError::ReadFile {
                 path: path.to_string(),
                 source: e,
             })?;
@@ -134,7 +134,7 @@ pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<Strin
     for it in items {
         if let Some(rest) = it.strip_prefix('@') {
             // @filename — read file contents
-            let content = std::fs::read(rest).map_err(|e| TempoError::ReadFile {
+            let content = std::fs::read(rest).map_err(|e| InputError::ReadFile {
                 path: rest.to_string(),
                 source: e,
             })?;
@@ -146,7 +146,7 @@ pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<Strin
             // name=@filename pattern (curl-style)
             let (name, file) = it.split_at(pos);
             let file = &file[2..];
-            let content = std::fs::read(file).map_err(|e| TempoError::ReadFile {
+            let content = std::fs::read(file).map_err(|e| InputError::ReadFile {
                 path: file.to_string(),
                 source: e,
             })?;

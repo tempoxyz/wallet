@@ -2,9 +2,9 @@
 
 use anyhow::Result;
 
-use tempo_common::output;
-use tempo_common::output::OutputFormat;
-use tempo_common::util::{print_field, truncate};
+use tempo_common::cli::output;
+use tempo_common::cli::output::OutputFormat;
+use tempo_common::terminal::{print_field, truncate};
 
 use super::model::Service;
 

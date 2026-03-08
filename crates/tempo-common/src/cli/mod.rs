@@ -1,10 +1,15 @@
 //! Shared CLI infrastructure for Tempo extension binaries.
 
+pub mod context;
+pub mod exit_code;
+pub mod output;
+pub mod runtime;
+
 use clap::{ArgAction, Parser};
 
-use crate::context::{Context, ContextArgs};
-use crate::output::OutputFormat;
-use crate::runtime::ColorMode;
+use self::context::{Context, ContextArgs};
+use self::output::OutputFormat;
+use self::runtime::ColorMode;
 use crate::util::Verbosity;
 
 /// Global CLI flags shared by all Tempo extension binaries.
@@ -147,8 +152,8 @@ impl GlobalArgs {
                 "profile": env!("TEMPO_BUILD_PROFILE"),
             });
 
-            crate::output::emit_formatted_or_fallback(
-                || crate::output::format_structured_pretty_json(output_format, &payload),
+            output::emit_formatted_or_fallback(
+                || output::format_structured_pretty_json(output_format, &payload),
                 || env!("CARGO_PKG_VERSION").to_string(),
             );
             std::process::exit(0);
@@ -156,10 +161,10 @@ impl GlobalArgs {
     }
 }
 
-/// Shared analytics tracking for command dispatch.
-pub mod dispatch {
+/// Shared analytics tracking for CLI commands.
+pub mod tracking {
     use crate::analytics::{self, Analytics};
-    use crate::util::sanitize_error;
+    use crate::redact::sanitize_error;
 
     /// Track the initial command run event.
     pub fn track_command(analytics: &Option<Analytics>, cmd_name: &str) {
@@ -245,19 +250,19 @@ pub async fn run_cli<F, Fut>(
     handler: F,
 ) -> anyhow::Result<()>
 where
-    F: FnOnce(crate::context::Context) -> Fut,
+    F: FnOnce(context::Context) -> Fut,
     Fut: std::future::Future<Output = (&'static str, anyhow::Result<()>)>,
 {
-    crate::runtime::init_tracing(global.silent, global.verbose, target_crates);
-    crate::runtime::init_color_support(global.color);
+    runtime::init_tracing(global.silent, global.verbose, target_crates);
+    runtime::init_color_support(global.color);
 
     let ctx = global.build_context().await?;
     let analytics = ctx.analytics.clone();
 
     let (cmd_name, result) = handler(ctx).await;
 
-    dispatch::track_command(&analytics, cmd_name);
-    dispatch::track_result(&analytics, cmd_name, &result);
+    tracking::track_command(&analytics, cmd_name);
+    tracking::track_result(&analytics, cmd_name, &result);
     if let Some(ref a) = analytics {
         a.flush().await;
     }
@@ -274,16 +279,16 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), anyhow::Error>) 
 
     match output_format {
         OutputFormat::Json | OutputFormat::Toon => {
-            let code = crate::exit_codes::ExitCode::from(&e).label();
-            let payload = crate::runtime::render_error_payload(&e, code);
-            crate::output::emit_formatted_or_fallback(
-                || crate::output::format_structured(output_format, &payload),
-                || crate::runtime::render_error_fallback(code),
+            let code = exit_code::ExitCode::from(&e).label();
+            let payload = runtime::render_error_payload(&e, code);
+            output::emit_formatted_or_fallback(
+                || output::format_structured(output_format, &payload),
+                || runtime::render_error_fallback(code),
             );
         }
         _ => {
             eprintln!("Error: {e:#}");
         }
     }
-    crate::exit_codes::ExitCode::from(&e).exit();
+    exit_code::ExitCode::from(&e).exit();
 }

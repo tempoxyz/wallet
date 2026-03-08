@@ -9,13 +9,14 @@ use crate::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits_to, query_all_balances, KeyInfo,
 };
-use crate::cli::{Context, OutputFormat};
 use tempo_common::analytics::Event;
+use tempo_common::cli::context::Context;
+use tempo_common::cli::output;
+use tempo_common::cli::output::OutputFormat;
 use tempo_common::config::Config;
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
-use tempo_common::output;
-use tempo_common::util::address_link;
+use tempo_common::terminal::address_link;
 
 #[derive(Debug, Default, Serialize)]
 struct StatusResponse {

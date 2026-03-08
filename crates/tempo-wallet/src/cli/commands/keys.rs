@@ -10,12 +10,12 @@ use crate::account::{
     print_key_limits, query_all_balances, KeysResponse, TokenBalance,
 };
 use crate::cli::args::KeyCommands;
-use crate::cli::Context;
 use tempo_common::analytics::Event;
+use tempo_common::cli::context::Context;
+use tempo_common::cli::output;
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
-use tempo_common::output;
-use tempo_common::util::{address_link, print_field_w};
+use tempo_common::terminal::{address_link, print_field_w};
 
 #[derive(serde::Serialize)]
 struct CleanKeysResponse {
@@ -63,7 +63,7 @@ fn clean_keys(ctx: &Context, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    if !tempo_common::util::confirm(
+    if !crate::prompt::confirm(
         &format!("Delete all local key state at {}?", path.display()),
         yes,
     )? {

@@ -4,6 +4,6 @@
 //! builds and signs transactions, and retries with payment credentials.
 
 mod charge;
-pub mod dispatch;
 pub mod error;
+pub mod router;
 pub mod session;

@@ -4,6 +4,7 @@
 
 pub(crate) mod account;
 mod cli;
+pub(crate) mod prompt;
 
 use crate::cli::Cli;
 

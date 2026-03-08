@@ -1,8 +1,8 @@
 //! Payment analytics tracking for query command flows.
 
-use crate::cli::Context;
 use tempo_common::analytics;
-use tempo_common::util::sanitize_error;
+use tempo_common::cli::context::Context;
+use tempo_common::redact::sanitize_error;
 
 // ---------------------------------------------------------------------------
 // Pre-402 query tracking (no payment context needed)

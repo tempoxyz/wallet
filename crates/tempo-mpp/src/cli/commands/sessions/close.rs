@@ -3,16 +3,16 @@ use std::collections::HashSet;
 use anyhow::Result;
 
 use super::{session_store, SessionStatus};
-use crate::cli::Context;
-use tempo_common::error::TempoError;
-use tempo_common::output;
-use tempo_common::output::OutputFormat;
+use tempo_common::cli::context::Context;
+use tempo_common::cli::output;
+use tempo_common::cli::output::OutputFormat;
+use tempo_common::error::{ConfigError, InputError, PaymentError, TempoError};
+use tempo_common::fmt::format_duration;
 use tempo_common::payment::session::channel::find_all_channels_for_payer;
 use tempo_common::payment::session::close::{
     close_channel_by_id, close_discovered_channel, close_session_from_record,
 };
 use tempo_common::payment::session::CloseOutcome;
-use tempo_common::util::format_duration;
 
 #[derive(serde::Serialize)]
 struct CloseSummaryResponse {
@@ -97,7 +97,7 @@ pub(super) async fn close_sessions(
         return close_by_url(ctx, target).await;
     }
 
-    anyhow::bail!(TempoError::InvalidUrl(
+    anyhow::bail!(InputError::InvalidUrl(
         "Specify a URL, channel ID (0x...), or use --all/--orphaned/--finalize to close sessions"
             .to_string()
     ));
@@ -235,7 +235,7 @@ async fn close_orphaned_into_summary(
 /// Close only orphaned on-chain channels (channels with no local session record).
 async fn close_orphaned_channels(ctx: &Context) -> Result<()> {
     if !ctx.keys.has_wallet() {
-        anyhow::bail!(TempoError::ConfigMissing(
+        anyhow::bail!(ConfigError::Missing(
             "No wallet configured. Log in with 'tempo-wallet login'.".to_string()
         ));
     }
@@ -414,8 +414,12 @@ impl CloseSummary {
     ) {
         match result {
             Err(e)
-                if e.downcast_ref::<TempoError>()
-                    .is_some_and(|te| matches!(te, TempoError::ChannelNotFound { .. })) =>
+                if e.downcast_ref::<TempoError>().is_some_and(|te| {
+                    matches!(
+                        te,
+                        TempoError::Payment(PaymentError::ChannelNotFound { .. })
+                    )
+                }) =>
             {
                 let _ = session_store::delete_session_by_channel_id(channel_id);
                 if show_output {
@@ -484,7 +488,7 @@ impl CloseSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempo_common::output::OutputFormat;
+    use tempo_common::cli::output::OutputFormat;
 
     #[test]
     fn test_close_summary_empty_text() {

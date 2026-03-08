@@ -5,18 +5,19 @@ use mpp::protocol::core::extract_tx_hash;
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
 
-use super::persist::persist_session;
 use super::state::{SessionContext, SessionState};
+use super::store::persist_session;
 use super::voucher::{build_open_payload, build_voucher_credential};
 use super::{channel, close, store, streaming, tx};
-use crate::error::TempoError;
+use crate::error::PaymentError;
+use crate::fmt::format_token_amount;
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::{Keystore, Signer};
-use crate::payment::dispatch::{PaymentResult, ResolvedChallenge};
 use crate::payment::error::map_mpp_validation_error;
-use crate::util::{address_link, format_token_amount};
+use crate::payment::router::{PaymentResult, ResolvedChallenge};
+use crate::terminal::address_link;
 
-/// Send the actual request with a voucher and handle the response.
+/// Send the actual session request with a voucher and handle the response.
 ///
 /// Bypasses [`HttpClient::execute()`] and uses the raw reqwest client directly
 /// because session streaming requires access to `reqwest::Response` for SSE
@@ -52,7 +53,7 @@ async fn send_session_request(
         let body = response.text().await.unwrap_or_default();
         let reason = crate::payment::error::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(500).collect::<String>());
-        return Err(TempoError::PaymentRejected {
+        return Err(PaymentError::PaymentRejected {
             reason,
             status_code: status.as_u16(),
         }
@@ -88,7 +89,7 @@ async fn send_session_request(
     }
 }
 
-/// Handle an MPP session flow (402 with intent="session").
+/// Handle the full MPP session flow (402 with intent="session").
 ///
 /// This manages the session lifecycle with persistence:
 /// 1. Parse the session challenge from the initial 402 response
@@ -119,7 +120,7 @@ pub async fn handle_session_request(
         .context("Failed to parse session request from challenge")?;
 
     let chain_id = session_req.chain_id().ok_or_else(|| {
-        TempoError::InvalidChallenge("Missing chainId in session request".to_string())
+        PaymentError::InvalidChallenge("Missing chainId in session request".to_string())
     })?;
 
     let tick_cost: u128 = session_req
@@ -132,7 +133,7 @@ pub async fn handle_session_request(
         .context("Missing escrow contract in session challenge")?;
     let expected_escrow = resolved.network_id.escrow_contract();
     if !escrow_str.eq_ignore_ascii_case(expected_escrow) {
-        return Err(TempoError::InvalidChallenge(format!(
+        return Err(PaymentError::InvalidChallenge(format!(
             "Untrusted escrow contract: {} (expected {} for network {})",
             escrow_str, expected_escrow, network_name
         ))
@@ -150,7 +151,7 @@ pub async fn handle_session_request(
     let recipient: Address = session_req
         .recipient
         .as_deref()
-        .ok_or(TempoError::InvalidChallenge(
+        .ok_or(PaymentError::InvalidChallenge(
             "Missing recipient in session challenge".to_string(),
         ))?
         .parse()

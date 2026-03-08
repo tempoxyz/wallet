@@ -17,10 +17,10 @@ use anyhow::Result;
 
 use crate::cli::args::QueryArgs;
 use crate::cli::output as cli_output;
-use crate::cli::Context;
-use tempo_common::error::TempoError;
-use tempo_common::payment::dispatch::{dispatch_payment, PaymentResult};
-use tempo_common::util::redact_url;
+use tempo_common::cli::context::Context;
+use tempo_common::error::{NetworkError, PaymentError};
+use tempo_common::payment::router::{dispatch_payment, PaymentResult};
+use tempo_common::redact::redact_url;
 
 use output::{build_output_options, write_meta_if_requested};
 
@@ -36,7 +36,7 @@ use output::{build_output_options, write_meta_if_requested};
 pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     // Offline mode: fail fast before any network I/O
     if query.offline {
-        anyhow::bail!(TempoError::OfflineMode);
+        anyhow::bail!(NetworkError::OfflineMode);
     }
 
     let prepared = prepare::prepare(ctx, &query)?;
@@ -133,7 +133,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
                 cur_lower == challenge.currency.to_lowercase() || cur_lower == symbol.to_lowercase()
             });
             if currency_ok && req_val > max_val {
-                anyhow::bail!(TempoError::PaymentRejected {
+                anyhow::bail!(PaymentError::PaymentRejected {
                     reason: "price exceeds client max".to_string(),
                     status_code: 402,
                 });

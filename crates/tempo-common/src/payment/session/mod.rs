@@ -25,9 +25,8 @@
 
 pub mod channel;
 pub mod close;
-mod persist;
-mod request;
-pub mod state;
+mod flow;
+pub(crate) mod state;
 pub mod store;
 mod streaming;
 mod tx;
@@ -36,5 +35,5 @@ mod voucher;
 /// Fallback grace period (seconds) when escrow grace-period reads fail.
 pub const DEFAULT_GRACE_PERIOD_SECS: u64 = 900;
 
-pub use request::handle_session_request;
+pub use flow::handle_session_request;
 pub use state::CloseOutcome;

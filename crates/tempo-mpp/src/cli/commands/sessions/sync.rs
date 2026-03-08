@@ -2,9 +2,9 @@ use alloy::primitives::Address;
 use anyhow::{Context as _, Result};
 
 use super::{session_store, SessionStatus};
-use crate::cli::Context;
 use tempo_common::analytics::Event;
-use tempo_common::output;
+use tempo_common::cli::context::Context;
+use tempo_common::cli::output;
 use tempo_common::payment::session::channel::{get_channel_on_chain, query_channel_state};
 
 #[derive(serde::Serialize)]

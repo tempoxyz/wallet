@@ -10,7 +10,7 @@ use alloy::primitives::Address;
 use anyhow::Result;
 
 use crate::cli::args::SessionCommands;
-use crate::cli::Context;
+use tempo_common::cli::context::Context;
 use tempo_common::config::Config;
 use tempo_common::network::NetworkId;
 

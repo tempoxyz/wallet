@@ -7,7 +7,7 @@ mod render;
 use anyhow::{bail, Result};
 
 use crate::cli::args::ServicesCommands;
-use crate::cli::Context;
+use tempo_common::cli::context::Context;
 
 use client::{fetch_services, simple_client};
 use render::{render_service_detail, render_service_list};

@@ -5,7 +5,7 @@ use anyhow::Result;
 use super::render::{render_channel_list, ChannelView};
 use super::{session_store, SessionStatus};
 use crate::cli::args::SessionStateArg;
-use crate::cli::Context;
+use tempo_common::cli::context::Context;
 use tempo_common::payment::session::channel::find_all_channels_for_payer;
 
 /// List payment sessions.

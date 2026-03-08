@@ -4,10 +4,10 @@ use anyhow::{Context as _, Result};
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 
-use tempo_common::error::TempoError;
+use tempo_common::error::PaymentError;
+use tempo_common::fmt::format_token_amount;
 use tempo_common::http::HttpResponse;
 use tempo_common::network::NetworkId;
-use tempo_common::util::format_token_amount;
 
 /// Parsed payment challenge extracted from a 402 response.
 pub(super) struct ParsedChallenge {
@@ -42,14 +42,14 @@ impl ParsedChallenge {
 pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedChallenge> {
     let www_auth = response
         .header("www-authenticate")
-        .ok_or_else(|| TempoError::MissingHeader("WWW-Authenticate".to_string()))?;
+        .ok_or_else(|| PaymentError::MissingHeader("WWW-Authenticate".to_string()))?;
 
     let challenge =
         mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
 
     // Enforce supported payment protocol (tempo only for now)
     if !challenge.method.eq_ignore_ascii_case("tempo") {
-        return Err(TempoError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
+        return Err(PaymentError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
     }
 
     let is_session = challenge.intent.is_session();
@@ -68,7 +68,7 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedC
                 session.currency,
             )
         } else {
-            return Err(TempoError::InvalidChallenge(
+            return Err(PaymentError::InvalidChallenge(
                 "unsupported payment challenge payload".to_string(),
             )
             .into());
@@ -86,10 +86,10 @@ pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedC
 /// Resolve a chain ID to a known `NetworkId`, or fail with a clear error.
 fn require_chain(chain_id: Option<u64>) -> Result<NetworkId> {
     let cid = chain_id.ok_or_else(|| {
-        TempoError::InvalidChallenge("missing chainId in payment request".to_string())
+        PaymentError::InvalidChallenge("missing chainId in payment request".to_string())
     })?;
     NetworkId::from_chain_id(cid)
-        .ok_or_else(|| TempoError::InvalidChallenge(format!("unsupported chainId: {cid}")).into())
+        .ok_or_else(|| PaymentError::InvalidChallenge(format!("unsupported chainId: {cid}")).into())
 }
 
 #[cfg(test)]

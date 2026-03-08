@@ -9,10 +9,11 @@ use anyhow::{Context as _, Result};
 use crate::cli::args::QueryArgs;
 use crate::cli::output;
 use crate::cli::output::{OutputFormat, OutputOptions};
-use tempo_common::error::TempoError;
+use tempo_common::error::{InputError, NetworkError};
 use tempo_common::http::{format_http_error, print_headers, HttpResponse};
 use tempo_common::network::NetworkId;
-use tempo_common::util::{hyperlink, Verbosity};
+use tempo_common::terminal::hyperlink;
+use tempo_common::util::Verbosity;
 
 /// Build `OutputOptions` from CLI arguments + config.
 ///
@@ -72,7 +73,7 @@ pub(super) fn handle_response(
     }
 
     if status >= 400 {
-        anyhow::bail!(TempoError::Http(format_http_error(status)));
+        anyhow::bail!(NetworkError::Http(format_http_error(status)));
     }
 
     Ok(())
@@ -229,7 +230,7 @@ fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<()> {
     } else {
         let path = Path::new(output_file);
         if path.components().any(|c| matches!(c, Component::ParentDir)) {
-            anyhow::bail!(TempoError::InvalidOutputPath(
+            anyhow::bail!(InputError::InvalidOutputPath(
                 "path traversal (..) not allowed".to_string()
             ));
         }
@@ -238,7 +239,7 @@ fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<()> {
             if let Ok(canonical) = parent.canonicalize() {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 if !path.is_absolute() && !canonical.starts_with(&cwd) {
-                    anyhow::bail!(TempoError::InvalidOutputPath(
+                    anyhow::bail!(InputError::InvalidOutputPath(
                         "resolved path escapes working directory".to_string()
                     ));
                 }

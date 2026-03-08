@@ -6,8 +6,9 @@ use crate::analytics::{Analytics, Event, EventPayload};
 use crate::config::Config;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
-use crate::output::OutputFormat;
 use crate::util::Verbosity;
+
+use super::output::OutputFormat;
 
 /// Input parameters required to build the shared runtime context.
 pub struct ContextArgs {

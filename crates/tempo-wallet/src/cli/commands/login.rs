@@ -13,12 +13,13 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
-use crate::cli::{Context, OutputFormat};
 use tempo_common::analytics::{self, Event};
-use tempo_common::error::TempoError;
+use tempo_common::cli::context::Context;
+use tempo_common::cli::output::OutputFormat;
+use tempo_common::error::{InputError, KeyError, NetworkError, TempoError};
 use tempo_common::keys::{Keystore, WalletType};
 use tempo_common::network::NetworkId;
-use tempo_common::util::sanitize_error;
+use tempo_common::redact::sanitize_error;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
@@ -54,9 +55,12 @@ fn track_login_result(a: &analytics::Analytics, result: &anyhow::Result<()>) {
     match result {
         Ok(_) => a.track_event(Event::LoginSuccess),
         Err(e) => {
-            let is_timeout = e
-                .chain()
-                .any(|cause| matches!(cause.downcast_ref(), Some(TempoError::LoginExpired)));
+            let is_timeout = e.chain().any(|cause| {
+                matches!(
+                    cause.downcast_ref(),
+                    Some(TempoError::Key(KeyError::LoginExpired))
+                )
+            });
             if is_timeout {
                 a.track_event(Event::LoginTimeout);
             } else {
@@ -76,7 +80,7 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
 
     let parsed_url = Url::parse(&auth_server_url)
-        .map_err(|e| TempoError::InvalidUrl(format!("auth server: {e}")))?;
+        .map_err(|e| InputError::InvalidUrl(format!("auth server: {e}")))?;
     let auth_base_url = parsed_url.origin().ascii_serialization();
 
     let local_signer = PrivateKeySigner::random();
@@ -181,22 +185,24 @@ async fn poll_until_authorized(
 
     loop {
         if start.elapsed() >= timeout {
-            return Err(TempoError::LoginExpired);
+            return Err(KeyError::LoginExpired.into());
         }
 
         let resp = poll_device_code(client, base_url, code, code_verifier).await?;
 
         if let Some(err) = &resp.error {
             if err.to_lowercase().contains("expired") {
-                return Err(TempoError::LoginExpired);
+                return Err(KeyError::LoginExpired.into());
             }
-            return Err(TempoError::Http(err.clone()));
+            return Err(NetworkError::Http(err.clone()).into());
         }
 
         if resp.status == PollStatus::Authorized {
             return Ok(AuthCallback {
                 account_address: resp.account_address.ok_or_else(|| {
-                    TempoError::Http("Missing account_address in authorized response".to_string())
+                    TempoError::from(NetworkError::Http(
+                        "Missing account_address in authorized response".to_string(),
+                    ))
                 })?,
                 key_authorization: resp.key_authorization,
                 duration_secs: start.elapsed().as_secs(),
@@ -287,15 +293,16 @@ async fn create_device_code(
         }))
         .send()
         .await
-        .map_err(|e| TempoError::Http(format!("Failed to create device code: {}", e)))?;
+        .map_err(|e| NetworkError::Http(format!("Failed to create device code: {}", e)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(TempoError::Http(format!(
+        return Err(NetworkError::Http(format!(
             "Device code request failed ({}): {}",
             status, body
-        )));
+        ))
+        .into());
     }
 
     #[derive(Deserialize)]
@@ -306,7 +313,12 @@ async fn create_device_code(
     resp.json::<DeviceCodeResponse>()
         .await
         .map(|r| r.code)
-        .map_err(|e| TempoError::Http(format!("Failed to parse device code response: {}", e)))
+        .map_err(|e| {
+            TempoError::from(NetworkError::Http(format!(
+                "Failed to parse device code response: {}",
+                e
+            )))
+        })
 }
 
 async fn poll_device_code(
@@ -323,24 +335,26 @@ async fn poll_device_code(
         }))
         .send()
         .await
-        .map_err(|e| TempoError::Http(format!("Failed to poll device code: {}", e)))?;
+        .map_err(|e| NetworkError::Http(format!("Failed to poll device code: {}", e)))?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err(TempoError::LoginExpired);
+        return Err(KeyError::LoginExpired.into());
     }
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(TempoError::Http(format!(
-            "Poll request failed ({}): {}",
-            status, body
-        )));
+        return Err(
+            NetworkError::Http(format!("Poll request failed ({}): {}", status, body)).into(),
+        );
     }
 
-    resp.json::<PollResponse>()
-        .await
-        .map_err(|e| TempoError::Http(format!("Failed to parse poll response: {}", e)))
+    resp.json::<PollResponse>().await.map_err(|e| {
+        TempoError::from(NetworkError::Http(format!(
+            "Failed to parse poll response: {}",
+            e
+        )))
+    })
 }
 
 fn generate_pkce_pair() -> (String, String) {

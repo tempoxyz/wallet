@@ -122,7 +122,7 @@ pub(crate) async fn build_key_info(
         (Some(entry.wallet_address.clone()), bal)
     };
 
-    let expires_at = key_expiry_timestamp(entry).map(tempo_common::util::format_utc_timestamp);
+    let expires_at = key_expiry_timestamp(entry).map(tempo_common::fmt::format_utc_timestamp);
 
     KeyInfo {
         label: label.to_string(),

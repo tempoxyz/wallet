@@ -1,10 +1,7 @@
 //! Data types for wallet keys.
 
-use alloy::signers::local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
-
-use crate::error::TempoError;
 
 /// Wallet type: local (self-custodial EOA in OS keychain) or passkey (browser auth).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,72 +90,5 @@ impl std::fmt::Debug for KeyEntry {
             .field("limits", &self.limits)
             .field("provisioned", &self.provisioned)
             .finish()
-    }
-}
-
-/// Wallet keys stored in keys.toml.
-///
-/// Supports multiple key entries via `[[keys]]` array of tables.
-/// Key selection is deterministic: passkey > first key with key > first key.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Keystore {
-    #[serde(default)]
-    pub keys: Vec<KeyEntry>,
-
-    /// Whether this keystore was built from an ephemeral `--private-key`
-    /// override. Ephemeral keystores are never written to disk.
-    #[serde(skip)]
-    pub ephemeral: bool,
-}
-
-/// Parse a private key hex string into a PrivateKeySigner.
-pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoError> {
-    let key = pk_str.trim();
-    let key_hex = key.strip_prefix("0x").unwrap_or(key);
-    let bytes = hex::decode(key_hex)
-        .map_err(|_| TempoError::InvalidKey("Invalid private key format".to_string()))?;
-    if bytes.len() != 32 {
-        return Err(TempoError::InvalidKey(
-            "Invalid private key format".to_string(),
-        ));
-    }
-    PrivateKeySigner::from_slice(&bytes).map_err(|e| TempoError::InvalidKey(e.to_string()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const TEST_PRIVATE_KEY: &str =
-        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-    const TEST_ADDRESS: &str = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-
-    #[test]
-    fn test_parse_private_key_signer_valid() {
-        let signer = parse_private_key_signer(TEST_PRIVATE_KEY).unwrap();
-        assert_eq!(
-            format!("{}", signer.address()).to_lowercase(),
-            TEST_ADDRESS.to_lowercase()
-        );
-    }
-
-    #[test]
-    fn test_parse_private_key_signer_no_prefix() {
-        let no_prefix = TEST_PRIVATE_KEY.strip_prefix("0x").unwrap();
-        let signer = parse_private_key_signer(no_prefix).unwrap();
-        assert_eq!(
-            format!("{}", signer.address()).to_lowercase(),
-            TEST_ADDRESS.to_lowercase()
-        );
-    }
-
-    #[test]
-    fn test_parse_private_key_signer_invalid_hex() {
-        assert!(parse_private_key_signer("not-hex").is_err());
-    }
-
-    #[test]
-    fn test_parse_private_key_signer_wrong_length() {
-        assert!(parse_private_key_signer("0xdeadbeef").is_err());
     }
 }

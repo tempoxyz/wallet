@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::TempoError;
+use crate::error::{ConfigError, TempoError};
 use crate::network::NetworkId;
 
 /// Application configuration (optional RPC overrides, telemetry).
@@ -62,7 +62,7 @@ impl Config {
         let (config_path, explicit) = if let Some(path) = config_path {
             let path = PathBuf::from(path.as_ref());
             if path.components().any(|c| matches!(c, Component::ParentDir)) {
-                return Err(TempoError::InvalidConfig(
+                return Err(ConfigError::Invalid(
                     "Invalid config path: path traversal (..) not allowed".to_string(),
                 )
                 .into());
@@ -74,7 +74,7 @@ impl Config {
 
         let mut config = if !config_path.exists() {
             if explicit {
-                anyhow::bail!(TempoError::ConfigMissing(format!(
+                anyhow::bail!(ConfigError::Missing(format!(
                     "Config file not found at {}.",
                     config_path.display()
                 )));
@@ -84,7 +84,7 @@ impl Config {
             config
         } else {
             let content = std::fs::read_to_string(&config_path).map_err(|e| {
-                TempoError::InvalidConfig(format!(
+                ConfigError::Invalid(format!(
                     "Failed to read config file at {}: {}",
                     config_path.display(),
                     e
@@ -92,7 +92,7 @@ impl Config {
             })?;
 
             toml::from_str(&content).map_err(|e| {
-                TempoError::InvalidConfig(format!(
+                ConfigError::Invalid(format!(
                     "Failed to parse config file at {}: {}",
                     config_path.display(),
                     e
@@ -113,7 +113,7 @@ impl Config {
     pub fn default_config_path() -> Result<PathBuf, TempoError> {
         dirs::config_dir()
             .map(|c| c.join("tempo").join("wallet").join("config.toml"))
-            .ok_or(TempoError::NoConfigDir)
+            .ok_or_else(|| ConfigError::NoConfigDir.into())
     }
 
     /// Write a default config file with helpful comments.

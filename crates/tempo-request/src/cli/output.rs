@@ -1,6 +1,6 @@
 //! Request CLI output helpers built on top of shared output primitives.
 
-pub(crate) use tempo_common::output::{
+pub(crate) use tempo_common::cli::output::{
     emit_by_format, format_structured_pretty_json, OutputFormat,
 };
 

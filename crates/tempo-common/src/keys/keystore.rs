@@ -2,12 +2,28 @@
 
 use alloy::primitives::Address;
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use crate::error::TempoError;
+use crate::error::{ConfigError, TempoError};
 use crate::network::NetworkId;
 
-use super::types::{parse_private_key_signer, KeyEntry, Keystore, WalletType};
+use super::model::{KeyEntry, WalletType};
+
+/// Wallet keys stored in keys.toml.
+///
+/// Supports multiple key entries via `[[keys]]` array of tables.
+/// Key selection is deterministic: passkey > first key with key > first key.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Keystore {
+    #[serde(default)]
+    pub keys: Vec<KeyEntry>,
+
+    /// Whether this keystore was built from an ephemeral `--private-key`
+    /// override. Ephemeral keystores are never written to disk.
+    #[serde(skip)]
+    pub ephemeral: bool,
+}
 
 impl Keystore {
     /// Create ephemeral keys from a raw private key (for `--private-key`).
@@ -15,7 +31,7 @@ impl Keystore {
     /// Derives the address from the key and creates a single-account
     /// key set with an inline key. Not written to disk.
     pub fn from_private_key(key: &str) -> Result<Self, TempoError> {
-        let signer = parse_private_key_signer(key)?;
+        let signer = super::parse_private_key_signer(key)?;
         let address = signer.address().to_string();
         let key_entry = KeyEntry {
             wallet_address: address.clone(),
@@ -80,7 +96,7 @@ impl Keystore {
                     network.as_str()
                 )
             };
-            anyhow::bail!(TempoError::ConfigMissing(msg));
+            anyhow::bail!(ConfigError::Missing(msg));
         }
 
         Ok(())
@@ -163,9 +179,10 @@ impl Keystore {
                 && k.wallet_address.eq_ignore_ascii_case(wallet_address))
         });
         if self.keys.len() == before {
-            return Err(TempoError::ConfigMissing(format!(
+            return Err(ConfigError::Missing(format!(
                 "No passkey wallet found for '{wallet_address}'."
-            )));
+            ))
+            .into());
         }
         Ok(())
     }

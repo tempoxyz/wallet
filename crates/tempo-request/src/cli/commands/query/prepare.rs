@@ -4,8 +4,8 @@ use anyhow::Result;
 use base64::Engine;
 
 use crate::cli::args::QueryArgs;
-use crate::cli::Context;
-use tempo_common::error::TempoError;
+use tempo_common::cli::context::Context;
+use tempo_common::error::InputError;
 use tempo_common::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
 use tempo_common::network::NetworkId;
 
@@ -43,10 +43,10 @@ pub(super) fn prepare(ctx: &Context, query: &QueryArgs) -> Result<PreparedReques
 
 /// Parse and validate a URL, ensuring it uses http or https.
 fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
-    let parsed = url::Url::parse(raw).map_err(|e| TempoError::InvalidUrl(e.to_string()))?;
+    let parsed = url::Url::parse(raw).map_err(|e| InputError::InvalidUrl(e.to_string()))?;
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
-        anyhow::bail!(TempoError::InvalidUrl(format!(
+        anyhow::bail!(InputError::InvalidUrl(format!(
             "unsupported scheme '{scheme}'"
         )));
     }
@@ -74,7 +74,7 @@ fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan> {
     for header in &query.headers {
         validate_header_size(header)?;
         if header.contains('\r') || header.contains('\n') {
-            anyhow::bail!(TempoError::InvalidHeader(
+            anyhow::bail!(InputError::InvalidHeader(
                 "header contains CR/LF characters".to_string()
             ));
         }

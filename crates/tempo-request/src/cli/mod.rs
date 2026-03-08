@@ -4,4 +4,3 @@ pub(super) mod dispatch;
 pub(crate) mod output;
 
 pub(crate) use args::Cli;
-pub(crate) use tempo_common::context::Context;

@@ -1,4 +1,4 @@
-//! Payment dispatch: route 402 flows to charge or session payment paths.
+//! Payment routing: route 402 flows to charge or session payment paths.
 //!
 //! This module is crate-internal and intentionally decoupled from CLI types.
 
@@ -7,7 +7,7 @@ use anyhow::Result;
 use mpp::PaymentChallenge;
 
 use crate::config::Config;
-use crate::error::TempoError;
+use crate::error::PaymentError;
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::Keystore;
 use crate::network::NetworkId;
@@ -46,7 +46,7 @@ pub async fn dispatch_payment(
 ) -> Result<PaymentResult> {
     if let Some(allowed) = http.network {
         if allowed != network {
-            return Err(TempoError::InvalidChallenge(format!(
+            return Err(PaymentError::InvalidChallenge(format!(
                 "Server requested network '{}' but --network is '{}'",
                 network, allowed
             ))

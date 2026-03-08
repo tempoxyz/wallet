@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use tempo_common::error::TempoError;
+use tempo_common::error::InputError;
 
 /// Maximum header size (8 KB)
 const MAX_HEADER_SIZE: usize = 8 * 1024;
@@ -10,7 +10,7 @@ const MAX_HEADER_SIZE: usize = 8 * 1024;
 /// Reject a raw header string that exceeds the maximum allowed size.
 pub(super) fn validate_header_size(header: &str) -> Result<()> {
     if header.len() > MAX_HEADER_SIZE {
-        anyhow::bail!(TempoError::HeaderTooLarge(MAX_HEADER_SIZE));
+        anyhow::bail!(InputError::HeaderTooLarge(MAX_HEADER_SIZE));
     }
     Ok(())
 }

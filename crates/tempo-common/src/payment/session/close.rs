@@ -22,10 +22,10 @@ use super::tx::submit_tempo_tx;
 use super::DEFAULT_GRACE_PERIOD_SECS;
 use crate::analytics::{Analytics, Event};
 use crate::config::Config;
-use crate::error::TempoError;
+use crate::error::PaymentError;
+use crate::fmt::format_token_amount;
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
-use crate::util::format_token_amount;
 
 /// Close a session from a persisted record.
 ///
@@ -243,7 +243,7 @@ async fn try_server_close(
             .unwrap_or_else(|_| String::from("<no body>"));
         let reason = crate::payment::error::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(200).collect());
-        return Err(TempoError::PaymentRejected {
+        return Err(PaymentError::PaymentRejected {
             reason,
             status_code: status.as_u16(),
         }
@@ -293,7 +293,7 @@ async fn close_on_chain(
     // Check current channel state to determine which step we're on
     let on_chain = get_channel_on_chain(&provider, escrow_contract, channel_id)
         .await?
-        .ok_or(TempoError::InvalidChallenge(
+        .ok_or(PaymentError::InvalidChallenge(
             "Channel no longer exists on-chain".to_string(),
         ))?;
 
@@ -455,7 +455,7 @@ pub async fn close_channel_by_id(
 
     let on_chain = get_channel_on_chain(&provider, escrow, channel_id)
         .await?
-        .ok_or_else(|| TempoError::ChannelNotFound {
+        .ok_or_else(|| PaymentError::ChannelNotFound {
             channel_id: channel_id_hex.to_string(),
             network: network.as_str().to_string(),
         })?;

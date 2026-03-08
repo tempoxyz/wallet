@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use mpp::client::tempo::{charge::tx_builder, signing};
 
-use crate::error::TempoError;
+use crate::error::{ConfigError, KeyError, NetworkError, PaymentError};
 use crate::http::{HttpClient, HttpResponse};
 use crate::keys::Signer;
 
@@ -94,9 +94,9 @@ async fn resolve_and_sign_tx(
                 valid_before,
             )
             .await
-            .map_err(|e| TempoError::Signing(e.to_string()))?
+            .map_err(|e| KeyError::Signing(e.to_string()))?
         }
-        Err(e) => return Err(TempoError::Signing(e.to_string()).into()),
+        Err(e) => return Err(KeyError::Signing(e.to_string()).into()),
     };
 
     let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
@@ -116,7 +116,7 @@ async fn resolve_and_sign_tx(
     Ok(
         signing::sign_and_encode_async(tx, &wallet.signer, &wallet.signing_mode)
             .await
-            .map_err(|e| TempoError::Signing(e.to_string()))?,
+            .map_err(|e| KeyError::Signing(e.to_string()))?,
     )
 }
 
@@ -136,7 +136,7 @@ pub async fn submit_tempo_tx(
     let pending = provider
         .send_raw_transaction(&tx_bytes)
         .await
-        .map_err(|e| TempoError::Http(format!("Failed to broadcast transaction: {e:#}")))?;
+        .map_err(|e| NetworkError::Http(format!("Failed to broadcast transaction: {e:#}")))?;
 
     Ok(format!("{:#x}", pending.tx_hash()))
 }
@@ -158,7 +158,7 @@ pub async fn create_tempo_payment_from_calls(
 ) -> Result<TempoPaymentResult> {
     let rpc_url: url::Url = rpc_url_str
         .parse()
-        .map_err(|e| TempoError::InvalidConfig(format!("invalid RPC URL: {}", e)))?;
+        .map_err(|e| ConfigError::Invalid(format!("invalid RPC URL: {}", e)))?;
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;
@@ -200,20 +200,20 @@ pub async fn send_open_with_retry(
                     let nb = next.body_string().unwrap_or_default();
                     let reason = crate::payment::error::extract_json_error(&nb)
                         .unwrap_or_else(|| truncate(nb));
-                    return Err(TempoError::PaymentRejected {
+                    return Err(PaymentError::PaymentRejected {
                         reason,
                         status_code: next.status_code,
                     }
                     .into());
                 }
             }
-            return Err(TempoError::PaymentRejected {
+            return Err(PaymentError::PaymentRejected {
                 reason: "Server could not find channel after retries".to_string(),
                 status_code: 410,
             }
             .into());
         } else {
-            return Err(TempoError::PaymentRejected {
+            return Err(PaymentError::PaymentRejected {
                 reason: truncate(body),
                 status_code: 410,
             }
@@ -223,7 +223,7 @@ pub async fn send_open_with_retry(
 
     let body = resp.body_string().unwrap_or_default();
     let reason = crate::payment::error::extract_json_error(&body).unwrap_or_else(|| truncate(body));
-    Err(TempoError::PaymentRejected {
+    Err(PaymentError::PaymentRejected {
         reason,
         status_code: resp.status_code,
     }

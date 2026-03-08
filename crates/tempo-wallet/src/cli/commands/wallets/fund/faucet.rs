@@ -5,10 +5,11 @@ use std::time::Duration;
 use alloy::providers::{Provider, ProviderBuilder};
 
 use crate::account::{query_all_balances, TokenBalance};
-use crate::cli::{Context, OutputFormat};
-use tempo_common::error::TempoError;
-use tempo_common::output;
-use tempo_common::util::address_link;
+use tempo_common::cli::context::Context;
+use tempo_common::cli::output;
+use tempo_common::cli::output::OutputFormat;
+use tempo_common::error::NetworkError;
+use tempo_common::terminal::address_link;
 
 use super::{
     has_balance_changed, poll_until, render_balance_diff, FundResponse, POLL_INTERVAL_SECS,
@@ -31,7 +32,7 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
     let result: serde_json::Value = provider
         .raw_request("tempo_fundAddress".into(), [address])
         .await
-        .map_err(|e| TempoError::Http(format!("Faucet request failed: {e}")))?;
+        .map_err(|e| NetworkError::Http(format!("Faucet request failed: {e}")))?;
 
     tracing::debug!("Faucet RPC response: {result}");
 

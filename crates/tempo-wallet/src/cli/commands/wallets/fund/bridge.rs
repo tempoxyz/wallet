@@ -5,9 +5,10 @@ use std::time::{Duration, Instant};
 use qrcode::render::unicode;
 
 use crate::account::{query_all_balances, TokenBalance};
-use crate::cli::{Context, OutputFormat};
-use tempo_common::output;
-use tempo_common::util::address_link;
+use tempo_common::cli::context::Context;
+use tempo_common::cli::output;
+use tempo_common::cli::output::OutputFormat;
+use tempo_common::terminal::address_link;
 
 use super::relay::{
     create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,

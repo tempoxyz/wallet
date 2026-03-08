@@ -13,7 +13,7 @@ const KEYS_FILE_NAME: &str = "keys.toml";
 impl Keystore {
     /// Get the keys.toml file path.
     pub fn keys_path() -> Result<PathBuf, TempoError> {
-        Ok(crate::util::data_dir()?.join(KEYS_FILE_NAME))
+        Ok(crate::paths::data_dir()?.join(KEYS_FILE_NAME))
     }
 
     /// Reload wallet keys from disk.

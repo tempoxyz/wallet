@@ -4,7 +4,7 @@ use alloy::primitives::Address;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use tempo_common::error::TempoError;
+use tempo_common::error::NetworkError;
 use tempo_common::network;
 
 /// Truncate a response body for error messages (max 500 chars).
@@ -107,7 +107,7 @@ pub(super) async fn create_deposit_address(
 
     if !status.is_success() {
         let truncated = truncate_response(&text);
-        anyhow::bail!(TempoError::Http(format!(
+        anyhow::bail!(NetworkError::Http(format!(
             "Relay API returned {status}: {truncated}"
         )));
     }
@@ -137,7 +137,7 @@ pub(super) async fn create_deposit_address(
         }
     }
 
-    anyhow::bail!(TempoError::Http(
+    anyhow::bail!(NetworkError::Http(
         "No deposit step found in Relay response".to_string()
     ))
 }
@@ -182,7 +182,7 @@ pub(super) async fn poll_deposit_status(
 
     if !status.is_success() {
         let truncated = truncate_response(&text);
-        anyhow::bail!(TempoError::Http(format!(
+        anyhow::bail!(NetworkError::Http(format!(
             "Relay API returned {status}: {truncated}"
         )));
     }

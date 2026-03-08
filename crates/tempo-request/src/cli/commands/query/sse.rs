@@ -6,9 +6,9 @@ use anyhow::Result;
 use futures::StreamExt;
 
 use crate::cli::output::OutputOptions;
-use tempo_common::error::TempoError;
+use tempo_common::error::NetworkError;
+use tempo_common::fmt::now_utc;
 use tempo_common::http::{format_http_error, headers_from_reqwest, print_headers, HttpClient};
-use tempo_common::util::now_utc;
 
 use super::output::write_meta_if_requested;
 
@@ -93,10 +93,10 @@ pub(super) async fn run(
     // Errors are checked *after* the stream is fully consumed so that partial
     // output is still delivered to the caller (important for long-running SSE
     // streams where the server may send useful data before a late error).
-    let error: Option<TempoError> = if status == 402 {
-        Some(TempoError::StreamingPaymentUnsupported)
+    let error: Option<NetworkError> = if status == 402 {
+        Some(NetworkError::StreamingPaymentUnsupported)
     } else if status >= 400 {
-        Some(TempoError::Http(format_http_error(status)))
+        Some(NetworkError::Http(format_http_error(status)))
     } else {
         None
     };

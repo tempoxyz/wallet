@@ -11,8 +11,8 @@ use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
-use super::persist::persist_session;
 use super::state::{SessionContext, SessionState};
+use super::store::persist_session;
 use super::voucher::build_voucher_credential;
 
 /// Post a voucher to the server in a background task.
@@ -160,7 +160,7 @@ pub async fn stream_sse_response(
         }
 
         if buffer.len() > MAX_BUFFER_SIZE {
-            return Err(crate::error::TempoError::Http(
+            return Err(crate::error::NetworkError::Http(
                 format!("SSE buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event — aborting stream")
             ).into());
         }
@@ -262,7 +262,7 @@ pub async fn stream_sse_response(
     if runtime.log_enabled() {
         eprintln!("Tokens streamed: {}", token_count);
         let cumulative_display =
-            crate::util::format_token_amount(state.cumulative_amount, ctx.network_id);
+            crate::fmt::format_token_amount(state.cumulative_amount, ctx.network_id);
         eprintln!("Voucher cumulative: {cumulative_display}");
     }
 

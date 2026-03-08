@@ -2,7 +2,7 @@
 
 use clap::Parser;
 
-use tempo_common::output::OutputFormat;
+use tempo_common::cli::output::OutputFormat;
 
 /// Long version string including git commit, build date, and profile.
 const LONG_VERSION: &str = concat!(

@@ -65,42 +65,19 @@ impl From<&anyhow::Error> for ExitCode {
 
 impl From<&crate::error::TempoError> for ExitCode {
     fn from(err: &crate::error::TempoError) -> Self {
-        use crate::error::TempoError;
+        use crate::error::{KeyError, TempoError};
 
         match err {
-            TempoError::ConfigMissing(_)
-            | TempoError::InvalidConfig(_)
-            | TempoError::NoConfigDir
-            | TempoError::TomlParse(_)
-            | TempoError::TomlSerialize(_) => ExitCode::InvalidUsage,
-            TempoError::SpendingLimitExceeded { .. }
-            | TempoError::InsufficientBalance { .. }
-            | TempoError::PaymentRejected { .. }
-            | TempoError::TransactionReverted(_)
-            | TempoError::ChannelNotFound { .. }
-            | TempoError::AccessKeyNotProvisioned { .. }
-            | TempoError::InvalidChallenge(_)
-            | TempoError::MissingHeader(_)
-            | TempoError::ChallengeExpired(_)
-            | TempoError::UnsupportedPaymentMethod(_)
-            | TempoError::UnsupportedPaymentIntent(_)
-            | TempoError::Mpp(_) => ExitCode::PaymentFailed,
-            TempoError::UnknownNetwork(_)
-            | TempoError::Http(_)
-            | TempoError::StreamingPaymentUnsupported
-            | TempoError::Reqwest(_)
-            | TempoError::OfflineMode => ExitCode::NetworkError,
-            TempoError::InvalidKey(_) | TempoError::Signing(_) | TempoError::InvalidAddress(_) => {
-                ExitCode::InvalidUsage
-            }
-            TempoError::InvalidUrl(_)
-            | TempoError::InvalidHeader(_)
-            | TempoError::InvalidOutputPath(_)
-            | TempoError::BodyTooLarge(_)
-            | TempoError::HeaderTooLarge(_) => ExitCode::InvalidUsage,
-            TempoError::ReadStdin(_) | TempoError::ReadFile { .. } => ExitCode::GeneralError,
-            TempoError::Keychain(_) | TempoError::LoginExpired => ExitCode::GeneralError,
-            TempoError::Json(_) | TempoError::Io(_) => ExitCode::GeneralError,
+            TempoError::Config(_) => ExitCode::InvalidUsage,
+            TempoError::Key(k) => match k {
+                KeyError::Keychain(_) | KeyError::LoginExpired => ExitCode::GeneralError,
+                _ => ExitCode::InvalidUsage,
+            },
+            TempoError::Input(_) => ExitCode::InvalidUsage,
+            TempoError::Network(_) => ExitCode::NetworkError,
+            TempoError::Payment(_) => ExitCode::PaymentFailed,
+            TempoError::Io(_) | TempoError::Json(_) => ExitCode::GeneralError,
+            TempoError::TomlParse(_) | TempoError::TomlSerialize(_) => ExitCode::InvalidUsage,
         }
     }
 }
