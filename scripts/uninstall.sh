@@ -22,7 +22,7 @@ echo ""
 # ── Remove binaries ──────────────────────────────────────────────────
 echo -e "${BOLD}Removing binaries...${RESET}"
 for dir in ~/.tempo/bin ~/.cargo/bin ~/.local/bin /usr/local/bin; do
-  for bin in tempo tempo-wallet tempo-mpp tempo-core tempo-sign presto; do
+  for bin in tempo tempo-wallet tempo-mpp tempo-request tempo-core tempo-sign presto; do
     if [[ -f "$dir/$bin" ]]; then
       if rm -f "$dir/$bin" 2>/dev/null || sudo rm -f "$dir/$bin" 2>/dev/null; then
         ok "Removed $dir/$bin"
@@ -72,7 +72,7 @@ for dir in \
   ~/.kiro/skills \
   ~/.augment/skills \
   ~/.trae/skills; do
-  for skill in tempo-wallet tempo-mpp tempo presto; do
+  for skill in tempo-wallet tempo-mpp tempo-request tempo presto; do
     if [[ -d "$dir/$skill" ]]; then
       rm -rf "$dir/$skill"
       ok "Removed $dir/$skill"
@@ -88,7 +88,7 @@ fi
 echo ""
 echo -e "${BOLD}Verifying...${RESET}"
 all_clear=1
-for bin in tempo tempo-wallet tempo-mpp tempo-core tempo-sign presto; do
+for bin in tempo tempo-wallet tempo-mpp tempo-request tempo-core tempo-sign presto; do
   loc=$(which "$bin" 2>/dev/null || true)
   if [[ -n "$loc" ]]; then
     fail "$bin still found at $loc"

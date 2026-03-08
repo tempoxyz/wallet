@@ -344,19 +344,21 @@ mod tests {
     use clap::Parser;
     use url::Url;
 
-    use crate::cli::args::{Cli, Commands};
+    use crate::cli::args::Cli;
 
     /// Parse a CLI invocation into both `Cli` and `QueryArgs` for testing.
     fn parse(args: &[&str]) -> (Cli, QueryArgs) {
-        let all: Vec<&str> = std::iter::once("tempo-wallet")
-            .chain(std::iter::once("query"))
+        let all: Vec<&str> = std::iter::once("tempo-request")
             .chain(args.iter().copied())
             .collect();
-        let mut cli = Cli::try_parse_from(all).unwrap();
-        let query = match cli.command.take() {
-            Some(Commands::Query(q)) => *q,
-            _ => panic!("expected Query command"),
-        };
+        let cli = Cli::try_parse_from(all).unwrap();
+        let query = cli.query;
+        let cli = Cli::try_parse_from(
+            std::iter::once("tempo-request")
+                .chain(args.iter().copied())
+                .collect::<Vec<&str>>(),
+        )
+        .unwrap();
         (cli, query)
     }
 
@@ -365,7 +367,7 @@ mod tests {
         let (c, q) = parse(&["-O", "https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.verbosity(), &q, &url);
+        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
         assert_eq!(opts.output_file.as_deref(), Some("file.txt"));
     }
 
@@ -374,7 +376,7 @@ mod tests {
         let (c, q) = parse(&["-O", "https://example.com/"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.verbosity(), &q, &url);
+        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
         assert_eq!(opts.output_file.as_deref(), Some("index.html"));
     }
 
@@ -383,7 +385,7 @@ mod tests {
         let (c, q) = parse(&["-I", "https://example.com"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.verbosity(), &q, &url);
+        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
         assert!(opts.include_headers);
     }
 
@@ -392,7 +394,7 @@ mod tests {
         let (c, q) = parse(&["-o", "custom.txt", "https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.verbosity(), &q, &url);
+        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
         assert_eq!(opts.output_file.as_deref(), Some("custom.txt"));
     }
 
@@ -401,7 +403,7 @@ mod tests {
         let (c, q) = parse(&["https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.verbosity(), &q, &url);
+        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
         assert!(opts.output_file.is_none());
         assert!(!opts.include_headers);
         assert_eq!(opts.output_format, OutputFormat::Text);
@@ -412,7 +414,7 @@ mod tests {
         let (c, q) = parse(&["-j", "https://example.com"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.verbosity(), &q, &url);
+        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
         assert_eq!(opts.output_format, OutputFormat::Json);
     }
 }

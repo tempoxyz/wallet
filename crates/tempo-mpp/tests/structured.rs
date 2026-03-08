@@ -84,40 +84,6 @@ fn sessions_sync_empty_json_and_toon_shape() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn query_json_and_toon_body_shape() {
-    let app = Router::new().route(
-        "/json",
-        get(|| async { Json(serde_json::json!({"ok": true, "count": 2})) }),
-    );
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .unwrap();
-    });
-
-    let temp = TestConfigBuilder::new().build();
-    let url = format!("http://{addr}/json");
-    let (json_out, json, toon_out, toon) = run_both(&temp, &[&url]);
-    assert_clean_stderr(&json_out);
-    assert_clean_stderr(&toon_out);
-    assert_eq!(json["ok"], true);
-    assert_eq!(json["count"], 2);
-    assert_eq!(toon["ok"], true);
-    assert_eq!(toon["count"], 2);
-
-    let _ = shutdown_tx.send(());
-    let _ = server.await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn services_json_and_toon_shapes() {
     let payload = serde_json::json!({
         "services": [

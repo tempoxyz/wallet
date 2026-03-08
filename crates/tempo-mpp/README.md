@@ -1,12 +1,11 @@
 # tempo-mpp
 
-HTTP client extension for the Tempo CLI with built-in [MPP](https://mpp.dev) payment support. Makes HTTP requests and automatically handles `402 Payment Required` responses.
+MPP session and service management extension for the Tempo CLI. Browse available services and manage payment sessions and channels.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `tempo mpp <URL>` | Make an HTTP request with automatic payment |
 | `tempo mpp services` | Browse the MPP service directory |
 | `tempo mpp services info <ID>` | Show detailed info for a service |
 | `tempo mpp sessions list` | List payment sessions |
@@ -17,16 +16,11 @@ HTTP client extension for the Tempo CLI with built-in [MPP](https://mpp.dev) pay
 ## Usage
 
 ```bash
-# Make a paid API request
-tempo mpp https://openrouter.mpp.tempo.xyz/v1/chat/completions \
-  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
-
-# Preview cost without paying
-tempo mpp --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
-  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
-
 # Browse services
 tempo mpp services
+
+# List sessions
+tempo mpp sessions list
 ```
 
 ## License

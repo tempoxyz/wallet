@@ -1,8 +1,8 @@
 [package]
-name = "tempo-mpp"
+name = "tempo-request"
 version = "0.1.0"
 edition = "2021"
-description = "MPP session and service operations"
+description = "HTTP request extension with MPP payment support"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tempoxyz/wallet"
 readme = "../../README.md"
@@ -10,7 +10,7 @@ keywords = ["http", "cli", "payments", "mpp"]
 categories = ["command-line-utilities"]
 
 [[bin]]
-name = "tempo-mpp"
+name = "tempo-request"
 path = "src/main.rs"
 
 [dependencies]
@@ -19,7 +19,6 @@ alloy.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 clap.workspace = true
-clap_complete.workspace = true
 colored.workspace = true
 dirs.workspace = true
 ed25519-dalek.workspace = true
