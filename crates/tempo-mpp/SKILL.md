@@ -1,5 +1,5 @@
 ---
-name: tempo mpp
+name: tempo-mpp
 description: "MPP sessions and service directory — browse available paid APIs and manage payment channels. Use `tempo mpp services` to discover endpoints, `tempo request <URL>` to make requests."
 ---
 
