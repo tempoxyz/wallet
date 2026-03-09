@@ -443,11 +443,12 @@ fn verify_signature(
     encoded_signature: &str,
     public_key: &PublicKey,
 ) -> Result<(), InstallerError> {
-    let signature =
-        MinisignSignature::decode(encoded_signature).map_err(|err| InstallerError::SignatureFormat {
+    let signature = MinisignSignature::decode(encoded_signature).map_err(|err| {
+        InstallerError::SignatureFormat {
             field: "release signature",
             details: err.to_string(),
-        })?;
+        }
+    })?;
 
     public_key
         .verify(data, &signature, false)
@@ -582,8 +583,7 @@ fn install_skill(
     let skill_name = format!("tempo-{extension} skill");
     match encoded_signature {
         Some(sig) => {
-            if let Err(err) = verify_signature(&skill_name, content.as_bytes(), sig, public_key)
-            {
+            if let Err(err) = verify_signature(&skill_name, content.as_bytes(), sig, public_key) {
                 eprintln!("warn: {err}, skipping skill install");
                 return;
             }

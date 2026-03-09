@@ -100,10 +100,13 @@ fn generate_key(path: &str) {
         process::exit(1);
     });
 
-    let sk_box_str = sk.to_box(None).unwrap_or_else(|err| {
-        eprintln!("error: failed to box secret key: {err}");
-        process::exit(1);
-    }).to_string();
+    let sk_box_str = sk
+        .to_box(None)
+        .unwrap_or_else(|err| {
+            eprintln!("error: failed to box secret key: {err}");
+            process::exit(1);
+        })
+        .to_string();
 
     fs::write(path, &sk_box_str).unwrap_or_else(|err| {
         eprintln!("error: failed to write key file: {err}");
