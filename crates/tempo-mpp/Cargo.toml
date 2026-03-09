@@ -18,6 +18,7 @@ tempo-common = { path = "../tempo-common" }
 alloy.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+mpp.workspace = true
 clap_complete.workspace = true
 reqwest.workspace = true
 serde.workspace = true

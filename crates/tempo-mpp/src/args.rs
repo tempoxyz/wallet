@@ -68,6 +68,24 @@ pub(crate) enum Commands {
         search: Option<String>,
     },
 
+    /// Sign an MPP payment challenge and output the Authorization header
+    ///
+    /// Reads a WWW-Authenticate header value (the Payment challenge from a 402
+    /// response), runs the full Tempo signing flow, and prints the Authorization
+    /// header value ready to send.
+    ///
+    /// The challenge can be passed via --challenge or piped through stdin.
+    #[command(display_order = 3, name = "sign")]
+    Sign {
+        /// Pass the WWW-Authenticate challenge value directly
+        #[arg(long, value_name = "VALUE")]
+        challenge: Option<String>,
+
+        /// Validate and parse the challenge without signing
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Generate shell completions script
     #[command(hide = true)]
     Completions {
