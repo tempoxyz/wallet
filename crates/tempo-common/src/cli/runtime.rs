@@ -11,7 +11,7 @@ pub enum ColorMode {
 }
 
 /// Initialize tracing subscriber based on CLI verbosity and environment.
-pub fn init_tracing(silent: bool, verbose: u8, target_crates: &[&str]) {
+pub(crate) fn init_tracing(silent: bool, verbose: u8, target_crates: &[&str]) {
     use tracing_subscriber::EnvFilter;
 
     let filter = if silent {
@@ -60,7 +60,7 @@ pub fn init_tracing(silent: bool, verbose: u8, target_crates: &[&str]) {
 }
 
 /// Initialize color support based on user preference and NO_COLOR env var.
-pub fn init_color_support(color: ColorMode) {
+pub(crate) fn init_color_support(color: ColorMode) {
     use colored::control;
     use std::io::IsTerminal;
 
@@ -78,7 +78,7 @@ pub fn init_color_support(color: ColorMode) {
 }
 
 /// Build a structured error payload used by extension binaries.
-pub fn render_error_payload(err: &anyhow::Error, code: &str) -> serde_json::Value {
+pub(crate) fn render_error_payload(err: &anyhow::Error, code: &str) -> serde_json::Value {
     let message = err.to_string();
     let cause = err.chain().nth(1).map(|c| c.to_string());
 
@@ -97,6 +97,6 @@ pub fn render_error_payload(err: &anyhow::Error, code: &str) -> serde_json::Valu
 }
 
 /// Fallback structured error string when formatting fails.
-pub fn render_error_fallback(code: &str) -> String {
+pub(crate) fn render_error_fallback(code: &str) -> String {
     format!("{{\"code\":\"{code}\",\"message\":\"error\"}}")
 }

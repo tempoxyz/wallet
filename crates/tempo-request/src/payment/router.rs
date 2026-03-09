@@ -13,7 +13,7 @@ use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
 
 use super::charge::handle_charge_request;
-use super::session::flow::handle_session_request;
+use super::session::handle_session_request;
 
 /// Parsed challenge with resolved network, shared by charge and session flows.
 pub(crate) struct ResolvedChallenge {

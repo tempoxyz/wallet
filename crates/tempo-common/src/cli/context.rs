@@ -11,13 +11,13 @@ use crate::util::Verbosity;
 use super::output::OutputFormat;
 
 /// Input parameters required to build the shared runtime context.
-pub struct ContextArgs {
-    pub config_path: Option<String>,
-    pub rpc_url: Option<String>,
-    pub requested_network: Option<String>,
-    pub private_key: Option<String>,
-    pub output_format: OutputFormat,
-    pub verbosity: Verbosity,
+pub(crate) struct ContextArgs {
+    pub(crate) config_path: Option<String>,
+    pub(crate) rpc_url: Option<String>,
+    pub(crate) requested_network: Option<String>,
+    pub(crate) private_key: Option<String>,
+    pub(crate) output_format: OutputFormat,
+    pub(crate) verbosity: Verbosity,
 }
 
 /// Shared runtime context used by extension command handlers.
@@ -54,7 +54,7 @@ impl Context {
     }
 
     /// Build the shared runtime context from parsed CLI arguments.
-    pub async fn build(args: ContextArgs) -> Result<Self> {
+    pub(crate) async fn build(args: ContextArgs) -> Result<Self> {
         let config = Config::load(args.config_path.as_ref(), args.rpc_url.as_deref())?;
         let requested_network = args
             .requested_network

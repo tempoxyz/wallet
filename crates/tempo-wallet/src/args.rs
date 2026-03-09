@@ -2,8 +2,6 @@
 
 use clap::{Parser, Subcommand};
 
-use tempo_common::cli::output::OutputFormat;
-
 /// Long version string including git commit, build date, and profile.
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
@@ -98,14 +96,4 @@ pub(crate) enum KeyCommands {
         #[arg(long)]
         yes: bool,
     },
-}
-
-impl Cli {
-    pub(crate) fn parse() -> Self {
-        tempo_common::cli::parse_cli()
-    }
-
-    pub(crate) fn resolve_output_format(&self) -> OutputFormat {
-        self.global.resolve_output_format()
-    }
 }

@@ -289,25 +289,25 @@ impl Event {
 pub trait EventPayload: Serialize + Send + Sync + 'static {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct EmptyPayload;
+pub(crate) struct EmptyPayload;
 impl EventPayload for EmptyPayload {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CommandRunPayload {
-    pub command: String,
+pub(crate) struct CommandRunPayload {
+    pub(crate) command: String,
 }
 impl EventPayload for CommandRunPayload {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CommandFailurePayload {
-    pub command: String,
-    pub error: String,
+pub(crate) struct CommandFailurePayload {
+    pub(crate) command: String,
+    pub(crate) error: String,
 }
 impl EventPayload for CommandFailurePayload {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CoopClosePayload {
-    pub network: String,
-    pub channel_id: String,
+pub(crate) struct CoopClosePayload {
+    pub(crate) network: String,
+    pub(crate) channel_id: String,
 }
 impl EventPayload for CoopClosePayload {}

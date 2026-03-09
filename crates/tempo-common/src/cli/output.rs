@@ -112,7 +112,10 @@ fn quote_toon_ambiguous_hex_literals(input: &str) -> String {
 }
 
 /// Render a structured payload as a string (`json` compact or `toon`).
-pub fn format_structured(format: OutputFormat, value: &impl Serialize) -> anyhow::Result<String> {
+pub(crate) fn format_structured(
+    format: OutputFormat,
+    value: &impl Serialize,
+) -> anyhow::Result<String> {
     debug_assert!(format.is_structured());
     format.serialize(value)
 }
@@ -179,7 +182,7 @@ pub fn run_text_only(
 }
 
 /// Emit already-formatted output text to stdout, falling back to a static string on failures.
-pub fn emit_formatted_or_fallback(
+pub(crate) fn emit_formatted_or_fallback(
     formatter: impl FnOnce() -> anyhow::Result<String>,
     fallback: impl FnOnce() -> String,
 ) {

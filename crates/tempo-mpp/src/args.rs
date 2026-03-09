@@ -2,8 +2,6 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use tempo_common::cli::output::OutputFormat;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub(crate) enum SessionStateArg {
     Active,
@@ -130,15 +128,4 @@ pub(crate) enum ServicesCommands {
         /// Service ID (e.g. openai, anthropic)
         service_id: String,
     },
-}
-
-impl Cli {
-    pub(crate) fn parse() -> Self {
-        tempo_common::cli::parse_cli()
-    }
-
-    /// Resolve the effective output format: CLI flag > default (text).
-    pub(crate) fn resolve_output_format(&self) -> OutputFormat {
-        self.global.resolve_output_format()
-    }
 }

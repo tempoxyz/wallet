@@ -1,7 +1,7 @@
 //! Shared CLI infrastructure for Tempo extension binaries.
 
 pub mod context;
-pub mod exit_code;
+pub(crate) mod exit_code;
 pub mod output;
 pub mod runtime;
 
@@ -116,7 +116,7 @@ impl GlobalArgs {
     }
 
     /// Build a `ContextArgs` for context construction.
-    pub fn context_args(&self) -> ContextArgs {
+    pub(crate) fn context_args(&self) -> ContextArgs {
         ContextArgs {
             config_path: self.config.clone(),
             rpc_url: self.rpc_url.clone(),
@@ -128,14 +128,14 @@ impl GlobalArgs {
     }
 
     /// Build the shared runtime context from these global args.
-    pub async fn build_context(&self) -> anyhow::Result<Context> {
+    pub(crate) async fn build_context(&self) -> anyhow::Result<Context> {
         Context::build(self.context_args()).await
     }
 
     /// Print structured version info for JSON/TOON output formats, then exit.
     ///
     /// Call this from `handle_version` in each binary's CLI parser.
-    pub fn emit_structured_version(args: &[String]) {
+    pub(crate) fn emit_structured_version(args: &[String]) {
         let format = if args.iter().any(|a| a == "-j" || a == "--json-output") {
             Some(OutputFormat::Json)
         } else if args.iter().any(|a| a == "-t" || a == "--toon-output") {

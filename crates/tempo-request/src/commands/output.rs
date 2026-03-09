@@ -368,7 +368,12 @@ mod tests {
         let (c, q) = parse(&["-O", "https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
+        let opts = build_output_options(
+            c.global.resolve_output_format(),
+            c.global.verbosity(),
+            &q,
+            &url,
+        );
         assert_eq!(opts.output_file.as_deref(), Some("file.txt"));
     }
 
@@ -377,7 +382,12 @@ mod tests {
         let (c, q) = parse(&["-O", "https://example.com/"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
+        let opts = build_output_options(
+            c.global.resolve_output_format(),
+            c.global.verbosity(),
+            &q,
+            &url,
+        );
         assert_eq!(opts.output_file.as_deref(), Some("index.html"));
     }
 
@@ -386,7 +396,12 @@ mod tests {
         let (c, q) = parse(&["-I", "https://example.com"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
+        let opts = build_output_options(
+            c.global.resolve_output_format(),
+            c.global.verbosity(),
+            &q,
+            &url,
+        );
         assert!(opts.include_headers);
     }
 
@@ -395,7 +410,12 @@ mod tests {
         let (c, q) = parse(&["-o", "custom.txt", "https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
+        let opts = build_output_options(
+            c.global.resolve_output_format(),
+            c.global.verbosity(),
+            &q,
+            &url,
+        );
         assert_eq!(opts.output_file.as_deref(), Some("custom.txt"));
     }
 
@@ -404,7 +424,12 @@ mod tests {
         let (c, q) = parse(&["https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
+        let opts = build_output_options(
+            c.global.resolve_output_format(),
+            c.global.verbosity(),
+            &q,
+            &url,
+        );
         assert!(opts.output_file.is_none());
         assert!(!opts.include_headers);
         assert_eq!(opts.output_format, OutputFormat::Text);
@@ -415,7 +440,12 @@ mod tests {
         let (c, q) = parse(&["-j", "https://example.com"]);
         let url = Url::parse(&q.url).unwrap();
 
-        let opts = build_output_options(c.resolve_output_format(), c.global.verbosity(), &q, &url);
+        let opts = build_output_options(
+            c.global.resolve_output_format(),
+            c.global.verbosity(),
+            &q,
+            &url,
+        );
         assert_eq!(opts.output_format, OutputFormat::Json);
     }
 }

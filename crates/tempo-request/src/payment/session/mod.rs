@@ -5,11 +5,13 @@
 //! Session persistence, channel queries, and close operations
 //! remain in `tempo_common::payment::session`.
 
-pub(crate) mod flow;
+mod flow;
 mod persist;
 mod streaming;
 mod tx;
 mod voucher;
+
+pub(super) use flow::handle_session_request;
 
 use alloy::primitives::{Address, B256};
 
