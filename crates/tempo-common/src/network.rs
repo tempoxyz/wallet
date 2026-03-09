@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::TempoError;
+use crate::error::{ConfigError, NetworkError, TempoError};
 
 // ==================== Constants ====================
 
@@ -69,7 +69,7 @@ impl NetworkId {
             None => Ok(NetworkId::Tempo),
             Some(s) => s
                 .parse::<NetworkId>()
-                .map_err(|_| TempoError::UnknownNetwork(s.to_string())),
+                .map_err(|_| NetworkError::UnknownNetwork(s.to_string()).into()),
         }
     }
 
@@ -100,8 +100,9 @@ impl NetworkId {
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
     pub fn require_chain_id(chain_id: u64) -> Result<Self, TempoError> {
-        Self::from_chain_id(chain_id)
-            .ok_or_else(|| TempoError::InvalidConfig(format!("Unsupported chainId: {}", chain_id)))
+        Self::from_chain_id(chain_id).ok_or_else(|| {
+            ConfigError::Invalid(format!("Unsupported chainId: {}", chain_id)).into()
+        })
     }
 
     /// Get the default RPC URL for this network.

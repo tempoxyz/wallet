@@ -1,11 +1,11 @@
 //! Payment error classification and extraction.
 //!
-//! Maps mpp library errors into tempo-wallet error types with actionable
+//! Maps mpp library errors into Tempo error types with actionable
 //! context, and extracts error messages from JSON response bodies.
 
 use alloy::primitives::utils::format_units;
 
-use crate::error::TempoError;
+use crate::error::{NetworkError, PaymentError};
 use crate::network::NetworkId;
 
 /// Extract the first meaningful error string from a JSON response body.
@@ -21,37 +21,42 @@ pub fn extract_json_error(body: &str) -> Option<String> {
 }
 
 /// Map mpp validation errors to tempo-wallet error types.
-pub fn map_mpp_validation_error(e: mpp::MppError, challenge: &mpp::PaymentChallenge) -> TempoError {
+pub fn map_mpp_validation_error(
+    e: mpp::MppError,
+    challenge: &mpp::PaymentChallenge,
+) -> PaymentError {
     match e {
-        mpp::MppError::UnsupportedPaymentMethod(msg) => TempoError::UnsupportedPaymentMethod(msg),
+        mpp::MppError::UnsupportedPaymentMethod(msg) => PaymentError::UnsupportedPaymentMethod(msg),
         mpp::MppError::PaymentExpired(_) => {
-            TempoError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
+            PaymentError::ChallengeExpired(challenge.expires.clone().unwrap_or_default())
         }
         mpp::MppError::InvalidChallenge { reason, .. } => {
-            TempoError::UnsupportedPaymentIntent(reason.unwrap_or_default())
+            PaymentError::UnsupportedPaymentIntent(reason.unwrap_or_default())
         }
-        other => TempoError::InvalidChallenge(other.to_string()),
+        other => PaymentError::InvalidChallenge(other.to_string()),
     }
 }
 
 /// Classify an mpp provider error into a TempoError with actionable context.
-pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> TempoError {
+pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate::error::TempoError {
     use mpp::client::TempoClientError;
 
     match err {
         mpp::MppError::Tempo(tempo_err) => match tempo_err {
-            TempoClientError::AccessKeyNotProvisioned => TempoError::AccessKeyNotProvisioned {
+            TempoClientError::AccessKeyNotProvisioned => PaymentError::AccessKeyNotProvisioned {
                 hint: "tempo-wallet login".to_string(),
-            },
+            }
+            .into(),
             TempoClientError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
-            } => TempoError::SpendingLimitExceeded {
+            } => PaymentError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
-            },
+            }
+            .into(),
             TempoClientError::InsufficientBalance {
                 token,
                 available,
@@ -71,18 +76,21 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> TempoE
                 };
                 let avail_fmt = fmt(&available);
                 let req_fmt = fmt(&required);
-                TempoError::InsufficientBalance {
+                PaymentError::InsufficientBalance {
                     token: symbol.to_string(),
                     available: avail_fmt,
                     required: req_fmt,
                 }
+                .into()
             }
-            TempoClientError::TransactionReverted(msg) => TempoError::TransactionReverted(msg),
+            TempoClientError::TransactionReverted(msg) => {
+                PaymentError::TransactionReverted(msg).into()
+            }
         },
         other => {
             let raw = other.to_string();
             let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
-            TempoError::Http(msg)
+            NetworkError::Http(msg).into()
         }
     }
 }
@@ -90,6 +98,7 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> TempoE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::TempoError;
 
     #[test]
     fn test_classify_spending_limit() {
@@ -99,11 +108,11 @@ mod tests {
             required: "0.010000".to_string(),
         });
         match classify_payment_error(err, &NetworkId::TempoModerato) {
-            TempoError::SpendingLimitExceeded {
+            TempoError::Payment(PaymentError::SpendingLimitExceeded {
                 token,
                 limit,
                 required,
-            } => {
+            }) => {
                 assert_eq!(token, "pathUSD");
                 assert_eq!(limit, "0.000000");
                 assert_eq!(required, "0.010000");
@@ -120,11 +129,11 @@ mod tests {
             required: "1.00".to_string(),
         });
         match classify_payment_error(err, &NetworkId::TempoModerato) {
-            TempoError::InsufficientBalance {
+            TempoError::Payment(PaymentError::InsufficientBalance {
                 token,
                 available,
                 required,
-            } => {
+            }) => {
                 // "pathUSD" is not an address, so falls back to "tokens"
                 assert_eq!(token, "tokens");
                 assert_eq!(available, "0.50");
@@ -139,7 +148,7 @@ mod tests {
         let err = mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned);
         assert!(matches!(
             classify_payment_error(err, &NetworkId::Tempo),
-            TempoError::AccessKeyNotProvisioned { .. }
+            TempoError::Payment(PaymentError::AccessKeyNotProvisioned { .. })
         ));
     }
 
@@ -151,11 +160,11 @@ mod tests {
             required: "1000".to_string(),
         });
         match classify_payment_error(err, &NetworkId::Tempo) {
-            TempoError::InsufficientBalance {
+            TempoError::Payment(PaymentError::InsufficientBalance {
                 token,
                 available,
                 required,
-            } => {
+            }) => {
                 assert_eq!(token, "USDC");
                 assert_eq!(available, "0.000000");
                 assert_eq!(required, "0.001000");
@@ -172,11 +181,11 @@ mod tests {
             required: "1000000".to_string(),
         });
         match classify_payment_error(err, &NetworkId::TempoModerato) {
-            TempoError::InsufficientBalance {
+            TempoError::Payment(PaymentError::InsufficientBalance {
                 token,
                 available,
                 required,
-            } => {
+            }) => {
                 assert_eq!(token, "pathUSD");
                 assert_eq!(available, "0.500000");
                 assert_eq!(required, "1.000000");
@@ -189,7 +198,9 @@ mod tests {
     fn test_classify_unrecognized_falls_through() {
         let err = mpp::MppError::Http("something unexpected".to_string());
         match classify_payment_error(err, &NetworkId::Tempo) {
-            TempoError::Http(msg) => assert_eq!(msg, "something unexpected"),
+            TempoError::Network(NetworkError::Http(msg)) => {
+                assert_eq!(msg, "something unexpected")
+            }
             other => panic!("Expected Http passthrough, got: {other}"),
         }
     }

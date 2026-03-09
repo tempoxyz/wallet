@@ -2,14 +2,19 @@
 #![deny(warnings)]
 #![warn(unreachable_pub)]
 
-mod cli;
+pub(crate) mod account;
+pub(crate) mod analytics;
+mod app;
+mod args;
+mod commands;
+pub(crate) mod prompt;
 
-use crate::cli::Cli;
+use crate::args::Cli;
 
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
-    let output_format = cli.resolve_output_format();
-    let result = cli.run().await;
+    let cli: Cli = tempo_common::cli::parse_cli();
+    let output_format = cli.global.resolve_output_format();
+    let result = app::run(cli).await;
     tempo_common::cli::run_main(output_format, result);
 }

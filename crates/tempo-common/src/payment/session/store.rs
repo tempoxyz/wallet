@@ -11,7 +11,16 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
+use crate::error::ConfigError;
 use crate::network::NetworkId;
+
+/// Get the tempo-wallet data directory (platform-specific).
+fn data_dir() -> Result<PathBuf> {
+    dirs::data_dir()
+        .ok_or(ConfigError::NoConfigDir)
+        .map(|d| d.join("tempo").join("wallet"))
+        .map_err(Into::into)
+}
 
 /// Session lifecycle state.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -160,7 +169,7 @@ impl SessionRecord {
 
 /// Get the sessions directory, creating it if needed.
 fn sessions_dir() -> Result<PathBuf> {
-    let dir = crate::util::data_dir()?.join("sessions");
+    let dir = data_dir()?.join("sessions");
     fs::create_dir_all(&dir).context("Failed to create sessions directory")?;
     Ok(dir)
 }

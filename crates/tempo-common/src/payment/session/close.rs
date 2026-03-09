@@ -15,17 +15,29 @@ use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::{parse_receipt, ChallengeEcho};
 
 use super::channel::{get_channel_on_chain, read_grace_period, IEscrow};
-use super::state::CloseOutcome;
 use super::store as session_store;
 use super::store::SessionStatus;
 use super::tx::submit_tempo_tx;
 use super::DEFAULT_GRACE_PERIOD_SECS;
-use crate::analytics::{Analytics, Event};
+use crate::analytics::{events, Analytics};
 use crate::config::Config;
-use crate::error::TempoError;
+use crate::error::PaymentError;
+
+/// Outcome of an on-chain close attempt.
+pub enum CloseOutcome {
+    /// Channel fully closed (withdrawn or cooperatively settled).
+    Closed {
+        tx_url: Option<String>,
+        /// Formatted settlement amount (e.g., "0.002 USDC"), if available.
+        amount_display: Option<String>,
+    },
+    /// `requestClose()` submitted or already pending; waiting for grace period.
+    Pending { remaining_secs: u64 },
+}
+
+use crate::display::format::format_token_amount;
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
-use crate::util::format_token_amount;
 
 /// Close a session from a persisted record.
 ///
@@ -67,7 +79,7 @@ pub async fn close_session_from_record(
         Ok(tx_url) => {
             if let Some(a) = analytics {
                 a.track(
-                    Event::CoopCloseSuccess,
+                    events::COOP_CLOSE_SUCCESS,
                     crate::analytics::CoopClosePayload {
                         network: network_id.as_str().to_string(),
                         channel_id: record.channel_id.clone(),
@@ -86,7 +98,7 @@ pub async fn close_session_from_record(
         Err(coop_err) => {
             if let Some(a) = analytics {
                 a.track(
-                    Event::CoopCloseFailure,
+                    events::COOP_CLOSE_FAILURE,
                     crate::analytics::CoopClosePayload {
                         network: network_id.as_str().to_string(),
                         channel_id: record.channel_id.clone(),
@@ -243,7 +255,7 @@ async fn try_server_close(
             .unwrap_or_else(|_| String::from("<no body>"));
         let reason = crate::payment::error::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(200).collect());
-        return Err(TempoError::PaymentRejected {
+        return Err(PaymentError::PaymentRejected {
             reason,
             status_code: status.as_u16(),
         }
@@ -293,7 +305,7 @@ async fn close_on_chain(
     // Check current channel state to determine which step we're on
     let on_chain = get_channel_on_chain(&provider, escrow_contract, channel_id)
         .await?
-        .ok_or(TempoError::InvalidChallenge(
+        .ok_or(PaymentError::InvalidChallenge(
             "Channel no longer exists on-chain".to_string(),
         ))?;
 
@@ -455,7 +467,7 @@ pub async fn close_channel_by_id(
 
     let on_chain = get_channel_on_chain(&provider, escrow, channel_id)
         .await?
-        .ok_or_else(|| TempoError::ChannelNotFound {
+        .ok_or_else(|| PaymentError::ChannelNotFound {
             channel_id: channel_id_hex.to_string(),
             network: network.as_str().to_string(),
         })?;

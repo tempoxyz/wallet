@@ -11,7 +11,7 @@ use tempo_primitives::transaction::{
 };
 
 use super::{KeyType, StoredTokenLimit};
-use crate::error::TempoError;
+use crate::error::{ConfigError, KeyError, TempoError};
 
 /// Default key authorization expiry: 30 days.
 const DEFAULT_EXPIRY_SECS: u64 = 30 * 24 * 60 * 60;
@@ -62,14 +62,18 @@ pub fn validate(
         None => return Ok(None),
     };
 
-    let signed = decode(hex_str)
-        .ok_or_else(|| TempoError::InvalidConfig("Invalid key authorization".to_string()))?;
+    let signed = decode(hex_str).ok_or_else(|| {
+        TempoError::from(ConfigError::Invalid(
+            "Invalid key authorization".to_string(),
+        ))
+    })?;
 
     if signed.authorization.key_id != expected_key_id {
-        return Err(TempoError::InvalidConfig(format!(
+        return Err(ConfigError::Invalid(format!(
             "Key authorization targets {:#x}, expected {:#x}",
             signed.authorization.key_id, expected_key_id
-        )));
+        ))
+        .into());
     }
 
     let expiry = signed.authorization.expiry.unwrap_or(0);
@@ -117,13 +121,19 @@ pub fn sign(
     let expiry_secs = now + DEFAULT_EXPIRY_SECS;
     let limit = alloy::primitives::U256::from(DEFAULT_LIMIT);
     // Authorize the canonical stablecoin for this network.
-    let network = crate::network::NetworkId::from_chain_id(chain_id)
-        .ok_or_else(|| TempoError::InvalidConfig(format!("Unsupported chainId: {chain_id}")))?;
+    let network = crate::network::NetworkId::from_chain_id(chain_id).ok_or_else(|| {
+        TempoError::from(ConfigError::Invalid(format!(
+            "Unsupported chainId: {chain_id}"
+        )))
+    })?;
     let token_addrs = [network.token().address];
     let mut token_limits: Vec<TokenLimit> = Vec::with_capacity(token_addrs.len());
     for addr in token_addrs.iter() {
         let token = addr.parse().map_err(|_| {
-            TempoError::InvalidAddress(format!("Invalid token address constant: {}", addr))
+            TempoError::from(KeyError::InvalidAddress(format!(
+                "Invalid token address constant: {}",
+                addr
+            )))
         })?;
         token_limits.push(TokenLimit { token, limit });
     }
@@ -143,7 +153,11 @@ pub fn sign(
     };
     let sig = wallet_signer
         .sign_hash_sync(&auth.signature_hash())
-        .map_err(|e| TempoError::Signing(format!("Failed to sign key authorization: {e}")))?;
+        .map_err(|e| {
+            TempoError::from(KeyError::Signing(format!(
+                "Failed to sign key authorization: {e}"
+            )))
+        })?;
     let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
     let mut buf = Vec::new();
     signed.encode(&mut buf);
