@@ -143,22 +143,24 @@ jobs:
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
           VERSION="${{ needs.version.outputs.version }}"
 
-          for pkg in tempo tempo-wallet tempo-mpp tempo-request; do
+          for pkg in tempo-wallet tempo-mpp tempo-request; do
             mkdir -p "artifacts-${pkg}"
             cp artifacts/${pkg}-* "artifacts-${pkg}/"
+
+            URL_PREFIX="https://cli.tempo.xyz/extensions/${pkg}"
 
             SIGN_ARGS=(
               --key-file /tmp/release.key
               --artifacts-dir "artifacts-${pkg}"
               --version "$VERSION"
-              --base-url "https://cli.tempo.xyz/${pkg}"
+              --base-url "$URL_PREFIX"
               --output "artifacts/${pkg}-manifest.json"
             )
 
             if [ -f "crates/${pkg}/SKILL.md" ]; then
               SKILL_SHA256=$(sha256sum "crates/${pkg}/SKILL.md" | cut -d' ' -f1)
               SIGN_ARGS+=(
-                --skill "https://cli.tempo.xyz/${pkg}/v${VERSION}/SKILL.md"
+                --skill "${URL_PREFIX}/v${VERSION}/SKILL.md"
                 --skill-sha256 "$SKILL_SHA256"
                 --skill-file "crates/${pkg}/SKILL.md"
               )
@@ -179,27 +181,29 @@ jobs:
 
           VERSION="v${{ needs.version.outputs.version }}"
 
-          for pkg in tempo tempo-wallet tempo-mpp tempo-request; do
+          for pkg in tempo-wallet tempo-mpp tempo-request; do
+            PREFIX="extensions/${pkg}"
+
             # Binaries (latest + versioned)
             for f in artifacts/${pkg}-linux-* artifacts/${pkg}-darwin-*; do
               [ -f "$f" ] || continue
               BASENAME=$(basename "$f")
-              aws s3 cp "$f" "s3://tempo-cli/${pkg}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
-              aws s3 cp "$f" "s3://tempo-cli/${pkg}/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+              aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+              aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
             done
 
             # Signed manifest (latest + versioned)
-            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${pkg}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
-            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${pkg}/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${PREFIX}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${PREFIX}/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
 
             # SKILL.md (latest + versioned, if exists)
             if [ -f "crates/${pkg}/SKILL.md" ]; then
-              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${pkg}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${pkg}/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${PREFIX}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${PREFIX}/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
             fi
 
             # VERSION
-            echo "${{ needs.version.outputs.version }}" | aws s3 cp - "s3://tempo-cli/${pkg}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+            echo "${{ needs.version.outputs.version }}" | aws s3 cp - "s3://tempo-cli/${PREFIX}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
           done
 
           # Install / uninstall scripts
