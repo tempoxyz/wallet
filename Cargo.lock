@@ -6494,6 +6494,7 @@ dependencies = [
  "axum",
  "clap",
  "clap_complete",
+ "mpp",
  "predicates",
  "reqwest 0.12.28",
  "rusqlite",

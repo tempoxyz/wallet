@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::args::{Cli, Commands, ServicesCommands, SessionCommands};
-use crate::commands::{completions, services, sessions};
+use crate::commands::{completions, services, sessions, sign};
 
 /// Run the tempo-mpp application.
 pub(crate) async fn run(mut cli: Cli) -> Result<()> {
@@ -20,6 +20,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
         tempo_common::cli::tracking::track_command(&ctx.analytics, cmd_name);
         let result = match command {
             Commands::Completions { shell } => completions::run(&ctx, shell),
+            Commands::Sign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
             Commands::Sessions { command } => sessions::run(&ctx, command).await,
             Commands::Services {
                 command,
@@ -48,6 +49,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
 fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Completions { .. } => "completions",
+        Commands::Sign { .. } => "sign",
         Commands::Sessions { command } => match command {
             SessionCommands::List { .. } => "sessions list",
             SessionCommands::Info { .. } => "sessions info",

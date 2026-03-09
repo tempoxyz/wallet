@@ -67,6 +67,7 @@ tempo mpp --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
 | `tempo mpp services info <ID>` | Show detailed info for a service |
 | `tempo mpp sessions list` | List sessions (active/orphaned/closing) |
 | `tempo mpp sessions close [--all\|<URL>]` | Close sessions or channels |
+| `tempo mpp sign` | Sign an MPP challenge and output the Authorization header |
 
 Run `tempo wallet --help` or `tempo mpp --help` for full flag reference.
 
