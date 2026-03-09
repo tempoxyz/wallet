@@ -17,9 +17,9 @@ use anyhow::Result;
 
 use crate::args::QueryArgs;
 use crate::output as cli_output;
+use crate::payment::router::{dispatch_payment, PaymentResult};
 use tempo_common::cli::context::Context;
 use tempo_common::error::{NetworkError, PaymentError};
-use tempo_common::payment::router::{dispatch_payment, PaymentResult};
 use tempo_common::redact::redact_url;
 
 use output::{build_output_options, write_meta_if_requested};

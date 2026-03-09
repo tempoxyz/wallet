@@ -7,10 +7,10 @@ use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
 use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::ChallengeEcho;
 
-use super::state::SessionState;
+use super::SessionState;
 
 /// Build a `SessionCredentialPayload::Open` with the given transaction bytes.
-pub fn build_open_payload(
+pub(super) fn build_open_payload(
     channel_id: B256,
     transaction: String,
     authorized_signer: Address,
@@ -28,7 +28,7 @@ pub fn build_open_payload(
 }
 
 /// Build a voucher credential for an existing session.
-pub async fn build_voucher_credential(
+pub(super) async fn build_voucher_credential(
     signer: &alloy::signers::local::PrivateKeySigner,
     echo: &ChallengeEcho,
     did: &str,

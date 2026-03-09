@@ -5,17 +5,17 @@ use mpp::protocol::core::extract_tx_hash;
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
 
-use super::state::{SessionContext, SessionState};
-use super::store::persist_session;
+use super::persist::persist_session;
 use super::voucher::{build_open_payload, build_voucher_credential};
-use super::{channel, close, store, streaming, tx};
-use crate::error::PaymentError;
-use crate::fmt::format_token_amount;
-use crate::http::{HttpClient, HttpResponse};
-use crate::keys::{Keystore, Signer};
+use super::{extract_origin, streaming, tx, SessionContext, SessionState};
+use crate::http::HttpResponse;
 use crate::payment::error::map_mpp_validation_error;
 use crate::payment::router::{PaymentResult, ResolvedChallenge};
-use crate::terminal::address_link;
+use tempo_common::error::PaymentError;
+use tempo_common::fmt::format_token_amount;
+use tempo_common::keys::{Keystore, Signer};
+use tempo_common::payment::session::{channel, close, store};
+use tempo_common::terminal::address_link;
 
 /// Send the actual session request with a voucher and handle the response.
 ///
@@ -99,8 +99,8 @@ async fn send_session_request(
 /// 5. Send the real request with a voucher
 /// 6. Stream SSE events (or return buffered response)
 /// 7. Persist/update the session (do NOT close the channel)
-pub async fn handle_session_request(
-    http: &HttpClient,
+pub(crate) async fn handle_session_request(
+    http: &crate::http::HttpClient,
     url: &str,
     resolved: ResolvedChallenge,
     signer: Signer,
@@ -209,7 +209,7 @@ pub async fn handle_session_request(
 
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
-    let origin = super::state::extract_origin(url);
+    let origin = extract_origin(url);
     let session_key = store::session_key(url);
 
     // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).

@@ -3,21 +3,21 @@
 use anyhow::Result;
 
 #[derive(Debug)]
-pub struct HttpResponse {
-    pub status_code: u16,
+pub(crate) struct HttpResponse {
+    pub(crate) status_code: u16,
     /// Response headers stored as name-value pairs with **lowercased** names.
     ///
     /// Header names are normalized to lowercase during conversion.
     /// Duplicate header names (e.g., multiple `Set-Cookie`) are preserved.
     /// Use [`header`](Self::header) for lookup by lowercase name (returns the last value).
-    pub headers: Vec<(String, String)>,
-    pub body: Vec<u8>,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
     /// The final URL after following any redirects.
-    pub final_url: Option<String>,
+    pub(crate) final_url: Option<String>,
 }
 
 /// Extract response headers as lowercased name-value pairs, skipping non-UTF-8 values.
-pub fn headers_from_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<(String, String)> {
+pub(crate) fn headers_from_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<(String, String)> {
     headers
         .iter()
         .filter_map(|(k, v)| {
@@ -30,7 +30,7 @@ pub fn headers_from_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<(String
 
 impl HttpResponse {
     /// Convert a reqwest response into an `HttpResponse`.
-    pub async fn from_reqwest(response: reqwest::Response) -> Result<Self> {
+    pub(crate) async fn from_reqwest(response: reqwest::Response) -> Result<Self> {
         let status_code = response.status().as_u16();
         let final_url = Some(response.url().to_string());
         let headers = headers_from_reqwest(response.headers());
@@ -48,14 +48,14 @@ impl HttpResponse {
     ///
     /// # Errors
     /// Returns an error if the body is not valid UTF-8.
-    pub fn body_string(&self) -> Result<String> {
+    pub(crate) fn body_string(&self) -> Result<String> {
         Ok(std::str::from_utf8(&self.body)?.to_string())
     }
 
     /// Look up a header value by name.
     ///
     /// Header names are stored lowercase; pass a lowercase key.
-    pub fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .rev()
@@ -66,7 +66,8 @@ impl HttpResponse {
 
 impl HttpResponse {
     /// Create a test response with the given status and body.
-    pub fn for_test(status: u16, body: &[u8]) -> Self {
+    #[cfg(test)]
+    pub(crate) fn for_test(status: u16, body: &[u8]) -> Self {
         Self {
             status_code: status,
             headers: Vec::new(),

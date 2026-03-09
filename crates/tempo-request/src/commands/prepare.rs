@@ -4,9 +4,9 @@ use anyhow::Result;
 use base64::Engine;
 
 use crate::args::QueryArgs;
+use crate::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
 use tempo_common::cli::context::Context;
 use tempo_common::error::InputError;
-use tempo_common::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
 use tempo_common::network::NetworkId;
 
 use super::headers::{

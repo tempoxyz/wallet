@@ -6,34 +6,34 @@ use anyhow::Result;
 use tracing::warn;
 
 use super::response::HttpResponse;
-use crate::network::NetworkId;
+use tempo_common::network::NetworkId;
 
 /// Default User-Agent header value for requests.
-pub const DEFAULT_USER_AGENT: &str = concat!("tempo-wallet/", env!("CARGO_PKG_VERSION"));
+pub(crate) const DEFAULT_USER_AGENT: &str = concat!("tempo-wallet/", env!("CARGO_PKG_VERSION"));
 
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Debug)]
-pub struct HttpRequestPlan {
-    pub method: reqwest::Method,
-    pub headers: Vec<(String, String)>,
-    pub body: Option<Vec<u8>>,
-    pub timeout_secs: Option<u64>,
-    pub connect_timeout_secs: Option<u64>,
-    pub follow_redirects: bool,
-    pub follow_redirects_limit: Option<usize>,
-    pub user_agent: String,
-    pub insecure: bool,
-    pub proxy: Option<String>,
-    pub no_proxy: bool,
-    pub http2: bool,
-    pub http1_only: bool,
+pub(crate) struct HttpRequestPlan {
+    pub(crate) method: reqwest::Method,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Option<Vec<u8>>,
+    pub(crate) timeout_secs: Option<u64>,
+    pub(crate) connect_timeout_secs: Option<u64>,
+    pub(crate) follow_redirects: bool,
+    pub(crate) follow_redirects_limit: Option<usize>,
+    pub(crate) user_agent: String,
+    pub(crate) insecure: bool,
+    pub(crate) proxy: Option<String>,
+    pub(crate) no_proxy: bool,
+    pub(crate) http2: bool,
+    pub(crate) http1_only: bool,
     // Retry configuration
-    pub max_retries: u32,
-    pub base_backoff_ms: u64,
-    pub max_backoff_ms: u64,
-    pub retry_status_codes: Vec<u16>,
-    pub honor_retry_after: bool,
-    pub retry_jitter_pct: Option<u32>,
+    pub(crate) max_retries: u32,
+    pub(crate) base_backoff_ms: u64,
+    pub(crate) max_backoff_ms: u64,
+    pub(crate) retry_status_codes: Vec<u16>,
+    pub(crate) honor_retry_after: bool,
+    pub(crate) retry_jitter_pct: Option<u32>,
 }
 
 impl Default for HttpRequestPlan {
@@ -66,12 +66,12 @@ impl Default for HttpRequestPlan {
 ///
 /// Owns a pre-built reqwest client and the request plan. Built at the CLI
 /// boundary so that HTTP and payment modules never depend on CLI types.
-pub struct HttpClient {
-    pub plan: HttpRequestPlan,
+pub(crate) struct HttpClient {
+    pub(crate) plan: HttpRequestPlan,
     client: reqwest::Client,
-    pub verbosity: crate::util::Verbosity,
-    pub network: Option<NetworkId>,
-    pub dry_run: bool,
+    pub(crate) verbosity: tempo_common::util::Verbosity,
+    pub(crate) network: Option<NetworkId>,
+    pub(crate) dry_run: bool,
 }
 
 impl HttpClient {
@@ -80,9 +80,9 @@ impl HttpClient {
     /// Bakes transport-level settings (timeouts, TLS, proxy, redirects,
     /// default headers) into the client. Per-request headers (e.g.,
     /// Authorization) are added in [`execute()`](Self::execute).
-    pub fn new(
+    pub(crate) fn new(
         plan: HttpRequestPlan,
-        verbosity: crate::util::Verbosity,
+        verbosity: tempo_common::util::Verbosity,
         network: Option<NetworkId>,
         dry_run: bool,
     ) -> Result<Self> {
@@ -136,7 +136,7 @@ impl HttpClient {
                 let header_value = match reqwest::header::HeaderValue::from_str(value) {
                     Ok(v) => v,
                     Err(e) => {
-                        let safe = crate::redact::redact_header_value(name, value);
+                        let safe = tempo_common::redact::redact_header_value(name, value);
                         warn!(header_name = %name, header_value = %safe, error = %e, "dropping header with invalid value");
                         continue;
                     }
@@ -160,7 +160,7 @@ impl HttpClient {
     /// The underlying reqwest client.
     ///
     /// Used by session flows that need direct access to the reqwest client.
-    pub fn client(&self) -> &reqwest::Client {
+    pub(crate) fn client(&self) -> &reqwest::Client {
         &self.client
     }
 
@@ -168,7 +168,7 @@ impl HttpClient {
     ///
     /// This encapsulates plan field access so callers don't need to
     /// reach into `plan.method`, `plan.headers`, and `plan.body` directly.
-    pub fn build_raw_request(&self, url: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn build_raw_request(&self, url: &str) -> reqwest::RequestBuilder {
         let mut req = self.client.request(self.plan.method.clone(), url);
         for (name, value) in &self.plan.headers {
             req = req.header(name.as_str(), value.as_str());
@@ -180,12 +180,12 @@ impl HttpClient {
     }
 
     /// Whether agent-level log messages should be printed (`-v`).
-    pub fn log_enabled(&self) -> bool {
+    pub(crate) fn log_enabled(&self) -> bool {
         self.verbosity.log_enabled()
     }
 
     /// Whether debug-level log messages should be printed (`-vv`).
-    pub fn debug_enabled(&self) -> bool {
+    pub(crate) fn debug_enabled(&self) -> bool {
         self.verbosity.debug_enabled()
     }
 
@@ -195,7 +195,7 @@ impl HttpClient {
     /// into the client. This enables connection pooling: the same client can
     /// serve the initial 402 request and the payment replay, skipping the
     /// second TLS handshake.
-    pub async fn execute(
+    pub(crate) async fn execute(
         &self,
         url: &str,
         extra_headers: &[(String, String)],
@@ -315,7 +315,7 @@ mod tests {
     fn test_client(plan: HttpRequestPlan) -> HttpClient {
         HttpClient::new(
             plan,
-            crate::util::Verbosity {
+            tempo_common::util::Verbosity {
                 level: 0,
                 show_output: false,
             },

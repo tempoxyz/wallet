@@ -17,23 +17,18 @@
 //! # Module structure
 //!
 //! - [`channel`] — On-chain channel queries and event scanning
-//! - `streaming` — SSE streaming with voucher top-ups
 //! - [`close`] — Channel close operations (cooperative and on-chain)
-//! - `tx` — Tempo transaction building and submission
-//! - [`state`] — Types and helpers for session state
-//! - `voucher` — Credential construction (open payloads, vouchers)
+//! - [`state`] — Close outcome type
+//! - [`store`] — Session persistence
+//! - [`tx`] — Shared Tempo transaction signing and broadcast helpers
 
 pub mod channel;
 pub mod close;
-mod flow;
 pub(crate) mod state;
 pub mod store;
-mod streaming;
-mod tx;
-mod voucher;
+pub mod tx;
 
 /// Fallback grace period (seconds) when escrow grace-period reads fail.
 pub const DEFAULT_GRACE_PERIOD_SECS: u64 = 900;
 
-pub use flow::handle_session_request;
 pub use state::CloseOutcome;

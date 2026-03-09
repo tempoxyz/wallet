@@ -1,12 +1,12 @@
 //! HTTP response formatting and display helpers.
 
 /// Format an HTTP status code + reason for error messages.
-pub fn format_http_error(status: u16) -> String {
+pub(crate) fn format_http_error(status: u16) -> String {
     format!("{} {}", status, http_status_text(status))
 }
 
 /// Map an HTTP status code to a short human-readable reason phrase.
-pub fn http_status_text(code: u16) -> &'static str {
+fn http_status_text(code: u16) -> &'static str {
     match code {
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -24,7 +24,7 @@ pub fn http_status_text(code: u16) -> &'static str {
 }
 
 /// Print HTTP status line and headers to stdout.
-pub fn print_headers(status: u16, headers: &[(String, String)]) {
+pub(crate) fn print_headers(status: u16, headers: &[(String, String)]) {
     println!("HTTP {status}");
     for (name, value) in headers {
         println!("{name}: {value}");

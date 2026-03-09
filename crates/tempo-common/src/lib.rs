@@ -7,7 +7,6 @@ pub mod cli;
 pub mod config;
 pub mod error;
 pub mod fmt;
-pub mod http;
 pub mod keys;
 pub mod network;
 pub mod payment;

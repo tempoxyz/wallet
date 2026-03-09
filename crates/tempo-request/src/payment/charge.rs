@@ -6,9 +6,9 @@
 use anyhow::{Context, Result};
 use mpp::client::PaymentProvider;
 
-use crate::error::{ConfigError, PaymentError};
 use crate::http::{HttpClient, HttpResponse};
-use crate::keys::Signer;
+use tempo_common::error::{ConfigError, PaymentError};
+use tempo_common::keys::Signer;
 
 use super::error::{classify_payment_error, map_mpp_validation_error};
 use super::router::{PaymentResult, ResolvedChallenge};
@@ -17,7 +17,7 @@ use super::router::{PaymentResult, ResolvedChallenge};
 ///
 /// Validates the challenge, builds and signs the transaction,
 /// submits the payment, and returns the result.
-pub async fn handle_charge_request(
+pub(super) async fn handle_charge_request(
     http: &HttpClient,
     url: &str,
     resolved: ResolvedChallenge,

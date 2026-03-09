@@ -6,7 +6,9 @@ pub(crate) mod analytics;
 mod args;
 mod commands;
 mod dispatch;
+mod http;
 pub(crate) mod output;
+mod payment;
 
 use crate::args::Cli;
 

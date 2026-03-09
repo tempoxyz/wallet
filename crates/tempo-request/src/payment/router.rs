@@ -6,28 +6,28 @@ use anyhow::Result;
 
 use mpp::PaymentChallenge;
 
-use crate::config::Config;
-use crate::error::PaymentError;
 use crate::http::{HttpClient, HttpResponse};
-use crate::keys::Keystore;
-use crate::network::NetworkId;
+use tempo_common::config::Config;
+use tempo_common::error::PaymentError;
+use tempo_common::keys::Keystore;
+use tempo_common::network::NetworkId;
 
 use super::charge::handle_charge_request;
-use super::session::handle_session_request;
+use super::session::flow::handle_session_request;
 
 /// Parsed challenge with resolved network, shared by charge and session flows.
-pub struct ResolvedChallenge {
-    pub challenge: PaymentChallenge,
-    pub network_id: NetworkId,
-    pub rpc_url: url::Url,
+pub(crate) struct ResolvedChallenge {
+    pub(crate) challenge: PaymentChallenge,
+    pub(crate) network_id: NetworkId,
+    pub(crate) rpc_url: url::Url,
 }
 
 /// Result of a successful payment dispatch.
-pub struct PaymentResult {
-    pub tx_hash: String,
-    pub session_id: Option<String>,
-    pub status_code: u16,
-    pub response: Option<HttpResponse>,
+pub(crate) struct PaymentResult {
+    pub(crate) tx_hash: String,
+    pub(crate) session_id: Option<String>,
+    pub(crate) status_code: u16,
+    pub(crate) response: Option<HttpResponse>,
 }
 
 /// Dispatch to charge or session payment flow.
@@ -35,7 +35,7 @@ pub struct PaymentResult {
 /// `network` is the already-resolved network from the 402 challenge.
 /// The caller is responsible for parsing the challenge and extracting
 /// the network before calling this function (see `query/payment_challenge.rs`).
-pub async fn dispatch_payment(
+pub(crate) async fn dispatch_payment(
     config: &Config,
     http: &HttpClient,
     is_session: bool,

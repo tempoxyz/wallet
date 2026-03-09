@@ -11,9 +11,9 @@ use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
-use super::state::{SessionContext, SessionState};
-use super::store::persist_session;
+use super::persist::persist_session;
 use super::voucher::build_voucher_credential;
+use super::{SessionContext, SessionState};
 
 /// Post a voucher to the server in a background task.
 ///
@@ -60,7 +60,7 @@ fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) 
 /// arrives but the server hasn't started awaiting yet, the notification is dropped
 /// and the stream stalls. We work around this by re-posting the same voucher if
 /// no progress is seen within a short timeout after the last need-voucher event.
-pub async fn stream_sse_response(
+pub(super) async fn stream_sse_response(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
     response: reqwest::Response,
@@ -160,7 +160,7 @@ pub async fn stream_sse_response(
         }
 
         if buffer.len() > MAX_BUFFER_SIZE {
-            return Err(crate::error::NetworkError::Http(
+            return Err(tempo_common::error::NetworkError::Http(
                 format!("SSE buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event — aborting stream")
             ).into());
         }
@@ -262,7 +262,7 @@ pub async fn stream_sse_response(
     if runtime.log_enabled() {
         eprintln!("Tokens streamed: {}", token_count);
         let cumulative_display =
-            crate::fmt::format_token_amount(state.cumulative_amount, ctx.network_id);
+            tempo_common::fmt::format_token_amount(state.cumulative_amount, ctx.network_id);
         eprintln!("Voucher cumulative: {cumulative_display}");
     }
 
