@@ -14,17 +14,15 @@
 //!     --output manifest.json
 //! ```
 //!
-//! The key file contains the raw 32-byte Ed25519 private seed.
+//! The key file contains a minisign secret key box (unencrypted).
 //! Generate one with: tempo-sign --generate-key release.key
 
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine;
-use ed25519_dalek::{Signer, SigningKey};
+use minisign::{KeyPair, PublicKey, SecretKeyBox};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::Path;
 use std::process;
 
@@ -60,12 +58,12 @@ fn main() {
         process::exit(2);
     };
 
-    let seed = read_seed(&key_file);
-    let signing_key = SigningKey::from_bytes(&seed);
-    let public_key_b64 = BASE64_STANDARD.encode(signing_key.verifying_key().as_bytes());
+    let sk = load_secret_key(&key_file);
+    let pk = PublicKey::from_secret_key(&sk).unwrap();
+    let pk_base64 = pk.to_base64();
 
     println!("Signing release {version}");
-    println!("  Public key: {public_key_b64}");
+    println!("  Public key: {pk_base64}");
     println!("  Artifacts: {artifacts_dir}");
     println!();
 
@@ -76,7 +74,7 @@ fn main() {
         skill.as_deref(),
         skill_sha256.as_deref(),
         skill_file.as_deref(),
-        &signing_key,
+        &sk,
     );
 
     let json = serde_json::to_string_pretty(&manifest).unwrap_or_else(|err| {
@@ -97,15 +95,17 @@ fn main() {
 }
 
 fn generate_key(path: &str) {
-    let mut seed = [0u8; 32];
-    getrandom::getrandom(&mut seed).unwrap_or_else(|err| {
-        eprintln!("error: failed to generate random bytes: {err}");
+    let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap_or_else(|err| {
+        eprintln!("error: failed to generate keypair: {err}");
         process::exit(1);
     });
 
-    let signing_key = SigningKey::from_bytes(&seed);
+    let sk_box_str = sk.to_box(None).unwrap_or_else(|err| {
+        eprintln!("error: failed to box secret key: {err}");
+        process::exit(1);
+    }).to_string();
 
-    fs::write(path, seed).unwrap_or_else(|err| {
+    fs::write(path, &sk_box_str).unwrap_or_else(|err| {
         eprintln!("error: failed to write key file: {err}");
         process::exit(1);
     });
@@ -119,39 +119,33 @@ fn generate_key(path: &str) {
         });
     }
 
-    let public_key_b64 = BASE64_STANDARD.encode(signing_key.verifying_key().as_bytes());
-    println!("Generated Ed25519 keypair");
-    println!("  Private seed: {path}");
-    println!("  Public key (base64): {public_key_b64}");
+    let pk_base64 = pk.to_base64();
+    println!("Generated minisign keypair");
+    println!("  Secret key box: {path}");
+    println!("  Public key (base64): {pk_base64}");
     println!();
     println!("Bake this public key into the Tempo CLI (src/launcher.rs PUBLIC_KEY constant).");
     println!("Keep {path} secret — it signs release binaries.");
 }
 
 fn print_public_key(path: &str) {
-    let seed = read_seed(path);
-    let signing_key = SigningKey::from_bytes(&seed);
-    println!(
-        "{}",
-        BASE64_STANDARD.encode(signing_key.verifying_key().as_bytes())
-    );
+    let sk = load_secret_key(path);
+    println!("{}", PublicKey::from_secret_key(&sk).unwrap().to_base64());
 }
 
-fn read_seed(path: &str) -> [u8; 32] {
-    let bytes = fs::read(path).unwrap_or_else(|err| {
+fn load_secret_key(path: &str) -> minisign::SecretKey {
+    let sk_box_str = fs::read_to_string(path).unwrap_or_else(|err| {
         eprintln!("error: failed to read key file {path}: {err}");
         process::exit(1);
     });
-    if bytes.len() != 32 {
-        eprintln!(
-            "error: key file must be exactly 32 bytes (got {})",
-            bytes.len()
-        );
+    let sk_box = SecretKeyBox::from_string(&sk_box_str).unwrap_or_else(|err| {
+        eprintln!("error: invalid minisign secret key box in {path}: {err}");
         process::exit(1);
-    }
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(&bytes);
-    seed
+    });
+    sk_box.into_secret_key(None).unwrap_or_else(|err| {
+        eprintln!("error: failed to decode secret key from {path}: {err}");
+        process::exit(1);
+    })
 }
 
 fn sha256_file(path: &Path) -> String {
@@ -174,13 +168,28 @@ fn sha256_file(path: &Path) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn sign_file(path: &Path, signing_key: &SigningKey) -> String {
+fn sign_file(path: &Path, sk: &minisign::SecretKey) -> String {
     let data = fs::read(path).unwrap_or_else(|err| {
         eprintln!("error: failed to read {}: {err}", path.display());
         process::exit(1);
     });
-    let signature = signing_key.sign(&data);
-    BASE64_STANDARD.encode(signature.to_bytes())
+    let filename = path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let pk = PublicKey::from_secret_key(sk).unwrap();
+    let sig_box = minisign::sign(
+        Some(&pk),
+        sk,
+        Cursor::new(&data),
+        Some(&format!("file:{filename}")),
+        Some("tempo release signature"),
+    )
+    .unwrap_or_else(|err| {
+        eprintln!("error: failed to sign {}: {err}", path.display());
+        process::exit(1);
+    });
+    sig_box.into_string()
 }
 
 fn build_manifest(
@@ -190,7 +199,7 @@ fn build_manifest(
     skill: Option<&str>,
     skill_sha256: Option<&str>,
     skill_file: Option<&str>,
-    signing_key: &SigningKey,
+    sk: &minisign::SecretKey,
 ) -> serde_json::Value {
     let base_url = base_url.trim_end_matches('/');
     let version_prefix = if version.starts_with('v') {
@@ -222,7 +231,7 @@ fn build_manifest(
         }
 
         let checksum = sha256_file(&path);
-        let signature = sign_file(&path, signing_key);
+        let signature = sign_file(&path, sk);
 
         println!("  signed {filename} (sha256: {}...)", &checksum[..16]);
 
@@ -248,7 +257,7 @@ fn build_manifest(
     }
     if let Some(path) = skill_file {
         let skill_path = Path::new(path);
-        let signature = sign_file(skill_path, signing_key);
+        let signature = sign_file(skill_path, sk);
         manifest["skill_signature"] = json!(signature);
         println!("  signed SKILL.md");
     }

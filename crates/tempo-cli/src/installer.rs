@@ -1,10 +1,8 @@
 //! Installer: manages extension lifecycle (add/remove), handles release
 //! manifest fetching, and verifies downloads with SHA-256 checksums and
-//! Ed25519 signatures.
+//! minisign signatures.
 
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine;
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use minisign_verify::{PublicKey, Signature as MinisignSignature};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -174,7 +172,7 @@ struct ResolvedInstall {
     skill_url: Option<String>,
     skill_sha256: Option<String>,
     skill_signature: Option<String>,
-    verifying_key: VerifyingKey,
+    public_key: PublicKey,
     _download_dir: TempDir,
 }
 
@@ -207,7 +205,7 @@ impl Installer {
                 skill_url,
                 resolved.skill_sha256.as_deref(),
                 resolved.skill_signature.as_deref(),
-                &resolved.verifying_key,
+                &resolved.public_key,
                 dry_run,
                 quiet,
             );
@@ -244,7 +242,7 @@ impl Installer {
             .clone()
             .ok_or(InstallerError::MissingReleasePublicKey)?;
 
-        let verifying_key = decode_verifying_key(&public_key)?;
+        let public_key_parsed = decode_public_key(&public_key)?;
         debug_log(&format!("fetching manifest from {manifest_loc}"));
         let manifest = load_manifest(&manifest_loc)?;
         if !quiet {
@@ -262,7 +260,7 @@ impl Installer {
         let src = download_extension(
             &binary,
             metadata,
-            &verifying_key,
+            &public_key_parsed,
             download_dir.path(),
             dry_run,
         )?;
@@ -274,7 +272,7 @@ impl Installer {
             skill_url: manifest.skill.clone(),
             skill_sha256: manifest.skill_sha256.clone(),
             skill_signature: manifest.skill_signature.clone(),
-            verifying_key,
+            public_key: public_key_parsed,
             _download_dir: download_dir,
         })
     }
@@ -370,7 +368,7 @@ pub(crate) fn is_secure_or_local_manifest_location(location: &str) -> bool {
 fn download_extension(
     binary: &str,
     metadata: &ReleaseBinary,
-    verifying_key: &VerifyingKey,
+    public_key: &PublicKey,
     download_dir: &Path,
     dry_run: bool,
 ) -> Result<PathBuf, InstallerError> {
@@ -422,7 +420,7 @@ fn download_extension(
         .as_deref()
         .ok_or_else(|| InstallerError::SignatureMissing(binary.to_string()))?;
     debug_log(&format!("verifying signature for {binary}"));
-    if let Err(err) = verify_signature(binary, &bytes, encoded_signature, verifying_key) {
+    if let Err(err) = verify_signature(binary, &bytes, encoded_signature, public_key) {
         let _ = fs::remove_file(&dst);
         return Err(err);
     }
@@ -432,56 +430,27 @@ fn download_extension(
     Ok(dst)
 }
 
-fn decode_verifying_key(encoded_key: &str) -> Result<VerifyingKey, InstallerError> {
-    let key_bytes =
-        BASE64_STANDARD
-            .decode(encoded_key)
-            .map_err(|err| InstallerError::SignatureFormat {
-                field: "release public key",
-                details: err.to_string(),
-            })?;
-    let key_bytes: [u8; 32] =
-        key_bytes
-            .try_into()
-            .map_err(|_| InstallerError::SignatureFormat {
-                field: "release public key",
-                details: "expected 32-byte Ed25519 key".to_string(),
-            })?;
-
-    VerifyingKey::from_bytes(&key_bytes).map_err(|err| InstallerError::SignatureFormat {
+fn decode_public_key(encoded_key: &str) -> Result<PublicKey, InstallerError> {
+    PublicKey::from_base64(encoded_key).map_err(|err| InstallerError::SignatureFormat {
         field: "release public key",
         details: err.to_string(),
     })
-}
-
-fn decode_signature(encoded_signature: &str) -> Result<Signature, InstallerError> {
-    let signature_bytes = BASE64_STANDARD.decode(encoded_signature).map_err(|err| {
-        InstallerError::SignatureFormat {
-            field: "release signature",
-            details: err.to_string(),
-        }
-    })?;
-    let signature_bytes: [u8; 64] =
-        signature_bytes
-            .try_into()
-            .map_err(|_| InstallerError::SignatureFormat {
-                field: "release signature",
-                details: "expected 64-byte Ed25519 signature".to_string(),
-            })?;
-
-    Ok(Signature::from_bytes(&signature_bytes))
 }
 
 fn verify_signature(
     binary: &str,
     data: &[u8],
     encoded_signature: &str,
-    verifying_key: &VerifyingKey,
+    public_key: &PublicKey,
 ) -> Result<(), InstallerError> {
-    let signature = decode_signature(encoded_signature)?;
+    let signature =
+        MinisignSignature::decode(encoded_signature).map_err(|err| InstallerError::SignatureFormat {
+            field: "release signature",
+            details: err.to_string(),
+        })?;
 
-    verifying_key
-        .verify(data, &signature)
+    public_key
+        .verify(data, &signature, false)
         .map_err(|_| InstallerError::SignatureVerificationFailed(binary.to_string()))
 }
 
@@ -591,7 +560,7 @@ fn install_skill(
     url: &str,
     expected_sha256: Option<&str>,
     encoded_signature: Option<&str>,
-    verifying_key: &VerifyingKey,
+    public_key: &PublicKey,
     dry_run: bool,
     quiet: bool,
 ) {
@@ -613,7 +582,7 @@ fn install_skill(
     let skill_name = format!("tempo-{extension} skill");
     match encoded_signature {
         Some(sig) => {
-            if let Err(err) = verify_signature(&skill_name, content.as_bytes(), sig, verifying_key)
+            if let Err(err) = verify_signature(&skill_name, content.as_bytes(), sig, public_key)
             {
                 eprintln!("warn: {err}, skipping skill install");
                 return;
