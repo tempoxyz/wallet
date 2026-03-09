@@ -145,7 +145,7 @@ fn load_secret_key(path: &str) -> minisign::SecretKey {
         eprintln!("error: invalid minisign secret key box in {path}: {err}");
         process::exit(1);
     });
-    sk_box.into_secret_key(None).unwrap_or_else(|err| {
+    sk_box.into_unencrypted_secret_key().unwrap_or_else(|err| {
         eprintln!("error: failed to decode secret key from {path}: {err}");
         process::exit(1);
     })
