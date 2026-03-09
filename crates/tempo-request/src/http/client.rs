@@ -9,7 +9,7 @@ use super::response::HttpResponse;
 use tempo_common::network::NetworkId;
 
 /// Default User-Agent header value for requests.
-pub(crate) const DEFAULT_USER_AGENT: &str = concat!("tempo-wallet/", env!("CARGO_PKG_VERSION"));
+pub(crate) const DEFAULT_USER_AGENT: &str = concat!("tempo/", env!("CARGO_PKG_VERSION"));
 
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Debug)]

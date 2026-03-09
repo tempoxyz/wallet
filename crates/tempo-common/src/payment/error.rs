@@ -1,6 +1,6 @@
 //! Payment error classification and extraction.
 //!
-//! Maps mpp library errors into tempo-wallet error types with actionable
+//! Maps mpp library errors into Tempo error types with actionable
 //! context, and extracts error messages from JSON response bodies.
 
 use alloy::primitives::utils::format_units;

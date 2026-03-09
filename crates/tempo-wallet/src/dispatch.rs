@@ -18,6 +18,7 @@ impl Cli {
 
         tempo_common::cli::run_cli(&self.global, &["tempo_wallet"], |ctx| async move {
             let cmd_name = command_name(&command);
+            tempo_common::cli::tracking::track_command(&ctx.analytics, cmd_name);
             let result = match command {
                 Commands::Login => login::run(&ctx).await,
                 Commands::Logout { yes } => logout::run(&ctx, yes),

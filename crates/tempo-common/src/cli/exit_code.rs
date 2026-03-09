@@ -52,11 +52,24 @@ impl From<ExitCode> for i32 {
 
 impl From<&anyhow::Error> for ExitCode {
     fn from(err: &anyhow::Error) -> Self {
-        if let Some(app_err) = err
-            .chain()
-            .find_map(|e| e.downcast_ref::<crate::error::TempoError>())
-        {
-            return ExitCode::from(app_err);
+        use crate::error::{ConfigError, InputError, NetworkError, PaymentError};
+
+        for cause in err.chain() {
+            if let Some(app_err) = cause.downcast_ref::<crate::error::TempoError>() {
+                return ExitCode::from(app_err);
+            }
+            // Sub-error types may be bail!'d directly without wrapping in TempoError
+            if cause.downcast_ref::<InputError>().is_some()
+                || cause.downcast_ref::<ConfigError>().is_some()
+            {
+                return ExitCode::InvalidUsage;
+            }
+            if cause.downcast_ref::<NetworkError>().is_some() {
+                return ExitCode::NetworkError;
+            }
+            if cause.downcast_ref::<PaymentError>().is_some() {
+                return ExitCode::PaymentFailed;
+            }
         }
 
         ExitCode::GeneralError

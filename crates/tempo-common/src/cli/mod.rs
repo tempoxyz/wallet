@@ -235,8 +235,8 @@ pub fn parse_cli<T: clap::Parser>() -> T {
 /// 5. Track success/failure and flush analytics
 ///
 /// The handler receives the `Context` and returns a `(&str, Result)` tuple
-/// where the `&str` is the analytics command name. This lets the handler
-/// resolve the command name from its parsed subcommand enum.
+/// where the `&str` is the analytics command name. `resolve_name` is called
+/// before the command runs so that `command_run` is tracked first.
 ///
 /// ```ignore
 /// cli::run_cli(&global, &["tempo_wallet"], |ctx| async move {
@@ -261,7 +261,6 @@ where
 
     let (cmd_name, result) = handler(ctx).await;
 
-    tracking::track_command(&analytics, cmd_name);
     tracking::track_result(&analytics, cmd_name, &result);
     if let Some(ref a) = analytics {
         a.flush().await;

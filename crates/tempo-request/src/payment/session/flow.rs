@@ -9,11 +9,11 @@ use super::persist::persist_session;
 use super::voucher::{build_open_payload, build_voucher_credential};
 use super::{extract_origin, streaming, tx, SessionContext, SessionState};
 use crate::http::HttpResponse;
-use crate::payment::error::map_mpp_validation_error;
 use crate::payment::router::{PaymentResult, ResolvedChallenge};
 use tempo_common::error::PaymentError;
 use tempo_common::fmt::format_token_amount;
 use tempo_common::keys::{Keystore, Signer};
+use tempo_common::payment::error::map_mpp_validation_error;
 use tempo_common::payment::session::{channel, close, store};
 use tempo_common::terminal::address_link;
 
@@ -51,7 +51,7 @@ async fn send_session_request(
     let status = response.status();
     if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
         let body = response.text().await.unwrap_or_default();
-        let reason = crate::payment::error::extract_json_error(&body)
+        let reason = tempo_common::payment::error::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(500).collect::<String>());
         return Err(PaymentError::PaymentRejected {
             reason,

@@ -4,6 +4,5 @@
 //! builds and signs transactions, and retries with payment credentials.
 
 mod charge;
-mod error;
 pub(crate) mod router;
 mod session;

@@ -75,7 +75,7 @@ pub(super) async fn send_open_with_retry(
                 }
                 if next.status_code != 410 {
                     let nb = next.body_string().unwrap_or_default();
-                    let reason = crate::payment::error::extract_json_error(&nb)
+                    let reason = tempo_common::payment::error::extract_json_error(&nb)
                         .unwrap_or_else(|| truncate(nb));
                     return Err(PaymentError::PaymentRejected {
                         reason,
@@ -99,7 +99,8 @@ pub(super) async fn send_open_with_retry(
     }
 
     let body = resp.body_string().unwrap_or_default();
-    let reason = crate::payment::error::extract_json_error(&body).unwrap_or_else(|| truncate(body));
+    let reason =
+        tempo_common::payment::error::extract_json_error(&body).unwrap_or_else(|| truncate(body));
     Err(PaymentError::PaymentRejected {
         reason,
         status_code: resp.status_code,

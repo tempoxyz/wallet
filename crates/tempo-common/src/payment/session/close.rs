@@ -15,7 +15,6 @@ use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::{parse_receipt, ChallengeEcho};
 
 use super::channel::{get_channel_on_chain, read_grace_period, IEscrow};
-use super::state::CloseOutcome;
 use super::store as session_store;
 use super::store::SessionStatus;
 use super::tx::submit_tempo_tx;
@@ -23,6 +22,19 @@ use super::DEFAULT_GRACE_PERIOD_SECS;
 use crate::analytics::{Analytics, Event};
 use crate::config::Config;
 use crate::error::PaymentError;
+
+/// Outcome of an on-chain close attempt.
+pub enum CloseOutcome {
+    /// Channel fully closed (withdrawn or cooperatively settled).
+    Closed {
+        tx_url: Option<String>,
+        /// Formatted settlement amount (e.g., "0.002 USDC"), if available.
+        amount_display: Option<String>,
+    },
+    /// `requestClose()` submitted or already pending; waiting for grace period.
+    Pending { remaining_secs: u64 },
+}
+
 use crate::fmt::format_token_amount;
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
