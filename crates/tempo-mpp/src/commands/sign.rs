@@ -53,7 +53,8 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
 
     let provider = mpp::client::TempoProvider::new(signer.signer.clone(), rpc_url.as_str())
         .map_err(|e| ConfigError::Invalid(e.to_string()))?
-        .with_signing_mode(signer.signing_mode);
+        .with_signing_mode(signer.signing_mode)
+        .with_client_id("tempo-cli");
 
     let credential = provider
         .pay(&challenge)
