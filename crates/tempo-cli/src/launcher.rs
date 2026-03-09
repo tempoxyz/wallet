@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const BASE_URL: &str = "https://cli.tempo.xyz";
-const PUBLIC_KEY: &str = "bDpt6MpqpvjiIPBB2NroGZQ/2HrfV+roj2qUa2b+vjI=";
+const PUBLIC_KEY: &str = "RWTtoEUPuapAfh06rC7BZLjm1hG40/lsVAA/2afN88FZ8/Fdk97LzJDf";
 
 const CORE_BINARY: &str = "tempo-core";
 const CORE_SUBCOMMANDS: &[&str] = &[
