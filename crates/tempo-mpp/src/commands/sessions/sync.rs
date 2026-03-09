@@ -4,6 +4,8 @@ use anyhow::{Context as _, Result};
 use super::{session_store, SessionStatus};
 use tempo_common::analytics::Event;
 use tempo_common::cli::context::Context;
+
+const SESSION_RECOVERED: Event = Event::new("session_recovered");
 use tempo_common::cli::output;
 use tempo_common::payment::session::channel::{get_channel_on_chain, query_channel_state};
 
@@ -189,7 +191,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             on_chain.close_requested_at,
             ready_at,
         );
-        ctx.track_event(Event::SessionRecovered);
+        ctx.track_event(SESSION_RECOVERED);
         let remaining_secs = ready_at.saturating_sub(session_store::now_secs());
         output::emit_by_format(
             output_format,

@@ -9,13 +9,13 @@ use crate::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits, query_all_balances, KeysResponse, TokenBalance,
 };
+use crate::analytics::KEY_CREATED;
 use crate::args::KeyCommands;
-use tempo_common::analytics::Event;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
+use tempo_common::display::terminal::{address_link, print_field_w};
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
-use tempo_common::terminal::{address_link, print_field_w};
 
 #[derive(serde::Serialize)]
 struct CleanKeysResponse {
@@ -31,7 +31,7 @@ pub(crate) async fn run(ctx: &Context, command: KeyCommands) -> Result<()> {
         KeyCommands::List => list_keys(ctx).await,
         KeyCommands::Create { wallet } => {
             super::wallets::create_access_key(wallet.as_deref(), &ctx.keys)?;
-            ctx.track_event(Event::KeyCreated);
+            ctx.track_event(KEY_CREATED);
             let fresh_keys = ctx.keys.reload()?;
             super::whoami::show_whoami(ctx, Some(&fresh_keys), None).await
         }

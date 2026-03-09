@@ -9,14 +9,14 @@ use crate::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits_to, query_all_balances, KeyInfo,
 };
-use tempo_common::analytics::Event;
+use crate::analytics::WHOAMI_VIEWED;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::config::Config;
+use tempo_common::display::terminal::address_link;
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
-use tempo_common::terminal::address_link;
 
 #[derive(Debug, Default, Serialize)]
 struct StatusResponse {
@@ -47,7 +47,7 @@ struct StatusResponse {
 }
 
 pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
-    ctx.track_event(Event::WhoamiViewed);
+    ctx.track_event(WHOAMI_VIEWED);
     show_whoami(ctx, None, None).await
 }
 

@@ -5,8 +5,8 @@ use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 
 use crate::http::HttpResponse;
+use tempo_common::display::format::format_token_amount;
 use tempo_common::error::PaymentError;
-use tempo_common::fmt::format_token_amount;
 use tempo_common::network::NetworkId;
 
 /// Parsed payment challenge extracted from a 402 response.

@@ -214,73 +214,33 @@ fn test_tap_event(name: &str, props: &Value) {
 // Events and payloads
 // ---------------------------------------------------------------------------
 
+/// Analytics event identifier.
+///
+/// A thin wrapper around a static string. Each crate defines its own
+/// domain-specific event constants; shared lifecycle events live in
+/// the [`events`] module below.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Event {
-    LoginStarted,
-    LoginSuccess,
-    LoginFailure,
-    LoginTimeout,
-    Logout,
-
-    QueryStarted,
-    QuerySuccess,
-    QueryFailure,
-
-    PaymentStarted,
-    PaymentSuccess,
-    PaymentFailure,
-
-    KeyCreated,
-    WhoamiViewed,
-
-    CallbackWindowOpened,
-    CallbackReceived,
-
-    WalletCreated,
-
-    WalletFundStarted,
-    WalletFundSuccess,
-    WalletFundFailure,
-
-    SessionRecovered,
-
-    CommandRun,
-    CommandSuccess,
-    CommandFailure,
-    CoopCloseSuccess,
-    CoopCloseFailure,
-}
+pub struct Event(&'static str);
 
 impl Event {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::LoginStarted => "login_started",
-            Self::LoginSuccess => "login_success",
-            Self::LoginFailure => "login_failure",
-            Self::LoginTimeout => "login_timeout",
-            Self::Logout => "logout",
-            Self::QueryStarted => "query_started",
-            Self::QuerySuccess => "query_success",
-            Self::QueryFailure => "query_failure",
-            Self::PaymentStarted => "payment_started",
-            Self::PaymentSuccess => "payment_success",
-            Self::PaymentFailure => "payment_failure",
-            Self::KeyCreated => "key_created",
-            Self::WhoamiViewed => "whoami_viewed",
-            Self::CallbackWindowOpened => "callback_window_opened",
-            Self::CallbackReceived => "callback_received",
-            Self::WalletCreated => "wallet_created",
-            Self::WalletFundStarted => "wallet_fund_started",
-            Self::WalletFundSuccess => "wallet_fund_success",
-            Self::WalletFundFailure => "wallet_fund_failure",
-            Self::SessionRecovered => "session_recovered",
-            Self::CommandRun => "command_run",
-            Self::CommandSuccess => "command_success",
-            Self::CommandFailure => "command_failure",
-            Self::CoopCloseSuccess => "coop_close_success",
-            Self::CoopCloseFailure => "coop_close_failure",
-        }
+    pub const fn new(name: &'static str) -> Self {
+        Self(name)
     }
+
+    pub fn as_str(&self) -> &'static str {
+        self.0
+    }
+}
+
+/// Shared lifecycle events used by CLI runner infrastructure.
+pub mod events {
+    use super::Event;
+
+    pub const COMMAND_RUN: Event = Event::new("command_run");
+    pub const COMMAND_SUCCESS: Event = Event::new("command_success");
+    pub const COMMAND_FAILURE: Event = Event::new("command_failure");
+    pub const COOP_CLOSE_SUCCESS: Event = Event::new("coop_close_success");
+    pub const COOP_CLOSE_FAILURE: Event = Event::new("coop_close_failure");
 }
 
 /// Trait for analytics event payloads.

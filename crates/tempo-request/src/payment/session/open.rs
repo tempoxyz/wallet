@@ -1,8 +1,8 @@
-//! Transaction building for session open and retry logic.
+//! Session-open transaction building and retry logic.
 //!
-//! Contains session-specific transaction construction and the
-//! open-with-retry helper. Low-level signing and broadcast helpers
-//! remain in `tempo_common::payment::session::tx`.
+//! Constructs the session-open transaction and retries submission
+//! when the server hasn't indexed the channel yet. Low-level signing
+//! and broadcast helpers remain in `tempo_common::payment::session::tx`.
 
 use alloy::primitives::Address;
 use anyhow::Result;

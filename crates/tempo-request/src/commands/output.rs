@@ -10,9 +10,9 @@ use crate::args::QueryArgs;
 use crate::http::{format_http_error, print_headers, HttpResponse};
 use crate::output;
 use crate::output::{OutputFormat, OutputOptions};
+use tempo_common::display::terminal::hyperlink;
 use tempo_common::error::{InputError, NetworkError};
 use tempo_common::network::NetworkId;
-use tempo_common::terminal::hyperlink;
 use tempo_common::util::Verbosity;
 
 /// Build `OutputOptions` from CLI arguments + config.

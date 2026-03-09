@@ -5,11 +5,10 @@
 pub mod analytics;
 pub mod cli;
 pub mod config;
+pub mod display;
 pub mod error;
-pub mod fmt;
 pub mod keys;
 pub mod network;
 pub mod payment;
-pub mod redact;
-pub mod terminal;
+pub mod security;
 pub mod util;

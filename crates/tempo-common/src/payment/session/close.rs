@@ -19,7 +19,7 @@ use super::store as session_store;
 use super::store::SessionStatus;
 use super::tx::submit_tempo_tx;
 use super::DEFAULT_GRACE_PERIOD_SECS;
-use crate::analytics::{Analytics, Event};
+use crate::analytics::{events, Analytics};
 use crate::config::Config;
 use crate::error::PaymentError;
 
@@ -35,7 +35,7 @@ pub enum CloseOutcome {
     Pending { remaining_secs: u64 },
 }
 
-use crate::fmt::format_token_amount;
+use crate::display::format::format_token_amount;
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
 
@@ -79,7 +79,7 @@ pub async fn close_session_from_record(
         Ok(tx_url) => {
             if let Some(a) = analytics {
                 a.track(
-                    Event::CoopCloseSuccess,
+                    events::COOP_CLOSE_SUCCESS,
                     crate::analytics::CoopClosePayload {
                         network: network_id.as_str().to_string(),
                         channel_id: record.channel_id.clone(),
@@ -98,7 +98,7 @@ pub async fn close_session_from_record(
         Err(coop_err) => {
             if let Some(a) = analytics {
                 a.track(
-                    Event::CoopCloseFailure,
+                    events::COOP_CLOSE_FAILURE,
                     crate::analytics::CoopClosePayload {
                         network: network_id.as_str().to_string(),
                         channel_id: record.channel_id.clone(),

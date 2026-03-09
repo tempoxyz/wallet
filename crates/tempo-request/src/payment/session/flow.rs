@@ -7,19 +7,19 @@ use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
 
 use super::persist::persist_session;
 use super::voucher::{build_open_payload, build_voucher_credential};
-use super::{extract_origin, streaming, tx, SessionContext, SessionState};
+use super::{extract_origin, open, streaming, SessionContext, SessionState};
 use crate::http::HttpResponse;
 use crate::payment::router::{PaymentResult, ResolvedChallenge};
+use tempo_common::display::format::format_token_amount;
+use tempo_common::display::terminal::address_link;
 use tempo_common::error::PaymentError;
-use tempo_common::fmt::format_token_amount;
 use tempo_common::keys::{Keystore, Signer};
 use tempo_common::payment::error::map_mpp_validation_error;
 use tempo_common::payment::session::{channel, close, store};
-use tempo_common::terminal::address_link;
 
 /// Send the actual session request with a voucher and handle the response.
 ///
-/// Bypasses [`HttpClient::execute()`] and uses the raw reqwest client directly
+/// Bypasses [`crate::http::HttpClient::execute()`] and uses the raw reqwest client directly
 /// because session streaming requires access to `reqwest::Response` for SSE
 /// `bytes_stream()`, which `execute()` does not expose.
 async fn send_session_request(
@@ -373,7 +373,7 @@ pub(crate) async fn handle_session_request(
     .await
     .context("Failed to sign initial voucher")?;
 
-    let payment = tx::create_tempo_payment_from_calls(
+    let payment = open::create_tempo_payment_from_calls(
         resolved.rpc_url.as_str(),
         &signer,
         open_calls,
@@ -401,7 +401,7 @@ pub(crate) async fn handle_session_request(
         .context("Failed to format open credential")?;
 
     let delays = [2000_u64, 3000, 5000];
-    let open_response = tx::send_open_with_retry(http, url, &auth_header, &delays).await?;
+    let open_response = open::send_open_with_retry(http, url, &auth_header, &delays).await?;
 
     if let Some(receipt_str) = open_response.header("payment-receipt") {
         if let Ok(receipt) = parse_receipt(receipt_str) {

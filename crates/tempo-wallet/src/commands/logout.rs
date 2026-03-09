@@ -1,6 +1,6 @@
 //! Logout command — disconnect your wallet.
 
-use tempo_common::analytics::Event;
+use crate::analytics::LOGOUT;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 
@@ -65,7 +65,7 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
     keys.delete_passkey_wallet(&wallet_addr)?;
     keys.save()?;
 
-    ctx.track_event(Event::Logout);
+    ctx.track_event(LOGOUT);
 
     output::emit_by_format(
         ctx.output_format,

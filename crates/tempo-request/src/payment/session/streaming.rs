@@ -261,8 +261,10 @@ pub(super) async fn stream_sse_response(
 
     if runtime.log_enabled() {
         eprintln!("Tokens streamed: {}", token_count);
-        let cumulative_display =
-            tempo_common::fmt::format_token_amount(state.cumulative_amount, ctx.network_id);
+        let cumulative_display = tempo_common::display::format::format_token_amount(
+            state.cumulative_amount,
+            ctx.network_id,
+        );
         eprintln!("Voucher cumulative: {cumulative_display}");
     }
 

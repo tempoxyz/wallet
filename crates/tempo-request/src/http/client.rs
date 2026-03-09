@@ -136,7 +136,7 @@ impl HttpClient {
                 let header_value = match reqwest::header::HeaderValue::from_str(value) {
                     Ok(v) => v,
                     Err(e) => {
-                        let safe = tempo_common::redact::redact_header_value(name, value);
+                        let safe = tempo_common::security::redact::redact_header_value(name, value);
                         warn!(header_name = %name, header_value = %safe, error = %e, "dropping header with invalid value");
                         continue;
                     }

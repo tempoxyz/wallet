@@ -13,20 +13,19 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
-use crate::analytics::{CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
-use tempo_common::analytics::{self, Event};
+use crate::analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::error::{InputError, KeyError, NetworkError, TempoError};
 use tempo_common::keys::{Keystore, WalletType};
 use tempo_common::network::NetworkId;
-use tempo_common::redact::sanitize_error;
+use tempo_common::security::redact::sanitize_error;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
 pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
-    ctx.track_event(Event::LoginStarted);
+    ctx.track_event(analytics::LOGIN_STARTED);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
 
@@ -52,9 +51,9 @@ pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
     show_whoami(ctx, Some(&keys), None).await
 }
 
-fn track_login_result(a: &analytics::Analytics, result: &anyhow::Result<()>) {
+fn track_login_result(a: &tempo_common::analytics::Analytics, result: &anyhow::Result<()>) {
     match result {
-        Ok(_) => a.track_event(Event::LoginSuccess),
+        Ok(_) => a.track_event(analytics::LOGIN_SUCCESS),
         Err(e) => {
             let is_timeout = e.chain().any(|cause| {
                 matches!(
@@ -63,10 +62,10 @@ fn track_login_result(a: &analytics::Analytics, result: &anyhow::Result<()>) {
                 )
             });
             if is_timeout {
-                a.track_event(Event::LoginTimeout);
+                a.track_event(analytics::LOGIN_TIMEOUT);
             } else {
                 a.track(
-                    Event::LoginFailure,
+                    analytics::LOGIN_FAILURE,
                     LoginFailurePayload {
                         error: sanitize_error(&e.to_string()),
                     },
@@ -104,12 +103,12 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
         prompt_and_open_browser(&code, &url_str);
     }
 
-    ctx.track_event(Event::CallbackWindowOpened);
+    ctx.track_event(analytics::CALLBACK_WINDOW_OPENED);
 
     let callback = poll_until_authorized(&client, &auth_base_url, &code, &code_verifier).await?;
 
     ctx.track(
-        Event::CallbackReceived,
+        analytics::CALLBACK_RECEIVED,
         CallbackReceivedPayload {
             duration_secs: callback.duration_secs,
         },
@@ -118,12 +117,12 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
     save_keys(ctx.network, &ctx.keys, callback, local_signer)?;
 
     ctx.track(
-        Event::WalletCreated,
+        analytics::WALLET_CREATED,
         WalletCreatedPayload {
             wallet_type: "passkey".to_string(),
         },
     );
-    ctx.track_event(Event::KeyCreated);
+    ctx.track_event(analytics::KEY_CREATED);
     if let Some(ref a) = ctx.analytics {
         a.identify(&ctx.keys);
     }

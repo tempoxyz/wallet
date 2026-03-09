@@ -8,8 +8,8 @@ use crate::account::{query_all_balances, TokenBalance};
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
+use tempo_common::display::terminal::address_link;
 use tempo_common::error::NetworkError;
-use tempo_common::terminal::address_link;
 
 use super::fund::{
     has_balance_changed, poll_until, render_balance_diff, FundResponse, POLL_INTERVAL_SECS,

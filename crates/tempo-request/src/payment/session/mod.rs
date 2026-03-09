@@ -6,9 +6,9 @@
 //! remain in `tempo_common::payment::session`.
 
 mod flow;
+mod open;
 mod persist;
 mod streaming;
-mod tx;
 mod voucher;
 
 pub(super) use flow::handle_session_request;

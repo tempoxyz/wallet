@@ -14,15 +14,15 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 
 use self::keychain::keychain;
+use crate::analytics;
 use crate::analytics::{WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload};
-use tempo_common::analytics::Event;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
+use tempo_common::display::terminal::{address_link, print_field_w};
 use tempo_common::error::{ConfigError, KeyError};
 use tempo_common::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, WalletType};
 use tempo_common::network::NetworkId;
-use tempo_common::redact::sanitize_error;
-use tempo_common::terminal::{address_link, print_field_w};
+use tempo_common::security::redact::sanitize_error;
 
 pub(crate) fn list(ctx: &Context) -> Result<()> {
     list_wallets(ctx)
@@ -32,7 +32,7 @@ pub(crate) async fn create(ctx: &Context) -> Result<()> {
     let result = create_local_wallet(&ctx.network, &ctx.keys);
     if result.is_ok() {
         ctx.track(
-            Event::WalletCreated,
+            analytics::WALLET_CREATED,
             WalletCreatedPayload {
                 wallet_type: "local".to_string(),
             },
@@ -56,7 +56,7 @@ pub(crate) async fn fund(ctx: &Context, address: Option<String>, no_wait: bool) 
 
 fn track_fund_start(ctx: &Context, method: &str) {
     ctx.track(
-        Event::WalletFundStarted,
+        analytics::WALLET_FUND_STARTED,
         WalletFundPayload {
             network: ctx.network.as_str().to_string(),
             method: method.to_string(),
@@ -68,7 +68,7 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<()>) {
     match result {
         Ok(()) => {
             ctx.track(
-                Event::WalletFundSuccess,
+                analytics::WALLET_FUND_SUCCESS,
                 WalletFundPayload {
                     network: ctx.network.as_str().to_string(),
                     method: method.to_string(),
@@ -77,7 +77,7 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<()>) {
         }
         Err(e) => {
             ctx.track(
-                Event::WalletFundFailure,
+                analytics::WALLET_FUND_FAILURE,
                 WalletFundFailurePayload {
                     network: ctx.network.as_str().to_string(),
                     method: method.to_string(),
