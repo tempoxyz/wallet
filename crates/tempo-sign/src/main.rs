@@ -8,6 +8,7 @@
 //!     --artifacts-dir artifacts/ \
 //!     --version 0.1.0 \
 //!     --base-url https://cli.tempo.xyz/tempo-wallet \
+//!     --description "Manage your Tempo Wallet" \
 //!     --skill https://cli.tempo.xyz/tempo-wallet/v0.1.0/SKILL.md \
 //!     --skill-sha256 <SHA256> \
 //!     --skill-file crates/tempo-wallet/SKILL.md \
@@ -47,6 +48,7 @@ fn main() {
     let version = find_flag_value(&args, "--version");
     let base_url =
         find_flag_value(&args, "--base-url").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+    let description = find_flag_value(&args, "--description");
     let skill = find_flag_value(&args, "--skill");
     let skill_sha256 = find_flag_value(&args, "--skill-sha256");
     let skill_file = find_flag_value(&args, "--skill-file");
@@ -71,6 +73,7 @@ fn main() {
         &artifacts_dir,
         &version,
         &base_url,
+        description.as_deref(),
         skill.as_deref(),
         skill_sha256.as_deref(),
         skill_file.as_deref(),
@@ -199,6 +202,7 @@ fn build_manifest(
     artifacts_dir: &str,
     version: &str,
     base_url: &str,
+    description: Option<&str>,
     skill: Option<&str>,
     skill_sha256: Option<&str>,
     skill_file: Option<&str>,
@@ -252,6 +256,9 @@ fn build_manifest(
         "version": version_prefix,
         "binaries": binaries,
     });
+    if let Some(desc) = description {
+        manifest["description"] = json!(desc);
+    }
     if let Some(skill_url) = skill {
         manifest["skill"] = json!(skill_url);
     }
