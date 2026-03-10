@@ -109,11 +109,9 @@ impl Config {
         Ok(config)
     }
 
-    /// Get the default config file path (platform config directory + `tempo/wallet/config.toml`).
+    /// Get the default config file path (`$TEMPO_HOME/config.toml` or `~/.tempo/config.toml`).
     pub fn default_config_path() -> Result<PathBuf, TempoError> {
-        dirs::config_dir()
-            .map(|c| c.join("tempo").join("wallet").join("config.toml"))
-            .ok_or_else(|| ConfigError::NoConfigDir.into())
+        Ok(crate::tempo_home()?.join("config.toml"))
     }
 
     /// Write a default config file with helpful comments.

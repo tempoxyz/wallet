@@ -132,7 +132,7 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 
 ## Session Persistence
 
-- SQLite database stored in the platform data directory.
+- SQLite database stored at `$TEMPO_HOME/wallet/sessions.db` (default: `~/.tempo/wallet/sessions.db`).
 - Keyed by origin URL — returning requests to the same origin reuse existing channels.
 - `SessionRecord` stores channel state: channel ID, cumulative amount, deposit, nonce, and signing material.
 - 24-hour TTL on sessions; expired sessions are cleaned up automatically.
