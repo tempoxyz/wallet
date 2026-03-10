@@ -1,6 +1,9 @@
 ---
 name: tempo-wallet
-description: "Wallet identity and custody — manage Tempo wallets, keys, and balances. Use `tempo wallet login` to connect, `tempo wallet services` to discover endpoints, `tempo request <URL>` to make requests."
+description: |
+  Manage your Tempo wallet — log in, check balances, fund, and manage keys. Use `tempo wallet -t login` to connect, `tempo wallet -t services` to browse available paid APIs, and `tempo request` to call them.
+
+  TRIGGERS: wallet, balance, fund, login, spending limit, keys, whoami, check balance, wallet status, top up, deposit
 ---
 
 # tempo wallet
@@ -20,15 +23,15 @@ Wallet identity and custody extension for the Tempo CLI. Manages wallet creation
 curl -fsSL https://cli.tempo.xyz/install | bash
 
 # Sign up or log in (opens browser for passkey auth)
-tempo wallet login
+tempo wallet -t login
 
 # Check wallet status
-tempo wallet whoami
+tempo wallet -t whoami
 ```
 
 ## Agent Usage
 
-Use `-t` for TOON output (compact, token-efficient) or `-j` for JSON:
+Use `-t` for TOON output — compact and token-efficient. Output defaults to JSON automatically when stdout is piped (non-TTY), but `-t` saves more tokens.
 
 ```bash
 # Check wallet readiness before making requests
@@ -36,6 +39,12 @@ tempo wallet -t whoami
 
 # List keys with balances and spending limits
 tempo wallet -t keys list
+
+# Preview funding without executing
+tempo wallet -t fund --dry-run
+
+# Discover command schema programmatically
+tempo wallet -t --describe
 ```
 
 ### Preflight Check
@@ -112,8 +121,10 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 | `tempo wallet whoami` | Show wallet address, balances, keys, and readiness |
 | `tempo wallet keys list` | List all keys with balance and spending limit details |
 | `tempo wallet list` | List configured wallets |
-| `tempo wallet create` | Create a new local wallet |
 | `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
+| `tempo wallet fund --dry-run` | Preview funding action without executing |
+| `tempo wallet sessions close --dry-run` | Preview what would be closed without executing |
+| `tempo wallet --describe` | Emit command schema as JSON for agent introspection |
 
 ## Global Options
 
@@ -125,10 +136,13 @@ These options are available on all commands:
 | `-s, --silent` | Suppress non-essential stderr output |
 | `-t, --toon-output` | TOON output — compact, token-efficient (recommended for agents) |
 | `-j, --json-output` | JSON output |
+| `--describe` | Emit command schema as JSON (hidden) |
+
+**Auto-detection:** When stdout is not a TTY (piped), output defaults to JSON automatically. Set `TEMPO_NO_AUTO_JSON=1` to disable.
 
 ## Error Recovery
 
-Errors are printed to stderr in the format `Error: <message>` with specific exit codes. With `-j` or `-t`, errors are output to stdout as structured `{ code, message, cause? }` objects.
+Errors use structured `{ code, message, cause? }` JSON when output is JSON/TOON (including auto-detected). In text mode, errors print to stderr as `Error: <message>`.
 
 ### Exit Codes
 
@@ -148,3 +162,4 @@ Errors are printed to stderr in the format `Error: <message>` with specific exit
 | `Run 'tempo wallet login'` | Run `tempo wallet login`, then retry |
 | `Key is not provisioned` | Run `tempo wallet login`, then retry |
 | `Unknown network` | Check `-n` flag value |
+| `Invalid hex input` | Fix the address/channel ID — likely a hallucinated URL parameter |

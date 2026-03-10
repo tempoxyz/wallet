@@ -20,8 +20,24 @@ use tempo_common::payment::session::store::SessionStatus;
 use tempo_common::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
 /// Check whether a string looks like a channel ID (0x-prefixed, 32-byte hex).
+///
+/// Returns `true` only when the format is strictly valid hex. Callers that need
+/// a detailed error message should use [`validate_channel_id`] instead.
 fn is_channel_id(s: &str) -> bool {
-    s.starts_with("0x") && s.len() == 66
+    s.starts_with("0x") && s.len() == 66 && s[2..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Validate a channel ID string, returning a user-friendly error for common mistakes.
+fn validate_channel_id(s: &str) -> anyhow::Result<()> {
+    use tempo_common::security::validate_hex_input;
+    validate_hex_input(s, "channel ID")?;
+    if s.len() != 66 {
+        anyhow::bail!(tempo_common::error::InputError::InvalidHexInput(format!(
+            "channel ID must be 66 characters (0x + 64 hex digits), got {}",
+            s.len()
+        )));
+    }
+    Ok(())
 }
 
 /// Build an Ethereum RPC provider for the given network.
@@ -53,7 +69,8 @@ pub(crate) async fn run(ctx: &Context, command: SessionCommands) -> Result<()> {
             all,
             orphaned,
             finalize,
-        } => close::close_sessions(ctx, url, all, orphaned, finalize).await,
+            dry_run,
+        } => close::close_sessions(ctx, url, all, orphaned, finalize, dry_run).await,
         SessionCommands::Sync { origin } => sync::sync_sessions(ctx, origin.as_deref()).await,
     }
 }

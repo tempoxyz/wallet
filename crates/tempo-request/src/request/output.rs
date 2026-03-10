@@ -446,6 +446,8 @@ mod tests {
 
     #[test]
     fn no_output_flags_means_no_file() {
+        // Disable auto-JSON so the test works in non-TTY CI environments
+        std::env::set_var("TEMPO_NO_AUTO_JSON", "1");
         let (c, q) = parse(&["https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
@@ -455,6 +457,7 @@ mod tests {
             &q,
             &url,
         );
+        std::env::remove_var("TEMPO_NO_AUTO_JSON");
         assert!(opts.output_file.is_none());
         assert!(!opts.include_headers);
         assert_eq!(opts.output_format, OutputFormat::Text);

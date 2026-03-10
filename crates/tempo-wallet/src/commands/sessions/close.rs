@@ -76,7 +76,11 @@ pub(super) async fn close_sessions(
     all: bool,
     orphaned: bool,
     finalize: bool,
+    dry_run: bool,
 ) -> Result<()> {
+    if dry_run {
+        return dry_run_close(ctx, url.as_deref(), all, orphaned, finalize).await;
+    }
     if finalize {
         return finalize_closed_channels(ctx).await;
     }
@@ -88,12 +92,10 @@ pub(super) async fn close_sessions(
     }
 
     if let Some(ref target) = url {
-        // If the target looks like a channel ID (0x-prefixed hex), close on-chain directly
-        if super::is_channel_id(target) {
+        if target.starts_with("0x") {
+            super::validate_channel_id(target)?;
             return close_by_channel_id(ctx, target).await;
         }
-
-        // Otherwise treat as a URL — close the local session
         return close_by_url(ctx, target).await;
     }
 
@@ -101,6 +103,98 @@ pub(super) async fn close_sessions(
         "Specify a URL, channel ID (0x...), or use --all/--orphaned/--finalize to close sessions"
             .to_string()
     ));
+}
+
+async fn dry_run_close(
+    ctx: &Context,
+    url: Option<&str>,
+    all: bool,
+    orphaned: bool,
+    finalize: bool,
+) -> Result<()> {
+    let net = ctx.network.as_str();
+
+    #[derive(serde::Serialize)]
+    struct DryRunResponse {
+        mode: &'static str,
+        targets: Vec<DryRunTarget>,
+    }
+
+    #[derive(serde::Serialize)]
+    struct DryRunTarget {
+        channel_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state: Option<String>,
+    }
+
+    let mut targets = Vec::new();
+
+    let mode = if finalize {
+        "finalize"
+    } else if orphaned {
+        "orphaned"
+    } else if all {
+        "all"
+    } else {
+        "single"
+    };
+
+    if all || (!orphaned && !finalize && url.is_none()) {
+        let sessions = session_store::list_sessions()?;
+        for s in &sessions {
+            if s.network_name == net {
+                targets.push(DryRunTarget {
+                    channel_id: s.channel_id.clone(),
+                    origin: Some(s.origin.clone()),
+                    state: Some(format!("{:?}", s.state)),
+                });
+            }
+        }
+    }
+
+    if let Some(target) = url {
+        if super::is_channel_id(target) {
+            targets.push(DryRunTarget {
+                channel_id: target.to_string(),
+                origin: None,
+                state: None,
+            });
+        } else {
+            let key = session_store::session_key(target);
+            if let Some(rec) = session_store::load_session(&key)? {
+                targets.push(DryRunTarget {
+                    channel_id: rec.channel_id.clone(),
+                    origin: Some(rec.origin.clone()),
+                    state: Some(format!("{:?}", rec.state)),
+                });
+            } else {
+                targets.push(DryRunTarget {
+                    channel_id: String::new(),
+                    origin: Some(target.to_string()),
+                    state: Some("not found".to_string()),
+                });
+            }
+        }
+    }
+
+    let response = DryRunResponse { mode, targets };
+
+    output::emit_by_format(ctx.output_format, &response, || {
+        eprintln!(
+            "[DRY RUN] Would close {} session(s) (mode: {mode})",
+            response.targets.len()
+        );
+        for t in &response.targets {
+            if let Some(ref origin) = t.origin {
+                eprintln!("  {} ({})", origin, t.channel_id);
+            } else {
+                eprintln!("  {}", t.channel_id);
+            }
+        }
+        Ok(())
+    })
 }
 
 /// Close all local sessions and on-chain orphaned channels.

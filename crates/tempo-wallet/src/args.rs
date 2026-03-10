@@ -73,6 +73,9 @@ pub(crate) enum Commands {
         /// Skip waiting for balance confirmation
         #[arg(long)]
         no_wait: bool,
+        /// Show what would happen without executing
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Manage payment sessions
     #[command(display_order = 8, name = "sessions")]
@@ -176,6 +179,9 @@ pub(crate) enum SessionCommands {
         /// Finalize channels pending close (grace period elapsed)
         #[arg(long)]
         finalize: bool,
+        /// Show what would be closed without executing
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Sync local sessions with on-chain state
     ///

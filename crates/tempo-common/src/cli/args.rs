@@ -88,15 +88,26 @@ pub struct GlobalArgs {
         conflicts_with = "json_output"
     )]
     pub toon_output: bool,
+
+    /// Emit command schema as JSON for agent introspection
+    #[arg(long, global = true, hide = true)]
+    pub describe: bool,
 }
 
 impl GlobalArgs {
     /// Resolve the effective output format from CLI flags.
+    ///
+    /// When neither `--json-output` nor `--toon-output` is explicitly set and
+    /// stdout is not a terminal, defaults to JSON for machine-friendly output.
+    /// Set `TEMPO_NO_AUTO_JSON=1` to disable auto-detection.
     pub fn resolve_output_format(&self) -> OutputFormat {
+        use std::io::IsTerminal;
         if self.json_output {
             OutputFormat::Json
         } else if self.toon_output {
             OutputFormat::Toon
+        } else if should_auto_json() && !std::io::stdout().is_terminal() {
+            OutputFormat::Json
         } else {
             OutputFormat::Text
         }
@@ -127,32 +138,59 @@ impl GlobalArgs {
         super::context::Context::build(self.context_args()).await
     }
 
+    /// Emit a JSON schema of the CLI command tree and exit.
+    ///
+    /// Walks the clap `Command` to produce a stable, agent-friendly description
+    /// of every subcommand, flag, and positional argument.
+    pub(crate) fn emit_describe<T: clap::CommandFactory>() -> ! {
+        let cmd = T::command();
+        let schema = describe_command(&cmd);
+        // Always emit as JSON regardless of output format flags
+        match serde_json::to_string_pretty(&schema) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("Failed to serialize command schema: {e}");
+                std::process::exit(1);
+            }
+        }
+        std::process::exit(0)
+    }
+
+    /// Resolve output format from raw CLI argv (for pre-parse contexts like --version).
+    pub(crate) fn resolve_output_format_from_argv(args: &[String]) -> OutputFormat {
+        use std::io::IsTerminal;
+        if args.iter().any(|a| a == "-j" || a == "--json-output") {
+            OutputFormat::Json
+        } else if args.iter().any(|a| a == "-t" || a == "--toon-output") {
+            OutputFormat::Toon
+        } else if should_auto_json() && !std::io::stdout().is_terminal() {
+            OutputFormat::Json
+        } else {
+            OutputFormat::Text
+        }
+    }
+
     /// Print structured version info for JSON/TOON output formats, then exit.
     ///
     /// Call this from `handle_version` in each binary's CLI parser.
     pub(crate) fn emit_structured_version(args: &[String]) {
-        let format = if args.iter().any(|a| a == "-j" || a == "--json-output") {
-            Some(OutputFormat::Json)
-        } else if args.iter().any(|a| a == "-t" || a == "--toon-output") {
-            Some(OutputFormat::Toon)
-        } else {
-            None
-        };
-
-        if let Some(output_format) = format {
-            let payload = serde_json::json!({
-                "version": env!("CARGO_PKG_VERSION"),
-                "git_commit": env!("TEMPO_GIT_SHA"),
-                "build_date": env!("TEMPO_BUILD_DATE"),
-                "profile": env!("TEMPO_BUILD_PROFILE"),
-            });
-
-            super::output::emit_formatted_or_fallback(
-                || super::output::format_structured_pretty_json(output_format, &payload),
-                || env!("CARGO_PKG_VERSION").to_string(),
-            );
-            std::process::exit(0);
+        let output_format = Self::resolve_output_format_from_argv(args);
+        if !output_format.is_structured() {
+            return;
         }
+
+        let payload = serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "git_commit": env!("TEMPO_GIT_SHA"),
+            "build_date": env!("TEMPO_BUILD_DATE"),
+            "profile": env!("TEMPO_BUILD_PROFILE"),
+        });
+
+        super::output::emit_formatted_or_fallback(
+            || super::output::format_structured_pretty_json(output_format, &payload),
+            || env!("CARGO_PKG_VERSION").to_string(),
+        );
+        std::process::exit(0);
     }
 }
 
@@ -160,7 +198,12 @@ impl GlobalArgs {
 ///
 /// Wraps `clap::Parser::try_parse` to intercept `DisplayVersion` and emit
 /// structured version info when `-j` or `-t` is present.
-pub fn parse_cli<T: clap::Parser>() -> T {
+pub fn parse_cli<T: clap::Parser + clap::CommandFactory>() -> T {
+    // Handle --describe before normal parsing
+    if std::env::args().any(|a| a == "--describe") {
+        GlobalArgs::emit_describe::<T>();
+    }
+
     match T::try_parse() {
         Ok(cli) => cli,
         Err(err) => {
@@ -168,7 +211,118 @@ pub fn parse_cli<T: clap::Parser>() -> T {
                 let args: Vec<String> = std::env::args().collect();
                 GlobalArgs::emit_structured_version(&args);
             }
+
+            // Structured error output for usage/parse errors
+            if err.use_stderr() {
+                let args: Vec<String> = std::env::args().collect();
+                let format = GlobalArgs::resolve_output_format_from_argv(&args);
+                if format.is_structured() {
+                    let payload = serde_json::json!({
+                        "code": "E_USAGE",
+                        "message": err.to_string().lines().next().unwrap_or("invalid usage"),
+                    });
+                    super::output::emit_formatted_or_fallback(
+                        || super::output::format_structured(format, &payload),
+                        || format!("{{\"code\":\"E_USAGE\",\"message\":\"{}\"}}", err.kind()),
+                    );
+                    std::process::exit(2);
+                }
+            }
+
             err.exit()
         }
     }
+}
+
+/// Whether auto-JSON detection is enabled (disabled by `TEMPO_NO_AUTO_JSON=1`).
+fn should_auto_json() -> bool {
+    std::env::var("TEMPO_NO_AUTO_JSON").is_err()
+}
+
+/// Recursively describe a clap `Command` as a JSON value.
+fn describe_command(cmd: &clap::Command) -> serde_json::Value {
+    let mut args = Vec::new();
+    for arg in cmd.get_arguments() {
+        if arg.is_hide_set() {
+            continue;
+        }
+        let mut entry = serde_json::json!({
+            "name": arg.get_id().as_str(),
+        });
+        let map = entry.as_object_mut().unwrap();
+
+        if let Some(short) = arg.get_short() {
+            map.insert("short".into(), serde_json::Value::String(format!("-{short}")));
+        }
+        if let Some(long) = arg.get_long() {
+            map.insert("long".into(), serde_json::Value::String(format!("--{long}")));
+        }
+        if let Some(help) = arg.get_help() {
+            map.insert("help".into(), serde_json::Value::String(help.to_string()));
+        }
+        if arg.is_required_set() {
+            map.insert("required".into(), serde_json::Value::Bool(true));
+        }
+        if arg.is_global_set() {
+            map.insert("global".into(), serde_json::Value::Bool(true));
+        }
+
+        // Detect flags (no value) vs options (takes value)
+        let num_vals = arg.get_num_args();
+        if num_vals.is_some_and(|r| r.max_values() == 0) {
+            map.insert("type".into(), serde_json::Value::String("flag".into()));
+        } else if arg.get_long().is_some() || arg.get_short().is_some() {
+            map.insert("type".into(), serde_json::Value::String("option".into()));
+            if let Some(val_names) = arg.get_value_names() {
+                let names: Vec<&str> = val_names.iter().map(|v| v.as_str()).collect();
+                if names.len() == 1 {
+                    map.insert(
+                        "value_name".into(),
+                        serde_json::Value::String(names[0].to_string()),
+                    );
+                }
+            }
+        } else {
+            map.insert("type".into(), serde_json::Value::String("positional".into()));
+        }
+
+        let possible = arg.get_possible_values();
+        if !possible.is_empty() {
+            let values: Vec<&str> = possible
+                .iter()
+                .filter(|v| !v.is_hide_set())
+                .map(|v| v.get_name())
+                .collect();
+            if !values.is_empty() {
+                map.insert("possible_values".into(), serde_json::json!(values));
+            }
+        }
+
+        args.push(entry);
+    }
+
+    let mut subcommands = Vec::new();
+    for sub in cmd.get_subcommands() {
+        if sub.is_hide_set() {
+            continue;
+        }
+        subcommands.push(describe_command(sub));
+    }
+
+    let mut result = serde_json::json!({
+        "name": cmd.get_name(),
+    });
+    let map = result.as_object_mut().unwrap();
+
+    if let Some(about) = cmd.get_about() {
+        map.insert("about".into(), serde_json::Value::String(about.to_string()));
+    }
+    if !args.is_empty() {
+        map.insert("args".into(), serde_json::json!(args));
+    }
+    if !subcommands.is_empty() {
+        map.insert("subcommands".into(), serde_json::json!(subcommands));
+    }
+
+    result
 }
