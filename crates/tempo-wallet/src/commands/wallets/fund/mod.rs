@@ -49,14 +49,53 @@ pub(super) async fn run(
     ctx: &Context,
     address: Option<String>,
     no_wait: bool,
+    dry_run: bool,
 ) -> anyhow::Result<()> {
     let wallet_address = resolve_address(address, &ctx.keys)?;
+
+    if dry_run {
+        return dry_run_fund(ctx, &wallet_address);
+    }
 
     let wait = !no_wait;
     match ctx.network {
         NetworkId::TempoModerato => faucet::run(ctx, &wallet_address, wait).await,
         NetworkId::Tempo => bridge::run(ctx, &wallet_address, wait).await,
     }
+}
+
+fn dry_run_fund(ctx: &Context, wallet_address: &str) -> anyhow::Result<()> {
+    use tempo_common::cli::output;
+
+    let action = match ctx.network {
+        NetworkId::TempoModerato => "faucet",
+        NetworkId::Tempo => "bridge",
+    };
+
+    let response = FundResponse {
+        network: ctx.network.as_str().to_string(),
+        address: wallet_address.to_string(),
+        action,
+        success: false,
+        deposit_address: None,
+        source_chain: if action == "bridge" {
+            Some("Base".to_string())
+        } else {
+            None
+        },
+        bridge_status: None,
+        balances_before: None,
+        balances_after: None,
+    };
+
+    output::emit_by_format(ctx.output_format, &response, || {
+        eprintln!(
+            "[DRY RUN] Would fund {} on {} via {action}",
+            wallet_address,
+            ctx.network.as_str()
+        );
+        Ok(())
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +105,7 @@ pub(super) async fn run(
 /// Resolve the target wallet address from an explicit arg or the keystore default.
 fn resolve_address(address: Option<String>, keys: &Keystore) -> anyhow::Result<String> {
     if let Some(addr) = address {
+        tempo_common::security::validate_hex_input(&addr, "wallet address")?;
         return Ok(addr);
     }
 

@@ -54,6 +54,40 @@ pub fn sanitize_error(err: &str) -> String {
     }
 }
 
+/// Validate a `0x`-prefixed hex string (address or channel ID).
+///
+/// Rejects characters that agents commonly hallucinate: `?`, `#`, `%`,
+/// whitespace, and any non-hex-digit after the prefix.
+pub fn validate_hex_input(value: &str, label: &str) -> Result<(), crate::error::InputError> {
+    if !value.starts_with("0x") {
+        return Err(crate::error::InputError::InvalidHexInput(format!(
+            "{label} must start with '0x'"
+        )));
+    }
+    let hex_part = &value[2..];
+    if hex_part.is_empty() {
+        return Err(crate::error::InputError::InvalidHexInput(format!(
+            "{label} is empty after '0x' prefix"
+        )));
+    }
+    for (i, ch) in hex_part.char_indices() {
+        if !ch.is_ascii_hexdigit() {
+            let hint = match ch {
+                '?' | '#' | '%' => format!(
+                    "unexpected '{ch}' in {label} at position {pos} (possible hallucinated URL parameter)",
+                    pos = i + 2
+                ),
+                _ if ch.is_whitespace() => {
+                    format!("unexpected whitespace in {label} at position {pos}", pos = i + 2)
+                }
+                _ => format!("invalid character '{ch}' in {label} at position {pos}", pos = i + 2),
+            };
+            return Err(crate::error::InputError::InvalidHexInput(hint));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +203,53 @@ mod tests {
         let msg = format!("server error: {}secret_api_key_12345", "a]".repeat(100));
         let result = sanitize_error(&msg);
         assert!(!result.contains("secret_api_key_12345"));
+    }
+
+    #[test]
+    fn validate_hex_input_valid_address() {
+        assert!(
+            validate_hex_input("0xabcdef1234567890abcdef1234567890abcdef12", "address").is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_hex_input_valid_channel_id() {
+        assert!(validate_hex_input(
+            "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            "channel ID"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn validate_hex_input_rejects_question_mark() {
+        let result = validate_hex_input("0xabc?def", "address");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("hallucinated"));
+    }
+
+    #[test]
+    fn validate_hex_input_rejects_hash() {
+        assert!(validate_hex_input("0xabc#def", "address").is_err());
+    }
+
+    #[test]
+    fn validate_hex_input_rejects_percent() {
+        assert!(validate_hex_input("0xabc%20def", "address").is_err());
+    }
+
+    #[test]
+    fn validate_hex_input_rejects_whitespace() {
+        assert!(validate_hex_input("0xabc def", "address").is_err());
+    }
+
+    #[test]
+    fn validate_hex_input_rejects_no_prefix() {
+        assert!(validate_hex_input("abcdef", "address").is_err());
+    }
+
+    #[test]
+    fn validate_hex_input_rejects_empty_hex() {
+        assert!(validate_hex_input("0x", "address").is_err());
     }
 }

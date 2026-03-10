@@ -26,7 +26,11 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
             Commands::Completions { shell } => completions::run(&ctx, shell),
             Commands::List => wallets::list(&ctx),
             Commands::Create => wallets::create(&ctx).await,
-            Commands::Fund { address, no_wait } => wallets::fund(&ctx, address, no_wait).await,
+            Commands::Fund {
+                address,
+                no_wait,
+                dry_run,
+            } => wallets::fund(&ctx, address, no_wait, dry_run).await,
             Commands::Whoami => whoami::run(&ctx).await,
             Commands::Keys { command } => {
                 keys::run(&ctx, command.unwrap_or(KeyCommands::List)).await

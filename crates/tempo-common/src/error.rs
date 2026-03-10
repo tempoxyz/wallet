@@ -24,6 +24,8 @@ pub enum InputError {
     BodyTooLarge(usize),
     #[error("Request header exceeds maximum size of {0} bytes")]
     HeaderTooLarge(usize),
+    #[error("Invalid hex input: {0}")]
+    InvalidHexInput(String),
     #[error("failed to read stdin: {0}")]
     ReadStdin(#[source] std::io::Error),
     #[error("failed to read file '{path}': {source}")]

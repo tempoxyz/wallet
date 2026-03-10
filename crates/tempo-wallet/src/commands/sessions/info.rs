@@ -32,7 +32,8 @@ impl SessionInfoResponse {
 pub(super) async fn show_session_info(ctx: &Context, target: &str) -> Result<()> {
     let output_format = ctx.output_format;
 
-    if super::is_channel_id(target) {
+    if target.starts_with("0x") {
+        super::validate_channel_id(target)?;
         return show_channel_info(ctx, target).await;
     }
 

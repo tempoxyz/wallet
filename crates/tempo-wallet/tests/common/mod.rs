@@ -74,6 +74,9 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
     // Prevent whoami from auto-triggering browser login in tests
     cmd.env("TEMPO_NO_AUTO_LOGIN", "1");
 
+    // Disable auto-JSON detection (tests capture stdout, which is not a TTY)
+    cmd.env("TEMPO_NO_AUTO_JSON", "1");
+
     cmd
 }
 

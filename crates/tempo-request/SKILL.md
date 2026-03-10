@@ -1,6 +1,9 @@
 ---
 name: tempo-request
-description: "HTTP client with automatic payment — make API requests without API keys or accounts. Use `tempo wallet services` to discover endpoints, `tempo request <URL>` to make requests."
+description: |
+  HTTP client with automatic payment — call any API without API keys or accounts. Use when you need external data or capabilities not available locally. When a server responds with 402 Payment Required, tempo request handles the payment and retries automatically.
+
+  TRIGGERS: call API, use an API, HTTP request, make a request, external data, no API key, paid API, "I need to access", "can you call"
 ---
 
 # tempo request
@@ -12,49 +15,21 @@ A command-line HTTP client with built-in payment support. Use tempo request inst
 - Make HTTP requests to external services
 - Replace curl/wget for endpoints that support automatic payment
 
-## Setup
+## Workflow
 
-Connect your Tempo wallet first:
+Follow these steps in order:
 
-```bash
-# Sign up or log in (opens browser for passkey auth)
-tempo wallet login
-
-# Check wallet status
-tempo wallet whoami
-```
-
-## Agent Usage
-
-Use `-t` to get TOON output (compact, token-efficient) or `-j` for JSON:
-
-```bash
-# Preferred pattern: TOON output (saves tokens)
-tempo request -t -X POST \
-  --json '{"your":"payload"}' \
-  <SERVICE_URL>/<ENDPOINT_PATH>
-
-# Check wallet readiness before making requests
-tempo wallet -t whoami
-```
-
-### Preflight Check
-
-Before making paid requests, verify the wallet is ready:
+### 1. Check wallet readiness
 
 ```bash
 tempo wallet -t whoami
 ```
 
-Check these fields in the response:
-- `ready` — `true` means the wallet is connected, provisioned, and has a key
-- `balance` — the wallet's USDC balance (top-level field)
+Check `ready` is `true` and `balance` is sufficient. If `ready` is `false`, run `tempo wallet login` and retry.
 
-If `ready` is `false`, run `tempo wallet login` and retry.
+### 2. Discover the right service and endpoint
 
-## Available Services
-
-Use `tempo wallet services` to discover available services, their endpoints, and pricing:
+**Always discover before guessing.** Service URLs and endpoint paths are not predictable — run discovery first.
 
 ```bash
 # List all available services
@@ -70,31 +45,50 @@ tempo wallet -t services --search <QUERY>
 tempo wallet -t services info <SERVICE_ID>
 ```
 
-Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). When you don't know which service or endpoint to use, run `tempo wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). Run `tempo wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
-## Quick Start
+### 3. Make the request
 
 ```bash
-# Connect your Tempo wallet
-tempo wallet login
-
-# Discover available services
-tempo wallet -t services
-
-# Make a paid request (payment handled automatically on 402)
 tempo request -t -X POST \
-  --json '{"your":"payload"}' \
-  <SERVICE_URL>/<ENDPOINT_PATH>
-
-# Preview cost without paying
-tempo request -t --dry-run -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
-## Global Options
+Payment is automatic: sends request, gets 402 challenge, signs payment, retries with credential, returns result.
 
-These options are available on all commands:
+## Important Rules
+
+- **Always discover before guessing.** Service URLs include provider-specific paths. Run `tempo wallet -t services` and `tempo wallet -t services info <id>` first.
+- **Use `-t` for all agent calls.** TOON output is compact and token-efficient.
+- **Use `--dry-run` before expensive operations.** Preview cost without paying.
+- **Check balance before large operations.** Some calls can be expensive.
+
+## Setup
+
+```bash
+# Install
+curl -fsSL https://cli.tempo.xyz/install | bash
+
+# Sign up or log in (opens browser for passkey auth)
+tempo wallet -t login
+```
+
+## Agent Usage
+
+Use `-t` for TOON output — compact and token-efficient. Output defaults to JSON automatically when stdout is piped (non-TTY), but `-t` saves more tokens.
+
+```bash
+# Preview cost without paying
+tempo request -t --dry-run -X POST \
+  --json '{"your":"payload"}' \
+  <SERVICE_URL>/<ENDPOINT_PATH>
+
+# Discover command schema programmatically
+tempo request -t --describe
+```
+
+## Global Options
 
 | Option | Description |
 |--------|-------------|
@@ -102,6 +96,9 @@ These options are available on all commands:
 | `-s, --silent` | Suppress non-essential stderr output |
 | `-t, --toon-output` | TOON output — compact, token-efficient (recommended for agents) |
 | `-j, --json-output` | JSON output |
+| `--describe` | Emit command schema as JSON (hidden) |
+
+**Auto-detection:** When stdout is not a TTY (piped), output defaults to JSON automatically. Set `TEMPO_NO_AUTO_JSON=1` to disable.
 
 ## Request Options
 
@@ -135,7 +132,7 @@ Run `tempo request --help` for the full list of curl-compatible options (`-u`, `
 
 ## Error Recovery
 
-Errors are printed to stderr in the format `Error: <message>` with specific exit codes. With `-j` or `-t`, errors are output to stdout as structured `{ code, message, cause? }` objects.
+Errors use structured `{ code, message, cause? }` JSON when output is JSON/TOON (including auto-detected). In text mode, errors print to stderr as `Error: <message>`.
 
 ### Exit Codes
 
