@@ -206,6 +206,7 @@ fn sign_file(path: &Path, trusted_comment: Option<&str>, sk: &minisign::SecretKe
     sig_box.into_string()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_manifest(
     artifacts_dir: &str,
     version: &str,
