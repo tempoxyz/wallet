@@ -49,22 +49,6 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             asset: tempo-wallet-darwin-arm64
-          # tempo-mpp builds
-          - package: tempo-mpp
-            binary: tempo-mpp
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: tempo-mpp-linux-amd64
-          - package: tempo-mpp
-            binary: tempo-mpp
-            os: macos-latest
-            target: x86_64-apple-darwin
-            asset: tempo-mpp-darwin-amd64
-          - package: tempo-mpp
-            binary: tempo-mpp
-            os: macos-latest
-            target: aarch64-apple-darwin
-            asset: tempo-mpp-darwin-arm64
           # tempo-request builds
           - package: tempo-request
             binary: tempo-request
@@ -129,11 +113,10 @@ jobs:
 
           declare -A PKG_DESC=(
             [tempo-wallet]="Manage your Tempo Wallet"
-            [tempo-mpp]="MPP sessions and service directory"
             [tempo-request]="Make an HTTP request"
           )
 
-          for pkg in tempo-wallet tempo-mpp tempo-request; do
+          for pkg in tempo-wallet tempo-request; do
             mkdir -p "artifacts-${pkg}"
             cp artifacts/${pkg}-* "artifacts-${pkg}/"
 
@@ -172,7 +155,7 @@ jobs:
 
           VERSION="v${{ needs.version.outputs.version }}"
 
-          for pkg in tempo-wallet tempo-mpp tempo-request; do
+          for pkg in tempo-wallet tempo-request; do
             PREFIX="extensions/${pkg}"
 
             # Binaries (latest + versioned)

@@ -28,7 +28,7 @@ cd wallet && make install
 tempo wallet login
 
 # Make a paid API request
-tempo mpp https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+tempo request https://openrouter.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
@@ -37,21 +37,21 @@ tempo mpp https://openrouter.mpp.tempo.xyz/v1/chat/completions \
 Chat with an LLM:
 
 ```bash
-tempo mpp https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+tempo request https://openrouter.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 Generate an image:
 
 ```bash
-tempo mpp https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
+tempo request https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
   -X POST --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3"}'
 ```
 
 Preview cost without paying:
 
 ```bash
-tempo mpp --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+tempo request --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
   -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
@@ -62,21 +62,20 @@ tempo mpp --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
 | `tempo wallet login` | Connect your Tempo wallet |
 | `tempo wallet logout` | Disconnect your wallet |
 | `tempo wallet whoami` | Show wallet, balances, and keys |
-| `tempo mpp <URL>` | Make an HTTP request with automatic payment |
-| `tempo mpp services` | Browse the MPP service directory |
-| `tempo mpp services info <ID>` | Show detailed info for a service |
-| `tempo mpp sessions list` | List sessions (active/orphaned/closing) |
-| `tempo mpp sessions close [--all\|<URL>]` | Close sessions or channels |
-| `tempo mpp sign` | Sign an MPP challenge and output the Authorization header |
+| `tempo wallet services` | Browse the MPP service directory |
+| `tempo wallet services info <ID>` | Show detailed info for a service |
+| `tempo wallet sessions list` | List sessions (active/orphaned/closing) |
+| `tempo wallet sessions close [--all\|<URL>]` | Close sessions or channels |
+| `tempo wallet sign` | Sign an MPP challenge and output the Authorization header |
 
-Run `tempo wallet --help` or `tempo mpp --help` for full flag reference.
+Run `tempo wallet --help` or `tempo request --help` for full flag reference.
 
 ## Workspace
 
 | Crate | Binary | Description |
 |-------|--------|-------------|
-| `tempo-wallet` | `tempo-wallet` | Wallet identity and custody (login, keys, fund) |
-| `tempo-mpp` | `tempo-mpp` | HTTP client with MPP payment (query, sessions, services) |
+| `tempo-wallet` | `tempo-wallet` | Wallet identity, custody, sessions, services, and signing |
+| `tempo-request` | `tempo-request` | HTTP client with MPP payment |
 | `tempo-common` | — | Shared library (config, keys, network, payment, analytics) |
 | `tempo-sign` | `tempo-sign` | Release manifest signing tool |
 

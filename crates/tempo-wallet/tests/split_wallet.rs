@@ -14,18 +14,20 @@ fn wallet_help_includes_identity_commands() {
 }
 
 #[test]
-fn wallet_rejects_query_command_with_migration_hint() {
+fn wallet_help_includes_mpp_commands() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
-        .args(["query", "https://example.com"])
+        .arg("--help")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("unrecognized"));
+        .success()
+        .stdout(predicate::str::contains("sessions"))
+        .stdout(predicate::str::contains("services"))
+        .stdout(predicate::str::contains("sign"));
 }
 
 #[test]
-fn wallet_rejects_services_command_with_migration_hint() {
+fn wallet_rejects_query_command() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"))
-        .arg("services")
+        .args(["query", "https://example.com"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("unrecognized"));

@@ -1,7 +1,7 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 mod common;
 use common::{test_command, TestConfigBuilder};
@@ -12,30 +12,11 @@ use common::{test_command, TestConfigBuilder};
 const VALID_CHARGE_CHALLENGE: &str = r#"Payment id="test", realm="test", method="tempo", intent="charge", request="eyJhbW91bnQiOiIxMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMGI5NTM3ZDExYzYwZThiNTAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyMTd9fQ""#;
 
 #[test]
-fn mpp_help_includes_mpp_commands() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-mpp"))
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("sessions"))
-        .stdout(predicate::str::contains("services"))
-        .stdout(predicate::str::contains("sign"));
-}
-
-#[test]
-fn mpp_rejects_unknown_subcommand() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-mpp"))
-        .arg("whoami")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("unrecognized"));
-}
-
-#[test]
 fn sign_help_shows_flags() {
-    Command::new(assert_cmd::cargo::cargo_bin!("tempo-mpp"))
-        .args(["sign", "--help"])
-        .assert()
+    let temp = TestConfigBuilder::new().build();
+    let mut cmd = test_command(&temp);
+    cmd.args(["sign", "--help"]);
+    cmd.assert()
         .success()
         .stdout(predicate::str::contains("--challenge"))
         .stdout(predicate::str::contains("--dry-run"));

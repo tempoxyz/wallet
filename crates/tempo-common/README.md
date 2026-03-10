@@ -1,6 +1,6 @@
 # tempo-common
 
-Shared library for Tempo CLI extension binaries. Provides common infrastructure used by `tempo-wallet` and `tempo-mpp`.
+Shared library for Tempo CLI extension binaries. Provides common infrastructure used by `tempo-wallet` and `tempo-request`.
 
 ## Modules
 
@@ -23,7 +23,7 @@ Shared library for Tempo CLI extension binaries. Provides common infrastructure 
 
 ## Note
 
-This is an internal crate — not published to crates.io. All user-facing behavior is exposed via the `tempo-wallet` and `tempo-mpp` CLI binaries.
+This is an internal crate — not published to crates.io. All user-facing behavior is exposed via the `tempo-wallet` and `tempo-request` CLI binaries.
 
 ## License
 

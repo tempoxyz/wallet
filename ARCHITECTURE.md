@@ -5,14 +5,14 @@ Tempo CLI is a multi-crate workspace providing a command-line HTTP client with b
 ## Crate Layering
 
 ```
-tempo-wallet (wallet identity/custody)
+tempo-wallet (wallet identity/custody + sessions/services/sign)
   └── tempo-common (shared library)
-tempo-mpp (HTTP client + payment)
+tempo-request (HTTP client + payment)
   └── tempo-common (shared library)
 tempo-sign (release signing, standalone)
 ```
 
-`tempo-common` is the shared foundation. `tempo-wallet` and `tempo-mpp` are independent binaries that both depend on it. `tempo-sign` is a standalone build tool.
+`tempo-common` is the shared foundation. `tempo-wallet` and `tempo-request` are independent binaries that both depend on it. `tempo-sign` is a standalone build tool.
 
 ## tempo-common Module Layering
 
@@ -43,32 +43,18 @@ tempo-common/src/
 ```
 tempo-wallet/src/
   main.rs              — entry point; calls tempo_common::cli::run_main()
-  cli/
-    args.rs            — Cli struct (flattens GlobalArgs from tempo_common::cli)
-    dispatch.rs        — build Context, dispatch commands, track analytics
-    commands/
-      login.rs         — passkey authentication flow
-      logout.rs        — disconnect wallet
-      whoami.rs         — wallet status, balances, keys
-      keys.rs          — key listing with balance and spending limit queries
-      wallets/         — wallet management (create, list, fund)
-      completions.rs   — shell completions
-```
-
-### tempo-mpp
-
-```
-tempo-mpp/src/
-  main.rs              — entry point; calls tempo_common::cli::run_main()
-  cli/
-    args.rs            — Cli struct (flattens GlobalArgs, QueryArgs)
-    dispatch.rs        — build Context, dispatch commands, track analytics
-    output.rs          — OutputOptions, query-specific output types
-    commands/
-      query/           — HTTP query flow (request → 402 → payment → response)
-      sessions/        — session management (list, info, close, recover, sync)
-      services/        — service directory listing and details
-      completions.rs   — shell completions
+  args.rs              — Cli struct (flattens GlobalArgs from tempo_common::cli)
+  app.rs               — build Context, dispatch commands, track analytics
+  commands/
+    login.rs           — passkey authentication flow
+    logout.rs          — disconnect wallet
+    whoami.rs          — wallet status, balances, keys
+    keys.rs            — key listing with balance and spending limit queries
+    wallets/           — wallet management (create, list, fund)
+    sessions/          — session management (list, info, close, sync)
+    services/          — service directory listing and details
+    sign.rs            — sign MPP payment challenges
+    completions.rs     — shell completions
 ```
 
 ## Payment Flows
@@ -137,9 +123,7 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `crates/tempo-common/src/config.rs` | Config file parsing and RPC resolution |
 | `crates/tempo-common/src/network.rs` | Built-in network definitions (Tempo, Moderato), explorer URLs |
 | `crates/tempo-common/src/analytics.rs` | Opt-out PostHog telemetry |
-| `crates/tempo-wallet/src/cli/dispatch.rs` | Wallet command dispatch lifecycle |
-| `crates/tempo-mpp/src/cli/dispatch.rs` | MPP command dispatch lifecycle |
-| `crates/tempo-mpp/src/cli/commands/query/` | Primary query flow: HTTP → 402 detection → payment → retry |
-| `crates/tempo-mpp/src/cli/commands/sessions/` | Session management commands (list/info/close/sync) |
-| `crates/tempo-mpp/src/cli/commands/services/` | Service directory listing and detail views |
+| `crates/tempo-wallet/src/app.rs` | Wallet command dispatch lifecycle |
+| `crates/tempo-wallet/src/commands/sessions/` | Session management commands (list/info/close/sync) |
+| `crates/tempo-wallet/src/commands/services/` | Service directory listing and detail views |
 | `crates/tempo-wallet/src/cli/commands/login.rs` | Login command and passkey authentication flow |

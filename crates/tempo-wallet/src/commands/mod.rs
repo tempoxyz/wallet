@@ -4,5 +4,8 @@ pub(crate) mod completions;
 pub(crate) mod keys;
 pub(crate) mod login;
 pub(crate) mod logout;
+pub(crate) mod services;
+pub(crate) mod sessions;
+pub(crate) mod sign;
 pub(crate) mod wallets;
 pub(crate) mod whoami;

@@ -1,4 +1,4 @@
-//! Common test utilities for tempo-mpp CLI tests
+//! Common test utilities for tempo-wallet CLI tests
 //!
 //! Not every helper is used in every test binary — suppress false positives.
 #![allow(dead_code)]
@@ -81,7 +81,7 @@ pub fn write_test_files(root: &std::path::Path, config_toml: &str, keys_toml: Op
 /// tests to work consistently across platforms, especially Linux where the
 /// dirs crate v6+ respects XDG environment variables.
 pub fn test_command(temp_dir: &TempDir) -> Command {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("tempo-mpp"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("tempo-wallet"));
 
     // Set HOME for both macOS and Linux
     cmd.env("HOME", temp_dir.path());
@@ -100,7 +100,7 @@ pub fn test_command(temp_dir: &TempDir) -> Command {
 /// Hardcoded test wallet for Moderato (testnet).
 ///
 /// This is the mpp-proxy client wallet, funded with pathUSD on Moderato.
-/// Since it's a direct EOA (wallet_address == derived address), tempo-mpp
+/// Since it's a direct EOA (wallet_address == derived address), tempo-wallet
 /// will automatically use Direct signing mode.
 pub const TEST_WALLET_PRIVATE_KEY: &str =
     "0xbb53fe0be41a5da041ea0c9d2612914cec26bb6c39d747154b519b51feb9ae49";
