@@ -28,8 +28,16 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
             Commands::Create => wallets::create(&ctx).await,
             Commands::Fund { address, no_wait } => wallets::fund(&ctx, address, no_wait).await,
             Commands::Whoami => whoami::run(&ctx).await,
-            Commands::Keys { command } => keys::run(&ctx, command).await,
-            Commands::Sessions { command } => sessions::run(&ctx, command).await,
+            Commands::Keys { command } => {
+                keys::run(&ctx, command.unwrap_or(KeyCommands::List)).await
+            }
+            Commands::Sessions { command } => {
+                sessions::run(
+                    &ctx,
+                    command.unwrap_or(SessionCommands::List { state: vec![] }),
+                )
+                .await
+            }
             Commands::Sign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
             Commands::Services {
                 command,
@@ -65,15 +73,15 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Fund { .. } => "fund",
         Commands::Whoami => "whoami",
         Commands::Keys { command } => match command {
-            KeyCommands::List => "keys list",
-            KeyCommands::Create { .. } => "keys create",
-            KeyCommands::Clean { .. } => "keys clean",
+            Some(KeyCommands::List) | None => "keys list",
+            Some(KeyCommands::Create { .. }) => "keys create",
+            Some(KeyCommands::Clean { .. }) => "keys clean",
         },
         Commands::Sessions { command } => match command {
-            SessionCommands::List { .. } => "sessions list",
-            SessionCommands::Info { .. } => "sessions info",
-            SessionCommands::Close { .. } => "sessions close",
-            SessionCommands::Sync { .. } => "sessions sync",
+            Some(SessionCommands::List { .. }) | None => "sessions list",
+            Some(SessionCommands::Info { .. }) => "sessions info",
+            Some(SessionCommands::Close { .. }) => "sessions close",
+            Some(SessionCommands::Sync { .. }) => "sessions sync",
         },
         Commands::Sign { .. } => "sign",
         Commands::Services { command, .. } => match command {

@@ -88,10 +88,13 @@ The `tempo` launcher at [tempoxyz/tempo](https://github.com/tempoxyz/tempo) disc
 tempo wallet login    # Opens browser to create or connect a passkey wallet
 ```
 
-| Platform | Config | Keys |
-|----------|--------|------|
-| **macOS** | `~/Library/Application Support/tempo/wallet/config.toml` | `~/Library/Application Support/tempo/wallet/keys.toml` |
-| **Linux** | `~/.config/tempo/wallet/config.toml` | `~/.local/share/tempo/wallet/keys.toml` |
+All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
+
+| File | Path | Description |
+|------|------|-------------|
+| Config | `~/.tempo/config.toml` | RPC overrides, telemetry |
+| Keys | `~/.tempo/wallet/keys.toml` | Wallet keys (mode 0600) |
+| Sessions | `~/.tempo/wallet/sessions.db` | Payment session state |
 
 ## Telemetry
 

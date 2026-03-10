@@ -8,7 +8,7 @@ pub enum ConfigError {
     Missing(String),
     #[error("Invalid configuration: {0}")]
     Invalid(String),
-    #[error("Failed to determine config directory")]
+    #[error("Failed to determine home directory")]
     NoConfigDir,
 }
 
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn test_no_config_dir_display() {
         let err: TempoError = ConfigError::NoConfigDir.into();
-        assert_eq!(err.to_string(), "Failed to determine config directory");
+        assert_eq!(err.to_string(), "Failed to determine home directory");
     }
 
     #[test]

@@ -11,15 +11,11 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::error::ConfigError;
 use crate::network::NetworkId;
 
-/// Get the tempo-wallet data directory (platform-specific).
-fn data_dir() -> Result<PathBuf> {
-    dirs::data_dir()
-        .ok_or(ConfigError::NoConfigDir)
-        .map(|d| d.join("tempo").join("wallet"))
-        .map_err(Into::into)
+/// Get the tempo-wallet data directory (`$TEMPO_HOME/wallet` or `~/.tempo/wallet`).
+fn wallet_dir() -> Result<PathBuf> {
+    Ok(crate::tempo_home()?.join("wallet"))
 }
 
 /// Session lifecycle state.
@@ -167,10 +163,10 @@ impl SessionRecord {
     }
 }
 
-/// Get the sessions directory, creating it if needed.
-fn sessions_dir() -> Result<PathBuf> {
-    let dir = data_dir()?.join("sessions");
-    fs::create_dir_all(&dir).context("Failed to create sessions directory")?;
+/// Ensure the wallet directory exists and return it.
+fn ensure_wallet_dir() -> Result<PathBuf> {
+    let dir = wallet_dir()?;
+    fs::create_dir_all(&dir).context("Failed to create wallet directory")?;
     Ok(dir)
 }
 
@@ -199,27 +195,12 @@ pub fn session_key(origin: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn open_db() -> Result<rusqlite::Connection> {
-    let dir = sessions_dir()?;
+    let dir = ensure_wallet_dir()?;
     let db_path = dir.join("sessions.db");
     open_db_at(&db_path)
 }
 
 fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
-    // Enforce our public baseline schema as user_version=3. Any pre-release DBs are discarded.
-    if path.exists() {
-        if let Ok(conn) = rusqlite::Connection::open(path) {
-            let uv: u32 = conn
-                .pragma_query_value(None, "user_version", |row| row.get(0))
-                .unwrap_or(0);
-            drop(conn);
-            if uv != 3 {
-                let _ = std::fs::remove_file(path);
-            }
-        } else {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-
     let conn = rusqlite::Connection::open(path).context("Failed to open sessions database")?;
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
@@ -233,7 +214,6 @@ fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
 }
 
 fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
-    // Public baseline: user_version == 3 (removed challenge_id, token_decimals).
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
             key               TEXT PRIMARY KEY,
@@ -262,7 +242,7 @@ fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
     )
     .context("Failed to create sessions table")?;
 
-    conn.pragma_update(None, "user_version", 3)
+    conn.pragma_update(None, "user_version", 1)
         .context("Failed to set database version")?;
 
     Ok(())
@@ -462,7 +442,7 @@ impl Drop for SessionLock {
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
 pub fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
-    let dir = sessions_dir()?;
+    let dir = ensure_wallet_dir()?;
     let lock_path = dir.join(format!("{}.lock", key));
     let file = OpenOptions::new()
         .create(true)

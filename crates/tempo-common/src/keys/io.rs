@@ -4,23 +4,21 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::error::{ConfigError, TempoError};
+use crate::error::TempoError;
 
 use super::Keystore;
 
 const KEYS_FILE_NAME: &str = "keys.toml";
 
-/// Get the tempo-wallet data directory (platform-specific).
-fn data_dir() -> Result<PathBuf, TempoError> {
-    dirs::data_dir()
-        .ok_or_else(|| ConfigError::NoConfigDir.into())
-        .map(|d| d.join("tempo").join("wallet"))
+/// Get the tempo-wallet data directory (`$TEMPO_HOME/wallet` or `~/.tempo/wallet`).
+fn wallet_dir() -> Result<PathBuf, TempoError> {
+    Ok(crate::tempo_home()?.join("wallet"))
 }
 
 impl Keystore {
     /// Get the keys.toml file path.
     pub fn keys_path() -> Result<PathBuf, TempoError> {
-        Ok(data_dir()?.join(KEYS_FILE_NAME))
+        Ok(wallet_dir()?.join(KEYS_FILE_NAME))
     }
 
     /// Reload wallet keys from disk.

@@ -257,6 +257,7 @@ new-crate.workspace = true
 
 | Variable | Description |
 | -------- | ----------- |
+| `TEMPO_HOME` | Override data directory (default: `~/.tempo`) |
 | `TEMPO_RPC_URL` | Override RPC endpoint |
 | `TEMPO_AUTH_URL` | Override auth server URL |
 | `TEMPO_SERVICES_URL` | Override service directory API URL |
@@ -265,15 +266,17 @@ new-crate.workspace = true
 
 ## Data Locations
 
-**macOS:**
-- Config: `~/Library/Application Support/tempo/wallet/config.toml`
-- Wallet keys: `~/Library/Application Support/tempo/wallet/keys.toml`
-- Private keys: macOS Keychain
+All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
 
-**Linux:**
-- Config: `~/.config/tempo/wallet/config.toml`
-- Wallet keys: `~/.local/share/tempo/wallet/keys.toml`
-- Private keys: not yet supported via OS keychain (unit tests use in-memory keychain)
+```
+~/.tempo/
+├── config.toml              # Shared config (RPC overrides, telemetry)
+└── wallet/
+    ├── keys.toml             # Wallet keys (mode 0600)
+    └── sessions.db           # Payment session state (SQLite)
+```
+
+- Private keys: macOS Keychain (macOS) or inline in `keys.toml` (Linux)
 
 ## Configuration Structure
 
