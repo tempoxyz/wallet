@@ -6,20 +6,14 @@ Shared library for Tempo CLI extension binaries. Provides common infrastructure 
 
 | Module | Description |
 |--------|-------------|
-| `account` | Wallet account types (balances, spending limits) and on-chain queries |
 | `analytics` | Opt-out telemetry (PostHog) |
-| `cli` | Shared CLI infrastructure (`GlobalArgs`, dispatch tracking, `run_main`) |
+| `cli` | Shared CLI infrastructure (args, context, output, runner, runtime, tracking, formatting, terminal helpers) |
 | `config` | Configuration file handling |
-| `context` | `Context` struct — shared app state threaded to all commands |
-| `error` | `TempoError` enum (thiserror) |
-| `exit_codes` | Process exit codes |
-| `http` | HTTP client, request planning, response parsing |
+| `error` | Error types (`ConfigError`, `TempoError`) |
 | `keys` | Key storage (model, I/O), signer resolution, authorization |
 | `network` | Network definitions (`NetworkId`), explorer config, RPC |
-| `output` | `OutputFormat` and structured output helpers |
-| `payment` | Payment protocol implementations (charge + session) |
-| `runtime` | Tracing, color mode, error rendering |
-| `util` | Shared utilities (formatting, terminal hyperlinks, sanitization) |
+| `payment` | Payment error classification and session management (persistence, channel queries, close, tx) |
+| `security` | Security utilities (safe logging, sanitization, redaction) |
 
 ## Note
 

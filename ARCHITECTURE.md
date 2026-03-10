@@ -20,20 +20,26 @@ Dependency flows top-down; lower layers never import from higher ones.
 
 ```
 tempo-common/src/
-  cli.rs               — GlobalArgs, dispatch tracking (track_command, track_result), run_main
-  context.rs           — Context struct (Config, NetworkId, Keystore, Analytics, OutputFormat)
-  runtime.rs           — tracing setup, color mode, error rendering
-  output.rs            — OutputFormat, structured output helpers
-  exit_codes.rs        — process exit codes (ExitCode enum)
-  account/             — wallet account types (balances, spending limits) and on-chain queries
-  payment/             — payment flows (charge + session); depends on keys, config, network
-  keys/                — key storage, signing, authorization; depends on config, network
+  cli/                 — shared CLI infrastructure (submodules below)
+    args.rs            — GlobalArgs, parse_cli
+    context.rs         — Context struct (Config, NetworkId, Keystore, Analytics, OutputFormat, Verbosity)
+    exit_codes.rs      — process exit codes (ExitCode enum)
+    format.rs          — value formatting helpers (amounts, durations, timestamps)
+    output.rs          — OutputFormat, structured output helpers
+    runner.rs          — CLI lifecycle (run_cli, run_main)
+    runtime.rs         — tracing setup, color mode, error rendering
+    terminal.rs        — terminal output helpers (hyperlinks, field formatting, sanitization)
+    tracking.rs        — analytics tracking (track_command, track_result)
+    verbosity.rs       — verbosity configuration
   config.rs            — configuration file handling; depends on error
   network.rs           — chain definitions, explorer config, RPC; depends on error
-  http/                — HTTP client wrapper; depends on network
+  error.rs             — error types (ConfigError, TempoError); foundational
   analytics.rs         — opt-out telemetry; no internal dependencies
-  error.rs             — TempoError enum; foundational
-  util.rs              — shared utilities; depends on network (for token formatting)
+  security.rs          — security utilities (safe logging, sanitization, redaction)
+  keys/                — key storage, signing, authorization; depends on config, network
+  payment/             — payment error classification and session management
+    classify.rs        — payment error classification and extraction
+    session/           — session persistence (store.rs), channel queries, close operations, tx signing
 ```
 
 ## Binary Crate Structure
@@ -42,26 +48,51 @@ tempo-common/src/
 
 ```
 tempo-wallet/src/
-  main.rs              — entry point; calls tempo_common::cli::run_main()
+  main.rs              — entry point
   args.rs              — Cli struct (flattens GlobalArgs from tempo_common::cli)
   app.rs               — build Context, dispatch commands, track analytics
+  analytics.rs         — wallet-specific analytics events and payloads
+  prompt.rs            — interactive prompt helpers
+  account/             — wallet account types, on-chain queries, rendering
+    types.rs, query.rs, render.rs
   commands/
     login.rs           — passkey authentication flow
     logout.rs          — disconnect wallet
     whoami.rs          — wallet status, balances, keys
     keys.rs            — key listing with balance and spending limit queries
-    wallets/           — wallet management (create, list, fund)
-    sessions/          — session management (list, info, close, sync)
-    services/          — service directory listing and details
     sign.rs            — sign MPP payment challenges
     completions.rs     — shell completions
+    wallets/           — wallet management
+      create.rs, list.rs, keychain.rs
+      fund/            — fund subcommands (faucet, bridge, relay)
+    sessions/          — session management (list, info, close, sync, render)
+    services/          — service directory (client, model, render)
+```
+
+### tempo-request
+
+```
+tempo-request/src/
+  main.rs              — entry point
+  args.rs              — Cli struct (flattens GlobalArgs), QueryArgs
+  app.rs               — dispatch to request command
+  analytics.rs         — request-specific analytics events and payloads
+  commands/            — command entrypoint
+    query.rs           — main request execution logic
+  request/             — request building and output
+    analytics.rs, headers.rs, output.rs, payload.rs, payment_challenge.rs, prepare.rs, sse.rs
+  http/                — HTTP client, response handling, formatting
+    client.rs, fmt.rs, response.rs
+  payment/             — payment flows (charge + session)
+    charge.rs, router.rs
+    session/           — session flow, channel opening, voucher, streaming, persistence
 ```
 
 ## Payment Flows
 
 ### Charge (one-shot)
 
-Implemented in `tempo-common/src/payment/charge.rs`. Handles single-request on-chain settlement.
+Implemented in `tempo-request/src/payment/charge.rs`. Handles single-request on-chain settlement.
 
 1. The server responds with HTTP 402 and a `WWW-Authenticate` header describing the payment terms.
 2. The challenge is parsed via the `mpp` crate.
@@ -72,23 +103,23 @@ This mode requires no persistent state — each request is independently settled
 
 ### Session (channel)
 
-Implemented in `tempo-common/src/payment/session/`. Provides a persistent payment channel for repeated requests to the same origin.
+Session orchestration (flow, streaming, voucher) is implemented in `tempo-request/src/payment/session/`. Shared session infrastructure (persistence, channel queries, close operations, tx signing) lives in `tempo-common/src/payment/session/`.
 
 1. On first request, a channel is opened on-chain with a deposit.
 2. Subsequent requests exchange off-chain vouchers — signed cumulative amounts — instead of on-chain transactions.
 3. SSE streaming is supported: per-token voucher top-ups are issued as streamed data arrives.
-4. Sessions persist across CLI invocations in a SQLite database (`payment/session/store.rs`).
+4. Sessions persist across CLI invocations in a SQLite database (`tempo-common/src/payment/session/store.rs`).
 5. Channels can be closed explicitly. Local rows track explicit lifecycle state (active, closing, finalizable). Orphaned channels and close readiness are derived from on-chain state when needed.
 
 ## Wallet Types
 
 ### Passkey
 
-Browser-based WebAuthn wallet created via Tempo's passkey flow (`tempo-wallet/src/cli/commands/login.rs`). Authentication is delegated to the browser; the wallet address and key authorization are stored locally.
+Browser-based WebAuthn wallet created via Tempo's passkey flow (`tempo-wallet/src/commands/login.rs`). Authentication is delegated to the browser; the wallet address and key authorization are stored locally.
 
 ### Local
 
-Locally generated or imported secp256k1 private key (`tempo-wallet/src/cli/commands/wallets/`). The private key is stored in the OS keychain on macOS (`keys/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
+Locally generated or imported secp256k1 private key (`tempo-wallet/src/commands/wallets/`). The private key is stored in the OS keychain on macOS (`keys/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
 
 ### Signing Modes
 
@@ -111,19 +142,21 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 
 | Path | Purpose |
 |------|---------|
-| `crates/tempo-common/src/cli.rs` | GlobalArgs, dispatch tracking, run_main |
-| `crates/tempo-common/src/context.rs` | Context struct: shared app state threaded to all commands |
-| `crates/tempo-common/src/error.rs` | `TempoError` enum (thiserror) |
-| `crates/tempo-common/src/output.rs` | OutputFormat, structured output helpers |
-| `crates/tempo-common/src/account/` | Wallet account types (balances, spending limits), on-chain queries |
-| `crates/tempo-common/src/http/` | HttpClient (reqwest wrapper with retry logic), HttpRequestPlan |
-| `crates/tempo-common/src/keys/` | Key storage (model, I/O), signer resolution, authorization |
-| `crates/tempo-common/src/payment/charge.rs` | One-shot on-chain charge payment |
-| `crates/tempo-common/src/payment/session/` | Session-based payment channel (open, voucher, close, store) |
+| `crates/tempo-common/src/cli/` | Shared CLI infrastructure (args, context, output, runner, runtime, tracking) |
+| `crates/tempo-common/src/error.rs` | Error types: `ConfigError`, `TempoError` (thiserror) |
 | `crates/tempo-common/src/config.rs` | Config file parsing and RPC resolution |
 | `crates/tempo-common/src/network.rs` | Built-in network definitions (Tempo, Moderato), explorer URLs |
 | `crates/tempo-common/src/analytics.rs` | Opt-out PostHog telemetry |
+| `crates/tempo-common/src/security.rs` | Security utilities (safe logging, sanitization, redaction) |
+| `crates/tempo-common/src/keys/` | Key storage (model, I/O), signer resolution, authorization |
+| `crates/tempo-common/src/payment/classify.rs` | Payment error classification and extraction |
+| `crates/tempo-common/src/payment/session/` | Session persistence (store), channel queries, close, tx signing |
 | `crates/tempo-wallet/src/app.rs` | Wallet command dispatch lifecycle |
+| `crates/tempo-wallet/src/account/` | Wallet account types (balances, spending limits), on-chain queries |
+| `crates/tempo-wallet/src/commands/login.rs` | Login command and passkey authentication flow |
 | `crates/tempo-wallet/src/commands/sessions/` | Session management commands (list/info/close/sync) |
 | `crates/tempo-wallet/src/commands/services/` | Service directory listing and detail views |
-| `crates/tempo-wallet/src/cli/commands/login.rs` | Login command and passkey authentication flow |
+| `crates/tempo-request/src/http/` | HTTP client, response handling, formatting |
+| `crates/tempo-request/src/request/` | Request building (headers, payload, SSE, output) |
+| `crates/tempo-request/src/payment/charge.rs` | One-shot on-chain charge payment |
+| `crates/tempo-request/src/payment/session/` | Session flow, channel opening, voucher, streaming |

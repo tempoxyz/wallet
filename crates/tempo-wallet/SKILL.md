@@ -11,7 +11,7 @@ Wallet identity and custody extension for the Tempo CLI. Manages wallet creation
 - Connect or disconnect a wallet (`login` / `logout`)
 - Check wallet readiness, balances, and key status (`whoami`)
 - List keys and spending limits (`keys list`)
-- Create or manage wallets (`wallets create`, `wallets list`, `wallets fund`)
+- Create or manage wallets (`create`, `list`, `fund`)
 
 ## Setup
 
@@ -111,9 +111,9 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 | `tempo wallet logout` | Log out and disconnect your wallet |
 | `tempo wallet whoami` | Show wallet address, balances, keys, and readiness |
 | `tempo wallet keys list` | List all keys with balance and spending limit details |
-| `tempo wallet wallets list` | List configured wallets |
-| `tempo wallet wallets create` | Create a new local wallet |
-| `tempo wallet wallets fund` | Fund your wallet (testnet faucet or mainnet bridge) |
+| `tempo wallet list` | List configured wallets |
+| `tempo wallet create` | Create a new local wallet |
+| `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 
 ## Global Options
 
