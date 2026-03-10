@@ -174,21 +174,29 @@ fn sha256_file(path: &Path) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn sign_file(path: &Path, sk: &minisign::SecretKey) -> String {
+fn sign_file(path: &Path, trusted_comment: Option<&str>, sk: &minisign::SecretKey) -> String {
     let data = fs::read(path).unwrap_or_else(|err| {
         eprintln!("error: failed to read {}: {err}", path.display());
         process::exit(1);
     });
-    let filename = path
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let default_comment;
+    let comment = match trusted_comment {
+        Some(c) => c,
+        None => {
+            let filename = path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+            default_comment = format!("file:{filename}");
+            &default_comment
+        }
+    };
     let pk = PublicKey::from_secret_key(sk).unwrap();
     let sig_box = minisign::sign(
         Some(&pk),
         sk,
         Cursor::new(&data),
-        Some(&format!("file:{filename}")),
+        Some(comment),
         Some("tempo release signature"),
     )
     .unwrap_or_else(|err| {
@@ -238,7 +246,7 @@ fn build_manifest(
         }
 
         let checksum = sha256_file(&path);
-        let signature = sign_file(&path, sk);
+        let signature = sign_file(&path, None, sk);
 
         println!("  signed {filename} (sha256: {}...)", &checksum[..16]);
 
@@ -267,7 +275,12 @@ fn build_manifest(
     }
     if let Some(path) = skill_file {
         let skill_path = Path::new(path);
-        let signature = sign_file(skill_path, sk);
+        // The trusted comment must match what the verifier expects:
+        // "skill:<package-name>" where package-name is the last segment
+        // of the base URL (e.g. "tempo-wallet").
+        let pkg_name = base_url.rsplit('/').next().unwrap_or("unknown");
+        let skill_comment = format!("skill:{pkg_name}");
+        let signature = sign_file(skill_path, Some(&skill_comment), sk);
         manifest["skill_signature"] = json!(signature);
         println!("  signed SKILL.md");
     }
