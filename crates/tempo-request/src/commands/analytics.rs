@@ -6,7 +6,7 @@ use crate::analytics::{
 };
 use tempo_common::analytics::Event;
 use tempo_common::cli::context::Context;
-use tempo_common::security::redact::sanitize_error;
+use tempo_common::security::sanitize_error;
 
 const QUERY_STARTED: Event = Event::new("query_started");
 const QUERY_SUCCESS: Event = Event::new("query_success");

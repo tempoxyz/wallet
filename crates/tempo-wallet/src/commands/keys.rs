@@ -13,7 +13,7 @@ use crate::analytics::KEY_CREATED;
 use crate::args::KeyCommands;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
-use tempo_common::display::terminal::{address_link, print_field_w};
+use tempo_common::cli::terminal::{address_link, print_field_w};
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
 

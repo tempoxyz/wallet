@@ -8,12 +8,38 @@ use anyhow::{Context as _, Result};
 
 use crate::args::QueryArgs;
 use crate::http::{format_http_error, print_headers, HttpResponse};
-use crate::output;
-use crate::output::{OutputFormat, OutputOptions};
-use tempo_common::display::terminal::hyperlink;
+use tempo_common::cli::output::{format_structured_pretty_json, OutputFormat};
+use tempo_common::cli::terminal::hyperlink;
+use tempo_common::cli::Verbosity;
 use tempo_common::error::{InputError, NetworkError};
 use tempo_common::network::NetworkId;
-use tempo_common::util::Verbosity;
+
+/// Output/display options extracted from CLI arguments.
+///
+/// Used by response formatting functions; kept separate from
+/// `HttpClient` to avoid coupling HTTP/payment layers to
+/// presentation concerns.
+#[derive(Clone, Debug)]
+pub(crate) struct OutputOptions {
+    pub(crate) output_format: OutputFormat,
+    pub(crate) include_headers: bool,
+    pub(crate) output_file: Option<String>,
+    pub(crate) verbosity: tempo_common::cli::Verbosity,
+    pub(crate) dump_headers: Option<String>,
+    pub(crate) write_meta: Option<String>,
+}
+
+impl OutputOptions {
+    /// Whether agent-level log messages should be printed (`-v`).
+    pub(crate) fn log_enabled(&self) -> bool {
+        self.verbosity.log_enabled()
+    }
+
+    /// Whether payment summaries should be printed (always, unless `--quiet`).
+    pub(crate) fn payment_log_enabled(&self) -> bool {
+        self.verbosity.show_output
+    }
+}
 
 /// Build `OutputOptions` from CLI arguments + config.
 ///
@@ -88,8 +114,7 @@ fn render_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
     match opts.output_format {
         OutputFormat::Json | OutputFormat::Toon => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
-                let output =
-                    output::format_structured_pretty_json(opts.output_format, &json_value)?;
+                let output = format_structured_pretty_json(opts.output_format, &json_value)?;
                 if let Some(ref output_file) = opts.output_file {
                     write_to_file(output_file, output.as_bytes(), opts.log_enabled())?;
                 } else {
@@ -262,7 +287,7 @@ mod tests {
             output_format: OutputFormat::Text,
             include_headers: false,
             output_file: None,
-            verbosity: tempo_common::util::Verbosity {
+            verbosity: tempo_common::cli::Verbosity {
                 level: 0,
                 show_output,
             },

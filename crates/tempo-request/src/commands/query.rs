@@ -7,11 +7,11 @@
 use anyhow::Result;
 
 use crate::args::QueryArgs;
-use crate::output as cli_output;
 use crate::payment::router::{dispatch_payment, PaymentResult};
 use tempo_common::cli::context::Context;
+use tempo_common::cli::output::emit_by_format;
 use tempo_common::error::{NetworkError, PaymentError};
-use tempo_common::security::redact::redact_url;
+use tempo_common::security::redact_url;
 
 use super::analytics;
 use super::output::{self, build_output_options, write_meta_if_requested};
@@ -102,7 +102,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
             "amount": challenge.amount,
             "currency": challenge.currency,
         });
-        cli_output::emit_by_format(output_opts.output_format, &obj, || {
+        emit_by_format(output_opts.output_format, &obj, || {
             println!("{}", serde_json::to_string_pretty(&obj)?);
             Ok(())
         })?;

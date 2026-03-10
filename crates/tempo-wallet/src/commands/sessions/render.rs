@@ -5,9 +5,9 @@ use alloy::primitives::U256;
 use serde::Serialize;
 
 use super::{session_store, SessionStatus};
+use tempo_common::cli::format::{format_duration, format_relative_time};
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
-use tempo_common::display::format::{format_duration, format_relative_time};
 
 // ---------------------------------------------------------------------------
 // ChannelView — unified view model for session/channel display

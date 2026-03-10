@@ -7,7 +7,6 @@ mod app;
 mod args;
 mod commands;
 mod http;
-pub(crate) mod output;
 mod payment;
 
 use crate::args::Cli;

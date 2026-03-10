@@ -13,8 +13,8 @@ use crate::analytics::WHOAMI_VIEWED;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
+use tempo_common::cli::terminal::address_link;
 use tempo_common::config::Config;
-use tempo_common::display::terminal::address_link;
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
 

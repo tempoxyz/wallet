@@ -5,9 +5,9 @@ use std::io::Write;
 use anyhow::Result;
 use futures::StreamExt;
 
+use super::output::OutputOptions;
 use crate::http::{format_http_error, headers_from_reqwest, print_headers, HttpClient};
-use crate::output::OutputOptions;
-use tempo_common::display::format::now_utc;
+use tempo_common::cli::format::now_utc;
 use tempo_common::error::NetworkError;
 
 use super::output::write_meta_if_requested;

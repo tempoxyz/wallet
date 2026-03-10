@@ -8,7 +8,7 @@ use crate::account::{query_all_balances, TokenBalance};
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
-use tempo_common::display::terminal::address_link;
+use tempo_common::cli::terminal::address_link;
 use tempo_common::error::NetworkError;
 
 use super::fund::{

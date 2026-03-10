@@ -69,7 +69,7 @@ impl Default for HttpRequestPlan {
 pub(crate) struct HttpClient {
     pub(crate) plan: HttpRequestPlan,
     client: reqwest::Client,
-    pub(crate) verbosity: tempo_common::util::Verbosity,
+    pub(crate) verbosity: tempo_common::cli::Verbosity,
     pub(crate) network: Option<NetworkId>,
     pub(crate) dry_run: bool,
 }
@@ -82,7 +82,7 @@ impl HttpClient {
     /// Authorization) are added in [`execute()`](Self::execute).
     pub(crate) fn new(
         plan: HttpRequestPlan,
-        verbosity: tempo_common::util::Verbosity,
+        verbosity: tempo_common::cli::Verbosity,
         network: Option<NetworkId>,
         dry_run: bool,
     ) -> Result<Self> {
@@ -136,7 +136,7 @@ impl HttpClient {
                 let header_value = match reqwest::header::HeaderValue::from_str(value) {
                     Ok(v) => v,
                     Err(e) => {
-                        let safe = tempo_common::security::redact::redact_header_value(name, value);
+                        let safe = tempo_common::security::redact_header_value(name, value);
                         warn!(header_name = %name, header_value = %safe, error = %e, "dropping header with invalid value");
                         continue;
                     }
@@ -315,7 +315,7 @@ mod tests {
     fn test_client(plan: HttpRequestPlan) -> HttpClient {
         HttpClient::new(
             plan,
-            tempo_common::util::Verbosity {
+            tempo_common::cli::Verbosity {
                 level: 0,
                 show_output: false,
             },

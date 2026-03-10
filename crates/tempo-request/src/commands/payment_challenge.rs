@@ -5,7 +5,7 @@ use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 
 use crate::http::HttpResponse;
-use tempo_common::display::format::format_token_amount;
+use tempo_common::cli::format::format_token_amount;
 use tempo_common::error::PaymentError;
 use tempo_common::network::NetworkId;
 

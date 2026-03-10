@@ -35,7 +35,7 @@ pub enum CloseOutcome {
     Pending { remaining_secs: u64 },
 }
 
-use crate::display::format::format_token_amount;
+use crate::cli::format::format_token_amount;
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
 

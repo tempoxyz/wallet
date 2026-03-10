@@ -4,9 +4,9 @@ use anyhow::Result;
 
 use super::{session_store, SessionStatus};
 use tempo_common::cli::context::Context;
+use tempo_common::cli::format::format_duration;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
-use tempo_common::display::format::format_duration;
 use tempo_common::error::{ConfigError, InputError, PaymentError, TempoError};
 use tempo_common::payment::session::channel::find_all_channels_for_payer;
 use tempo_common::payment::session::close::{
