@@ -275,7 +275,12 @@ fn build_manifest(
     }
     if let Some(path) = skill_file {
         let skill_path = Path::new(path);
-        let signature = sign_file(skill_path, sk);
+        // The trusted comment must match what the verifier expects:
+        // "skill:<package-name>" where package-name is the last segment
+        // of the base URL (e.g. "tempo-wallet").
+        let pkg_name = base_url.rsplit('/').next().unwrap_or("unknown");
+        let skill_comment = format!("skill:{pkg_name}");
+        let signature = sign_file(skill_path, Some(&skill_comment), sk);
         manifest["skill_signature"] = json!(signature);
         println!("  signed SKILL.md");
     }
