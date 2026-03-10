@@ -246,7 +246,8 @@ fn build_manifest(
         }
 
         let checksum = sha256_file(&path);
-        let signature = sign_file(&path, None, sk);
+        let binary_comment = format!("file:{filename}\tversion:{version_prefix}");
+        let signature = sign_file(&path, Some(&binary_comment), sk);
 
         println!("  signed {filename} (sha256: {}...)", &checksum[..16]);
 
