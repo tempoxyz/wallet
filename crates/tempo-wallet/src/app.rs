@@ -32,8 +32,11 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
                 keys::run(&ctx, command.unwrap_or(KeyCommands::List)).await
             }
             Commands::Sessions { command } => {
-                sessions::run(&ctx, command.unwrap_or(SessionCommands::List { state: vec![] }))
-                    .await
+                sessions::run(
+                    &ctx,
+                    command.unwrap_or(SessionCommands::List { state: vec![] }),
+                )
+                .await
             }
             Commands::Sign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
             Commands::Services {
