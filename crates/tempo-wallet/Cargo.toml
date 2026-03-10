@@ -2,7 +2,7 @@
 name = "tempo-wallet"
 version = "0.1.0"
 edition = "2021"
-description = "Wallet identity and custody extension"
+description = "Manage your Tempo Wallet"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tempoxyz/wallet"
 publish = false
