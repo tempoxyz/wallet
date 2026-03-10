@@ -5,7 +5,7 @@ build:
 
 # make run ARGS="http://localhost:3000/api/data"
 run:
-	cargo run -q -p tempo-mpp -- $(ARGS)
+	cargo run -q -p tempo-wallet -- $(ARGS)
 
 release:
 	cargo build --release
@@ -13,12 +13,11 @@ release:
 install: release
 	mkdir -p $(HOME)/.local/bin
 	cp target/release/tempo-wallet $(HOME)/.local/bin/tempo-wallet
-	cp target/release/tempo-mpp $(HOME)/.local/bin/tempo-mpp
 	cp target/release/tempo-request $(HOME)/.local/bin/tempo-request
-	chmod +x $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-mpp $(HOME)/.local/bin/tempo-request
+	chmod +x $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-request
 
 uninstall:
-	rm -f $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-mpp $(HOME)/.local/bin/tempo-request
+	rm -f $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-request
 
 clean:
 	cargo clean

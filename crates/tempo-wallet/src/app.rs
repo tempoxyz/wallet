@@ -2,8 +2,10 @@
 
 use anyhow::Result;
 
-use crate::args::{Cli, Commands, KeyCommands};
-use crate::commands::{completions, keys, login, logout, wallets, whoami};
+use crate::args::{Cli, Commands, KeyCommands, ServicesCommands, SessionCommands};
+use crate::commands::{
+    completions, keys, login, logout, services, sessions, sign, wallets, whoami,
+};
 
 /// Run the tempo-wallet application.
 pub(crate) async fn run(mut cli: Cli) -> Result<()> {
@@ -27,6 +29,25 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
             Commands::Fund { address, no_wait } => wallets::fund(&ctx, address, no_wait).await,
             Commands::Whoami => whoami::run(&ctx).await,
             Commands::Keys { command } => keys::run(&ctx, command).await,
+            Commands::Sessions { command } => sessions::run(&ctx, command).await,
+            Commands::Sign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
+            Commands::Services {
+                command,
+                service_id,
+                category,
+                search,
+            } => {
+                services::run(
+                    &ctx,
+                    services::ServicesArgs {
+                        command,
+                        service_id,
+                        category,
+                        search,
+                    },
+                )
+                .await
+            }
         };
         (cmd_name, result)
     })
@@ -47,6 +68,18 @@ fn command_name(command: &Commands) -> &'static str {
             KeyCommands::List => "keys list",
             KeyCommands::Create { .. } => "keys create",
             KeyCommands::Clean { .. } => "keys clean",
+        },
+        Commands::Sessions { command } => match command {
+            SessionCommands::List { .. } => "sessions list",
+            SessionCommands::Info { .. } => "sessions info",
+            SessionCommands::Close { .. } => "sessions close",
+            SessionCommands::Sync { .. } => "sessions sync",
+        },
+        Commands::Sign { .. } => "sign",
+        Commands::Services { command, .. } => match command {
+            Some(ServicesCommands::List) => "services list",
+            Some(ServicesCommands::Info { .. }) => "services info",
+            None => "services",
         },
     }
 }

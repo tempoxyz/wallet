@@ -1,7 +1,7 @@
 //! Shared analytics tracking for CLI commands.
 
 use crate::analytics::{events, Analytics, CommandFailurePayload, CommandRunPayload};
-use crate::security::redact::sanitize_error;
+use crate::security::sanitize_error;
 
 /// Track the initial command run event.
 pub fn track_command(analytics: &Option<Analytics>, cmd_name: &str) {

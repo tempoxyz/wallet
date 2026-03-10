@@ -19,7 +19,7 @@ use tempo_common::cli::output::OutputFormat;
 use tempo_common::error::{InputError, KeyError, NetworkError, TempoError};
 use tempo_common::keys::{Keystore, WalletType};
 use tempo_common::network::NetworkId;
-use tempo_common::security::redact::sanitize_error;
+use tempo_common::security::sanitize_error;
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;

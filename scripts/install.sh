@@ -30,7 +30,6 @@ trap cleanup EXIT
 
 EXTENSIONS=(
     "wallet|tempo-wallet"
-    "mpp|tempo-mpp"
     "request|tempo-request"
 )
 

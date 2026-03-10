@@ -1,8 +1,8 @@
 //! Session management: persistence, channel queries, close operations.
 //!
 //! This module provides the shared session infrastructure used by
-//! tempo-wallet (session listing, closing) and tempo-mpp (session
-//! management commands). Request-time session orchestration (flow,
+//! tempo-wallet (session listing, closing, and management commands).
+//! Request-time session orchestration (flow,
 //! streaming, voucher construction) lives in `tempo-request`.
 //!
 //! # Module structure

@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-This is a Cargo workspace containing 5 crates under `crates/`, providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, wallet identity management, and a release signing tool. The top-level `tempo` launcher lives in the main tempo repo (`tempo/crates/ext/`).
+This is a Cargo workspace containing 4 crates under `crates/`, providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, wallet identity management, and a release signing tool. The top-level `tempo` launcher lives in the main tempo repo (`tempo/crates/ext/`).
 
 **Supported Payment Protocols:**
 - [Machine Payments Protocol (MPP)](https://mpp.dev) - Open protocol for HTTP-native machine-to-machine payments
@@ -13,7 +13,7 @@ The root `Cargo.toml` is workspace-only (no package). All dependencies are decla
 
 #### `crates/tempo-common/` — package `tempo-common` (library)
 
-Shared library used by `tempo-wallet` and `tempo-mpp`. Contains all core logic:
+Shared library used by `tempo-wallet` and `tempo-request`. Contains all core logic:
 - `crates/tempo-common/src/lib.rs` - Module declarations
 - `crates/tempo-common/src/cli.rs` - Shared CLI infrastructure (`GlobalArgs`, `dispatch::track_command`, `dispatch::track_result`, `run_main`)
 - `crates/tempo-common/src/context.rs` - `Context` struct (Config, NetworkId, Keystore, Analytics, OutputFormat) and `ContextArgs`
@@ -35,43 +35,28 @@ Shared library used by `tempo-wallet` and `tempo-mpp`. Contains all core logic:
 
 #### `crates/tempo-wallet/` — package `tempo-wallet`, binary `tempo-wallet`
 
-Wallet identity and custody extension. Source organized by module directories:
+Wallet identity and custody extension, plus session/service management. Source organized by module directories:
 - `crates/tempo-wallet/src/main.rs` - CLI entry point, calls `tempo_common::cli::run_main()`
-- `crates/tempo-wallet/src/cli/` - CLI argument parsing and command dispatch
-  - `args.rs` - clap definitions (`Cli` with `#[command(flatten)] pub global: GlobalArgs`)
-  - `dispatch.rs` - Command dispatch: tracing, color, context building, command routing, analytics
-  - `mod.rs` - CLI module declarations
-  - `commands/` - Command implementations (all take `&Context` as first arg)
-    - `login.rs` - Login command (passkey authentication flow)
-    - `logout.rs` - Logout command
-    - `whoami.rs` - Whoami command
-    - `keys.rs` - Key listing, balance and spending limit queries
-    - `wallets/` - Wallet management (create, list, fund/, keychain.rs)
-    - `completions.rs` - Shell completions
+- `crates/tempo-wallet/src/args.rs` - clap definitions (`Cli` with `#[command(flatten)] pub global: GlobalArgs`)
+- `crates/tempo-wallet/src/app.rs` - Command dispatch: context building, command routing, analytics
+- `crates/tempo-wallet/src/commands/` - Command implementations (all take `&Context` as first arg)
+  - `login.rs` - Login command (passkey authentication flow)
+  - `logout.rs` - Logout command
+  - `whoami.rs` - Whoami command
+  - `keys.rs` - Key listing, balance and spending limit queries
+  - `wallets/` - Wallet management (create, list, fund/, keychain.rs)
+  - `sessions/` - Session management (list, info, close, sync)
+  - `services/` - Service directory listing and details
+  - `sign.rs` - Sign MPP payment challenges
+  - `completions.rs` - Shell completions
 - `crates/tempo-wallet/tests/` - Integration tests (black-box CLI testing via assert_cmd)
-
-#### `crates/tempo-mpp/` — package `tempo-mpp`, binary `tempo-mpp`
-
-HTTP client with MPP payment support. Handles queries, sessions, and service discovery:
-- `crates/tempo-mpp/src/main.rs` - CLI entry point, calls `tempo_common::cli::run_main()`
-- `crates/tempo-mpp/src/cli/` - CLI argument parsing and command dispatch
-  - `args.rs` - clap definitions (`Cli` with `#[command(flatten)] pub global: GlobalArgs`, `QueryArgs`)
-  - `dispatch.rs` - Command dispatch: tracing, color, context building, command routing, analytics
-  - `output.rs` - `OutputOptions` and query-specific output types
-  - `mod.rs` - CLI module declarations
-  - `commands/` - Command implementations (all take `&Context` as first arg)
-    - `query/` - Query command (request → 402 → payment → response)
-    - `sessions/` - Session management (list, info, close, recover, sync)
-    - `services/` - Service directory listing and details
-    - `completions.rs` - Shell completions
-- `crates/tempo-mpp/tests/` - Integration tests
 
 #### `crates/tempo-sign/` — package `tempo-sign`, binary `tempo-sign`
 
 Lightweight release manifest signing tool for authenticating build artifacts.
 - `crates/tempo-sign/src/main.rs` - Signing tool source
 
-**Packages:** `tempo-common`, `tempo-wallet`, `tempo-mpp`, `tempo-sign`
+**Packages:** `tempo-common`, `tempo-wallet`, `tempo-request`, `tempo-sign`
 
 ## Commands
 
@@ -83,16 +68,16 @@ make check              # Run fmt check, clippy, tests, and doc
 make fix                # Auto-fix formatting and clippy warnings
 make install            # Install CLI binaries to ~/.local/bin
 make uninstall          # Uninstall CLI binaries
-make run ARGS="<url>"   # Run tempo-mpp with arguments
+make run ARGS="<url>"   # Run tempo-wallet with arguments
 ```
 
 ## Agent Suggestions
 
-When the user explicitly says "ask the oracle" to check a value, run `tempo-mpp` against OpenRouter and explicitly tell the user which model was used in the response.
+When the user explicitly says "ask the oracle" to check a value, run `tempo-request` against OpenRouter and explicitly tell the user which model was used in the response.
 
 Example:
 ```bash
-tempo-mpp -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
+tempo-request -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"what is 1+1"}]}'  https://openrouter.mpp.tempo.xyz/v1/chat/completions | jq
 ```
 
 ## CRITICAL: Pre-Commit Requirements
@@ -161,8 +146,7 @@ pub enum TempoError {
 - Each module should have a clear single responsibility
 - Use `mod.rs` for modules with submodules
 - Shared logic goes in `crates/tempo-common/src/`
-- Wallet commands go in `crates/tempo-wallet/src/cli/commands/`
-- MPP commands go in `crates/tempo-mpp/src/cli/commands/`
+- All commands go in `crates/tempo-wallet/src/commands/`
 
 ### Testing
 

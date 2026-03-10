@@ -281,7 +281,7 @@ fn build_manifest(
         // "skill:<package-name>" where package-name is the last segment
         // of the base URL (e.g. "tempo-wallet").
         let pkg_name = base_url.rsplit('/').next().unwrap_or("unknown");
-        let skill_comment = format!("skill:{pkg_name}");
+        let skill_comment = format!("skill:{pkg_name}\tversion:{version_prefix}");
         let signature = sign_file(skill_path, Some(&skill_comment), sk);
         manifest["skill_signature"] = json!(signature);
         println!("  signed SKILL.md");

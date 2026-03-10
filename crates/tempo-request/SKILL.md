@@ -1,6 +1,6 @@
 ---
 name: tempo-request
-description: "HTTP client with automatic payment — make API requests without API keys or accounts. Use `tempo mpp services` to discover endpoints, `tempo request <URL>` to make requests."
+description: "HTTP client with automatic payment — make API requests without API keys or accounts. Use `tempo wallet services` to discover endpoints, `tempo request <URL>` to make requests."
 ---
 
 # tempo request
@@ -54,23 +54,23 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 
 ## Available Services
 
-Use `tempo mpp services` to discover available services, their endpoints, and pricing:
+Use `tempo wallet services` to discover available services, their endpoints, and pricing:
 
 ```bash
 # List all available services
-tempo mpp -t services
+tempo wallet -t services
 
 # Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
-tempo mpp -t services --category ai
+tempo wallet -t services --category ai
 
 # Search by name, description, or tags
-tempo mpp -t services --search <QUERY>
+tempo wallet -t services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
-tempo mpp -t services info <SERVICE_ID>
+tempo wallet -t services info <SERVICE_ID>
 ```
 
-Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo mpp services`). When you don't know which service or endpoint to use, run `tempo mpp services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). When you don't know which service or endpoint to use, run `tempo wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ## Quick Start
 
@@ -79,7 +79,7 @@ Each service is accessed via its MPP service URL (shown in the `Service URL` col
 tempo wallet login
 
 # Discover available services
-tempo mpp -t services
+tempo wallet -t services
 
 # Make a paid request (payment handled automatically on 402)
 tempo request -t -X POST \

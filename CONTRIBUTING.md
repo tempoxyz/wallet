@@ -36,7 +36,7 @@ make fix                # Auto-fix formatting and clippy warnings
 make coverage           # Generate code coverage (requires cargo-llvm-cov)
 make install            # Install binaries to ~/.local/bin
 make uninstall          # Uninstall binaries
-make run ARGS="<url>"   # Run tempo-mpp with arguments
+make run ARGS="<url>"   # Run tempo-wallet with arguments
 make clean              # cargo clean
 ```
 
@@ -89,31 +89,18 @@ crates/
 │       ├── http/                # HTTP client, request building, response parsing
 │       ├── keys/                # Key storage, signing, authorization
 │       └── payment/             # Payment protocol logic (charge + session channels)
-├── tempo-wallet/        # Wallet identity and custody extension
+├── tempo-wallet/        # Wallet identity, custody, sessions, services, and signing
 │   ├── src/
 │   │   ├── main.rs              # CLI entry point (calls run_main)
-│   │   └── cli/
-│   │       ├── args.rs          # Cli struct (flattens GlobalArgs)
-│   │       ├── dispatch.rs      # Command dispatch: init, build Context, route, analytics
-│   │       └── commands/        # Command implementations
+│   │   └── commands/        # Command implementations
 │   │           ├── login.rs         # Login (passkey auth flow)
 │   │           ├── logout.rs        # Logout
 │   │           ├── whoami.rs        # Whoami
 │   │           ├── keys.rs          # Key listing with balance/spending limit queries
 │   │           ├── wallets/         # Wallet management (create, list, fund)
-│   │           └── completions.rs   # Shell completions
-│   └── tests/                   # Integration tests (assert_cmd)
-├── tempo-mpp/           # HTTP client with MPP payment support
-│   ├── src/
-│   │   ├── main.rs              # CLI entry point (calls run_main)
-│   │   └── cli/
-│   │       ├── args.rs          # Cli struct (flattens GlobalArgs, QueryArgs)
-│   │       ├── dispatch.rs      # Command dispatch: init, build Context, route, analytics
-│   │       ├── output.rs        # OutputOptions and query-specific output types
-│   │       └── commands/        # Command implementations
-│   │           ├── query/           # HTTP query flow (request → 402 → payment → response)
-│   │           ├── sessions/        # Session management (list, info, close, recover, sync)
+│   │           ├── sessions/        # Session management (list, info, close, sync)
 │   │           ├── services/        # Service directory listing and details
+│   │           ├── sign.rs          # Sign MPP payment challenges
 │   │           └── completions.rs   # Shell completions
 │   └── tests/                   # Integration tests (assert_cmd)
 └── tempo-sign/          # Release manifest signing tool
@@ -140,7 +127,7 @@ use tempo_common::error::TempoError;
 
 **Error handling** — `TempoError` (thiserror) for typed errors, `anyhow` for propagation.
 
-**Modules** — each module has a single responsibility. Shared logic goes in `tempo-common`. Wallet commands go in `tempo-wallet/src/cli/commands/`. MPP commands go in `tempo-mpp/src/cli/commands/`.
+**Modules** — each module has a single responsibility. Shared logic goes in `tempo-common`. All commands go in `tempo-wallet/src/commands/`.
 
 **Dependencies** — declared in `[workspace.dependencies]` in root `Cargo.toml`, referenced with `dep.workspace = true` in each crate.
 

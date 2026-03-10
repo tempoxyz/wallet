@@ -51,10 +51,8 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
     store::save_session(&record)?;
 
     if ctx.http.log_enabled() {
-        let cumulative_display = tempo_common::display::format::format_token_amount(
-            state.cumulative_amount,
-            ctx.network_id,
-        );
+        let cumulative_display =
+            tempo_common::cli::format::format_token_amount(state.cumulative_amount, ctx.network_id);
         eprintln!("Session persisted (cumulative: {cumulative_display})");
     }
 

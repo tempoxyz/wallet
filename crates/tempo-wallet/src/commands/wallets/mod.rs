@@ -18,11 +18,11 @@ use crate::analytics;
 use crate::analytics::{WalletCreatedPayload, WalletFundFailurePayload, WalletFundPayload};
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
-use tempo_common::display::terminal::{address_link, print_field_w};
+use tempo_common::cli::terminal::{address_link, print_field_w};
 use tempo_common::error::{ConfigError, KeyError};
 use tempo_common::keys::{authorization, parse_private_key_signer, KeyEntry, Keystore, WalletType};
 use tempo_common::network::NetworkId;
-use tempo_common::security::redact::sanitize_error;
+use tempo_common::security::sanitize_error;
 
 pub(crate) fn list(ctx: &Context) -> Result<()> {
     list_wallets(ctx)

@@ -364,7 +364,7 @@ async fn test_server_error_500() {
 
     assert!(
         !output.status.success(),
-        "tempo-mpp should fail on 500 error"
+        "tempo-request should fail on 500 error"
     );
     let combined = get_combined_output(&output);
     assert!(
@@ -832,7 +832,7 @@ fn mock_rpc_response(req: &serde_json::Value, chain_id: u64) -> serde_json::Valu
 
 /// Test the full 402 → payment → 200 charge flow with mock servers.
 ///
-/// Verifies that tempo-mpp correctly:
+/// Verifies that tempo-request correctly:
 /// 1. Receives a 402 with WWW-Authenticate header
 /// 2. Parses the MPP payment challenge
 /// 3. Loads wallet keys

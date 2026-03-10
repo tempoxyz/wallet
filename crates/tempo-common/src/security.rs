@@ -1,4 +1,4 @@
-//! Sanitization helpers for safe logging and diagnostics.
+//! Security utilities: safe logging, sanitization, redaction.
 
 /// Sensitive header names whose values must be redacted in logs and diagnostics.
 const SENSITIVE_HEADERS: &[&str] = &[
