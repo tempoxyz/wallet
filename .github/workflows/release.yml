@@ -33,22 +33,6 @@ jobs:
     strategy:
       matrix:
         include:
-          # tempo-cli builds (binary name: tempo)
-          - package: tempo-cli
-            binary: tempo
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: tempo-linux-amd64
-          - package: tempo-cli
-            binary: tempo
-            os: macos-latest
-            target: x86_64-apple-darwin
-            asset: tempo-darwin-amd64
-          - package: tempo-cli
-            binary: tempo
-            os: macos-latest
-            target: aarch64-apple-darwin
-            asset: tempo-darwin-arm64
           # tempo-wallet builds
           - package: tempo-wallet
             binary: tempo-wallet

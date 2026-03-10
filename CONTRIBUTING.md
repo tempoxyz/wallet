@@ -116,9 +116,6 @@ crates/
 │   │           ├── services/        # Service directory listing and details
 │   │           └── completions.rs   # Shell completions
 │   └── tests/                   # Integration tests (assert_cmd)
-├── tempo-cli/           # Launcher and extension manager
-│   ├── src/                     # main.rs, launcher.rs, installer.rs, state.rs
-│   └── tests/
 └── tempo-sign/          # Release manifest signing tool
     └── src/main.rs
 ```
