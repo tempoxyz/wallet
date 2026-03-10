@@ -143,6 +143,12 @@ jobs:
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
           VERSION="${{ needs.version.outputs.version }}"
 
+          declare -A PKG_DESC=(
+            [tempo-wallet]="Manage your Tempo Wallet"
+            [tempo-mpp]="MPP sessions and service directory"
+            [tempo-request]="Make an HTTP request"
+          )
+
           for pkg in tempo-wallet tempo-mpp tempo-request; do
             mkdir -p "artifacts-${pkg}"
             cp artifacts/${pkg}-* "artifacts-${pkg}/"
@@ -154,6 +160,7 @@ jobs:
               --artifacts-dir "artifacts-${pkg}"
               --version "$VERSION"
               --base-url "$URL_PREFIX"
+              --description "${PKG_DESC[$pkg]}"
               --output "artifacts/${pkg}-manifest.json"
             )
 
