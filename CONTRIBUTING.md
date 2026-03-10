@@ -75,33 +75,50 @@ crates/
 ├── tempo-common/        # Shared library for all extension binaries
 │   └── src/
 │       ├── lib.rs               # Module declarations
-│       ├── cli.rs               # GlobalArgs, dispatch tracking, run_main()
-│       ├── context.rs           # Context struct (shared app state for all commands)
-│       ├── config.rs            # Configuration file handling
-│       ├── error.rs             # TempoError enum (thiserror)
-│       ├── exit_codes.rs        # Process exit codes
-│       ├── output.rs            # OutputFormat, structured output helpers
-│       ├── runtime.rs           # Tracing, color mode, error rendering
-│       ├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
 │       ├── analytics.rs         # Opt-out telemetry (PostHog)
-│       ├── util.rs              # Shared utilities (formatting, terminal hyperlinks, sanitization)
-│       ├── account/             # Wallet account types (balances, spending limits, on-chain queries)
-│       ├── http/                # HTTP client, request building, response parsing
+│       ├── config.rs            # Configuration file handling
+│       ├── error.rs             # Error types (ConfigError, TempoError)
+│       ├── network.rs           # Network definitions (Tempo, Moderato), explorer URLs, RPC
+│       ├── security.rs          # Security utilities (sanitization, redaction)
+│       ├── cli/                 # Shared CLI infrastructure
+│       │   ├── args.rs          # GlobalArgs, parse_cli
+│       │   ├── context.rs       # Context struct (shared app state for all commands)
+│       │   ├── exit_codes.rs    # Process exit codes
+│       │   ├── format.rs        # Value formatting helpers (amounts, durations)
+│       │   ├── output.rs        # OutputFormat, structured output helpers
+│       │   ├── runner.rs        # CLI lifecycle (run_cli, run_main)
+│       │   ├── runtime.rs       # Tracing, color mode, error rendering
+│       │   ├── terminal.rs      # Terminal output helpers (hyperlinks, sanitization)
+│       │   ├── tracking.rs      # Analytics tracking (track_command, track_result)
+│       │   └── verbosity.rs     # Verbosity configuration
 │       ├── keys/                # Key storage, signing, authorization
-│       └── payment/             # Payment protocol logic (charge + session channels)
+│       └── payment/             # Payment error classification and session management
+│           ├── classify.rs      # Payment error classification
+│           └── session/         # Session persistence, channel queries, close, tx
 ├── tempo-wallet/        # Wallet identity, custody, sessions, services, and signing
 │   ├── src/
-│   │   ├── main.rs              # CLI entry point (calls run_main)
-│   │   └── commands/        # Command implementations
-│   │           ├── login.rs         # Login (passkey auth flow)
-│   │           ├── logout.rs        # Logout
-│   │           ├── whoami.rs        # Whoami
-│   │           ├── keys.rs          # Key listing with balance/spending limit queries
-│   │           ├── wallets/         # Wallet management (create, list, fund)
-│   │           ├── sessions/        # Session management (list, info, close, sync)
-│   │           ├── services/        # Service directory listing and details
-│   │           ├── sign.rs          # Sign MPP payment challenges
-│   │           └── completions.rs   # Shell completions
+│   │   ├── main.rs              # CLI entry point
+│   │   ├── args.rs              # clap definitions (Cli, Commands)
+│   │   ├── app.rs               # Command dispatch
+│   │   ├── analytics.rs         # Wallet-specific analytics events
+│   │   ├── prompt.rs            # Interactive prompt helpers
+│   │   ├── account/             # Wallet account types, on-chain queries, rendering
+│   │   └── commands/            # Command implementations
+│   │       ├── login.rs, logout.rs, whoami.rs, keys.rs, sign.rs, completions.rs
+│   │       ├── wallets/         # Wallet management (create, list, fund/)
+│   │       ├── sessions/        # Session management (list, info, close, sync)
+│   │       └── services/        # Service directory (client, model, render)
+│   └── tests/                   # Integration tests (assert_cmd)
+├── tempo-request/       # HTTP client with automatic MPP payment
+│   ├── src/
+│   │   ├── main.rs              # CLI entry point
+│   │   ├── args.rs              # clap definitions (Cli, QueryArgs)
+│   │   ├── app.rs               # Command dispatch
+│   │   ├── analytics.rs         # Request-specific analytics events
+│   │   ├── commands/            # Command entrypoint (query.rs)
+│   │   ├── request/             # Request building, output, SSE, headers
+│   │   ├── http/                # HTTP client, response handling, formatting
+│   │   └── payment/             # Payment flows (charge, session, router)
 │   └── tests/                   # Integration tests (assert_cmd)
 └── tempo-sign/          # Release manifest signing tool
     └── src/main.rs
@@ -134,8 +151,8 @@ use tempo_common::error::TempoError;
 ## Adding a New Feature
 
 1. Add shared logic in `crates/tempo-common/src/` if used by multiple binaries
-2. Add CLI flags/commands in the appropriate binary's `src/cli/args.rs`
-3. Implement commands in the appropriate binary's `src/cli/commands/`
+2. Add CLI flags/commands in the appropriate binary's `src/args.rs`
+3. Implement commands in the appropriate binary's `src/commands/`
 4. Add tests: unit tests in source files, integration tests in the relevant crate's `tests/` directory
 5. Run `make check` — zero warnings required
 

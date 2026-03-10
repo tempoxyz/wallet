@@ -13,43 +13,71 @@ The root `Cargo.toml` is workspace-only (no package). All dependencies are decla
 
 #### `crates/tempo-common/` — package `tempo-common` (library)
 
-Shared library used by `tempo-wallet` and `tempo-request`. Contains all core logic:
-- `crates/tempo-common/src/lib.rs` - Module declarations
-- `crates/tempo-common/src/cli.rs` - Shared CLI infrastructure (`GlobalArgs`, `dispatch::track_command`, `dispatch::track_result`, `run_main`)
-- `crates/tempo-common/src/context.rs` - `Context` struct (Config, NetworkId, Keystore, Analytics, OutputFormat) and `ContextArgs`
-- `crates/tempo-common/src/config.rs` - Configuration file handling
-- `crates/tempo-common/src/error.rs` - `TempoError` enum (thiserror)
-- `crates/tempo-common/src/exit_codes.rs` - Process exit codes
-- `crates/tempo-common/src/output.rs` - `OutputFormat`, structured output helpers
-- `crates/tempo-common/src/runtime.rs` - Tracing, color mode, error rendering
-- `crates/tempo-common/src/network.rs` - Network definitions (`NetworkId`), explorer config, RPC
+Shared library used by `tempo-wallet` and `tempo-request`. Contains core logic:
+- `crates/tempo-common/src/lib.rs` - Module declarations (analytics, cli, config, error, keys, network, payment, security)
 - `crates/tempo-common/src/analytics.rs` - Opt-out telemetry (PostHog)
-- `crates/tempo-common/src/util.rs` - Shared utilities (formatting, terminal hyperlinks, sanitization)
-- `crates/tempo-common/src/account/` - Wallet account types (balances, spending limits) and on-chain queries
-- `crates/tempo-common/src/http/` - HTTP client, request planning, response parsing
+- `crates/tempo-common/src/config.rs` - Configuration file handling
+- `crates/tempo-common/src/error.rs` - Error types (ConfigError, TempoError, etc.)
+- `crates/tempo-common/src/network.rs` - Network definitions (`NetworkId`), explorer config, RPC
+- `crates/tempo-common/src/security.rs` - Security utilities (safe logging, sanitization, redaction)
+- `crates/tempo-common/src/cli/` - Shared CLI infrastructure
+  - `mod.rs` - Re-exports (parse_cli, GlobalArgs, run_cli, run_main, Verbosity)
+  - `args.rs` - GlobalArgs, parse_cli
+  - `context.rs` - `Context` struct (Config, NetworkId, Keystore, Analytics, OutputFormat, Verbosity)
+  - `exit_codes.rs` - Process exit codes (ExitCode enum)
+  - `format.rs` - Value formatting helpers (amounts, durations, timestamps)
+  - `output.rs` - OutputFormat, structured output helpers
+  - `runner.rs` - CLI lifecycle (run_cli, run_main)
+  - `runtime.rs` - Tracing, color mode, error rendering
+  - `terminal.rs` - Terminal output helpers (hyperlinks, field formatting, truncation, sanitization)
+  - `tracking.rs` - Analytics tracking (track_command, track_result)
+  - `verbosity.rs` - Verbosity configuration
 - `crates/tempo-common/src/keys/` - Key storage (model, I/O), signer resolution, authorization
-- `crates/tempo-common/src/payment/` - Payment protocol implementations
-  - `dispatch.rs` - Payment dispatch (route 402 flows to charge or session)
-  - `charge.rs` - One-shot on-chain charge payment
-  - `session/` - Session-based payment channels (channel.rs, close.rs, store.rs, streaming.rs, tx.rs)
+  - `mod.rs`, `model.rs`, `keystore.rs`, `io.rs`, `signer.rs`, `authorization.rs`
+- `crates/tempo-common/src/payment/` - Payment error classification and session management
+  - `mod.rs` - (classify, session)
+  - `classify.rs` - Payment error classification and extraction
+  - `session/` - Session persistence and channel management (channel.rs, close.rs, store.rs, tx.rs)
 
 #### `crates/tempo-wallet/` — package `tempo-wallet`, binary `tempo-wallet`
 
 Wallet identity and custody extension, plus session/service management. Source organized by module directories:
-- `crates/tempo-wallet/src/main.rs` - CLI entry point, calls `tempo_common::cli::run_main()`
-- `crates/tempo-wallet/src/args.rs` - clap definitions (`Cli` with `#[command(flatten)] pub global: GlobalArgs`)
+- `crates/tempo-wallet/src/main.rs` - CLI entry point
+- `crates/tempo-wallet/src/args.rs` - clap definitions (Cli, Commands, KeyCommands, SessionCommands, ServicesCommands)
 - `crates/tempo-wallet/src/app.rs` - Command dispatch: context building, command routing, analytics
+- `crates/tempo-wallet/src/analytics.rs` - Wallet-specific analytics events and payloads
+- `crates/tempo-wallet/src/prompt.rs` - Interactive prompt helpers
+- `crates/tempo-wallet/src/account/` - Wallet account types (balances, keys, spending limits) and on-chain queries
+  - `mod.rs`, `types.rs`, `query.rs`, `render.rs`
 - `crates/tempo-wallet/src/commands/` - Command implementations (all take `&Context` as first arg)
   - `login.rs` - Login command (passkey authentication flow)
   - `logout.rs` - Logout command
   - `whoami.rs` - Whoami command
   - `keys.rs` - Key listing, balance and spending limit queries
   - `wallets/` - Wallet management (create, list, fund/, keychain.rs)
-  - `sessions/` - Session management (list, info, close, sync)
-  - `services/` - Service directory listing and details
+    - `fund/` - Fund subcommands (faucet.rs, bridge.rs, relay.rs)
+  - `sessions/` - Session management (list, info, close, sync, render)
+  - `services/` - Service directory (client, model, render)
   - `sign.rs` - Sign MPP payment challenges
   - `completions.rs` - Shell completions
 - `crates/tempo-wallet/tests/` - Integration tests (black-box CLI testing via assert_cmd)
+
+#### `crates/tempo-request/` — package `tempo-request`, binary `tempo-request`
+
+HTTP client with built-in MPP payment support. Source organized by module directories:
+- `crates/tempo-request/src/main.rs` - CLI entry point
+- `crates/tempo-request/src/args.rs` - clap definitions (Cli, QueryArgs)
+- `crates/tempo-request/src/app.rs` - Command dispatch
+- `crates/tempo-request/src/analytics.rs` - Request-specific analytics events and payloads
+- `crates/tempo-request/src/commands/` - Command entrypoint
+  - `mod.rs`, `query.rs`
+- `crates/tempo-request/src/request/` - Request building, output rendering, and analytics helpers
+  - `mod.rs`, `analytics.rs`, `headers.rs`, `output.rs`, `payload.rs`, `payment_challenge.rs`, `prepare.rs`, `sse.rs`
+- `crates/tempo-request/src/http/` - HTTP client and request handling
+  - `mod.rs`, `client.rs`, `fmt.rs`, `response.rs`
+- `crates/tempo-request/src/payment/` - Payment flows (charge + session)
+  - `mod.rs`, `charge.rs`, `router.rs`
+  - `session/` - Session-based payment (flow.rs, open.rs, persist.rs, streaming.rs, voucher.rs)
 
 #### `crates/tempo-sign/` — package `tempo-sign`, binary `tempo-sign`
 
@@ -194,8 +222,8 @@ pub struct Cli {
 ### Adding New Features
 
 1. Add shared logic in `crates/tempo-common/src/`
-2. Add CLI flags in the appropriate binary's `src/cli/args.rs`
-3. Implement commands in the appropriate binary's `src/cli/commands/`
+2. Add CLI flags in the appropriate binary's `src/args.rs`
+3. Implement commands in the appropriate binary's `src/commands/`
 4. Add tests: unit tests in source files, integration tests in each crate's `tests/`
 
 ## Dependencies

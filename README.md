@@ -1,14 +1,15 @@
-# Tempo CLI
+# Tempo CLI — Wallet Extensions
 
-A command-line toolkit for the [Tempo](https://tempo.xyz) blockchain. Call APIs without API keys — pay per request automatically using the [Machine Payments Protocol](https://mpp.dev).
+This repository provides the **wallet extension binaries** for the [Tempo CLI](https://github.com/tempoxyz/tempo). The main `tempo` launcher (at `tempoxyz/tempo`) discovers, installs, and manages these extensions automatically — you don't need to build this repo unless you're contributing.
 
-- **No API keys** — pay per request, skip signups and billing dashboards
-- **No minimums** — pay only for what you use, down to fractions of a cent
-- **curl-compatible** — familiar flags (`-X`, `-H`, `--json`, `-o`, `-L`, …)
-- **Payment sessions** — open a channel once, then pay per-request off-chain
-- **Dry-run** — preview cost before committing (`--dry-run`)
+- **`tempo-wallet`** — Wallet identity and custody: login, key management, sessions, services, signing
+- **`tempo-request`** — HTTP client with built-in [MPP](https://mpp.dev) payment: make API requests without API keys
+
+Both extensions are built on the [Machine Payments Protocol](https://mpp.dev), an open protocol for HTTP-native machine-to-machine payments on the [Tempo](https://tempo.xyz) blockchain.
 
 ## Install
+
+The recommended way to install is via the Tempo CLI, which handles extension discovery and updates:
 
 ```bash
 curl -fsSL https://cli.tempo.xyz/install | bash
@@ -74,10 +75,12 @@ Run `tempo wallet --help` or `tempo request --help` for full flag reference.
 
 | Crate | Binary | Description |
 |-------|--------|-------------|
+| `tempo-common` | — | Shared library (config, keys, network, payment, CLI infrastructure) |
 | `tempo-wallet` | `tempo-wallet` | Wallet identity, custody, sessions, services, and signing |
 | `tempo-request` | `tempo-request` | HTTP client with MPP payment |
-| `tempo-common` | — | Shared library (config, keys, network, payment, analytics) |
 | `tempo-sign` | `tempo-sign` | Release manifest signing tool |
+
+The `tempo` launcher at [tempoxyz/tempo](https://github.com/tempoxyz/tempo) discovers these extension binaries via signed release manifests. See [ARCHITECTURE.md](ARCHITECTURE.md) for crate layering and module details.
 
 ## Configuration
 
