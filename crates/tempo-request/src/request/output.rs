@@ -44,7 +44,7 @@ impl OutputOptions {
 /// Build `OutputOptions` from CLI arguments + config.
 ///
 /// Accepts the already-parsed URL to avoid redundant parsing.
-pub(super) fn build_output_options(
+pub(crate) fn build_output_options(
     output_format: OutputFormat,
     verbosity: Verbosity,
     query: &QueryArgs,
@@ -72,7 +72,7 @@ pub(super) fn build_output_options(
 }
 
 /// Handle a final response: render output, optionally save the payment receipt, and fail on HTTP errors.
-pub(super) fn handle_response(
+pub(crate) fn handle_response(
     output_opts: &OutputOptions,
     response: HttpResponse,
     save_receipt_path: Option<&str>,
@@ -152,7 +152,7 @@ fn write_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
 }
 
 /// Write response metadata (JSON) if requested via `--write-meta`.
-pub(super) fn write_meta_if_requested(
+pub(crate) fn write_meta_if_requested(
     opts: &OutputOptions,
     status_code: u16,
     headers: &[(String, String)],
@@ -196,7 +196,7 @@ fn write_headers_file(
 }
 
 /// Display receipt information from response with optional clickable explorer links.
-pub(super) fn display_receipt(
+pub(crate) fn display_receipt(
     output_opts: &OutputOptions,
     response: &HttpResponse,
     network: NetworkId,

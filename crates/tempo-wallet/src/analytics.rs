@@ -1,7 +1,7 @@
 //! Wallet-specific analytics events and payloads.
 
 use serde::Serialize;
-use tempo_common::analytics::{Event, EventPayload};
+use tempo_common::analytics::Event;
 
 pub(crate) const LOGIN_STARTED: Event = Event::new("login_started");
 pub(crate) const LOGIN_SUCCESS: Event = Event::new("login_success");
@@ -21,26 +21,22 @@ pub(crate) const WALLET_FUND_FAILURE: Event = Event::new("wallet_fund_failure");
 pub(crate) struct LoginFailurePayload {
     pub(crate) error: String,
 }
-impl EventPayload for LoginFailurePayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CallbackReceivedPayload {
     pub(crate) duration_secs: u64,
 }
-impl EventPayload for CallbackReceivedPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct WalletCreatedPayload {
     pub(crate) wallet_type: String,
 }
-impl EventPayload for WalletCreatedPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct WalletFundPayload {
     pub(crate) network: String,
     pub(crate) method: String,
 }
-impl EventPayload for WalletFundPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct WalletFundFailurePayload {
@@ -48,4 +44,3 @@ pub(crate) struct WalletFundFailurePayload {
     pub(crate) method: String,
     pub(crate) error: String,
 }
-impl EventPayload for WalletFundFailurePayload {}

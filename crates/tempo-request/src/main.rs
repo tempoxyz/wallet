@@ -8,6 +8,7 @@ mod args;
 mod commands;
 mod http;
 mod payment;
+mod request;
 
 use crate::args::Cli;
 

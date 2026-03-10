@@ -8,7 +8,7 @@ use tempo_common::error::InputError;
 const MAX_HEADER_SIZE: usize = 8 * 1024;
 
 /// Reject a raw header string that exceeds the maximum allowed size.
-pub(super) fn validate_header_size(header: &str) -> Result<()> {
+pub(crate) fn validate_header_size(header: &str) -> Result<()> {
     if header.len() > MAX_HEADER_SIZE {
         anyhow::bail!(InputError::HeaderTooLarge(MAX_HEADER_SIZE));
     }
@@ -16,7 +16,7 @@ pub(super) fn validate_header_size(header: &str) -> Result<()> {
 }
 
 /// Check if a header name exists in raw header strings (case-insensitive).
-pub(super) fn has_header(headers: &[String], name: &str) -> bool {
+pub(crate) fn has_header(headers: &[String], name: &str) -> bool {
     let name_lower = name.to_lowercase();
     headers.iter().any(|h| {
         h.split_once(':')
@@ -28,7 +28,7 @@ pub(super) fn has_header(headers: &[String], name: &str) -> bool {
 ///
 /// Preserves duplicate headers (important for HTTP headers like Set-Cookie).
 /// Header names are lowercased for consistency. Malformed entries are skipped.
-pub(super) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
+pub(crate) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
     headers
         .iter()
         .filter_map(|header| {
@@ -43,7 +43,7 @@ pub(super) fn parse_headers(headers: &[String]) -> Vec<(String, String)> {
 /// Returns true if:
 /// - The provided headers don't already contain a Content-Type header, AND
 /// - Either json/toon data is provided, OR the first data value looks like JSON
-pub(super) fn should_auto_add_json_content_type(
+pub(crate) fn should_auto_add_json_content_type(
     headers: &[String],
     json: Option<&str>,
     toon: Option<&str>,

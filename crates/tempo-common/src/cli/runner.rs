@@ -2,7 +2,7 @@
 
 use super::args::GlobalArgs;
 use super::context;
-use super::exit_code;
+use super::exit_codes;
 use super::output::{self, OutputFormat};
 use super::runtime;
 use super::tracking;
@@ -59,7 +59,7 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), anyhow::Error>) 
 
     match output_format {
         OutputFormat::Json | OutputFormat::Toon => {
-            let code = exit_code::ExitCode::from(&e).label();
+            let code = exit_codes::ExitCode::from(&e).label();
             let payload = runtime::render_error_payload(&e, code);
             output::emit_formatted_or_fallback(
                 || output::format_structured(output_format, &payload),
@@ -70,5 +70,5 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), anyhow::Error>) 
             eprintln!("Error: {e:#}");
         }
     }
-    exit_code::ExitCode::from(&e).exit();
+    exit_codes::ExitCode::from(&e).exit();
 }

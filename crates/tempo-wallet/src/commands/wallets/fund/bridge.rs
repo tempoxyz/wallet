@@ -10,10 +10,10 @@ use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::cli::terminal::address_link;
 
-use super::fund::{has_balance_changed, render_balance_diff, FundResponse, POLL_INTERVAL_SECS};
 use super::relay::{
     create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
 };
+use super::{has_balance_changed, render_balance_diff, FundResponse, POLL_INTERVAL_SECS};
 
 /// Default source chain for bridging (Base).
 const DEFAULT_SOURCE_CHAIN_ID: u64 = 8453;

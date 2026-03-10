@@ -10,16 +10,16 @@ use tempo_common::error::PaymentError;
 use tempo_common::network::NetworkId;
 
 /// Parsed payment challenge extracted from a 402 response.
-pub(super) struct ParsedChallenge {
-    pub(super) is_session: bool,
-    pub(super) network: NetworkId,
-    pub(super) amount: String,
-    pub(super) currency: String,
-    pub(super) challenge: mpp::PaymentChallenge,
+pub(crate) struct ParsedChallenge {
+    pub(crate) is_session: bool,
+    pub(crate) network: NetworkId,
+    pub(crate) amount: String,
+    pub(crate) currency: String,
+    pub(crate) challenge: mpp::PaymentChallenge,
 }
 
 impl ParsedChallenge {
-    pub(super) fn intent_str(&self) -> &'static str {
+    pub(crate) fn intent_str(&self) -> &'static str {
         if self.is_session {
             "session"
         } else {
@@ -28,7 +28,7 @@ impl ParsedChallenge {
     }
 
     /// Format the payment amount for human display, falling back to raw value + symbol.
-    pub(super) fn amount_display(&self) -> String {
+    pub(crate) fn amount_display(&self) -> String {
         self.amount
             .parse::<u128>()
             .ok()
@@ -39,7 +39,7 @@ impl ParsedChallenge {
 
 /// Parse the WWW-Authenticate header from a 402 response and extract all
 /// payment-related context needed for routing and analytics.
-pub(super) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedChallenge> {
+pub(crate) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedChallenge> {
     let www_auth = response
         .header("www-authenticate")
         .ok_or_else(|| PaymentError::MissingHeader("WWW-Authenticate".to_string()))?;

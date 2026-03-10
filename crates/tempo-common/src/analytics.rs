@@ -243,31 +243,28 @@ pub mod events {
     pub const COOP_CLOSE_FAILURE: Event = Event::new("coop_close_failure");
 }
 
-/// Trait for analytics event payloads.
+/// Marker trait for analytics event payloads.
 ///
-/// The `'static` bound is required because payloads are moved into `tokio::spawn` tasks.
+/// Automatically implemented for any type that is `Serialize + Send + Sync + 'static`.
 pub trait EventPayload: Serialize + Send + Sync + 'static {}
+impl<T: Serialize + Send + Sync + 'static> EventPayload for T {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct EmptyPayload;
-impl EventPayload for EmptyPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CommandRunPayload {
     pub(crate) command: String,
 }
-impl EventPayload for CommandRunPayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CommandFailurePayload {
     pub(crate) command: String,
     pub(crate) error: String,
 }
-impl EventPayload for CommandFailurePayload {}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CoopClosePayload {
     pub(crate) network: String,
     pub(crate) channel_id: String,
 }
-impl EventPayload for CoopClosePayload {}
