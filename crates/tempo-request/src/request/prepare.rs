@@ -20,16 +20,16 @@ use super::payload::{
 const DEFAULT_RETRY_STATUS_CODES: &[u16] = &[408, 429, 500, 502, 503, 504];
 
 /// Fully prepared request: parsed URL and configured HTTP client.
-pub(super) struct PreparedRequest {
-    pub(super) url: url::Url,
-    pub(super) http: HttpClient,
+pub(crate) struct PreparedRequest {
+    pub(crate) url: url::Url,
+    pub(crate) http: HttpClient,
 }
 
 /// Parse, validate, and build the HTTP client from CLI arguments.
 ///
 /// Handles URL parsing, `-G/--get` query-string appending, and client
 /// construction — everything needed before execution.
-pub(super) fn prepare(ctx: &Context, query: &QueryArgs) -> Result<PreparedRequest> {
+pub(crate) fn prepare(ctx: &Context, query: &QueryArgs) -> Result<PreparedRequest> {
     let mut url = parse_and_validate_url(&query.url)?;
 
     // Support -G/--get: append -d and --data-urlencode to query string and force GET if no explicit -X

@@ -1,5 +1,9 @@
 //! Fund command — request testnet faucet tokens or bridge USDC to Tempo mainnet.
 
+mod bridge;
+mod faucet;
+mod relay;
+
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -10,7 +14,7 @@ use tempo_common::error::ConfigError;
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
 
-use super::relay::DepositStatus;
+use self::relay::DepositStatus;
 
 /// Interval between balance/status poll attempts (seconds).
 pub(super) const POLL_INTERVAL_SECS: u64 = 3;
@@ -50,8 +54,8 @@ pub(super) async fn run(
 
     let wait = !no_wait;
     match ctx.network {
-        NetworkId::TempoModerato => super::faucet::run(ctx, &wallet_address, wait).await,
-        NetworkId::Tempo => super::bridge::run(ctx, &wallet_address, wait).await,
+        NetworkId::TempoModerato => faucet::run(ctx, &wallet_address, wait).await,
+        NetworkId::Tempo => bridge::run(ctx, &wallet_address, wait).await,
     }
 }
 

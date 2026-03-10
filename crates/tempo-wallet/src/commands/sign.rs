@@ -10,7 +10,7 @@ use tempo_common::cli::context::Context;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::error::{ConfigError, PaymentError};
 use tempo_common::network::NetworkId;
-use tempo_common::payment::error::{classify_payment_error, map_mpp_validation_error};
+use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
 
 /// Run the `sign` subcommand.
 pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: bool) -> Result<()> {

@@ -10,7 +10,7 @@ use tempo_common::config::Config;
 use tempo_common::keys::KeyEntry;
 use tempo_common::network::NetworkId;
 
-use super::{SpendingLimitInfo, TokenBalance};
+use super::types::{SpendingLimitInfo, TokenBalance};
 
 /// Query all token balances for a wallet address on the given network.
 pub(crate) async fn query_all_balances(

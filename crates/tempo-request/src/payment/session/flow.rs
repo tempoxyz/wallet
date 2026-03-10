@@ -14,7 +14,7 @@ use tempo_common::cli::format::format_token_amount;
 use tempo_common::cli::terminal::address_link;
 use tempo_common::error::PaymentError;
 use tempo_common::keys::{Keystore, Signer};
-use tempo_common::payment::error::map_mpp_validation_error;
+use tempo_common::payment::classify::map_mpp_validation_error;
 use tempo_common::payment::session::{channel, close, store};
 
 /// Send the actual session request with a voucher and handle the response.
@@ -51,7 +51,7 @@ async fn send_session_request(
     let status = response.status();
     if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
         let body = response.text().await.unwrap_or_default();
-        let reason = tempo_common::payment::error::extract_json_error(&body)
+        let reason = tempo_common::payment::classify::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(500).collect::<String>());
         return Err(PaymentError::PaymentRejected {
             reason,

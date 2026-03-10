@@ -11,7 +11,7 @@ use tempo_common::error::{ConfigError, PaymentError};
 use tempo_common::keys::Signer;
 
 use super::router::{PaymentResult, ResolvedChallenge};
-use tempo_common::payment::error::{classify_payment_error, map_mpp_validation_error};
+use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").
 ///
@@ -86,7 +86,7 @@ pub(super) async fn handle_charge_request(
 /// Parse a non-200 response after payment submission into a descriptive error.
 fn parse_payment_rejection(response: &HttpResponse) -> PaymentError {
     let reason = if let Ok(body) = response.body_string() {
-        if let Some(msg) = tempo_common::payment::error::extract_json_error(&body) {
+        if let Some(msg) = tempo_common::payment::classify::extract_json_error(&body) {
             msg
         } else if serde_json::from_str::<serde_json::Value>(&body).is_ok() {
             // Valid JSON but no known error field

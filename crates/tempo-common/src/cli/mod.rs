@@ -2,7 +2,7 @@
 
 mod args;
 pub mod context;
-pub(crate) mod exit_code;
+pub(crate) mod exit_codes;
 pub mod output;
 mod runner;
 pub mod runtime;

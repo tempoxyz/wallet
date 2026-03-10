@@ -148,19 +148,19 @@ pub(super) async fn create_deposit_address(
 
 /// Status of a cross-chain deposit tracked by Relay.
 #[derive(Debug, Serialize, Deserialize)]
-pub(super) struct DepositStatus {
+pub(crate) struct DepositStatus {
     /// One of: waiting, pending, submitted, success, failure, refunded.
-    pub(super) status: String,
+    pub(crate) status: String,
     /// Transaction hashes on the source chain.
     #[serde(
         default,
         rename = "inTxHashes",
         skip_serializing_if = "Option::is_none"
     )]
-    pub(super) in_tx_hashes: Option<Vec<String>>,
+    pub(crate) in_tx_hashes: Option<Vec<String>>,
     /// Transaction hashes on the destination chain.
     #[serde(default, rename = "txHashes", skip_serializing_if = "Option::is_none")]
-    pub(super) out_tx_hashes: Option<Vec<String>>,
+    pub(crate) out_tx_hashes: Option<Vec<String>>,
 }
 
 /// Polls the Relay intent status API for a given request ID.

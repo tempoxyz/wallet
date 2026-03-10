@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(warnings)]
+#![warn(unreachable_pub)]
 //! Shared modules for Tempo extension crates.
 
 pub mod analytics;

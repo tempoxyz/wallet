@@ -19,7 +19,7 @@ const PAYMENT_FAILURE: Event = Event::new("payment_failure");
 // Pre-402 query tracking (no payment context needed)
 // ---------------------------------------------------------------------------
 
-pub(super) fn track_query_started(ctx: &Context, url: &str, method: &str) {
+pub(crate) fn track_query_started(ctx: &Context, url: &str, method: &str) {
     ctx.track(
         QUERY_STARTED,
         QueryStartedPayload {
@@ -29,7 +29,7 @@ pub(super) fn track_query_started(ctx: &Context, url: &str, method: &str) {
     );
 }
 
-pub(super) fn track_query_failure(ctx: &Context, url: &str, method: &str, error: &str) {
+pub(crate) fn track_query_failure(ctx: &Context, url: &str, method: &str, error: &str) {
     ctx.track(
         QUERY_FAILURE,
         QueryFailurePayload {
@@ -40,7 +40,7 @@ pub(super) fn track_query_failure(ctx: &Context, url: &str, method: &str, error:
     );
 }
 
-pub(super) fn track_query_success(ctx: &Context, url: &str, method: &str, status_code: u16) {
+pub(crate) fn track_query_success(ctx: &Context, url: &str, method: &str, status_code: u16) {
     ctx.track(
         QUERY_SUCCESS,
         QuerySuccessPayload {
@@ -59,7 +59,7 @@ pub(super) fn track_query_success(ctx: &Context, url: &str, method: &str, status
 ///
 /// Created once after parsing the 402 challenge, then used to track
 /// started/success/failure events identically for both charge and session flows.
-pub(super) struct PaymentAnalytics<'a> {
+pub(crate) struct PaymentAnalytics<'a> {
     ctx: &'a Context,
     network: &'a str,
     amount: &'a str,
@@ -68,7 +68,7 @@ pub(super) struct PaymentAnalytics<'a> {
 }
 
 impl<'a> PaymentAnalytics<'a> {
-    pub(super) fn new(
+    pub(crate) fn new(
         ctx: &'a Context,
         network: &'a str,
         amount: &'a str,
@@ -84,7 +84,7 @@ impl<'a> PaymentAnalytics<'a> {
         }
     }
 
-    pub(super) fn track_started(&self) {
+    pub(crate) fn track_started(&self) {
         self.ctx.track(
             PAYMENT_STARTED,
             PaymentStartedPayload {
@@ -100,7 +100,7 @@ impl<'a> PaymentAnalytics<'a> {
     ///
     /// Also fires a `QuerySuccess` event so the overall request is counted as
     /// successful (the non-402 path fires this directly from `mod.rs`).
-    pub(super) fn track_success(
+    pub(crate) fn track_success(
         &self,
         tx_hash: String,
         session_id: Option<String>,
@@ -122,7 +122,7 @@ impl<'a> PaymentAnalytics<'a> {
         track_query_success(self.ctx, url, method, status_code);
     }
 
-    pub(super) fn track_failure(&self, err: &anyhow::Error) {
+    pub(crate) fn track_failure(&self, err: &anyhow::Error) {
         self.ctx.track(
             PAYMENT_FAILURE,
             PaymentFailurePayload {

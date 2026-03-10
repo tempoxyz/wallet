@@ -13,11 +13,11 @@ use tempo_common::cli::output::emit_by_format;
 use tempo_common::error::{NetworkError, PaymentError};
 use tempo_common::security::redact_url;
 
-use super::analytics;
-use super::output::{self, build_output_options, write_meta_if_requested};
-use super::payment_challenge;
-use super::prepare;
-use super::sse;
+use crate::request::analytics;
+use crate::request::output::{self, build_output_options, write_meta_if_requested};
+use crate::request::payment_challenge;
+use crate::request::prepare;
+use crate::request::sse;
 
 /// Execute an HTTP request with automatic payment handling.
 ///

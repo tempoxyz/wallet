@@ -253,7 +253,7 @@ async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        let reason = crate::payment::error::extract_json_error(&body)
+        let reason = crate::payment::classify::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(200).collect());
         return Err(PaymentError::PaymentRejected {
             reason,

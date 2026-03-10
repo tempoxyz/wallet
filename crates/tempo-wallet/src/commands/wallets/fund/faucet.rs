@@ -11,7 +11,7 @@ use tempo_common::cli::output::OutputFormat;
 use tempo_common::cli::terminal::address_link;
 use tempo_common::error::NetworkError;
 
-use super::fund::{
+use super::{
     has_balance_changed, poll_until, render_balance_diff, FundResponse, POLL_INTERVAL_SECS,
 };
 

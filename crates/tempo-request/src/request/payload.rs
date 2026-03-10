@@ -11,7 +11,7 @@ const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 ///
 /// Used for `-G/--get` mode where request data is sent as query parameters
 /// instead of the body.
-pub(super) fn append_data_to_query(
+pub(crate) fn append_data_to_query(
     url: &mut url::Url,
     data: &[String],
     data_urlencode: &[String],
@@ -91,7 +91,7 @@ fn resolve_and_join_data(data: &[String]) -> Result<Vec<u8>> {
 }
 
 /// Determine the HTTP method and body from raw query inputs.
-pub(super) fn resolve_method_and_body(
+pub(crate) fn resolve_method_and_body(
     method: Option<&str>,
     data: &[String],
     json: Option<&str>,
@@ -129,7 +129,7 @@ pub(super) fn resolve_method_and_body(
 }
 
 /// Parse --data-urlencode items into (name, value) tuples with URL-encoding applied.
-pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<String>, String)>> {
+pub(crate) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<String>, String)>> {
     let mut pairs = Vec::new();
     for it in items {
         if let Some(rest) = it.strip_prefix('@') {
@@ -168,7 +168,7 @@ pub(super) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<Strin
 ///
 /// Each pair is rendered as `name=value` (if named) or just `value`,
 /// separated by `&`.
-pub(super) fn join_form_pairs(pairs: &[(Option<String>, String)]) -> String {
+pub(crate) fn join_form_pairs(pairs: &[(Option<String>, String)]) -> String {
     pairs
         .iter()
         .map(|(name, val)| match name {
