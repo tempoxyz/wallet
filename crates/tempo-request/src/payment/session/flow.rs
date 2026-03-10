@@ -112,6 +112,10 @@ pub(crate) async fn handle_session_request(
     let network_id = resolved.network_id;
     let network_name = network_id.as_str();
 
+    if signer.se_key_label.is_some() {
+        anyhow::bail!("Session payments are not yet supported with Secure Enclave wallets. Use a passkey or local wallet.");
+    }
+
     challenge
         .validate_for_session("tempo")
         .map_err(|e| map_mpp_validation_error(e, challenge))?;

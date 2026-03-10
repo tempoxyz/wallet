@@ -24,7 +24,14 @@ use tempo_common::security::sanitize_error;
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
-pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
+pub(crate) async fn run(ctx: &Context, secure_enclave: bool) -> anyhow::Result<()> {
+    if secure_enclave {
+        #[cfg(target_os = "macos")]
+        return se_login(ctx).await;
+        #[cfg(not(target_os = "macos"))]
+        anyhow::bail!("Secure Enclave wallets are only supported on macOS.");
+    }
+
     ctx.track_event(analytics::LOGIN_STARTED);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
@@ -355,6 +362,79 @@ async fn poll_device_code(
             e
         )))
     })
+}
+
+// ---------------------------------------------------------------------------
+// Secure Enclave login
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+async fn se_login(ctx: &Context) -> anyhow::Result<()> {
+    use tempo_common::cli::output::OutputFormat;
+    use tempo_common::keys::secure_enclave;
+
+    // Check if already logged in with an SE wallet on this network.
+    let has_se_for_network = ctx
+        .keys
+        .find_se_wallet()
+        .is_some_and(|entry| entry.chain_id == ctx.network.chain_id());
+    if has_se_for_network {
+        if ctx.output_format == OutputFormat::Text {
+            eprintln!("Already logged in with Secure Enclave wallet.\n");
+        }
+        let keys = ctx.keys.reload()?;
+        return super::whoami::show_whoami(ctx, Some(&keys), None).await;
+    }
+
+    if ctx.output_format == OutputFormat::Text {
+        eprintln!("Generating Secure Enclave key (Touch ID required)...");
+    }
+
+    // Generate SE key — label is deterministic from a random suffix.
+    // We use a short random suffix to allow multiple SE wallets.
+    let mut suffix_bytes = [0u8; 8];
+    getrandom::getrandom(&mut suffix_bytes).expect("failed to generate random bytes");
+    let suffix = hex::encode(suffix_bytes);
+    let label = secure_enclave::key_label(&suffix);
+
+    let pubkey = secure_enclave::generate(&label)?;
+    let addr_bytes = secure_enclave::address_from_pubkey(&pubkey)?;
+    let key_address = format!("0x{}", hex::encode(addr_bytes));
+
+    if ctx.output_format == OutputFormat::Text {
+        eprintln!("Key address: {}", key_address);
+    }
+
+    // For SE wallets, the wallet_address IS the key_address (direct EOA).
+    // No separate wallet owner key — the SE key is the identity.
+    let wallet_address = key_address.clone();
+    let chain_id = ctx.network.chain_id();
+
+    let mut keys = ctx.keys.clone();
+    let entry = keys.upsert_by_wallet_and_chain(&wallet_address, chain_id);
+    entry.wallet_type = WalletType::SecureEnclave;
+    entry.wallet_address = wallet_address.clone();
+    entry.key_type = tempo_common::keys::KeyType::P256;
+    entry.key_address = Some(key_address);
+    entry.se_key_label = Some(label);
+    entry.key = None;
+    entry.provisioned = false;
+
+    keys.save()?;
+
+    ctx.track(
+        analytics::WALLET_CREATED,
+        WalletCreatedPayload {
+            wallet_type: "secure_enclave".to_string(),
+        },
+    );
+
+    if ctx.output_format == OutputFormat::Text {
+        eprintln!("\nSecure Enclave wallet created!\n");
+    }
+
+    let keys = keys.reload()?;
+    super::whoami::show_whoami(ctx, Some(&keys), Some(&wallet_address)).await
 }
 
 fn generate_pkce_pair() -> (String, String) {

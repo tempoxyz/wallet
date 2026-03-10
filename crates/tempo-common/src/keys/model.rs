@@ -10,6 +10,8 @@ pub enum WalletType {
     #[default]
     Local,
     Passkey,
+    #[serde(rename = "secure_enclave")]
+    SecureEnclave,
 }
 
 impl WalletType {
@@ -17,6 +19,7 @@ impl WalletType {
         match self {
             Self::Local => "local",
             Self::Passkey => "passkey",
+            Self::SecureEnclave => "secure_enclave",
         }
     }
 }
@@ -62,6 +65,10 @@ pub struct KeyEntry {
     /// Wrapped in [`Zeroizing`] so the secret is scrubbed from memory on drop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<Zeroizing<String>>,
+    /// Secure Enclave key label (macOS only).
+    /// Used to locate the SE-backed private key; no raw key material is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub se_key_label: Option<String>,
     /// Key authorization (RLP-encoded SignedKeyAuthorization hex).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_authorization: Option<String>,
@@ -85,6 +92,7 @@ impl std::fmt::Debug for KeyEntry {
             .field("key_type", &self.key_type)
             .field("key_address", &self.key_address)
             .field("key", &self.key.as_ref().map(|_| "<redacted>"))
+            .field("se_key_label", &self.se_key_label)
             .field("key_authorization", &self.key_authorization)
             .field("expiry", &self.expiry)
             .field("limits", &self.limits)
@@ -126,6 +134,7 @@ mod tests {
             key_address: Some("0xdef".to_string()),
             key: Some(Zeroizing::new("0xsecret".to_string())),
             key_authorization: Some("0xauth".to_string()),
+            se_key_label: None,
             expiry: Some(1700000000),
             limits: vec![StoredTokenLimit {
                 currency: "0xUSDC".to_string(),
@@ -159,6 +168,7 @@ mod tests {
             key_address: None,
             key: None,
             key_authorization: None,
+            se_key_label: None,
             expiry: None,
             limits: vec![],
             provisioned: false,

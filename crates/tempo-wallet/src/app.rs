@@ -21,7 +21,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
         let cmd_name = command_name(&command);
         tempo_common::cli::tracking::track_command(&ctx.analytics, cmd_name);
         let result = match command {
-            Commands::Login => login::run(&ctx).await,
+            Commands::Login { secure_enclave } => login::run(&ctx, secure_enclave).await,
             Commands::Logout { yes } => logout::run(&ctx, yes),
             Commands::Completions { shell } => completions::run(&ctx, shell),
             Commands::List => wallets::list(&ctx),
@@ -69,7 +69,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
 /// Derive a short analytics-friendly name from a parsed command.
 fn command_name(command: &Commands) -> &'static str {
     match command {
-        Commands::Login => "login",
+        Commands::Login { .. } => "login",
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",
         Commands::List => "list",

@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install uninstall
+.PHONY: build release clean check test fix install uninstall sign
 
 build:
 	cargo build
@@ -34,6 +34,14 @@ check:
 fix:
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
+
+# Sign macOS debug binaries for Secure Enclave access (requires Apple Developer cert).
+# Usage: make sign IDENTITY="Developer ID Application: Your Name (TEAMID)"
+sign: build
+	@if [ -z "$(IDENTITY)" ]; then echo "Usage: make sign IDENTITY=\"Developer ID Application: ...\""; exit 1; fi
+	codesign --force --sign "$(IDENTITY)" --entitlements assets/entitlements.plist --options runtime target/debug/tempo-wallet
+	codesign --force --sign "$(IDENTITY)" --entitlements assets/entitlements.plist --options runtime target/debug/tempo-mpp
+	codesign --force --sign "$(IDENTITY)" --entitlements assets/entitlements.plist --options runtime target/debug/tempo-request
 
 # Generate coverage locally (requires cargo-llvm-cov and llvm-tools-preview)
 # Install once: `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`

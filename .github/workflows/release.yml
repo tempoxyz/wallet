@@ -90,7 +90,58 @@ jobs:
           GIT_CONFIG_VALUE_0: https://github.com/
         run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
       - run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Codesign macOS binary
+        if: runner.os == 'macOS' && env.APPLE_CERT_P12 != ''
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          # Import Developer ID certificate into a temporary keychain
+          KEYCHAIN="build.keychain"
+          KEYCHAIN_PASSWORD="ci-build"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security list-keychains -s "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          echo "$APPLE_CERT_P12" | base64 -d > /tmp/cert.p12
+          security import /tmp/cert.p12 -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -A
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          rm /tmp/cert.p12
+
+          # Sign with Developer ID + entitlements + hardened runtime
+          codesign --force \
+            --sign "Developer ID Application: Tempo Technologies Inc." \
+            --entitlements assets/entitlements.plist \
+            --options runtime \
+            --timestamp \
+            "target/${{ matrix.target }}/release/${{ matrix.binary }}"
+
       - run: mv target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.asset }}
+
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS' && env.APPLE_API_KEY_DATA != ''
+        env:
+          APPLE_API_KEY_DATA: ${{ secrets.APPLE_API_KEY_DATA }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          # Prepare API key for notarytool
+          mkdir -p ~/.private_keys
+          echo -n "$APPLE_API_KEY_DATA" > ~/.private_keys/AuthKey_${APPLE_API_KEY_ID}.p8
+
+          # Notarize requires a zip archive
+          ditto -c -k "${{ matrix.asset }}" "${{ matrix.asset }}.zip"
+          xcrun notarytool submit "${{ matrix.asset }}.zip" \
+            --key ~/.private_keys/AuthKey_${APPLE_API_KEY_ID}.p8 \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+
+          rm "${{ matrix.asset }}.zip"
+          rm -rf ~/.private_keys
+
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}

@@ -60,6 +60,9 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
 
     // Sign
     let signer = ctx.keys.signer(network)?;
+    if signer.se_key_label.is_some() {
+        anyhow::bail!("Sign command is not yet supported with Secure Enclave wallets.");
+    }
     let from = signer.from;
     let rpc_url = ctx.config.rpc_url(network);
 

@@ -26,6 +26,10 @@ pub(super) async fn handle_charge_request(
 ) -> Result<PaymentResult> {
     let challenge = &resolved.challenge;
 
+    if signer.se_key_label.is_some() {
+        anyhow::bail!("Charge payments are not yet supported with Secure Enclave wallets. Use a passkey or local wallet.");
+    }
+
     challenge
         .validate_for_charge("tempo")
         .map_err(|e| map_mpp_validation_error(e, challenge))?;

@@ -47,8 +47,15 @@ impl Keystore {
 
     /// Get the primary key entry.
     ///
-    /// Deterministic selection: passkey > first key with a signing key > first entry.
+    /// Deterministic selection: secure_enclave > passkey > first key with a signing key > first entry.
     pub fn primary_key(&self) -> Option<&KeyEntry> {
+        if let Some(entry) = self
+            .keys
+            .iter()
+            .find(|k| k.wallet_type == WalletType::SecureEnclave)
+        {
+            return Some(entry);
+        }
         if let Some(entry) = self
             .keys
             .iter()
@@ -72,7 +79,8 @@ impl Keystore {
     /// an inline `key`.
     pub fn has_wallet(&self) -> bool {
         self.primary_key().is_some_and(|a| {
-            !a.wallet_address.is_empty() && a.key.as_ref().is_some_and(|k| !k.is_empty())
+            !a.wallet_address.is_empty()
+                && (a.key.as_ref().is_some_and(|k| !k.is_empty()) || a.se_key_label.is_some())
         })
     }
 
@@ -132,6 +140,14 @@ impl Keystore {
         if let Some(entry) = self.keys.iter().find(|k| k.chain_id == chain_id) {
             return Some(entry);
         }
+        // SE keys with matching chain_id (checked above), then any SE with se_key_label
+        if let Some(entry) = self
+            .keys
+            .iter()
+            .find(|k| k.wallet_type == WalletType::SecureEnclave && k.se_key_label.is_some())
+        {
+            return Some(entry);
+        }
         // Direct EOA keys (wallet == signer) work on any network
         self.keys.iter().find(|k| {
             k.wallet_type == WalletType::Local
@@ -161,6 +177,13 @@ impl Keystore {
             .find(|k| k.wallet_type == WalletType::Passkey)
     }
 
+    /// Find the first Secure Enclave wallet entry, if one exists.
+    pub fn find_se_wallet(&self) -> Option<&KeyEntry> {
+        self.keys
+            .iter()
+            .find(|k| k.wallet_type == WalletType::SecureEnclave)
+    }
+
     /// Delete all passkey entries for a given wallet address (case-insensitive).
     ///
     /// Removes all entries where wallet_type is Passkey and wallet_address matches.
@@ -174,6 +197,22 @@ impl Keystore {
         if self.keys.len() == before {
             return Err(ConfigError::Missing(format!(
                 "No passkey wallet found for '{wallet_address}'."
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
+    /// Delete all Secure Enclave entries for a given wallet address (case-insensitive).
+    pub fn delete_se_wallet(&mut self, wallet_address: &str) -> Result<(), TempoError> {
+        let before = self.keys.len();
+        self.keys.retain(|k| {
+            !(k.wallet_type == WalletType::SecureEnclave
+                && k.wallet_address.eq_ignore_ascii_case(wallet_address))
+        });
+        if self.keys.len() == before {
+            return Err(ConfigError::Missing(format!(
+                "No Secure Enclave wallet found for '{wallet_address}'."
             ))
             .into());
         }

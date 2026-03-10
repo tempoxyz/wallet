@@ -40,7 +40,11 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     /// Sign up or log in to your Tempo wallet
     #[command(display_order = 1)]
-    Login,
+    Login {
+        /// Create a Secure Enclave wallet (macOS only, requires Touch ID)
+        #[arg(long)]
+        secure_enclave: bool,
+    },
     /// Log out and disconnect your wallet
     #[command(display_order = 2)]
     Logout {

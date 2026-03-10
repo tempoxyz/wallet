@@ -48,6 +48,7 @@ pub(super) fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Resul
         wallet_address: wallet_address.clone(),
         key_address: Some(access_key_address),
         key: Some(access_key_hex),
+        se_key_label: None,
         key_authorization: Some(auth.hex),
         chain_id,
         key_type: auth.key_type,

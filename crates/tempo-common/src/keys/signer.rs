@@ -12,6 +12,7 @@ use crate::error::{ConfigError, KeyError, TempoError};
 use crate::network::NetworkId;
 
 use super::authorization;
+use super::model::WalletType;
 use super::Keystore;
 
 /// Parse a private key hex string into a PrivateKeySigner.
@@ -30,10 +31,16 @@ pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoE
 ///
 /// Bundles the private key signer, the resolved `TempoSigningMode`
 /// (direct or keychain), and the effective `from` address.
+///
+/// For Secure Enclave wallets, `se_key_label` is set and the `signer`
+/// field is a dummy — all actual signing goes through the SE hardware.
 pub struct Signer {
     pub signer: PrivateKeySigner,
     pub signing_mode: TempoSigningMode,
     pub from: Address,
+    /// When set, this signer is backed by a macOS Secure Enclave key.
+    /// The `signer` field is a placeholder; use the SE label for signing.
+    pub se_key_label: Option<String>,
 }
 
 impl Keystore {
@@ -49,6 +56,11 @@ impl Keystore {
                 network.as_str()
             )))
         })?;
+
+        // Secure Enclave wallets: no inline private key, use SE label.
+        if key_entry.wallet_type == WalletType::SecureEnclave {
+            return self.signer_se(key_entry, network);
+        }
 
         let pk = key_entry
             .key
@@ -93,6 +105,74 @@ impl Keystore {
             signer,
             signing_mode,
             from,
+            se_key_label: None,
+        })
+    }
+
+    /// Build a [`Signer`] for a Secure Enclave key entry.
+    ///
+    /// The `signer` field is a dummy `PrivateKeySigner` (random, never used
+    /// for actual signing). The `se_key_label` field carries the SE label.
+    /// Callers must check `se_key_label` before using `signer` directly.
+    fn signer_se(
+        &self,
+        key_entry: &super::KeyEntry,
+        network: NetworkId,
+    ) -> Result<Signer, TempoError> {
+        let se_label = key_entry.se_key_label.as_deref().ok_or_else(|| {
+            TempoError::from(ConfigError::Missing(
+                "Secure Enclave key entry missing se_key_label.".to_string(),
+            ))
+        })?;
+
+        let wallet_address: Address = key_entry.wallet_address.parse().map_err(|e| {
+            TempoError::from(ConfigError::Invalid(format!(
+                "Invalid wallet address: {}",
+                e
+            )))
+        })?;
+
+        let key_address: Address = key_entry
+            .key_address
+            .as_deref()
+            .ok_or_else(|| {
+                TempoError::from(ConfigError::Missing(
+                    "Secure Enclave key entry missing key_address.".to_string(),
+                ))
+            })?
+            .parse()
+            .map_err(|e| {
+                TempoError::from(ConfigError::Invalid(format!("Invalid key address: {}", e)))
+            })?;
+
+        let local_auth = key_entry
+            .key_authorization
+            .as_deref()
+            .and_then(authorization::decode);
+
+        let key_authorization = if !self.is_provisioned(network) {
+            local_auth.map(Box::new)
+        } else {
+            None
+        };
+
+        let signing_mode = TempoSigningMode::Keychain {
+            wallet: wallet_address,
+            key_authorization,
+            version: KeychainVersion::V1,
+        };
+
+        let from = signing_mode.from_address(key_address);
+
+        // Dummy signer — SE keys never expose private key material.
+        // Callers must use `se_key_label` for actual signing operations.
+        let dummy = PrivateKeySigner::random();
+
+        Ok(Signer {
+            signer: dummy,
+            signing_mode,
+            from,
+            se_key_label: Some(se_label.to_string()),
         })
     }
 }

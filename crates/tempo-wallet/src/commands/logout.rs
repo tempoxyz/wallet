@@ -15,7 +15,12 @@ struct LogoutResponse {
 }
 
 pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
-    let wallet_addr = match ctx.keys.find_passkey_wallet() {
+    // Try SE wallet first (higher priority), then passkey
+    let wallet_addr = match ctx
+        .keys
+        .find_se_wallet()
+        .or_else(|| ctx.keys.find_passkey_wallet())
+    {
         Some(entry) => entry.wallet_address.clone(),
         None => {
             output::emit_by_format(
@@ -62,7 +67,15 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> anyhow::Result<()> {
     }
 
     let mut keys = ctx.keys.clone();
-    keys.delete_passkey_wallet(&wallet_addr)?;
+    // SE keys are NOT deleted from hardware on logout — only disconnected
+    // from keys.toml. The key persists in the Secure Enclave and can be
+    // re-associated later. Use `keys clean` to permanently destroy SE keys.
+    //
+    // Try SE wallet first, fall back to passkey
+    let delete_result = keys
+        .delete_se_wallet(&wallet_addr)
+        .or_else(|_| keys.delete_passkey_wallet(&wallet_addr));
+    delete_result?;
     keys.save()?;
 
     ctx.track_event(LOGOUT);
