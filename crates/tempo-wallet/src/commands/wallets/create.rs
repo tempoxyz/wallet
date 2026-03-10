@@ -73,10 +73,7 @@ pub(super) fn create_local_wallet(network: &NetworkId, keys: &Keystore) -> Resul
 /// 2. Generate a new random access key and store inline in keys.toml
 /// 3. Sign a fresh key_authorization
 /// 4. Clear provisioned flag (new key must re-provision)
-pub(crate) fn create_access_key(
-    wallet_address: Option<&str>,
-    keys: &Keystore,
-) -> Result<()> {
+pub(crate) fn create_access_key(wallet_address: Option<&str>, keys: &Keystore) -> Result<()> {
     if keys.ephemeral {
         anyhow::bail!(ConfigError::Invalid(
             "Cannot renew wallets with --private-key flag".to_string()
