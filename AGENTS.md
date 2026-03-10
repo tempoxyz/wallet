@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-This is a Cargo workspace containing 5 crates under `crates/`, providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, wallet identity management, a top-level CLI launcher, and a release signing tool.
+This is a Cargo workspace containing 5 crates under `crates/`, providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, wallet identity management, and a release signing tool. The top-level `tempo` launcher lives in the main tempo repo (`tempo/crates/ext/`).
 
 **Supported Payment Protocols:**
 - [Machine Payments Protocol (MPP)](https://mpp.dev) - Open protocol for HTTP-native machine-to-machine payments
@@ -66,18 +66,12 @@ HTTP client with MPP payment support. Handles queries, sessions, and service dis
     - `completions.rs` - Shell completions
 - `crates/tempo-mpp/tests/` - Integration tests
 
-#### `crates/tempo-cli/` — package `tempo-cli`, binary `tempo`
-
-Top-level launcher and extension manager. Dispatches to `tempo-*` binaries (e.g., `tempo wallet ...` invokes `tempo-wallet`, `tempo mpp ...` invokes `tempo-mpp`).
-- `crates/tempo-cli/src/` - Launcher source (main.rs, launcher.rs, installer.rs, state.rs)
-- `crates/tempo-cli/tests/` - Integration tests
-
 #### `crates/tempo-sign/` — package `tempo-sign`, binary `tempo-sign`
 
 Lightweight release manifest signing tool for authenticating build artifacts.
 - `crates/tempo-sign/src/main.rs` - Signing tool source
 
-**Packages:** `tempo-common`, `tempo-wallet`, `tempo-mpp`, `tempo-cli`, `tempo-sign`
+**Packages:** `tempo-common`, `tempo-wallet`, `tempo-mpp`, `tempo-sign`
 
 ## Commands
 

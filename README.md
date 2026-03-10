@@ -75,7 +75,6 @@ Run `tempo wallet --help` or `tempo mpp --help` for full flag reference.
 
 | Crate | Binary | Description |
 |-------|--------|-------------|
-| `tempo-cli` | `tempo` | Launcher — dispatches to extension binaries |
 | `tempo-wallet` | `tempo-wallet` | Wallet identity and custody (login, keys, fund) |
 | `tempo-mpp` | `tempo-mpp` | HTTP client with MPP payment (query, sessions, services) |
 | `tempo-common` | — | Shared library (config, keys, network, payment, analytics) |

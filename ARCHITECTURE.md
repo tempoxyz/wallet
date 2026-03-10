@@ -1,18 +1,18 @@
 # Architecture
 
-Tempo CLI is a multi-crate workspace providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, wallet identity management, and a launcher for extension dispatch.
+Tempo CLI is a multi-crate workspace providing a command-line HTTP client with built-in [MPP](https://mpp.dev) payment support, wallet identity management, and a release signing tool. The top-level `tempo` launcher lives in the main tempo repo (`tempo/crates/ext/`).
 
 ## Crate Layering
 
 ```
-tempo-cli (launcher)
-  ├── tempo-wallet (wallet identity/custody)
-  │     └── tempo-common (shared library)
-  └── tempo-mpp (HTTP client + payment)
-        └── tempo-common (shared library)
+tempo-wallet (wallet identity/custody)
+  └── tempo-common (shared library)
+tempo-mpp (HTTP client + payment)
+  └── tempo-common (shared library)
+tempo-sign (release signing, standalone)
 ```
 
-`tempo-common` is the shared foundation. `tempo-wallet` and `tempo-mpp` are independent binaries that both depend on it. `tempo-cli` dispatches to them. `tempo-sign` is a standalone build tool.
+`tempo-common` is the shared foundation. `tempo-wallet` and `tempo-mpp` are independent binaries that both depend on it. `tempo-sign` is a standalone build tool.
 
 ## tempo-common Module Layering
 
