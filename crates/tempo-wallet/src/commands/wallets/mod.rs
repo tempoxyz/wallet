@@ -32,7 +32,12 @@ pub(crate) async fn create(ctx: &Context) -> Result<()> {
     super::whoami::show_whoami(ctx, Some(&fresh_keys), Some(&wallet_addr)).await
 }
 
-pub(crate) async fn fund(ctx: &Context, address: Option<String>, no_wait: bool, dry_run: bool) -> Result<()> {
+pub(crate) async fn fund(
+    ctx: &Context,
+    address: Option<String>,
+    no_wait: bool,
+    dry_run: bool,
+) -> Result<()> {
     let method = match ctx.network {
         NetworkId::TempoModerato => "faucet",
         NetworkId::Tempo => "bridge",

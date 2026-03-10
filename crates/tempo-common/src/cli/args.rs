@@ -252,10 +252,16 @@ fn describe_command(cmd: &clap::Command) -> serde_json::Value {
         let map = entry.as_object_mut().unwrap();
 
         if let Some(short) = arg.get_short() {
-            map.insert("short".into(), serde_json::Value::String(format!("-{short}")));
+            map.insert(
+                "short".into(),
+                serde_json::Value::String(format!("-{short}")),
+            );
         }
         if let Some(long) = arg.get_long() {
-            map.insert("long".into(), serde_json::Value::String(format!("--{long}")));
+            map.insert(
+                "long".into(),
+                serde_json::Value::String(format!("--{long}")),
+            );
         }
         if let Some(help) = arg.get_help() {
             map.insert("help".into(), serde_json::Value::String(help.to_string()));
@@ -283,7 +289,10 @@ fn describe_command(cmd: &clap::Command) -> serde_json::Value {
                 }
             }
         } else {
-            map.insert("type".into(), serde_json::Value::String("positional".into()));
+            map.insert(
+                "type".into(),
+                serde_json::Value::String("positional".into()),
+            );
         }
 
         let possible = arg.get_possible_values();

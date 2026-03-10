@@ -207,7 +207,9 @@ mod tests {
 
     #[test]
     fn validate_hex_input_valid_address() {
-        assert!(validate_hex_input("0xabcdef1234567890abcdef1234567890abcdef12", "address").is_ok());
+        assert!(
+            validate_hex_input("0xabcdef1234567890abcdef1234567890abcdef12", "address").is_ok()
+        );
     }
 
     #[test]
