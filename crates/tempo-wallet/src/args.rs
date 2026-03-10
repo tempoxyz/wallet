@@ -53,14 +53,10 @@ pub(crate) enum Commands {
     Whoami,
     /// Manage keys
     #[command(display_order = 4, name = "keys")]
-    #[command(
-        args_conflicts_with_subcommands = true,
-        subcommand_required = true,
-        arg_required_else_help = true
-    )]
+    #[command(args_conflicts_with_subcommands = true)]
     Keys {
         #[command(subcommand)]
-        command: KeyCommands,
+        command: Option<KeyCommands>,
     },
     /// List configured wallets
     #[command(display_order = 5, name = "list")]
@@ -80,14 +76,10 @@ pub(crate) enum Commands {
     },
     /// Manage payment sessions
     #[command(display_order = 8, name = "sessions")]
-    #[command(
-        args_conflicts_with_subcommands = true,
-        subcommand_required = true,
-        arg_required_else_help = true
-    )]
+    #[command(args_conflicts_with_subcommands = true)]
     Sessions {
         #[command(subcommand)]
-        command: SessionCommands,
+        command: Option<SessionCommands>,
     },
     /// Browse the MPP service directory
     #[command(display_order = 9, name = "services")]
