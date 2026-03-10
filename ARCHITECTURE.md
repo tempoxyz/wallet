@@ -119,7 +119,7 @@ Browser-based WebAuthn wallet created via Tempo's passkey flow (`tempo-wallet/sr
 
 ### Local
 
-Locally generated or imported secp256k1 private key (`tempo-wallet/src/commands/wallets/`). The private key is stored in the OS keychain on macOS (`keys/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
+Locally generated or imported secp256k1 private key (`tempo-wallet/src/commands/wallets/`). The private key is stored in the OS keychain on macOS (`wallets/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
 
 ### Signing Modes
 
