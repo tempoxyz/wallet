@@ -41,6 +41,11 @@ jobs:
             asset: tempo-wallet-linux-amd64
           - package: tempo-wallet
             binary: tempo-wallet
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: tempo-wallet-linux-arm64
+          - package: tempo-wallet
+            binary: tempo-wallet
             os: macos-latest
             target: x86_64-apple-darwin
             asset: tempo-wallet-darwin-amd64
@@ -55,6 +60,11 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             asset: tempo-request-linux-amd64
+          - package: tempo-request
+            binary: tempo-request
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: tempo-request-linux-arm64
           - package: tempo-request
             binary: tempo-request
             os: macos-latest
