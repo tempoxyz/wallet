@@ -2,45 +2,16 @@
 
 use std::process::Output;
 
-use axum::routing::get;
-use axum::{Json, Router};
 use serde_json::Value;
 
 mod common;
-use common::{seed_local_session, test_command, TestConfigBuilder};
-
-fn run_structured(temp: &tempfile::TempDir, flag: &str, args: &[&str]) -> (Output, Value) {
-    let mut cmd = test_command(temp);
-    let all_args: Vec<&str> = std::iter::once(flag).chain(args.iter().copied()).collect();
-    let output = cmd.args(all_args).output().expect("command should run");
-    assert!(output.status.success(), "command failed: {output:?}");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed = if flag == "-j" {
-        serde_json::from_str(stdout.trim()).expect("valid JSON output")
-    } else {
-        toon_format::decode_default(stdout.trim()).expect("valid TOON output")
-    };
-
-    (output, parsed)
-}
+use common::{
+    assert_clean_stderr, assert_json_toon_equivalent, seed_local_session, test_command,
+    MockServicesServer, TestConfigBuilder,
+};
 
 fn run_both(temp: &tempfile::TempDir, args: &[&str]) -> (Output, Value, Output, Value) {
-    let (json_out, json_val) = run_structured(temp, "-j", args);
-    let (toon_out, toon_val) = run_structured(temp, "-t", args);
-    (json_out, json_val, toon_out, toon_val)
-}
-
-fn assert_clean_stderr(output: &Output) {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.trim().is_empty(),
-        "structured mode should not write to stderr: {stderr}"
-    );
-}
-
-fn assert_json_toon_equivalent(json: &Value, toon: &Value) {
-    assert_eq!(json, toon, "JSON and TOON decoded payloads diverged");
+    tempo_test::run_structured_both(test_command, temp, args)
 }
 
 #[test]
@@ -85,47 +56,13 @@ fn sessions_sync_empty_json_and_toon_shape() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn services_json_and_toon_shapes() {
-    let payload = serde_json::json!({
-        "services": [
-            {
-                "id": "openai",
-                "name": "OpenAI",
-                "url": "https://openrouter.mpp.tempo.xyz",
-                "serviceUrl": "https://openrouter.mpp.tempo.xyz/v1/chat/completions",
-                "description": "LLM API",
-                "categories": ["ai"],
-                "methods": {"tempo": {"intents": ["charge"]}}
-            }
-        ]
-    });
-
-    let app = Router::new().route(
-        "/services",
-        get(move || {
-            let p = payload.clone();
-            async move { Json(p) }
-        }),
-    );
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .unwrap();
-    });
+    let mock = MockServicesServer::start().await;
 
     let temp = TestConfigBuilder::new().build();
-    let services_url = format!("http://{addr}/services");
 
     let mut cmd = test_command(&temp);
     let out_json = cmd
-        .env("TEMPO_SERVICES_URL", &services_url)
+        .env("TEMPO_SERVICES_URL", &mock.services_url)
         .args(["-j", "services", "list"])
         .output()
         .unwrap();
@@ -137,7 +74,7 @@ async fn services_json_and_toon_shapes() {
 
     let mut cmd = test_command(&temp);
     let out_toon = cmd
-        .env("TEMPO_SERVICES_URL", &services_url)
+        .env("TEMPO_SERVICES_URL", &mock.services_url)
         .args(["-t", "services", "list"])
         .output()
         .unwrap();
@@ -150,7 +87,7 @@ async fn services_json_and_toon_shapes() {
 
     let mut cmd = test_command(&temp);
     let out_json = cmd
-        .env("TEMPO_SERVICES_URL", &services_url)
+        .env("TEMPO_SERVICES_URL", &mock.services_url)
         .args(["-j", "services", "info", "openai"])
         .output()
         .unwrap();
@@ -162,7 +99,7 @@ async fn services_json_and_toon_shapes() {
 
     let mut cmd = test_command(&temp);
     let out_toon = cmd
-        .env("TEMPO_SERVICES_URL", &services_url)
+        .env("TEMPO_SERVICES_URL", &mock.services_url)
         .args(["-t", "services", "info", "openai"])
         .output()
         .unwrap();
@@ -172,7 +109,100 @@ async fn services_json_and_toon_shapes() {
         toon_format::decode_default(String::from_utf8_lossy(&out_toon.stdout).trim())
             .expect("valid services info toon");
     assert_eq!(toon_info["id"], "openai");
+}
 
-    let _ = shutdown_tx.send(());
-    let _ = server.await;
+#[test]
+fn whoami_json_and_toon_shapes() {
+    let temp = TestConfigBuilder::new().build();
+    let (json_out, json, toon_out, toon) = run_both(&temp, &["whoami"]);
+    assert_clean_stderr(&json_out);
+    assert_clean_stderr(&toon_out);
+    assert_eq!(json["ready"], false);
+    assert_eq!(toon["ready"], false);
+    assert_json_toon_equivalent(&json, &toon);
+}
+
+#[test]
+fn list_empty_json_and_toon_shapes() {
+    let temp = TestConfigBuilder::new().build();
+    let (json_out, json, toon_out, toon) = run_both(&temp, &["list"]);
+    assert_clean_stderr(&json_out);
+    assert_clean_stderr(&toon_out);
+    assert!(json["wallets"].as_array().is_some());
+    assert_eq!(json["total"], 0);
+    assert!(toon["wallets"].as_array().is_some());
+    assert_eq!(toon["total"], 0);
+    assert_json_toon_equivalent(&json, &toon);
+}
+
+#[test]
+fn logout_json_and_toon_shapes() {
+    let temp = TestConfigBuilder::new().build();
+    let (json_out, json, toon_out, toon) = run_both(&temp, &["logout", "--yes"]);
+    assert_clean_stderr(&json_out);
+    assert_clean_stderr(&toon_out);
+    assert_eq!(json["logged_in"], false);
+    assert_eq!(json["disconnected"], false);
+    assert_eq!(toon["logged_in"], false);
+    assert_eq!(toon["disconnected"], false);
+    assert_json_toon_equivalent(&json, &toon);
+}
+
+#[test]
+fn keys_list_empty_json_and_toon_shapes() {
+    let temp = TestConfigBuilder::new().build();
+    let (json_out, json, toon_out, toon) = run_both(&temp, &["keys", "list"]);
+    assert_clean_stderr(&json_out);
+    assert_clean_stderr(&toon_out);
+    assert!(json["keys"].as_array().is_some());
+    assert_eq!(json["total"], 0);
+    assert!(toon["keys"].as_array().is_some());
+    assert_eq!(toon["total"], 0);
+    assert_json_toon_equivalent(&json, &toon);
+}
+
+#[test]
+fn version_json_output() {
+    let temp = TestConfigBuilder::new().build();
+    let out = test_command(&temp)
+        .args(["-j", "--version"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_clean_stderr(&out);
+    let parsed: Value =
+        serde_json::from_str(String::from_utf8_lossy(&out.stdout).trim()).expect("valid json");
+    assert!(parsed["version"].is_string());
+    assert!(parsed["git_commit"].is_string());
+    assert!(parsed["build_date"].is_string());
+    assert!(parsed["profile"].is_string());
+}
+
+#[test]
+fn version_toon_output() {
+    let temp = TestConfigBuilder::new().build();
+    let out = test_command(&temp)
+        .args(["-t", "--version"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_clean_stderr(&out);
+    let parsed: Value = toon_format::decode_default(String::from_utf8_lossy(&out.stdout).trim())
+        .expect("valid toon");
+    assert!(parsed["version"].is_string());
+    assert!(parsed["git_commit"].is_string());
+    assert!(parsed["build_date"].is_string());
+    assert!(parsed["profile"].is_string());
+}
+
+#[test]
+fn describe_outputs_schema() {
+    let temp = TestConfigBuilder::new().build();
+    let out = test_command(&temp).arg("--describe").output().unwrap();
+    assert!(out.status.success());
+    assert_clean_stderr(&out);
+    let parsed: Value =
+        serde_json::from_str(String::from_utf8_lossy(&out.stdout).trim()).expect("valid json");
+    assert!(parsed["name"].is_string());
+    assert!(parsed.get("subcommands").is_some());
 }

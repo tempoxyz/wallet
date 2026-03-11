@@ -76,3 +76,62 @@ impl HttpResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn body_string_valid_utf8() {
+        let resp = HttpResponse::for_test(200, b"hello world");
+        assert_eq!(resp.body_string().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn body_string_invalid_utf8() {
+        let resp = HttpResponse::for_test(200, &[0xff, 0xfe]);
+        assert!(resp.body_string().is_err());
+    }
+
+    #[test]
+    fn header_returns_value_for_matching_key() {
+        let resp = HttpResponse {
+            status_code: 200,
+            headers: vec![("content-type".into(), "application/json".into())],
+            body: Vec::new(),
+            final_url: None,
+        };
+        assert_eq!(resp.header("content-type"), Some("application/json"));
+    }
+
+    #[test]
+    fn header_returns_none_for_missing_key() {
+        let resp = HttpResponse::for_test(200, b"");
+        assert_eq!(resp.header("x-missing"), None);
+    }
+
+    #[test]
+    fn header_returns_last_value_for_duplicates() {
+        let resp = HttpResponse {
+            status_code: 200,
+            headers: vec![
+                ("set-cookie".into(), "a=1".into()),
+                ("set-cookie".into(), "b=2".into()),
+            ],
+            body: Vec::new(),
+            final_url: None,
+        };
+        assert_eq!(resp.header("set-cookie"), Some("b=2"));
+    }
+
+    #[test]
+    fn header_lookup_is_case_sensitive() {
+        let resp = HttpResponse {
+            status_code: 200,
+            headers: vec![("content-type".into(), "text/plain".into())],
+            body: Vec::new(),
+            final_url: None,
+        };
+        assert_eq!(resp.header("Content-Type"), None);
+    }
+}

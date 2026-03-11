@@ -65,6 +65,7 @@ pub async fn close_session_from_record(
     let cumulative_amount: u128 = record.cumulative_amount_u128()?;
 
     // Try cooperative close via the server first
+    let client = reqwest::Client::new();
     match try_server_close(
         record,
         &echo,
@@ -73,6 +74,7 @@ pub async fn close_session_from_record(
         escrow_contract,
         record.chain_id,
         cumulative_amount,
+        &client,
     )
     .await
     {
@@ -163,6 +165,7 @@ pub async fn try_cooperative_close_from_record(
 
     let cumulative_amount: u128 = record.cumulative_amount_u128()?;
 
+    let client = reqwest::Client::new();
     try_server_close(
         record,
         &echo,
@@ -171,6 +174,7 @@ pub async fn try_cooperative_close_from_record(
         escrow_contract,
         record.chain_id,
         cumulative_amount,
+        &client,
     )
     .await
     .map(|_| ())
@@ -179,6 +183,7 @@ pub async fn try_cooperative_close_from_record(
 /// Try cooperative close via the server.
 ///
 /// Returns the settlement transaction URL on success (if available).
+#[allow(clippy::too_many_arguments)]
 async fn try_server_close(
     record: &session_store::SessionRecord,
     echo: &ChallengeEcho,
@@ -187,6 +192,7 @@ async fn try_server_close(
     escrow_contract: Address,
     chain_id: u64,
     cumulative_amount: u128,
+    client: &reqwest::Client,
 ) -> Result<Option<String>> {
     let close_url = if record.request_url.is_empty() {
         &record.origin
@@ -194,10 +200,6 @@ async fn try_server_close(
         &record.request_url
     };
 
-    // Single-shot coop-close with the persisted cumulative (fetch fresh echo first)
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
     let fresh_echo = match client.post(close_url).send().await {
         Ok(resp) if resp.status().as_u16() == 402 => resp
             .headers()
@@ -595,7 +597,11 @@ mod tests {
             .parse()
             .unwrap();
 
-        let _ = try_server_close(&record, &echo, &signer, channel_id, escrow, 4217, 2).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let _ = try_server_close(
+            &record, &echo, &signer, channel_id, escrow, 4217, 2, &client,
+        )
+        .await;
 
         let (prefetch, authorized) = *counters.lock().unwrap();
         assert_eq!(prefetch, 1, "should prefetch fresh echo with 402");

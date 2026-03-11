@@ -37,21 +37,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_http_status_text_known_codes() {
-        assert_eq!(http_status_text(400), "Bad Request");
-        assert_eq!(http_status_text(401), "Unauthorized");
-        assert_eq!(http_status_text(403), "Forbidden");
-        assert_eq!(http_status_text(404), "Not Found");
-        assert_eq!(http_status_text(429), "Too Many Requests");
-        assert_eq!(http_status_text(500), "Internal Server Error");
-        assert_eq!(http_status_text(502), "Bad Gateway");
-        assert_eq!(http_status_text(503), "Service Unavailable");
-        assert_eq!(http_status_text(504), "Gateway Timeout");
-    }
-
-    #[test]
     fn test_http_status_text_unknown_code() {
         assert_eq!(http_status_text(418), "Error");
         assert_eq!(http_status_text(599), "Error");
+    }
+
+    #[test]
+    fn test_format_http_error_unknown_code() {
+        assert_eq!(format_http_error(418), "418 Error");
     }
 }

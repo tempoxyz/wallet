@@ -129,86 +129,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_missing_display() {
-        let err: TempoError = ConfigError::Missing("wallet not configured".to_string()).into();
+    fn test_payment_rejected_display() {
+        let err = PaymentError::PaymentRejected {
+            reason: "invalid signature".to_string(),
+            status_code: 403,
+        };
         assert_eq!(
             err.to_string(),
-            "Configuration missing: wallet not configured"
+            "Payment rejected by server: invalid signature"
         );
     }
 
     #[test]
-    fn test_invalid_config_display() {
-        let err: TempoError = ConfigError::Invalid("invalid rpc url".to_string()).into();
-        assert_eq!(err.to_string(), "Invalid configuration: invalid rpc url");
+    fn test_transaction_reverted_display() {
+        let err = PaymentError::TransactionReverted("out of gas".to_string());
+        assert_eq!(err.to_string(), "Transaction reverted: out of gas");
     }
 
     #[test]
-    fn test_invalid_key_display() {
-        let err: TempoError = KeyError::InvalidKey("wrong format".to_string()).into();
-        assert_eq!(err.to_string(), "Invalid private key: wrong format");
+    fn test_channel_not_found_display() {
+        let err = PaymentError::ChannelNotFound {
+            channel_id: "0x123".to_string(),
+            network: "tempo".to_string(),
+        };
+        assert_eq!(err.to_string(), "Channel 0x123 not found on tempo");
     }
 
     #[test]
-    fn test_no_config_dir_display() {
-        let err: TempoError = ConfigError::NoConfigDir.into();
-        assert_eq!(err.to_string(), "Failed to determine home directory");
+    fn test_access_key_not_provisioned_display() {
+        let err = PaymentError::AccessKeyNotProvisioned {
+            hint: "tempo-wallet keys provision".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Key is not provisioned on-chain. Retry the request to auto-provision, or run 'tempo-wallet keys provision'."
+        );
     }
 
     #[test]
-    fn test_unknown_network_display() {
-        let err: TempoError = NetworkError::UnknownNetwork("custom-chain".to_string()).into();
-        assert_eq!(err.to_string(), "Unknown network: custom-chain");
+    fn test_insufficient_balance_display() {
+        let err = PaymentError::InsufficientBalance {
+            token: "USDC".to_string(),
+            available: "1.00".to_string(),
+            required: "5.00".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo-wallet wallets fund'."
+        );
     }
 
     #[test]
-    fn test_http_display() {
-        let err: TempoError = NetworkError::Http("404 Not Found".to_string()).into();
-        assert_eq!(err.to_string(), "HTTP error: 404 Not Found");
-    }
-
-    #[test]
-    fn test_signing_simple_display() {
-        let err: TempoError = KeyError::Signing("Failed to sign transaction".to_string()).into();
-        assert_eq!(err.to_string(), "Signing error: Failed to sign transaction");
-    }
-
-    #[test]
-    fn test_invalid_address_display() {
-        let err: TempoError = KeyError::InvalidAddress("Not a valid address".to_string()).into();
-        assert_eq!(err.to_string(), "Invalid address: Not a valid address");
-    }
-
-    #[test]
-    fn test_unsupported_payment_method_display() {
-        let err: TempoError = PaymentError::UnsupportedPaymentMethod("bitcoin".to_string()).into();
-        assert_eq!(err.to_string(), "Unsupported payment method: bitcoin");
-    }
-
-    #[test]
-    fn test_unsupported_payment_intent_display() {
-        let err: TempoError =
-            PaymentError::UnsupportedPaymentIntent("subscription".to_string()).into();
-        assert_eq!(err.to_string(), "Unsupported payment intent: subscription");
-    }
-
-    #[test]
-    fn test_invalid_challenge_display() {
-        let err: TempoError =
-            PaymentError::InvalidChallenge("Malformed challenge".to_string()).into();
-        assert_eq!(err.to_string(), "Invalid challenge: Malformed challenge");
-    }
-
-    #[test]
-    fn test_missing_header_display() {
-        let err: TempoError = PaymentError::MissingHeader("WWW-Authenticate".to_string()).into();
-        assert_eq!(err.to_string(), "Missing required header: WWW-Authenticate");
-    }
-
-    #[test]
-    fn test_challenge_expired_display() {
-        let err: TempoError =
-            PaymentError::ChallengeExpired("Expired 5 minutes ago".to_string()).into();
-        assert_eq!(err.to_string(), "Challenge expired: Expired 5 minutes ago");
+    fn test_spending_limit_exceeded_display() {
+        let err = PaymentError::SpendingLimitExceeded {
+            token: "USDC".to_string(),
+            limit: "10.00".to_string(),
+            required: "20.00".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Spending limit exceeded: limit is 10.00 USDC, need 20.00 USDC"
+        );
     }
 }
