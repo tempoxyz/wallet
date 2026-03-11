@@ -63,8 +63,8 @@ fn generate_key_creates_file() {
 
     let content = fs::read_to_string(&key_path).unwrap();
     assert!(
-        content.contains("minisign"),
-        "key file should contain minisign box: {content}"
+        content.contains("secret key"),
+        "key file should contain secret key box: {content}"
     );
 
     // Verify file permissions on unix
@@ -455,7 +455,7 @@ fn sign_with_skill_file_adds_signature() {
     );
     let sig = manifest["skill_signature"].as_str().unwrap();
     assert!(
-        sig.contains("minisign"),
+        sig.contains("untrusted comment:"),
         "skill_signature should be a minisign signature: {sig}"
     );
 }
