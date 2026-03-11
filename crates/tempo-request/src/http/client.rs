@@ -249,7 +249,8 @@ impl HttpClient {
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap()
                                     .subsec_nanos()
-                                    % (jitter as u32)) as u64;
+                                    % (jitter as u32))
+                                    as u64;
                                 delay_ms = delay_ms.saturating_add(rand);
                             }
                         }
