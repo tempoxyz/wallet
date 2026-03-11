@@ -118,8 +118,8 @@ impl Config {
     fn write_default(config_path: &Path, config: &Config) -> Result<(), TempoError> {
         let body = toml::to_string_pretty(config)?;
         let content = format!(
-            "# tempo-wallet configuration\n\
-             # Wallet keys live in keys.toml (set via `tempo-wallet login`)\n\
+            "# Tempo wallet configuration\n\
+             # Wallet keys live in keys.toml (set via `tempo wallet login`)\n\
              # Optional RPC overrides:\n\
              # [rpc]\n\
              # tempo = \"https://...\"\n\

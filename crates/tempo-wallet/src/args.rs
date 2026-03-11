@@ -51,19 +51,9 @@ pub(crate) enum Commands {
     /// Show who you are: wallet, balances, keys
     #[command(display_order = 3)]
     Whoami,
-    /// Manage keys
+    /// List keys and their spending limits
     #[command(display_order = 4, name = "keys")]
-    #[command(args_conflicts_with_subcommands = true)]
-    Keys {
-        #[command(subcommand)]
-        command: Option<KeyCommands>,
-    },
-    /// List configured wallets
-    #[command(display_order = 5, name = "list")]
-    List,
-    /// Create a new local wallet
-    #[command(display_order = 6, name = "create")]
-    Create,
+    Keys,
     /// Fund your wallet (testnet faucet or mainnet bridge)
     #[command(display_order = 7, name = "fund")]
     Fund {
@@ -110,8 +100,8 @@ pub(crate) enum Commands {
     /// header value ready to send.
     ///
     /// The challenge can be passed via --challenge or piped through stdin.
-    #[command(display_order = 10, name = "sign")]
-    Sign {
+    #[command(display_order = 10, name = "mpp-sign")]
+    MppSign {
         /// Pass the WWW-Authenticate challenge value directly
         #[arg(long, value_name = "VALUE")]
         challenge: Option<String>,
@@ -127,26 +117,6 @@ pub(crate) enum Commands {
         /// The shell to generate completions for
         #[arg(value_enum)]
         shell: Option<clap_complete::Shell>,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum KeyCommands {
-    /// List all keys and their spending limits
-    List,
-    /// Create a new key for a local wallet (generates fresh 30-day key)
-    #[command(hide = true)]
-    Create {
-        /// Wallet address to renew key for (required when multiple local wallets exist)
-        #[arg(long)]
-        wallet: Option<String>,
-    },
-    /// Delete keys.toml and reset all local key state
-    #[command(hide = true)]
-    Clean {
-        /// Skip confirmation prompt
-        #[arg(long)]
-        yes: bool,
     },
 }
 

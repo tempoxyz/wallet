@@ -54,8 +54,7 @@ Wallet identity and custody extension, plus session/service management. Source o
   - `logout.rs` - Logout command
   - `whoami.rs` - Whoami command
   - `keys.rs` - Key listing, balance and spending limit queries
-  - `wallets/` - Wallet management (create, list, fund/, keychain.rs)
-    - `fund/` - Fund subcommands (faucet.rs, bridge.rs, relay.rs)
+  - `fund/` - Fund subcommands (faucet.rs, bridge.rs, relay.rs)
   - `sessions/` - Session management (list, info, close, sync, render)
   - `services/` - Service directory (client, model, render)
   - `sign.rs` - Sign MPP payment challenges

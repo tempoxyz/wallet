@@ -1,4 +1,4 @@
-//! Key management commands — listing, cleanup, balance and spending limit queries.
+//! Key management commands — listing, balance and spending limit queries.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -9,96 +9,13 @@ use crate::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits, query_all_balances, KeysResponse, TokenBalance,
 };
-use crate::analytics::KEY_CREATED;
-use crate::args::KeyCommands;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::terminal::{address_link, print_field_w};
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
 
-#[derive(serde::Serialize)]
-struct CleanKeysResponse {
-    cleaned: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-}
-
-pub(crate) async fn run(ctx: &Context, command: KeyCommands) -> Result<()> {
-    match command {
-        KeyCommands::List => list_keys(ctx).await,
-        KeyCommands::Create { wallet } => {
-            super::wallets::create_access_key(wallet.as_deref(), &ctx.keys)?;
-            ctx.track_event(KEY_CREATED);
-            let fresh_keys = ctx.keys.reload()?;
-            super::whoami::show_whoami(ctx, Some(&fresh_keys), None).await
-        }
-        KeyCommands::Clean { yes } => clean_keys(ctx, yes),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-fn clean_keys(ctx: &Context, yes: bool) -> Result<()> {
-    let path = Keystore::keys_path()?;
-    let path_str = path.display().to_string();
-
-    if !path.exists() {
-        output::emit_by_format(
-            ctx.output_format,
-            &CleanKeysResponse {
-                cleaned: false,
-                path: Some(path_str),
-                message: Some("nothing to clean".to_string()),
-            },
-            || {
-                eprintln!("Nothing to clean (no keys.toml found).");
-                Ok(())
-            },
-        )?;
-        return Ok(());
-    }
-
-    if !crate::prompt::confirm(
-        &format!("Delete all local key state at {}?", path.display()),
-        yes,
-    )? {
-        output::emit_by_format(
-            ctx.output_format,
-            &CleanKeysResponse {
-                cleaned: false,
-                path: Some(path_str),
-                message: Some("cancelled".to_string()),
-            },
-            || {
-                println!("Cancelled.");
-                Ok(())
-            },
-        )?;
-        return Ok(());
-    }
-
-    std::fs::remove_file(&path)?;
-    output::emit_by_format(
-        ctx.output_format,
-        &CleanKeysResponse {
-            cleaned: true,
-            path: Some(path_str),
-            message: Some("removed".to_string()),
-        },
-        || {
-            eprintln!("Removed {}", path.display());
-            Ok(())
-        },
-    )?;
-    Ok(())
-}
-
-async fn list_keys(ctx: &Context) -> Result<()> {
+pub(crate) async fn run(ctx: &Context) -> Result<()> {
     let config = &ctx.config;
     let network = ctx.network;
     let keystore = &ctx.keys;

@@ -40,13 +40,11 @@ pub enum InputError {
 pub enum KeyError {
     #[error("Invalid private key: {0}")]
     InvalidKey(String),
-    #[error("Keychain error: {0}")]
-    Keychain(String),
     #[error("Signing error: {0}")]
     Signing(String),
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
-    #[error("Login expired. Use tempo-wallet login to try again.")]
+    #[error("Login expired. Use `tempo wallet login` to try again.")]
     LoginExpired,
 }
 
@@ -72,7 +70,7 @@ pub enum PaymentError {
         limit: String,
         required: String,
     },
-    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo-wallet wallets fund'.")]
+    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo wallet fund'.")]
     InsufficientBalance {
         token: String,
         available: String,
@@ -158,11 +156,11 @@ mod tests {
     #[test]
     fn test_access_key_not_provisioned_display() {
         let err = PaymentError::AccessKeyNotProvisioned {
-            hint: "tempo-wallet keys provision".to_string(),
+            hint: "tempo wallet login".to_string(),
         };
         assert_eq!(
             err.to_string(),
-            "Key is not provisioned on-chain. Retry the request to auto-provision, or run 'tempo-wallet keys provision'."
+            "Key is not provisioned on-chain. Retry the request to auto-provision, or run 'tempo wallet login'."
         );
     }
 
@@ -175,7 +173,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo-wallet wallets fund'."
+            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo wallet fund'."
         );
     }
 
