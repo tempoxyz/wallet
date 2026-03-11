@@ -147,7 +147,7 @@ impl StatusResponse {
             let explorer = self.chain_id.and_then(NetworkId::from_chain_id);
 
             if self.wallet.is_none() && self.key.is_none() {
-                writeln!(w, "Not logged in. Run `tempo-wallet login` to get started.")?;
+                writeln!(w, "Not logged in. Run `tempo wallet login` to get started.")?;
                 return Ok(());
             }
 

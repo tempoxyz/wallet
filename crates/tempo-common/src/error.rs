@@ -44,7 +44,7 @@ pub enum KeyError {
     Signing(String),
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
-    #[error("Login expired. Use tempo-wallet login to try again.")]
+    #[error("Login expired. Use `tempo wallet login` to try again.")]
     LoginExpired,
 }
 

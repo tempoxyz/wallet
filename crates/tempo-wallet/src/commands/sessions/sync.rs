@@ -138,7 +138,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             || {
                 println!("No local session for {origin_input}");
                 println!(
-                    "Use 'tempo-wallet sessions list --state orphaned' to view on-chain channels and 'tempo-wallet sessions close --orphaned' to close them."
+                    "Use 'tempo wallet sessions list --state orphaned' to view on-chain channels and 'tempo wallet sessions close --orphaned' to close them."
                 );
                 Ok(())
             },

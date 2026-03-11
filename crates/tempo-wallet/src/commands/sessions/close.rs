@@ -330,7 +330,7 @@ async fn close_orphaned_into_summary(
 async fn close_orphaned_channels(ctx: &Context) -> Result<()> {
     if !ctx.keys.has_wallet() {
         anyhow::bail!(ConfigError::Missing(
-            "No wallet configured. Log in with 'tempo-wallet login'.".to_string()
+            "No wallet configured. Log in with 'tempo wallet login'.".to_string()
         ));
     }
 

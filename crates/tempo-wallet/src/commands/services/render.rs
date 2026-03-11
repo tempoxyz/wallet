@@ -217,8 +217,8 @@ fn render_detail(s: &Service) {
             let full_url = format!("{}{}", base_url.trim_end_matches('/'), ep.path);
             let safe_url = sanitize_for_terminal(&full_url);
             let example = match ep.method.to_uppercase().as_str() {
-                "GET" => format!("tempo-wallet {safe_url}"),
-                m => format!("tempo-wallet -X {m} --json '{{}}' {safe_url}"),
+                "GET" => format!("tempo request {safe_url}"),
+                m => format!("tempo request -X {m} --json '{{}}' {safe_url}"),
             };
             println!("         example: {example}");
 

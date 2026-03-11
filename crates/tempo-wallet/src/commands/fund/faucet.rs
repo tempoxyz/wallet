@@ -100,7 +100,7 @@ async fn wait_for_balance(
         None => {
             if ctx.output_format == OutputFormat::Text {
                 eprintln!(
-                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo-wallet whoami' to check later."
+                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo wallet whoami' to check later."
                 );
             }
             Some(query_all_balances(&ctx.config, ctx.network, address).await)

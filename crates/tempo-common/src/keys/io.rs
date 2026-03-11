@@ -72,7 +72,7 @@ impl Keystore {
         let path = Self::keys_path()?;
         let body = toml::to_string_pretty(self)?;
         let contents = format!(
-            "# tempo-wallet wallet keys — managed by `tempo-wallet`\n\
+            "# Tempo wallet keys — managed by `tempo wallet`\n\
              # Do not edit manually.\n\n\
              {body}"
         );
