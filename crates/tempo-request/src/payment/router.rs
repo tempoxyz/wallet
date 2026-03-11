@@ -35,6 +35,7 @@ pub(crate) struct PaymentResult {
 /// `network` is the already-resolved network from the 402 challenge.
 /// The caller is responsible for parsing the challenge and extracting
 /// the network before calling this function (see `query/payment_challenge.rs`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_payment(
     config: &Config,
     http: &HttpClient,
