@@ -299,6 +299,61 @@ mod tests {
     }
 
     #[test]
+    fn test_rpc_url_invalid_override_falls_back_to_default() {
+        let config = Config::builder().rpc(NetworkId::Tempo, "not-a-url").build();
+
+        let url = config.rpc_url(NetworkId::Tempo);
+        let default_url: url::Url = NetworkId::Tempo
+            .default_rpc_url()
+            .parse()
+            .expect("default is valid");
+        assert_eq!(url, default_url);
+    }
+
+    #[test]
+    fn test_rpc_url_with_general_rpc_entry() {
+        let custom = "https://my-custom-rpc.example.com";
+        let config = Config::builder()
+            .rpc(NetworkId::TempoModerato, custom)
+            .build();
+
+        let url = config.rpc_url(NetworkId::TempoModerato);
+        assert_eq!(url.as_str(), "https://my-custom-rpc.example.com/");
+    }
+
+    #[test]
+    fn test_config_save_creates_file_and_reloads() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("subdir").join("config.toml");
+
+        let config = Config::builder()
+            .rpc(NetworkId::Tempo, "https://saved-rpc.example.com")
+            .build();
+
+        Config::write_default(&path, &config).expect("write_default");
+        assert!(path.exists(), "config file should exist after save");
+
+        let loaded = Config::load(Some(&path), None).expect("load");
+        assert_eq!(
+            loaded.rpc.get(&NetworkId::Tempo).unwrap(),
+            "https://saved-rpc.example.com"
+        );
+    }
+
+    #[test]
+    fn test_config_default_has_empty_rpc() {
+        let config = Config::default();
+        assert!(config.rpc.is_empty());
+    }
+
+    #[test]
+    fn test_load_rejects_path_traversal() {
+        let result = Config::load(Some("../../../etc/passwd"), None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("path traversal"));
+    }
+
+    #[test]
     fn test_parse_rpc_from_toml() {
         let toml = r#"
             [rpc]

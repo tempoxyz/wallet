@@ -86,7 +86,7 @@ fn quote_toon_ambiguous_hex_literals(input: &str) -> String {
             && i + 2 < chars.len()
             && chars[i + 1] == 'x'
             && chars[i + 2].is_ascii_hexdigit()
-            && is_left_boundary((i > 0).then_some(chars[i - 1]))
+            && is_left_boundary(if i > 0 { Some(chars[i - 1]) } else { None })
         {
             let mut end = i + 2;
             while end < chars.len() && chars[end].is_ascii_hexdigit() {
@@ -189,5 +189,143 @@ pub(crate) fn emit_formatted_or_fallback(
     match formatter() {
         Ok(output) => println!("{output}"),
         Err(_) => println!("{}", fallback()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── quote_toon_ambiguous_hex_literals ───────────────────────────────
+
+    #[test]
+    fn hex_at_string_start_gets_quoted() {
+        assert_eq!(
+            quote_toon_ambiguous_hex_literals("0xabc123"),
+            "\"0xabc123\""
+        );
+    }
+
+    #[test]
+    fn hex_after_space_gets_quoted() {
+        assert_eq!(
+            quote_toon_ambiguous_hex_literals("key: 0xabc123"),
+            "key: \"0xabc123\""
+        );
+    }
+
+    #[test]
+    fn hex_at_various_left_boundaries() {
+        // comma
+        assert_eq!(quote_toon_ambiguous_hex_literals(",0xabc"), ",\"0xabc\"");
+        // pipe
+        assert_eq!(quote_toon_ambiguous_hex_literals("|0xabc"), "|\"0xabc\"");
+        // bracket
+        assert_eq!(quote_toon_ambiguous_hex_literals("[0xabc]"), "[\"0xabc\"]");
+        // brace
+        assert_eq!(quote_toon_ambiguous_hex_literals("{0xabc}"), "{\"0xabc\"}");
+        // tab
+        assert_eq!(quote_toon_ambiguous_hex_literals("\t0xabc"), "\t\"0xabc\"");
+        // newline
+        assert_eq!(quote_toon_ambiguous_hex_literals("\n0xabc"), "\n\"0xabc\"");
+    }
+
+    #[test]
+    fn hex_already_quoted_is_unchanged() {
+        let input = r#""0xabc""#;
+        assert_eq!(quote_toon_ambiguous_hex_literals(input), input);
+    }
+
+    #[test]
+    fn non_boundary_hex_is_unchanged() {
+        assert_eq!(quote_toon_ambiguous_hex_literals("foo0xabc"), "foo0xabc");
+    }
+
+    #[test]
+    fn multiple_hex_values_all_quoted() {
+        assert_eq!(
+            quote_toon_ambiguous_hex_literals("0xabc 0xdef"),
+            "\"0xabc\" \"0xdef\""
+        );
+    }
+
+    #[test]
+    fn no_hex_values_unchanged() {
+        let input = "hello world, nothing special";
+        assert_eq!(quote_toon_ambiguous_hex_literals(input), input);
+    }
+
+    #[test]
+    fn bare_0x_without_hex_digits_not_quoted() {
+        assert_eq!(
+            quote_toon_ambiguous_hex_literals("0x not hex"),
+            "0x not hex"
+        );
+    }
+
+    #[test]
+    fn right_boundary_chars_detected() {
+        assert_eq!(quote_toon_ambiguous_hex_literals("0xabc]"), "\"0xabc\"]");
+        assert_eq!(quote_toon_ambiguous_hex_literals("0xabc}"), "\"0xabc\"}");
+        assert_eq!(quote_toon_ambiguous_hex_literals("0xabc,"), "\"0xabc\",");
+        assert_eq!(quote_toon_ambiguous_hex_literals("0xabc\n"), "\"0xabc\"\n");
+    }
+
+    #[test]
+    fn escaped_quotes_do_not_toggle_state() {
+        // An escaped quote inside a quoted region should not close the
+        // quoted section, so the trailing 0xabc stays inside quotes and
+        // is left alone.
+        let input = r#""hello \" 0xabc""#;
+        let result = quote_toon_ambiguous_hex_literals(input);
+        // 0xabc is still inside the quoted region, so it must not be double-quoted.
+        assert_eq!(result, input);
+    }
+
+    // ── OutputFormat::is_structured ────────────────────────────────────
+
+    #[test]
+    fn text_is_not_structured() {
+        assert!(!OutputFormat::Text.is_structured());
+    }
+
+    #[test]
+    fn json_is_structured() {
+        assert!(OutputFormat::Json.is_structured());
+    }
+
+    #[test]
+    fn toon_is_structured() {
+        assert!(OutputFormat::Toon.is_structured());
+    }
+
+    // ── OutputFormat::serialize ────────────────────────────────────────
+
+    #[test]
+    fn json_serialize_compact() {
+        #[derive(Serialize)]
+        struct Sample {
+            name: String,
+            count: u32,
+        }
+
+        let val = Sample {
+            name: "test".into(),
+            count: 42,
+        };
+        let out = OutputFormat::Json.serialize(&val).unwrap();
+        assert_eq!(out, r#"{"name":"test","count":42}"#);
+    }
+
+    #[test]
+    fn toon_serialize_quotes_hex() {
+        let val = serde_json::json!({
+            "address": "0xdeadbeef"
+        });
+        let out = OutputFormat::Toon.serialize(&val).unwrap();
+        assert!(
+            out.contains("\"0xdeadbeef\""),
+            "hex should be quoted in TOON output, got: {out}"
+        );
     }
 }

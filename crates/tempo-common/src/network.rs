@@ -284,4 +284,90 @@ mod tests {
         assert!("TEMPO".parse::<NetworkId>().is_ok());
         assert!("TEMPO-MODERATO".parse::<NetworkId>().is_ok());
     }
+
+    #[test]
+    fn test_resolve_defaults_to_tempo() {
+        assert_eq!(NetworkId::resolve(None).unwrap(), NetworkId::Tempo);
+    }
+
+    #[test]
+    fn test_resolve_known_networks() {
+        assert_eq!(NetworkId::resolve(Some("tempo")).unwrap(), NetworkId::Tempo);
+        assert_eq!(
+            NetworkId::resolve(Some("tempo-moderato")).unwrap(),
+            NetworkId::TempoModerato
+        );
+    }
+
+    #[test]
+    fn test_resolve_unknown_network() {
+        assert!(NetworkId::resolve(Some("unknown")).is_err());
+    }
+
+    #[test]
+    fn test_resolve_case_insensitive() {
+        assert_eq!(NetworkId::resolve(Some("TEMPO")).unwrap(), NetworkId::Tempo);
+    }
+
+    #[test]
+    fn test_require_chain_id_known() {
+        assert_eq!(NetworkId::require_chain_id(4217).unwrap(), NetworkId::Tempo);
+        assert_eq!(
+            NetworkId::require_chain_id(42431).unwrap(),
+            NetworkId::TempoModerato
+        );
+    }
+
+    #[test]
+    fn test_require_chain_id_unknown() {
+        assert!(NetworkId::require_chain_id(9999).is_err());
+    }
+
+    #[test]
+    fn test_escrow_contract_addresses() {
+        let tempo = NetworkId::Tempo.escrow_contract();
+        let moderato = NetworkId::TempoModerato.escrow_contract();
+        assert!(tempo.starts_with("0x"));
+        assert!(moderato.starts_with("0x"));
+        assert_ne!(tempo, moderato);
+    }
+
+    #[test]
+    fn test_default_rpc_url() {
+        assert!(NetworkId::Tempo.default_rpc_url().starts_with("https://"));
+        assert!(NetworkId::TempoModerato
+            .default_rpc_url()
+            .starts_with("https://"));
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let json = serde_json::to_string(&NetworkId::Tempo).unwrap();
+        assert_eq!(json, "\"tempo\"");
+        let back: NetworkId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, NetworkId::Tempo);
+
+        let json = serde_json::to_string(&NetworkId::TempoModerato).unwrap();
+        assert_eq!(json, "\"tempo-moderato\"");
+        let back: NetworkId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, NetworkId::TempoModerato);
+    }
+
+    #[test]
+    fn test_auth_url() {
+        assert!(NetworkId::Tempo.auth_url().contains("wallet.tempo.xyz"));
+        assert!(NetworkId::TempoModerato
+            .auth_url()
+            .contains("wallet.moderato.tempo.xyz"));
+    }
+
+    #[test]
+    fn test_moderato_explorer_urls() {
+        assert!(NetworkId::TempoModerato
+            .tx_url("0xdef456")
+            .contains("explore.moderato.tempo.xyz"));
+        assert!(NetworkId::TempoModerato
+            .address_url("0x999aaa")
+            .contains("explore.moderato.tempo.xyz"));
+    }
 }

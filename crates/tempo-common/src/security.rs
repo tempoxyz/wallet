@@ -291,4 +291,12 @@ mod tests {
     fn validate_hex_input_rejects_empty_hex() {
         assert!(validate_hex_input("0x", "address").is_err());
     }
+
+    #[test]
+    fn test_redact_url_strips_fragment() {
+        assert_eq!(
+            redact_url("https://api.example.com/v1#section"),
+            "https://api.example.com/v1"
+        );
+    }
 }

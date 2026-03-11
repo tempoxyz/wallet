@@ -173,11 +173,14 @@ mod tests {
     }
 
     #[test]
-    fn test_hyperlink_format() {
-        let url = "https://etherscan.io/tx/0x123";
-        let text = "View transaction";
-        let expected = "\x1b]8;;https://etherscan.io/tx/0x123\x07View transaction\x1b]8;;\x07";
-        assert_eq!(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text), expected);
+    fn test_hyperlink_plain_text_when_unsupported() {
+        // When hyperlinks are not supported (typical in test/CI), hyperlink()
+        // returns just the sanitized text.
+        let result = hyperlink("View tx", "https://etherscan.io/tx/0x123");
+        assert!(
+            result.contains("View tx"),
+            "output should contain the display text, got: {result:?}"
+        );
     }
 
     #[test]

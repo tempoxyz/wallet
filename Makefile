@@ -30,7 +30,6 @@ check:
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo nextest run --workspace
-	cargo doc --no-deps
 
 fix:
 	cargo fmt

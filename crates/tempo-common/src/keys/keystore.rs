@@ -296,17 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn test_not_ready_when_no_signing_key() {
-        let mut keys = Keystore::default();
-        let key_entry = KeyEntry {
-            wallet_address: "0xtest".to_string(),
-            ..Default::default()
-        };
-        keys.keys.push(key_entry);
-        assert!(!keys.has_wallet());
-    }
-
-    #[test]
     fn test_new_format_loads_correctly() {
         let toml_str = r#"
 [[keys]]

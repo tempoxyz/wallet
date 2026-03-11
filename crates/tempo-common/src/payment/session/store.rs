@@ -694,4 +694,135 @@ mod tests {
         assert_eq!(status, SessionStatus::Orphaned);
         assert!(rem.is_none());
     }
+
+    // -- network_id --
+
+    #[test]
+    fn test_network_id_tempo() {
+        let record = test_record("https://example.com", "salt");
+        assert_eq!(record.chain_id, 4217);
+        assert_eq!(record.network_id(), NetworkId::Tempo);
+    }
+
+    #[test]
+    fn test_network_id_moderato() {
+        let mut record = test_record("https://example.com", "salt");
+        record.chain_id = 42431;
+        assert_eq!(record.network_id(), NetworkId::TempoModerato);
+    }
+
+    // -- parse helpers --
+
+    #[test]
+    fn test_cumulative_amount_u128_valid() {
+        let mut record = test_record("https://example.com", "salt");
+        record.cumulative_amount = "1000".into();
+        assert_eq!(record.cumulative_amount_u128().unwrap(), 1000u128);
+    }
+
+    #[test]
+    fn test_cumulative_amount_u128_invalid() {
+        let mut record = test_record("https://example.com", "salt");
+        record.cumulative_amount = "abc".into();
+        assert!(record.cumulative_amount_u128().is_err());
+    }
+
+    #[test]
+    fn test_deposit_u128_valid() {
+        let mut record = test_record("https://example.com", "salt");
+        record.deposit = "5000000".into();
+        assert_eq!(record.deposit_u128().unwrap(), 5000000u128);
+    }
+
+    #[test]
+    fn test_deposit_u128_invalid() {
+        let mut record = test_record("https://example.com", "salt");
+        record.deposit = "".into();
+        assert!(record.deposit_u128().is_err());
+    }
+
+    #[test]
+    fn test_channel_id_b256_valid() {
+        let mut record = test_record("https://example.com", "salt");
+        record.channel_id =
+            "0x0000000000000000000000000000000000000000000000000000000000000001".into();
+        let b = record.channel_id_b256().unwrap();
+        assert_eq!(
+            b,
+            alloy::primitives::B256::from(alloy::primitives::U256::from(1))
+        );
+    }
+
+    #[test]
+    fn test_channel_id_b256_invalid() {
+        let mut record = test_record("https://example.com", "salt");
+        record.channel_id = "not_hex".into();
+        assert!(record.channel_id_b256().is_err());
+    }
+
+    // -- update close state via direct SQL --
+
+    #[test]
+    fn test_update_session_close_state_by_channel_id() {
+        let (_tmp, conn) = test_db();
+        let mut record = test_record("https://example.com", "salt");
+        record.channel_id = "0xabc123".to_string();
+        save_session_conn(&conn, &record).unwrap();
+
+        // Replicate the SQL from update_session_close_state_by_channel_id
+        let channel_id = "0xABC123".to_lowercase();
+        conn.execute(
+            "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
+            params![SessionStatus::Closing.as_str(), 1000i64, 2000i64, channel_id],
+        )
+        .unwrap();
+
+        let key = session_key("https://example.com");
+        let loaded = load_session_conn(&conn, &key).unwrap().unwrap();
+        assert_eq!(loaded.state, SessionStatus::Closing);
+        assert_eq!(loaded.close_requested_at, 1000);
+        assert_eq!(loaded.grace_ready_at, 2000);
+    }
+
+    // -- SessionStatus as_str / from_db_str round-trip --
+
+    #[test]
+    fn test_session_status_round_trip() {
+        let variants = [
+            SessionStatus::Active,
+            SessionStatus::Closing,
+            SessionStatus::Finalizable,
+            SessionStatus::Finalized,
+            SessionStatus::Orphaned,
+        ];
+        for variant in variants {
+            let s = variant.as_str();
+            let parsed = SessionStatus::from_db_str(s);
+            assert_eq!(parsed, variant, "round-trip failed for {s}");
+        }
+    }
+
+    #[test]
+    fn test_session_status_unknown_defaults_to_active() {
+        assert_eq!(SessionStatus::from_db_str("garbage"), SessionStatus::Active);
+        assert_eq!(SessionStatus::from_db_str(""), SessionStatus::Active);
+    }
+
+    // -- session_key edge cases --
+
+    #[test]
+    fn test_session_key_trailing_slash() {
+        assert_eq!(
+            session_key("https://example.com/"),
+            session_key("https://example.com")
+        );
+    }
+
+    #[test]
+    fn test_session_key_query_params_stripped() {
+        assert_eq!(
+            session_key("https://example.com/path?foo=bar"),
+            session_key("https://example.com/other")
+        );
+    }
 }

@@ -106,4 +106,35 @@ mod tests {
         assert_eq!(ExitCode::NetworkError.code(), 3);
         assert_eq!(ExitCode::PaymentFailed.code(), 4);
     }
+
+    #[test]
+    fn from_anyhow_walks_chain_to_find_tempo_error() {
+        use crate::error::{NetworkError, TempoError};
+        // Wrap a TempoError in an anyhow chain
+        let inner: TempoError = NetworkError::Http("timeout".to_string()).into();
+        let outer: anyhow::Error = anyhow::anyhow!(inner).context("request failed");
+        assert_eq!(ExitCode::from(&outer), ExitCode::NetworkError);
+    }
+
+    #[test]
+    fn from_anyhow_unknown_error_is_general() {
+        let err: anyhow::Error = anyhow::anyhow!("something unexpected");
+        assert_eq!(ExitCode::from(&err), ExitCode::GeneralError);
+    }
+
+    #[test]
+    fn from_tempo_error_key_variants() {
+        use crate::error::{KeyError, TempoError};
+        // Keychain errors → GeneralError (not user's fault)
+        let err: TempoError = KeyError::Keychain("access denied".to_string()).into();
+        assert_eq!(ExitCode::from(&err), ExitCode::GeneralError);
+
+        // LoginExpired → GeneralError
+        let err: TempoError = KeyError::LoginExpired.into();
+        assert_eq!(ExitCode::from(&err), ExitCode::GeneralError);
+
+        // InvalidKey → InvalidUsage (user provided bad input)
+        let err: TempoError = KeyError::InvalidKey("bad".to_string()).into();
+        assert_eq!(ExitCode::from(&err), ExitCode::InvalidUsage);
+    }
 }

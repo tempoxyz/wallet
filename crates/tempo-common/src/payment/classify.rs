@@ -204,4 +204,133 @@ mod tests {
             other => panic!("Expected Http passthrough, got: {other}"),
         }
     }
+
+    #[test]
+    fn test_classify_transaction_reverted() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::TransactionReverted(
+            "execution reverted".to_string(),
+        ));
+        assert!(matches!(
+            classify_payment_error(err, &NetworkId::Tempo),
+            TempoError::Payment(PaymentError::TransactionReverted(msg)) if msg == "execution reverted"
+        ));
+    }
+
+    #[test]
+    fn test_classify_non_tempo_mpp_error_strips_prefix() {
+        // MppError::Http("x").to_string() → "HTTP error: x"
+        // classify_payment_error strips the "HTTP error: " prefix
+        let err = mpp::MppError::Http("503 Service Unavailable".to_string());
+        match classify_payment_error(err, &NetworkId::Tempo) {
+            TempoError::Network(NetworkError::Http(msg)) => {
+                assert_eq!(msg, "503 Service Unavailable")
+            }
+            other => panic!("Expected Http with stripped prefix, got: {other}"),
+        }
+    }
+
+    // --- extract_json_error tests ---
+
+    #[test]
+    fn test_extract_json_error_error_field() {
+        let body = r#"{"error": "something went wrong"}"#;
+        assert_eq!(
+            extract_json_error(body),
+            Some("something went wrong".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_json_error_message_field() {
+        let body = r#"{"message": "bad request"}"#;
+        assert_eq!(extract_json_error(body), Some("bad request".to_string()));
+    }
+
+    #[test]
+    fn test_extract_json_error_detail_field() {
+        let body = r#"{"detail": "not found"}"#;
+        assert_eq!(extract_json_error(body), Some("not found".to_string()));
+    }
+
+    #[test]
+    fn test_extract_json_error_error_takes_precedence() {
+        let body = r#"{"error": "the error", "message": "the message"}"#;
+        assert_eq!(extract_json_error(body), Some("the error".to_string()));
+    }
+
+    #[test]
+    fn test_extract_json_error_no_known_fields() {
+        let body = r#"{"status": 500, "code": "INTERNAL"}"#;
+        assert_eq!(extract_json_error(body), None);
+    }
+
+    #[test]
+    fn test_extract_json_error_invalid_json() {
+        assert_eq!(extract_json_error("not json at all"), None);
+    }
+
+    #[test]
+    fn test_extract_json_error_empty_string() {
+        assert_eq!(extract_json_error(""), None);
+    }
+
+    #[test]
+    fn test_extract_json_error_non_string_field() {
+        let body = r#"{"error": 42}"#;
+        assert_eq!(extract_json_error(body), None);
+    }
+
+    // --- map_mpp_validation_error tests ---
+
+    fn make_test_challenge() -> mpp::PaymentChallenge {
+        let request = mpp::Base64UrlJson::from_value(
+            &serde_json::json!({"amount": "1000", "currency": "USDC"}),
+        )
+        .unwrap();
+        mpp::PaymentChallenge::new("test-id", "test-realm", "tempo", "charge", request)
+    }
+
+    #[test]
+    fn test_map_unsupported_payment_method() {
+        let challenge = make_test_challenge();
+        let err = mpp::MppError::UnsupportedPaymentMethod("bitcoin".to_string());
+        assert!(matches!(
+            map_mpp_validation_error(err, &challenge),
+            PaymentError::UnsupportedPaymentMethod(m) if m == "bitcoin"
+        ));
+    }
+
+    #[test]
+    fn test_map_payment_expired() {
+        let mut challenge = make_test_challenge();
+        challenge.expires = Some("2025-01-01T00:00:00Z".to_string());
+        let err = mpp::MppError::PaymentExpired(None);
+        assert!(matches!(
+            map_mpp_validation_error(err, &challenge),
+            PaymentError::ChallengeExpired(exp) if exp == "2025-01-01T00:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn test_map_invalid_challenge() {
+        let challenge = make_test_challenge();
+        let err = mpp::MppError::InvalidChallenge {
+            id: None,
+            reason: Some("bad intent".to_string()),
+        };
+        assert!(matches!(
+            map_mpp_validation_error(err, &challenge),
+            PaymentError::UnsupportedPaymentIntent(r) if r == "bad intent"
+        ));
+    }
+
+    #[test]
+    fn test_map_other_error_to_invalid_challenge() {
+        let challenge = make_test_challenge();
+        let err = mpp::MppError::InvalidAmount("not a number".to_string());
+        assert!(matches!(
+            map_mpp_validation_error(err, &challenge),
+            PaymentError::InvalidChallenge(msg) if msg.contains("not a number")
+        ));
+    }
 }
