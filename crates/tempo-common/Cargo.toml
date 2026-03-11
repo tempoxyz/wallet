@@ -38,9 +38,6 @@ tracing-subscriber.workspace = true
 url.workspace = true
 zeroize.workspace = true
 
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework.workspace = true
-
 [dev-dependencies]
 axum.workspace = true
 serial_test.workspace = true

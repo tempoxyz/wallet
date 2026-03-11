@@ -123,19 +123,6 @@ fn whoami_json_and_toon_shapes() {
 }
 
 #[test]
-fn list_empty_json_and_toon_shapes() {
-    let temp = TestConfigBuilder::new().build();
-    let (json_out, json, toon_out, toon) = run_both(&temp, &["list"]);
-    assert_clean_stderr(&json_out);
-    assert_clean_stderr(&toon_out);
-    assert!(json["wallets"].as_array().is_some());
-    assert_eq!(json["total"], 0);
-    assert!(toon["wallets"].as_array().is_some());
-    assert_eq!(toon["total"], 0);
-    assert_json_toon_equivalent(&json, &toon);
-}
-
-#[test]
 fn logout_json_and_toon_shapes() {
     let temp = TestConfigBuilder::new().build();
     let (json_out, json, toon_out, toon) = run_both(&temp, &["logout", "--yes"]);
@@ -149,9 +136,9 @@ fn logout_json_and_toon_shapes() {
 }
 
 #[test]
-fn keys_list_empty_json_and_toon_shapes() {
+fn keys_empty_json_and_toon_shapes() {
     let temp = TestConfigBuilder::new().build();
-    let (json_out, json, toon_out, toon) = run_both(&temp, &["keys", "list"]);
+    let (json_out, json, toon_out, toon) = run_both(&temp, &["keys"]);
     assert_clean_stderr(&json_out);
     assert_clean_stderr(&toon_out);
     assert!(json["keys"].as_array().is_some());

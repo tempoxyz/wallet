@@ -74,96 +74,6 @@ fn whoami_with_wallet_toon_shape() {
     );
 }
 
-// ==================== list ====================
-
-#[test]
-fn list_empty_shows_no_wallets() {
-    let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp).arg("list").output().unwrap();
-
-    assert!(output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("No wallets") || combined.contains("0 wallet"),
-        "should mention no wallets: {combined}"
-    );
-}
-
-#[test]
-fn list_empty_json_shape() {
-    let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp).args(["-j", "list"]).output().unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert!(parsed["wallets"].is_array());
-    assert_eq!(parsed["total"], 0);
-}
-
-#[test]
-fn list_with_wallet_json_shape() {
-    let temp = TestConfigBuilder::new()
-        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
-        .build();
-
-    let output = test_command(&temp).args(["-j", "list"]).output().unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert!(parsed["wallets"].is_array());
-    assert!(parsed["total"].as_u64().unwrap() >= 1);
-    let wallet = &parsed["wallets"][0];
-    assert!(wallet["address"].is_string());
-    assert!(wallet["wallet_type"].is_string());
-}
-
-#[test]
-fn list_with_wallet_toon_shape() {
-    let temp = TestConfigBuilder::new()
-        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
-        .build();
-
-    let output = test_command(&temp).args(["-t", "list"]).output().unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = toon_format::decode_default(stdout.trim()).unwrap();
-    assert!(parsed["wallets"].is_array());
-    assert!(parsed["total"].as_u64().unwrap() >= 1);
-}
-
-// ==================== create ====================
-
-/// `create` requires OS keychain access (macOS Keychain / Linux secret-service),
-/// which is only available in interactive sessions. This test verifies the
-/// command is wired correctly by checking it produces an actionable error
-/// when keychain access fails, or succeeds when it's available.
-#[test]
-fn create_runs_without_panic() {
-    let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp).arg("create").output().unwrap();
-
-    let combined = get_combined_output(&output);
-    if output.status.success() {
-        // Keychain was accessible — verify keys.toml was created
-        let keys_path = temp.path().join(".tempo/wallet/keys.toml");
-        assert!(keys_path.exists(), "keys.toml should be created");
-        let keys_content = std::fs::read_to_string(&keys_path).unwrap();
-        assert!(
-            keys_content.contains("wallet_address"),
-            "keys.toml should contain wallet_address: {keys_content}"
-        );
-    } else {
-        // Keychain not accessible — should produce a clear error, not a panic
-        assert!(
-            combined.contains("Keychain") || combined.contains("keychain"),
-            "should mention keychain error: {combined}"
-        );
-    }
-}
-
 // ==================== logout ====================
 
 #[test]
@@ -197,12 +107,12 @@ fn logout_no_wallet_json_shape() {
     assert_eq!(parsed["disconnected"], false);
 }
 
-// ==================== keys list ====================
+// ==================== keys ====================
 
 #[test]
-fn keys_list_empty() {
+fn keys_empty() {
     let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp).args(["keys", "list"]).output().unwrap();
+    let output = test_command(&temp).arg("keys").output().unwrap();
 
     assert!(output.status.success());
     let combined = get_combined_output(&output);
@@ -213,15 +123,12 @@ fn keys_list_empty() {
 }
 
 #[test]
-fn keys_list_json_shape() {
+fn keys_json_shape() {
     let temp = TestConfigBuilder::new()
         .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
         .build();
 
-    let output = test_command(&temp)
-        .args(["-j", "keys", "list"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["-j", "keys"]).output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -233,15 +140,12 @@ fn keys_list_json_shape() {
 }
 
 #[test]
-fn keys_list_toon_shape() {
+fn keys_toon_shape() {
     let temp = TestConfigBuilder::new()
         .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
         .build();
 
-    let output = test_command(&temp)
-        .args(["-t", "keys", "list"])
-        .output()
-        .unwrap();
+    let output = test_command(&temp).args(["-t", "keys"]).output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -427,7 +331,7 @@ async fn services_info_not_found() {
     );
 }
 
-// ==================== sign ====================
+// ==================== mpp-sign ====================
 
 /// Valid charge challenge for Tempo mainnet (chainId 4217).
 const VALID_CHARGE_CHALLENGE: &str = r#"Payment id="test", realm="test", method="tempo", intent="charge", request="eyJhbW91bnQiOiIxMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMGI5NTM3ZDExYzYwZThiNTAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyMTd9fQ""#;
@@ -436,7 +340,7 @@ const VALID_CHARGE_CHALLENGE: &str = r#"Payment id="test", realm="test", method=
 fn sign_help_shows_flags() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["sign", "--help"])
+        .args(["mpp-sign", "--help"])
         .output()
         .unwrap();
 
@@ -451,7 +355,12 @@ fn sign_dry_run_valid_challenge_succeeds() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["sign", "--dry-run", "--challenge", VALID_CHARGE_CHALLENGE])
+        .args([
+            "mpp-sign",
+            "--dry-run",
+            "--challenge",
+            VALID_CHARGE_CHALLENGE,
+        ])
         .output()
         .unwrap();
 
@@ -468,7 +377,12 @@ fn sign_dry_run_invalid_challenge_fails() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["sign", "--dry-run", "--challenge", "not a valid challenge"])
+        .args([
+            "mpp-sign",
+            "--dry-run",
+            "--challenge",
+            "not a valid challenge",
+        ])
         .output()
         .unwrap();
 
@@ -481,7 +395,7 @@ fn sign_dry_run_unsupported_method() {
     let challenge = r#"Payment id="x", realm="x", method="stripe", intent="charge", request="e30""#;
 
     let output = test_command(&temp)
-        .args(["sign", "--dry-run", "--challenge", challenge])
+        .args(["mpp-sign", "--dry-run", "--challenge", challenge])
         .output()
         .unwrap();
 
@@ -500,7 +414,7 @@ fn sign_dry_run_missing_chain_id() {
     let challenge = r#"Payment id="x", realm="x", method="tempo", intent="charge", request="eyJhbW91bnQiOiIxMDAwIiwiY3VycmVuY3kiOiIweDAwIn0""#;
 
     let output = test_command(&temp)
-        .args(["sign", "--dry-run", "--challenge", challenge])
+        .args(["mpp-sign", "--dry-run", "--challenge", challenge])
         .output()
         .unwrap();
 
@@ -517,7 +431,7 @@ fn sign_no_wallet_configured() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["sign", "--challenge", VALID_CHARGE_CHALLENGE])
+        .args(["mpp-sign", "--challenge", VALID_CHARGE_CHALLENGE])
         .output()
         .unwrap();
 
@@ -530,7 +444,7 @@ fn sign_empty_stdin_fails() {
 
     let temp = TestConfigBuilder::new().build();
     let mut child = test_command(&temp)
-        .arg("sign")
+        .arg("mpp-sign")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -548,7 +462,7 @@ fn sign_dry_run_reads_from_stdin() {
 
     let temp = TestConfigBuilder::new().build();
     let mut child = test_command(&temp)
-        .args(["sign", "--dry-run"])
+        .args(["mpp-sign", "--dry-run"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

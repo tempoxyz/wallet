@@ -8,13 +8,13 @@ description: |
 
 # tempo wallet
 
-Wallet identity and custody extension for the Tempo CLI. Manages wallet creation, authentication, key lifecycle, and funding. This binary handles all identity operations — for making HTTP requests with automatic payment, use `tempo request`.
+Wallet identity and custody extension for the Tempo CLI. Manages authentication, key lifecycle, and funding. This binary handles all identity operations — for making HTTP requests with automatic payment, use `tempo request`.
 
 **Use tempo wallet when you need to:**
 - Connect or disconnect a wallet (`login` / `logout`)
 - Check wallet readiness, balances, and key status (`whoami`)
-- List keys and spending limits (`keys list`)
-- Create or manage wallets (`create`, `list`, `fund`)
+- List keys and spending limits (`keys`)
+- Fund your wallet (`fund`)
 
 ## Setup
 
@@ -38,7 +38,7 @@ Use `-t` for TOON output — compact and token-efficient. Output defaults to JSO
 tempo wallet -t whoami
 
 # List keys with balances and spending limits
-tempo wallet -t keys list
+tempo wallet -t keys
 
 # Preview funding without executing
 tempo wallet -t fund --dry-run
@@ -86,7 +86,7 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 }
 ```
 
-### keys list JSON Response Schema
+### keys JSON Response Schema
 
 ```json
 {
@@ -119,11 +119,11 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 | `tempo wallet login` | Sign up or log in to your Tempo wallet |
 | `tempo wallet logout` | Log out and disconnect your wallet |
 | `tempo wallet whoami` | Show wallet address, balances, keys, and readiness |
-| `tempo wallet keys list` | List all keys with balance and spending limit details |
-| `tempo wallet list` | List configured wallets |
+| `tempo wallet keys` | List all keys with balance and spending limit details |
 | `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | `tempo wallet fund --dry-run` | Preview funding action without executing |
 | `tempo wallet sessions close --dry-run` | Preview what would be closed without executing |
+| `tempo wallet mpp-sign` | Sign an MPP payment challenge |
 | `tempo wallet --describe` | Emit command schema as JSON for agent introspection |
 
 ## Global Options

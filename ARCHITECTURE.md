@@ -62,9 +62,7 @@ tempo-wallet/src/
     keys.rs            — key listing with balance and spending limit queries
     sign.rs            — sign MPP payment challenges
     completions.rs     — shell completions
-    wallets/           — wallet management
-      create.rs, list.rs, keychain.rs
-      fund/            — fund subcommands (faucet, bridge, relay)
+    fund/              — fund subcommands (faucet, bridge, relay)
     sessions/          — session management (list, info, close, sync, render)
     services/          — service directory (client, model, render)
 ```
@@ -119,7 +117,7 @@ Browser-based WebAuthn wallet created via Tempo's passkey flow (`tempo-wallet/sr
 
 ### Local
 
-Locally generated or imported secp256k1 private key (`tempo-wallet/src/commands/wallets/`). The private key is stored in the OS keychain on macOS (`wallets/keychain.rs`) or inline in a mode-0600 `keys.toml` file.
+Locally generated or imported secp256k1 private key. The private key is stored inline in a mode-0600 `keys.toml` file.
 
 ### Signing Modes
 

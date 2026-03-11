@@ -83,7 +83,7 @@ impl From<&crate::error::TempoError> for ExitCode {
         match err {
             TempoError::Config(_) => ExitCode::InvalidUsage,
             TempoError::Key(k) => match k {
-                KeyError::Keychain(_) | KeyError::LoginExpired => ExitCode::GeneralError,
+                KeyError::LoginExpired => ExitCode::GeneralError,
                 _ => ExitCode::InvalidUsage,
             },
             TempoError::Input(_) => ExitCode::InvalidUsage,
@@ -125,10 +125,6 @@ mod tests {
     #[test]
     fn from_tempo_error_key_variants() {
         use crate::error::{KeyError, TempoError};
-        // Keychain errors → GeneralError (not user's fault)
-        let err: TempoError = KeyError::Keychain("access denied".to_string()).into();
-        assert_eq!(ExitCode::from(&err), ExitCode::GeneralError);
-
         // LoginExpired → GeneralError
         let err: TempoError = KeyError::LoginExpired.into();
         assert_eq!(ExitCode::from(&err), ExitCode::GeneralError);

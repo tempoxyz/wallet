@@ -2,10 +2,8 @@
 
 use anyhow::Result;
 
-use crate::args::{Cli, Commands, KeyCommands, ServicesCommands, SessionCommands};
-use crate::commands::{
-    completions, keys, login, logout, services, sessions, sign, wallets, whoami,
-};
+use crate::args::{Cli, Commands, ServicesCommands, SessionCommands};
+use crate::commands::{completions, fund, keys, login, logout, services, sessions, sign, whoami};
 
 /// Run the tempo-wallet application.
 pub(crate) async fn run(mut cli: Cli) -> Result<()> {
@@ -24,17 +22,13 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
             Commands::Login => login::run(&ctx).await,
             Commands::Logout { yes } => logout::run(&ctx, yes),
             Commands::Completions { shell } => completions::run(&ctx, shell),
-            Commands::List => wallets::list(&ctx),
-            Commands::Create => wallets::create(&ctx).await,
             Commands::Fund {
                 address,
                 no_wait,
                 dry_run,
-            } => wallets::fund(&ctx, address, no_wait, dry_run).await,
+            } => fund::run(&ctx, address, no_wait, dry_run).await,
             Commands::Whoami => whoami::run(&ctx).await,
-            Commands::Keys { command } => {
-                keys::run(&ctx, command.unwrap_or(KeyCommands::List)).await
-            }
+            Commands::Keys => keys::run(&ctx).await,
             Commands::Sessions { command } => {
                 sessions::run(
                     &ctx,
@@ -42,7 +36,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
                 )
                 .await
             }
-            Commands::Sign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
+            Commands::MppSign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
             Commands::Services {
                 command,
                 service_id,
@@ -72,22 +66,16 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Login => "login",
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",
-        Commands::List => "list",
-        Commands::Create => "create",
         Commands::Fund { .. } => "fund",
         Commands::Whoami => "whoami",
-        Commands::Keys { command } => match command {
-            Some(KeyCommands::List) | None => "keys list",
-            Some(KeyCommands::Create { .. }) => "keys create",
-            Some(KeyCommands::Clean { .. }) => "keys clean",
-        },
+        Commands::Keys => "keys",
         Commands::Sessions { command } => match command {
             Some(SessionCommands::List { .. }) | None => "sessions list",
             Some(SessionCommands::Info { .. }) => "sessions info",
             Some(SessionCommands::Close { .. }) => "sessions close",
             Some(SessionCommands::Sync { .. }) => "sessions sync",
         },
-        Commands::Sign { .. } => "sign",
+        Commands::MppSign { .. } => "mpp-sign",
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",
             Some(ServicesCommands::Info { .. }) => "services info",

@@ -9,43 +9,66 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use crate::account::TokenBalance;
+use crate::analytics;
+use crate::analytics::{WalletFundFailurePayload, WalletFundPayload};
 use tempo_common::cli::context::Context;
 use tempo_common::error::ConfigError;
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
+use tempo_common::security::sanitize_error;
 
 use self::relay::DepositStatus;
 
 /// Interval between balance/status poll attempts (seconds).
-pub(super) const POLL_INTERVAL_SECS: u64 = 3;
+const POLL_INTERVAL_SECS: u64 = 3;
 
 // ---------------------------------------------------------------------------
 // JSON response
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-pub(super) struct FundResponse {
-    pub(super) network: String,
-    pub(super) address: String,
-    pub(super) action: &'static str,
-    pub(super) success: bool,
+struct FundResponse {
+    network: String,
+    address: String,
+    action: &'static str,
+    success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) deposit_address: Option<String>,
+    deposit_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) source_chain: Option<String>,
+    source_chain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) bridge_status: Option<DepositStatus>,
+    bridge_status: Option<DepositStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) balances_before: Option<Vec<TokenBalance>>,
+    balances_before: Option<Vec<TokenBalance>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) balances_after: Option<Vec<TokenBalance>>,
+    balances_after: Option<Vec<TokenBalance>>,
 }
 
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
-pub(super) async fn run(
+pub(crate) async fn run(
+    ctx: &Context,
+    address: Option<String>,
+    no_wait: bool,
+    dry_run: bool,
+) -> anyhow::Result<()> {
+    let method = match ctx.network {
+        NetworkId::TempoModerato => "faucet",
+        NetworkId::Tempo => "bridge",
+    };
+    if !dry_run {
+        track_fund_start(ctx, method);
+    }
+    let result = run_inner(ctx, address, no_wait, dry_run).await;
+    if !dry_run {
+        track_fund_result(ctx, method, &result);
+    }
+    result
+}
+
+async fn run_inner(
     ctx: &Context,
     address: Option<String>,
     no_wait: bool,
@@ -179,6 +202,44 @@ pub(super) fn render_balance_diff(before: &[TokenBalance], after: &[TokenBalance
             .unwrap_or("0");
         if !balances_equal(&cur.balance, prev) {
             eprintln!("  {} balance: {} -> {}", cur.symbol, prev, cur.balance);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Analytics
+// ---------------------------------------------------------------------------
+
+fn track_fund_start(ctx: &Context, method: &str) {
+    ctx.track(
+        analytics::WALLET_FUND_STARTED,
+        WalletFundPayload {
+            network: ctx.network.as_str().to_string(),
+            method: method.to_string(),
+        },
+    );
+}
+
+fn track_fund_result(ctx: &Context, method: &str, result: &anyhow::Result<()>) {
+    match result {
+        Ok(()) => {
+            ctx.track(
+                analytics::WALLET_FUND_SUCCESS,
+                WalletFundPayload {
+                    network: ctx.network.as_str().to_string(),
+                    method: method.to_string(),
+                },
+            );
+        }
+        Err(e) => {
+            ctx.track(
+                analytics::WALLET_FUND_FAILURE,
+                WalletFundFailurePayload {
+                    network: ctx.network.as_str().to_string(),
+                    method: method.to_string(),
+                    error: sanitize_error(&e.to_string()),
+                },
+            );
         }
     }
 }

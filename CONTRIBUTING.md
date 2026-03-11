@@ -105,7 +105,7 @@ crates/
 │   │   ├── account/             # Wallet account types, on-chain queries, rendering
 │   │   └── commands/            # Command implementations
 │   │       ├── login.rs, logout.rs, whoami.rs, keys.rs, sign.rs, completions.rs
-│   │       ├── wallets/         # Wallet management (create, list, fund/)
+│   │       ├── fund/            # Fund wallet (faucet, bridge, relay)
 │   │       ├── sessions/        # Session management (list, info, close, sync)
 │   │       └── services/        # Service directory (client, model, render)
 │   └── tests/                   # Integration tests (assert_cmd)
@@ -162,8 +162,6 @@ use tempo_common::error::TempoError;
 - **Integration tests** in each crate's `tests/` directory use `assert_cmd` for black-box CLI testing
 - Use `TestConfigBuilder` and `test_command()` helpers to set up test configurations
 - **Coverage:** `make coverage` generates an lcov report (requires `cargo-llvm-cov` and `llvm-tools-preview`)
-
-> **Note:** Tests use an in-memory keychain backend automatically (`InMemoryKeychain` via `#[cfg(test)]`), so they never touch the real OS keychain.
 
 ## Writing Documentation
 
