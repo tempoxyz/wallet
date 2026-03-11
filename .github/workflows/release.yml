@@ -24,7 +24,7 @@ jobs:
       - name: Extract version from Cargo.toml
         id: version
         run: |
-          VERSION=$(grep '^version' crates/tempo-wallet/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tempo-wallet") | .version')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
   build:
@@ -110,8 +110,9 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          TAG="v${{ needs.version.outputs.version }}"
+          TAG="v${RELEASE_VERSION}"
           gh release create "$TAG" --title "$TAG" --generate-notes 2>/dev/null || true
           gh release upload "$TAG" artifacts/* --clobber
 
@@ -125,9 +126,10 @@ jobs:
       - name: Sign release binaries
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
           echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
-          VERSION="${{ needs.version.outputs.version }}"
+          VERSION="${RELEASE_VERSION}"
 
           declare -A PKG_DESC=(
             [tempo-wallet]="Manage your Tempo Wallet"
@@ -168,10 +170,11 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
           aws configure set default.s3.multipart_threshold 200MB
 
-          VERSION="v${{ needs.version.outputs.version }}"
+          VERSION="v${RELEASE_VERSION}"
 
           for pkg in tempo-wallet tempo-request; do
             PREFIX="extensions/${pkg}"
@@ -195,7 +198,7 @@ jobs:
             fi
 
             # VERSION
-            echo "${{ needs.version.outputs.version }}" | aws s3 cp - "s3://tempo-cli/${PREFIX}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+            echo "${RELEASE_VERSION}" | aws s3 cp - "s3://tempo-cli/${PREFIX}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
           done
 
           # Install / uninstall scripts

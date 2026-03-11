@@ -43,6 +43,7 @@ pub(crate) async fn dispatch_payment(
     challenge: PaymentChallenge,
     network: NetworkId,
     keys: &Keystore,
+    max_pay: Option<u128>,
 ) -> Result<PaymentResult> {
     if let Some(allowed) = http.network {
         if allowed != network {
@@ -64,7 +65,7 @@ pub(crate) async fn dispatch_payment(
     let signer = keys.signer(resolved.network_id)?;
 
     if is_session {
-        return handle_session_request(http, url, resolved, signer, keys).await;
+        return handle_session_request(http, url, resolved, signer, keys, max_pay).await;
     }
 
     handle_charge_request(http, url, resolved, signer).await

@@ -11,7 +11,7 @@ use crate::network::NetworkId;
 /// - ANSI escape sequence injection (CSI, OSC, etc.)
 /// - OSC 8 breakout via BEL (\x07)
 /// - Cursor manipulation and line erasure
-fn sanitize_for_terminal(s: &str) -> String {
+pub fn sanitize_for_terminal(s: &str) -> String {
     s.chars()
         .filter(|c| {
             // Keep printable characters and safe whitespace (tab, newline)
@@ -97,17 +97,19 @@ fn detect_hyperlink_support() -> bool {
 
 /// Truncate a display string to `max` characters, appending `…` if truncated.
 pub fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
+    let safe = sanitize_for_terminal(s);
+    if safe.chars().count() <= max {
+        safe
     } else {
-        let truncated: String = s.chars().take(max - 1).collect();
+        let truncated: String = safe.chars().take(max - 1).collect();
         format!("{truncated}…")
     }
 }
 
 /// Print a right-aligned label/value field to stdout with a custom label width.
 pub fn print_field_w(width: usize, label: &str, value: &str) {
-    println!("{:>width$}: {value}", label);
+    let safe_value = sanitize_for_terminal(value);
+    println!("{:>width$}: {safe_value}", label);
 }
 
 /// Print a right-aligned label/value field to stdout (14-char label width).

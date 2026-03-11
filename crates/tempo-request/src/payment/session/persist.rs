@@ -14,7 +14,8 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
         serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
 
     let session_key = store::session_key(ctx.url);
-    let existing = store::load_session(&session_key)?;
+    let existing = store::load_session(&session_key)?
+        .filter(|r| r.channel_id == format!("{:#x}", state.channel_id));
 
     let record = if let Some(mut rec) = existing {
         // Update existing record

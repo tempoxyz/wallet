@@ -200,12 +200,15 @@ pub(super) async fn stream_sse_response(
                         // instead of a network round-trip per token.
                         // Clamp to our known channel deposit to prevent a
                         // malicious server from coercing an overly large voucher.
-                        let authorize_amount = if server_deposit > 0 {
+                        let mut authorize_amount = if server_deposit > 0 {
                             server_deposit
                         } else {
                             required
                         }
                         .min(ctx.deposit);
+                        if let Some(cap) = ctx.max_pay {
+                            authorize_amount = authorize_amount.min(cap);
+                        }
 
                         if runtime.debug_enabled() {
                             eprintln!(
@@ -214,8 +217,8 @@ pub(super) async fn stream_sse_response(
                             );
                         }
 
-                        // Sign the voucher for the authorized amount
-                        state.cumulative_amount = authorize_amount;
+                        // Sign the voucher for the authorized amount (monotonic: never decrease)
+                        state.cumulative_amount = authorize_amount.max(state.cumulative_amount);
                         let voucher =
                             build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
                         let auth = mpp::format_authorization(&voucher)
@@ -226,7 +229,8 @@ pub(super) async fn stream_sse_response(
 
                         // For our persisted record, keep the exact required amount so
                         // cooperative close can match the server's expectation precisely.
-                        state.cumulative_amount = required;
+                        // Enforce monotonicity: never decrease the cumulative amount.
+                        state.cumulative_amount = required.max(state.cumulative_amount);
                         let _ = persist_session(ctx, state);
 
                         // Track this voucher for retry if the server stalls

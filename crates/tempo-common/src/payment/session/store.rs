@@ -124,9 +124,10 @@ impl SessionRecord {
             .context("Invalid channel_id in session record")
     }
 
-    /// Update the cumulative amount.
+    /// Update the cumulative amount (monotonic: never decreases).
     pub fn set_cumulative_amount(&mut self, amount: u128) {
-        self.cumulative_amount = amount.to_string();
+        let current = self.cumulative_amount.parse::<u128>().unwrap_or(0);
+        self.cumulative_amount = amount.max(current).to_string();
     }
 
     /// Update `last_used_at` timestamp.

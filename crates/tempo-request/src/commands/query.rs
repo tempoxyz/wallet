@@ -119,15 +119,19 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     }
 
     // Enforce client-side price cap if configured
+    if let Some(ref cur) = query.max_pay_currency {
+        let symbol = challenge.network.token().symbol;
+        let cur_lower = cur.to_lowercase();
+        if cur_lower != challenge.currency.to_lowercase() && cur_lower != symbol.to_lowercase() {
+            anyhow::bail!(PaymentError::PaymentRejected {
+                reason: "requested currency does not match client max-pay-currency".to_string(),
+                status_code: 402,
+            });
+        }
+    }
     if let Some(max_val) = query.max_pay {
         if let Ok(req_val) = challenge.amount.parse::<u128>() {
-            // Optional currency match if provided
-            let currency_ok = query.max_pay_currency.as_ref().is_none_or(|cur| {
-                let symbol = challenge.network.token().symbol;
-                let cur_lower = cur.to_lowercase();
-                cur_lower == challenge.currency.to_lowercase() || cur_lower == symbol.to_lowercase()
-            });
-            if currency_ok && req_val > max_val {
+            if req_val > max_val {
                 anyhow::bail!(PaymentError::PaymentRejected {
                     reason: "price exceeds client max".to_string(),
                     status_code: 402,
@@ -163,6 +167,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         challenge.challenge,
         challenge_network,
         &ctx.keys,
+        query.max_pay,
     )
     .await;
 
