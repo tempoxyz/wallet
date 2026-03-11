@@ -1,4 +1,4 @@
-//! HTTP behavior tests against a local axum mock server.
+//! Integration tests for tempo-request commands.
 //!
 //! These run in normal `cargo test` — no network or funded wallet required.
 

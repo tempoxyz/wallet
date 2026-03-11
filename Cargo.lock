@@ -6553,10 +6553,12 @@ dependencies = [
 name = "tempo-sign"
 version = "0.1.0"
 dependencies = [
+ "assert_cmd",
  "getrandom 0.2.17",
  "minisign",
  "serde_json",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]
