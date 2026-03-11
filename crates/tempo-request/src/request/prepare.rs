@@ -14,6 +14,7 @@ use super::headers::{
 };
 use super::payload::{
     append_data_to_query, join_form_pairs, parse_data_urlencode, resolve_method_and_body,
+    validate_body_size,
 };
 
 /// Default HTTP status codes considered transient/retryable (curl parity).
@@ -111,6 +112,7 @@ fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan> {
             base.push(b'&');
         }
         base.extend_from_slice(form.as_bytes());
+        validate_body_size(base.len())?;
         Some(base)
     } else {
         body

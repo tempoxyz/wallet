@@ -243,13 +243,16 @@ impl HttpClient {
                         // Apply jitter if configured
                         if let Some(pct) = plan.retry_jitter_pct {
                             let jitter = ((delay_ms as f64) * (pct as f64 / 100.0)) as u64;
-                            // Very cheap pseudo-random from time; sufficient for jittering backoff
-                            let rand = (std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .subsec_nanos()
-                                % (jitter as u32)) as u64;
-                            delay_ms = delay_ms.saturating_add(rand);
+                            if jitter > 0 {
+                                // Very cheap pseudo-random from time; sufficient for jittering backoff
+                                let rand = (std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .subsec_nanos()
+                                    % (jitter as u32))
+                                    as u64;
+                                delay_ms = delay_ms.saturating_add(rand);
+                            }
                         }
 
                         if self.debug_enabled() {

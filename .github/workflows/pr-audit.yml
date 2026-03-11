@@ -9,4 +9,3 @@ on:
 jobs:
   pr-audit:
     uses: tempoxyz/gh-actions/.github/workflows/pr-audit.yml@main
-    secrets: inherit

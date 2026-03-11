@@ -125,18 +125,11 @@ impl Keystore {
     /// Find the key for a given network.
     ///
     /// Matches on `chain_id`, then falls back to direct EOA keys
-    /// (wallet == signer) which work on any network, then falls back
-    /// to any passkey with a signing key.
+    /// (wallet == signer) which work on any network.
     pub fn key_for_network(&self, network: NetworkId) -> Option<&KeyEntry> {
         let chain_id = network.chain_id();
         // Try exact chain_id match first
         if let Some(entry) = self.keys.iter().find(|k| k.chain_id == chain_id) {
-            return Some(entry);
-        }
-        // Any passkey with a signing key
-        if let Some(entry) = self.keys.iter().find(|k| {
-            k.wallet_type == WalletType::Passkey && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
-        }) {
             return Some(entry);
         }
         // Direct EOA keys (wallet == signer) work on any network
@@ -496,7 +489,7 @@ provisioned = true
     }
 
     #[test]
-    fn test_key_for_network_passkey_fallback() {
+    fn test_key_for_network_passkey_no_cross_network_fallback() {
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Passkey,
@@ -506,7 +499,9 @@ provisioned = true
             ..Default::default()
         });
         assert!(keys.key_for_network(NetworkId::Tempo).is_some());
-        assert!(keys.key_for_network(NetworkId::TempoModerato).is_some());
+        // Passkey provisioned on Tempo must NOT match TempoModerato
+        assert!(keys.key_for_network(NetworkId::TempoModerato).is_none());
+        assert!(!keys.is_provisioned(NetworkId::TempoModerato));
     }
 
     #[test]

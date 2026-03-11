@@ -36,6 +36,12 @@ pub fn redact_header_value(name: &str, value: &str) -> String {
 pub fn redact_url(raw: &str) -> String {
     match url::Url::parse(raw) {
         Ok(mut parsed) => {
+            if !parsed.username().is_empty() {
+                let _ = parsed.set_username("[REDACTED]");
+            }
+            if parsed.password().is_some() {
+                let _ = parsed.set_password(Some("[REDACTED]"));
+            }
             parsed.set_query(None);
             parsed.set_fragment(None);
             parsed.to_string()
@@ -50,7 +56,14 @@ pub fn sanitize_error(err: &str) -> String {
     if err.len() <= MAX_LEN {
         err.to_string()
     } else {
-        format!("{}…", &err[..MAX_LEN])
+        // Find the last valid UTF-8 char boundary at or before MAX_LEN
+        let end = err
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|&i| i <= MAX_LEN)
+            .last()
+            .unwrap_or(0);
+        format!("{}…", &err[..end])
     }
 }
 
@@ -178,6 +191,22 @@ mod tests {
     }
 
     #[test]
+    fn test_redact_url_strips_basic_auth() {
+        assert_eq!(
+            redact_url("https://alice:s3cr3t@api.example.com/v1?token=abc"),
+            "https://%5BREDACTED%5D:%5BREDACTED%5D@api.example.com/v1"
+        );
+    }
+
+    #[test]
+    fn test_redact_url_strips_username_only() {
+        assert_eq!(
+            redact_url("https://user@api.example.com/path"),
+            "https://%5BREDACTED%5D@api.example.com/path"
+        );
+    }
+
+    #[test]
     fn sanitize_error_short_unchanged() {
         let short = "connection refused";
         assert_eq!(sanitize_error(short), short);
@@ -196,6 +225,16 @@ mod tests {
         assert_eq!(result.len(), 200 + "…".len());
         assert!(result.ends_with('…'));
         assert!(result.starts_with("xxx"));
+    }
+
+    #[test]
+    fn sanitize_error_multibyte_no_panic() {
+        // 101 × 2-byte chars = 202 bytes, boundary falls mid-char without the fix
+        let msg = "é".repeat(101);
+        assert!(msg.len() > 200);
+        let result = sanitize_error(&msg);
+        assert!(result.ends_with('…'));
+        // Must not panic and must be valid UTF-8 (implicit by being a String)
     }
 
     #[test]
