@@ -6,7 +6,6 @@ use serde_json::json;
 
 /// Mock MPP service directory server.
 pub struct MockServicesServer {
-    pub base_url: String,
     pub services_url: String,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     _handle: tokio::task::JoinHandle<()>,
@@ -35,7 +34,6 @@ impl MockServicesServer {
     pub async fn start_with_payload(payload: serde_json::Value) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let base_url = format!("http://{addr}");
         let services_url = format!("http://{addr}/services");
 
         let app = Router::new().route(
@@ -57,7 +55,6 @@ impl MockServicesServer {
         });
 
         MockServicesServer {
-            base_url,
             services_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,

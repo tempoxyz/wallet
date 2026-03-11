@@ -28,17 +28,17 @@ impl PaymentTestHarness {
 
     /// Charge flow with a custom success body.
     pub async fn charge_with_body(body: &str) -> Self {
-        Self::build(body, MODERATO_DIRECT_KEYS_TOML, "test-charge", false).await
+        Self::build(body, MODERATO_DIRECT_KEYS_TOML, "test-charge").await
     }
 
     /// Charge flow with a custom challenge ID and success body.
     pub async fn charge_with_id(id: &str, body: &str) -> Self {
-        Self::build(body, MODERATO_DIRECT_KEYS_TOML, id, false).await
+        Self::build(body, MODERATO_DIRECT_KEYS_TOML, id).await
     }
 
     /// Charge flow with Keychain signing mode.
     pub async fn charge_keychain(body: &str) -> Self {
-        Self::build(body, MODERATO_KEYCHAIN_KEYS_TOML, "test-kc", false).await
+        Self::build(body, MODERATO_KEYCHAIN_KEYS_TOML, "test-kc").await
     }
 
     /// Charge flow that also returns a Payment-Receipt header.
@@ -53,7 +53,7 @@ impl PaymentTestHarness {
         PaymentTestHarness { rpc, server, temp }
     }
 
-    async fn build(body: &str, keys_toml: &str, id: &str, _keychain: bool) -> Self {
+    async fn build(body: &str, keys_toml: &str, id: &str) -> Self {
         let rpc = MockRpcServer::start(42431).await;
         let www_auth = charge_www_authenticate(id);
         let server = MockServer::start_payment(&www_auth, body).await;

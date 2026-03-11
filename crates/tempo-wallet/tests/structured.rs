@@ -111,8 +111,6 @@ async fn services_json_and_toon_shapes() {
     assert_eq!(toon_info["id"], "openai");
 }
 
-// ── Phase 4: structured output gap tests ────────────────────────────────
-
 #[test]
 fn whoami_json_and_toon_shapes() {
     let temp = TestConfigBuilder::new().build();

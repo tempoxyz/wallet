@@ -1,7 +1,5 @@
 //! Snapshot-like structure tests for JSON and TOON outputs.
 
-use axum::routing::get;
-use axum::{Json, Router};
 use serde_json::Value;
 
 mod common;
@@ -16,39 +14,22 @@ fn run_both(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn query_json_and_toon_body_shape() {
-    let app = Router::new().route(
-        "/json",
-        get(|| async { Json(serde_json::json!({"ok": true, "count": 2})) }),
-    );
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .unwrap();
-    });
-
+    let server = MockServer::start(
+        200,
+        vec![("content-type", "application/json")],
+        r#"{"ok":true,"count":2}"#,
+    )
+    .await;
     let temp = TestConfigBuilder::new().build();
-    let url = format!("http://{addr}/json");
-    let (json_out, json, toon_out, toon) = run_both(&temp, &[&url]);
+
+    let (json_out, json, toon_out, toon) = run_both(&temp, &[&server.url("/json")]);
     tempo_test::assert_clean_stderr(&json_out);
     tempo_test::assert_clean_stderr(&toon_out);
     assert_eq!(json["ok"], true);
     assert_eq!(json["count"], 2);
     assert_eq!(toon["ok"], true);
     assert_eq!(toon["count"], 2);
-
-    let _ = shutdown_tx.send(());
-    let _ = server.await;
 }
-
-// ── Phase 4: Structured output gap tests ────────────────────────────────
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn toon_error_402_without_www_authenticate() {

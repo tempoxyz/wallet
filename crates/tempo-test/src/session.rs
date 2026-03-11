@@ -4,18 +4,6 @@ use rusqlite::Connection;
 use std::fs;
 use tempfile::TempDir;
 
-/// Delete the sessions database (and WAL/SHM) from the temp dir.
-pub fn delete_sessions_db(temp_dir: &TempDir) {
-    let db_path = temp_dir.path().join(".tempo/wallet/sessions.db");
-    if db_path.exists() {
-        let _ = fs::remove_file(&db_path);
-        let wal = db_path.with_file_name("sessions.db-wal");
-        let shm = db_path.with_file_name("sessions.db-shm");
-        let _ = fs::remove_file(wal);
-        let _ = fs::remove_file(shm);
-    }
-}
-
 /// Seed a local session record directly into the sessions database for tests.
 pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
     let db_path = temp_dir.path().join(".tempo/wallet/sessions.db");
