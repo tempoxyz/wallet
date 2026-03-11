@@ -36,6 +36,18 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
         .into());
     };
 
+    // Enforce --network pin: reject challenges for a different chain
+    if let Some(pinned) = ctx.requested_network {
+        if pinned != network {
+            return Err(PaymentError::InvalidChallenge(format!(
+                "challenge network '{}' does not match --network '{}'",
+                network.as_str(),
+                pinned.as_str(),
+            ))
+            .into());
+        }
+    }
+
     // Validate challenge
     challenge
         .validate_for_charge("tempo")

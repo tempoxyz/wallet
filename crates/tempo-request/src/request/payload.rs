@@ -38,7 +38,7 @@ pub(crate) fn append_data_to_query(
     Ok(())
 }
 
-fn validate_body_size(len: usize) -> Result<()> {
+pub(crate) fn validate_body_size(len: usize) -> Result<()> {
     if len > MAX_BODY_SIZE {
         anyhow::bail!(InputError::BodyTooLarge(MAX_BODY_SIZE));
     }

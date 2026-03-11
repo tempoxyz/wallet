@@ -77,15 +77,18 @@ jobs:
             asset: tempo-request-darwin-arm64
     steps:
       - uses: actions/checkout@v6
-      - name: Configure git for private repos
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
+      - name: Build release binary
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_PAT }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/
+        run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
       - run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
       - run: mv target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.asset }}
       - uses: actions/upload-artifact@v7
@@ -99,8 +102,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Configure git for private repos
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -113,6 +114,13 @@ jobs:
           TAG="v${{ needs.version.outputs.version }}"
           gh release create "$TAG" --title "$TAG" --generate-notes 2>/dev/null || true
           gh release upload "$TAG" artifacts/* --clobber
+
+      - name: Build release signer
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_PAT }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/
+        run: cargo build --release -p tempo-sign
 
       - name: Sign release binaries
         env:
@@ -150,7 +158,7 @@ jobs:
               )
             fi
 
-            cargo run -p tempo-sign -- "${SIGN_ARGS[@]}"
+            ./target/release/tempo-sign "${SIGN_ARGS[@]}"
           done
 
           rm /tmp/release.key
