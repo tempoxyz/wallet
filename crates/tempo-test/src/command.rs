@@ -1,7 +1,11 @@
-//! Test command helpers.
+//! Test command construction and structured test runners.
 
-use std::process::Command;
+use std::process::{Command, Output};
+
+use serde_json::Value;
 use tempfile::TempDir;
+
+use crate::assert::{parse_json_stdout, parse_toon_stdout};
 
 /// Create a test command for the given binary path with proper environment variables set.
 ///
@@ -31,9 +35,36 @@ pub fn make_test_command(binary_path: std::path::PathBuf, temp_dir: &TempDir) ->
     cmd
 }
 
-/// Combine stdout and stderr from a process output into a single string.
-pub fn get_combined_output(output: &std::process::Output) -> String {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    format!("{}{}", stdout, stderr)
+/// Run a command with a format flag (`-j` or `-t`) prepended, parse stdout.
+pub fn run_structured(
+    cmd_fn: impl Fn(&TempDir) -> Command,
+    temp: &TempDir,
+    flag: &str,
+    args: &[&str],
+) -> (Output, Value) {
+    let mut cmd = cmd_fn(temp);
+    let all_args: Vec<&str> = std::iter::once(flag).chain(args.iter().copied()).collect();
+    let output = cmd.args(all_args).output().expect("command should run");
+    assert!(output.status.success(), "command failed: {output:?}");
+
+    let parsed = if flag == "-j" {
+        parse_json_stdout(&output)
+    } else {
+        parse_toon_stdout(&output)
+    };
+
+    (output, parsed)
+}
+
+/// Run a command in both JSON and TOON formats, returning all outputs and parsed values.
+///
+/// `cmd_fn` should be the crate-specific `test_command` function (e.g., from `common/mod.rs`).
+pub fn run_structured_both(
+    cmd_fn: impl Fn(&TempDir) -> Command,
+    temp: &TempDir,
+    args: &[&str],
+) -> (Output, Value, Output, Value) {
+    let (json_out, json_val) = run_structured(&cmd_fn, temp, "-j", args);
+    let (toon_out, toon_val) = run_structured(&cmd_fn, temp, "-t", args);
+    (json_out, json_val, toon_out, toon_val)
 }

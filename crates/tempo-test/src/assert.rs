@@ -1,4 +1,4 @@
-//! Assertion helpers for CLI integration tests.
+//! Assertion and parsing helpers for CLI integration tests.
 
 use std::process::Output;
 
@@ -48,36 +48,9 @@ pub fn assert_json_toon_equivalent(json: &Value, toon: &Value) {
     assert_eq!(json, toon, "JSON and TOON decoded payloads diverged");
 }
 
-/// Run a command with a format flag (`-j` or `-t`) prepended, parse stdout.
-pub fn run_structured(
-    cmd_fn: impl Fn(&tempfile::TempDir) -> std::process::Command,
-    temp: &tempfile::TempDir,
-    flag: &str,
-    args: &[&str],
-) -> (Output, Value) {
-    let mut cmd = cmd_fn(temp);
-    let all_args: Vec<&str> = std::iter::once(flag).chain(args.iter().copied()).collect();
-    let output = cmd.args(all_args).output().expect("command should run");
-    assert!(output.status.success(), "command failed: {output:?}");
-
-    let parsed = if flag == "-j" {
-        parse_json_stdout(&output)
-    } else {
-        parse_toon_stdout(&output)
-    };
-
-    (output, parsed)
-}
-
-/// Run a command in both JSON and TOON formats, returning all outputs and parsed values.
-///
-/// `cmd_fn` should be the crate-specific `test_command` function (e.g., from `common/mod.rs`).
-pub fn run_structured_both(
-    cmd_fn: impl Fn(&tempfile::TempDir) -> std::process::Command,
-    temp: &tempfile::TempDir,
-    args: &[&str],
-) -> (Output, Value, Output, Value) {
-    let (json_out, json_val) = run_structured(&cmd_fn, temp, "-j", args);
-    let (toon_out, toon_val) = run_structured(&cmd_fn, temp, "-t", args);
-    (json_out, json_val, toon_out, toon_val)
+/// Combine stdout and stderr from a process output into a single string.
+pub fn get_combined_output(output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    format!("{}{}", stdout, stderr)
 }
