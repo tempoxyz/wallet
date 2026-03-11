@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
-use tempo_common::cli::terminal::{print_field, truncate};
+use tempo_common::cli::terminal::{print_field, sanitize_for_terminal, truncate};
 
 use super::model::Service;
 
@@ -116,8 +116,8 @@ fn render_table(services: &[&Service]) {
             Some("third-party") => "3p",
             _ => "—",
         };
-        let payment = s.format_payment_intents();
-        let service_url = s.service_url.as_deref().unwrap_or("—");
+        let payment = sanitize_for_terminal(&s.format_payment_intents());
+        let service_url = sanitize_for_terminal(s.service_url.as_deref().unwrap_or("—"));
 
         println!(
             "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  {:<w_status$}  {:<w_integ$}  {:<w_payment$}  {}",
@@ -129,11 +129,12 @@ fn render_table(services: &[&Service]) {
 }
 
 fn render_detail(s: &Service) {
-    println!("{}", s.name);
-    println!("{}", "─".repeat(s.name.chars().count()));
+    let safe_name = sanitize_for_terminal(&s.name);
+    println!("{safe_name}");
+    println!("{}", "─".repeat(safe_name.chars().count()));
 
     if let Some(desc) = &s.description {
-        println!("{desc}");
+        println!("{}", sanitize_for_terminal(desc));
     }
     println!();
 
@@ -196,30 +197,33 @@ fn render_detail(s: &Service) {
         println!("Endpoints:");
         let base_url = s.service_url.as_deref().unwrap_or(&s.url);
         for ep in &s.endpoints {
-            let pricing = ep.format_pricing();
-            println!("  {:>6} {:<40} {}", ep.method, ep.path, pricing);
+            let pricing = sanitize_for_terminal(&ep.format_pricing());
+            let method = sanitize_for_terminal(&ep.method);
+            let path = sanitize_for_terminal(&ep.path);
+            println!("  {:>6} {:<40} {}", method, path, pricing);
 
             let desc = ep
                 .description
                 .as_deref()
                 .or_else(|| ep.payment.as_ref().and_then(|p| p.description.as_deref()));
             if let Some(desc) = desc {
-                println!("         {desc}");
+                println!("         {}", sanitize_for_terminal(desc));
             }
 
             if let Some(unit_type) = ep.payment.as_ref().and_then(|p| p.unit_type.as_deref()) {
-                println!("         per {unit_type}");
+                println!("         per {}", sanitize_for_terminal(unit_type));
             }
 
             let full_url = format!("{}{}", base_url.trim_end_matches('/'), ep.path);
+            let safe_url = sanitize_for_terminal(&full_url);
             let example = match ep.method.to_uppercase().as_str() {
-                "GET" => format!("tempo-wallet {full_url}"),
-                m => format!("tempo-wallet -X {m} --json '{{}}' {full_url}"),
+                "GET" => format!("tempo-wallet {safe_url}"),
+                m => format!("tempo-wallet -X {m} --json '{{}}' {safe_url}"),
             };
             println!("         example: {example}");
 
             if let Some(docs_url) = &ep.docs {
-                println!("         docs: {docs_url}");
+                println!("         docs: {}", sanitize_for_terminal(docs_url));
             }
         }
     }

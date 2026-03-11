@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use mpp::client::PaymentProvider;
 
 use crate::http::{HttpClient, HttpResponse};
+use tempo_common::cli::terminal::sanitize_for_terminal;
 use tempo_common::error::{ConfigError, PaymentError};
 use tempo_common::keys::Signer;
 
@@ -85,7 +86,7 @@ pub(super) async fn handle_charge_request(
 
 /// Parse a non-200 response after payment submission into a descriptive error.
 fn parse_payment_rejection(response: &HttpResponse) -> PaymentError {
-    let reason = if let Ok(body) = response.body_string() {
+    let raw_reason = if let Ok(body) = response.body_string() {
         if let Some(msg) = tempo_common::payment::classify::extract_json_error(&body) {
             msg
         } else if serde_json::from_str::<serde_json::Value>(&body).is_ok() {
@@ -99,6 +100,7 @@ fn parse_payment_rejection(response: &HttpResponse) -> PaymentError {
     } else {
         format!("HTTP {}", response.status_code)
     };
+    let reason = sanitize_for_terminal(&raw_reason);
 
     PaymentError::PaymentRejected {
         reason,

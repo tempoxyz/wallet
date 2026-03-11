@@ -6,6 +6,7 @@ use mpp::protocol::methods::tempo::TempoChargeExt;
 
 use crate::http::HttpResponse;
 use tempo_common::cli::format::format_token_amount;
+use tempo_common::cli::terminal::sanitize_for_terminal;
 use tempo_common::error::PaymentError;
 use tempo_common::network::NetworkId;
 
@@ -33,7 +34,9 @@ impl ParsedChallenge {
             .parse::<u128>()
             .ok()
             .map(|a| format_token_amount(a, self.network))
-            .unwrap_or_else(|| format!("{} {}", self.amount, self.network.token().symbol))
+            .unwrap_or_else(|| {
+                sanitize_for_terminal(&format!("{} {}", self.amount, self.network.token().symbol))
+            })
     }
 }
 

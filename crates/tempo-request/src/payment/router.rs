@@ -35,6 +35,7 @@ pub(crate) struct PaymentResult {
 /// `network` is the already-resolved network from the 402 challenge.
 /// The caller is responsible for parsing the challenge and extracting
 /// the network before calling this function (see `query/payment_challenge.rs`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_payment(
     config: &Config,
     http: &HttpClient,
@@ -43,6 +44,7 @@ pub(crate) async fn dispatch_payment(
     challenge: PaymentChallenge,
     network: NetworkId,
     keys: &Keystore,
+    max_pay: Option<u128>,
 ) -> Result<PaymentResult> {
     if let Some(allowed) = http.network {
         if allowed != network {
@@ -64,7 +66,7 @@ pub(crate) async fn dispatch_payment(
     let signer = keys.signer(resolved.network_id)?;
 
     if is_session {
-        return handle_session_request(http, url, resolved, signer, keys).await;
+        return handle_session_request(http, url, resolved, signer, keys, max_pay).await;
     }
 
     handle_charge_request(http, url, resolved, signer).await

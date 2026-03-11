@@ -195,7 +195,9 @@ async fn try_server_close(
     };
 
     // Single-shot coop-close with the persisted cumulative (fetch fresh echo first)
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
     let fresh_echo = match client.post(close_url).send().await {
         Ok(resp) if resp.status().as_u16() == 402 => resp
             .headers()
@@ -245,9 +247,6 @@ async fn try_server_close(
 
     // Interpret response and optionally retry once with required cumulative
     let status = response.status();
-    if status == reqwest::StatusCode::GONE {
-        return Ok(None);
-    }
     if status.is_client_error() || status.is_server_error() {
         let body = response
             .text()
@@ -303,11 +302,15 @@ async fn close_on_chain(
         alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     // Check current channel state to determine which step we're on
-    let on_chain = get_channel_on_chain(&provider, escrow_contract, channel_id)
-        .await?
-        .ok_or(PaymentError::InvalidChallenge(
-            "Channel no longer exists on-chain".to_string(),
-        ))?;
+    let on_chain = match get_channel_on_chain(&provider, escrow_contract, channel_id).await? {
+        Some(channel) => channel,
+        None => {
+            return Ok(CloseOutcome::Closed {
+                tx_url: None,
+                amount_display: None,
+            })
+        }
+    };
 
     let from = wallet.from;
     let channel_id_hex = format!("{:#x}", channel_id);

@@ -11,11 +11,11 @@ use super::{extract_origin, open, streaming, SessionContext, SessionState};
 use crate::http::HttpResponse;
 use crate::payment::router::{PaymentResult, ResolvedChallenge};
 use tempo_common::cli::format::format_token_amount;
-use tempo_common::cli::terminal::address_link;
+use tempo_common::cli::terminal::{address_link, sanitize_for_terminal};
 use tempo_common::error::PaymentError;
 use tempo_common::keys::{Keystore, Signer};
 use tempo_common::payment::classify::map_mpp_validation_error;
-use tempo_common::payment::session::{channel, close, store};
+use tempo_common::payment::session::{channel, store};
 
 /// Send the actual session request with a voucher and handle the response.
 ///
@@ -51,8 +51,9 @@ async fn send_session_request(
     let status = response.status();
     if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
         let body = response.text().await.unwrap_or_default();
-        let reason = tempo_common::payment::classify::extract_json_error(&body)
+        let raw_reason = tempo_common::payment::classify::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(500).collect::<String>());
+        let reason = sanitize_for_terminal(&raw_reason);
         return Err(PaymentError::PaymentRejected {
             reason,
             status_code: status.as_u16(),
@@ -104,7 +105,8 @@ pub(crate) async fn handle_session_request(
     url: &str,
     resolved: ResolvedChallenge,
     signer: Signer,
-    keys: &Keystore,
+    _keys: &Keystore,
+    max_pay: Option<u128>,
 ) -> Result<PaymentResult> {
     let challenge = &resolved.challenge;
     let network_id = resolved.network_id;
@@ -224,6 +226,11 @@ pub(crate) async fn handle_session_request(
         .unwrap_or(base_units)
         .min(max_deposit);
 
+    // Cap deposit at the user's --max-pay limit if set
+    if let Some(cap) = max_pay {
+        deposit = deposit.min(cap);
+    }
+
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
     // gas is paid in USDC via account abstraction).
@@ -257,6 +264,7 @@ pub(crate) async fn handle_session_request(
             && r.currency == currency_hex
             && r.recipient == recipient_hex
             && r.chain_id == chain_id
+            && r.tick_cost == tick_cost.to_string()
     });
 
     if reuse {
@@ -268,12 +276,13 @@ pub(crate) async fn handle_session_request(
 
         let channel_id: B256 = record.channel_id_b256()?;
         let prev_cumulative: u128 = record.cumulative_amount_u128()?;
+        let prev_deposit: u128 = record.deposit_u128().unwrap_or(deposit);
 
         let mut state = SessionState {
             channel_id,
             escrow_contract,
             chain_id,
-            cumulative_amount: prev_cumulative + tick_cost,
+            cumulative_amount: (prev_cumulative + tick_cost).min(prev_deposit),
         };
 
         let ctx = SessionContext {
@@ -285,7 +294,8 @@ pub(crate) async fn handle_session_request(
             network_id,
             origin: &origin,
             tick_cost,
-            deposit,
+            deposit: prev_deposit,
+            max_pay,
             salt: record.salt.clone(),
             recipient: recipient_hex.clone(),
             currency: currency_hex.clone(),
@@ -298,19 +308,13 @@ pub(crate) async fn handle_session_request(
                 return Ok(result);
             }
             Err(e) => {
-                if http.log_enabled() {
-                    eprintln!("Session reuse failed: {e}");
-                }
-                // Best-effort cooperative close of the old channel
-                if http.log_enabled() {
-                    eprintln!("Attempting cooperative close of old channel...");
-                }
-                let _ = close::try_cooperative_close_from_record(&record, keys).await;
-                store::delete_session(&session_key)?;
-                if http.log_enabled() {
-                    eprintln!("Opening new channel...");
-                }
-                // Fall through to open a new channel
+                // A signed voucher may already have been transmitted, so
+                // persist the updated state and propagate the error instead
+                // of silently opening a new channel (which would double-charge).
+                let _ = persist_session(&ctx, &state);
+                return Err(e).context(
+                    "Session request failed; session state preserved for on-chain dispute",
+                );
             }
         }
     } else if existing.is_some() {
@@ -429,6 +433,7 @@ pub(crate) async fn handle_session_request(
         origin: &origin,
         tick_cost,
         deposit,
+        max_pay,
         salt: format!("{:#x}", salt),
         recipient: recipient_hex,
         currency: currency_hex,
