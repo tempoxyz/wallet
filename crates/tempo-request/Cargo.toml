@@ -36,7 +36,6 @@ urlencoding.workspace = true
 [dev-dependencies]
 assert_cmd.workspace = true
 axum.workspace = true
-predicates.workspace = true
 serde_json.workspace = true
 rusqlite.workspace = true
 serial_test.workspace = true
