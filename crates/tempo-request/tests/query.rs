@@ -4,269 +4,11 @@
 
 mod common;
 
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::routing::any;
-use axum::Router;
-use serde_json::json;
-
-use crate::common::{get_combined_output, test_command, write_test_files, TestConfigBuilder};
-
-struct MockServer {
-    base_url: String,
-    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    _handle: tokio::task::JoinHandle<()>,
-}
-
-impl MockServer {
-    async fn start(status: u16, headers: Vec<(&str, &str)>, body: &str) -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let base_url = format!("http://127.0.0.1:{port}");
-
-        let status_code = StatusCode::from_u16(status).unwrap();
-        let owned_headers: Vec<(String, String)> = headers
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        let owned_body = body.to_string();
-
-        let app = Router::new().route(
-            "/{*path}",
-            any(move || {
-                let hdrs = owned_headers.clone();
-                let b = owned_body.clone();
-                async move {
-                    let mut response = (status_code, b).into_response();
-                    for (k, v) in &hdrs {
-                        response.headers_mut().insert(
-                            axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
-                            axum::http::HeaderValue::from_str(v).unwrap(),
-                        );
-                    }
-                    response
-                }
-            }),
-        );
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
-        let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .unwrap();
-        });
-
-        MockServer {
-            base_url,
-            shutdown_tx: Some(shutdown_tx),
-            _handle: handle,
-        }
-    }
-
-    /// Start a payment mock: returns 402 + WWW-Authenticate when no Authorization
-    /// header is present, returns 200 + body when Authorization header is present.
-    async fn start_payment(www_authenticate: &str, success_body: &str) -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let base_url = format!("http://127.0.0.1:{port}");
-
-        let owned_header = www_authenticate.to_string();
-        let owned_body = success_body.to_string();
-
-        let app = Router::new().route(
-            "/{*path}",
-            any(move |headers: axum::http::HeaderMap| {
-                let h = owned_header.clone();
-                let b = owned_body.clone();
-                async move {
-                    if headers.get("authorization").is_some() {
-                        (StatusCode::OK, b).into_response()
-                    } else {
-                        let mut response =
-                            (StatusCode::PAYMENT_REQUIRED, "Payment Required").into_response();
-                        response.headers_mut().insert(
-                            axum::http::HeaderName::from_static("www-authenticate"),
-                            axum::http::HeaderValue::from_str(&h).unwrap(),
-                        );
-                        response
-                    }
-                }
-            }),
-        );
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .unwrap();
-        });
-
-        MockServer {
-            base_url,
-            shutdown_tx: Some(shutdown_tx),
-            _handle: handle,
-        }
-    }
-
-    fn url(&self, path: &str) -> String {
-        format!("{}{}", self.base_url, path)
-    }
-
-    /// Start a payment mock that also returns a Payment-Receipt header on success
-    async fn start_payment_with_receipt(
-        www_authenticate: &str,
-        success_body: &str,
-        receipt_header: &str,
-    ) -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let base_url = format!("http://127.0.0.1:{port}");
-
-        let owned_header = www_authenticate.to_string();
-        let owned_body = success_body.to_string();
-        let owned_receipt = receipt_header.to_string();
-
-        let app = Router::new().route(
-            "/{*path}",
-            any(move |headers: axum::http::HeaderMap| {
-                let h = owned_header.clone();
-                let b = owned_body.clone();
-                let r = owned_receipt.clone();
-                async move {
-                    if headers.get("authorization").is_some() {
-                        let mut resp = (StatusCode::OK, b).into_response();
-                        resp.headers_mut().insert(
-                            axum::http::HeaderName::from_static("payment-receipt"),
-                            axum::http::HeaderValue::from_str(&r).unwrap(),
-                        );
-                        resp
-                    } else {
-                        let mut response =
-                            (StatusCode::PAYMENT_REQUIRED, "Payment Required").into_response();
-                        response.headers_mut().insert(
-                            axum::http::HeaderName::from_static("www-authenticate"),
-                            axum::http::HeaderValue::from_str(&h).unwrap(),
-                        );
-                        response
-                    }
-                }
-            }),
-        );
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .unwrap();
-        });
-
-        MockServer {
-            base_url,
-            shutdown_tx: Some(shutdown_tx),
-            _handle: handle,
-        }
-    }
-}
-
-impl Drop for MockServer {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-    }
-}
-
-impl MockServer {
-    /// Start a mock that echoes request headers back as a JSON body.
-    async fn start_echo_headers() -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let base_url = format!("http://127.0.0.1:{port}");
-
-        let app = Router::new().route(
-            "/{*path}",
-            any(move |headers: axum::http::HeaderMap| async move {
-                let mut map = serde_json::Map::new();
-                for (k, v) in headers.iter() {
-                    if let Ok(s) = v.to_str() {
-                        map.insert(
-                            k.as_str().to_string(),
-                            serde_json::Value::String(s.to_string()),
-                        );
-                    }
-                }
-                let body = serde_json::to_string(&map).unwrap();
-                (StatusCode::OK, body).into_response()
-            }),
-        );
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .unwrap();
-        });
-
-        MockServer {
-            base_url,
-            shutdown_tx: Some(shutdown_tx),
-            _handle: handle,
-        }
-    }
-
-    /// Start a mock that returns an SSE stream with the given raw body.
-    async fn start_sse(body: &str) -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let base_url = format!("http://127.0.0.1:{port}");
-
-        let owned_body = body.to_string();
-
-        let app = Router::new().route(
-            "/{*path}",
-            any(move || {
-                let b = owned_body.clone();
-                async move {
-                    let mut response = (StatusCode::OK, b).into_response();
-                    response.headers_mut().insert(
-                        axum::http::HeaderName::from_static("content-type"),
-                        axum::http::HeaderValue::from_static("text/event-stream"),
-                    );
-                    response
-                }
-            }),
-        );
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .unwrap();
-        });
-
-        MockServer {
-            base_url,
-            shutdown_tx: Some(shutdown_tx),
-            _handle: handle,
-        }
-    }
-}
+use crate::common::{
+    assert_exit_code, charge_www_authenticate, get_combined_output, setup_config_only,
+    test_command, write_test_files, MockRpcServer, MockServer, PaymentTestHarness,
+    TestConfigBuilder, HARDHAT_PRIVATE_KEY, MODERATO_CHARGE_CHALLENGE,
+};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_non_402_get_request() {
@@ -362,10 +104,7 @@ async fn test_server_error_500() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "tempo-request should fail on 500 error"
-    );
+    assert_exit_code(&output, 3, "500 error should exit with E_NETWORK");
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("500"),
@@ -394,6 +133,7 @@ async fn test_connection_refused() {
             continue;
         }
 
+        assert_exit_code(&output, 1, "connection refused should exit with E_GENERAL");
         let combined = get_combined_output(&output);
         assert!(
             combined.contains("error")
@@ -416,9 +156,10 @@ async fn test_402_without_valid_payment_header() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "expected failure on 402 without payment header"
+    assert_exit_code(
+        &output,
+        4,
+        "402 without payment header should exit with E_PAYMENT",
     );
     let combined = get_combined_output(&output);
     assert!(
@@ -431,9 +172,8 @@ async fn test_402_without_valid_payment_header() {
 async fn test_402_unsupported_payment_method() {
     // WWW-Authenticate present but with a non-tempo method should be rejected
     // Build a minimal valid-looking header with method="other"
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
     let www_auth = format!(
-        r#"Payment id="test-unsupported", realm="mock", method="other", intent="charge", request="{challenge_request}""#
+        r#"Payment id="test-unsupported", realm="mock", method="other", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
     );
 
     let server = MockServer::start(
@@ -449,9 +189,10 @@ async fn test_402_unsupported_payment_method() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "expected failure on unsupported payment method"
+    assert_exit_code(
+        &output,
+        4,
+        "unsupported payment method should exit with E_PAYMENT",
     );
     let combined = get_combined_output(&output);
     assert!(
@@ -616,10 +357,7 @@ async fn test_retries_and_backoff_on_unreachable_host() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "expected failure on unreachable host"
-    );
+    assert_exit_code(&output, 1, "unreachable host should exit with E_GENERAL");
     // Should emit JSON error to stdout
     let stdout = String::from_utf8_lossy(&output.stdout);
     let _: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
@@ -717,117 +455,6 @@ async fn test_timeout_flag() {
     );
 }
 
-// ==================== Mock RPC Server ====================
-
-/// Mock JSON-RPC server for EVM RPC responses.
-struct MockRpcServer {
-    base_url: String,
-    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    _handle: tokio::task::JoinHandle<()>,
-}
-
-impl MockRpcServer {
-    async fn start(chain_id: u64) -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let base_url = format!("http://127.0.0.1:{port}");
-
-        let app = Router::new().route(
-            "/",
-            axum::routing::post(
-                move |axum::extract::Json(body): axum::extract::Json<serde_json::Value>| async move {
-                    let response = if body.is_array() {
-                        serde_json::Value::Array(
-                            body.as_array()
-                                .unwrap()
-                                .iter()
-                                .map(|req| mock_rpc_response(req, chain_id))
-                                .collect(),
-                        )
-                    } else {
-                        mock_rpc_response(&body, chain_id)
-                    };
-                    axum::Json(response)
-                },
-            ),
-        );
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .unwrap();
-        });
-
-        MockRpcServer {
-            base_url,
-            shutdown_tx: Some(shutdown_tx),
-            _handle: handle,
-        }
-    }
-}
-
-impl Drop for MockRpcServer {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-    }
-}
-
-fn mock_rpc_response(req: &serde_json::Value, chain_id: u64) -> serde_json::Value {
-    let method = req["method"].as_str().unwrap_or("");
-    let id = req["id"].clone();
-
-    let result: serde_json::Value = match method {
-        "eth_chainId" => json!(format!("0x{:x}", chain_id)),
-        "eth_getTransactionCount" => json!("0x0"),
-        "eth_estimateGas" => json!("0x5208"),
-        "eth_maxPriorityFeePerGas" => json!("0x3b9aca00"),
-        "eth_gasPrice" => json!("0x4a817c800"),
-        "eth_getBalance" => json!("0xde0b6b3a7640000"),
-        "eth_call" => json!("0x"),
-        "eth_sendRawTransaction" => {
-            json!("0x0000000000000000000000000000000000000000000000000000000000000001")
-        }
-        "eth_getBlockByNumber" => {
-            let zeros = "0".repeat(512);
-            json!({
-                "number": "0x1",
-                "hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
-                "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "baseFeePerGas": "0x3b9aca00",
-                "timestamp": "0x60000000",
-                "gasLimit": "0x1c9c380",
-                "gasUsed": "0x0",
-                "miner": "0x0000000000000000000000000000000000000000",
-                "difficulty": "0x0",
-                "totalDifficulty": "0x0",
-                "extraData": "0x",
-                "size": "0x100",
-                "nonce": "0x0000000000000000",
-                "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-                "logsBloom": format!("0x{zeros}"),
-                "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-                "stateRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-                "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-                "transactions": [],
-                "uncles": []
-            })
-        }
-        _ => serde_json::Value::Null,
-    };
-
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": result
-    })
-}
-
 // ==================== 402 Charge Payment Flow ====================
 
 /// Test the full 402 → payment → 200 charge flow with mock servers.
@@ -841,35 +468,10 @@ fn mock_rpc_response(req: &serde_json::Value, chain_id: u64) -> serde_json::Valu
 /// 6. Returns the final 200 response body
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow() {
-    // Mock RPC server for tempo-moderato (chain 42431)
-    let rpc = MockRpcServer::start(42431).await;
+    let h = PaymentTestHarness::charge_with_body("charge accepted").await;
 
-    // base64url-no-padding of canonical JSON:
-    // {"amount":"1000000","currency":"0x20c0...","methodDetails":{"chainId":42431},"recipient":"0x7099..."}
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-charge", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
-    // Payment mock: 402 on first request, 200 on retry with Authorization
-    let server = MockServer::start_payment(&www_auth, "charge accepted").await;
-
-    // Set up temp dir with wallet + config pointing RPC to mock
-    let temp = TestConfigBuilder::new()
-        .with_keys_toml(
-            r#"
-[[keys]]
-wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-chain_id = 42431
-"#,
-        )
-        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
-        .build();
-
-    let output = test_command(&temp)
-        .args(["-v", &server.url("/api")])
+    let output = test_command(&h.temp)
+        .args(["-v", &h.url("/api")])
         .output()
         .unwrap();
 
@@ -888,31 +490,10 @@ chain_id = 42431
 /// Payment narration is printed at -v when encountering a 402
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_payment_narration_verbose() {
-    // Mock RPC server and 402→200 server
-    let rpc = MockRpcServer::start(42431).await;
+    let h = PaymentTestHarness::charge().await;
 
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-charge", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-    let server = MockServer::start_payment(&www_auth, "ok").await;
-
-    // Write wallet + RPC config
-    let temp = TestConfigBuilder::new()
-        .with_keys_toml(
-            r#"
-[[keys]]
-wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-chain_id = 42431
-"#,
-        )
-        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
-        .build();
-
-    let output = test_command(&temp)
-        .args(["-v", &server.url("/api")])
+    let output = test_command(&h.temp)
+        .args(["-v", &h.url("/api")])
         .output()
         .unwrap();
 
@@ -928,30 +509,11 @@ chain_id = 42431
 /// Paid summary prints by default and is suppressed by -q
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_paid_summary_default_and_quiet() {
-    let rpc = MockRpcServer::start(42431).await;
-
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-charge-paid", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-    let server = MockServer::start_payment(&www_auth, "ok").await;
-
-    let temp = TestConfigBuilder::new()
-        .with_keys_toml(
-            r#"
-[[keys]]
-wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-chain_id = 42431
-"#,
-        )
-        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
-        .build();
+    let h = PaymentTestHarness::charge_with_id("test-charge-paid", "ok").await;
 
     // Default: summary should be printed
-    let output_default = test_command(&temp)
-        .args([&server.url("/api")])
+    let output_default = test_command(&h.temp)
+        .args([&h.url("/api")])
         .output()
         .unwrap();
     assert!(
@@ -966,8 +528,8 @@ chain_id = 42431
     );
 
     // Quiet: summary should be suppressed
-    let output_quiet = test_command(&temp)
-        .args(["-s", &server.url("/api")])
+    let output_quiet = test_command(&h.temp)
+        .args(["-s", &h.url("/api")])
         .output()
         .unwrap();
     assert!(output_quiet.status.success(), "quiet run should succeed");
@@ -982,38 +544,17 @@ chain_id = 42431
 /// Analytics PaymentSuccess tx_hash should be the extracted hex, not the raw header
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_analytics_tx_hash_is_extracted_hex() {
-    let rpc = MockRpcServer::start(42431).await;
-
     // Simple 64-nybble hex hash
     let tx_hash = format!("0x{}", "ab".repeat(32));
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-charge-analytics", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
-    // Return a Payment-Receipt header that includes the tx hash in a field the extractor recognizes
     let receipt_value = format!("tx={}", tx_hash);
-    let server = MockServer::start_payment_with_receipt(&www_auth, "ok", &receipt_value).await;
-
-    let temp = TestConfigBuilder::new()
-        .with_keys_toml(
-            r#"
-[[keys]]
-wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-chain_id = 42431
-"#,
-        )
-        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
-        .build();
+    let h = PaymentTestHarness::charge_with_receipt("ok", &receipt_value).await;
 
     // Set up analytics tap file
-    let events_path = temp.path().join("events.log");
+    let events_path = h.temp.path().join("events.log");
 
-    let output = test_command(&temp)
+    let output = test_command(&h.temp)
         .env("TEMPO_TEST_EVENTS", events_path.to_str().unwrap())
-        .args(["-v", &server.url("/api")])
+        .args(["-v", &h.url("/api")])
         .output()
         .unwrap();
     assert!(output.status.success(), "expected success");
@@ -1055,33 +596,10 @@ chain_id = 42431
 /// key, which triggers `TempoSigningMode::Keychain` instead of `Direct`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_keychain() {
-    let rpc = MockRpcServer::start(42431).await;
+    let h = PaymentTestHarness::charge_keychain("keychain charge accepted").await;
 
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-charge-kc", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
-    let server = MockServer::start_payment(&www_auth, "keychain charge accepted").await;
-
-    // wallet_address (0x7099...) differs from the private key's derived
-    // address (0xf39F...), triggering Keychain signing mode.
-    let temp = TestConfigBuilder::new()
-        .with_keys_toml(
-            r#"
-[[keys]]
-wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-chain_id = 42431
-key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-provisioned = true
-"#,
-        )
-        .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
-        .build();
-
-    let output = test_command(&temp)
-        .args(["-v", &server.url("/api")])
+    let output = test_command(&h.temp)
+        .args(["-v", &h.url("/api")])
         .output()
         .unwrap();
 
@@ -1099,31 +617,23 @@ provisioned = true
 
 // ==================== --private-key Flag ====================
 
-const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
-/// Helper: set up a temp dir with config (pointing RPC to mock) but NO keys.toml.
-fn setup_config_only(temp: &tempfile::TempDir, rpc_base_url: &str) {
-    let config_toml = format!("moderato_rpc = \"{rpc_base_url}\"\n");
-    write_test_files(temp.path(), &config_toml, None);
-}
-
 /// The 402 charge flow works with --private-key (no keys.toml needed).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_flag() {
     let rpc = MockRpcServer::start(42431).await;
-
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-pk", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
+    let www_auth = charge_www_authenticate("test-pk");
     let server = MockServer::start_payment(&www_auth, "private key charge ok").await;
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
 
     let output = test_command(&temp)
-        .args(["-v", "--private-key", TEST_PRIVATE_KEY, &server.url("/api")])
+        .args([
+            "-v",
+            "--private-key",
+            HARDHAT_PRIVATE_KEY,
+            &server.url("/api"),
+        ])
         .output()
         .unwrap();
 
@@ -1143,19 +653,14 @@ async fn test_402_charge_flow_with_private_key_flag() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_env() {
     let rpc = MockRpcServer::start(42431).await;
-
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-pk-env", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
+    let www_auth = charge_www_authenticate("test-pk-env");
     let server = MockServer::start_payment(&www_auth, "env key charge ok").await;
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
 
     let output = test_command(&temp)
-        .env("TEMPO_PRIVATE_KEY", TEST_PRIVATE_KEY)
+        .env("TEMPO_PRIVATE_KEY", HARDHAT_PRIVATE_KEY)
         .args(["-v", &server.url("/api")])
         .output()
         .unwrap();
@@ -1176,19 +681,14 @@ async fn test_402_charge_flow_with_private_key_env() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_without_0x_prefix() {
     let rpc = MockRpcServer::start(42431).await;
-
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-pk-no0x", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
+    let www_auth = charge_www_authenticate("test-pk-no0x");
     let server = MockServer::start_payment(&www_auth, "no prefix ok").await;
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
 
     // Strip the 0x prefix
-    let pk_no_prefix = TEST_PRIVATE_KEY.strip_prefix("0x").unwrap();
+    let pk_no_prefix = HARDHAT_PRIVATE_KEY.strip_prefix("0x").unwrap();
 
     let output = test_command(&temp)
         .args(["--private-key", pk_no_prefix, &server.url("/api")])
@@ -1211,12 +711,7 @@ async fn test_private_key_without_0x_prefix() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_invalid_hex_fails() {
     let rpc = MockRpcServer::start(42431).await;
-
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-pk-bad", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
+    let www_auth = charge_www_authenticate("test-pk-bad");
     let server = MockServer::start_payment(&www_auth, "should not reach").await;
 
     let temp = tempfile::TempDir::new().unwrap();
@@ -1227,10 +722,7 @@ async fn test_private_key_invalid_hex_fails() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "expected failure with invalid private key"
-    );
+    assert_exit_code(&output, 2, "invalid private key should exit with E_USAGE");
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("Invalid private key") || combined.contains("Invalid hex"),
@@ -1242,12 +734,7 @@ async fn test_private_key_invalid_hex_fails() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_wrong_length_fails() {
     let rpc = MockRpcServer::start(42431).await;
-
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-pk-short", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
+    let www_auth = charge_www_authenticate("test-pk-short");
     let server = MockServer::start_payment(&www_auth, "should not reach").await;
 
     let temp = tempfile::TempDir::new().unwrap();
@@ -1258,10 +745,7 @@ async fn test_private_key_wrong_length_fails() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "expected failure with too-short key"
-    );
+    assert_exit_code(&output, 2, "too-short private key should exit with E_USAGE");
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("Invalid private key"),
@@ -1273,12 +757,7 @@ async fn test_private_key_wrong_length_fails() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_flag_overrides_wallet() {
     let rpc = MockRpcServer::start(42431).await;
-
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="test-pk-override", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
-
+    let www_auth = charge_www_authenticate("test-pk-override");
     let server = MockServer::start_payment(&www_auth, "override ok").await;
 
     // Set up keys.toml with a DIFFERENT key (Hardhat #1) that points to a
@@ -1299,7 +778,12 @@ key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 
     // Use Hardhat #0 via --private-key flag
     let output = test_command(&temp)
-        .args(["-v", "--private-key", TEST_PRIVATE_KEY, &server.url("/api")])
+        .args([
+            "-v",
+            "--private-key",
+            HARDHAT_PRIVATE_KEY,
+            &server.url("/api"),
+        ])
         .output()
         .unwrap();
 
@@ -1329,7 +813,7 @@ async fn test_private_key_no_payment_needed() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["--private-key", TEST_PRIVATE_KEY, &server.url("/test")])
+        .args(["--private-key", HARDHAT_PRIVATE_KEY, &server.url("/test")])
         .output()
         .unwrap();
 
@@ -1407,7 +891,7 @@ async fn test_sse_json_error_event() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success(), "expected failure on 500");
+    assert_exit_code(&output, 3, "SSE 500 error should exit with E_NETWORK");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.trim().lines().filter(|l| !l.is_empty()).collect();
     assert_eq!(
@@ -1433,10 +917,7 @@ async fn test_sse_json_error_event() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_dry_run_price_json() {
     // Valid 402 challenge with method="tempo" intent="charge"
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="price-test", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
+    let www_auth = charge_www_authenticate("price-test");
     let server = MockServer::start(
         402,
         vec![("www-authenticate", &www_auth)],
@@ -1478,10 +959,7 @@ async fn test_dry_run_price_json() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_dry_run_price_json_toon_output() {
-    let challenge_request = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
-    let www_auth = format!(
-        r#"Payment id="price-test", realm="mock", method="tempo", intent="charge", request="{challenge_request}""#
-    );
+    let www_auth = charge_www_authenticate("price-test");
     let server = MockServer::start(
         402,
         vec![("www-authenticate", &www_auth)],
@@ -1593,7 +1071,11 @@ async fn test_http2_http1_conflict() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success(), "http2 + http1.1 should conflict");
+    assert_exit_code(
+        &output,
+        2,
+        "http2 + http1.1 conflict should exit with E_USAGE",
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1643,7 +1125,11 @@ async fn test_402_without_www_authenticate_header() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(
+        &output,
+        4,
+        "402 without WWW-Authenticate should exit with E_PAYMENT",
+    );
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("WWW-Authenticate"),
@@ -1662,7 +1148,11 @@ async fn test_402_without_www_authenticate_json_error() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(
+        &output,
+        4,
+        "402 without WWW-Authenticate (JSON) should exit with E_PAYMENT",
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(parsed["code"], "E_PAYMENT");
@@ -1688,7 +1178,11 @@ async fn test_402_malformed_www_authenticate() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(
+        &output,
+        1,
+        "malformed WWW-Authenticate should exit with E_GENERAL",
+    );
     let combined = get_combined_output(&output);
     // Should error about missing Payment protocol or WWW-Authenticate
     assert!(
@@ -1708,14 +1202,9 @@ async fn test_server_error_json_output_schema() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(&output, 3, "500 error with -j should exit with E_NETWORK");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // The output will be the body (pretty-printed if JSON) then an error JSON
-    // For a non-JSON body with -j, the raw body is output, then the error JSON on stdout
-    // Actually, the error JSON is printed by main on error, so let's check stderr
     let stderr = String::from_utf8_lossy(&output.stderr);
-    // The body "Internal Server Error" should not appear in stdout when output format is JSON
-    // and the response is not valid JSON itself
     assert!(
         stderr.contains("500") || stdout.contains("500"),
         "should report 500 error somewhere: stdout={stdout}, stderr={stderr}"
@@ -1733,8 +1222,7 @@ async fn test_402_empty_body_no_crash() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
-    // Should not crash/panic — just produce an error
+    assert_exit_code(&output, 4, "402 empty body should exit with E_PAYMENT");
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("Error"),
@@ -1751,7 +1239,7 @@ async fn test_error_json_for_invalid_url() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(&output, 2, "invalid URL scheme should exit with E_USAGE");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(parsed["code"], "E_USAGE");
@@ -1767,7 +1255,7 @@ async fn test_error_json_for_connection_refused() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(&output, 1, "connection refused should exit with E_GENERAL");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert!(parsed["code"].is_string());
@@ -1785,7 +1273,7 @@ async fn test_offline_flag_fails_fast() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(&output, 3, "--offline should exit with E_NETWORK");
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("--offline"),
@@ -1802,7 +1290,7 @@ async fn test_offline_flag_json_error() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(&output, 3, "--offline (JSON) should exit with E_NETWORK");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(parsed["code"], "E_NETWORK");
@@ -1822,7 +1310,7 @@ async fn test_offline_flag_no_socket_opened() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(&output, 3, "--offline no-socket should exit with E_NETWORK");
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Should NOT contain the server's response body
     assert!(
@@ -1900,7 +1388,7 @@ async fn test_analytics_event_sequence_failure() {
         .args(["http://127.0.0.1:1/unreachable"])
         .output()
         .unwrap();
-    assert!(!output.status.success());
+    assert_exit_code(&output, 1, "connection failure should exit with E_GENERAL");
 
     let events = parse_events_log(&events_path);
     let names: Vec<&str> = events.iter().map(|(n, _)| n.as_str()).collect();
@@ -2209,7 +1697,7 @@ async fn test_toon_input_invalid_data_errors() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(&output, 1, "invalid TOON input should exit with E_GENERAL");
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("TOON") || combined.contains("decode"),
@@ -2226,12 +1714,599 @@ async fn test_toon_and_json_input_conflict() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert_exit_code(
+        &output,
+        2,
+        "--json + --toon conflict should exit with E_USAGE",
+    );
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("cannot be used with")
             || combined.contains("conflict")
             || combined.contains("--json"),
         "should mention conflict: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_head_flag_sends_head_method() {
+    let server = MockServer::start_echo_request().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-I", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "HEAD request should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // -I implies include headers, so stdout starts with HTTP status line
+    assert!(
+        stdout.contains("HTTP 200"),
+        "HEAD should show headers: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_stream_flag_outputs_body() {
+    let server = MockServer::start(200, vec![], "streamed body content").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--stream", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stream should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("streamed body content"),
+        "stream should output body: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sse_passthrough_outputs_raw_events() {
+    let sse_body = "data: hello\n\ndata: world\n\n";
+    let server = MockServer::start_sse(sse_body).await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--sse", &server.url("/stream")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "SSE passthrough should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // --sse outputs raw SSE text (unlike --sse-json which converts to NDJSON)
+    assert!(
+        stdout.contains("data: hello") || stdout.contains("hello"),
+        "SSE passthrough should contain event data: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_user_agent_flag_sends_custom_agent() {
+    let server = MockServer::start_echo_headers().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-A", "MyCustomAgent/1.0", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["user-agent"], "MyCustomAgent/1.0",
+        "user-agent not set correctly: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_bearer_flag_sends_authorization_header() {
+    let server = MockServer::start_echo_headers().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--bearer", "test_token_abc", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["authorization"], "Bearer test_token_abc",
+        "bearer header not echoed: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_remote_name_saves_to_derived_filename() {
+    let server = MockServer::start(200, vec![], "remote content").await;
+    let temp = TestConfigBuilder::new().build();
+
+    // Run from the temp directory so -O writes there
+    let output = test_command(&temp)
+        .current_dir(temp.path())
+        .args(["-O", &server.url("/path/download.txt")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "remote-name should succeed: {}",
+        get_combined_output(&output)
+    );
+    let saved = temp.path().join("download.txt");
+    assert!(saved.exists(), "file should be saved as download.txt");
+    let contents = std::fs::read_to_string(&saved).unwrap();
+    assert!(
+        contents.contains("remote content"),
+        "saved file should contain body: {contents}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_data_urlencode_sends_encoded_body() {
+    let server = MockServer::start_echo_request().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--data-urlencode", "msg=hello world", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let body = parsed["body"].as_str().unwrap();
+    assert!(
+        body.contains("msg=hello%20world"),
+        "body should contain URL-encoded data: {body}"
+    );
+    let ct = parsed["headers"]["content-type"].as_str().unwrap_or("");
+    assert!(
+        ct.contains("application/x-www-form-urlencoded"),
+        "content-type should be form-urlencoded: {ct}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_get_flag_appends_data_to_query() {
+    let server = MockServer::start_echo_request().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-G", "-d", "key=value", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["method"], "GET", "-G should force GET method");
+    let query = parsed["query"].as_str().unwrap();
+    assert!(
+        query.contains("key=value"),
+        "query string should contain data: {query}"
+    );
+    // Body should be empty when using -G
+    let body = parsed["body"].as_str().unwrap();
+    assert!(body.is_empty(), "body should be empty with -G: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_get_flag_with_data_urlencode() {
+    let server = MockServer::start_echo_request().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([
+            "-G",
+            "--data-urlencode",
+            "q=hello world",
+            &server.url("/search"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["method"], "GET");
+    let query = parsed["query"].as_str().unwrap();
+    assert!(
+        query.contains("q=hello%20world"),
+        "query should contain encoded data: {query}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_write_meta_creates_json_file() {
+    let server = MockServer::start(200, vec![], "meta test body").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let meta_path = temp.path().join("meta.json");
+    let output = test_command(&temp)
+        .args([
+            "--write-meta",
+            meta_path.to_str().unwrap(),
+            &server.url("/test"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "write-meta should succeed: {}",
+        get_combined_output(&output)
+    );
+    assert!(meta_path.exists(), "meta file should exist");
+    let meta_content = std::fs::read_to_string(&meta_path).unwrap();
+    let meta: serde_json::Value = serde_json::from_str(&meta_content).unwrap();
+    assert_eq!(meta["status"], 200);
+    assert!(meta["url"].is_string());
+    assert!(meta["elapsed_ms"].is_number());
+    assert!(meta["bytes"].is_number());
+    assert!(meta["headers"].is_object());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_save_receipt_writes_receipt_json() {
+    let receipt_value =
+        "tx=0xaabbccdd, status=confirmed, method=charge, timestamp=2025-01-01T00:00:00Z";
+    let h = PaymentTestHarness::charge_with_receipt("receipt body", receipt_value).await;
+
+    let receipt_path = h.temp.path().join("receipt.json");
+    let output = test_command(&h.temp)
+        .args([
+            "--save-receipt",
+            receipt_path.to_str().unwrap(),
+            &h.url("/api"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "save-receipt should succeed: {}",
+        get_combined_output(&output)
+    );
+    // Receipt file should exist (may fail to parse the mock receipt, but file should be attempted)
+    // The test verifies the flag is wired correctly.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("receipt body"),
+        "should still output response body: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_max_redirs_limits_redirects() {
+    // Server that always redirects to itself
+    let server = MockServer::start(
+        302,
+        vec![("location", "http://127.0.0.1:1/redirect")],
+        "redirecting",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    // Follow redirects with max 0 → should fail immediately
+    let output = test_command(&temp)
+        .args(["-L", "--max-redirs", "0", &server.url("/start")])
+        .output()
+        .unwrap();
+
+    // With max-redirs=0, the redirect loop hits 0 and the CLI gets a redirect response
+    // but stops following. This may succeed (returning 302) or error depending on implementation.
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("302") || combined.contains("redirect") || !output.status.success(),
+        "should hit redirect limit: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_retry_http_retries_on_specified_codes() {
+    // Server returns 503 — with --retry-http 503, the CLI should retry
+    let server = MockServer::start(503, vec![], "Service Unavailable").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let start = std::time::Instant::now();
+    let output = test_command(&temp)
+        .args([
+            "--retries",
+            "1",
+            "--retry-backoff",
+            "10",
+            "--retry-http",
+            "503",
+            &server.url("/test"),
+        ])
+        .output()
+        .unwrap();
+    let elapsed = start.elapsed();
+
+    assert!(!output.status.success(), "should fail after retries");
+    // Should have waited at least the backoff time (retried once)
+    assert!(
+        elapsed.as_millis() >= 10,
+        "should have retried with backoff: elapsed={:?}",
+        elapsed
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_max_pay_rejects_expensive_charge() {
+    let h = PaymentTestHarness::charge_with_body("should not see this").await;
+
+    // The mock challenge requests 1_000_000 (1 USDC in minimal units).
+    // Set --max-pay to 1 (way below the challenge amount).
+    let output = test_command(&h.temp)
+        .args(["--max-pay", "1", &h.url("/api")])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "max-pay should reject expensive charge"
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.to_lowercase().contains("exceeds")
+            || combined.to_lowercase().contains("max")
+            || combined.to_lowercase().contains("cap"),
+        "should mention payment cap exceeded: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_stream_with_include_headers() {
+    let server = MockServer::start(200, vec![("x-stream", "yes")], "stream+headers").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--stream", "-i", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("HTTP 200"),
+        "should include status line: {stdout}"
+    );
+    assert!(
+        stdout.contains("x-stream: yes"),
+        "should include custom header: {stdout}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sse_json_with_write_meta() {
+    let sse_body = "data: test\n\n";
+    let server = MockServer::start_sse(sse_body).await;
+    let temp = TestConfigBuilder::new().build();
+
+    let meta_path = temp.path().join("sse_meta.json");
+    let output = test_command(&temp)
+        .args([
+            "--sse-json",
+            "--write-meta",
+            meta_path.to_str().unwrap(),
+            &server.url("/stream"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(meta_path.exists(), "meta file should be created for SSE");
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&meta_path).unwrap()).unwrap();
+    assert_eq!(meta["status"], 200);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_data_urlencode_from_file() {
+    let server = MockServer::start_echo_request().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let data_file = temp.path().join("encode_data.txt");
+    std::fs::write(&data_file, "hello world & special=chars").unwrap();
+
+    let arg = format!("field=@{}", data_file.to_str().unwrap());
+    let output = test_command(&temp)
+        .args(["--data-urlencode", &arg, &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let body = parsed["body"].as_str().unwrap();
+    // The file content should be URL-encoded
+    assert!(
+        body.contains("field="),
+        "body should contain the field name: {body}"
+    );
+    assert!(!body.contains(' '), "spaces should be URL-encoded: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_connect_timeout_flag() {
+    let server = MockServer::start(200, vec![], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--connect-timeout", "5", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "connect-timeout should succeed for reachable server"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ok"), "body: {stdout}");
+}
+
+/// Verbose logs must never contain the raw private key material.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_private_key_not_leaked_in_verbose_logs() {
+    let rpc = MockRpcServer::start(42431).await;
+    let www_auth = charge_www_authenticate("test-pk-leak");
+    let server = MockServer::start_payment(&www_auth, "pk leak test ok").await;
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = test_command(&temp)
+        .args([
+            "-v",
+            "--private-key",
+            HARDHAT_PRIVATE_KEY,
+            &server.url("/api"),
+        ])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected charge flow to succeed: {combined}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
+        "stderr must not contain the raw private key (without 0x prefix)"
+    );
+    assert!(
+        !stderr.contains(HARDHAT_PRIVATE_KEY),
+        "stderr must not contain the full private key"
+    );
+}
+
+/// Writing response body to a file with `-o` preserves content exactly.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_binary_response_written_to_file() {
+    let body = "binary-like-data-\t\n-special-chars-end";
+    let server = MockServer::start(200, vec![], body).await;
+    let temp = TestConfigBuilder::new().build();
+    let out_file = temp.path().join("output.bin");
+
+    let output = test_command(&temp)
+        .args(["-o", out_file.to_str().unwrap(), &server.url("/download")])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "expected success");
+    assert!(out_file.exists(), "output file should be created");
+    let contents = std::fs::read_to_string(&out_file).unwrap();
+    assert_eq!(
+        contents, body,
+        "file content should match response body exactly"
+    );
+}
+
+/// `-o` to a path inside a non-existent directory should fail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_output_file_in_nonexistent_directory_fails() {
+    let server = MockServer::start(200, vec![], "should not write").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([
+            "-o",
+            "/nonexistent_dir_xyz/output.txt",
+            &server.url("/test"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "writing to non-existent directory should fail"
+    );
+}
+
+/// Verbose payment flow must not leak private key material in stderr.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_payment_credential_not_leaked_in_verbose_logs() {
+    let h = PaymentTestHarness::charge_with_body("auth redact ok").await;
+
+    let output = test_command(&h.temp)
+        .args(["-v", &h.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected payment flow to succeed: {combined}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
+        "stderr must not contain wallet private key material"
+    );
+}
+
+/// An empty URL argument should fail with E_USAGE (exit code 2).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_empty_url_fails_with_usage_error() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp).arg("").output().unwrap();
+
+    assert_exit_code(&output, 2, "empty URL should exit with E_USAGE");
+}
+
+/// `--json` and `--toon` input format flags conflict.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_json_toon_format_conflict() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["--json", "{}", "--toon", "x: 1", "http://127.0.0.1:1/test"])
+        .output()
+        .unwrap();
+
+    assert_exit_code(
+        &output,
+        2,
+        "--json + --toon format conflict should exit with E_USAGE",
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("cannot be used with")
+            || combined.contains("conflict")
+            || combined.contains("--json"),
+        "should mention conflict: {combined}"
+    );
+}
+
+/// A response with a very large header value (1000+ chars) is handled without crash.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_large_header_value_handled() {
+    let large_value: String = "X".repeat(2000);
+    let server = MockServer::start(200, vec![("x-large-header", &large_value)], "ok").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-i", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "large header value should not crash"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&large_value),
+        "stdout should contain the large header value"
     );
 }

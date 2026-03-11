@@ -2,8 +2,6 @@ use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::process::Command;
 
-mod common;
-
 #[test]
 fn request_help_shows_usage() {
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-request"))

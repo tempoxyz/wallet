@@ -1,0 +1,15 @@
+[package]
+name = "tempo-test"
+version = "0.1.0"
+edition = "2021"
+description = "Shared test utilities for Tempo CLI integration tests"
+publish = false
+
+[dependencies]
+assert_cmd.workspace = true
+axum.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+toon-format.workspace = true

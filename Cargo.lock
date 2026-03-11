@@ -6541,6 +6541,7 @@ dependencies = [
  "tempfile",
  "tempo-common",
  "tempo-primitives",
+ "tempo-test",
  "tokio",
  "toon-format",
  "tracing",
@@ -6559,13 +6560,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempo-test"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "axum",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toon-format",
+]
+
+[[package]]
 name = "tempo-wallet"
 version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
  "assert_cmd",
- "axum",
  "base64 0.22.1",
  "clap",
  "clap_complete",
@@ -6577,7 +6590,6 @@ dependencies = [
  "predicates",
  "qrcode",
  "reqwest 0.12.28",
- "rusqlite",
  "security-framework",
  "serde",
  "serde_json",
@@ -6585,6 +6597,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tempo-common",
+ "tempo-test",
  "tokio",
  "toon-format",
  "tracing",

@@ -41,3 +41,5 @@ serde_json.workspace = true
 rusqlite.workspace = true
 serial_test.workspace = true
 tempfile.workspace = true
+tempo-test.workspace = true
+toon-format.workspace = true
