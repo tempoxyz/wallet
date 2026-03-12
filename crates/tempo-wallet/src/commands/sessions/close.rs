@@ -8,11 +8,11 @@ use tempo_common::cli::format::format_duration;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::error::{ConfigError, InputError, PaymentError, TempoError};
-use tempo_common::payment::session::channel::find_all_channels_for_payer;
-use tempo_common::payment::session::close::{
-    close_channel_by_id, close_discovered_channel, close_session_from_record,
-};
 use tempo_common::payment::session::CloseOutcome;
+use tempo_common::payment::session::{
+    close_channel_by_id, close_discovered_channel, close_session_from_record,
+    find_all_channels_for_payer,
+};
 
 #[derive(serde::Serialize)]
 struct CloseSummaryResponse {
@@ -93,7 +93,7 @@ pub(super) async fn close_sessions(
 
     if let Some(ref target) = url {
         if target.starts_with("0x") {
-            super::validate_channel_id(target)?;
+            super::util::validate_channel_id(target)?;
             return close_by_channel_id(ctx, target).await;
         }
         return close_by_url(ctx, target).await;
@@ -142,7 +142,7 @@ async fn dry_run_close(
     }
 
     if let Some(target) = url {
-        if super::is_channel_id(target) {
+        if super::util::is_channel_id(target) {
             targets.push(DryRunTarget {
                 channel_id: target.to_string(),
                 origin: None,
@@ -391,7 +391,8 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
             };
             // Check grace readiness from on-chain constant
             let grace =
-                super::resolve_grace_period(&ctx.config, ctx.network, &ch.escrow_contract).await;
+                super::util::resolve_grace_period(&ctx.config, ctx.network, &ch.escrow_contract)
+                    .await;
             let ready_at = ch.close_requested_at + grace;
             if now < ready_at {
                 continue;

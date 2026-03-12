@@ -1,0 +1,136 @@
+//! Channel close operations.
+//!
+//! Handles closing payment channels via cooperative server close,
+//! payer-initiated on-chain close (requestClose → withdraw), and
+//! direct channel-by-ID close.
+
+mod cooperative;
+mod onchain;
+
+pub use onchain::{close_channel_by_id, close_discovered_channel};
+
+use alloy::primitives::{Address, B256};
+use anyhow::{Context, Result};
+
+use mpp::ChallengeEcho;
+
+use super::store as session_store;
+use crate::analytics::{events, Analytics};
+use crate::cli::format::format_token_amount;
+use crate::config::Config;
+use crate::keys::Keystore;
+
+/// Outcome of an on-chain close attempt.
+pub enum CloseOutcome {
+    /// Channel fully closed (withdrawn or cooperatively settled).
+    Closed {
+        tx_url: Option<String>,
+        /// Formatted settlement amount (e.g., "0.002 USDC"), if available.
+        amount_display: Option<String>,
+    },
+    /// `requestClose()` submitted or already pending; waiting for grace period.
+    Pending { remaining_secs: u64 },
+}
+
+/// Close a session from a persisted record.
+///
+/// Used by `tempo-wallet sessions close` to send a close credential to the server.
+/// Tries cooperative (server-side) close first, then falls back to on-chain close.
+pub async fn close_session_from_record(
+    record: &session_store::SessionRecord,
+    config: &Config,
+    analytics: Option<&Analytics>,
+    keys: &Keystore,
+) -> Result<CloseOutcome> {
+    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
+        .context("Failed to parse persisted challenge echo")?;
+
+    let network_id = record.network_id();
+    let wallet = keys.signer(network_id)?;
+
+    let channel_id: B256 = record.channel_id_b256()?;
+
+    let escrow_contract: Address = record
+        .escrow_contract
+        .parse()
+        .context("Invalid escrow_contract in session record")?;
+
+    let cumulative_amount: u128 = record.cumulative_amount_u128()?;
+
+    // Try cooperative close via the server first
+    let client = reqwest::Client::new();
+    match cooperative::try_server_close(
+        record,
+        &echo,
+        &wallet.signer,
+        channel_id,
+        escrow_contract,
+        record.chain_id,
+        cumulative_amount,
+        &client,
+    )
+    .await
+    {
+        Ok(tx_url) => {
+            if let Some(a) = analytics {
+                a.track(
+                    events::COOP_CLOSE_SUCCESS,
+                    crate::analytics::CoopClosePayload {
+                        network: network_id.as_str().to_string(),
+                        channel_id: record.channel_id.clone(),
+                    },
+                );
+            }
+            let amount_display = record
+                .cumulative_amount_u128()
+                .ok()
+                .map(|amt| format_token_amount(amt, network_id));
+            return Ok(CloseOutcome::Closed {
+                tx_url,
+                amount_display,
+            });
+        }
+        Err(coop_err) => {
+            if let Some(a) = analytics {
+                a.track(
+                    events::COOP_CLOSE_FAILURE,
+                    crate::analytics::CoopClosePayload {
+                        network: network_id.as_str().to_string(),
+                        channel_id: record.channel_id.clone(),
+                    },
+                );
+            }
+            tracing::info!("Cooperative close failed: {coop_err:#}")
+        }
+    }
+
+    let fee_token: Address = record
+        .currency
+        .parse()
+        .context("Invalid currency address in session record")?;
+
+    // Fallback: payer-initiated close (requestClose → withdraw)
+    let outcome = onchain::close_on_chain(
+        config,
+        &wallet,
+        channel_id,
+        escrow_contract,
+        record.chain_id,
+        fee_token,
+    )
+    .await?;
+
+    match outcome {
+        CloseOutcome::Closed { tx_url, .. } => {
+            let amount_display = record
+                .cumulative_amount_u128()
+                .ok()
+                .map(|amt| format_token_amount(amt, network_id));
+            Ok(CloseOutcome::Closed {
+                tx_url,
+                amount_display,
+            })
+        }
+        other => Ok(other),
+    }
+}

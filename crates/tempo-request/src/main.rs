@@ -5,10 +5,9 @@
 mod analytics;
 mod app;
 mod args;
-mod commands;
 mod http;
 mod payment;
-mod request;
+mod query;
 
 use crate::args::Cli;
 

@@ -11,7 +11,7 @@ use tempo_common::cli::terminal::sanitize_for_terminal;
 use tempo_common::error::{ConfigError, PaymentError};
 use tempo_common::keys::Signer;
 
-use super::router::{PaymentResult, ResolvedChallenge};
+use super::types::{PaymentResult, ResolvedChallenge};
 use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").

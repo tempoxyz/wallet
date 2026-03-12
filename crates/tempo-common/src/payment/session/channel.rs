@@ -1,16 +1,15 @@
 //! On-chain channel queries and scanning.
 //!
-//! Functions for querying channel state from the escrow contract,
-//! scanning `ChannelOpened` events, and building channel-open transactions.
+//! Functions for querying channel state from the escrow contract
+//! and scanning `ChannelOpened` events.
 
 use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
+use alloy::primitives::{Address, Bytes, B256, U256};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Filter, TransactionRequest};
 use alloy::sol;
 use alloy::sol_types::SolCall;
 use anyhow::{Context, Result};
-use tempo_primitives::transaction::Call;
 
 use crate::config::Config;
 use crate::network::NetworkId;
@@ -289,44 +288,6 @@ pub async fn find_all_channels_for_payer(
 }
 
 // ==================== Channel Helpers ====================
-
-/// Build the escrow open calls: approve + open.
-///
-/// Constructs a 2-call sequence:
-/// 1. `approve(escrow_contract, deposit)` on the currency token
-/// 2. `IEscrow::open(payee, currency, deposit, salt, authorizedSigner)` on the escrow contract
-pub fn build_open_calls(
-    currency: Address,
-    escrow_contract: Address,
-    deposit: u128,
-    payee: Address,
-    salt: B256,
-    authorized_signer: Address,
-) -> Vec<Call> {
-    let approve_data = Bytes::from(
-        ITIP20::approveCall {
-            spender: escrow_contract,
-            amount: U256::from(deposit),
-        }
-        .abi_encode(),
-    );
-    let open_data = Bytes::from(
-        IEscrow::openCall::new((payee, currency, deposit, salt, authorized_signer)).abi_encode(),
-    );
-
-    vec![
-        Call {
-            to: TxKind::Call(currency),
-            value: U256::ZERO,
-            input: approve_data,
-        },
-        Call {
-            to: TxKind::Call(escrow_contract),
-            value: U256::ZERO,
-            input: open_data,
-        },
-    ]
-}
 
 /// Read CLOSE_GRACE_PERIOD from the escrow contract. Returns None on error.
 pub async fn read_grace_period(

@@ -4,14 +4,34 @@
 //! All transactions use expiring nonces (nonceKey=MAX, nonce=0) so no
 //! on-chain nonce fetch is needed.
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
 use alloy::providers::Provider;
+use alloy::sol;
+use alloy::sol_types::SolCall;
 use anyhow::Result;
+use tempo_primitives::transaction::Call;
 
 use mpp::client::tempo::{charge::tx_builder, signing};
 
 use crate::error::{KeyError, NetworkError};
 use crate::keys::Signer;
+
+// ==================== ABI Definitions ====================
+
+sol! {
+    interface ITIP20 {
+        function approve(address spender, uint256 amount) external returns (bool);
+    }
+    interface IEscrow {
+        function open(
+            address payee,
+            address token,
+            uint128 deposit,
+            bytes32 salt,
+            address authorizedSigner
+        ) external;
+    }
+}
 
 /// Static max fee per gas (41 gwei) — Tempo uses a fixed 20 gwei base fee.
 const MAX_FEE_PER_GAS: u128 = mpp::client::tempo::MAX_FEE_PER_GAS;
@@ -133,6 +153,46 @@ pub async fn submit_tempo_tx(
         .map_err(|e| NetworkError::Http(format!("Failed to broadcast transaction: {e:#}")))?;
 
     Ok(format!("{:#x}", pending.tx_hash()))
+}
+
+// ==================== Transaction Construction ====================
+
+/// Build the escrow open calls: approve + open.
+///
+/// Constructs a 2-call sequence:
+/// 1. `approve(escrow_contract, deposit)` on the currency token
+/// 2. `IEscrow::open(payee, currency, deposit, salt, authorizedSigner)` on the escrow contract
+pub fn build_open_calls(
+    currency: Address,
+    escrow_contract: Address,
+    deposit: u128,
+    payee: Address,
+    salt: B256,
+    authorized_signer: Address,
+) -> Vec<Call> {
+    let approve_data = Bytes::from(
+        ITIP20::approveCall {
+            spender: escrow_contract,
+            amount: U256::from(deposit),
+        }
+        .abi_encode(),
+    );
+    let open_data = Bytes::from(
+        IEscrow::openCall::new((payee, currency, deposit, salt, authorized_signer)).abi_encode(),
+    );
+
+    vec![
+        Call {
+            to: TxKind::Call(currency),
+            value: U256::ZERO,
+            input: approve_data,
+        },
+        Call {
+            to: TxKind::Call(escrow_contract),
+            value: U256::ZERO,
+            input: open_data,
+        },
+    ]
 }
 
 #[cfg(test)]

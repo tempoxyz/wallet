@@ -26,6 +26,8 @@ pub(crate) struct SpendingLimitInfo {
 pub(crate) struct KeyInfo {
     pub address: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,

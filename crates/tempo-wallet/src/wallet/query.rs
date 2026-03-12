@@ -34,7 +34,7 @@ pub(crate) async fn query_all_balances(
         Err(_) => return Vec::new(),
     };
 
-    let balance = match tempo_common::payment::session::channel::query_token_balance(
+    let balance = match tempo_common::payment::session::query_token_balance(
         &provider,
         token_address,
         account,

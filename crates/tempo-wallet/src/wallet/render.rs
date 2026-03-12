@@ -9,6 +9,7 @@ use alloy::primitives::U256;
 use tempo_common::config::Config;
 use tempo_common::keys::KeyEntry;
 use tempo_common::network::NetworkId;
+use tempo_common::payment::session::SessionRecord;
 
 use super::query;
 use super::types::{BalanceBreakdown, KeyInfo, TokenBalance};
@@ -61,6 +62,7 @@ pub(crate) async fn build_key_info(
 
     KeyInfo {
         address,
+        key: entry.key.as_deref().map(|s| s.to_string()),
         chain_id: current_chain_id,
         network: Some(network.as_str().to_string()),
         wallet_address: wallet_addr,
@@ -156,8 +158,9 @@ pub(crate) fn balance_breakdown(
     available_str: &str,
     sym: &str,
     chain_id: Option<u64>,
+    sessions: &[SessionRecord],
 ) -> Option<BalanceBreakdown> {
-    let (locked_str, session_count, decimals) = compute_locked(sym, chain_id)?;
+    let (locked_str, session_count, decimals) = compute_locked(sym, chain_id, sessions)?;
 
     let available_f64: f64 = available_str.parse().unwrap_or(0.0);
     let locked_f64: f64 = locked_str.parse().unwrap_or(0.0);
@@ -176,11 +179,11 @@ pub(crate) fn balance_breakdown(
 /// Returns `(locked_formatted, session_count, decimals)` or `None` if no locked balance.
 /// Includes expired sessions because funds remain locked in the channel
 /// contract until the channel is settled on-chain.
-fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String, usize, usize)> {
-    use tempo_common::payment::session::store as session_store;
-
-    let sessions = session_store::list_sessions().ok()?;
-
+fn compute_locked(
+    sym: &str,
+    chain_id: Option<u64>,
+    sessions: &[SessionRecord],
+) -> Option<(String, usize, usize)> {
     if sessions.is_empty() {
         return None;
     }

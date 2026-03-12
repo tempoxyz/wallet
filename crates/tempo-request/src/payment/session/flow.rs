@@ -9,13 +9,13 @@ use super::persist::persist_session;
 use super::voucher::{build_open_payload, build_voucher_credential};
 use super::{extract_origin, open, streaming, SessionContext, SessionState};
 use crate::http::HttpResponse;
-use crate::payment::router::{PaymentResult, ResolvedChallenge};
+use crate::payment::types::{PaymentResult, ResolvedChallenge};
 use tempo_common::cli::format::format_token_amount;
 use tempo_common::cli::terminal::{address_link, sanitize_for_terminal};
 use tempo_common::error::PaymentError;
 use tempo_common::keys::{Keystore, Signer};
 use tempo_common::payment::classify::map_mpp_validation_error;
-use tempo_common::payment::session::{channel, store};
+use tempo_common::payment::session;
 
 /// Send the actual session request with a voucher and handle the response.
 ///
@@ -33,10 +33,10 @@ async fn send_session_request(
 
     let mut data_request = ctx
         .reqwest_client
-        .request(ctx.http.plan.method.clone(), ctx.url)
+        .request(ctx.http.method().clone(), ctx.url)
         .header("Authorization", &voucher_auth);
-    if let Some(ref body) = ctx.http.plan.body {
-        data_request = data_request.body(body.clone());
+    if let Some(body) = ctx.http.body() {
+        data_request = data_request.body(body.to_vec());
     }
 
     let response = data_request
@@ -208,7 +208,7 @@ pub(crate) async fn handle_session_request(
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
     let origin = extract_origin(url);
-    let session_key = store::session_key(url);
+    let session_key = session::session_key(url);
 
     // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).
     // Cap at 5 tokens to limit exposure to malicious servers.
@@ -232,7 +232,7 @@ pub(crate) async fn handle_session_request(
     // gas is paid in USDC via account abstraction).
     let balance_provider =
         alloy::providers::ProviderBuilder::new().connect_http(resolved.rpc_url.clone());
-    if let Ok(balance) = channel::query_token_balance(&balance_provider, currency, from).await {
+    if let Ok(balance) = session::query_token_balance(&balance_provider, currency, from).await {
         let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
         let usable = balance_u128 / 2;
         if usable < deposit {
@@ -253,7 +253,7 @@ pub(crate) async fn handle_session_request(
     // Check for an existing persisted session.
     // Reuse requires matching payer AND challenge parameters (escrow, currency,
     // recipient, chain) to avoid a wasted round trip when the server changes config.
-    let existing = store::load_session(&session_key)?;
+    let existing = session::load_session(&session_key)?;
     let reuse = existing.as_ref().is_some_and(|r| {
         r.payer == did
             && r.escrow_contract == format!("{:#x}", escrow_contract)
@@ -317,13 +317,13 @@ pub(crate) async fn handle_session_request(
         if http.log_enabled() {
             eprintln!("Session mismatch, opening new channel...");
         }
-        store::delete_session(&session_key)?;
+        session::delete_session(&session_key)?;
     }
 
     // === Open a new channel ===
 
     // Acquire per-origin lock to prevent duplicate opens across processes
-    let _lock_guard = match store::acquire_origin_lock(&session_key) {
+    let _lock_guard = match session::acquire_origin_lock(&session_key) {
         Ok(l) => Some(l),
         Err(e) => {
             if http.log_enabled() {
@@ -353,7 +353,7 @@ pub(crate) async fn handle_session_request(
         );
     }
 
-    let open_calls = channel::build_open_calls(
+    let open_calls = session::build_open_calls(
         currency,
         escrow_contract,
         deposit,

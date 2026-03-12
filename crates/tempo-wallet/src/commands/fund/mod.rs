@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::account::TokenBalance;
 use crate::analytics;
 use crate::analytics::{WalletFundFailurePayload, WalletFundPayload};
+use crate::wallet::TokenBalance;
 use tempo_common::cli::context::Context;
 use tempo_common::error::ConfigError;
 use tempo_common::keys::Keystore;

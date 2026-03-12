@@ -6,7 +6,7 @@ use super::render::{render_channel_list, ChannelView};
 use super::{session_store, SessionStatus};
 use crate::args::SessionStateArg;
 use tempo_common::cli::context::Context;
-use tempo_common::payment::session::channel::find_all_channels_for_payer;
+use tempo_common::payment::session::find_all_channels_for_payer;
 
 /// List payment sessions.
 ///
@@ -89,7 +89,8 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
                 Some(&g) => g,
                 None => {
                     let g =
-                        super::resolve_grace_period(config, ch.network, &ch.escrow_contract).await;
+                        super::util::resolve_grace_period(config, ch.network, &ch.escrow_contract)
+                            .await;
                     grace_cache.insert(ch.escrow_contract.clone(), g);
                     g
                 }
@@ -142,8 +143,8 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
 #[cfg(test)]
 mod tests {
-    use super::super::DEFAULT_GRACE_PERIOD_SECS;
     use super::*;
+    use tempo_common::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
     fn make_record(
         state: SessionStatus,

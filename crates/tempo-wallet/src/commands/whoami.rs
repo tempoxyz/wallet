@@ -5,11 +5,11 @@ use std::io::Write;
 
 use serde::Serialize;
 
-use crate::account::{
+use crate::analytics::WHOAMI_VIEWED;
+use crate::wallet::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits_to, query_all_balances, BalanceInfo, KeyInfo,
 };
-use crate::analytics::WHOAMI_VIEWED;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
@@ -17,6 +17,7 @@ use tempo_common::cli::terminal::address_link;
 use tempo_common::config::Config;
 use tempo_common::keys::Keystore;
 use tempo_common::network::NetworkId;
+use tempo_common::payment::session;
 
 #[derive(Debug, Default, Serialize)]
 struct StatusResponse {
@@ -97,11 +98,12 @@ async fn build_response(
         .unwrap_or_else(|| "tokens".to_string());
 
     // Compute locked balance from active sessions
+    let sessions = session::list_sessions().unwrap_or_default();
     if let Some(bb) = balance_f64
         .map(|b| format!("{b}"))
         .as_deref()
         .zip(Some(symbol.as_str()))
-        .and_then(|(bal, sym)| balance_breakdown(bal, sym, chain_id))
+        .and_then(|(bal, sym)| balance_breakdown(bal, sym, chain_id, &sessions))
     {
         response.balance = Some(BalanceInfo {
             total: bb.total.parse().unwrap_or(0.0),

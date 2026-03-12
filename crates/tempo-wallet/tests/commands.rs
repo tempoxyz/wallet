@@ -137,6 +137,7 @@ fn keys_json_shape() {
     assert!(parsed["total"].as_u64().unwrap() >= 1);
     let key = &parsed["keys"][0];
     assert!(key["address"].is_string());
+    assert!(key["key"].is_string(), "JSON should include private key");
 }
 
 #[test]

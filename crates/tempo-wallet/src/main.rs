@@ -2,12 +2,12 @@
 #![deny(warnings)]
 #![warn(unreachable_pub)]
 
-mod account;
 mod analytics;
 mod app;
 mod args;
 mod commands;
 mod prompt;
+mod wallet;
 
 use crate::args::Cli;
 

@@ -7,7 +7,7 @@ use tempo_common::cli::context::Context;
 
 const SESSION_RECOVERED: Event = Event::new("session_recovered");
 use tempo_common::cli::output;
-use tempo_common::payment::session::channel::{get_channel_on_chain, query_channel_state};
+use tempo_common::payment::session::{get_channel_on_chain, query_channel_state};
 
 #[derive(serde::Serialize)]
 struct SyncOriginResponse {
@@ -118,7 +118,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
 
     // Query on-chain state for this channel on its recorded network
     let network_id = rec.network_id();
-    let provider = super::make_provider(config, network_id);
+    let provider = super::util::make_provider(config, network_id);
     let escrow: Address = rec
         .escrow_contract
         .parse()
@@ -148,7 +148,8 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
     };
 
     if on_chain.close_requested_at > 0 {
-        let grace = super::resolve_grace_period(config, network_id, &rec.escrow_contract).await;
+        let grace =
+            super::util::resolve_grace_period(config, network_id, &rec.escrow_contract).await;
         let ready_at = on_chain.close_requested_at + grace;
         let status = if ready_at <= session_store::now_secs() {
             SessionStatus::Finalizable
