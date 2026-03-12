@@ -39,10 +39,10 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
     // Local sessions (active/closing/finalizable)
     let sessions = session_store::list_sessions()?;
-    let filtered_local: Vec<_> = {
-        let net = network.as_str();
-        sessions.iter().filter(|s| s.network_name == net).collect()
-    };
+    let filtered_local: Vec<_> = sessions
+        .iter()
+        .filter(|s| s.network_id() == network)
+        .collect();
 
     let mut views: Vec<ChannelView> = Vec::new();
 

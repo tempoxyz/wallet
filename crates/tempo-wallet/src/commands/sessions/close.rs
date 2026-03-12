@@ -112,8 +112,6 @@ async fn dry_run_close(
     orphaned: bool,
     finalize: bool,
 ) -> Result<()> {
-    let net = ctx.network.as_str();
-
     #[derive(serde::Serialize)]
     struct DryRunResponse {
         targets: Vec<DryRunTarget>,
@@ -133,7 +131,7 @@ async fn dry_run_close(
     if all || (!orphaned && !finalize && url.is_none()) {
         let sessions = session_store::list_sessions()?;
         for s in &sessions {
-            if s.network_name == net {
+            if s.network_id() == ctx.network {
                 targets.push(DryRunTarget {
                     channel_id: s.channel_id.clone(),
                     origin: Some(s.origin.clone()),
@@ -194,10 +192,9 @@ async fn close_all_sessions(ctx: &Context) -> Result<()> {
 
     // Phase 1: close local sessions (scoped to current network)
     let all_sessions = session_store::list_sessions()?;
-    let net = ctx.network.as_str();
     let sessions: Vec<_> = all_sessions
         .iter()
-        .filter(|s| s.network_name == net)
+        .filter(|s| s.network_id() == ctx.network)
         .collect();
     for session in &sessions {
         let key = session_store::session_key(&session.origin);
@@ -352,7 +349,7 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
 
     // 1) Local sessions ready to finalize
     for s in session_store::list_sessions()? {
-        if s.network_name != ctx.network.as_str() {
+        if s.network_id() != ctx.network {
             continue;
         }
         if !(s.state == SessionStatus::Closing && now >= s.grace_ready_at) {

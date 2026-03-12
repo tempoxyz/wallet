@@ -91,7 +91,7 @@ impl From<&session_store::SessionRecord> for ChannelView {
 
         ChannelView {
             channel_id: session.channel_id.clone(),
-            network: session.network_name.clone(),
+            network: session.network_id().as_str().to_string(),
             origin: Some(session.origin.clone()),
             symbol: t.symbol,
             unlimited: limit_u == 0,

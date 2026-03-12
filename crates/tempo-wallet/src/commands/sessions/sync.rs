@@ -106,8 +106,8 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             output_format,
             &SyncOriginResponse::not_recovered("no local session for origin; cannot recover"),
             || {
-                println!("No local session for {origin_input}");
-                println!(
+                eprintln!("No local session for {origin_input}");
+                eprintln!(
                     "Use 'tempo wallet sessions list --state orphaned' to view on-chain channels and 'tempo wallet sessions close --orphaned' to close them."
                 );
                 Ok(())
@@ -135,7 +135,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
                     "channel already settled — removed local record",
                 ),
                 || {
-                    println!(
+                    eprintln!(
                         "Channel settled on-chain — removed local record for {}",
                         rec.origin
                     );
@@ -167,7 +167,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             output_format,
             &SyncOriginResponse::recovered(status.as_str(), remaining_secs),
             || {
-                println!(
+                eprintln!(
                     "Recovered state: {} ({}s remaining)",
                     status.as_str(),
                     remaining_secs
@@ -181,7 +181,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             output_format,
             &SyncOriginResponse::not_recovered("no pending close to recover"),
             || {
-                println!("No pending close to recover for {}", rec.origin);
+                eprintln!("No pending close to recover for {}", rec.origin);
                 Ok(())
             },
         )?;

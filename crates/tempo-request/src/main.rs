@@ -2,7 +2,7 @@
 #![deny(warnings)]
 #![warn(unreachable_pub)]
 
-pub(crate) mod analytics;
+mod analytics;
 mod app;
 mod args;
 mod commands;

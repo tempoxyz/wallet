@@ -164,7 +164,7 @@ jobs:
               )
             fi
 
-            ./target/release/tempo-sign "${SIGN_ARGS[@]}"
+            ./target/release/tempo-sign sign "${SIGN_ARGS[@]}"
           done
 
           rm /tmp/release.key

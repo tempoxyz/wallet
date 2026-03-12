@@ -112,7 +112,7 @@ pub fn write_test_files(root: &Path, config_toml: &str, keys_toml: Option<&str>)
 
 /// Set up a temp dir with config (pointing RPC to mock) but NO keys.toml.
 pub fn setup_config_only(temp: &TempDir, rpc_base_url: &str) {
-    let config_toml = format!("moderato_rpc = \"{rpc_base_url}\"\n");
+    let config_toml = format!("[rpc]\n\"tempo-moderato\" = \"{rpc_base_url}\"\n");
     write_test_files(temp.path(), &config_toml, None);
 }
 
@@ -246,7 +246,10 @@ impl PaymentTestHarness {
         let server = MockServer::start_payment_with_receipt(&www_auth, body, receipt).await;
         let temp = TestConfigBuilder::new()
             .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
-            .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+            .with_config_toml(format!(
+                "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+                rpc.base_url
+            ))
             .build();
         PaymentTestHarness { rpc, server, temp }
     }
@@ -257,7 +260,10 @@ impl PaymentTestHarness {
         let server = MockServer::start_payment(&www_auth, body).await;
         let temp = TestConfigBuilder::new()
             .with_keys_toml(keys_toml)
-            .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+            .with_config_toml(format!(
+                "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+                rpc.base_url
+            ))
             .build();
         PaymentTestHarness { rpc, server, temp }
     }
