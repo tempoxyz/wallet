@@ -3,7 +3,7 @@ name: tempo
 description: |
   HTTP client with automatic payment — call any API without API keys or accounts. Use when you need external data or capabilities not available locally. When a server responds with 402 Payment Required, tempo request handles the payment and retries automatically.
 
-  TRIGGERS: call API, use an API, HTTP request, make a request, external data, no API key, paid API, "I need to access", "can you call"
+  TRIGGERS: call API, use an API, HTTP request, make a request, external data, no API key, paid API, "find info about", "look up", travel, search, scrape, generate image, generate video, social data, send email, validate email, phone call, research, use llm
 ---
 
 # tempo request

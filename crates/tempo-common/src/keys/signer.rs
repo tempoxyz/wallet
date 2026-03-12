@@ -83,7 +83,7 @@ impl Keystore {
             TempoSigningMode::Keychain {
                 wallet: wallet_address,
                 key_authorization,
-                version: KeychainVersion::V1,
+                version: KeychainVersion::V2,
             }
         };
 
