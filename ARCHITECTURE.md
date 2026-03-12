@@ -63,7 +63,7 @@ tempo-wallet/src/
     sign.rs            — sign MPP payment challenges
     completions.rs     — shell completions
     fund/              — fund subcommands (faucet, bridge, relay)
-    sessions/          — session management (list, info, close, sync, render)
+    sessions/          — session management (list, close, sync, render)
     services/          — service directory (client, model, render)
 ```
 
@@ -152,7 +152,7 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `crates/tempo-wallet/src/app.rs` | Wallet command dispatch lifecycle |
 | `crates/tempo-wallet/src/account/` | Wallet account types (balances, spending limits), on-chain queries |
 | `crates/tempo-wallet/src/commands/login.rs` | Login command and passkey authentication flow |
-| `crates/tempo-wallet/src/commands/sessions/` | Session management commands (list/info/close/sync) |
+| `crates/tempo-wallet/src/commands/sessions/` | Session management commands (list/close/sync) |
 | `crates/tempo-wallet/src/commands/services/` | Service directory listing and detail views |
 | `crates/tempo-request/src/http/` | HTTP client, response handling, formatting |
 | `crates/tempo-request/src/request/` | Request building (headers, payload, SSE, output) |
