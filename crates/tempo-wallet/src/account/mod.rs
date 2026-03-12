@@ -9,4 +9,4 @@ pub(crate) use render::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits, print_key_limits_to,
 };
-pub(crate) use types::{KeyInfo, KeysResponse, TokenBalance};
+pub(crate) use types::{BalanceInfo, KeyInfo, KeysResponse, TokenBalance};

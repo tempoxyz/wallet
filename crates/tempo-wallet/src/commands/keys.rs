@@ -48,18 +48,9 @@ pub(crate) async fn run(ctx: &Context) -> Result<()> {
         .iter()
         .map(|entry| {
             let entry_network = NetworkId::from_chain_id(entry.chain_id).unwrap_or(network);
-            let label = entry.wallet_type.as_str();
             let cache = &balance_cache;
             async move {
-                build_key_info(
-                    config,
-                    entry_network,
-                    Some(entry.chain_id),
-                    label,
-                    entry,
-                    cache,
-                )
-                .await
+                build_key_info(config, entry_network, Some(entry.chain_id), entry, cache).await
             }
         })
         .collect();
@@ -88,12 +79,13 @@ fn render_keys(response: &KeysResponse, keystore: &Keystore) {
     for (key, entry) in response.keys.iter().zip(keystore.keys.iter()) {
         let explorer = NetworkId::from_chain_id(entry.chain_id);
 
-        if let (Some(wallet), Some(wt)) = (&key.wallet_address, &key.wallet_type) {
+        if let Some(wallet) = &key.wallet_address {
             let wallet_link = address_link(explorer.unwrap_or_default(), wallet);
-            print_field_w(10, "Wallet", &format!("{wallet_link} ({wt})"));
+            print_field_w(10, "Wallet", &wallet_link);
         }
-        if let (Some(bal), Some(sym)) = (&key.balance, &key.symbol) {
-            if let Some(bb) = balance_breakdown(bal, sym, Some(entry.chain_id)) {
+        if let (Some(bal), Some(sym)) = (key.balance, &key.symbol) {
+            let bal_str = format!("{bal}");
+            if let Some(bb) = balance_breakdown(&bal_str, sym, Some(entry.chain_id)) {
                 let session_label = if bb.session_count == 1 {
                     "session"
                 } else {

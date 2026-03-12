@@ -1,6 +1,6 @@
 //! Service directory data model and formatting helpers.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -106,27 +106,11 @@ impl ServiceRegistry {
 }
 
 impl Service {
-    pub(super) fn payment_intents(&self) -> BTreeSet<&str> {
-        self.methods
-            .values()
-            .flat_map(|m| m.intents.iter().map(|i| i.as_str()))
-            .collect()
-    }
-
     pub(super) fn format_categories(&self) -> String {
         if self.categories.is_empty() {
             "—".to_string()
         } else {
             self.categories.join(", ")
-        }
-    }
-
-    pub(super) fn format_payment_intents(&self) -> String {
-        let intents = self.payment_intents();
-        if intents.is_empty() {
-            "—".to_string()
-        } else {
-            intents.into_iter().collect::<Vec<_>>().join(", ")
         }
     }
 }
@@ -240,41 +224,5 @@ mod tests {
             docs: None,
         };
         assert_eq!(ep.format_pricing(), "$1.000000 session");
-    }
-
-    #[test]
-    fn payment_intents_deduplicates() {
-        let mut methods = HashMap::new();
-        methods.insert(
-            "a".into(),
-            PaymentMethod {
-                intents: vec!["charge".into(), "session".into()],
-            },
-        );
-        methods.insert(
-            "b".into(),
-            PaymentMethod {
-                intents: vec!["session".into()],
-            },
-        );
-        let s = Service {
-            id: "test".into(),
-            name: "Test".into(),
-            url: "https://example.com".into(),
-            service_url: None,
-            description: None,
-            icon: None,
-            categories: vec![],
-            integration: None,
-            tags: vec![],
-            status: None,
-            docs: None,
-            methods,
-            realm: None,
-            endpoints: vec![],
-            provider: None,
-        };
-        let intents: Vec<&str> = s.payment_intents().into_iter().collect();
-        assert_eq!(intents, vec!["charge", "session"]);
     }
 }

@@ -22,7 +22,7 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
     // Expand `All` and apply default
     let selected: Vec<SessionStateArg> = if states.is_empty() {
-        vec![SessionStateArg::Active]
+        vec![SessionStateArg::Active, SessionStateArg::Closing]
     } else if states.iter().any(|s| matches!(s, SessionStateArg::All)) {
         vec![
             SessionStateArg::Active,
@@ -121,7 +121,10 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
     }
 
     // Empty message by primary selection
-    let empty_msg = if selected.len() == 1 && selected[0] == SessionStateArg::Active {
+    let empty_msg = if selected
+        .iter()
+        .all(|s| matches!(s, SessionStateArg::Active | SessionStateArg::Closing))
+    {
         "No active sessions."
     } else if selected
         .iter()

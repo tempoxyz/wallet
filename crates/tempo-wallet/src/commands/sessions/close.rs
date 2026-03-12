@@ -116,7 +116,6 @@ async fn dry_run_close(
 
     #[derive(serde::Serialize)]
     struct DryRunResponse {
-        mode: &'static str,
         targets: Vec<DryRunTarget>,
     }
 
@@ -130,16 +129,6 @@ async fn dry_run_close(
     }
 
     let mut targets = Vec::new();
-
-    let mode = if finalize {
-        "finalize"
-    } else if orphaned {
-        "orphaned"
-    } else if all {
-        "all"
-    } else {
-        "single"
-    };
 
     if all || (!orphaned && !finalize && url.is_none()) {
         let sessions = session_store::list_sessions()?;
@@ -179,11 +168,11 @@ async fn dry_run_close(
         }
     }
 
-    let response = DryRunResponse { mode, targets };
+    let response = DryRunResponse { targets };
 
     output::emit_by_format(ctx.output_format, &response, || {
         eprintln!(
-            "[DRY RUN] Would close {} session(s) (mode: {mode})",
+            "[DRY RUN] Would close {} session(s)",
             response.targets.len()
         );
         for t in &response.targets {

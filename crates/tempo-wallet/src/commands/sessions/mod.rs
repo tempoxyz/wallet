@@ -1,7 +1,6 @@
 //! Session management commands.
 
 mod close;
-mod info;
 mod list;
 mod render;
 mod sync;
@@ -63,7 +62,6 @@ async fn resolve_grace_period(config: &Config, network: NetworkId, escrow_hex: &
 pub(crate) async fn run(ctx: &Context, command: SessionCommands) -> Result<()> {
     match command {
         SessionCommands::List { state } => list::list_sessions(ctx, state).await,
-        SessionCommands::Info { target } => info::show_session_info(ctx, &target).await,
         SessionCommands::Close {
             url,
             all,

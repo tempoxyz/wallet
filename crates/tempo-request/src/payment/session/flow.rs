@@ -26,10 +26,6 @@ async fn send_session_request(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
 ) -> Result<PaymentResult> {
-    if ctx.http.log_enabled() {
-        eprintln!("Sending request with session voucher...");
-    }
-
     let voucher_credential = build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
 
     let voucher_auth = mpp::format_authorization(&voucher_credential)
@@ -270,8 +266,7 @@ pub(crate) async fn handle_session_request(
     if reuse {
         let record = existing.unwrap();
         if http.log_enabled() {
-            eprintln!("Reusing existing session for {}", origin);
-            eprintln!("  Channel: {}", record.channel_id);
+            eprintln!("Reusing session {} for {}", record.channel_id, origin);
         }
 
         let channel_id: B256 = record.channel_id_b256()?;
@@ -320,7 +315,7 @@ pub(crate) async fn handle_session_request(
     } else if existing.is_some() {
         // Different payer or params — clean up
         if http.log_enabled() {
-            eprintln!("Existing session for different payer, opening new channel...");
+            eprintln!("Session mismatch, opening new channel...");
         }
         store::delete_session(&session_key)?;
     }
@@ -352,9 +347,10 @@ pub(crate) async fn handle_session_request(
 
     if http.log_enabled() {
         let deposit_display = format_token_amount(deposit, network_id);
-        eprintln!("Opening payment channel...");
-        eprintln!("  Deposit: {}", deposit_display);
-        eprintln!("  Channel: {:#x}", channel_id);
+        eprintln!(
+            "Opening channel {:#x} (deposit: {})",
+            channel_id, deposit_display
+        );
     }
 
     let open_calls = channel::build_open_calls(

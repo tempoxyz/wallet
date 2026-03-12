@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::account::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
-    print_key_limits_to, query_all_balances, KeyInfo,
+    print_key_limits_to, query_all_balances, BalanceInfo, KeyInfo,
 };
 use crate::analytics::WHOAMI_VIEWED;
 use tempo_common::cli::context::Context;
@@ -24,21 +24,7 @@ struct StatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     wallet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    wallet_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    symbol: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    balance: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    locked: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    available: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    active_sessions: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    network: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    chain_id: Option<u64>,
+    balance: Option<BalanceInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     key: Option<KeyInfo>,
     /// Key expiry as a Unix timestamp (used for text display only, not serialized).
@@ -82,9 +68,7 @@ async fn build_response(
         keys.key_for_network(network)
     };
 
-    response.network = Some(network.as_str().to_string());
     let chain_id = Some(network.chain_id());
-    response.chain_id = chain_id;
 
     let Some(key_entry) = active_entry else {
         response.ready = false;
@@ -95,34 +79,45 @@ async fn build_response(
         response.wallet = Some(key_entry.wallet_address.clone());
     }
 
-    let wt = key_entry.wallet_type.as_str();
-    response.wallet_type = Some(wt.to_string());
-
     let wallet_addr = response.wallet.as_deref().unwrap_or("");
     let balance_cache = HashMap::from([(
         (wallet_addr.to_string(), key_entry.chain_id),
         query_all_balances(config, network, wallet_addr).await,
     )]);
 
-    let mut key_info =
-        build_key_info(config, network, chain_id, wt, key_entry, &balance_cache).await;
+    let mut key_info = build_key_info(config, network, chain_id, key_entry, &balance_cache).await;
     // whoami shows wallet/type/balance at the top level, not per-key
     key_info.wallet_address = None;
     key_info.wallet_type = None;
-    response.symbol = key_info.symbol.clone();
-    response.balance = key_info.balance.take();
+
+    let balance_f64 = key_info.balance.take();
+    let symbol = key_info
+        .symbol
+        .clone()
+        .unwrap_or_else(|| "tokens".to_string());
 
     // Compute locked balance from active sessions
-    if let Some(bb) = response
-        .balance
+    if let Some(bb) = balance_f64
+        .map(|b| format!("{b}"))
         .as_deref()
-        .zip(response.symbol.as_deref())
-        .and_then(|(bal, sym)| balance_breakdown(bal, sym, response.chain_id))
+        .zip(Some(symbol.as_str()))
+        .and_then(|(bal, sym)| balance_breakdown(bal, sym, chain_id))
     {
-        response.balance = Some(bb.total);
-        response.available = Some(bb.available);
-        response.locked = Some(bb.locked);
-        response.active_sessions = Some(bb.session_count);
+        response.balance = Some(BalanceInfo {
+            total: bb.total.parse().unwrap_or(0.0),
+            locked: bb.locked.parse().unwrap_or(0.0),
+            available: bb.available.parse().unwrap_or(0.0),
+            active_sessions: bb.session_count,
+            symbol: symbol.clone(),
+        });
+    } else if let Some(b) = balance_f64 {
+        response.balance = Some(BalanceInfo {
+            total: b,
+            locked: 0.0,
+            available: b,
+            active_sessions: 0,
+            symbol: symbol.clone(),
+        });
     }
 
     if key_entry.key_address.is_none() {
@@ -144,7 +139,11 @@ impl StatusResponse {
     fn render(&self, format: OutputFormat) -> anyhow::Result<()> {
         output::emit_by_format(format, self, || {
             let w = &mut std::io::stdout();
-            let explorer = self.chain_id.and_then(NetworkId::from_chain_id);
+            let explorer = self
+                .key
+                .as_ref()
+                .and_then(|k| k.chain_id)
+                .and_then(NetworkId::from_chain_id);
 
             if self.wallet.is_none() && self.key.is_none() {
                 writeln!(w, "Not logged in. Run `tempo wallet login` to get started.")?;
@@ -152,25 +151,25 @@ impl StatusResponse {
             }
 
             if let Some(wallet) = &self.wallet {
-                let wt = self.wallet_type.as_deref().unwrap_or("unknown");
                 let wallet_link = address_link(explorer.unwrap_or_default(), wallet);
-                writeln!(w, "{:>10}: {} ({})", "Wallet", wallet_link, wt)?;
+                writeln!(w, "{:>10}: {}", "Wallet", wallet_link)?;
             }
 
             // Wallet balance
             if let Some(bal) = &self.balance {
-                let sym = self.symbol.as_deref().unwrap_or("tokens");
-                writeln!(w, "{:>10}: {} {}", "Balance", bal, sym)?;
-                if let (Some(locked), Some(available), Some(count)) =
-                    (&self.locked, &self.available, self.active_sessions)
-                {
-                    let session_label = if count == 1 { "session" } else { "sessions" };
+                writeln!(w, "{:>10}: {} {}", "Balance", bal.total, bal.symbol)?;
+                if bal.active_sessions > 0 {
+                    let session_label = if bal.active_sessions == 1 {
+                        "session"
+                    } else {
+                        "sessions"
+                    };
                     writeln!(
                         w,
                         "{:>10}: {} {} ({} active {})",
-                        "Locked", locked, sym, count, session_label
+                        "Locked", bal.locked, bal.symbol, bal.active_sessions, session_label
                     )?;
-                    writeln!(w, "{:>10}: {} {}", "Available", available, sym)?;
+                    writeln!(w, "{:>10}: {} {}", "Available", bal.available, bal.symbol)?;
                 }
             }
 
@@ -178,7 +177,7 @@ impl StatusResponse {
                 writeln!(w)?;
                 let key_link = address_link(explorer.unwrap_or_default(), &key.address);
                 writeln!(w, "{:>10}: {}", "Key", key_link)?;
-                if let Some(network) = &self.network {
+                if let Some(network) = self.key.as_ref().and_then(|k| k.network.as_deref()) {
                     writeln!(w, "{:>10}: {}", "Chain", network)?;
                 }
                 if let Some(expiry_ts) = self.key_expiry {

@@ -5,7 +5,7 @@ use alloy::primitives::U256;
 use serde::Serialize;
 
 use super::{session_store, SessionStatus};
-use tempo_common::cli::format::{format_duration, format_relative_time};
+use tempo_common::cli::format::{format_duration, format_relative_time, format_utc_timestamp};
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 
@@ -117,16 +117,16 @@ struct SessionItem<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<&'a str>,
     symbol: &'a str,
-    deposit: &'a str,
-    spent: &'a str,
-    remaining: &'a str,
+    deposit: f64,
+    spent: f64,
+    remaining: f64,
     status: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     remaining_secs: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    created_at: Option<u64>,
+    created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    last_used_at: Option<u64>,
+    last_used_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -156,13 +156,13 @@ pub(super) fn render_channel_list(
                 _ => None,
             },
             symbol: v.symbol,
-            deposit: &v.deposit,
-            spent: &v.spent,
-            remaining: &v.remaining,
+            deposit: v.deposit.parse().unwrap_or(0.0),
+            spent: v.spent.parse().unwrap_or(0.0),
+            remaining: v.remaining.parse().unwrap_or(0.0),
             status: v.status.as_str(),
             remaining_secs: v.remaining_secs,
-            created_at: v.created_at,
-            last_used_at: v.last_used_at,
+            created_at: v.created_at.map(format_utc_timestamp),
+            last_used_at: v.last_used_at.map(format_utc_timestamp),
         })
         .collect();
     let structured_payload = SessionListResponse {

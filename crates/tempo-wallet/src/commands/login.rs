@@ -1,6 +1,5 @@
 //! Login command — browser-based wallet authentication (device code + PKCE flow).
 
-use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
 use alloy::signers::local::PrivateKeySigner;
@@ -139,23 +138,9 @@ fn prompt_and_open_browser(code: &str, url: &str) {
     };
     eprintln!();
     eprintln!("Verification code: {}", display_code.bold());
+    eprintln!();
 
-    if std::io::stdin().is_terminal() {
-        eprint!(
-            "{} to open your browser to {}... ",
-            "Press Enter".bold(),
-            url
-        );
-        std::io::Write::flush(&mut std::io::stderr()).ok();
-        let url = url.to_string();
-        std::thread::spawn(move || {
-            let _ = std::io::stdin().read_line(&mut String::new());
-            try_open_browser(&url);
-        });
-    } else {
-        eprintln!("Opening browser to {}...", url);
-        try_open_browser(url);
-    }
+    try_open_browser(url);
 
     eprintln!("Waiting for authentication...");
 }

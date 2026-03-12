@@ -54,7 +54,15 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
         .map_err(|e| map_mpp_validation_error(e, &challenge))?;
 
     if dry_run {
-        eprintln!("Challenge is valid.");
+        let payload = serde_json::json!({
+            "valid": true,
+            "method": challenge.method,
+            "intent": challenge.intent.as_str(),
+        });
+        tempo_common::cli::output::emit_by_format(ctx.output_format, &payload, || {
+            eprintln!("Challenge is valid.");
+            Ok(())
+        })?;
         return Ok(());
     }
 

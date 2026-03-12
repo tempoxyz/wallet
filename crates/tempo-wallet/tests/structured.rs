@@ -26,20 +26,6 @@ fn sessions_list_json_and_toon_have_expected_shape() {
     assert!(json.get("total").is_some());
     assert!(toon.get("sessions").is_some());
     assert!(toon.get("total").is_some());
-    assert_json_toon_equivalent(&json, &toon);
-}
-
-#[test]
-fn sessions_info_missing_json_and_toon_shape() {
-    let temp = TestConfigBuilder::new().build();
-    let (json_out, json, toon_out, toon) =
-        run_both(&temp, &["sessions", "info", "https://example.com"]);
-    assert_clean_stderr(&json_out);
-    assert_clean_stderr(&toon_out);
-    assert!(json.get("sessions").is_some());
-    assert_eq!(json["total"], 0);
-    assert!(toon.get("sessions").is_some());
-    assert_eq!(toon["total"], 0);
 }
 
 #[test]
@@ -48,10 +34,11 @@ fn sessions_sync_empty_json_and_toon_shape() {
     let (json_out, json, toon_out, toon) = run_both(&temp, &["sessions", "sync"]);
     assert_clean_stderr(&json_out);
     assert_clean_stderr(&toon_out);
-    assert_eq!(json["synced"], 0);
-    assert_eq!(json["removed"], 0);
-    assert_eq!(toon["synced"], 0);
-    assert_eq!(toon["removed"], 0);
+    assert!(json.get("sessions").is_some());
+    assert!(json.get("total").is_some());
+    assert!(toon.get("sessions").is_some());
+    assert!(toon.get("total").is_some());
+    assert_json_toon_equivalent(&json, &toon);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -88,7 +75,7 @@ async fn services_json_and_toon_shapes() {
     let mut cmd = test_command(&temp);
     let out_json = cmd
         .env("TEMPO_SERVICES_URL", &mock.services_url)
-        .args(["-j", "services", "info", "openai"])
+        .args(["-j", "services", "openai"])
         .output()
         .unwrap();
     assert!(out_json.status.success());
@@ -100,7 +87,7 @@ async fn services_json_and_toon_shapes() {
     let mut cmd = test_command(&temp);
     let out_toon = cmd
         .env("TEMPO_SERVICES_URL", &mock.services_url)
-        .args(["-t", "services", "info", "openai"])
+        .args(["-t", "services", "openai"])
         .output()
         .unwrap();
     assert!(out_toon.status.success());

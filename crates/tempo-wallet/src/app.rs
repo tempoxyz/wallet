@@ -38,22 +38,8 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
             }
             Commands::MppSign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
             Commands::Services {
-                command,
-                service_id,
-                category,
-                search,
-            } => {
-                services::run(
-                    &ctx,
-                    services::ServicesArgs {
-                        command,
-                        service_id,
-                        category,
-                        search,
-                    },
-                )
-                .await
-            }
+                service_id, search, ..
+            } => services::run(&ctx, services::ServicesArgs { service_id, search }).await,
         };
         (cmd_name, result)
     })
@@ -71,14 +57,12 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Keys => "keys",
         Commands::Sessions { command } => match command {
             Some(SessionCommands::List { .. }) | None => "sessions list",
-            Some(SessionCommands::Info { .. }) => "sessions info",
             Some(SessionCommands::Close { .. }) => "sessions close",
             Some(SessionCommands::Sync { .. }) => "sessions sync",
         },
         Commands::MppSign { .. } => "mpp-sign",
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",
-            Some(ServicesCommands::Info { .. }) => "services info",
             None => "services",
         },
     }

@@ -1,27 +1,84 @@
 //! Rendering functions for the services command.
 
 use anyhow::Result;
+use serde::Serialize;
 
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::cli::terminal::{print_field, sanitize_for_terminal, truncate};
 
-use super::model::Service;
+use super::model::{EndpointPayment, Service, ServiceDocs};
+
+// ── List serialization structs ───────────────────────────────────────
+
+#[derive(Serialize)]
+struct ServiceListItem<'a> {
+    id: &'a str,
+    name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_url: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
+    categories: Vec<&'a str>,
+    tags: Vec<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    docs: Option<&'a ServiceDocs>,
+    endpoints: Vec<EndpointListItem<'a>>,
+}
+
+#[derive(Serialize)]
+struct EndpointListItem<'a> {
+    method: &'a str,
+    path: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    docs: Option<&'a str>,
+}
+
+// ── Detail serialization structs ─────────────────────────────────────
+
+#[derive(Serialize)]
+struct ServiceDetail<'a> {
+    id: &'a str,
+    name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_url: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
+    categories: Vec<&'a str>,
+    tags: Vec<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    docs: Option<&'a ServiceDocs>,
+    endpoints: Vec<EndpointDetailItem<'a>>,
+}
+
+#[derive(Serialize)]
+struct EndpointDetailItem<'a> {
+    method: &'a str,
+    path: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payment: Option<&'a EndpointPayment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    docs: Option<&'a str>,
+}
+
+// ── Public rendering entry points ────────────────────────────────────
 
 pub(super) fn render_service_list(
     services: &[Service],
     output_format: OutputFormat,
-    category: Option<&str>,
     search: Option<&str>,
 ) -> Result<()> {
     let filtered: Vec<&Service> = services
         .iter()
         .filter(|s| {
-            if let Some(cat) = category {
-                if !s.categories.iter().any(|c| c.eq_ignore_ascii_case(cat)) {
-                    return false;
-                }
-            }
             if let Some(q) = search {
                 let q_lower = q.to_lowercase();
                 let matches = s.name.to_lowercase().contains(&q_lower)
@@ -29,7 +86,10 @@ pub(super) fn render_service_list(
                     || s.description
                         .as_ref()
                         .is_some_and(|d| d.to_lowercase().contains(&q_lower))
-                    || s.tags.iter().any(|t| t.to_lowercase().contains(&q_lower));
+                    || s.tags.iter().any(|t| t.to_lowercase().contains(&q_lower))
+                    || s.categories
+                        .iter()
+                        .any(|c| c.to_lowercase().contains(&q_lower));
                 if !matches {
                     return false;
                 }
@@ -38,7 +98,31 @@ pub(super) fn render_service_list(
         })
         .collect();
 
-    output::emit_by_format(output_format, &filtered, || {
+    let list_items: Vec<ServiceListItem> = filtered
+        .iter()
+        .map(|s| ServiceListItem {
+            id: &s.id,
+            name: &s.name,
+            url: Some(&s.url),
+            service_url: s.service_url.as_deref(),
+            description: s.description.as_deref(),
+            categories: s.categories.iter().map(|c| c.as_str()).collect(),
+            tags: s.tags.iter().map(|t| t.as_str()).collect(),
+            docs: s.docs.as_ref(),
+            endpoints: s
+                .endpoints
+                .iter()
+                .map(|ep| EndpointListItem {
+                    method: &ep.method,
+                    path: &ep.path,
+                    description: ep.description.as_deref(),
+                    docs: ep.docs.as_deref(),
+                })
+                .collect(),
+        })
+        .collect();
+
+    output::emit_by_format(output_format, &list_items, || {
         if filtered.is_empty() {
             println!("No services found.");
             return Ok(());
@@ -51,19 +135,41 @@ pub(super) fn render_service_list(
 }
 
 pub(super) fn render_service_detail(service: &Service, output_format: OutputFormat) -> Result<()> {
-    output::emit_by_format(output_format, service, || {
+    let detail = ServiceDetail {
+        id: &service.id,
+        name: &service.name,
+        url: Some(&service.url),
+        service_url: service.service_url.as_deref(),
+        description: service.description.as_deref(),
+        categories: service.categories.iter().map(|c| c.as_str()).collect(),
+        tags: service.tags.iter().map(|t| t.as_str()).collect(),
+        docs: service.docs.as_ref(),
+        endpoints: service
+            .endpoints
+            .iter()
+            .map(|ep| EndpointDetailItem {
+                method: &ep.method,
+                path: &ep.path,
+                description: ep.description.as_deref(),
+                payment: ep.payment.as_ref(),
+                docs: ep.docs.as_deref(),
+            })
+            .collect(),
+    };
+
+    output::emit_by_format(output_format, &detail, || {
         render_detail(service);
         Ok(())
     })?;
     Ok(())
 }
 
+// ── Private rendering helpers ────────────────────────────────────────
+
 fn render_table(services: &[&Service]) {
-    // Max column widths to keep the table readable on standard terminals.
     const MAX_ID: usize = 20;
     const MAX_NAME: usize = 24;
     const MAX_CAT: usize = 16;
-    const MAX_STATUS: usize = 10;
 
     let w_id = services
         .iter()
@@ -83,45 +189,23 @@ fn render_table(services: &[&Service]) {
         .max()
         .unwrap_or(8)
         .clamp(8, MAX_CAT);
-    let w_status = services
-        .iter()
-        .map(|s| s.status.as_deref().unwrap_or("—").len())
-        .max()
-        .unwrap_or(6)
-        .clamp(6, MAX_STATUS);
-    // Integration column: always "1p", "3p", or "—" (max 2 chars + padding).
-    let w_integ = 3;
-    let w_payment = services
-        .iter()
-        .map(|s| s.format_payment_intents().len())
-        .max()
-        .unwrap_or(7)
-        .max(7);
 
     println!(
-        "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  {:<w_status$}  {:<w_integ$}  {:<w_payment$}  Service URL",
-        "ID", "Name", "Category", "Status", "Int", "Payment"
+        "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  Service URL",
+        "ID", "Name", "Category"
     );
-    let total_w =
-        2 + w_id + 2 + w_name + 2 + w_cat + 2 + w_status + 2 + w_integ + 2 + w_payment + 2 + 30;
+    let total_w = 2 + w_id + 2 + w_name + 2 + w_cat + 2 + 30;
     println!("  {}", "─".repeat(total_w));
 
     for s in services {
         let id = truncate(&s.id, MAX_ID);
         let name = truncate(&s.name, MAX_NAME);
         let categories = truncate(&s.format_categories(), MAX_CAT);
-        let status = truncate(s.status.as_deref().unwrap_or("—"), MAX_STATUS);
-        let integration = match s.integration.as_deref() {
-            Some("first-party") => "1p",
-            Some("third-party") => "3p",
-            _ => "—",
-        };
-        let payment = sanitize_for_terminal(&s.format_payment_intents());
         let service_url = sanitize_for_terminal(s.service_url.as_deref().unwrap_or("—"));
 
         println!(
-            "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  {:<w_status$}  {:<w_integ$}  {:<w_payment$}  {}",
-            id, name, categories, status, integration, payment, service_url
+            "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  {}",
+            id, name, categories, service_url
         );
     }
 
@@ -140,33 +224,11 @@ fn render_detail(s: &Service) {
 
     print_field("ID", &s.id);
     print_field("Categories", &s.format_categories());
-    print_field("Status", s.status.as_deref().unwrap_or("—"));
-    print_field("Integration", s.integration.as_deref().unwrap_or("—"));
     print_field("Service URL", s.service_url.as_deref().unwrap_or("—"));
     print_field("Upstream URL", &s.url);
 
     if !s.tags.is_empty() {
         print_field("Tags", &s.tags.join(", "));
-    }
-    if let Some(icon) = &s.icon {
-        print_field("Icon", icon);
-    }
-    if let Some(realm) = &s.realm {
-        print_field("Realm", realm);
-    }
-
-    if let Some(p) = &s.provider {
-        println!();
-        println!("Provider:");
-        if let Some(name) = &p.name {
-            print_field("  Name", name);
-        }
-        if let Some(url) = &p.url {
-            print_field("  URL", url);
-        }
-        if let Some(icon) = &p.icon {
-            print_field("  Icon", icon);
-        }
     }
 
     if let Some(docs) = &s.docs {

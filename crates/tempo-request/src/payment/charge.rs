@@ -53,19 +53,11 @@ pub(super) async fn handle_charge_request(
         });
     }
 
-    if http.log_enabled() {
-        eprintln!("Submitting payment...");
-    }
-
     let headers = vec![("Authorization".to_string(), auth_header)];
     let resp = http.execute(url, &headers).await?;
 
     if resp.status_code >= 400 {
         return Err(parse_payment_rejection(&resp).into());
-    }
-
-    if http.log_enabled() {
-        eprintln!("Payment accepted: HTTP {}", resp.status_code);
     }
 
     let tx_hash = resp

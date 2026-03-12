@@ -96,22 +96,20 @@ pub(super) async fn query_spending_limit(
                 let remaining_val = remaining.unwrap_or(total_limit);
                 let spent = total_limit.saturating_sub(remaining_val);
 
+                let parse_f64 = |v: U256| -> f64 {
+                    format_units(v, token_config.decimals)
+                        .expect("decimals <= 77")
+                        .parse()
+                        .unwrap_or(0.0)
+                };
                 return Some((
                     token_config.symbol.to_string(),
                     token_config.address.to_string(),
                     SpendingLimitInfo {
                         unlimited: false,
-                        limit: Some(
-                            format_units(total_limit, token_config.decimals)
-                                .expect("decimals <= 77"),
-                        ),
-                        remaining: Some(
-                            format_units(remaining_val, token_config.decimals)
-                                .expect("decimals <= 77"),
-                        ),
-                        spent: Some(
-                            format_units(spent, token_config.decimals).expect("decimals <= 77"),
-                        ),
+                        limit: Some(parse_f64(total_limit)),
+                        remaining: Some(parse_f64(remaining_val)),
+                        spent: Some(parse_f64(spent)),
                     },
                 ));
             }
@@ -149,9 +147,10 @@ pub(super) async fn query_spending_limit(
             SpendingLimitInfo {
                 unlimited: false,
                 limit: None,
-                remaining: Some(
-                    format_units(remaining, token_config.decimals).expect("decimals <= 77"),
-                ),
+                remaining: format_units(remaining, token_config.decimals)
+                    .expect("decimals <= 77")
+                    .parse()
+                    .ok(),
                 spent: None,
             },
         )),

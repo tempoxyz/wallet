@@ -13,26 +13,32 @@ pub(crate) struct TokenBalance {
 #[derive(Debug, Serialize)]
 pub(crate) struct SpendingLimitInfo {
     pub unlimited: bool,
-    pub limit: Option<String>,
-    pub remaining: Option<String>,
-    pub spent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spent: Option<f64>,
 }
 
 /// Key details for JSON output.
 #[derive(Debug, Serialize)]
 pub(crate) struct KeyInfo {
-    pub label: String,
     pub address: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub wallet_address: Option<String>,
+    pub chain_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallet_address: Option<String>,
+    #[serde(skip)]
     pub wallet_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub balance: Option<String>,
+    pub balance: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spending_limit: Option<SpendingLimitInfo>,
     /// Key expiry as an ISO-8601 UTC timestamp (JSON).
@@ -59,4 +65,14 @@ pub(crate) struct BalanceBreakdown {
     pub locked: String,
     pub available: String,
     pub session_count: usize,
+}
+
+/// Nested balance object for structured JSON output.
+#[derive(Debug, Default, Serialize)]
+pub(crate) struct BalanceInfo {
+    pub total: f64,
+    pub locked: f64,
+    pub available: f64,
+    pub active_sessions: usize,
+    pub symbol: String,
 }
