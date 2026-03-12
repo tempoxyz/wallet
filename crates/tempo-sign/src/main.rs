@@ -16,7 +16,7 @@
 //! ```
 //!
 //! The key file contains a minisign secret key box (unencrypted).
-//! Generate one with: tempo-sign generate-key <path>
+//! Generate one with: `tempo-sign generate-key <path>`
 
 use clap::{Parser, Subcommand};
 use minisign::{KeyPair, PublicKey, SecretKeyBox};

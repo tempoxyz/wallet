@@ -7,10 +7,10 @@
 //!
 //! # Module structure
 //!
-//! - [`channel`] — On-chain channel queries and event scanning
-//! - [`close`] — Channel close operations (cooperative and on-chain)
-//! - [`store`] — Session persistence (SQLite)
-//! - [`tx`] — Shared Tempo transaction signing and broadcast helpers
+//! - `channel` — On-chain channel queries and event scanning
+//! - `close` — Channel close operations (cooperative and on-chain)
+//! - `store` — Session persistence (SQLite)
+//! - `tx` — Shared Tempo transaction signing and broadcast helpers
 
 mod channel;
 mod close;
