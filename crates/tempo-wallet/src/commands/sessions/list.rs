@@ -6,7 +6,7 @@ use super::render::{render_channel_list, ChannelView};
 use super::{session_store, SessionStatus};
 use crate::args::SessionStateArg;
 use tempo_common::cli::context::Context;
-use tempo_common::payment::session::channel::find_all_channels_for_payer;
+use tempo_common::payment::session::find_all_channels_for_payer;
 
 /// List payment sessions.
 ///
@@ -22,7 +22,7 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
     // Expand `All` and apply default
     let selected: Vec<SessionStateArg> = if states.is_empty() {
-        vec![SessionStateArg::Active]
+        vec![SessionStateArg::Active, SessionStateArg::Closing]
     } else if states.iter().any(|s| matches!(s, SessionStateArg::All)) {
         vec![
             SessionStateArg::Active,
@@ -39,10 +39,10 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
     // Local sessions (active/closing/finalizable)
     let sessions = session_store::list_sessions()?;
-    let filtered_local: Vec<_> = {
-        let net = network.as_str();
-        sessions.iter().filter(|s| s.network_name == net).collect()
-    };
+    let filtered_local: Vec<_> = sessions
+        .iter()
+        .filter(|s| s.network_id() == network)
+        .collect();
 
     let mut views: Vec<ChannelView> = Vec::new();
 
@@ -89,7 +89,8 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
                 Some(&g) => g,
                 None => {
                     let g =
-                        super::resolve_grace_period(config, ch.network, &ch.escrow_contract).await;
+                        super::util::resolve_grace_period(config, ch.network, &ch.escrow_contract)
+                            .await;
                     grace_cache.insert(ch.escrow_contract.clone(), g);
                     g
                 }
@@ -121,7 +122,10 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
     }
 
     // Empty message by primary selection
-    let empty_msg = if selected.len() == 1 && selected[0] == SessionStateArg::Active {
+    let empty_msg = if selected
+        .iter()
+        .all(|s| matches!(s, SessionStateArg::Active | SessionStateArg::Closing))
+    {
         "No active sessions."
     } else if selected
         .iter()
@@ -139,8 +143,8 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
 #[cfg(test)]
 mod tests {
-    use super::super::DEFAULT_GRACE_PERIOD_SECS;
     use super::*;
+    use tempo_common::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
     fn make_record(
         state: SessionStatus,
@@ -151,7 +155,6 @@ mod tests {
             version: 1,
             origin: "https://api.example.com".into(),
             request_url: "https://api.example.com/v1".into(),
-            network_name: "tempo".into(),
             chain_id: 4217,
             escrow_contract: "0x00".into(),
             currency: "0x00".into(),

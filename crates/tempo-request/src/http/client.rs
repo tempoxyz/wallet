@@ -67,7 +67,7 @@ impl Default for HttpRequestPlan {
 /// Owns a pre-built reqwest client and the request plan. Built at the CLI
 /// boundary so that HTTP and payment modules never depend on CLI types.
 pub(crate) struct HttpClient {
-    pub(crate) plan: HttpRequestPlan,
+    plan: HttpRequestPlan,
     client: reqwest::Client,
     pub(crate) verbosity: tempo_common::cli::Verbosity,
     pub(crate) network: Option<NetworkId>,
@@ -162,6 +162,16 @@ impl HttpClient {
     /// Used by session flows that need direct access to the reqwest client.
     pub(crate) fn client(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    /// The HTTP method from the request plan.
+    pub(crate) fn method(&self) -> &reqwest::Method {
+        &self.plan.method
+    }
+
+    /// The request body from the request plan, if any.
+    pub(crate) fn body(&self) -> Option<&[u8]> {
+        self.plan.body.as_deref()
     }
 
     /// Build a raw reqwest request from the plan for streaming use.

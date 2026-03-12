@@ -80,15 +80,11 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: Option<ServicesCommands>,
 
-        /// Service ID to show details for (shorthand for `services info <ID>`)
+        /// Service ID to show details for
         #[arg(value_name = "SERVICE_ID")]
         service_id: Option<String>,
 
-        /// Filter by category (e.g. ai, search, compute)
-        #[arg(long, value_name = "CATEGORY")]
-        category: Option<String>,
-
-        /// Search by name, description, or tags
+        /// Search by name, description, tags, or category
         #[arg(long, value_name = "QUERY")]
         search: Option<String>,
     },
@@ -128,14 +124,6 @@ pub(crate) enum SessionCommands {
         #[arg(long = "state", value_enum, value_delimiter = ',')]
         state: Vec<SessionStateArg>,
     },
-    /// Show details for a specific session or channel
-    ///
-    /// Accepts a URL/origin (shows local session details) or a channel ID (0x...).
-    /// For channel IDs, if no network is provided, defaults to Tempo mainnet.
-    Info {
-        /// URL/origin or channel ID (0x...)
-        target: String,
-    },
     /// Close a payment session and remove it locally
     Close {
         /// URL, origin, or channel ID (0x...) to close
@@ -169,9 +157,4 @@ pub(crate) enum SessionCommands {
 pub(crate) enum ServicesCommands {
     /// List available services
     List,
-    /// Show detailed information about a service
-    Info {
-        /// Service ID (e.g. openai, anthropic)
-        service_id: String,
-    },
 }

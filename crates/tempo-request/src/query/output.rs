@@ -34,11 +34,6 @@ impl OutputOptions {
     pub(crate) fn log_enabled(&self) -> bool {
         self.verbosity.log_enabled()
     }
-
-    /// Whether payment summaries should be printed (always, unless `--quiet`).
-    pub(crate) fn payment_log_enabled(&self) -> bool {
-        self.verbosity.show_output
-    }
 }
 
 /// Build `OutputOptions` from CLI arguments + config.
@@ -203,7 +198,7 @@ pub(crate) fn display_receipt(
     amount_display: &str,
 ) {
     // Always show payment summary when money moved (unless --quiet)
-    if !output_opts.payment_log_enabled() {
+    if !output_opts.log_enabled() {
         return;
     }
 
@@ -224,15 +219,6 @@ pub(crate) fn display_receipt(
         eprintln!("Paid {amount_display} · {l}");
     } else {
         eprintln!("Paid {amount_display}");
-    }
-
-    // Extended receipt details at -v
-    if output_opts.log_enabled() {
-        if let Some(receipt) = parsed_receipt {
-            eprintln!("  Status: {}", receipt.status);
-            eprintln!("  Method: {}", receipt.method);
-            eprintln!("  Timestamp: {}", receipt.timestamp);
-        }
     }
 }
 

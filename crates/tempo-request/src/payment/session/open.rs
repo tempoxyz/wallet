@@ -10,7 +10,7 @@ use anyhow::Result;
 use crate::http::{HttpClient, HttpResponse};
 use tempo_common::error::{ConfigError, PaymentError};
 use tempo_common::keys::Signer;
-use tempo_common::payment::session::tx as common_tx;
+use tempo_common::payment::session as common_tx;
 
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {

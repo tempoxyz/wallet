@@ -57,7 +57,8 @@ tempo wallet -t whoami
 
 Check these fields in the response:
 - `ready` — `true` means the wallet is connected, provisioned, and has a key
-- `balance` — the wallet's USDC balance (top-level field)
+- `balance.total` — the wallet's total USDC balance
+- `balance.available` — USDC available (not locked in sessions)
 
 If `ready` is `false`, run `tempo wallet login` and retry.
 
@@ -67,19 +68,22 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 {
   "ready": true,
   "wallet": "0x1234...abcd",
-  "wallet_type": "passkey",
-  "symbol": "USDC",
-  "balance": "10.50",
-  "network": "tempo",
-  "chain_id": 4217,
+  "balance": {
+    "total": 10.5,
+    "locked": 1.0,
+    "available": 9.5,
+    "active_sessions": 1,
+    "symbol": "USDC"
+  },
   "key": {
-    "label": "passkey",
     "address": "0xabcd...1234",
+    "chain_id": 4217,
+    "network": "tempo",
     "spending_limit": {
       "unlimited": false,
-      "limit": "100.00",
-      "remaining": "89.50",
-      "spent": "10.50"
+      "limit": 100.0,
+      "remaining": 89.5,
+      "spent": 10.5
     },
     "expires_at": "2026-03-26T00:00:00Z"
   }
@@ -92,18 +96,18 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 {
   "keys": [
     {
-      "label": "passkey",
       "address": "0xabcd...1234",
+      "chain_id": 4217,
+      "network": "tempo",
       "wallet_address": "0x1234...abcd",
-      "wallet_type": "passkey",
       "symbol": "USDC",
       "currency": "0x...",
-      "balance": "10.50",
+      "balance": 10.5,
       "spending_limit": {
         "unlimited": false,
-        "limit": "100.00",
-        "remaining": "89.50",
-        "spent": "10.50"
+        "limit": 100.0,
+        "remaining": 89.5,
+        "spent": 10.5
       },
       "expires_at": "2026-03-26T00:00:00Z"
     }

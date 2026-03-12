@@ -6534,7 +6534,7 @@ name = "tempo-sign"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
- "getrandom 0.2.17",
+ "clap",
  "minisign",
  "serde_json",
  "sha2",

@@ -10,13 +10,13 @@ fn tempo_sign() -> Command {
 // ── Missing required flags ──────────────────────────────────────────────
 
 #[test]
-fn missing_required_flags_exits_2() {
+fn missing_subcommand_exits_2() {
     let output = tempo_sign().output().unwrap();
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("--key-file") && stderr.contains("--version"),
-        "should mention required flags: {stderr}"
+        stderr.contains("Usage") || stderr.contains("subcommand"),
+        "should mention usage or subcommand: {stderr}"
     );
 }
 
@@ -29,13 +29,14 @@ fn missing_version_exits_2() {
 
     // Generate a key first
     let gen = tempo_sign()
-        .args(["--generate-key", key_path.to_str().unwrap()])
+        .args(["generate-key", key_path.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(gen.status.success());
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             key_path.to_str().unwrap(),
             "--artifacts-dir",
@@ -54,7 +55,7 @@ fn generate_key_creates_file() {
     let key_path = tmp.path().join("release.key");
 
     let output = tempo_sign()
-        .args(["--generate-key", key_path.to_str().unwrap()])
+        .args(["generate-key", key_path.to_str().unwrap()])
         .output()
         .unwrap();
 
@@ -91,13 +92,13 @@ fn print_public_key_outputs_base64() {
 
     // Generate key first
     let gen = tempo_sign()
-        .args(["--generate-key", key_path.to_str().unwrap()])
+        .args(["generate-key", key_path.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(gen.status.success());
 
     let output = tempo_sign()
-        .args(["--print-public-key", key_path.to_str().unwrap()])
+        .args(["print-public-key", key_path.to_str().unwrap()])
         .output()
         .unwrap();
 
@@ -117,7 +118,7 @@ fn print_public_key_outputs_base64() {
 #[test]
 fn print_public_key_invalid_file_exits_1() {
     let output = tempo_sign()
-        .args(["--print-public-key", "/nonexistent/key.file"])
+        .args(["print-public-key", "/nonexistent/key.file"])
         .output()
         .unwrap();
 
@@ -135,7 +136,7 @@ fn setup_signing_env(tmp: &tempfile::TempDir) -> (String, String) {
 
     // Generate key
     let gen = tempo_sign()
-        .args(["--generate-key", key_path.to_str().unwrap()])
+        .args(["generate-key", key_path.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(gen.status.success());
@@ -166,6 +167,7 @@ fn sign_artifacts_produces_manifest() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -221,6 +223,7 @@ fn sign_version_prefix_normalized() {
     // Pass version already prefixed with 'v'
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -263,6 +266,7 @@ fn sign_skips_non_binary_extensions() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -295,6 +299,7 @@ fn sign_empty_artifacts_produces_empty_binaries() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -324,6 +329,7 @@ fn sign_custom_base_url() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -360,6 +366,7 @@ fn sign_with_description() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -390,6 +397,7 @@ fn sign_with_skill_metadata() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -428,6 +436,7 @@ fn sign_with_skill_file_adds_signature() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -472,6 +481,7 @@ fn sign_default_output_is_manifest_json() {
     let output = tempo_sign()
         .current_dir(tmp.path())
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",
@@ -504,6 +514,7 @@ fn sign_sha256_matches_file_content() {
 
     let output = tempo_sign()
         .args([
+            "sign",
             "--key-file",
             &key_path,
             "--artifacts-dir",

@@ -7,13 +7,7 @@ use tempo_common::cli::context::Context;
 
 const SESSION_RECOVERED: Event = Event::new("session_recovered");
 use tempo_common::cli::output;
-use tempo_common::payment::session::channel::{get_channel_on_chain, query_channel_state};
-
-#[derive(serde::Serialize)]
-struct SyncSessionsResponse {
-    synced: usize,
-    removed: usize,
-}
+use tempo_common::payment::session::{get_channel_on_chain, query_channel_state};
 
 #[derive(serde::Serialize)]
 struct SyncOriginResponse {
@@ -51,7 +45,6 @@ impl SyncOriginResponse {
 /// Without an origin, removes stale local records for settled channels.
 /// With `--origin`, re-syncs close timing for a specific session.
 pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result<()> {
-    let output_format = ctx.output_format;
     let show_output = ctx.verbosity.show_output;
 
     if let Some(origin_input) = origin {
@@ -60,70 +53,47 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
 
     let sessions = session_store::list_sessions()?;
 
-    if sessions.is_empty() {
-        output::emit_by_format(
-            output_format,
-            &SyncSessionsResponse {
-                synced: 0,
-                removed: 0,
-            },
-            || {
-                println!("No sessions to sync.");
-                Ok(())
-            },
-        )?;
-        return Ok(());
-    }
+    if !sessions.is_empty() {
+        let mut removed = 0;
 
-    let mut removed = 0;
+        for session in &sessions {
+            let network_id = session.network_id();
+            let state = query_channel_state(&ctx.config, &session.channel_id, network_id).await;
 
-    for session in &sessions {
-        let network_id = session.network_id();
-        let state = query_channel_state(&ctx.config, &session.channel_id, network_id).await;
-
-        let is_gone = match state {
-            Ok(None) => true,     // Channel settled or doesn't exist
-            Ok(Some(_)) => false, // Channel still open
-            Err(e) => {
-                // RPC error — skip, don't delete (may be transient)
-                if show_output {
-                    eprintln!(
-                        "  Skipping {} ({}): {e}",
-                        session.origin, session.channel_id
-                    );
+            let is_gone = match state {
+                Ok(None) => true,
+                Ok(Some(_)) => false,
+                Err(e) => {
+                    if show_output {
+                        eprintln!(
+                            "  Skipping {} ({}): {e}",
+                            session.origin, session.channel_id
+                        );
+                    }
+                    false
                 }
-                false
-            }
-        };
+            };
 
-        if is_gone {
-            if show_output {
-                eprintln!("  Removed stale session: {}", session.origin);
+            if is_gone {
+                if show_output {
+                    eprintln!("  Removed stale session: {}", session.origin);
+                }
+                let key = session_store::session_key(&session.origin);
+                let _ = session_store::delete_session(&key);
+                removed += 1;
             }
-            let key = session_store::session_key(&session.origin);
-            let _ = session_store::delete_session(&key);
-            removed += 1;
+        }
+
+        if show_output && removed > 0 {
+            eprintln!(
+                "Synced {} session(s), removed {} stale.",
+                sessions.len(),
+                removed
+            );
         }
     }
 
-    let total = sessions.len();
-    output::emit_by_format(
-        output_format,
-        &SyncSessionsResponse {
-            synced: total,
-            removed,
-        },
-        || {
-            if removed > 0 {
-                println!("Synced {total} session(s), removed {removed} stale.");
-            } else {
-                println!("All {total} session(s) are up to date.");
-            }
-            Ok(())
-        },
-    )?;
-
-    Ok(())
+    super::list::list_sessions(ctx, vec![]).await
 }
 
 /// Re-sync a single session's close state from on-chain for a given origin.
@@ -136,8 +106,8 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             output_format,
             &SyncOriginResponse::not_recovered("no local session for origin; cannot recover"),
             || {
-                println!("No local session for {origin_input}");
-                println!(
+                eprintln!("No local session for {origin_input}");
+                eprintln!(
                     "Use 'tempo wallet sessions list --state orphaned' to view on-chain channels and 'tempo wallet sessions close --orphaned' to close them."
                 );
                 Ok(())
@@ -148,7 +118,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
 
     // Query on-chain state for this channel on its recorded network
     let network_id = rec.network_id();
-    let provider = super::make_provider(config, network_id);
+    let provider = super::util::make_provider(config, network_id);
     let escrow: Address = rec
         .escrow_contract
         .parse()
@@ -165,7 +135,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
                     "channel already settled — removed local record",
                 ),
                 || {
-                    println!(
+                    eprintln!(
                         "Channel settled on-chain — removed local record for {}",
                         rec.origin
                     );
@@ -178,7 +148,8 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
     };
 
     if on_chain.close_requested_at > 0 {
-        let grace = super::resolve_grace_period(config, network_id, &rec.escrow_contract).await;
+        let grace =
+            super::util::resolve_grace_period(config, network_id, &rec.escrow_contract).await;
         let ready_at = on_chain.close_requested_at + grace;
         let status = if ready_at <= session_store::now_secs() {
             SessionStatus::Finalizable
@@ -197,7 +168,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             output_format,
             &SyncOriginResponse::recovered(status.as_str(), remaining_secs),
             || {
-                println!(
+                eprintln!(
                     "Recovered state: {} ({}s remaining)",
                     status.as_str(),
                     remaining_secs
@@ -211,7 +182,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<()> {
             output_format,
             &SyncOriginResponse::not_recovered("no pending close to recover"),
             || {
-                println!("No pending close to recover for {}", rec.origin);
+                eprintln!("No pending close to recover for {}", rec.origin);
                 Ok(())
             },
         )?;

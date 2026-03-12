@@ -2,20 +2,22 @@
 
 use anyhow::{Context, Result};
 
-use tempo_common::payment::session::store::{self, SessionRecord, SessionStatus};
+use tempo_common::payment::session::{
+    load_session, now_secs, save_session, session_key, SessionRecord, SessionStatus,
+};
 
 use super::{SessionContext, SessionState};
 
 /// Persist or update the session record to disk.
 pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()> {
-    let now = store::now_secs();
+    let now = now_secs();
 
     let echo_json =
         serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
 
-    let session_key = store::session_key(ctx.url);
-    let existing = store::load_session(&session_key)?
-        .filter(|r| r.channel_id == format!("{:#x}", state.channel_id));
+    let session_key = session_key(ctx.url);
+    let existing =
+        load_session(&session_key)?.filter(|r| r.channel_id == format!("{:#x}", state.channel_id));
 
     let record = if let Some(mut rec) = existing {
         // Update existing record
@@ -28,7 +30,6 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
             version: 1,
             origin: ctx.origin.to_string(),
             request_url: ctx.url.to_string(),
-            network_name: ctx.network_id.as_str().to_string(),
             chain_id: state.chain_id,
             escrow_contract: format!("{:#x}", state.escrow_contract),
             currency: ctx.currency.clone(),
@@ -49,7 +50,7 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
         }
     };
 
-    store::save_session(&record)?;
+    save_session(&record)?;
 
     if ctx.http.log_enabled() {
         let cumulative_display =

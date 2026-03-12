@@ -137,6 +137,7 @@ fn keys_json_shape() {
     assert!(parsed["total"].as_u64().unwrap() >= 1);
     let key = &parsed["keys"][0];
     assert!(key["address"].is_string());
+    assert!(key["key"].is_string(), "JSON should include private key");
 }
 
 #[test]
@@ -206,36 +207,6 @@ fn sessions_list_state_all_json() {
 }
 
 #[test]
-fn sessions_info_not_found_json() {
-    let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp)
-        .args(["-j", "sessions", "info", "https://nonexistent.example.com"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert_eq!(parsed["total"], 0);
-}
-
-#[test]
-fn sessions_info_found_json() {
-    let temp = TestConfigBuilder::new().build();
-    seed_local_session(&temp, "https://api.example.com");
-
-    let output = test_command(&temp)
-        .args(["-j", "sessions", "info", "https://api.example.com"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert!(parsed["total"].as_u64().unwrap() >= 1);
-}
-
-#[test]
 fn sessions_sync_empty_json() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
@@ -246,8 +217,8 @@ fn sessions_sync_empty_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert_eq!(parsed["synced"], 0);
-    assert_eq!(parsed["removed"], 0);
+    assert!(parsed["sessions"].is_array());
+    assert_eq!(parsed["total"], 0);
 }
 
 // ==================== services ====================
@@ -260,7 +231,7 @@ async fn services_category_filter() {
     // Filter by existing category
     let output = test_command(&temp)
         .env("TEMPO_SERVICES_URL", &mock.services_url)
-        .args(["-j", "services", "--category", "ai"])
+        .args(["-j", "services", "--search", "ai"])
         .output()
         .unwrap();
 
@@ -272,7 +243,7 @@ async fn services_category_filter() {
     // Filter by non-existent category
     let output = test_command(&temp)
         .env("TEMPO_SERVICES_URL", &mock.services_url)
-        .args(["-j", "services", "--category", "nonexistent"])
+        .args(["-j", "services", "--search", "nonexistent"])
         .output()
         .unwrap();
 
@@ -319,7 +290,7 @@ async fn services_info_not_found() {
 
     let output = test_command(&temp)
         .env("TEMPO_SERVICES_URL", &mock.services_url)
-        .args(["services", "info", "nonexistent_service"])
+        .args(["services", "nonexistent_service"])
         .output()
         .unwrap();
 
@@ -370,6 +341,28 @@ fn sign_dry_run_valid_challenge_succeeds() {
         stderr.contains("Challenge is valid"),
         "should confirm valid challenge: {stderr}"
     );
+}
+
+#[test]
+fn sign_dry_run_json_emits_structured() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args([
+            "-j",
+            "mpp-sign",
+            "--dry-run",
+            "--challenge",
+            VALID_CHARGE_CHALLENGE,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["valid"], true);
+    assert_eq!(parsed["method"], "tempo");
 }
 
 #[test]

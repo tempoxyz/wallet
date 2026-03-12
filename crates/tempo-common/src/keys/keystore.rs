@@ -17,7 +17,7 @@ use super::model::{KeyEntry, WalletType};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Keystore {
     #[serde(default)]
-    pub keys: Vec<KeyEntry>,
+    pub(crate) keys: Vec<KeyEntry>,
 
     /// Whether this keystore was built from an ephemeral `--private-key`
     /// override. Ephemeral keystores are never written to disk.
@@ -26,6 +26,21 @@ pub struct Keystore {
 }
 
 impl Keystore {
+    /// Iterate over key entries.
+    pub fn iter(&self) -> impl Iterator<Item = &KeyEntry> {
+        self.keys.iter()
+    }
+
+    /// Number of key entries.
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Whether the keystore has no keys.
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
     /// Create ephemeral keys from a raw private key (for `--private-key`).
     ///
     /// Derives the address from the key and creates a single-account

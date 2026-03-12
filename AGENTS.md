@@ -43,7 +43,7 @@ Shared library used by `tempo-wallet` and `tempo-request`. Contains core logic:
 
 Wallet identity and custody extension, plus session/service management. Source organized by module directories:
 - `crates/tempo-wallet/src/main.rs` - CLI entry point
-- `crates/tempo-wallet/src/args.rs` - clap definitions (Cli, Commands, KeyCommands, SessionCommands, ServicesCommands)
+- `crates/tempo-wallet/src/args.rs` - clap definitions (Cli, Commands, SessionCommands, ServicesCommands)
 - `crates/tempo-wallet/src/app.rs` - Command dispatch: context building, command routing, analytics
 - `crates/tempo-wallet/src/analytics.rs` - Wallet-specific analytics events and payloads
 - `crates/tempo-wallet/src/prompt.rs` - Interactive prompt helpers
@@ -55,7 +55,7 @@ Wallet identity and custody extension, plus session/service management. Source o
   - `whoami.rs` - Whoami command
   - `keys.rs` - Key listing, balance and spending limit queries
   - `fund/` - Fund subcommands (faucet.rs, bridge.rs, relay.rs)
-  - `sessions/` - Session management (list, info, close, sync, render)
+  - `sessions/` - Session management (list, close, sync, render)
   - `services/` - Service directory (client, model, render)
   - `sign.rs` - Sign MPP payment challenges
   - `completions.rs` - Shell completions

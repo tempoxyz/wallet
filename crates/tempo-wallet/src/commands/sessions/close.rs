@@ -8,11 +8,11 @@ use tempo_common::cli::format::format_duration;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::error::{ConfigError, InputError, PaymentError, TempoError};
-use tempo_common::payment::session::channel::find_all_channels_for_payer;
-use tempo_common::payment::session::close::{
-    close_channel_by_id, close_discovered_channel, close_session_from_record,
-};
 use tempo_common::payment::session::CloseOutcome;
+use tempo_common::payment::session::{
+    close_channel_by_id, close_discovered_channel, close_session_from_record,
+    find_all_channels_for_payer,
+};
 
 #[derive(serde::Serialize)]
 struct CloseSummaryResponse {
@@ -93,7 +93,7 @@ pub(super) async fn close_sessions(
 
     if let Some(ref target) = url {
         if target.starts_with("0x") {
-            super::validate_channel_id(target)?;
+            super::util::validate_channel_id(target)?;
             return close_by_channel_id(ctx, target).await;
         }
         return close_by_url(ctx, target).await;
@@ -112,11 +112,8 @@ async fn dry_run_close(
     orphaned: bool,
     finalize: bool,
 ) -> Result<()> {
-    let net = ctx.network.as_str();
-
     #[derive(serde::Serialize)]
     struct DryRunResponse {
-        mode: &'static str,
         targets: Vec<DryRunTarget>,
     }
 
@@ -131,20 +128,10 @@ async fn dry_run_close(
 
     let mut targets = Vec::new();
 
-    let mode = if finalize {
-        "finalize"
-    } else if orphaned {
-        "orphaned"
-    } else if all {
-        "all"
-    } else {
-        "single"
-    };
-
     if all || (!orphaned && !finalize && url.is_none()) {
         let sessions = session_store::list_sessions()?;
         for s in &sessions {
-            if s.network_name == net {
+            if s.network_id() == ctx.network {
                 targets.push(DryRunTarget {
                     channel_id: s.channel_id.clone(),
                     origin: Some(s.origin.clone()),
@@ -155,7 +142,7 @@ async fn dry_run_close(
     }
 
     if let Some(target) = url {
-        if super::is_channel_id(target) {
+        if super::util::is_channel_id(target) {
             targets.push(DryRunTarget {
                 channel_id: target.to_string(),
                 origin: None,
@@ -179,11 +166,11 @@ async fn dry_run_close(
         }
     }
 
-    let response = DryRunResponse { mode, targets };
+    let response = DryRunResponse { targets };
 
     output::emit_by_format(ctx.output_format, &response, || {
         eprintln!(
-            "[DRY RUN] Would close {} session(s) (mode: {mode})",
+            "[DRY RUN] Would close {} session(s)",
             response.targets.len()
         );
         for t in &response.targets {
@@ -205,10 +192,9 @@ async fn close_all_sessions(ctx: &Context) -> Result<()> {
 
     // Phase 1: close local sessions (scoped to current network)
     let all_sessions = session_store::list_sessions()?;
-    let net = ctx.network.as_str();
     let sessions: Vec<_> = all_sessions
         .iter()
-        .filter(|s| s.network_name == net)
+        .filter(|s| s.network_id() == ctx.network)
         .collect();
     for session in &sessions {
         let key = session_store::session_key(&session.origin);
@@ -363,7 +349,7 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
 
     // 1) Local sessions ready to finalize
     for s in session_store::list_sessions()? {
-        if s.network_name != ctx.network.as_str() {
+        if s.network_id() != ctx.network {
             continue;
         }
         if !(s.state == SessionStatus::Closing && now >= s.grace_ready_at) {
@@ -405,7 +391,8 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
             };
             // Check grace readiness from on-chain constant
             let grace =
-                super::resolve_grace_period(&ctx.config, ctx.network, &ch.escrow_contract).await;
+                super::util::resolve_grace_period(&ctx.config, ctx.network, &ch.escrow_contract)
+                    .await;
             let ready_at = ch.close_requested_at + grace;
             if now < ready_at {
                 continue;

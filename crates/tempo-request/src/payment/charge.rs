@@ -11,7 +11,7 @@ use tempo_common::cli::terminal::sanitize_for_terminal;
 use tempo_common::error::{ConfigError, PaymentError};
 use tempo_common::keys::Signer;
 
-use super::router::{PaymentResult, ResolvedChallenge};
+use super::types::{PaymentResult, ResolvedChallenge};
 use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").
@@ -53,19 +53,11 @@ pub(super) async fn handle_charge_request(
         });
     }
 
-    if http.log_enabled() {
-        eprintln!("Submitting payment...");
-    }
-
     let headers = vec![("Authorization".to_string(), auth_header)];
     let resp = http.execute(url, &headers).await?;
 
     if resp.status_code >= 400 {
         return Err(parse_payment_rejection(&resp).into());
-    }
-
-    if http.log_enabled() {
-        eprintln!("Payment accepted: HTTP {}", resp.status_code);
     }
 
     let tx_hash = resp

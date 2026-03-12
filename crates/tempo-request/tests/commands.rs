@@ -506,12 +506,12 @@ async fn test_402_payment_narration_verbose() {
     );
 }
 
-/// Paid summary prints by default and is suppressed by -q
+/// Paid summary prints with -v and is suppressed by default / -q
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_402_paid_summary_default_and_quiet() {
+async fn test_402_paid_summary_verbose_and_quiet() {
     let h = PaymentTestHarness::charge_with_id("test-charge-paid", "ok").await;
 
-    // Default: summary should be printed
+    // Default (no -v): summary should NOT be printed
     let output_default = test_command(&h.temp)
         .args([&h.url("/api")])
         .output()
@@ -522,9 +522,25 @@ async fn test_402_paid_summary_default_and_quiet() {
     );
     let stderr_default = String::from_utf8_lossy(&output_default.stderr);
     assert!(
-        stderr_default.contains("Paid "),
-        "expected paid summary in default mode, got: {}",
+        !stderr_default.contains("Paid "),
+        "expected no paid summary in default mode, got: {}",
         stderr_default
+    );
+
+    // Verbose: summary should be printed
+    let output_verbose = test_command(&h.temp)
+        .args(["-v", &h.url("/api")])
+        .output()
+        .unwrap();
+    assert!(
+        output_verbose.status.success(),
+        "verbose run should succeed"
+    );
+    let stderr_verbose = String::from_utf8_lossy(&output_verbose.stderr);
+    assert!(
+        stderr_verbose.contains("Paid "),
+        "expected paid summary in verbose mode, got: {}",
+        stderr_verbose
     );
 
     // Quiet: summary should be suppressed

@@ -66,7 +66,7 @@ tempo request --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
 | `tempo wallet keys` | List keys and spending limits |
 | `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | `tempo wallet services` | Browse the MPP service directory |
-| `tempo wallet services info <ID>` | Show detailed info for a service |
+| `tempo wallet services <ID>` | Show detailed info for a service |
 | `tempo wallet sessions list` | List sessions (active/orphaned/closing) |
 | `tempo wallet sessions close [--all\|<URL>]` | Close sessions or channels |
 | `tempo wallet mpp-sign` | Sign an MPP challenge and output the Authorization header |

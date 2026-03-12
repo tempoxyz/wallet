@@ -35,17 +35,17 @@ Check `ready` is `true` and `balance` is sufficient. If `ready` is `false`, run 
 # List all available services
 tempo wallet -t services
 
-# Filter by category (ai, search, compute, blockchain, data, media, social, storage, web)
-tempo wallet -t services --category ai
+# Search by category
+tempo wallet -t services --search ai
 
 # Search by name, description, or tags
 tempo wallet -t services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
-tempo wallet -t services info <SERVICE_ID>
+tempo wallet -t services <SERVICE_ID>
 ```
 
-Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). Run `tempo wallet services info <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
+Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). Run `tempo wallet services <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
 
 ### 3. Make the request
 
@@ -59,7 +59,7 @@ Payment is automatic: sends request, gets 402 challenge, signs payment, retries 
 
 ## Important Rules
 
-- **Always discover before guessing.** Service URLs include provider-specific paths. Run `tempo wallet -t services` and `tempo wallet -t services info <id>` first.
+- **Always discover before guessing.** Service URLs include provider-specific paths. Run `tempo wallet -t services` and `tempo wallet -t services <id>` first.
 - **Use `-t` for all agent calls.** TOON output is compact and token-efficient.
 - **Use `--dry-run` before expensive operations.** Preview cost without paying.
 - **Check balance before large operations.** Some calls can be expensive.

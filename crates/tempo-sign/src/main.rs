@@ -3,7 +3,7 @@
 //! Usage:
 //!
 //! ```text
-//! tempo-sign \
+//! tempo-sign sign \
 //!     --key-file release.key \
 //!     --artifacts-dir artifacts/ \
 //!     --version 0.1.0 \
@@ -16,8 +16,9 @@
 //! ```
 //!
 //! The key file contains a minisign secret key box (unencrypted).
-//! Generate one with: tempo-sign --generate-key release.key
+//! Generate one with: `tempo-sign generate-key <path>`
 
+use clap::{Parser, Subcommand};
 use minisign::{KeyPair, PublicKey, SecretKeyBox};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -27,74 +28,114 @@ use std::io::{Cursor, Read};
 use std::path::Path;
 use std::process;
 
-const DEFAULT_BASE_URL: &str = "https://cli.tempo.xyz/tempo-wallet";
 const SKIP_EXTENSIONS: &[&str] = &[".json", ".md", ".sh", ".txt", ".py"];
 
+/// Generate signed release manifests for Tempo CLI extensions.
+#[derive(Parser)]
+#[command(name = "tempo-sign")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Generate a new minisign keypair
+    GenerateKey {
+        /// Path to write the secret key file
+        path: String,
+    },
+    /// Print the public key from a secret key file
+    PrintPublicKey {
+        /// Path to the secret key file
+        path: String,
+    },
+    /// Sign release artifacts and generate a manifest
+    Sign {
+        /// Path to the minisign secret key file
+        #[arg(long)]
+        key_file: String,
+        /// Directory containing release artifacts to sign
+        #[arg(long)]
+        artifacts_dir: String,
+        /// Release version (e.g., "0.1.0")
+        #[arg(long)]
+        version: String,
+        /// Base URL for download links
+        #[arg(long, default_value = "https://cli.tempo.xyz/tempo-wallet")]
+        base_url: String,
+        /// Extension description
+        #[arg(long)]
+        description: Option<String>,
+        /// URL for the SKILL.md file
+        #[arg(long)]
+        skill: Option<String>,
+        /// SHA256 hash of the SKILL.md file
+        #[arg(long)]
+        skill_sha256: Option<String>,
+        /// Local path to the SKILL.md file for signing
+        #[arg(long)]
+        skill_file: Option<String>,
+        /// Output path for the manifest JSON
+        #[arg(long, default_value = "manifest.json")]
+        output: String,
+    },
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::parse();
 
-    if let Some(path) = find_flag_value(&args, "--generate-key") {
-        generate_key(&path);
-        return;
+    match cli.command {
+        Commands::GenerateKey { path } => generate_key(&path),
+        Commands::PrintPublicKey { path } => print_public_key(&path),
+        Commands::Sign {
+            key_file,
+            artifacts_dir,
+            version,
+            base_url,
+            description,
+            skill,
+            skill_sha256,
+            skill_file,
+            output,
+        } => {
+            let sk = load_secret_key(&key_file);
+            let pk = PublicKey::from_secret_key(&sk).unwrap();
+            let pk_base64 = pk.to_base64();
+
+            println!("Signing release {version}");
+            println!("  Public key: {pk_base64}");
+            println!("  Artifacts: {artifacts_dir}");
+            println!();
+
+            let manifest = build_manifest(
+                &artifacts_dir,
+                &version,
+                &base_url,
+                description.as_deref(),
+                skill.as_deref(),
+                skill_sha256.as_deref(),
+                skill_file.as_deref(),
+                &sk,
+            );
+
+            let json = serde_json::to_string_pretty(&manifest).unwrap_or_else(|err| {
+                eprintln!("error: failed to serialize manifest: {err}");
+                process::exit(1);
+            });
+            fs::write(&output, format!("{json}\n")).unwrap_or_else(|err| {
+                eprintln!("error: failed to write {output}: {err}");
+                process::exit(1);
+            });
+
+            let count = manifest["binaries"]
+                .as_object()
+                .map(|m| m.len())
+                .unwrap_or(0);
+            println!();
+            println!("Wrote {output} ({count} binaries)");
+        }
     }
-
-    if let Some(path) = find_flag_value(&args, "--print-public-key") {
-        print_public_key(&path);
-        return;
-    }
-
-    let key_file = find_flag_value(&args, "--key-file");
-    let artifacts_dir = find_flag_value(&args, "--artifacts-dir");
-    let version = find_flag_value(&args, "--version");
-    let base_url =
-        find_flag_value(&args, "--base-url").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-    let description = find_flag_value(&args, "--description");
-    let skill = find_flag_value(&args, "--skill");
-    let skill_sha256 = find_flag_value(&args, "--skill-sha256");
-    let skill_file = find_flag_value(&args, "--skill-file");
-    let output = find_flag_value(&args, "--output").unwrap_or_else(|| "manifest.json".to_string());
-
-    let (Some(key_file), Some(artifacts_dir), Some(version)) = (key_file, artifacts_dir, version)
-    else {
-        eprintln!("error: --key-file, --artifacts-dir, and --version are required");
-        process::exit(2);
-    };
-
-    let sk = load_secret_key(&key_file);
-    let pk = PublicKey::from_secret_key(&sk).unwrap();
-    let pk_base64 = pk.to_base64();
-
-    println!("Signing release {version}");
-    println!("  Public key: {pk_base64}");
-    println!("  Artifacts: {artifacts_dir}");
-    println!();
-
-    let manifest = build_manifest(
-        &artifacts_dir,
-        &version,
-        &base_url,
-        description.as_deref(),
-        skill.as_deref(),
-        skill_sha256.as_deref(),
-        skill_file.as_deref(),
-        &sk,
-    );
-
-    let json = serde_json::to_string_pretty(&manifest).unwrap_or_else(|err| {
-        eprintln!("error: failed to serialize manifest: {err}");
-        process::exit(1);
-    });
-    fs::write(&output, format!("{json}\n")).unwrap_or_else(|err| {
-        eprintln!("error: failed to write {output}: {err}");
-        process::exit(1);
-    });
-
-    let count = manifest["binaries"]
-        .as_object()
-        .map(|m| m.len())
-        .unwrap_or(0);
-    println!();
-    println!("Wrote {output} ({count} binaries)");
 }
 
 fn generate_key(path: &str) {
@@ -130,7 +171,7 @@ fn generate_key(path: &str) {
     println!("  Secret key box: {path}");
     println!("  Public key (base64): {pk_base64}");
     println!();
-    println!("Bake this public key into the Tempo CLI (src/launcher.rs PUBLIC_KEY constant).");
+    println!("Bake this public key into the verifying application's PUBLIC_KEY constant.");
     println!("Keep {path} secret — it signs release binaries.");
 }
 
@@ -287,14 +328,4 @@ fn build_manifest(
         println!("  signed SKILL.md");
     }
     manifest
-}
-
-fn find_flag_value(args: &[String], flag: &str) -> Option<String> {
-    let mut iter = args.iter();
-    while let Some(arg) = iter.next() {
-        if arg == flag {
-            return iter.next().cloned();
-        }
-    }
-    None
 }

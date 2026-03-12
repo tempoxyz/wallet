@@ -112,7 +112,7 @@ pub fn write_test_files(root: &Path, config_toml: &str, keys_toml: Option<&str>)
 
 /// Set up a temp dir with config (pointing RPC to mock) but NO keys.toml.
 pub fn setup_config_only(temp: &TempDir, rpc_base_url: &str) {
-    let config_toml = format!("moderato_rpc = \"{rpc_base_url}\"\n");
+    let config_toml = format!("[rpc]\n\"tempo-moderato\" = \"{rpc_base_url}\"\n");
     write_test_files(temp.path(), &config_toml, None);
 }
 
@@ -132,7 +132,6 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             version           INTEGER NOT NULL DEFAULT 1,
             origin            TEXT NOT NULL UNIQUE,
             request_url       TEXT NOT NULL DEFAULT '',
-            network_name      TEXT NOT NULL,
             chain_id          INTEGER NOT NULL,
             escrow_contract   TEXT NOT NULL,
             currency          TEXT NOT NULL,
@@ -174,12 +173,12 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
     };
     conn.execute(
         "INSERT OR REPLACE INTO sessions (
-            key, version, origin, request_url, network_name, chain_id,
+            key, version, origin, request_url, chain_id,
             escrow_contract, currency, recipient, payer, authorized_signer,
             salt, channel_id, deposit, tick_cost, cumulative_amount,
             challenge_echo, state, close_requested_at,
             grace_ready_at, created_at, last_used_at
-        ) VALUES (?1, 1, ?2, ?3, 'tempo', 4217, ?4, ?5, ?6, ?7, ?8, ?9,
+        ) VALUES (?1, 1, ?2, ?3, 4217, ?4, ?5, ?6, ?7, ?8, ?9,
                   ?10, ?11, ?12, ?13, ?14, 'active', 0, 0, ?15, ?16)",
         rusqlite::params![
             key,
@@ -246,7 +245,10 @@ impl PaymentTestHarness {
         let server = MockServer::start_payment_with_receipt(&www_auth, body, receipt).await;
         let temp = TestConfigBuilder::new()
             .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
-            .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+            .with_config_toml(format!(
+                "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+                rpc.base_url
+            ))
             .build();
         PaymentTestHarness { rpc, server, temp }
     }
@@ -257,7 +259,10 @@ impl PaymentTestHarness {
         let server = MockServer::start_payment(&www_auth, body).await;
         let temp = TestConfigBuilder::new()
             .with_keys_toml(keys_toml)
-            .with_config_toml(format!("moderato_rpc = \"{}\"\n", rpc.base_url))
+            .with_config_toml(format!(
+                "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+                rpc.base_url
+            ))
             .build();
         PaymentTestHarness { rpc, server, temp }
     }

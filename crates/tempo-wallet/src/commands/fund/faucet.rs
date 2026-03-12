@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use alloy::providers::{Provider, ProviderBuilder};
 
-use crate::account::{query_all_balances, TokenBalance};
+use crate::wallet::{query_all_balances, TokenBalance};
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;

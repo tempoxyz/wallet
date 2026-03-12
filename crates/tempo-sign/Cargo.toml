@@ -11,7 +11,7 @@ name = "tempo-sign"
 path = "src/main.rs"
 
 [dependencies]
-getrandom.workspace = true
+clap.workspace = true
 minisign.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

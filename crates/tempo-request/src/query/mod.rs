@@ -1,23 +1,27 @@
 //! Query command: HTTP request with automatic payment handling.
 //!
-//! Sends the initial HTTP request, detects 402 Payment Required responses,
-//! dispatches to the charge or session payment path, handles wallet login
-//! prompting, and displays the final response.
+//! Contains the main `run()` entry point plus request building, output
+//! rendering, analytics helpers, and payment challenge parsing.
+
+pub(crate) mod analytics;
+pub(crate) mod challenge;
+pub(crate) mod headers;
+pub(crate) mod output;
+pub(crate) mod payload;
+pub(crate) mod prepare;
+pub(crate) mod sse;
 
 use anyhow::Result;
 
 use crate::args::QueryArgs;
-use crate::payment::router::{dispatch_payment, PaymentResult};
+use crate::payment::router::dispatch_payment;
+use crate::payment::types::PaymentResult;
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output::emit_by_format;
 use tempo_common::error::{NetworkError, PaymentError};
 use tempo_common::security::redact_url;
 
-use crate::request::analytics;
-use crate::request::output::{self, build_output_options, write_meta_if_requested};
-use crate::request::payment_challenge;
-use crate::request::prepare;
-use crate::request::sse;
+use self::output::{build_output_options, write_meta_if_requested};
 
 /// Execute an HTTP request with automatic payment handling.
 ///
@@ -37,7 +41,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
     let prepared = prepare::prepare(ctx, &query)?;
     let output_opts = build_output_options(ctx.output_format, ctx.verbosity, &query, &prepared.url);
     let target_url = prepared.url.to_string();
-    let method_str = prepared.http.plan.method.to_string();
+    let method_str = prepared.http.method().to_string();
 
     let sanitized_url = redact_url(&target_url);
 
@@ -92,7 +96,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<()> {
         .unwrap_or(&target_url)
         .to_string();
 
-    let challenge = payment_challenge::parse_payment_challenge(&response)?;
+    let challenge = challenge::parse_payment_challenge(&response)?;
 
     // Dry-run price output for agents
     if prepared.http.dry_run && query.price_json {

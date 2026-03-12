@@ -9,6 +9,7 @@ use alloy::primitives::U256;
 use tempo_common::config::Config;
 use tempo_common::keys::KeyEntry;
 use tempo_common::network::NetworkId;
+use tempo_common::payment::session::SessionRecord;
 
 use super::query;
 use super::types::{BalanceBreakdown, KeyInfo, TokenBalance};
@@ -22,7 +23,6 @@ pub(crate) async fn build_key_info(
     config: &Config,
     network: NetworkId,
     current_chain_id: Option<u64>,
-    label: &str,
     entry: &KeyEntry,
     balance_cache: &HashMap<(String, u64), Vec<TokenBalance>>,
 ) -> KeyInfo {
@@ -52,7 +52,7 @@ pub(crate) async fn build_key_info(
             balance_cache
                 .get(&cache_key)
                 .and_then(|all| all.iter().find(|tb| tb.currency == *cur))
-                .map(|tb| tb.balance.clone())
+                .map(|tb| tb.balance.parse::<f64>().unwrap_or(0.0))
         });
         (Some(entry.wallet_address.clone()), bal)
     };
@@ -61,8 +61,10 @@ pub(crate) async fn build_key_info(
         key_expiry_timestamp(entry).map(tempo_common::cli::format::format_utc_timestamp);
 
     KeyInfo {
-        label: label.to_string(),
         address,
+        key: entry.key.as_deref().map(|s| s.to_string()),
+        chain_id: current_chain_id,
+        network: Some(network.as_str().to_string()),
         wallet_address: wallet_addr,
         wallet_type: Some(wt.to_string()),
         symbol,
@@ -96,9 +98,15 @@ pub(crate) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> 
                 "Limit",
                 width = LABEL_WIDTH
             )?;
-        } else if let Some(remaining) = &sl.remaining {
-            let limit = sl.limit.as_deref().unwrap_or("?");
-            let spent = sl.spent.as_deref().unwrap_or("0");
+        } else if let Some(remaining) = sl.remaining {
+            let limit = sl
+                .limit
+                .map(|l| format!("{l}"))
+                .unwrap_or_else(|| "?".to_string());
+            let spent = sl
+                .spent
+                .map(|s| format!("{s}"))
+                .unwrap_or_else(|| "0".to_string());
             writeln!(
                 w,
                 "{:>width$}: {spent} / {limit} {sym} ({remaining} remaining)",
@@ -150,8 +158,9 @@ pub(crate) fn balance_breakdown(
     available_str: &str,
     sym: &str,
     chain_id: Option<u64>,
+    sessions: &[SessionRecord],
 ) -> Option<BalanceBreakdown> {
-    let (locked_str, session_count, decimals) = compute_locked(sym, chain_id)?;
+    let (locked_str, session_count, decimals) = compute_locked(sym, chain_id, sessions)?;
 
     let available_f64: f64 = available_str.parse().unwrap_or(0.0);
     let locked_f64: f64 = locked_str.parse().unwrap_or(0.0);
@@ -170,11 +179,11 @@ pub(crate) fn balance_breakdown(
 /// Returns `(locked_formatted, session_count, decimals)` or `None` if no locked balance.
 /// Includes expired sessions because funds remain locked in the channel
 /// contract until the channel is settled on-chain.
-fn compute_locked(sym: &str, chain_id: Option<u64>) -> Option<(String, usize, usize)> {
-    use tempo_common::payment::session::store as session_store;
-
-    let sessions = session_store::list_sessions().ok()?;
-
+fn compute_locked(
+    sym: &str,
+    chain_id: Option<u64>,
+    sessions: &[SessionRecord],
+) -> Option<(String, usize, usize)> {
     if sessions.is_empty() {
         return None;
     }

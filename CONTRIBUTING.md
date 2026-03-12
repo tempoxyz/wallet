@@ -106,7 +106,7 @@ crates/
 │   │   └── commands/            # Command implementations
 │   │       ├── login.rs, logout.rs, whoami.rs, keys.rs, sign.rs, completions.rs
 │   │       ├── fund/            # Fund wallet (faucet, bridge, relay)
-│   │       ├── sessions/        # Session management (list, info, close, sync)
+│   │       ├── sessions/        # Session management (list, close, sync)
 │   │       └── services/        # Service directory (client, model, render)
 │   └── tests/                   # Integration tests (assert_cmd)
 ├── tempo-request/       # HTTP client with automatic MPP payment

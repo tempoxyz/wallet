@@ -46,13 +46,6 @@ impl Context {
         }
     }
 
-    /// Flush pending analytics events (with timeout).
-    pub async fn flush_analytics(&self) {
-        if let Some(ref a) = self.analytics {
-            a.flush().await;
-        }
-    }
-
     /// Build the shared runtime context from parsed CLI arguments.
     pub(crate) async fn build(args: ContextArgs) -> Result<Self> {
         let config = Config::load(args.config_path.as_ref(), args.rpc_url.as_deref())?;
