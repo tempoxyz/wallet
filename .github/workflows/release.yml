@@ -12,6 +12,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   version:
@@ -21,12 +22,10 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
+      - name: Configure git auth
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Extract version from Cargo.toml
         id: version
-        env:
-          GIT_CONFIG_COUNT: "1"
-          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_PAT }}@github.com/.insteadOf
-          GIT_CONFIG_VALUE_0: https://github.com/
         run: |
           VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tempo-wallet") | .version')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -87,11 +86,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      - name: Configure git auth
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Build release binary
-        env:
-          GIT_CONFIG_COUNT: "1"
-          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_PAT }}@github.com/.insteadOf
-          GIT_CONFIG_VALUE_0: https://github.com/
         run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
       - run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
       - run: mv target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.asset }}
@@ -120,11 +117,9 @@ jobs:
           gh release create "$TAG" --title "$TAG" --generate-notes 2>/dev/null || true
           gh release upload "$TAG" artifacts/* --clobber
 
+      - name: Configure git auth
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Build release signer
-        env:
-          GIT_CONFIG_COUNT: "1"
-          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_PAT }}@github.com/.insteadOf
-          GIT_CONFIG_VALUE_0: https://github.com/
         run: cargo build --release -p tempo-sign
 
       - name: Sign release binaries
