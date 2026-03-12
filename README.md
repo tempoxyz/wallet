@@ -70,6 +70,8 @@ tempo request --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
 | `tempo wallet sessions list` | List sessions (active/orphaned/closing) |
 | `tempo wallet sessions close [--all\|<URL>]` | Close sessions or channels |
 | `tempo wallet mpp-sign` | Sign an MPP challenge and output the Authorization header |
+| `tempo request <URL>` | Make an HTTP request with automatic MPP payment |
+| `tempo request --dry-run <URL>` | Preview cost without paying |
 
 Run `tempo wallet --help` or `tempo request --help` for full flag reference.
 
