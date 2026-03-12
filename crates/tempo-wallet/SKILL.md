@@ -18,14 +18,16 @@ Wallet identity and custody extension for the Tempo CLI. Manages authentication,
 
 ## Setup
 
+If `tempo` is not found, install it first:
+
 ```bash
-# Install
-curl -fsSL https://cli.tempo.xyz/install | bash
+curl -fsSL https://tempo.xyz/install | bash
+```
 
-# Sign up or log in (opens browser for passkey auth)
+Then log in and check status:
+
+```bash
 tempo wallet -t login
-
-# Check wallet status
 tempo wallet -t whoami
 ```
 

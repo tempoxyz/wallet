@@ -1,5 +1,5 @@
 ---
-name: tempo-request
+name: tempo
 description: |
   HTTP client with automatic payment — call any API without API keys or accounts. Use when you need external data or capabilities not available locally. When a server responds with 402 Payment Required, tempo request handles the payment and retries automatically.
 
@@ -133,6 +133,49 @@ tempo request -t --describe
 | `-i, --include` | Include HTTP response headers in output |
 
 Run `tempo request --help` for the full list of curl-compatible options (`-u`, `--proxy`, `--bearer`, `--compressed`, `--http2`, etc.).
+
+## Wallet Commands
+
+| Command | Description |
+|---------|-------------|
+| `tempo wallet login` | Sign up or log in to your Tempo wallet |
+| `tempo wallet logout` | Log out and disconnect your wallet |
+| `tempo wallet whoami` | Show wallet address, balances, keys, and readiness |
+| `tempo wallet keys` | List all keys with balance and spending limit details |
+| `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
+| `tempo wallet services` | Browse the MPP service directory |
+| `tempo wallet services <SERVICE_ID>` | Show detailed info for a service |
+| `tempo wallet sessions list` | List payment sessions |
+| `tempo wallet sessions close [--all\|<URL>]` | Close payment sessions |
+| `tempo wallet mpp-sign` | Sign an MPP payment challenge |
+
+### whoami Response Schema
+
+```json
+{
+  "ready": true,
+  "wallet": "0x1234...abcd",
+  "balance": {
+    "total": 10.5,
+    "locked": 1.0,
+    "available": 9.5,
+    "active_sessions": 1,
+    "symbol": "USDC"
+  },
+  "key": {
+    "address": "0xabcd...1234",
+    "chain_id": 4217,
+    "network": "tempo",
+    "spending_limit": {
+      "unlimited": false,
+      "limit": 100.0,
+      "remaining": 89.5,
+      "spent": 10.5
+    },
+    "expires_at": "2026-03-26T00:00:00Z"
+  }
+}
+```
 
 ## Error Recovery
 
