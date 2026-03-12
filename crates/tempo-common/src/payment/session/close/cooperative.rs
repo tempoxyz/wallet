@@ -207,7 +207,6 @@ mod tests {
             version: 1,
             origin: base.clone(),
             request_url: base.clone(),
-            network_name: "tempo".into(),
             chain_id: 4217,
             escrow_contract: "0x0000000000000000000000000000000000000001".into(),
             currency: "0x0000000000000000000000000000000000000001".into(),

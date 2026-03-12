@@ -30,7 +30,6 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
             version: 1,
             origin: ctx.origin.to_string(),
             request_url: ctx.url.to_string(),
-            network_name: ctx.network_id.as_str().to_string(),
             chain_id: state.chain_id,
             escrow_contract: format!("{:#x}", state.escrow_contract),
             currency: ctx.currency.clone(),

@@ -155,7 +155,6 @@ mod tests {
             version: 1,
             origin: "https://api.example.com".into(),
             request_url: "https://api.example.com/v1".into(),
-            network_name: "tempo".into(),
             chain_id: 4217,
             escrow_contract: "0x00".into(),
             currency: "0x00".into(),

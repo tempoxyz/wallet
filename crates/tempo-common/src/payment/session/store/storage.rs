@@ -259,7 +259,6 @@ mod tests {
             version: 1,
             origin: origin.into(),
             request_url: format!("{origin}/api/v1"),
-            network_name: "tempo".into(),
             chain_id: 4217,
             escrow_contract: "0x00".into(),
             currency: "0x00".into(),
@@ -299,7 +298,7 @@ mod tests {
         assert_eq!(loaded.salt, "salt_1");
         assert_eq!(loaded.chain_id, 4217);
         assert_eq!(loaded.deposit, "1000000");
-        assert_eq!(loaded.network_name, "tempo");
+        assert_eq!(loaded.network_id().as_str(), "tempo");
     }
 
     #[test]
