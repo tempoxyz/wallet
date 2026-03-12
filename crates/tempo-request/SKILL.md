@@ -66,11 +66,15 @@ Payment is automatic: sends request, gets 402 challenge, signs payment, retries 
 
 ## Setup
 
-```bash
-# Install
-curl -fsSL https://tempo.xyz/install | bash
+If `tempo` is not found, install it first:
 
-# Sign up or log in (opens browser for passkey auth)
+```bash
+curl -fsSL https://tempo.xyz/install | bash
+```
+
+Then log in (opens browser for passkey auth):
+
+```bash
 tempo wallet -t login
 ```
 
