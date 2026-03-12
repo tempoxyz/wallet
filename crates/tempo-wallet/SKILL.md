@@ -1,7 +1,7 @@
 ---
 name: tempo-wallet
 description: |
-  Manage your Tempo wallet — log in, check balances, fund, and manage keys. Use `tempo wallet -t login` to connect, `tempo wallet -t services` to browse available paid APIs, and `tempo request` to call them.
+  Manage your Tempo wallet — log in, check balances, fund, and manage keys. Use `tempo wallet -t login` to connect.
 
   TRIGGERS: wallet, balance, fund, login, spending limit, keys, whoami, check balance, wallet status, top up, deposit
 ---

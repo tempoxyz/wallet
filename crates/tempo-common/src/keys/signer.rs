@@ -80,10 +80,15 @@ impl Keystore {
                 None
             };
 
+            let version = match network {
+                NetworkId::TempoModerato => KeychainVersion::V2,
+                _ => KeychainVersion::V1,
+            };
+
             TempoSigningMode::Keychain {
                 wallet: wallet_address,
                 key_authorization,
-                version: KeychainVersion::V1,
+                version,
             }
         };
 
