@@ -173,7 +173,10 @@ pub async fn close_discovered_channel(
         .escrow_contract
         .parse()
         .context("Invalid escrow_contract")?;
-    let fee_token: Address = channel.currency.parse().context("Invalid currency address")?;
+    let fee_token: Address = channel
+        .currency
+        .parse()
+        .context("Invalid currency address")?;
 
     close_on_chain(
         config,

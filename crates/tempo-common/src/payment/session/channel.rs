@@ -50,7 +50,7 @@ sol! {
 
 /// On-chain channel state returned by recovery functions.
 pub struct OnChainChannel {
-    pub token: Address,
+    pub currency: Address,
     pub deposit: u128,
     pub settled: u128,
     pub close_requested_at: u64,
@@ -61,7 +61,7 @@ pub struct DiscoveredChannel {
     pub network: NetworkId,
     pub channel_id: String,
     pub escrow_contract: String,
-    pub token: String,
+    pub currency: String,
     pub deposit: u128,
     pub settled: u128,
     pub close_requested_at: u64,
@@ -129,7 +129,7 @@ pub async fn get_channel_on_chain(
     }
 
     Ok(Some(OnChainChannel {
-        token: decoded.token,
+        currency: decoded.token,
         deposit: decoded.deposit,
         settled: decoded.settled,
         close_requested_at: decoded.closeRequestedAt,
@@ -271,7 +271,7 @@ pub async fn find_all_channels_for_payer(
                 network,
                 channel_id: cid_str,
                 escrow_contract: format!("{:#x}", escrow),
-                token: token_str,
+                currency: token_str,
                 deposit: on_chain.deposit,
                 settled: on_chain.settled,
                 close_requested_at: on_chain.close_requested_at,
@@ -328,7 +328,7 @@ pub async fn query_channel_state(
     };
 
     Ok(Some((
-        format!("{:#x}", on_chain.token),
+        format!("{:#x}", on_chain.currency),
         on_chain.deposit,
         on_chain.settled,
     )))
