@@ -12,14 +12,7 @@ Both extensions are built on the [Machine Payments Protocol](https://mpp.dev), a
 The recommended way to install is via the Tempo CLI, which handles extension discovery and updates:
 
 ```bash
-curl -fsSL https://cli.tempo.xyz/install | bash
-```
-
-### From Source
-
-```bash
-git clone https://github.com/tempoxyz/wallet.git
-cd wallet && make install
+curl -fsSL https://tempo.xyz/install | bash
 ```
 
 ## Quick Start
@@ -29,8 +22,8 @@ cd wallet && make install
 tempo wallet login
 
 # Make a paid API request
-tempo request https://openrouter.mpp.tempo.xyz/v1/chat/completions \
-  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
+tempo request --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 ## Examples
@@ -39,21 +32,14 @@ Chat with an LLM:
 
 ```bash
 tempo request https://openrouter.mpp.tempo.xyz/v1/chat/completions \
-  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 Generate an image:
 
 ```bash
 tempo request https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
-  -X POST --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3"}'
-```
-
-Preview cost without paying:
-
-```bash
-tempo request --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions \
-  -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}'
+  --json '{"prompt":"A golden retriever in a sunny park","image_size":"landscape_4_3"}'
 ```
 
 ## Commands
