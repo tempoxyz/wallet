@@ -68,7 +68,7 @@ Payment is automatic: sends request, gets 402 challenge, signs payment, retries 
 
 ```bash
 # Install
-curl -fsSL https://cli.tempo.xyz/install | bash
+curl -fsSL https://tempo.xyz/install | bash
 
 # Sign up or log in (opens browser for passkey auth)
 tempo wallet -t login
