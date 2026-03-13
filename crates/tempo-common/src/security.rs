@@ -74,6 +74,30 @@ pub fn sanitize_error(err: &str) -> String {
     }
 }
 
+/// Normalize an address input by stripping the `tempox` prefix.
+///
+/// Tempo addresses may be written as `tempox0x1234…` — this strips the
+/// `tempox` prefix and returns the underlying `0x`-prefixed hex string.
+/// If the input does not start with `tempox`, it is returned unchanged.
+pub fn normalize_address_input(value: &str) -> &str {
+    value.strip_prefix("tempox").unwrap_or(value)
+}
+
+/// Parse a user-provided address string into an [`alloy::primitives::Address`].
+///
+/// Accepts both `0x…` and `tempox0x…` formats. Validates the hex content
+/// and returns a parsed address.
+pub fn parse_address_input(
+    value: &str,
+    label: &str,
+) -> Result<alloy::primitives::Address, crate::error::InputError> {
+    let normalized = normalize_address_input(value);
+    validate_hex_input(normalized, label)?;
+    normalized.parse().map_err(|_| {
+        crate::error::InputError::InvalidHexInput(format!("invalid {label}: {normalized}"))
+    })
+}
+
 /// Validate a `0x`-prefixed hex string (address or channel ID).
 ///
 /// Rejects characters that agents commonly hallucinate: `?`, `#`, `%`,
@@ -253,6 +277,55 @@ mod tests {
         let msg = format!("server error: {}secret_api_key_12345", "a]".repeat(100));
         let result = sanitize_error(&msg);
         assert!(!result.contains("secret_api_key_12345"));
+    }
+
+    #[test]
+    fn normalize_address_strips_tempox_prefix() {
+        assert_eq!(
+            normalize_address_input("tempox0xabcdef1234567890"),
+            "0xabcdef1234567890"
+        );
+    }
+
+    #[test]
+    fn normalize_address_passes_through_plain_hex() {
+        assert_eq!(
+            normalize_address_input("0xabcdef1234567890"),
+            "0xabcdef1234567890"
+        );
+    }
+
+    #[test]
+    fn normalize_address_passes_through_non_hex() {
+        assert_eq!(normalize_address_input("not-an-address"), "not-an-address");
+    }
+
+    #[test]
+    fn parse_address_input_plain_hex() {
+        let addr =
+            parse_address_input("0xabcdef1234567890abcdef1234567890abcdef12", "address").unwrap();
+        assert_eq!(
+            format!("{addr:#x}"),
+            "0xabcdef1234567890abcdef1234567890abcdef12"
+        );
+    }
+
+    #[test]
+    fn parse_address_input_tempox_prefix() {
+        let addr = parse_address_input(
+            "tempox0xabcdef1234567890abcdef1234567890abcdef12",
+            "address",
+        )
+        .unwrap();
+        assert_eq!(
+            format!("{addr:#x}"),
+            "0xabcdef1234567890abcdef1234567890abcdef12"
+        );
+    }
+
+    #[test]
+    fn parse_address_input_rejects_invalid() {
+        assert!(parse_address_input("not-an-address", "address").is_err());
     }
 
     #[test]

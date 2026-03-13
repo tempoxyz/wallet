@@ -54,6 +54,26 @@ pub(crate) enum Commands {
     /// List keys and their spending limits
     #[command(display_order = 4, name = "keys")]
     Keys,
+    /// Transfer tokens to an address
+    #[command(display_order = 5, arg_required_else_help = true)]
+    #[command(after_help = "\
+Examples:
+  tempo wallet transfer 1.00 0x20c0...b50 0x70997...9C8
+  tempo wallet transfer all 0x20c0...b50 0x70997...9C8 --dry-run")]
+    Transfer {
+        /// Amount in human units ("1.00", "50", "all")
+        amount: String,
+        /// Token contract address (0x...)
+        token: String,
+        /// Recipient address (0x...)
+        to: String,
+        /// Pay fees in a different token (default: same token)
+        #[arg(long)]
+        fee_token: Option<String>,
+        /// Show plan + fee estimate, don't send
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Fund your wallet (testnet faucet or mainnet bridge)
     #[command(display_order = 7, name = "fund")]
     Fund {

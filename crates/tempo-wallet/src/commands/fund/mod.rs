@@ -134,8 +134,8 @@ fn dry_run_fund(ctx: &Context, wallet_address: &str) -> Result<(), TempoError> {
 /// Resolve the target wallet address from an explicit arg or the keystore default.
 fn resolve_address(address: Option<String>, keys: &Keystore) -> Result<String, TempoError> {
     if let Some(addr) = address {
-        tempo_common::security::validate_hex_input(&addr, "wallet address")?;
-        return Ok(addr);
+        let parsed = tempo_common::security::parse_address_input(&addr, "wallet address")?;
+        return Ok(format!("{parsed:#x}"));
     }
 
     keys.wallet_address_hex().ok_or_else(|| {

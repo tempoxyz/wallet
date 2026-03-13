@@ -50,6 +50,7 @@ tempo request https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
 | `tempo wallet logout` | Disconnect your wallet |
 | `tempo wallet whoami` | Show wallet, balances, and keys |
 | `tempo wallet keys` | List keys and spending limits |
+| `tempo wallet transfer <AMT> <TOKEN> <TO>` | Transfer tokens to an address |
 | `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | `tempo wallet services` | Browse the MPP service directory |
 | `tempo wallet services <ID>` | Show detailed info for a service |
