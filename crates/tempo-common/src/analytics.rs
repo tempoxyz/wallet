@@ -102,7 +102,7 @@ fn anonymous_id() -> String {
         }
     }
     let hash = hasher.finalize();
-    format!("anon-{}", hex::encode(&hash[..8]))
+    format!("anon-{}", hex::encode(&hash[..16]))
 }
 
 /// Generate a per-invocation session ID (UUIDv4-like from random bytes).
@@ -191,7 +191,7 @@ impl Analytics {
         };
 
         if self.distinct_id != wallet {
-            let alias_event = build_alias_event(self.app_id, &self.distinct_id, &wallet);
+            let alias_event = build_alias_event(self.app_id, &wallet, &self.distinct_id);
             if let Ok(mut pending) = self.pending.lock() {
                 pending.push(alias_event);
             }
