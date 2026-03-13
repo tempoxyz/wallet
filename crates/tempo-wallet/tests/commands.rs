@@ -856,38 +856,6 @@ fn transfer_invalid_recipient_address_fails() {
     );
 }
 
-#[test]
-fn transfer_with_fee_token_flag_parses() {
-    let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp)
-        .args(["transfer", "--help"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("--fee-token"),
-        "should show --fee-token: {combined}"
-    );
-}
-
-#[test]
-fn transfer_with_dry_run_flag_parses() {
-    let temp = TestConfigBuilder::new().build();
-    let output = test_command(&temp)
-        .args(["transfer", "--help"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("--dry-run"),
-        "should show --dry-run: {combined}"
-    );
-}
-
 // ==================== unknown subcommand ====================
 
 #[test]

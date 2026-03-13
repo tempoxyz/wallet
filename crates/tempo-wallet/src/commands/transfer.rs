@@ -35,11 +35,10 @@ struct ResolvedToken {
 }
 
 /// Resolve a `0x`-prefixed token address, querying symbol and decimals on-chain.
+///
+/// Accepts both `0x…` and `tempox0x…` formats.
 async fn resolve_token(input: &str, provider: &impl Provider) -> Result<ResolvedToken> {
-    tempo_common::security::validate_hex_input(input, "token address")?;
-    let address: Address = input
-        .parse()
-        .map_err(|_| anyhow::anyhow!("Invalid token address: {input}"))?;
+    let address = tempo_common::security::parse_address_input(input, "token address")?;
 
     let contract = ITIP20::new(address, provider);
 
@@ -154,11 +153,7 @@ pub(crate) async fn run(
     let from = wallet.from;
 
     // Validate recipient address early (no network needed)
-    let to_raw = to.strip_prefix("tempox").unwrap_or(&to);
-    tempo_common::security::validate_hex_input(to_raw, "recipient address")?;
-    let to_address: Address = to_raw
-        .parse()
-        .map_err(|_| anyhow::anyhow!("Invalid recipient address: {to}"))?;
+    let to_address = tempo_common::security::parse_address_input(&to, "recipient address")?;
 
     let rpc_url = ctx.config.rpc_url(ctx.network);
     let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url.clone());
@@ -182,8 +177,8 @@ pub(crate) async fn run(
         let response = TransferResponse {
             status: "dry_run",
             tx_hash: None,
-            amount: amount_human.clone(),
-            symbol: token.symbol.clone(),
+            amount: amount_human,
+            symbol: token.symbol,
             token: format!("{:#x}", token.address),
             to: format!("{:#x}", to_address),
             from: format!("{:#x}", from),
@@ -195,8 +190,8 @@ pub(crate) async fn run(
             eprintln!("[DRY RUN]");
             eprintln!(
                 "  Sending {} {} → {}",
-                amount_human,
-                token.symbol,
+                response.amount,
+                response.symbol,
                 format_address(to_address)
             );
             eprintln!("  From: {}", format_address(from));
@@ -247,16 +242,16 @@ pub(crate) async fn run(
     // Mark provisioned if this was the first tx
     if !ctx.keys.is_provisioned(ctx.network) {
         ctx.keys
-            .mark_provisioned(ctx.network, &format!("{:#x}", from));
+            .mark_provisioned(ctx.network, ctx.keys.wallet_address());
     }
 
     let tx_url = ctx.network.tx_url(&tx_hash);
 
     let response = TransferResponse {
         status: "success",
-        tx_hash: Some(tx_hash.clone()),
-        amount: amount_human.clone(),
-        symbol: token.symbol.clone(),
+        tx_hash: Some(tx_hash),
+        amount: amount_human,
+        symbol: token.symbol,
         token: format!("{:#x}", token.address),
         to: format!("{:#x}", to_address),
         from: format!("{:#x}", from),
@@ -267,7 +262,7 @@ pub(crate) async fn run(
     output::emit_by_format(ctx.output_format, &response, || {
         eprintln!();
         eprintln!("  Submitted");
-        eprintln!("    TX: {}", tx_hash);
+        eprintln!("    TX: {}", response.tx_hash.as_deref().unwrap_or(""));
         eprintln!("    {}", tx_url);
         Ok(())
     })
