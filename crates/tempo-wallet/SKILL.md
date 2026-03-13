@@ -16,20 +16,15 @@ Wallet identity and custody extension for the Tempo CLI. Manages authentication,
 - List keys and spending limits (`keys`)
 - Fund your wallet (`fund`)
 
-## Setup
+## Setup Assumption
 
-If `tempo` is not found, install it first:
+If this skill is already loaded, treat it as already set up. Do not run install/login bootstrap preemptively.
 
-```bash
-curl -fsSL https://tempo.xyz/install | bash
-```
+Run commands directly and only trigger recovery when a command fails due to missing CLI or wallet auth:
 
-Then log in and check status:
-
-```bash
-tempo wallet -t login
-tempo wallet -t whoami
-```
+- If `tempo` is missing, install with `curl -fsSL https://tempo.xyz/install | bash`, then retry.
+- If wallet auth is missing, run `tempo wallet -t login`, wait for user completion, then retry.
+- For first-call confidence, optionally run `tempo wallet -t whoami` and continue when `ready` is `true`.
 
 ## Agent Usage
 

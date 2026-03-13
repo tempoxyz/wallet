@@ -9,13 +9,17 @@ const SENSITIVE_HEADERS: &[&str] = &[
     "x-api-key",
 ];
 
+fn normalize_header_name(name: &str) -> String {
+    name.trim().to_ascii_lowercase()
+}
+
 /// Redact a header value for safe logging.
 ///
 /// For sensitive headers (Authorization, Cookie, etc.) the credential portion
 /// is replaced with `[REDACTED]`. For `Authorization` / `Proxy-Authorization`
 /// the scheme (e.g. `Bearer`, `Basic`) is preserved so the log remains useful.
 pub fn redact_header_value(name: &str, value: &str) -> String {
-    let lower = name.to_lowercase();
+    let lower = normalize_header_name(name);
     if !SENSITIVE_HEADERS.contains(&lower.as_str()) {
         return value.to_string();
     }

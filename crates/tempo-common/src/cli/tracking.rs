@@ -16,7 +16,10 @@ pub fn track_command(analytics: &Option<Analytics>, cmd_name: &str) {
 }
 
 /// Track command success or failure.
-pub fn track_result(analytics: &Option<Analytics>, cmd_name: &str, result: &anyhow::Result<()>) {
+pub fn track_result<E>(analytics: &Option<Analytics>, cmd_name: &str, result: &Result<(), E>)
+where
+    E: std::fmt::Display,
+{
     let Some(ref a) = analytics else { return };
     match result {
         Ok(()) => {

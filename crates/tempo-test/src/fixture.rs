@@ -202,6 +202,17 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
     .expect("insert session record");
 }
 
+/// Corrupt the deposit field for a seeded local session row.
+pub fn corrupt_local_session_deposit(temp_dir: &TempDir, origin: &str, value: &str) {
+    let db_path = temp_dir.path().join(".tempo/wallet/sessions.db");
+    let conn = Connection::open(&db_path).expect("open sessions.db");
+    conn.execute(
+        "UPDATE sessions SET deposit = ?1 WHERE origin = ?2",
+        rusqlite::params![value, origin],
+    )
+    .expect("update malformed session row");
+}
+
 // ── Payment test harness ────────────────────────────────────────────────
 
 /// Complete harness for 402→payment→200 integration tests.

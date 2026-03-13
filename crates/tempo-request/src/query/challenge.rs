@@ -1,14 +1,24 @@
 //! Parsing and validation of 402 payment challenges.
 
-use anyhow::{Context as _, Result};
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 
 use crate::http::HttpResponse;
 use tempo_common::cli::format::format_token_amount;
 use tempo_common::cli::terminal::sanitize_for_terminal;
-use tempo_common::error::PaymentError;
+use tempo_common::error::{PaymentError, TempoError};
 use tempo_common::network::NetworkId;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupportedPaymentMethod {
+    Tempo,
+}
+
+impl SupportedPaymentMethod {
+    fn parse(value: &str) -> Option<Self> {
+        value.eq_ignore_ascii_case("tempo").then_some(Self::Tempo)
+    }
+}
 
 /// Parsed payment challenge extracted from a 402 response.
 pub(crate) struct ParsedChallenge {
@@ -42,16 +52,23 @@ impl ParsedChallenge {
 
 /// Parse the WWW-Authenticate header from a 402 response and extract all
 /// payment-related context needed for routing and analytics.
-pub(crate) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedChallenge> {
+pub(crate) fn parse_payment_challenge(
+    response: &HttpResponse,
+) -> Result<ParsedChallenge, TempoError> {
     let www_auth = response
         .header("www-authenticate")
         .ok_or_else(|| PaymentError::MissingHeader("WWW-Authenticate".to_string()))?;
 
-    let challenge =
-        mpp::parse_www_authenticate(www_auth).context("Failed to parse WWW-Authenticate header")?;
+    let challenge = mpp::parse_www_authenticate(www_auth).map_err(|source| {
+        PaymentError::ChallengeParseSource {
+            context: "WWW-Authenticate header",
+            source: Box::new(source),
+        }
+    })?;
 
     // Enforce supported payment protocol (tempo only for now)
-    if !challenge.method.eq_ignore_ascii_case("tempo") {
+    let method = challenge.method.to_string();
+    if SupportedPaymentMethod::parse(&method).is_none() {
         return Err(PaymentError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
     }
 
@@ -71,9 +88,9 @@ pub(crate) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedC
                 session.currency,
             )
         } else {
-            return Err(PaymentError::InvalidChallenge(
-                "unsupported payment challenge payload".to_string(),
-            )
+            return Err(PaymentError::ChallengeUnsupportedPayload {
+                context: "payment challenge payload",
+            }
             .into());
         };
 
@@ -87,12 +104,18 @@ pub(crate) fn parse_payment_challenge(response: &HttpResponse) -> Result<ParsedC
 }
 
 /// Resolve a chain ID to a known `NetworkId`, or fail with a clear error.
-fn require_chain(chain_id: Option<u64>) -> Result<NetworkId> {
-    let cid = chain_id.ok_or_else(|| {
-        PaymentError::InvalidChallenge("missing chainId in payment request".to_string())
+fn require_chain(chain_id: Option<u64>) -> Result<NetworkId, TempoError> {
+    let cid = chain_id.ok_or(PaymentError::ChallengeMissingField {
+        context: "payment request",
+        field: "chainId",
     })?;
-    NetworkId::from_chain_id(cid)
-        .ok_or_else(|| PaymentError::InvalidChallenge(format!("unsupported chainId: {cid}")).into())
+    NetworkId::from_chain_id(cid).ok_or_else(|| {
+        PaymentError::ChallengeUnsupportedChainId {
+            context: "payment request",
+            chain_id: cid,
+        }
+        .into()
+    })
 }
 
 #[cfg(test)]

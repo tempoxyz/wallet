@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 
-use anyhow::Result;
-
 use super::{session_store, SessionStatus};
 use tempo_common::cli::context::Context;
 use tempo_common::cli::format::format_duration;
@@ -77,7 +75,7 @@ pub(super) async fn close_sessions(
     orphaned: bool,
     finalize: bool,
     dry_run: bool,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     if dry_run {
         return dry_run_close(ctx, url.as_deref(), all, orphaned, finalize).await;
     }
@@ -99,10 +97,7 @@ pub(super) async fn close_sessions(
         return close_by_url(ctx, target).await;
     }
 
-    anyhow::bail!(InputError::InvalidUrl(
-        "Specify a URL, channel ID (0x...), or use --all/--orphaned/--finalize to close sessions"
-            .to_string()
-    ));
+    Err(InputError::MissingSessionCloseTarget.into())
 }
 
 async fn dry_run_close(
@@ -111,7 +106,7 @@ async fn dry_run_close(
     all: bool,
     orphaned: bool,
     finalize: bool,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     #[derive(serde::Serialize)]
     struct DryRunResponse {
         targets: Vec<DryRunTarget>,
@@ -133,7 +128,7 @@ async fn dry_run_close(
         for s in &sessions {
             if s.network_id() == ctx.network {
                 targets.push(DryRunTarget {
-                    channel_id: s.channel_id.clone(),
+                    channel_id: s.channel_id_hex(),
                     origin: Some(s.origin.clone()),
                     state: Some(format!("{:?}", s.state)),
                 });
@@ -152,7 +147,7 @@ async fn dry_run_close(
             let key = session_store::session_key(target);
             if let Some(rec) = session_store::load_session(&key)? {
                 targets.push(DryRunTarget {
-                    channel_id: rec.channel_id.clone(),
+                    channel_id: rec.channel_id_hex(),
                     origin: Some(rec.origin.clone()),
                     state: Some(format!("{:?}", rec.state)),
                 });
@@ -181,11 +176,13 @@ async fn dry_run_close(
             }
         }
         Ok(())
-    })
+    })?;
+
+    Ok(())
 }
 
 /// Close all local sessions and on-chain orphaned channels.
-async fn close_all_sessions(ctx: &Context) -> Result<()> {
+async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let analytics = ctx.analytics.as_ref();
     let mut summary = CloseSummary::new();
@@ -206,11 +203,12 @@ async fn close_all_sessions(ctx: &Context) -> Result<()> {
                 }
             }
         }
+        let channel_id = session.channel_id_hex();
         summary.record_outcome(
             result,
             Some(&session.origin),
             &session.origin,
-            &session.channel_id,
+            &channel_id,
             show_output,
         );
     }
@@ -223,7 +221,7 @@ async fn close_all_sessions(ctx: &Context) -> Result<()> {
 }
 
 /// Close a single channel by its on-chain ID (0x...).
-async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<()> {
+async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoError> {
     let mut summary = CloseSummary::new();
     let result = close_channel_by_id(&ctx.config, target, ctx.network, None, &ctx.keys).await;
     summary.record_finalize_outcome(result, target, true);
@@ -231,7 +229,7 @@ async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<()> {
 }
 
 /// Close a session by URL (local session lookup).
-async fn close_by_url(ctx: &Context, target: &str) -> Result<()> {
+async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let output_format = ctx.output_format;
     let analytics = ctx.analytics.as_ref();
@@ -249,11 +247,12 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<()> {
                 }
             }
         }
+        let channel_id = record.channel_id_hex();
         summary.record_outcome(
             result,
             Some(&record.origin),
             &record.origin,
-            &record.channel_id,
+            &channel_id,
             show_output,
         );
     } else {
@@ -288,15 +287,12 @@ async fn close_orphaned_into_summary(
         return;
     };
 
-    let local_ids: HashSet<String> = local_sessions
-        .iter()
-        .map(|s| s.channel_id.to_lowercase())
-        .collect();
+    let local_ids: HashSet<_> = local_sessions.iter().map(|s| s.channel_id).collect();
 
     let channels = find_all_channels_for_payer(&ctx.config, wallet_addr, ctx.network).await;
     let orphaned: Vec<_> = channels
         .iter()
-        .filter(|ch| !local_ids.contains(&ch.channel_id.to_lowercase()))
+        .filter(|ch| !local_ids.contains(&ch.channel_id))
         .collect();
 
     if show_output && !orphaned.is_empty() {
@@ -304,20 +300,22 @@ async fn close_orphaned_into_summary(
     }
 
     for ch in &orphaned {
+        let channel_id_hex = format!("{:#x}", ch.channel_id);
         let result = close_discovered_channel(ch, &ctx.config, &ctx.keys).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            let _ = session_store::delete_session_by_channel_id(&ch.channel_id);
+            let _ = session_store::delete_session_by_channel_id(ch.channel_id);
         }
-        summary.record_outcome(result, None, &ch.channel_id, &ch.channel_id, show_output);
+        summary.record_outcome(result, None, &channel_id_hex, &channel_id_hex, show_output);
     }
 }
 
 /// Close only orphaned on-chain channels (channels with no local session record).
-async fn close_orphaned_channels(ctx: &Context) -> Result<()> {
+async fn close_orphaned_channels(ctx: &Context) -> Result<(), TempoError> {
     if !ctx.keys.has_wallet() {
-        anyhow::bail!(ConfigError::Missing(
-            "No wallet configured. Log in with 'tempo wallet login'.".to_string()
-        ));
+        return Err(ConfigError::Missing(
+            "No wallet configured. Log in with 'tempo wallet login'.".to_string(),
+        )
+        .into());
     }
 
     let local_sessions = session_store::list_sessions()?;
@@ -330,7 +328,7 @@ async fn close_orphaned_channels(ctx: &Context) -> Result<()> {
 }
 
 /// Finalize channels that have had requestClose() submitted and whose grace period has elapsed.
-async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
+async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let now = session_store::now_secs();
     let mut summary = CloseSummary::new();
@@ -355,9 +353,10 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
         if !(s.state == SessionStatus::Closing && now >= s.grace_ready_at) {
             continue;
         }
+        let channel_id = s.channel_id_hex();
         let Some(ref wallet) = wallet else {
             summary.record_failed(CloseResult::failed(
-                &s.channel_id,
+                &channel_id,
                 None,
                 "no wallet available",
             ));
@@ -365,13 +364,13 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
         };
         let result = close_channel_by_id(
             &ctx.config,
-            &s.channel_id,
+            &channel_id,
             ctx.network,
             Some(wallet),
             &ctx.keys,
         )
         .await;
-        summary.record_finalize_outcome(result, &s.channel_id, show_output);
+        summary.record_finalize_outcome(result, &channel_id, show_output);
     }
 
     // 2) Orphaned channels ready to finalize
@@ -381,9 +380,10 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
             if ch.close_requested_at == 0 {
                 continue;
             }
+            let channel_id_hex = format!("{:#x}", ch.channel_id);
             let Some(ref wallet) = wallet else {
                 summary.record_failed(CloseResult::failed(
-                    &ch.channel_id,
+                    &channel_id_hex,
                     None,
                     "no wallet available",
                 ));
@@ -391,7 +391,7 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
             };
             // Check grace readiness from on-chain constant
             let grace =
-                super::util::resolve_grace_period(&ctx.config, ctx.network, &ch.escrow_contract)
+                super::util::resolve_grace_period(&ctx.config, ctx.network, ch.escrow_contract)
                     .await;
             let ready_at = ch.close_requested_at + grace;
             if now < ready_at {
@@ -399,13 +399,13 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<()> {
             }
             let result = close_channel_by_id(
                 &ctx.config,
-                &ch.channel_id,
+                &channel_id_hex,
                 ctx.network,
                 Some(wallet),
                 &ctx.keys,
             )
             .await;
-            summary.record_finalize_outcome(result, &ch.channel_id, show_output);
+            summary.record_finalize_outcome(result, &channel_id_hex, show_output);
         }
     }
 
@@ -429,6 +429,8 @@ struct CloseSummary {
     results: Vec<CloseResult>,
 }
 
+type CloseOpResult = std::result::Result<CloseOutcome, TempoError>;
+
 impl CloseSummary {
     fn new() -> Self {
         Self {
@@ -444,7 +446,7 @@ impl CloseSummary {
     /// `label` is the display name for the channel (origin URL or channel ID).
     fn record_outcome(
         &mut self,
-        result: Result<CloseOutcome>,
+        result: CloseOpResult,
         origin: Option<&str>,
         label: &str,
         channel_id: &str,
@@ -489,20 +491,13 @@ impl CloseSummary {
     /// Record a finalize outcome, treating `ChannelNotFound` as a successful close.
     fn record_finalize_outcome(
         &mut self,
-        result: Result<CloseOutcome>,
+        result: CloseOpResult,
         channel_id: &str,
         show_output: bool,
     ) {
         match result {
-            Err(e)
-                if e.downcast_ref::<TempoError>().is_some_and(|te| {
-                    matches!(
-                        te,
-                        TempoError::Payment(PaymentError::ChannelNotFound { .. })
-                    )
-                }) =>
-            {
-                let _ = session_store::delete_session_by_channel_id(channel_id);
+            Err(TempoError::Payment(PaymentError::ChannelNotFound { .. })) => {
+                maybe_delete_session_by_channel_id(channel_id);
                 if show_output {
                     eprintln!("Finalized {channel_id} (already settled)");
                 }
@@ -510,7 +505,7 @@ impl CloseSummary {
             }
             other => {
                 if matches!(other, Ok(CloseOutcome::Closed { .. })) {
-                    let _ = session_store::delete_session_by_channel_id(channel_id);
+                    maybe_delete_session_by_channel_id(channel_id);
                 }
                 self.record_outcome(other, None, channel_id, channel_id, show_output);
             }
@@ -537,7 +532,7 @@ impl CloseSummary {
         output_format: OutputFormat,
         empty_msg: &str,
         closed_label: &str,
-    ) -> Result<()> {
+    ) -> Result<(), TempoError> {
         let structured_payload = CloseSummaryResponse {
             closed: self.closed,
             pending: self.pending,
@@ -562,7 +557,24 @@ impl CloseSummary {
                 println!("{}", parts.join(", "));
             }
             Ok(())
-        })
+        })?;
+
+        Ok(())
+    }
+}
+
+fn maybe_delete_session_by_channel_id(channel_id: &str) {
+    match super::util::parse_channel_id(channel_id) {
+        Ok(parsed) => {
+            let _ = session_store::delete_session_by_channel_id(parsed);
+        }
+        Err(err) => {
+            tracing::warn!(
+                channel_id,
+                error = %err,
+                "Skipping local session deletion for malformed channel ID"
+            );
+        }
     }
 }
 

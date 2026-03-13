@@ -10,7 +10,6 @@ mod onchain;
 pub use onchain::{close_channel_by_id, close_discovered_channel};
 
 use alloy::primitives::{Address, B256};
-use anyhow::{Context, Result};
 
 use mpp::ChallengeEcho;
 
@@ -18,7 +17,10 @@ use super::store as session_store;
 use crate::analytics::{events, Analytics};
 use crate::cli::format::format_token_amount;
 use crate::config::Config;
+use crate::error::{NetworkError, PaymentError, TempoError};
 use crate::keys::Keystore;
+
+type SessionResult<T> = Result<T, TempoError>;
 
 /// Outcome of an on-chain close attempt.
 pub enum CloseOutcome {
@@ -41,21 +43,22 @@ pub async fn close_session_from_record(
     config: &Config,
     analytics: Option<&Analytics>,
     keys: &Keystore,
-) -> Result<CloseOutcome> {
-    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
-        .context("Failed to parse persisted challenge echo")?;
+) -> SessionResult<CloseOutcome> {
+    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).map_err(|source| {
+        NetworkError::ResponseParse {
+            context: "persisted challenge echo",
+            source,
+        }
+    })?;
 
     let network_id = record.network_id();
     let wallet = keys.signer(network_id)?;
 
-    let channel_id: B256 = record.channel_id_b256()?;
+    let channel_id: B256 = record.channel_id;
 
-    let escrow_contract: Address = record
-        .escrow_contract
-        .parse()
-        .context("Invalid escrow_contract in session record")?;
+    let escrow_contract: Address = record.escrow_contract;
 
-    let cumulative_amount: u128 = record.cumulative_amount_u128()?;
+    let cumulative_amount: u128 = record.cumulative_amount_u128();
 
     // Try cooperative close via the server first
     let client = reqwest::Client::new();
@@ -77,14 +80,14 @@ pub async fn close_session_from_record(
                     events::COOP_CLOSE_SUCCESS,
                     crate::analytics::CoopClosePayload {
                         network: network_id.as_str().to_string(),
-                        channel_id: record.channel_id.clone(),
+                        channel_id: record.channel_id_hex(),
                     },
                 );
             }
-            let amount_display = record
-                .cumulative_amount_u128()
-                .ok()
-                .map(|amt| format_token_amount(amt, network_id));
+            let amount_display = Some(format_token_amount(
+                record.cumulative_amount_u128(),
+                network_id,
+            ));
             return Ok(CloseOutcome::Closed {
                 tx_url,
                 amount_display,
@@ -96,7 +99,7 @@ pub async fn close_session_from_record(
                     events::COOP_CLOSE_FAILURE,
                     crate::analytics::CoopClosePayload {
                         network: network_id.as_str().to_string(),
-                        channel_id: record.channel_id.clone(),
+                        channel_id: record.channel_id_hex(),
                     },
                 );
             }
@@ -104,10 +107,14 @@ pub async fn close_session_from_record(
         }
     }
 
-    let fee_token: Address = record
-        .currency
-        .parse()
-        .context("Invalid currency address in session record")?;
+    let fee_token: Address =
+        record
+            .currency
+            .parse()
+            .map_err(|source| PaymentError::SessionPersistenceSource {
+                operation: "parse session currency",
+                source: Box::new(source),
+            })?;
 
     // Fallback: payer-initiated close (requestClose → withdraw)
     let outcome = onchain::close_on_chain(
@@ -122,10 +129,10 @@ pub async fn close_session_from_record(
 
     match outcome {
         CloseOutcome::Closed { tx_url, .. } => {
-            let amount_display = record
-                .cumulative_amount_u128()
-                .ok()
-                .map(|amt| format_token_amount(amt, network_id));
+            let amount_display = Some(format_token_amount(
+                record.cumulative_amount_u128(),
+                network_id,
+            ));
             Ok(CloseOutcome::Closed {
                 tx_url,
                 amount_display,

@@ -1,6 +1,10 @@
 //! Shared CLI runtime helpers used by extension binaries.
 
+use std::error::Error as _;
+
 use clap::ValueEnum;
+
+use crate::error::TempoError;
 
 /// Color output mode shared by extension CLIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -78,9 +82,9 @@ pub(crate) fn init_color_support(color: ColorMode) {
 }
 
 /// Build a structured error payload used by extension binaries.
-pub(crate) fn render_error_payload(err: &anyhow::Error, code: &str) -> serde_json::Value {
+pub(crate) fn render_error_payload(err: &TempoError, code: &str) -> serde_json::Value {
     let message = err.to_string();
-    let cause = err.chain().nth(1).map(|c| c.to_string());
+    let cause = err.source().map(|c| c.to_string());
 
     let mut obj = serde_json::json!({
         "code": code,

@@ -6,7 +6,6 @@
 use std::io::Write;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
 use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
@@ -14,6 +13,7 @@ use mpp::server::sse::{parse_event, SseEvent};
 use super::persist::persist_session;
 use super::voucher::build_voucher_credential;
 use super::{SessionContext, SessionState};
+use tempo_common::error::{NetworkError, PaymentError, TempoError};
 
 /// Post a voucher to the server in a background task.
 ///
@@ -64,7 +64,7 @@ pub(super) async fn stream_sse_response(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
     response: reqwest::Response,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     let runtime = ctx.http;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
@@ -149,7 +149,7 @@ pub(super) async fn stream_sse_response(
                 break;
             }
         };
-        let chunk = chunk.context("Stream error")?;
+        let chunk = chunk.map_err(NetworkError::Reqwest)?;
         let chunk_str = String::from_utf8_lossy(&chunk);
         // Normalize \r\n to \n so SSE event boundary detection works with
         // servers/proxies that emit CRLF line endings.
@@ -160,9 +160,11 @@ pub(super) async fn stream_sse_response(
         }
 
         if buffer.len() > MAX_BUFFER_SIZE {
-            return Err(tempo_common::error::NetworkError::Http(
-                format!("SSE buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event — aborting stream")
-            ).into());
+            return Err(tempo_common::error::NetworkError::ResponseSchema {
+                context: "SSE stream",
+                reason: format!("buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event"),
+            }
+            .into());
         }
 
         while let Some(pos) = buffer.find("\n\n") {
@@ -221,8 +223,12 @@ pub(super) async fn stream_sse_response(
                         state.cumulative_amount = authorize_amount.max(state.cumulative_amount);
                         let voucher =
                             build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
-                        let auth = mpp::format_authorization(&voucher)
-                            .context("Failed to format voucher")?;
+                        let auth = mpp::format_authorization(&voucher).map_err(|source| {
+                            PaymentError::ChallengeFormatSource {
+                                context: "voucher credential",
+                                source: Box::new(source),
+                            }
+                        })?;
 
                         let verbose = runtime.debug_enabled();
                         post_voucher(&voucher_client, ctx.url, &auth, verbose);

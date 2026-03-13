@@ -102,7 +102,7 @@ crates/
 │   │   ├── app.rs               # Command dispatch
 │   │   ├── analytics.rs         # Wallet-specific analytics events
 │   │   ├── prompt.rs            # Interactive prompt helpers
-│   │   ├── account/             # Wallet account types, on-chain queries, rendering
+│   │   ├── wallet/              # Wallet account types, on-chain queries, rendering
 │   │   └── commands/            # Command implementations
 │   │       ├── login.rs, logout.rs, whoami.rs, keys.rs, sign.rs, completions.rs
 │   │       ├── fund/            # Fund wallet (faucet, bridge, relay)
@@ -115,8 +115,7 @@ crates/
 │   │   ├── args.rs              # clap definitions (Cli, QueryArgs)
 │   │   ├── app.rs               # Command dispatch
 │   │   ├── analytics.rs         # Request-specific analytics events
-│   │   ├── commands/            # Command entrypoint (query.rs)
-│   │   ├── request/             # Request building, output, SSE, headers
+│   │   ├── query/               # Query flow (challenge parsing, request prep, output, SSE, analytics)
 │   │   ├── http/                # HTTP client, response handling, formatting
 │   │   └── payment/             # Payment flows (charge, session, router)
 │   └── tests/                   # Integration tests (assert_cmd)
@@ -135,14 +134,17 @@ This repository is a Cargo workspace with binary crates and one internal shared 
 ```rust
 use std::path::PathBuf;
 
-use anyhow::Result;
 use clap::Parser;
 
 use tempo_common::config::Config;
 use tempo_common::error::TempoError;
+
+fn run() -> Result<(), TempoError> {
+    Ok(())
+}
 ```
 
-**Error handling** — `TempoError` (thiserror) for typed errors, `anyhow` for propagation.
+**Error handling** — `TempoError` (thiserror) for typed boundaries; prefer source-carrying variants (`*Source`) when a concrete underlying error exists.
 
 **Modules** — each module has a single responsibility. Shared logic goes in `tempo-common`. All commands go in `tempo-wallet/src/commands/`.
 

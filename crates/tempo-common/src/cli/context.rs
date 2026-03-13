@@ -1,10 +1,9 @@
 //! Shared base context for extension CLIs.
 
-use anyhow::Result;
-
 use super::verbosity::Verbosity;
 use crate::analytics::{Analytics, Event, EventPayload};
 use crate::config::Config;
+use crate::error::TempoError;
 use crate::keys::Keystore;
 use crate::network::NetworkId;
 
@@ -47,7 +46,7 @@ impl Context {
     }
 
     /// Build the shared runtime context from parsed CLI arguments.
-    pub(crate) async fn build(args: ContextArgs) -> Result<Self> {
+    pub(crate) async fn build(args: ContextArgs) -> Result<Self, TempoError> {
         let config = Config::load(args.config_path.as_ref(), args.rpc_url.as_deref())?;
         let requested_network = args
             .requested_network

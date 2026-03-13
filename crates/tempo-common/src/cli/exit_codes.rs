@@ -50,32 +50,6 @@ impl From<ExitCode> for i32 {
     }
 }
 
-impl From<&anyhow::Error> for ExitCode {
-    fn from(err: &anyhow::Error) -> Self {
-        use crate::error::{ConfigError, InputError, NetworkError, PaymentError};
-
-        for cause in err.chain() {
-            if let Some(app_err) = cause.downcast_ref::<crate::error::TempoError>() {
-                return ExitCode::from(app_err);
-            }
-            // Sub-error types may be bail!'d directly without wrapping in TempoError
-            if cause.downcast_ref::<InputError>().is_some()
-                || cause.downcast_ref::<ConfigError>().is_some()
-            {
-                return ExitCode::InvalidUsage;
-            }
-            if cause.downcast_ref::<NetworkError>().is_some() {
-                return ExitCode::NetworkError;
-            }
-            if cause.downcast_ref::<PaymentError>().is_some() {
-                return ExitCode::PaymentFailed;
-            }
-        }
-
-        ExitCode::GeneralError
-    }
-}
-
 impl From<&crate::error::TempoError> for ExitCode {
     fn from(err: &crate::error::TempoError) -> Self {
         use crate::error::{KeyError, TempoError};
@@ -89,7 +63,9 @@ impl From<&crate::error::TempoError> for ExitCode {
             TempoError::Input(_) => ExitCode::InvalidUsage,
             TempoError::Network(_) => ExitCode::NetworkError,
             TempoError::Payment(_) => ExitCode::PaymentFailed,
-            TempoError::Io(_) | TempoError::Json(_) => ExitCode::GeneralError,
+            TempoError::Io(_) | TempoError::Json(_) | TempoError::ToonEncode(_) => {
+                ExitCode::GeneralError
+            }
             TempoError::TomlParse(_) | TempoError::TomlSerialize(_) => ExitCode::InvalidUsage,
         }
     }
@@ -108,18 +84,16 @@ mod tests {
     }
 
     #[test]
-    fn from_anyhow_walks_chain_to_find_tempo_error() {
+    fn from_tempo_error_network_is_network_exit() {
         use crate::error::{NetworkError, TempoError};
-        // Wrap a TempoError in an anyhow chain
-        let inner: TempoError = NetworkError::Http("timeout".to_string()).into();
-        let outer: anyhow::Error = anyhow::anyhow!(inner).context("request failed");
-        assert_eq!(ExitCode::from(&outer), ExitCode::NetworkError);
-    }
 
-    #[test]
-    fn from_anyhow_unknown_error_is_general() {
-        let err: anyhow::Error = anyhow::anyhow!("something unexpected");
-        assert_eq!(ExitCode::from(&err), ExitCode::GeneralError);
+        let err: TempoError = NetworkError::HttpStatus {
+            operation: "test request",
+            status: 504,
+            body: Some("timeout".to_string()),
+        }
+        .into();
+        assert_eq!(ExitCode::from(&err), ExitCode::NetworkError);
     }
 
     #[test]
@@ -132,5 +106,20 @@ mod tests {
         // InvalidKey → InvalidUsage (user provided bad input)
         let err: TempoError = KeyError::InvalidKey("bad".to_string()).into();
         assert_eq!(ExitCode::from(&err), ExitCode::InvalidUsage);
+    }
+
+    #[test]
+    fn from_tempo_error_session_persistence_context_source_is_payment_exit() {
+        use crate::error::{NetworkError, PaymentError, TempoError};
+
+        let source: TempoError = NetworkError::Http("upstream unavailable".to_string()).into();
+        let err: TempoError = PaymentError::SessionPersistenceContextSource {
+            operation: "session request reuse",
+            context: "Session request failed; session state preserved for on-chain dispute",
+            source: Box::new(source),
+        }
+        .into();
+
+        assert_eq!(ExitCode::from(&err), ExitCode::PaymentFailed);
     }
 }

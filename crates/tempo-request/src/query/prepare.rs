@@ -1,12 +1,11 @@
 //! CLI → domain conversion: URL parsing, HTTP client construction, request planning.
 
-use anyhow::Result;
 use base64::Engine;
 
 use crate::args::QueryArgs;
 use crate::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
 use tempo_common::cli::context::Context;
-use tempo_common::error::InputError;
+use tempo_common::error::{InputError, TempoError};
 use tempo_common::network::NetworkId;
 
 use super::headers::{
@@ -30,7 +29,7 @@ pub(crate) struct PreparedRequest {
 ///
 /// Handles URL parsing, `-G/--get` query-string appending, and client
 /// construction — everything needed before execution.
-pub(crate) fn prepare(ctx: &Context, query: &QueryArgs) -> Result<PreparedRequest> {
+pub(crate) fn prepare(ctx: &Context, query: &QueryArgs) -> Result<PreparedRequest, TempoError> {
     let mut url = parse_and_validate_url(&query.url)?;
 
     // Support -G/--get: append -d and --data-urlencode to query string and force GET if no explicit -X
@@ -43,13 +42,11 @@ pub(crate) fn prepare(ctx: &Context, query: &QueryArgs) -> Result<PreparedReques
 }
 
 /// Parse and validate a URL, ensuring it uses http or https.
-fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
-    let parsed = url::Url::parse(raw).map_err(|e| InputError::InvalidUrl(e.to_string()))?;
+fn parse_and_validate_url(raw: &str) -> Result<url::Url, TempoError> {
+    let parsed = url::Url::parse(raw).map_err(InputError::UrlParse)?;
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
-        anyhow::bail!(InputError::InvalidUrl(format!(
-            "unsupported scheme '{scheme}'"
-        )));
+        return Err(InputError::UnsupportedUrlScheme(scheme.to_string()).into());
     }
     Ok(parsed)
 }
@@ -58,7 +55,7 @@ fn parse_and_validate_url(raw: &str) -> Result<url::Url> {
 ///
 /// This is the boundary where CLI-specific types are converted into
 /// domain types used by the HTTP and payment layers.
-fn build_client(ctx: &Context, query: &QueryArgs) -> Result<HttpClient> {
+fn build_client(ctx: &Context, query: &QueryArgs) -> Result<HttpClient, TempoError> {
     let plan = build_request_plan(query)?;
 
     // Keep Option so payment dispatch can distinguish an explicit --network.
@@ -71,13 +68,11 @@ fn build_client(ctx: &Context, query: &QueryArgs) -> Result<HttpClient> {
 ///
 /// Resolves method, body, headers, retry policy, and timeouts into a
 /// ready-to-execute `HttpRequestPlan`.
-fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan> {
+fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan, TempoError> {
     for header in &query.headers {
         validate_header_size(header)?;
         if header.contains('\r') || header.contains('\n') {
-            anyhow::bail!(InputError::InvalidHeader(
-                "header contains CR/LF characters".to_string()
-            ));
+            return Err(InputError::HeaderContainsControlChars.into());
         }
     }
 

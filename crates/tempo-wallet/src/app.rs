@@ -1,12 +1,11 @@
 //! Application entry point: build context, dispatch command, flush analytics.
 
-use anyhow::Result;
-
 use crate::args::{Cli, Commands, ServicesCommands, SessionCommands};
 use crate::commands::{completions, fund, keys, login, logout, services, sessions, sign, whoami};
+use tempo_common::error::TempoError;
 
 /// Run the tempo-wallet application.
-pub(crate) async fn run(mut cli: Cli) -> Result<()> {
+pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
     let command = match cli.command.take() {
         Some(c) => c,
         None => {

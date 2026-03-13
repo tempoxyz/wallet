@@ -62,17 +62,16 @@ pub fn validate(
         None => return Ok(None),
     };
 
-    let signed = decode(hex_str).ok_or_else(|| {
-        TempoError::from(ConfigError::Invalid(
-            "Invalid key authorization".to_string(),
-        ))
-    })?;
+    let signed = decode(hex_str).ok_or(ConfigError::InvalidKeyAuthorization)?;
 
     if signed.authorization.key_id != expected_key_id {
-        return Err(ConfigError::Invalid(format!(
-            "Key authorization targets {:#x}, expected {:#x}",
-            signed.authorization.key_id, expected_key_id
-        ))
+        return Err(ConfigError::InvalidAddress {
+            context: "key authorization target",
+            value: format!(
+                "{:#x} (expected {:#x})",
+                signed.authorization.key_id, expected_key_id
+            ),
+        }
         .into());
     }
 
@@ -91,7 +90,7 @@ pub fn validate(
         .iter()
         .flatten()
         .map(|tl| StoredTokenLimit {
-            currency: format!("{:#x}", tl.token),
+            currency: tl.token,
             limit: tl.limit.to_string(),
         })
         .collect();
@@ -121,26 +120,17 @@ pub fn sign(
     let expiry_secs = now + DEFAULT_EXPIRY_SECS;
     let limit = alloy::primitives::U256::from(DEFAULT_LIMIT);
     // Authorize the canonical stablecoin for this network.
-    let network = crate::network::NetworkId::from_chain_id(chain_id).ok_or_else(|| {
-        TempoError::from(ConfigError::Invalid(format!(
-            "Unsupported chainId: {chain_id}"
-        )))
-    })?;
+    let network = crate::network::NetworkId::from_chain_id(chain_id)
+        .ok_or_else(|| TempoError::from(ConfigError::UnsupportedChainId(chain_id)))?;
     let token_addrs = [network.token().address];
-    let mut token_limits: Vec<TokenLimit> = Vec::with_capacity(token_addrs.len());
-    for addr in token_addrs.iter() {
-        let token = addr.parse().map_err(|_| {
-            TempoError::from(KeyError::InvalidAddress(format!(
-                "Invalid token address constant: {}",
-                addr
-            )))
-        })?;
-        token_limits.push(TokenLimit { token, limit });
-    }
+    let token_limits: Vec<TokenLimit> = token_addrs
+        .iter()
+        .map(|&token| TokenLimit { token, limit })
+        .collect();
     let stored_limits: Vec<StoredTokenLimit> = token_addrs
         .iter()
-        .map(|addr| StoredTokenLimit {
-            currency: addr.to_string(),
+        .map(|&addr| StoredTokenLimit {
+            currency: addr,
             limit: limit.to_string(),
         })
         .collect();
@@ -153,10 +143,11 @@ pub fn sign(
     };
     let sig = wallet_signer
         .sign_hash_sync(&auth.signature_hash())
-        .map_err(|e| {
-            TempoError::from(KeyError::Signing(format!(
-                "Failed to sign key authorization: {e}"
-            )))
+        .map_err(|source| {
+            TempoError::from(KeyError::SigningOperationSource {
+                operation: "sign key authorization",
+                source: Box::new(source),
+            })
         })?;
     let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
     let mut buf = Vec::new();
@@ -241,7 +232,8 @@ mod tests {
         let result = validate(Some(&hex), signer.address());
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("Key authorization targets"));
+        assert!(err.contains("key authorization target"));
+        assert!(err.contains("expected"));
     }
 
     #[test]
@@ -281,6 +273,8 @@ mod tests {
         assert_eq!(
             moderato_auth.limits[0].currency,
             "0x20c0000000000000000000000000000000000000"
+                .parse::<Address>()
+                .unwrap()
         );
     }
 }

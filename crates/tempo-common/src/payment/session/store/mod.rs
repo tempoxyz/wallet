@@ -8,5 +8,5 @@ pub use lock::{acquire_origin_lock, SessionLock};
 pub use model::{now_secs, session_key, SessionRecord, SessionStatus};
 pub use storage::{
     delete_session, delete_session_by_channel_id, list_sessions, load_session, save_session,
-    update_session_close_state_by_channel_id,
+    take_store_diagnostics, update_session_close_state_by_channel_id, SessionStoreDiagnostics,
 };

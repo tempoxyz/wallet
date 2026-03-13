@@ -23,8 +23,9 @@ pub const DEFAULT_GRACE_PERIOD_SECS: u64 = 900;
 // Re-export public API from `store`
 pub use store::{
     acquire_origin_lock, delete_session, delete_session_by_channel_id, list_sessions, load_session,
-    now_secs, save_session, session_key, update_session_close_state_by_channel_id, SessionLock,
-    SessionRecord, SessionStatus,
+    now_secs, save_session, session_key, take_store_diagnostics,
+    update_session_close_state_by_channel_id, SessionLock, SessionRecord, SessionStatus,
+    SessionStoreDiagnostics,
 };
 
 // Re-export public API from `channel`

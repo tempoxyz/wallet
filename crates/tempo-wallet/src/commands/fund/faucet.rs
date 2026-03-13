@@ -9,7 +9,7 @@ use tempo_common::cli::context::Context;
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::cli::terminal::address_link;
-use tempo_common::error::NetworkError;
+use tempo_common::error::{NetworkError, TempoError};
 
 use super::{
     has_balance_changed, poll_until, render_balance_diff, FundResponse, POLL_INTERVAL_SECS,
@@ -18,7 +18,7 @@ use super::{
 /// Timeout for polling faucet balance changes (seconds).
 const FAUCET_POLL_TIMEOUT_SECS: u64 = 120;
 
-pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Result<()> {
+pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> Result<(), TempoError> {
     let rpc_url = ctx.config.rpc_url(ctx.network);
 
     let balances_before = if wait {
@@ -32,7 +32,10 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
     let result: serde_json::Value = provider
         .raw_request("tempo_fundAddress".into(), [address])
         .await
-        .map_err(|e| NetworkError::Http(format!("Faucet request failed: {e}")))?;
+        .map_err(|source| NetworkError::RpcSource {
+            operation: "request faucet funds",
+            source: Box::new(source),
+        })?;
 
     tracing::debug!("Faucet RPC response: {result}");
 

@@ -3,6 +3,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use alloy::primitives::{address, Address};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ConfigError, NetworkError, TempoError};
@@ -20,9 +21,13 @@ const TEMPO_CHAIN_ID: u64 = 4217;
 const TEMPO_MODERATO_CHAIN_ID: u64 = 42431;
 
 /// pathUSD token address (testnet).
-const PATH_USD_TOKEN: &str = "0x20c0000000000000000000000000000000000000";
+const PATH_USD_TOKEN: Address = address!("20c0000000000000000000000000000000000000");
 /// USDC token address (mainnet).
-pub const USDCE_TOKEN: &str = "0x20c000000000000000000000b9537d11c60e8b50";
+pub const USDCE_TOKEN: Address = address!("20c000000000000000000000b9537d11c60e8b50");
+/// Escrow contract address (mainnet).
+const TEMPO_ESCROW: Address = address!("0901aed692c755b870f9605e56baa66c35beff69");
+/// Escrow contract address (moderato testnet).
+const TEMPO_MODERATO_ESCROW: Address = address!("542831e3e4ace07559b7c8787395f4fb99f70787");
 
 /// Token configuration for Tempo mainnet (USDC).
 const TEMPO_TOKEN: TokenConfig = TokenConfig {
@@ -48,7 +53,7 @@ pub struct TokenConfig {
     /// Number of decimal places
     pub decimals: u8,
     /// Token address - contract address for EVM chains (ERC20)
-    pub address: &'static str,
+    pub address: Address,
 }
 
 /// Static network identifier with compile-time metadata.
@@ -67,9 +72,7 @@ impl NetworkId {
     pub fn resolve(network: Option<&str>) -> Result<Self, TempoError> {
         match network {
             None => Ok(NetworkId::Tempo),
-            Some(s) => s
-                .parse::<NetworkId>()
-                .map_err(|_| NetworkError::UnknownNetwork(s.to_string()).into()),
+            Some(s) => s.parse::<NetworkId>().map_err(TempoError::from),
         }
     }
 
@@ -100,9 +103,8 @@ impl NetworkId {
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
     pub fn require_chain_id(chain_id: u64) -> Result<Self, TempoError> {
-        Self::from_chain_id(chain_id).ok_or_else(|| {
-            ConfigError::Invalid(format!("Unsupported chainId: {}", chain_id)).into()
-        })
+        Self::from_chain_id(chain_id)
+            .ok_or_else(|| ConfigError::UnsupportedChainId(chain_id).into())
     }
 
     /// Get the default RPC URL for this network.
@@ -149,10 +151,10 @@ impl NetworkId {
     /// Get the default escrow contract address for this network.
     ///
     /// These match the addresses in `mpp::client::channel_ops::default_escrow_contract`.
-    pub const fn escrow_contract(&self) -> &'static str {
+    pub const fn escrow_contract(&self) -> Address {
         match self {
-            NetworkId::Tempo => "0x0901aED692C755b870F9605E56BAA66c35BEfF69",
-            NetworkId::TempoModerato => "0x542831e3E4Ace07559b7C8787395f4Fb99F70787",
+            NetworkId::Tempo => TEMPO_ESCROW,
+            NetworkId::TempoModerato => TEMPO_MODERATO_ESCROW,
         }
     }
 
@@ -166,15 +168,22 @@ impl NetworkId {
 }
 
 impl FromStr for NetworkId {
-    type Err = String;
+    type Err = NetworkError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            TEMPO => Ok(NetworkId::Tempo),
-            TEMPO_MODERATO => Ok(NetworkId::TempoModerato),
-            _ => Err(format!("Unknown network: {}", s)),
-        }
+        parse_network_name(s).ok_or_else(|| NetworkError::UnknownNetwork(s.to_string()))
     }
+}
+
+fn parse_network_name(value: &str) -> Option<NetworkId> {
+    let normalized = value.trim();
+    if normalized.eq_ignore_ascii_case(TEMPO) {
+        return Some(NetworkId::Tempo);
+    }
+    if normalized.eq_ignore_ascii_case(TEMPO_MODERATO) {
+        return Some(NetworkId::TempoModerato);
+    }
+    None
 }
 
 impl fmt::Display for NetworkId {
@@ -286,6 +295,14 @@ mod tests {
     }
 
     #[test]
+    fn test_network_name_trimmed() {
+        assert_eq!(
+            "  tempo-moderato  ".parse::<NetworkId>().unwrap(),
+            NetworkId::TempoModerato
+        );
+    }
+
+    #[test]
     fn test_resolve_defaults_to_tempo() {
         assert_eq!(NetworkId::resolve(None).unwrap(), NetworkId::Tempo);
     }
@@ -327,8 +344,8 @@ mod tests {
     fn test_escrow_contract_addresses() {
         let tempo = NetworkId::Tempo.escrow_contract();
         let moderato = NetworkId::TempoModerato.escrow_contract();
-        assert!(tempo.starts_with("0x"));
-        assert!(moderato.starts_with("0x"));
+        assert_eq!(tempo, TEMPO_ESCROW);
+        assert_eq!(moderato, TEMPO_MODERATO_ESCROW);
         assert_ne!(tempo, moderato);
     }
 

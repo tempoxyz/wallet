@@ -58,6 +58,38 @@ async fn toon_error_402_without_www_authenticate() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn toon_error_402_malformed_www_authenticate_message_stable() {
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", "this is not a valid payment challenge")],
+        "",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-t", &server.url("/paid")])
+        .output()
+        .unwrap();
+
+    assert_exit_code(
+        &output,
+        4,
+        "malformed WWW-Authenticate should exit with E_PAYMENT",
+    );
+    let parsed = tempo_test::parse_toon_stdout(&output);
+    assert_eq!(parsed["code"], "E_PAYMENT");
+    assert!(
+        parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("Failed to parse WWW-Authenticate header"),
+        "message should keep parse context: {}",
+        parsed["message"]
+    );
+}
+
 #[test]
 fn toon_error_invalid_url() {
     let temp = TestConfigBuilder::new().build();
@@ -86,12 +118,9 @@ fn toon_error_connection_refused() {
         .output()
         .unwrap();
 
-    assert_exit_code(&output, 1, "connection refused should exit with E_GENERAL");
+    assert_exit_code(&output, 3, "connection refused should exit with E_NETWORK");
     let parsed = tempo_test::parse_toon_stdout(&output);
-    assert!(
-        parsed["code"].is_string(),
-        "code should be a string: {parsed}"
-    );
+    assert_eq!(parsed["code"], "E_NETWORK");
     assert!(
         parsed["message"].is_string(),
         "message should be a string: {parsed}"

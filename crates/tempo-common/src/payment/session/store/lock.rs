@@ -2,9 +2,22 @@
 
 use std::fs::OpenOptions;
 
-use anyhow::{Context, Result};
+use std::error::Error;
+
+use crate::error::{PaymentError, TempoError};
 
 use super::storage::ensure_wallet_dir;
+
+fn lock_error<E>(operation: &'static str, source: E) -> TempoError
+where
+    E: Error + Send + Sync + 'static,
+{
+    PaymentError::SessionPersistenceSource {
+        operation,
+        source: Box::new(source),
+    }
+    .into()
+}
 
 /// File lock guard for an origin/session key.
 pub struct SessionLock {
@@ -18,7 +31,7 @@ impl Drop for SessionLock {
 }
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
-pub fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
+pub fn acquire_origin_lock(key: &str) -> Result<SessionLock, TempoError> {
     let dir = ensure_wallet_dir()?;
     let lock_path = dir.join(format!("{}.lock", key));
     let file = OpenOptions::new()
@@ -27,8 +40,9 @@ pub fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
         .read(true)
         .write(true)
         .open(lock_path)
-        .context("Failed to create/open session lock file")?;
-    fs2::FileExt::try_lock_exclusive(&file).context("Failed to acquire session lock")?;
+        .map_err(|err| lock_error("open session lock file", err))?;
+    fs2::FileExt::try_lock_exclusive(&file)
+        .map_err(|err| lock_error("acquire session lock", err))?;
     Ok(SessionLock { file })
 }
 

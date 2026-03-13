@@ -8,6 +8,7 @@ use super::{session_store, SessionStatus};
 use tempo_common::cli::format::{format_duration, format_relative_time, format_utc_timestamp};
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
+use tempo_common::error::TempoError;
 
 // ---------------------------------------------------------------------------
 // ChannelView — unified view model for session/channel display
@@ -83,14 +84,14 @@ impl From<&session_store::SessionRecord> for ChannelView {
     fn from(session: &session_store::SessionRecord) -> Self {
         let t = session.network_id().token();
 
-        let spent_u = session.cumulative_amount_u128().unwrap_or(0);
-        let limit_u = session.deposit_u128().unwrap_or(0);
+        let spent_u = session.cumulative_amount_u128();
+        let limit_u = session.deposit_u128();
         let remaining_u = limit_u.saturating_sub(spent_u);
 
         let (status, remaining_secs) = session.status_at(session_store::now_secs());
 
         ChannelView {
-            channel_id: session.channel_id.clone(),
+            channel_id: session.channel_id_hex(),
             network: session.network_id().as_str().to_string(),
             origin: Some(session.origin.clone()),
             symbol: t.symbol,
@@ -117,9 +118,9 @@ struct SessionItem<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<&'a str>,
     symbol: &'a str,
-    deposit: f64,
-    spent: f64,
-    remaining: f64,
+    deposit: &'a str,
+    spent: &'a str,
+    remaining: &'a str,
     status: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     remaining_secs: Option<u64>,
@@ -145,7 +146,7 @@ pub(super) fn render_channel_list(
     output_format: OutputFormat,
     empty_msg: &str,
     count_label: &str,
-) -> anyhow::Result<()> {
+) -> Result<(), TempoError> {
     let items: Vec<SessionItem> = views
         .iter()
         .map(|v| SessionItem {
@@ -156,9 +157,9 @@ pub(super) fn render_channel_list(
                 _ => None,
             },
             symbol: v.symbol,
-            deposit: v.deposit.parse().unwrap_or(0.0),
-            spent: v.spent.parse().unwrap_or(0.0),
-            remaining: v.remaining.parse().unwrap_or(0.0),
+            deposit: &v.deposit,
+            spent: &v.spent,
+            remaining: &v.remaining,
             status: v.status.as_str(),
             remaining_secs: v.remaining_secs,
             created_at: v.created_at.map(format_utc_timestamp),
@@ -182,7 +183,9 @@ pub(super) fn render_channel_list(
             println!("{} {count_label}.", views.len());
         }
         Ok(())
-    })
+    })?;
+
+    Ok(())
 }
 
 /// Render a single channel in text format.

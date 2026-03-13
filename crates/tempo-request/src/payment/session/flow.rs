@@ -1,5 +1,6 @@
+use std::error::Error;
+
 use alloy::primitives::{Address, B256};
-use anyhow::{Context, Result};
 use mpp::parse_receipt;
 use mpp::protocol::core::extract_tx_hash;
 use mpp::protocol::methods::tempo::session::TempoSessionExt;
@@ -12,10 +13,44 @@ use crate::http::HttpResponse;
 use crate::payment::types::{PaymentResult, ResolvedChallenge};
 use tempo_common::cli::format::format_token_amount;
 use tempo_common::cli::terminal::{address_link, sanitize_for_terminal};
-use tempo_common::error::PaymentError;
+use tempo_common::error::{KeyError, NetworkError, PaymentError, TempoError};
 use tempo_common::keys::{Keystore, Signer};
 use tempo_common::payment::classify::map_mpp_validation_error;
 use tempo_common::payment::session;
+
+fn session_store_error<E>(operation: &'static str, source: E) -> TempoError
+where
+    E: Error + Send + Sync + 'static,
+{
+    PaymentError::SessionPersistenceSource {
+        operation,
+        source: Box::new(source),
+    }
+    .into()
+}
+
+fn session_reuse_preserved_error(source: TempoError) -> TempoError {
+    PaymentError::SessionPersistenceContextSource {
+        operation: "session request reuse",
+        context: "Session request failed; session state preserved for on-chain dispute",
+        source: Box::new(source),
+    }
+    .into()
+}
+
+fn challenge_missing_field(context: &'static str, field: &'static str) -> PaymentError {
+    PaymentError::ChallengeMissingField { context, field }
+}
+
+fn challenge_address_parse(
+    context: &'static str,
+    source: alloy::hex::FromHexError,
+) -> PaymentError {
+    PaymentError::ChallengeAddressParse {
+        context,
+        source: Box::new(source),
+    }
+}
 
 /// Send the actual session request with a voucher and handle the response.
 ///
@@ -25,11 +60,15 @@ use tempo_common::payment::session;
 async fn send_session_request(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
-) -> Result<PaymentResult> {
+) -> Result<PaymentResult, TempoError> {
     let voucher_credential = build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
 
-    let voucher_auth = mpp::format_authorization(&voucher_credential)
-        .context("Failed to format voucher credential")?;
+    let voucher_auth = mpp::format_authorization(&voucher_credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "voucher credential",
+            source: Box::new(source),
+        }
+    })?;
 
     let mut data_request = ctx
         .reqwest_client
@@ -39,10 +78,7 @@ async fn send_session_request(
         data_request = data_request.body(body.to_vec());
     }
 
-    let response = data_request
-        .send()
-        .await
-        .context("Failed to send session request")?;
+    let response = data_request.send().await.map_err(NetworkError::Reqwest)?;
 
     let status = response.status();
     if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
@@ -68,7 +104,7 @@ async fn send_session_request(
     if is_sse {
         streaming::stream_sse_response(ctx, state, response).await?;
         Ok(PaymentResult {
-            tx_hash: String::new(),
+            tx_hash: None,
             session_id: Some(channel_id),
             status_code: 200,
             response: None,
@@ -78,7 +114,7 @@ async fn send_session_request(
         let status_code = http_response.status_code;
 
         Ok(PaymentResult {
-            tx_hash: String::new(),
+            tx_hash: None,
             session_id: Some(channel_id),
             status_code,
             response: Some(http_response),
@@ -103,7 +139,7 @@ pub(crate) async fn handle_session_request(
     signer: Signer,
     _keys: &Keystore,
     max_pay: Option<u128>,
-) -> Result<PaymentResult> {
+) -> Result<PaymentResult, TempoError> {
     let challenge = &resolved.challenge;
     let network_id = resolved.network_id;
     let network_name = network_id.as_str();
@@ -112,48 +148,56 @@ pub(crate) async fn handle_session_request(
         .validate_for_session("tempo")
         .map_err(|e| map_mpp_validation_error(e, challenge))?;
 
-    let session_req: mpp::SessionRequest = challenge
-        .request
-        .decode()
-        .context("Failed to parse session request from challenge")?;
+    let session_req: mpp::SessionRequest =
+        challenge
+            .request
+            .decode()
+            .map_err(|source| PaymentError::ChallengeParseSource {
+                context: "session request from challenge",
+                source: Box::new(source),
+            })?;
 
-    let chain_id = session_req.chain_id().ok_or_else(|| {
-        PaymentError::InvalidChallenge("Missing chainId in session request".to_string())
+    let chain_id = session_req
+        .chain_id()
+        .ok_or_else(|| challenge_missing_field("session request", "chainId"))?;
+
+    let tick_cost: u128 =
+        session_req
+            .amount
+            .parse::<u128>()
+            .map_err(|source| PaymentError::ChallengeValueParse {
+                context: "session request amount",
+                source: Box::new(source),
+            })?;
+
+    let escrow_str = session_req.escrow_contract().map_err(|_| {
+        challenge_missing_field("session challenge escrow contract", "escrow contract")
     })?;
-
-    let tick_cost: u128 = session_req
-        .amount
-        .parse()
-        .context("Invalid session amount")?;
-
-    let escrow_str = session_req
-        .escrow_contract()
-        .context("Missing escrow contract in session challenge")?;
-    let expected_escrow = resolved.network_id.escrow_contract();
-    if !escrow_str.eq_ignore_ascii_case(expected_escrow) {
-        return Err(PaymentError::InvalidChallenge(format!(
-            "Untrusted escrow contract: {} (expected {} for network {})",
-            escrow_str, expected_escrow, network_name
-        ))
-        .into());
-    }
     let escrow_contract: Address = escrow_str
         .parse()
-        .context("Invalid escrow contract address")?;
+        .map_err(|source| challenge_address_parse("session challenge escrow contract", source))?;
+    let expected_escrow = resolved.network_id.escrow_contract();
+    if escrow_contract != expected_escrow {
+        return Err(PaymentError::ChallengeUntrustedEscrow {
+            context: "session challenge escrow contract",
+            provided: escrow_str.to_string(),
+            expected: expected_escrow.to_string(),
+            network: network_name.to_string(),
+        }
+        .into());
+    }
 
     let currency: Address = session_req
         .currency
         .parse()
-        .context("Invalid currency address")?;
+        .map_err(|source| challenge_address_parse("session challenge currency", source))?;
 
     let recipient: Address = session_req
         .recipient
         .as_deref()
-        .ok_or(PaymentError::InvalidChallenge(
-            "Missing recipient in session challenge".to_string(),
-        ))?
+        .ok_or_else(|| challenge_missing_field("session challenge recipient", "recipient"))?
         .parse()
-        .context("Invalid recipient address")?;
+        .map_err(|source| challenge_address_parse("session challenge recipient", source))?;
 
     if http.log_enabled() {
         let cost_display = format_token_amount(tick_cost, network_id);
@@ -195,7 +239,7 @@ pub(crate) async fn handle_session_request(
         }
 
         return Ok(PaymentResult {
-            tx_hash: String::new(),
+            tx_hash: None,
             session_id: None,
             status_code: 200,
             response: None,
@@ -253,25 +297,26 @@ pub(crate) async fn handle_session_request(
     // Check for an existing persisted session.
     // Reuse requires matching payer AND challenge parameters (escrow, currency,
     // recipient, chain) to avoid a wasted round trip when the server changes config.
-    let existing = session::load_session(&session_key)?;
+    let existing = session::load_session(&session_key)
+        .map_err(|err| session_store_error("load session", err))?;
     let reuse = existing.as_ref().is_some_and(|r| {
         r.payer == did
-            && r.escrow_contract == format!("{:#x}", escrow_contract)
+            && r.escrow_contract == escrow_contract
             && r.currency == currency_hex
             && r.recipient == recipient_hex
             && r.chain_id == chain_id
-            && r.tick_cost == tick_cost.to_string()
+            && r.tick_cost == tick_cost
     });
 
     if reuse {
         let record = existing.unwrap();
         if http.log_enabled() {
-            eprintln!("Reusing session {} for {}", record.channel_id, origin);
+            eprintln!("Reusing session {} for {}", record.channel_id_hex(), origin);
         }
 
-        let channel_id: B256 = record.channel_id_b256()?;
-        let prev_cumulative: u128 = record.cumulative_amount_u128()?;
-        let prev_deposit: u128 = record.deposit_u128().unwrap_or(deposit);
+        let channel_id: B256 = record.channel_id;
+        let prev_cumulative: u128 = record.cumulative_amount_u128();
+        let prev_deposit: u128 = record.deposit;
 
         let mut state = SessionState {
             channel_id,
@@ -292,8 +337,8 @@ pub(crate) async fn handle_session_request(
             deposit: prev_deposit,
             max_pay,
             salt: record.salt.clone(),
-            recipient: recipient_hex.clone(),
-            currency: currency_hex.clone(),
+            recipient,
+            currency,
             reqwest_client: http.client(),
         };
 
@@ -307,9 +352,7 @@ pub(crate) async fn handle_session_request(
                 // persist the updated state and propagate the error instead
                 // of silently opening a new channel (which would double-charge).
                 let _ = persist_session(&ctx, &state);
-                return Err(e).context(
-                    "Session request failed; session state preserved for on-chain dispute",
-                );
+                return Err(session_reuse_preserved_error(e));
             }
         }
     } else if existing.is_some() {
@@ -317,7 +360,8 @@ pub(crate) async fn handle_session_request(
         if http.log_enabled() {
             eprintln!("Session mismatch, opening new channel...");
         }
-        session::delete_session(&session_key)?;
+        session::delete_session(&session_key)
+            .map_err(|err| session_store_error("delete session", err))?;
     }
 
     // === Open a new channel ===
@@ -371,7 +415,10 @@ pub(crate) async fn handle_session_request(
         chain_id,
     )
     .await
-    .context("Failed to sign initial voucher")?;
+    .map_err(|source| KeyError::SigningOperationSource {
+        operation: "sign initial voucher",
+        source: Box::new(source),
+    })?;
 
     let payment = open::create_tempo_payment_from_calls(
         resolved.rpc_url.as_str(),
@@ -397,8 +444,12 @@ pub(crate) async fn handle_session_request(
 
     let session_credential =
         mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
-    let auth_header = mpp::format_authorization(&session_credential)
-        .context("Failed to format open credential")?;
+    let auth_header = mpp::format_authorization(&session_credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "open credential",
+            source: Box::new(source),
+        }
+    })?;
 
     let delays = [2000_u64, 3000, 5000];
     let open_response = open::send_open_with_retry(http, url, &auth_header, &delays).await?;
@@ -431,8 +482,8 @@ pub(crate) async fn handle_session_request(
         deposit,
         max_pay,
         salt: format!("{:#x}", salt),
-        recipient: recipient_hex,
-        currency: currency_hex,
+        recipient,
+        currency,
         reqwest_client: http.client(),
     };
 
@@ -447,7 +498,7 @@ pub(crate) async fn handle_session_request(
     if !is_sse && open_response.status_code < 400 {
         persist_session(&ctx, &state)?;
         return Ok(PaymentResult {
-            tx_hash: String::new(),
+            tx_hash: None,
             session_id: Some(format!("{:#x}", channel_id)),
             status_code: open_response.status_code,
             response: Some(open_response),
@@ -458,4 +509,22 @@ pub(crate) async fn handle_session_request(
 
     persist_session(&ctx, &state)?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_store_error;
+    use tempo_common::error::{PaymentError, TempoError};
+
+    #[test]
+    fn session_store_error_maps_to_payment_error() {
+        let err = session_store_error("load session", std::io::Error::other("sqlite busy"));
+        match err {
+            TempoError::Payment(PaymentError::SessionPersistenceSource { operation, source }) => {
+                assert_eq!(operation, "load session");
+                assert_eq!(source.to_string(), "sqlite busy");
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
 }

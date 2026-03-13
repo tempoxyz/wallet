@@ -6433,7 +6433,6 @@ name = "tempo-common"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "anyhow",
  "axum",
  "clap",
  "colored",
@@ -6505,12 +6504,12 @@ name = "tempo-request"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "anyhow",
  "assert_cmd",
  "axum",
  "base64 0.22.1",
  "clap",
  "futures",
+ "getrandom 0.2.17",
  "hex",
  "mpp",
  "reqwest 0.12.28",
@@ -6559,7 +6558,6 @@ name = "tempo-wallet"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "anyhow",
  "assert_cmd",
  "base64 0.22.1",
  "clap",
@@ -6577,6 +6575,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tempo-common",
+ "tempo-primitives",
  "tempo-test",
  "tokio",
  "toon-format",

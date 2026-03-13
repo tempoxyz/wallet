@@ -6,6 +6,7 @@ mod keystore;
 mod model;
 mod signer;
 
+pub use io::{take_keystore_load_summary, KeystoreLoadSummary};
 pub use keystore::Keystore;
 pub use model::{KeyEntry, WalletType};
 use model::{KeyType, StoredTokenLimit};

@@ -2,24 +2,42 @@
 
 use std::io::{self, Read};
 
-use anyhow::{Context as _, Result};
 use mpp::client::PaymentProvider;
 use mpp::protocol::methods::tempo::TempoChargeExt;
 
 use tempo_common::cli::context::Context;
 use tempo_common::cli::output::OutputFormat;
-use tempo_common::error::{ConfigError, PaymentError};
+use tempo_common::error::{ConfigError, InputError, PaymentError, TempoError};
 use tempo_common::network::NetworkId;
 use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupportedPaymentMethod {
+    Tempo,
+}
+
+impl SupportedPaymentMethod {
+    fn parse(value: &str) -> Option<Self> {
+        value.eq_ignore_ascii_case("tempo").then_some(Self::Tempo)
+    }
+}
+
 /// Run the `sign` subcommand.
-pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: bool) -> Result<()> {
+pub(crate) async fn run(
+    ctx: &Context,
+    challenge_arg: Option<String>,
+    dry_run: bool,
+) -> Result<(), TempoError> {
     let raw = read_challenge(challenge_arg)?;
     let challenge =
-        mpp::parse_www_authenticate(&raw).context("Failed to parse WWW-Authenticate challenge")?;
+        mpp::parse_www_authenticate(&raw).map_err(|source| PaymentError::ChallengeParseSource {
+            context: "WWW-Authenticate challenge",
+            source: Box::new(source),
+        })?;
 
     // Enforce supported payment protocol
-    if !challenge.method.eq_ignore_ascii_case("tempo") {
+    let method = challenge.method.to_string();
+    if SupportedPaymentMethod::parse(&method).is_none() {
         return Err(PaymentError::UnsupportedPaymentMethod(challenge.method.to_string()).into());
     }
 
@@ -30,20 +48,20 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
         use mpp::protocol::methods::tempo::session::TempoSessionExt;
         require_chain(session.chain_id())?
     } else {
-        return Err(PaymentError::InvalidChallenge(
-            "unsupported payment challenge payload".to_string(),
-        )
+        return Err(PaymentError::ChallengeUnsupportedPayload {
+            context: "payment challenge payload",
+        }
         .into());
     };
 
     // Enforce --network pin: reject challenges for a different chain
     if let Some(pinned) = ctx.requested_network {
         if pinned != network {
-            return Err(PaymentError::InvalidChallenge(format!(
-                "challenge network '{}' does not match --network '{}'",
-                network.as_str(),
-                pinned.as_str(),
-            ))
+            return Err(PaymentError::ChallengeNetworkMismatch {
+                context: "payment challenge network",
+                challenge_network: network.as_str().to_string(),
+                configured_network: pinned.as_str().to_string(),
+            }
             .into());
         }
     }
@@ -72,7 +90,10 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
     let rpc_url = ctx.config.rpc_url(network);
 
     let provider = mpp::client::TempoProvider::new(signer.signer.clone(), rpc_url.as_str())
-        .map_err(|e| ConfigError::Invalid(e.to_string()))?
+        .map_err(|source| ConfigError::ProviderInitSource {
+            provider: "tempo payment provider",
+            source: Box::new(source),
+        })?
         .with_signing_mode(signer.signing_mode);
 
     let credential = provider
@@ -80,8 +101,12 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
         .await
         .map_err(|e| classify_payment_error(e, &network))?;
 
-    let auth_header =
-        mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
+    let auth_header = mpp::format_authorization(&credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "Authorization header",
+            source: Box::new(source),
+        }
+    })?;
 
     // Output
     match ctx.output_format {
@@ -101,7 +126,7 @@ pub(crate) async fn run(ctx: &Context, challenge_arg: Option<String>, dry_run: b
 }
 
 /// Read the challenge from --challenge flag or stdin.
-fn read_challenge(flag: Option<String>) -> Result<String> {
+fn read_challenge(flag: Option<String>) -> Result<String, TempoError> {
     if let Some(value) = flag {
         return Ok(value);
     }
@@ -109,19 +134,25 @@ fn read_challenge(flag: Option<String>) -> Result<String> {
     let mut buf = String::new();
     io::stdin()
         .read_to_string(&mut buf)
-        .context("Failed to read challenge from stdin")?;
+        .map_err(InputError::ReadStdin)?;
     let trimmed = buf.trim().to_string();
     if trimmed.is_empty() {
-        anyhow::bail!("No challenge provided. Use --challenge or pipe via stdin.");
+        return Err(InputError::MissingChallenge.into());
     }
     Ok(trimmed)
 }
 
 /// Resolve a chain ID to a known `NetworkId`.
-fn require_chain(chain_id: Option<u64>) -> Result<NetworkId> {
-    let cid = chain_id.ok_or_else(|| {
-        PaymentError::InvalidChallenge("missing chainId in payment request".to_string())
+fn require_chain(chain_id: Option<u64>) -> Result<NetworkId, TempoError> {
+    let cid = chain_id.ok_or(PaymentError::ChallengeMissingField {
+        context: "payment request",
+        field: "chainId",
     })?;
-    NetworkId::from_chain_id(cid)
-        .ok_or_else(|| PaymentError::InvalidChallenge(format!("unsupported chainId: {cid}")).into())
+    NetworkId::from_chain_id(cid).ok_or_else(|| {
+        PaymentError::ChallengeUnsupportedChainId {
+            context: "payment request",
+            chain_id: cid,
+        }
+        .into()
+    })
 }

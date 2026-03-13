@@ -27,8 +27,7 @@ pub(crate) async fn build_key_info(
     balance_cache: &HashMap<(String, u64), Vec<TokenBalance>>,
 ) -> KeyInfo {
     let address = entry
-        .key_address
-        .clone()
+        .key_address_hex()
         .unwrap_or_else(|| "none".to_string());
 
     let wt = entry.wallet_type.as_str();
@@ -44,18 +43,16 @@ pub(crate) async fn build_key_info(
         None => (None, None, None),
     };
 
-    let (wallet_addr, balance) = if entry.wallet_address.is_empty() {
-        (None, None)
-    } else {
-        let cache_key = (entry.wallet_address.clone(), entry.chain_id);
+    let (wallet_addr, balance) = entry.wallet_address_hex().map_or((None, None), |wallet| {
+        let cache_key = (wallet.clone(), entry.chain_id);
         let bal = currency.as_ref().and_then(|cur| {
             balance_cache
                 .get(&cache_key)
                 .and_then(|all| all.iter().find(|tb| tb.currency == *cur))
-                .map(|tb| tb.balance.parse::<f64>().unwrap_or(0.0))
+                .map(|tb| tb.balance.clone())
         });
-        (Some(entry.wallet_address.clone()), bal)
-    };
+        (Some(wallet), bal)
+    });
 
     let expires_at =
         key_expiry_timestamp(entry).map(tempo_common::cli::format::format_utc_timestamp);
@@ -88,7 +85,10 @@ pub(crate) fn print_key_limits(key: &KeyInfo) {
 }
 
 /// Print spending limits to a writer.
-pub(crate) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+pub(crate) fn print_key_limits_to(
+    key: &KeyInfo,
+    w: &mut dyn std::io::Write,
+) -> std::io::Result<()> {
     let sym = key.symbol.as_deref().unwrap_or("tokens");
     if let Some(sl) = &key.spending_limit {
         if sl.unlimited {
@@ -98,15 +98,9 @@ pub(crate) fn print_key_limits_to(key: &KeyInfo, w: &mut dyn std::io::Write) -> 
                 "Limit",
                 width = LABEL_WIDTH
             )?;
-        } else if let Some(remaining) = sl.remaining {
-            let limit = sl
-                .limit
-                .map(|l| format!("{l}"))
-                .unwrap_or_else(|| "?".to_string());
-            let spent = sl
-                .spent
-                .map(|s| format!("{s}"))
-                .unwrap_or_else(|| "0".to_string());
+        } else if let Some(remaining) = sl.remaining.as_deref() {
+            let limit = sl.limit.clone().unwrap_or_else(|| "?".to_string());
+            let spent = sl.spent.clone().unwrap_or_else(|| "0".to_string());
             writeln!(
                 w,
                 "{:>width$}: {spent} / {limit} {sym} ({remaining} remaining)",
@@ -160,11 +154,11 @@ pub(crate) fn balance_breakdown(
     chain_id: Option<u64>,
     sessions: &[SessionRecord],
 ) -> Option<BalanceBreakdown> {
-    let (locked_str, session_count, decimals) = compute_locked(sym, chain_id, sessions)?;
-
-    let available_f64: f64 = available_str.parse().unwrap_or(0.0);
-    let locked_f64: f64 = locked_str.parse().unwrap_or(0.0);
-    let total_str = format!("{:.width$}", available_f64 + locked_f64, width = decimals);
+    let (locked_raw, locked_str, session_count, decimals) =
+        compute_locked(sym, chain_id, sessions)?;
+    let available_raw = parse_fixed_amount(available_str, decimals)?;
+    let total_raw = available_raw.saturating_add(locked_raw);
+    let total_str = format_units(U256::from(total_raw), decimals as u8).expect("decimals <= 77");
 
     Some(BalanceBreakdown {
         total: total_str,
@@ -183,7 +177,7 @@ fn compute_locked(
     sym: &str,
     chain_id: Option<u64>,
     sessions: &[SessionRecord],
-) -> Option<(String, usize, usize)> {
+) -> Option<(u128, String, usize, usize)> {
     if sessions.is_empty() {
         return None;
     }
@@ -198,11 +192,7 @@ fn compute_locked(
     let locked_raw: u128 = sessions
         .iter()
         .filter(|s| chain_id.is_none_or(|cid| s.chain_id == cid))
-        .filter_map(|s| {
-            let deposit = s.deposit_u128().ok()?;
-            let spent = s.cumulative_amount_u128().ok()?;
-            Some(deposit.saturating_sub(spent))
-        })
+        .map(|s| s.deposit_u128().saturating_sub(s.cumulative_amount_u128()))
         .sum();
 
     if locked_raw == 0 {
@@ -215,7 +205,48 @@ fn compute_locked(
         .iter()
         .filter(|s| chain_id.is_none_or(|cid| s.chain_id == cid))
         .count();
-    Some((locked_str, count, decimals))
+    Some((locked_raw, locked_str, count, decimals))
+}
+
+/// Parse a fixed-point decimal string into atomic units with the given scale.
+fn parse_fixed_amount(value: &str, decimals: usize) -> Option<u128> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.starts_with('-') {
+        return None;
+    }
+
+    let mut parts = trimmed.split('.');
+    let int_part = parts.next().unwrap_or_default();
+    let frac_part = parts.next().unwrap_or_default();
+    if parts.next().is_some() {
+        return None;
+    }
+
+    if !int_part.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    if !frac_part.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    let int_val = int_part.parse::<u128>().ok()?;
+    let scale = 10u128.checked_pow(decimals as u32)?;
+    let mut frac = frac_part.to_string();
+    if frac.len() > decimals {
+        frac.truncate(decimals);
+    } else {
+        frac.extend(std::iter::repeat_n(
+            '0',
+            decimals.saturating_sub(frac.len()),
+        ));
+    }
+    let frac_val = if frac.is_empty() {
+        0
+    } else {
+        frac.parse::<u128>().ok()?
+    };
+
+    int_val.checked_mul(scale)?.checked_add(frac_val)
 }
 
 #[cfg(test)]

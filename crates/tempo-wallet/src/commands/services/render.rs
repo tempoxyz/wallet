@@ -1,11 +1,11 @@
 //! Rendering functions for the services command.
 
-use anyhow::Result;
 use serde::Serialize;
 
 use tempo_common::cli::output;
 use tempo_common::cli::output::OutputFormat;
 use tempo_common::cli::terminal::{print_field, sanitize_for_terminal, truncate};
+use tempo_common::error::TempoError;
 
 use super::model::{EndpointPayment, Service, ServiceDocs};
 
@@ -75,21 +75,21 @@ pub(super) fn render_service_list(
     services: &[Service],
     output_format: OutputFormat,
     search: Option<&str>,
-) -> Result<()> {
+) -> Result<(), TempoError> {
+    let search_query = search.map(|q| q.trim().to_ascii_lowercase());
     let filtered: Vec<&Service> = services
         .iter()
         .filter(|s| {
-            if let Some(q) = search {
-                let q_lower = q.to_lowercase();
-                let matches = s.name.to_lowercase().contains(&q_lower)
-                    || s.id.to_lowercase().contains(&q_lower)
+            if let Some(q_lower) = search_query.as_ref() {
+                let matches = contains_case_insensitive(&s.name, q_lower)
+                    || contains_case_insensitive(&s.id, q_lower)
                     || s.description
                         .as_ref()
-                        .is_some_and(|d| d.to_lowercase().contains(&q_lower))
-                    || s.tags.iter().any(|t| t.to_lowercase().contains(&q_lower))
+                        .is_some_and(|d| contains_case_insensitive(d, q_lower))
+                    || s.tags.iter().any(|t| contains_case_insensitive(t, q_lower))
                     || s.categories
                         .iter()
-                        .any(|c| c.to_lowercase().contains(&q_lower));
+                        .any(|c| contains_case_insensitive(c, q_lower));
                 if !matches {
                     return false;
                 }
@@ -113,7 +113,7 @@ pub(super) fn render_service_list(
                 .endpoints
                 .iter()
                 .map(|ep| EndpointListItem {
-                    method: &ep.method,
+                    method: ep.method_kind().as_str(),
                     path: &ep.path,
                     description: ep.description.as_deref(),
                     docs: ep.docs.as_deref(),
@@ -134,7 +134,14 @@ pub(super) fn render_service_list(
     Ok(())
 }
 
-pub(super) fn render_service_detail(service: &Service, output_format: OutputFormat) -> Result<()> {
+fn contains_case_insensitive(haystack: &str, needle_lower: &str) -> bool {
+    haystack.to_ascii_lowercase().contains(needle_lower)
+}
+
+pub(super) fn render_service_detail(
+    service: &Service,
+    output_format: OutputFormat,
+) -> Result<(), TempoError> {
     let detail = ServiceDetail {
         id: &service.id,
         name: &service.name,
@@ -148,7 +155,7 @@ pub(super) fn render_service_detail(service: &Service, output_format: OutputForm
             .endpoints
             .iter()
             .map(|ep| EndpointDetailItem {
-                method: &ep.method,
+                method: ep.method_kind().as_str(),
                 path: &ep.path,
                 description: ep.description.as_deref(),
                 payment: ep.payment.as_ref(),
@@ -260,7 +267,8 @@ fn render_detail(s: &Service) {
         let base_url = s.service_url.as_deref().unwrap_or(&s.url);
         for ep in &s.endpoints {
             let pricing = sanitize_for_terminal(&ep.format_pricing());
-            let method = sanitize_for_terminal(&ep.method);
+            let method_kind = ep.method_kind();
+            let method = sanitize_for_terminal(method_kind.as_str());
             let path = sanitize_for_terminal(&ep.path);
             println!("  {:>6} {:<40} {}", method, path, pricing);
 
@@ -278,9 +286,13 @@ fn render_detail(s: &Service) {
 
             let full_url = format!("{}{}", base_url.trim_end_matches('/'), ep.path);
             let safe_url = sanitize_for_terminal(&full_url);
-            let example = match ep.method.to_uppercase().as_str() {
-                "GET" => format!("tempo request {safe_url}"),
-                m => format!("tempo request -X {m} --json '{{}}' {safe_url}"),
+            let example = if method_kind.supports_body() {
+                format!(
+                    "tempo request -X {} --json '{{}}' {safe_url}",
+                    method_kind.as_str()
+                )
+            } else {
+                format!("tempo request {safe_url}")
             };
             println!("         example: {example}");
 

@@ -33,7 +33,10 @@ pub fn map_mpp_validation_error(
         mpp::MppError::InvalidChallenge { reason, .. } => {
             PaymentError::UnsupportedPaymentIntent(reason.unwrap_or_default())
         }
-        other => PaymentError::InvalidChallenge(other.to_string()),
+        other => PaymentError::ChallengeSchemaSource {
+            context: "payment challenge",
+            source: Box::new(other),
+        },
     }
 }
 
@@ -63,11 +66,12 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate:
                 required,
             } => {
                 let tc = network.token();
-                let (symbol, decimals) = if tc.address.eq_ignore_ascii_case(&token) {
-                    (tc.symbol, tc.decimals)
-                } else {
-                    ("tokens", 6)
-                };
+                let (symbol, decimals) =
+                    if format!("{:#x}", tc.address).eq_ignore_ascii_case(&token) {
+                        (tc.symbol, tc.decimals)
+                    } else {
+                        ("tokens", 6)
+                    };
                 let fmt = |s: &str| {
                     s.parse::<u128>()
                         .ok()
@@ -90,9 +94,33 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate:
         other => {
             let raw = other.to_string();
             let msg = raw.strip_prefix("HTTP error: ").unwrap_or(&raw).to_string();
-            NetworkError::Http(msg).into()
+            classify_mpp_http_error(msg).into()
         }
     }
+}
+
+fn classify_mpp_http_error(message: String) -> NetworkError {
+    let trimmed = message.trim();
+    let mut parts = trimmed.splitn(2, ' ');
+
+    if let Some(status_str) = parts.next() {
+        if let Ok(status) = status_str.parse::<u16>() {
+            if (400..=599).contains(&status) {
+                let body = parts
+                    .next()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(String::from);
+                return NetworkError::HttpStatus {
+                    operation: "process payment",
+                    status,
+                    body,
+                };
+            }
+        }
+    }
+
+    NetworkError::Http(message)
 }
 
 #[cfg(test)]
@@ -222,10 +250,16 @@ mod tests {
         // classify_payment_error strips the "HTTP error: " prefix
         let err = mpp::MppError::Http("503 Service Unavailable".to_string());
         match classify_payment_error(err, &NetworkId::Tempo) {
-            TempoError::Network(NetworkError::Http(msg)) => {
-                assert_eq!(msg, "503 Service Unavailable")
+            TempoError::Network(NetworkError::HttpStatus {
+                operation,
+                status,
+                body,
+            }) => {
+                assert_eq!(operation, "process payment");
+                assert_eq!(status, 503);
+                assert_eq!(body.as_deref(), Some("Service Unavailable"));
             }
-            other => panic!("Expected Http with stripped prefix, got: {other}"),
+            other => panic!("Expected HttpStatus with parsed code, got: {other}"),
         }
     }
 
@@ -330,7 +364,7 @@ mod tests {
         let err = mpp::MppError::InvalidAmount("not a number".to_string());
         assert!(matches!(
             map_mpp_validation_error(err, &challenge),
-            PaymentError::InvalidChallenge(msg) if msg.contains("not a number")
+            PaymentError::ChallengeSchemaSource { context: "payment challenge", source } if source.to_string().contains("not a number")
         ));
     }
 }

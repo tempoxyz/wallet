@@ -2,19 +2,18 @@
 
 use std::io::Write;
 
-use anyhow::Result;
 use futures::StreamExt;
 
 use super::output::OutputOptions;
 use crate::http::{format_http_error, headers_from_reqwest, print_headers, HttpClient};
 use tempo_common::cli::format::now_utc;
-use tempo_common::error::NetworkError;
+use tempo_common::error::{NetworkError, TempoError};
 
 use super::output::write_meta_if_requested;
 
 /// Parse a single SSE line and, if it's a `data:` field, write the NDJSON
 /// object to `writer`. Returns the number of bytes written (0 if skipped).
-fn write_sse_data_line(line: &[u8], writer: &mut impl Write) -> Result<usize> {
+fn write_sse_data_line(line: &[u8], writer: &mut impl Write) -> Result<usize, TempoError> {
     let s = String::from_utf8_lossy(line);
     let st = s.trim_end_matches(['\r', '\n']);
     if st.is_empty() {
@@ -41,7 +40,7 @@ fn write_sse_data_line(line: &[u8], writer: &mut impl Write) -> Result<usize> {
 /// Drain complete lines from `buf` and convert SSE `data:` lines to NDJSON.
 ///
 /// Returns the total number of bytes written to `writer`.
-fn drain_sse_lines(buf: &mut Vec<u8>, writer: &mut impl Write) -> Result<usize> {
+fn drain_sse_lines(buf: &mut Vec<u8>, writer: &mut impl Write) -> Result<usize, TempoError> {
     let mut written = 0;
     while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
         let line: Vec<u8> = buf.drain(..=pos).collect();
@@ -60,9 +59,13 @@ pub(crate) async fn run(
     url: &str,
     output_opts: &OutputOptions,
     sse_json: bool,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     let start = std::time::Instant::now();
-    let resp = http.build_raw_request(url).send().await?;
+    let resp = http
+        .build_raw_request(url)
+        .send()
+        .await
+        .map_err(NetworkError::Reqwest)?;
     let status = resp.status().as_u16();
     let final_url_string = resp.url().to_string();
     let headers = headers_from_reqwest(resp.headers());
@@ -76,14 +79,24 @@ pub(crate) async fn run(
     if sse_json {
         let mut buf: Vec<u8> = Vec::new();
         let mut stream = resp.bytes_stream();
-        while let Some(chunk) = stream.next().await.transpose()? {
+        while let Some(chunk) = stream
+            .next()
+            .await
+            .transpose()
+            .map_err(NetworkError::Reqwest)?
+        {
             buf.extend_from_slice(&chunk);
             bytes_written = bytes_written.saturating_add(drain_sse_lines(&mut buf, &mut stdout)?);
             stdout.flush().ok();
         }
     } else {
         let mut stream = resp.bytes_stream();
-        while let Some(chunk) = stream.next().await.transpose()? {
+        while let Some(chunk) = stream
+            .next()
+            .await
+            .transpose()
+            .map_err(NetworkError::Reqwest)?
+        {
             bytes_written = bytes_written.saturating_add(chunk.len());
             stdout.write_all(&chunk)?;
             stdout.flush().ok();
@@ -96,7 +109,11 @@ pub(crate) async fn run(
     let error: Option<NetworkError> = if status == 402 {
         Some(NetworkError::StreamingPaymentUnsupported)
     } else if status >= 400 {
-        Some(NetworkError::Http(format_http_error(status)))
+        Some(NetworkError::HttpStatus {
+            operation: "stream SSE response",
+            status,
+            body: Some(format_http_error(status)),
+        })
     } else {
         None
     };

@@ -1,5 +1,7 @@
 //! Payment analytics tracking for query command flows.
 
+use std::fmt::Display;
+
 use crate::analytics::{
     PaymentFailurePayload, PaymentStartedPayload, PaymentSuccessPayload, QueryFailurePayload,
     QueryStartedPayload, QuerySuccessPayload,
@@ -102,7 +104,7 @@ impl<'a> PaymentAnalytics<'a> {
     /// successful (the non-402 path fires this directly from `mod.rs`).
     pub(crate) fn track_success(
         &self,
-        tx_hash: String,
+        tx_hash: Option<String>,
         session_id: Option<String>,
         url: &str,
         method: &str,
@@ -122,7 +124,7 @@ impl<'a> PaymentAnalytics<'a> {
         track_query_success(self.ctx, url, method, status_code);
     }
 
-    pub(crate) fn track_failure(&self, err: &anyhow::Error) {
+    pub(crate) fn track_failure(&self, err: &impl Display) {
         self.ctx.track(
             PAYMENT_FAILURE,
             PaymentFailurePayload {

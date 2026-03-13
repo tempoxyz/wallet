@@ -9,10 +9,12 @@ use alloy::providers::Provider;
 use alloy::rpc::types::{Filter, TransactionRequest};
 use alloy::sol;
 use alloy::sol_types::SolCall;
-use anyhow::{Context, Result};
 
 use crate::config::Config;
+use crate::error::{InputError, NetworkError, TempoError};
 use crate::network::NetworkId;
+
+type SessionResult<T> = Result<T, TempoError>;
 
 // ==================== ABI Definitions ====================
 
@@ -59,9 +61,9 @@ pub struct OnChainChannel {
 /// Discovered on-chain channel with decoded metadata.
 pub struct DiscoveredChannel {
     pub network: NetworkId,
-    pub channel_id: String,
-    pub escrow_contract: String,
-    pub currency: String,
+    pub channel_id: B256,
+    pub escrow_contract: Address,
+    pub currency: Address,
     pub deposit: u128,
     pub settled: u128,
     pub close_requested_at: u64,
@@ -107,7 +109,7 @@ pub async fn get_channel_on_chain(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
     channel_id: B256,
-) -> Result<Option<OnChainChannel>> {
+) -> SessionResult<Option<OnChainChannel>> {
     let call_data = IEscrow::getChannelCall {
         channelId: channel_id,
     }
@@ -120,9 +122,16 @@ pub async fn get_channel_on_chain(
     let result = provider
         .call(tx)
         .await
-        .context("Failed to call getChannel on escrow contract")?;
-    let decoded = IEscrow::getChannelCall::abi_decode_returns(&result)
-        .context("Failed to decode getChannel response")?;
+        .map_err(|source| NetworkError::RpcSource {
+            operation: "query channel state",
+            source: Box::new(source),
+        })?;
+    let decoded = IEscrow::getChannelCall::abi_decode_returns(&result).map_err(|source| {
+        NetworkError::RpcSource {
+            operation: "decode channel state",
+            source: Box::new(source),
+        }
+    })?;
 
     if decoded.deposit == 0 || decoded.finalized {
         return Ok(None);
@@ -161,10 +170,7 @@ pub async fn find_all_channels_for_payer(
     let rpc_url = config.rpc_url(network);
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
-    let escrow: Address = match network.escrow_contract().parse() {
-        Ok(a) => a,
-        Err(_) => return results,
-    };
+    let escrow = network.escrow_contract();
 
     let latest = match provider.get_block_number().await {
         Ok(n) => n.saturating_sub(LOG_HEAD_MARGIN),
@@ -256,22 +262,19 @@ pub async fn find_all_channels_for_payer(
                 }
             };
 
-            let token_str = format!("{:#x}", log_token);
-
             // Skip if we already found this channel_id
-            let cid_str = format!("{:#x}", channel_id);
             if results
                 .iter()
-                .any(|r: &DiscoveredChannel| r.channel_id == cid_str)
+                .any(|r: &DiscoveredChannel| r.channel_id == channel_id)
             {
                 continue;
             }
 
             results.push(DiscoveredChannel {
                 network,
-                channel_id: cid_str,
-                escrow_contract: format!("{:#x}", escrow),
-                currency: token_str,
+                channel_id,
+                escrow_contract: escrow,
+                currency: log_token,
                 deposit: on_chain.deposit,
                 settled: on_chain.settled,
                 close_requested_at: on_chain.close_requested_at,
@@ -313,14 +316,16 @@ pub async fn query_channel_state(
     config: &Config,
     channel_id_hex: &str,
     network: NetworkId,
-) -> Result<Option<(String, u128, u128)>> {
-    let channel_id: B256 = channel_id_hex.parse().context("Invalid channel ID")?;
+) -> SessionResult<Option<(Address, u128, u128)>> {
+    let channel_id: B256 =
+        channel_id_hex
+            .parse()
+            .map_err(|_| InputError::InvalidChannelIdValue {
+                value: channel_id_hex.to_string(),
+            })?;
     let rpc_url = config.rpc_url(network);
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
-    let escrow: Address = network
-        .escrow_contract()
-        .parse()
-        .context("Invalid escrow address")?;
+    let escrow = network.escrow_contract();
 
     let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await? {
         Some(ch) => ch,
@@ -328,7 +333,7 @@ pub async fn query_channel_state(
     };
 
     Ok(Some((
-        format!("{:#x}", on_chain.currency),
+        on_chain.currency,
         on_chain.deposit,
         on_chain.settled,
     )))
@@ -339,8 +344,16 @@ pub async fn query_token_balance(
     provider: &impl Provider,
     token: Address,
     account: Address,
-) -> Result<U256> {
+) -> SessionResult<U256> {
     let contract = ITIP20::new(token, provider);
-    let balance = contract.balanceOf(account).call().await?;
+    let balance =
+        contract
+            .balanceOf(account)
+            .call()
+            .await
+            .map_err(|source| NetworkError::RpcSource {
+                operation: "query token balance",
+                source: Box::new(source),
+            })?;
     Ok(balance)
 }

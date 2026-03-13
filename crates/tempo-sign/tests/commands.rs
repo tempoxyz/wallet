@@ -206,7 +206,7 @@ fn sign_artifacts_produces_manifest() {
         );
         let url = entry["url"].as_str().unwrap();
         assert!(
-            url.starts_with("https://cli.tempo.xyz/tempo-wallet/v0.1.0/"),
+            url.starts_with("https://cli.tempo.xyz/extensions/tempo-wallet/v0.1.0/"),
             "url should use default base: {url}"
         );
     }
@@ -405,7 +405,7 @@ fn sign_with_skill_metadata() {
             "--version",
             "1.0.0",
             "--skill",
-            "https://cli.tempo.xyz/tempo-wallet/v1.0.0/SKILL.md",
+            "https://cli.tempo.xyz/extensions/tempo-wallet/v1.0.0/SKILL.md",
             "--skill-sha256",
             "abc123def456",
             "--output",
@@ -419,7 +419,7 @@ fn sign_with_skill_metadata() {
         serde_json::from_str(&fs::read_to_string(&output_path).unwrap()).unwrap();
     assert_eq!(
         manifest["skill"],
-        "https://cli.tempo.xyz/tempo-wallet/v1.0.0/SKILL.md"
+        "https://cli.tempo.xyz/extensions/tempo-wallet/v1.0.0/SKILL.md"
     );
     assert_eq!(manifest["skill_sha256"], "abc123def456");
 }

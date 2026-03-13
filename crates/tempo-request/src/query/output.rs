@@ -1,17 +1,14 @@
 //! Response rendering, receipt display, and file output.
 
-use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Component, Path};
-
-use anyhow::{Context as _, Result};
 
 use crate::args::QueryArgs;
 use crate::http::{format_http_error, print_headers, HttpResponse};
 use tempo_common::cli::output::{format_structured_pretty_json, OutputFormat};
 use tempo_common::cli::terminal::hyperlink;
 use tempo_common::cli::Verbosity;
-use tempo_common::error::{InputError, NetworkError};
+use tempo_common::error::{InputError, NetworkError, TempoError};
 use tempo_common::network::NetworkId;
 
 /// Output/display options extracted from CLI arguments.
@@ -71,7 +68,7 @@ pub(crate) fn handle_response(
     output_opts: &OutputOptions,
     response: HttpResponse,
     save_receipt_path: Option<&str>,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     let status = response.status_code;
 
     // Capture receipt header before consuming response for output
@@ -94,7 +91,12 @@ pub(crate) fn handle_response(
     }
 
     if status >= 400 {
-        anyhow::bail!(NetworkError::Http(format_http_error(status)));
+        return Err(NetworkError::HttpStatus {
+            operation: "handle HTTP response",
+            status,
+            body: Some(format_http_error(status)),
+        }
+        .into());
     }
 
     Ok(())
@@ -105,7 +107,7 @@ pub(crate) fn handle_response(
 /// Note: `include_headers` only applies to `Text` format; structured formats
 /// (JSON/TOON) omit the status line and headers from stdout to keep output
 /// machine-parseable. Use `--dump-header` to capture headers separately.
-fn render_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
+fn render_response(opts: &OutputOptions, response: HttpResponse) -> Result<(), TempoError> {
     match opts.output_format {
         OutputFormat::Json | OutputFormat::Toon => {
             if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(&response.body) {
@@ -141,7 +143,7 @@ fn render_response(opts: &OutputOptions, response: HttpResponse) -> Result<()> {
 }
 
 /// Write raw response bytes to stdout or file (no trailing newline).
-fn write_body(opts: &OutputOptions, body: &[u8]) -> Result<()> {
+fn write_body(opts: &OutputOptions, body: &[u8]) -> Result<(), TempoError> {
     let dest = opts.output_file.as_deref().unwrap_or("-");
     write_to_file(dest, body, opts.log_enabled())
 }
@@ -154,7 +156,7 @@ pub(crate) fn write_meta_if_requested(
     elapsed_ms: u128,
     bytes: usize,
     effective_url: &str,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     if let Some(ref path) = opts.write_meta {
         let hdr_obj: serde_json::Value = headers
             .iter()
@@ -180,11 +182,10 @@ fn write_headers_file(
     status_code: u16,
     headers: &[(String, String)],
     verbose: bool,
-) -> Result<()> {
-    let mut content = String::new();
-    writeln!(content, "HTTP {status_code}").unwrap();
+) -> Result<(), TempoError> {
+    let mut content = format!("HTTP {status_code}\n");
     for (name, value) in headers {
-        writeln!(content, "{name}: {value}").unwrap();
+        content.push_str(&format!("{name}: {value}\n"));
     }
     content.push('\n');
     write_to_file(path, content.as_bytes(), verbose)
@@ -233,30 +234,24 @@ pub(crate) fn display_receipt(
 /// symlinks in the parent directory are resolved to prevent escaping the
 /// working directory. Absolute paths bypass the symlink check (also
 /// matching curl behaviour — the caller explicitly chose the destination).
-fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<()> {
+fn write_to_file(output_file: &str, data: &[u8], verbose: bool) -> Result<(), TempoError> {
     if output_file == "-" {
-        std::io::stdout()
-            .write_all(data)
-            .context("Failed to write to stdout")?;
+        std::io::stdout().write_all(data)?;
     } else {
         let path = Path::new(output_file);
         if path.components().any(|c| matches!(c, Component::ParentDir)) {
-            anyhow::bail!(InputError::InvalidOutputPath(
-                "path traversal (..) not allowed".to_string()
-            ));
+            return Err(InputError::OutputPathTraversal.into());
         }
         // Resolve symlinks in the parent to prevent escaping the intended directory
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             if let Ok(canonical) = parent.canonicalize() {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 if !path.is_absolute() && !canonical.starts_with(&cwd) {
-                    anyhow::bail!(InputError::InvalidOutputPath(
-                        "resolved path escapes working directory".to_string()
-                    ));
+                    return Err(InputError::OutputPathEscapesWorkingDirectory.into());
                 }
             }
         }
-        std::fs::write(output_file, data).context("Failed to write output file")?;
+        std::fs::write(output_file, data)?;
         if verbose {
             eprintln!("Saved to: {output_file}");
         }

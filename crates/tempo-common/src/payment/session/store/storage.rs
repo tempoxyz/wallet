@@ -1,45 +1,74 @@
 //! SQLite CRUD operations for session persistence.
 
+use std::error::Error;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::{Context, Result};
+use alloy::primitives::{Address, B256};
 use rusqlite::params;
+use rusqlite::types::Type;
+
+use crate::error::{PaymentError, TempoError};
 
 use super::model::{session_key, SessionRecord, SessionStatus};
 
+type SessionStoreResult<T> = std::result::Result<T, TempoError>;
+
+fn store_error<E>(operation: &'static str, source: E) -> TempoError
+where
+    E: Error + Send + Sync + 'static,
+{
+    PaymentError::SessionPersistenceSource {
+        operation,
+        source: Box::new(source),
+    }
+    .into()
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SessionStoreDiagnostics {
+    pub malformed_load_drops: u64,
+    pub malformed_list_drops: u64,
+}
+
+static MALFORMED_LOAD_DROPS: AtomicU64 = AtomicU64::new(0);
+static MALFORMED_LIST_DROPS: AtomicU64 = AtomicU64::new(0);
+
 /// Get the tempo-wallet data directory (`$TEMPO_HOME/wallet` or `~/.tempo/wallet`).
-fn wallet_dir() -> Result<PathBuf> {
+fn wallet_dir() -> SessionStoreResult<PathBuf> {
     Ok(crate::tempo_home()?.join("wallet"))
 }
 
 /// Ensure the wallet directory exists and return it.
-pub(super) fn ensure_wallet_dir() -> Result<PathBuf> {
+pub(super) fn ensure_wallet_dir() -> SessionStoreResult<PathBuf> {
     let dir = wallet_dir()?;
-    fs::create_dir_all(&dir).context("Failed to create wallet directory")?;
+    fs::create_dir_all(&dir).map_err(|err| store_error("ensure session wallet dir", err))?;
     Ok(dir)
 }
 
-fn open_db() -> Result<rusqlite::Connection> {
+fn open_db() -> SessionStoreResult<rusqlite::Connection> {
     let dir = ensure_wallet_dir()?;
     let db_path = dir.join("sessions.db");
     open_db_at(&db_path)
 }
 
-fn open_db_at(path: &Path) -> Result<rusqlite::Connection> {
-    let conn = rusqlite::Connection::open(path).context("Failed to open sessions database")?;
+fn open_db_at(path: &Path) -> SessionStoreResult<rusqlite::Connection> {
+    let conn = rusqlite::Connection::open(path)
+        .map_err(|err| store_error("open sessions database", err))?;
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA synchronous = NORMAL;
          PRAGMA busy_timeout = 5000;
          PRAGMA foreign_keys = ON;",
     )
-    .context("Failed to set database pragmas")?;
+    .map_err(|err| store_error("configure sessions database pragmas", err))?;
     init_schema(&conn)?;
     Ok(conn)
 }
 
-fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
+fn init_schema(conn: &rusqlite::Connection) -> SessionStoreResult<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
             key               TEXT PRIMARY KEY,
@@ -65,10 +94,10 @@ fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
             last_used_at      INTEGER NOT NULL
         );",
     )
-    .context("Failed to create sessions table")?;
+    .map_err(|err| store_error("create sessions schema", err))?;
 
     conn.pragma_update(None, "user_version", 1)
-        .context("Failed to set database version")?;
+        .map_err(|err| store_error("set sessions database version", err))?;
 
     Ok(())
 }
@@ -77,8 +106,14 @@ fn init_schema(conn: &rusqlite::Connection) -> Result<()> {
 // Internal _conn helpers (also used by tests)
 // ---------------------------------------------------------------------------
 
-fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Result<()> {
+fn save_session_conn(
+    conn: &rusqlite::Connection,
+    record: &SessionRecord,
+) -> SessionStoreResult<()> {
     let key = session_key(&record.origin);
+    let escrow_contract = format!("{:#x}", record.escrow_contract);
+    let authorized_signer = format!("{:#x}", record.authorized_signer);
+    let channel_id = record.channel_id_hex();
     conn.execute(
         "INSERT OR REPLACE INTO sessions (
             key, version, origin, request_url, chain_id,
@@ -92,16 +127,16 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             record.origin,
             record.request_url,
             record.chain_id as i64,
-            record.escrow_contract,
+            escrow_contract,
             record.currency,
             record.recipient,
             record.payer,
-            record.authorized_signer,
+            authorized_signer,
             record.salt,
-            record.channel_id,
-            record.deposit,
-            record.tick_cost,
-            record.cumulative_amount,
+            channel_id,
+            record.deposit.to_string(),
+            record.tick_cost.to_string(),
+            record.cumulative_amount.to_string(),
             record.challenge_echo,
             record.state.as_str(),
             record.close_requested_at as i64,
@@ -110,40 +145,129 @@ fn save_session_conn(conn: &rusqlite::Connection, record: &SessionRecord) -> Res
             record.last_used_at as i64,
         ],
     )
-    .context("Failed to save session")?;
+    .map_err(|err| store_error("save session", err))?;
     Ok(())
 }
 
 /// Map a row (with the standard SELECT column order) to a `SessionRecord`.
 fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
-    Ok(SessionRecord {
+    fn decode_u64_column(
+        row: &rusqlite::Row<'_>,
+        index: usize,
+        column: &'static str,
+    ) -> rusqlite::Result<u64> {
+        let raw = row.get::<_, i64>(index)?;
+        u64::try_from(raw).map_err(|_| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                Type::Integer,
+                Box::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("negative value for {column}: {raw}"),
+                )),
+            )
+        })
+    }
+
+    fn decode_u128_column(
+        row: &rusqlite::Row<'_>,
+        index: usize,
+        column: &'static str,
+    ) -> rusqlite::Result<u128> {
+        let raw = row.get::<_, String>(index)?;
+        raw.parse::<u128>().map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                Type::Text,
+                Box::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid {column} value '{raw}': {err}"),
+                )),
+            )
+        })
+    }
+
+    fn decode_address_column(
+        row: &rusqlite::Row<'_>,
+        index: usize,
+        column: &'static str,
+    ) -> rusqlite::Result<Address> {
+        let raw = row.get::<_, String>(index)?;
+        raw.parse::<Address>().map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                Type::Text,
+                Box::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid {column} value '{raw}': {err}"),
+                )),
+            )
+        })
+    }
+
+    fn decode_b256_column(
+        row: &rusqlite::Row<'_>,
+        index: usize,
+        column: &'static str,
+    ) -> rusqlite::Result<B256> {
+        let raw = row.get::<_, String>(index)?;
+        raw.parse::<B256>().map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                Type::Text,
+                Box::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid {column} value '{raw}': {err}"),
+                )),
+            )
+        })
+    }
+
+    let state_value = row.get::<_, String>(15)?;
+    let state = SessionStatus::try_from_db_str(&state_value)
+        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(15, Type::Text, Box::new(err)))?;
+
+    let mut record = SessionRecord {
         version: row.get::<_, u32>(0)?,
         origin: row.get(1)?,
         request_url: row.get(2)?,
-        chain_id: row.get::<_, i64>(3)? as u64,
-        escrow_contract: row.get(4)?,
+        chain_id: decode_u64_column(row, 3, "chain_id")?,
+        escrow_contract: decode_address_column(row, 4, "escrow_contract")?,
         currency: row.get(5)?,
         recipient: row.get(6)?,
         payer: row.get(7)?,
-        authorized_signer: row.get(8)?,
+        authorized_signer: decode_address_column(row, 8, "authorized_signer")?,
         salt: row.get(9)?,
-        channel_id: row.get(10)?,
-        deposit: row.get(11)?,
-        tick_cost: row.get(12)?,
-        cumulative_amount: row.get(13)?,
+        channel_id: decode_b256_column(row, 10, "channel_id")?,
+        deposit: decode_u128_column(row, 11, "deposit")?,
+        tick_cost: decode_u128_column(row, 12, "tick_cost")?,
+        cumulative_amount: decode_u128_column(row, 13, "cumulative_amount")?,
         challenge_echo: row.get(14)?,
-        state: SessionStatus::from_db_str(
-            &row.get::<_, String>(15)
-                .unwrap_or_else(|_| "active".to_string()),
-        ),
-        close_requested_at: u64::try_from(row.get::<_, i64>(16).unwrap_or(0)).unwrap_or(0),
-        grace_ready_at: u64::try_from(row.get::<_, i64>(17).unwrap_or(0)).unwrap_or(0),
-        created_at: u64::try_from(row.get::<_, i64>(18)?).unwrap_or(0),
-        last_used_at: u64::try_from(row.get::<_, i64>(19)?).unwrap_or(0),
-    })
+        state,
+        close_requested_at: decode_u64_column(row, 16, "close_requested_at")?,
+        grace_ready_at: decode_u64_column(row, 17, "grace_ready_at")?,
+        created_at: decode_u64_column(row, 18, "created_at")?,
+        last_used_at: decode_u64_column(row, 19, "last_used_at")?,
+    };
+
+    if !record.normalize_persisted_identity() {
+        return Err(rusqlite::Error::FromSqlConversionFailure(
+            5,
+            Type::Text,
+            Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid session currency or recipient address",
+            )),
+        ));
+    }
+
+    Ok(record)
 }
 
-fn load_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<Option<SessionRecord>> {
+fn load_session_conn(
+    conn: &rusqlite::Connection,
+    key: &str,
+) -> SessionStoreResult<Option<SessionRecord>> {
     let mut stmt = conn
         .prepare(
             "SELECT version, origin, request_url, chain_id,
@@ -152,34 +276,56 @@ fn load_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<Option<Se
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
              FROM sessions WHERE key = ?1",
         )
-        .context("Failed to prepare load query")?;
+        .map_err(|err| store_error("prepare session load query", err))?;
 
     let result = stmt.query_row(params![key], map_session_row);
 
     match result {
         Ok(record) => Ok(Some(record)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e).context("Failed to load session"),
+        Err(e) if is_malformed_session_row_error(&e) => {
+            MALFORMED_LOAD_DROPS.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                key,
+                error = %e,
+                "Skipping malformed session row while loading session"
+            );
+            delete_session_conn(conn, key)?;
+            Ok(None)
+        }
+        Err(e) => Err(store_error("load session", e)),
     }
 }
 
-fn delete_session_conn(conn: &rusqlite::Connection, key: &str) -> Result<()> {
+fn is_malformed_session_row_error(err: &rusqlite::Error) -> bool {
+    matches!(
+        err,
+        rusqlite::Error::FromSqlConversionFailure(_, _, _)
+            | rusqlite::Error::InvalidColumnType(_, _, _)
+            | rusqlite::Error::IntegralValueOutOfRange(_, _)
+    )
+}
+
+fn delete_session_conn(conn: &rusqlite::Connection, key: &str) -> SessionStoreResult<()> {
     conn.execute("DELETE FROM sessions WHERE key = ?1", params![key])
-        .context("Failed to delete session")?;
+        .map_err(|err| store_error("delete session", err))?;
     Ok(())
 }
 
-fn delete_session_by_channel_id_conn(conn: &rusqlite::Connection, channel_id: &str) -> Result<()> {
-    let channel_id = channel_id.to_lowercase();
+fn delete_session_by_channel_id_conn(
+    conn: &rusqlite::Connection,
+    channel_id: B256,
+) -> SessionStoreResult<()> {
+    let channel_id = format!("{:#x}", channel_id);
     conn.execute(
         "DELETE FROM sessions WHERE LOWER(channel_id) = ?1",
         params![channel_id],
     )
-    .context("Failed to delete session by channel_id")?;
+    .map_err(|err| store_error("delete session by channel id", err))?;
     Ok(())
 }
 
-fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>> {
+fn list_sessions_conn(conn: &rusqlite::Connection) -> SessionStoreResult<Vec<SessionRecord>> {
     let mut stmt = conn
         .prepare(
             "SELECT version, origin, request_url, chain_id,
@@ -188,13 +334,34 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
              FROM sessions ORDER BY last_used_at DESC",
         )
-        .context("Failed to prepare list query")?;
+        .map_err(|err| store_error("prepare sessions list query", err))?;
 
     let rows = stmt
         .query_map([], map_session_row)
-        .context("Failed to list sessions")?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .context("Failed to read session row")
+        .map_err(|err| store_error("list sessions", err))?;
+
+    let mut sessions = Vec::new();
+    let mut dropped_rows = 0usize;
+    for row in rows {
+        match row {
+            Ok(session) => sessions.push(session),
+            Err(err) => {
+                dropped_rows += 1;
+                tracing::warn!("Skipping malformed session row while listing sessions: {err}");
+            }
+        }
+    }
+
+    if dropped_rows > 0 {
+        MALFORMED_LIST_DROPS.fetch_add(dropped_rows as u64, Ordering::Relaxed);
+        tracing::warn!(
+            dropped_rows,
+            returned_rows = sessions.len(),
+            "Dropped malformed session rows while listing sessions"
+        );
+    }
+
+    Ok(sessions)
 }
 
 // ---------------------------------------------------------------------------
@@ -202,49 +369,57 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> Result<Vec<SessionRecord>>
 // ---------------------------------------------------------------------------
 
 /// Load a session record by key. Returns `None` if not found.
-pub fn load_session(key: &str) -> Result<Option<SessionRecord>> {
+pub fn load_session(key: &str) -> SessionStoreResult<Option<SessionRecord>> {
     let conn = open_db()?;
     load_session_conn(&conn, key)
 }
 
 /// Save a session record to the database.
-pub fn save_session(record: &SessionRecord) -> Result<()> {
+pub fn save_session(record: &SessionRecord) -> SessionStoreResult<()> {
     let conn = open_db()?;
     save_session_conn(&conn, record)
 }
 
 /// Delete a session record by key.
-pub fn delete_session(key: &str) -> Result<()> {
+pub fn delete_session(key: &str) -> SessionStoreResult<()> {
     let conn = open_db()?;
     delete_session_conn(&conn, key)
 }
 
 /// Delete a session record by channel ID.
-pub fn delete_session_by_channel_id(channel_id: &str) -> Result<()> {
+pub fn delete_session_by_channel_id(channel_id: B256) -> SessionStoreResult<()> {
     let conn = open_db()?;
     delete_session_by_channel_id_conn(&conn, channel_id)
 }
 
 /// List all session records, ordered by last_used_at descending.
-pub fn list_sessions() -> Result<Vec<SessionRecord>> {
+pub fn list_sessions() -> SessionStoreResult<Vec<SessionRecord>> {
     let conn = open_db()?;
     list_sessions_conn(&conn)
 }
 
+/// Drain and return aggregated malformed-row diagnostics from session persistence.
+pub fn take_store_diagnostics() -> SessionStoreDiagnostics {
+    SessionStoreDiagnostics {
+        malformed_load_drops: MALFORMED_LOAD_DROPS.swap(0, Ordering::Relaxed),
+        malformed_list_drops: MALFORMED_LIST_DROPS.swap(0, Ordering::Relaxed),
+    }
+}
+
 /// Update close state fields by channel ID for a local session (no-op if not found).
 pub fn update_session_close_state_by_channel_id(
-    channel_id: &str,
+    channel_id: B256,
     state: SessionStatus,
     close_requested_at: u64,
     grace_ready_at: u64,
-) -> Result<()> {
+) -> SessionStoreResult<()> {
     let conn = open_db()?;
-    let channel_id = channel_id.to_lowercase();
+    let channel_id = format!("{:#x}", channel_id);
     conn.execute(
         "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
         params![state.as_str(), close_requested_at as i64, grace_ready_at as i64, channel_id],
     )
-    .context("Failed to update session close state")?;
+    .map_err(|err| store_error("update session close state", err))?;
     Ok(())
 }
 
@@ -260,16 +435,16 @@ mod tests {
             origin: origin.into(),
             request_url: format!("{origin}/api/v1"),
             chain_id: 4217,
-            escrow_contract: "0x00".into(),
-            currency: "0x00".into(),
-            recipient: "0x00".into(),
+            escrow_contract: Address::ZERO,
+            currency: "0x0000000000000000000000000000000000000001".into(),
+            recipient: "0x0000000000000000000000000000000000000002".into(),
             payer: "0x00".into(),
-            authorized_signer: "0x00".into(),
+            authorized_signer: Address::ZERO,
             salt: salt.into(),
-            channel_id: "0x00".into(),
-            deposit: "1000000".into(),
-            tick_cost: "100".into(),
-            cumulative_amount: "0".into(),
+            channel_id: B256::ZERO,
+            deposit: 1_000_000,
+            tick_cost: 100,
+            cumulative_amount: 0,
             challenge_echo: "echo".into(),
             state: SessionStatus::Active,
             close_requested_at: 0,
@@ -297,8 +472,61 @@ mod tests {
         assert_eq!(loaded.origin, "https://example.com");
         assert_eq!(loaded.salt, "salt_1");
         assert_eq!(loaded.chain_id, 4217);
-        assert_eq!(loaded.deposit, "1000000");
+        assert_eq!(loaded.deposit, 1_000_000);
         assert_eq!(loaded.network_id().as_str(), "tempo");
+    }
+
+    #[test]
+    fn test_load_session_rejects_invalid_state() {
+        let (_tmp, conn) = test_db();
+        let mut record = test_record("https://example.com", "salt_state");
+        record.state = SessionStatus::Finalized;
+        save_session_conn(&conn, &record).unwrap();
+
+        let key = session_key("https://example.com");
+        conn.execute(
+            "UPDATE sessions SET state = ?1 WHERE key = ?2",
+            params!["corrupt-state", key],
+        )
+        .unwrap();
+
+        let loaded = load_session_conn(&conn, &key).unwrap();
+        assert!(loaded.is_none(), "malformed row should be dropped");
+
+        let row_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(row_count, 0, "malformed row should be removed from store");
+    }
+
+    #[test]
+    fn test_load_session_rejects_negative_timestamps() {
+        let (_tmp, conn) = test_db();
+        let record = test_record("https://example.com", "salt_negative");
+        save_session_conn(&conn, &record).unwrap();
+
+        let key = session_key("https://example.com");
+        conn.execute(
+            "UPDATE sessions SET last_used_at = -1 WHERE key = ?1",
+            params![key],
+        )
+        .unwrap();
+
+        let loaded = load_session_conn(&conn, &key).unwrap();
+        assert!(loaded.is_none(), "malformed row should be dropped");
+
+        let row_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(row_count, 0, "malformed row should be removed from store");
     }
 
     #[test]
@@ -356,14 +584,43 @@ mod tests {
     }
 
     #[test]
+    fn test_list_sessions_skips_malformed_rows() {
+        let (_tmp, conn) = test_db();
+
+        let mut r1 = test_record("https://good.example.com", "salt_good");
+        r1.last_used_at = 2000;
+        save_session_conn(&conn, &r1).unwrap();
+
+        let mut r2 = test_record("https://bad.example.com", "salt_bad");
+        r2.last_used_at = 1000;
+        save_session_conn(&conn, &r2).unwrap();
+
+        let bad_key = session_key("https://bad.example.com");
+        conn.execute(
+            "UPDATE sessions SET deposit = 'not-a-number' WHERE key = ?1",
+            params![bad_key],
+        )
+        .unwrap();
+
+        let all = list_sessions_conn(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].origin, "https://good.example.com");
+    }
+
+    #[test]
     fn test_delete_session_by_channel_id_case_insensitive() {
         let (_tmp, conn) = test_db();
         let mut record = test_record("https://example.com", "salt_1");
-        record.channel_id = "0xabc123".to_string();
+        record.channel_id = "0x0000000000000000000000000000000000000000000000000000000000abc123"
+            .parse()
+            .unwrap();
         save_session_conn(&conn, &record).unwrap();
 
         // Delete with different casing
-        delete_session_by_channel_id_conn(&conn, "0xABC123").unwrap();
+        let channel_id: B256 = "0x0000000000000000000000000000000000000000000000000000000000ABC123"
+            .parse()
+            .unwrap();
+        delete_session_by_channel_id_conn(&conn, channel_id).unwrap();
 
         let all = list_sessions_conn(&conn).unwrap();
         assert!(
@@ -376,11 +633,18 @@ mod tests {
     fn test_update_session_close_state_by_channel_id() {
         let (_tmp, conn) = test_db();
         let mut record = test_record("https://example.com", "salt");
-        record.channel_id = "0xabc123".to_string();
+        record.channel_id = "0x0000000000000000000000000000000000000000000000000000000000abc123"
+            .parse()
+            .unwrap();
         save_session_conn(&conn, &record).unwrap();
 
         // Replicate the SQL from update_session_close_state_by_channel_id
-        let channel_id = "0xABC123".to_lowercase();
+        let channel_id = format!(
+            "{:#x}",
+            "0x0000000000000000000000000000000000000000000000000000000000ABC123"
+                .parse::<B256>()
+                .unwrap()
+        );
         conn.execute(
             "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
             params![SessionStatus::Closing.as_str(), 1000i64, 2000i64, channel_id],

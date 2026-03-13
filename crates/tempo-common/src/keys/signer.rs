@@ -18,12 +18,11 @@ use super::Keystore;
 pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoError> {
     let key = pk_str.trim();
     let key_hex = key.strip_prefix("0x").unwrap_or(key);
-    let bytes = hex::decode(key_hex)
-        .map_err(|_| KeyError::InvalidKey("Invalid private key format".to_string()))?;
+    let bytes = hex::decode(key_hex).map_err(|_| KeyError::InvalidKeyFormat)?;
     if bytes.len() != 32 {
-        return Err(KeyError::InvalidKey("Invalid private key format".to_string()).into());
+        return Err(KeyError::InvalidKeyFormat.into());
     }
-    PrivateKeySigner::from_slice(&bytes).map_err(|e| KeyError::InvalidKey(e.to_string()).into())
+    PrivateKeySigner::from_slice(&bytes).map_err(|_| KeyError::InvalidKeyFormat.into())
 }
 
 /// A loaded wallet signer ready for transaction signing.
@@ -59,11 +58,11 @@ impl Keystore {
             })?;
         let signer = parse_private_key_signer(pk)?;
 
-        let wallet_address: Address = key_entry.wallet_address.parse().map_err(|e| {
-            TempoError::from(ConfigError::Invalid(format!(
-                "Invalid wallet address: {}",
-                e
-            )))
+        let wallet_address: Address = key_entry.wallet_address_parsed().ok_or_else(|| {
+            TempoError::from(ConfigError::InvalidAddress {
+                context: "wallet",
+                value: key_entry.wallet_address.clone(),
+            })
         })?;
 
         let signing_mode = if wallet_address == signer.address() {

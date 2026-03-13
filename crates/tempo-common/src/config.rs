@@ -58,14 +58,11 @@ impl Config {
     pub fn load(
         config_path: Option<impl AsRef<Path>>,
         rpc_override: Option<&str>,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, TempoError> {
         let (config_path, explicit) = if let Some(path) = config_path {
             let path = PathBuf::from(path.as_ref());
             if path.components().any(|c| matches!(c, Component::ParentDir)) {
-                return Err(ConfigError::Invalid(
-                    "Invalid config path: path traversal (..) not allowed".to_string(),
-                )
-                .into());
+                return Err(ConfigError::InvalidConfigPathTraversal.into());
             }
             (path, true)
         } else {
@@ -74,29 +71,26 @@ impl Config {
 
         let mut config = if !config_path.exists() {
             if explicit {
-                anyhow::bail!(ConfigError::Missing(format!(
+                return Err(ConfigError::Missing(format!(
                     "Config file not found at {}.",
                     config_path.display()
-                )));
+                ))
+                .into());
             }
             let config = Self::default();
             let _ = Self::write_default(&config_path, &config);
             config
         } else {
-            let content = std::fs::read_to_string(&config_path).map_err(|e| {
-                ConfigError::Invalid(format!(
-                    "Failed to read config file at {}: {}",
-                    config_path.display(),
-                    e
-                ))
+            let content = std::fs::read_to_string(&config_path).map_err(|source| {
+                ConfigError::ReadConfigFile {
+                    path: config_path.display().to_string(),
+                    source,
+                }
             })?;
 
-            toml::from_str(&content).map_err(|e| {
-                ConfigError::Invalid(format!(
-                    "Failed to parse config file at {}: {}",
-                    config_path.display(),
-                    e
-                ))
+            toml::from_str(&content).map_err(|source| ConfigError::ParseConfigFile {
+                path: config_path.display().to_string(),
+                source,
             })?
         };
 

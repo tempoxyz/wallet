@@ -2,7 +2,6 @@
 
 use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
 use alloy::sol_types::SolCall;
-use anyhow::{Context, Result};
 use tempo_primitives::transaction::Call;
 
 use super::super::channel::{get_channel_on_chain, read_grace_period, IEscrow};
@@ -12,9 +11,11 @@ use super::super::tx::submit_tempo_tx;
 use super::super::DEFAULT_GRACE_PERIOD_SECS;
 use super::CloseOutcome;
 use crate::config::Config;
-use crate::error::PaymentError;
+use crate::error::{InputError, PaymentError, TempoError};
 use crate::keys::{Keystore, Signer};
 use crate::network::NetworkId;
+
+type SessionResult<T> = Result<T, TempoError>;
 
 /// Submit requestClose() or withdraw() directly on-chain as a Tempo type-0x76 transaction.
 ///
@@ -36,7 +37,7 @@ pub(super) async fn close_on_chain(
     escrow_contract: Address,
     chain_id: u64,
     fee_token: Address,
-) -> Result<CloseOutcome> {
+) -> SessionResult<CloseOutcome> {
     let network_id = NetworkId::require_chain_id(chain_id)?;
     let rpc_url = config.rpc_url(network_id);
     let provider = alloy::providers::RootProvider::new_http(rpc_url.clone());
@@ -55,7 +56,6 @@ pub(super) async fn close_on_chain(
     };
 
     let from = wallet.from;
-    let channel_id_hex = format!("{:#x}", channel_id);
 
     // If closeRequestedAt is 0, we need to call requestClose() first
     if on_chain.close_requested_at == 0 {
@@ -86,7 +86,7 @@ pub(super) async fn close_on_chain(
 
         // Update local session state if present
         let _ = session_store::update_session_close_state_by_channel_id(
-            &channel_id_hex,
+            channel_id,
             SessionStatus::Closing,
             now,
             ready_at,
@@ -109,7 +109,7 @@ pub(super) async fn close_on_chain(
         // Ensure pending close is persisted so `session list` can show the countdown
         // Update local session state if present
         let _ = session_store::update_session_close_state_by_channel_id(
-            &channel_id_hex,
+            channel_id,
             SessionStatus::Closing,
             on_chain.close_requested_at,
             ready_at,
@@ -142,7 +142,7 @@ pub(super) async fn close_on_chain(
 
     // Best-effort local cleanup is handled by callers, but mark state finalizable->finalized if present
     let _ = session_store::update_session_close_state_by_channel_id(
-        &channel_id_hex,
+        channel_id,
         SessionStatus::Finalizable,
         on_chain.close_requested_at,
         now,
@@ -164,27 +164,17 @@ pub async fn close_discovered_channel(
     channel: &super::super::channel::DiscoveredChannel,
     config: &Config,
     keys: &Keystore,
-) -> Result<CloseOutcome> {
+) -> SessionResult<CloseOutcome> {
     let network_id = channel.network;
     let wallet = keys.signer(network_id)?;
-
-    let channel_id: B256 = channel.channel_id.parse().context("Invalid channel_id")?;
-    let escrow_contract: Address = channel
-        .escrow_contract
-        .parse()
-        .context("Invalid escrow_contract")?;
-    let fee_token: Address = channel
-        .currency
-        .parse()
-        .context("Invalid currency address")?;
 
     close_on_chain(
         config,
         &wallet,
-        channel_id,
-        escrow_contract,
+        channel.channel_id,
+        channel.escrow_contract,
         network_id.chain_id(),
-        fee_token,
+        channel.currency,
     )
     .await
 }
@@ -200,18 +190,18 @@ pub async fn close_channel_by_id(
     network: NetworkId,
     wallet_override: Option<&Signer>,
     keys: &Keystore,
-) -> Result<CloseOutcome> {
-    let channel_id: B256 = channel_id_hex
-        .parse()
-        .context("Invalid channel ID (expected 0x-prefixed bytes32 hex)")?;
+) -> SessionResult<CloseOutcome> {
+    let channel_id: B256 =
+        channel_id_hex
+            .parse()
+            .map_err(|_| InputError::InvalidChannelIdValue {
+                value: channel_id_hex.to_string(),
+            })?;
 
     let rpc_url = config.rpc_url(network);
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
 
-    let escrow: Address = network
-        .escrow_contract()
-        .parse()
-        .context("Invalid escrow contract address")?;
+    let escrow = network.escrow_contract();
 
     let on_chain = get_channel_on_chain(&provider, escrow, channel_id)
         .await?

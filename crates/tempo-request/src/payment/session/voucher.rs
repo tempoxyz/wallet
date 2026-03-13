@@ -1,13 +1,13 @@
 //! Voucher credential construction for session payments.
 
 use alloy::primitives::{Address, B256};
-use anyhow::{Context, Result};
 
 use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
 use mpp::protocol::methods::tempo::sign_voucher;
 use mpp::ChallengeEcho;
 
 use super::SessionState;
+use tempo_common::error::{KeyError, TempoError};
 
 /// Build a `SessionCredentialPayload::Open` with the given transaction bytes.
 pub(super) fn build_open_payload(
@@ -33,7 +33,7 @@ pub(super) async fn build_voucher_credential(
     echo: &ChallengeEcho,
     did: &str,
     state: &SessionState,
-) -> Result<mpp::PaymentCredential> {
+) -> Result<mpp::PaymentCredential, TempoError> {
     let sig = sign_voucher(
         signer,
         state.channel_id,
@@ -42,7 +42,10 @@ pub(super) async fn build_voucher_credential(
         state.chain_id,
     )
     .await
-    .context("Failed to sign voucher")?;
+    .map_err(|source| KeyError::SigningOperationSource {
+        operation: "sign voucher",
+        source: Box::new(source),
+    })?;
 
     let payload = SessionCredentialPayload::Voucher {
         channel_id: format!("{:#x}", state.channel_id),

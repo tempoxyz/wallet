@@ -108,12 +108,7 @@ impl Analytics {
         }
 
         let client = posthog_rs::client(POSTHOG_API_KEY).await;
-        let addr = keys.wallet_address();
-        let distinct_id = if addr.is_empty() {
-            anonymous_id()
-        } else {
-            addr.to_string()
-        };
+        let distinct_id = keys.wallet_address_hex().unwrap_or_else(anonymous_id);
 
         let analytics = Self {
             client: Arc::new(client),
@@ -152,11 +147,9 @@ impl Analytics {
     }
 
     pub fn identify(&self, keys: &Keystore) {
-        let addr = keys.wallet_address();
-        if addr.is_empty() {
+        let Some(wallet) = keys.wallet_address_hex() else {
             return;
-        }
-        let wallet = addr.to_string();
+        };
 
         let client = self.client.clone();
         let old_id = self.distinct_id.clone();
@@ -241,6 +234,8 @@ pub mod events {
     pub const COMMAND_FAILURE: Event = Event::new("command_failure");
     pub const COOP_CLOSE_SUCCESS: Event = Event::new("coop_close_success");
     pub const COOP_CLOSE_FAILURE: Event = Event::new("coop_close_failure");
+    pub const SESSION_STORE_DEGRADED: Event = Event::new("session_store_degraded");
+    pub const KEYSTORE_LOAD_DEGRADED: Event = Event::new("keystore_load_degraded");
 }
 
 /// Marker trait for analytics event payloads.
@@ -267,4 +262,17 @@ pub(crate) struct CommandFailurePayload {
 pub(crate) struct CoopClosePayload {
     pub(crate) network: String,
     pub(crate) channel_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SessionStoreDegradedPayload {
+    pub(crate) malformed_load_drops: u64,
+    pub(crate) malformed_list_drops: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct KeystoreLoadDegradedPayload {
+    pub(crate) strict_parse_failures: u64,
+    pub(crate) salvage_malformed_entries: u64,
+    pub(crate) filtered_invalid_entries: u64,
 }

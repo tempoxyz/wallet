@@ -6,6 +6,7 @@ use super::context::ContextArgs;
 use super::output::OutputFormat;
 use super::runtime::ColorMode;
 use super::verbosity::Verbosity;
+use crate::error::TempoError;
 
 /// Global CLI flags shared by all Tempo extension binaries.
 #[derive(Parser, Debug)]
@@ -134,7 +135,7 @@ impl GlobalArgs {
     }
 
     /// Build the shared runtime context from these global args.
-    pub(crate) async fn build_context(&self) -> anyhow::Result<super::context::Context> {
+    pub(crate) async fn build_context(&self) -> Result<super::context::Context, TempoError> {
         super::context::Context::build(self.context_args()).await
     }
 

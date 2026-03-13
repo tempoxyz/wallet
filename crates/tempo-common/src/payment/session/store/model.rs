@@ -1,9 +1,31 @@
 //! Domain model and helpers for session records.
 
-use anyhow::Context;
+use alloy::primitives::{Address, B256};
 use serde::{Deserialize, Serialize};
 
 use crate::network::NetworkId;
+
+/// Error returned when decoding a session status from persisted storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct InvalidSessionStatusError {
+    value: String,
+}
+
+impl InvalidSessionStatusError {
+    fn new(value: &str) -> Self {
+        Self {
+            value: value.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for InvalidSessionStatusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid session status '{}'", self.value)
+    }
+}
+
+impl std::error::Error for InvalidSessionStatusError {}
 
 /// Session lifecycle state.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -28,14 +50,14 @@ impl SessionStatus {
         }
     }
 
-    pub(super) fn from_db_str(value: &str) -> Self {
+    pub(super) fn try_from_db_str(value: &str) -> Result<Self, InvalidSessionStatusError> {
         match value {
-            "active" => Self::Active,
-            "closing" => Self::Closing,
-            "finalizable" => Self::Finalizable,
-            "finalized" => Self::Finalized,
-            "orphaned" => Self::Orphaned,
-            _ => Self::Active,
+            "active" => Ok(Self::Active),
+            "closing" => Ok(Self::Closing),
+            "finalizable" => Ok(Self::Finalizable),
+            "finalized" => Ok(Self::Finalized),
+            "orphaned" => Ok(Self::Orphaned),
+            _ => Err(InvalidSessionStatusError::new(value)),
         }
     }
 }
@@ -49,16 +71,16 @@ pub struct SessionRecord {
     #[serde(default)]
     pub request_url: String,
     pub chain_id: u64,
-    pub escrow_contract: String,
+    pub escrow_contract: Address,
     pub currency: String,
     pub recipient: String,
     pub payer: String,
-    pub authorized_signer: String,
+    pub authorized_signer: Address,
     pub salt: String,
-    pub channel_id: String,
-    pub deposit: String,
-    pub tick_cost: String,
-    pub cumulative_amount: String,
+    pub channel_id: B256,
+    pub deposit: u128,
+    pub tick_cost: u128,
+    pub cumulative_amount: u128,
     pub challenge_echo: String,
     /// Explicit lifecycle state.
     #[serde(default = "default_state")]
@@ -90,30 +112,28 @@ pub fn now_secs() -> u64 {
 
 impl SessionRecord {
     /// Parse the cumulative amount.
-    pub fn cumulative_amount_u128(&self) -> anyhow::Result<u128> {
+    pub const fn cumulative_amount_u128(&self) -> u128 {
         self.cumulative_amount
-            .parse()
-            .context("Invalid cumulative_amount in session record")
     }
 
     /// Parse the deposit amount.
-    pub fn deposit_u128(&self) -> anyhow::Result<u128> {
+    pub const fn deposit_u128(&self) -> u128 {
         self.deposit
-            .parse()
-            .context("Invalid deposit in session record")
     }
 
     /// Parse the channel ID.
-    pub fn channel_id_b256(&self) -> anyhow::Result<alloy::primitives::B256> {
+    pub const fn channel_id_b256(&self) -> B256 {
         self.channel_id
-            .parse()
-            .context("Invalid channel_id in session record")
+    }
+
+    /// Canonical lowercase hex representation of channel ID.
+    pub fn channel_id_hex(&self) -> String {
+        format!("{:#x}", self.channel_id)
     }
 
     /// Update the cumulative amount (monotonic: never decreases).
     pub fn set_cumulative_amount(&mut self, amount: u128) {
-        let current = self.cumulative_amount.parse::<u128>().unwrap_or(0);
-        self.cumulative_amount = amount.max(current).to_string();
+        self.cumulative_amount = amount.max(self.cumulative_amount);
     }
 
     /// Update `last_used_at` timestamp.
@@ -124,6 +144,22 @@ impl SessionRecord {
     /// Derive the network from `chain_id`.
     pub fn network_id(&self) -> NetworkId {
         NetworkId::from_chain_id(self.chain_id).unwrap_or_default()
+    }
+
+    /// Validate and canonicalize persisted string identity fields.
+    ///
+    /// Returns `false` when `currency` or `recipient` is not a valid address.
+    pub fn normalize_persisted_identity(&mut self) -> bool {
+        let Ok(currency) = self.currency.parse::<Address>() else {
+            return false;
+        };
+        let Ok(recipient) = self.recipient.parse::<Address>() else {
+            return false;
+        };
+
+        self.currency = format!("{currency:#x}");
+        self.recipient = format!("{recipient:#x}");
+        true
     }
 
     /// Compute the display status and optional remaining seconds from the session state.
@@ -181,16 +217,16 @@ mod tests {
             origin: origin.into(),
             request_url: format!("{origin}/api/v1"),
             chain_id: 4217,
-            escrow_contract: "0x00".into(),
+            escrow_contract: Address::ZERO,
             currency: "0x00".into(),
             recipient: "0x00".into(),
             payer: "0x00".into(),
-            authorized_signer: "0x00".into(),
+            authorized_signer: Address::ZERO,
             salt: salt.into(),
-            channel_id: "0x00".into(),
-            deposit: "1000000".into(),
-            tick_cost: "100".into(),
-            cumulative_amount: "0".into(),
+            channel_id: B256::ZERO,
+            deposit: 1_000_000,
+            tick_cost: 100,
+            cumulative_amount: 0,
             challenge_echo: "echo".into(),
             state: SessionStatus::Active,
             close_requested_at: 0,
@@ -280,48 +316,43 @@ mod tests {
     #[test]
     fn test_cumulative_amount_u128_valid() {
         let mut record = test_record("https://example.com", "salt");
-        record.cumulative_amount = "1000".into();
-        assert_eq!(record.cumulative_amount_u128().unwrap(), 1000u128);
+        record.cumulative_amount = 1000;
+        assert_eq!(record.cumulative_amount_u128(), 1000u128);
     }
 
     #[test]
-    fn test_cumulative_amount_u128_invalid() {
+    fn test_set_cumulative_amount_monotonic() {
         let mut record = test_record("https://example.com", "salt");
-        record.cumulative_amount = "abc".into();
-        assert!(record.cumulative_amount_u128().is_err());
+        record.cumulative_amount = 50;
+        record.set_cumulative_amount(10);
+        assert_eq!(record.cumulative_amount, 50);
+        record.set_cumulative_amount(100);
+        assert_eq!(record.cumulative_amount, 100);
     }
 
     #[test]
     fn test_deposit_u128_valid() {
         let mut record = test_record("https://example.com", "salt");
-        record.deposit = "5000000".into();
-        assert_eq!(record.deposit_u128().unwrap(), 5000000u128);
+        record.deposit = 5_000_000;
+        assert_eq!(record.deposit_u128(), 5000000u128);
     }
 
     #[test]
-    fn test_deposit_u128_invalid() {
+    fn test_channel_id_hex() {
         let mut record = test_record("https://example.com", "salt");
-        record.deposit = "".into();
-        assert!(record.deposit_u128().is_err());
+        record.channel_id = B256::from(alloy::primitives::U256::from(1));
+        assert_eq!(
+            record.channel_id_hex(),
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+        );
     }
 
     #[test]
     fn test_channel_id_b256_valid() {
         let mut record = test_record("https://example.com", "salt");
-        record.channel_id =
-            "0x0000000000000000000000000000000000000000000000000000000000000001".into();
-        let b = record.channel_id_b256().unwrap();
-        assert_eq!(
-            b,
-            alloy::primitives::B256::from(alloy::primitives::U256::from(1))
-        );
-    }
-
-    #[test]
-    fn test_channel_id_b256_invalid() {
-        let mut record = test_record("https://example.com", "salt");
-        record.channel_id = "not_hex".into();
-        assert!(record.channel_id_b256().is_err());
+        record.channel_id = B256::from(alloy::primitives::U256::from(1));
+        let b = record.channel_id_b256();
+        assert_eq!(b, B256::from(alloy::primitives::U256::from(1)));
     }
 
     #[test]
@@ -335,15 +366,46 @@ mod tests {
         ];
         for variant in variants {
             let s = variant.as_str();
-            let parsed = SessionStatus::from_db_str(s);
+            let parsed = SessionStatus::try_from_db_str(s).unwrap();
             assert_eq!(parsed, variant, "round-trip failed for {s}");
         }
     }
 
     #[test]
-    fn test_session_status_unknown_defaults_to_active() {
-        assert_eq!(SessionStatus::from_db_str("garbage"), SessionStatus::Active);
-        assert_eq!(SessionStatus::from_db_str(""), SessionStatus::Active);
+    fn test_session_status_unknown_is_error() {
+        let err = SessionStatus::try_from_db_str("garbage").unwrap_err();
+        assert_eq!(err.to_string(), "invalid session status 'garbage'");
+
+        let err = SessionStatus::try_from_db_str("").unwrap_err();
+        assert_eq!(err.to_string(), "invalid session status ''");
+    }
+
+    #[test]
+    fn test_normalize_persisted_identity_canonicalizes_addresses() {
+        let mut record = test_record("https://example.com", "salt");
+        record.currency = "0x20C000000000000000000000B9537D11C60E8B50".into();
+        record.recipient = "0x111111111111111111111111111111111111AbCd".into();
+
+        assert!(record.normalize_persisted_identity());
+        assert_eq!(
+            record.currency,
+            "0x20c000000000000000000000b9537d11c60e8b50"
+        );
+        assert_eq!(
+            record.recipient,
+            "0x111111111111111111111111111111111111abcd"
+        );
+    }
+
+    #[test]
+    fn test_normalize_persisted_identity_rejects_invalid_addresses() {
+        let mut record = test_record("https://example.com", "salt");
+        record.currency = "bad-currency".into();
+        assert!(!record.normalize_persisted_identity());
+
+        let mut record = test_record("https://example.com", "salt");
+        record.recipient = "bad-recipient".into();
+        assert!(!record.normalize_persisted_identity());
     }
 
     #[test]

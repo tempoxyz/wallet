@@ -8,13 +8,14 @@ use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
 use alloy::providers::Provider;
 use alloy::sol;
 use alloy::sol_types::SolCall;
-use anyhow::Result;
 use tempo_primitives::transaction::Call;
 
 use mpp::client::tempo::{charge::tx_builder, signing};
 
-use crate::error::{KeyError, NetworkError};
+use crate::error::{KeyError, NetworkError, TempoError};
 use crate::keys::Signer;
+
+type SessionResult<T> = Result<T, TempoError>;
 
 // ==================== ABI Definitions ====================
 
@@ -45,6 +46,9 @@ const EXPIRING_NONCE_KEY: U256 = U256::MAX;
 /// Validity window (in seconds) for expiring nonce transactions.
 const VALID_BEFORE_SECS: u64 = 25;
 
+/// Marker used by provider errors when an authorization key is already present on-chain.
+const KEY_ALREADY_EXISTS_MARKER: &str = "KeyAlreadyExists";
+
 /// Compute the expiring nonce validity window.
 fn expiring_valid_before() -> u64 {
     std::time::SystemTime::now()
@@ -52,6 +56,10 @@ fn expiring_valid_before() -> u64 {
         .unwrap_or_default()
         .as_secs()
         + VALID_BEFORE_SECS
+}
+
+fn is_key_already_exists_error(err: &impl std::fmt::Display) -> bool {
+    err.to_string().contains(KEY_ALREADY_EXISTS_MARKER)
 }
 
 /// Estimate gas, build and sign a Tempo type-0x76 transaction.
@@ -66,7 +74,7 @@ pub async fn resolve_and_sign_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-) -> Result<Vec<u8>> {
+) -> SessionResult<Vec<u8>> {
     let nonce = 0u64;
     let valid_before = Some(expiring_valid_before());
 
@@ -92,7 +100,7 @@ pub async fn resolve_and_sign_tx(
     // Retry without key_authorization.
     let gas_limit = match gas_result {
         Ok(gas) => gas,
-        Err(e) if key_auth.is_some() && e.to_string().contains("KeyAlreadyExists") => {
+        Err(e) if key_auth.is_some() && is_key_already_exists_error(&e) => {
             key_auth = None;
             tx_builder::estimate_gas(
                 provider,
@@ -108,9 +116,18 @@ pub async fn resolve_and_sign_tx(
                 valid_before,
             )
             .await
-            .map_err(|e| KeyError::Signing(e.to_string()))?
+            .map_err(|source| KeyError::SigningOperationSource {
+                operation: "estimate gas (retry without key authorization)",
+                source: Box::new(source),
+            })?
         }
-        Err(e) => return Err(KeyError::Signing(e.to_string()).into()),
+        Err(e) => {
+            return Err(KeyError::SigningOperationSource {
+                operation: "estimate gas",
+                source: Box::new(e),
+            }
+            .into())
+        }
     };
 
     let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
@@ -130,7 +147,10 @@ pub async fn resolve_and_sign_tx(
     Ok(
         signing::sign_and_encode_async(tx, &wallet.signer, &wallet.signing_mode)
             .await
-            .map_err(|e| KeyError::Signing(e.to_string()))?,
+            .map_err(|source| KeyError::SigningOperationSource {
+                operation: "sign and encode transaction",
+                source: Box::new(source),
+            })?,
     )
 }
 
@@ -144,13 +164,16 @@ pub async fn submit_tempo_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-) -> Result<String> {
+) -> SessionResult<String> {
     let tx_bytes = resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls).await?;
 
     let pending = provider
         .send_raw_transaction(&tx_bytes)
         .await
-        .map_err(|e| NetworkError::Http(format!("Failed to broadcast transaction: {e:#}")))?;
+        .map_err(|source| NetworkError::RpcSource {
+            operation: "broadcast transaction",
+            source: Box::new(source),
+        })?;
 
     Ok(format!("{:#x}", pending.tx_hash()))
 }
@@ -216,5 +239,13 @@ mod tests {
         assert_eq!(MAX_FEE_PER_GAS, 41_000_000_000); // 41 gwei
         assert_eq!(MAX_PRIORITY_FEE_PER_GAS, 1_000_000_000); // 1 gwei
         assert_eq!(EXPIRING_NONCE_KEY, U256::MAX);
+    }
+
+    #[test]
+    fn test_key_already_exists_detector() {
+        assert!(is_key_already_exists_error(
+            &"rpc failure: KeyAlreadyExists"
+        ));
+        assert!(!is_key_already_exists_error(&"rpc failure: nonce too low"));
     }
 }

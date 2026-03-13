@@ -6,6 +6,10 @@ use super::exit_codes;
 use super::output::{self, OutputFormat};
 use super::runtime;
 use super::tracking;
+use crate::analytics::{events, KeystoreLoadDegradedPayload, SessionStoreDegradedPayload};
+use crate::error::TempoError;
+use crate::keys;
+use crate::payment::session;
 
 /// Run a CLI command with shared setup and teardown.
 ///
@@ -25,14 +29,15 @@ use super::tracking;
 ///     (cmd_name, do_work(&ctx, command).await)
 /// }).await
 /// ```
-pub async fn run_cli<F, Fut>(
+pub async fn run_cli<F, Fut, E>(
     global: &GlobalArgs,
     target_crates: &[&str],
     handler: F,
-) -> anyhow::Result<()>
+) -> Result<(), TempoError>
 where
     F: FnOnce(context::Context) -> Fut,
-    Fut: std::future::Future<Output = (&'static str, anyhow::Result<()>)>,
+    Fut: std::future::Future<Output = (&'static str, Result<(), E>)>,
+    E: std::fmt::Display + Into<TempoError>,
 {
     runtime::init_tracing(global.silent, global.verbose, target_crates);
     runtime::init_color_support(global.color);
@@ -42,19 +47,49 @@ where
 
     let (cmd_name, result) = handler(ctx).await;
 
+    let session_store_diagnostics = session::take_store_diagnostics();
+    let keystore_diagnostics = keys::take_keystore_load_summary();
+    if let Some(ref a) = analytics {
+        if session_store_diagnostics.malformed_load_drops > 0
+            || session_store_diagnostics.malformed_list_drops > 0
+        {
+            a.track(
+                events::SESSION_STORE_DEGRADED,
+                SessionStoreDegradedPayload {
+                    malformed_load_drops: session_store_diagnostics.malformed_load_drops,
+                    malformed_list_drops: session_store_diagnostics.malformed_list_drops,
+                },
+            );
+        }
+
+        if keystore_diagnostics.strict_parse_failures > 0
+            || keystore_diagnostics.salvage_malformed_entries > 0
+            || keystore_diagnostics.filtered_invalid_entries > 0
+        {
+            a.track(
+                events::KEYSTORE_LOAD_DEGRADED,
+                KeystoreLoadDegradedPayload {
+                    strict_parse_failures: keystore_diagnostics.strict_parse_failures,
+                    salvage_malformed_entries: keystore_diagnostics.salvage_malformed_entries,
+                    filtered_invalid_entries: keystore_diagnostics.filtered_invalid_entries,
+                },
+            );
+        }
+    }
+
     tracking::track_result(&analytics, cmd_name, &result);
     if let Some(ref a) = analytics {
         a.flush().await;
     }
 
-    result
+    result.map_err(Into::into)
 }
 
 /// Run a CLI binary with shared error handling.
 ///
 /// Handles structured error output for JSON/TOON formats and sets the process
 /// exit code based on the error type.
-pub fn run_main(output_format: OutputFormat, result: Result<(), anyhow::Error>) {
+pub fn run_main(output_format: OutputFormat, result: Result<(), TempoError>) {
     let Err(e) = result else { return };
 
     match output_format {

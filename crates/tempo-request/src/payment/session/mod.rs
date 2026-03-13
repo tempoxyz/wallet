@@ -39,8 +39,8 @@ pub(super) struct SessionContext<'a> {
     pub(super) deposit: u128,
     pub(super) max_pay: Option<u128>,
     pub(super) salt: String,
-    pub(super) recipient: String,
-    pub(super) currency: String,
+    pub(super) recipient: Address,
+    pub(super) currency: Address,
     /// Shared reqwest client for connection pooling across session requests.
     pub(super) reqwest_client: &'a reqwest::Client,
 }
