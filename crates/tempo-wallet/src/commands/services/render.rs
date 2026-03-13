@@ -98,7 +98,7 @@ pub(super) fn render_service_list(
         })
         .collect();
 
-    let list_items: Vec<ServiceListItem> = filtered
+    let list_items: Vec<ServiceListItem<'_>> = filtered
         .iter()
         .map(|s| ServiceListItem {
             id: &s.id,

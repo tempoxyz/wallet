@@ -10,6 +10,9 @@ readme = "../../README.md"
 keywords = ["wallet", "cli", "payments", "mpp"]
 categories = ["command-line-utilities"]
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "tempo-wallet"
 path = "src/main.rs"

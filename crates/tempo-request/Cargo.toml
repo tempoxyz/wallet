@@ -10,6 +10,9 @@ readme = "../../README.md"
 keywords = ["http", "cli", "payments", "mpp"]
 categories = ["command-line-utilities"]
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "tempo-request"
 path = "src/main.rs"

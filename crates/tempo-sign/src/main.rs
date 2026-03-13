@@ -1,4 +1,5 @@
 //! Generate a signed release manifest for tempo CLI auto-install.
+#![allow(unreachable_pub)]
 
 mod args;
 mod error;

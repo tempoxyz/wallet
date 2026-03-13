@@ -1,6 +1,3 @@
-#![forbid(unsafe_code)]
-#![deny(warnings)]
-#![warn(unreachable_pub)]
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,

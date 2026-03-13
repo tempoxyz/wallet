@@ -147,7 +147,7 @@ pub(super) fn render_channel_list(
     empty_msg: &str,
     count_label: &str,
 ) -> Result<(), TempoError> {
-    let items: Vec<SessionItem> = views
+    let items: Vec<SessionItem<'_>> = views
         .iter()
         .map(|v| SessionItem {
             channel_id: &v.channel_id,
