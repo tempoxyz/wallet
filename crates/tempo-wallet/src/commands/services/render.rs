@@ -106,8 +106,12 @@ pub(super) fn render_service_list(
             url: Some(&s.url),
             service_url: s.service_url.as_deref(),
             description: s.description.as_deref(),
-            categories: s.categories.iter().map(|c| c.as_str()).collect(),
-            tags: s.tags.iter().map(|t| t.as_str()).collect(),
+            categories: s
+                .categories
+                .iter()
+                .map(std::string::String::as_str)
+                .collect(),
+            tags: s.tags.iter().map(std::string::String::as_str).collect(),
             docs: s.docs.as_ref(),
             endpoints: s
                 .endpoints
@@ -148,8 +152,16 @@ pub(super) fn render_service_detail(
         url: Some(&service.url),
         service_url: service.service_url.as_deref(),
         description: service.description.as_deref(),
-        categories: service.categories.iter().map(|c| c.as_str()).collect(),
-        tags: service.tags.iter().map(|t| t.as_str()).collect(),
+        categories: service
+            .categories
+            .iter()
+            .map(std::string::String::as_str)
+            .collect(),
+        tags: service
+            .tags
+            .iter()
+            .map(std::string::String::as_str)
+            .collect(),
         docs: service.docs.as_ref(),
         endpoints: service
             .endpoints
@@ -210,10 +222,7 @@ fn render_table(services: &[&Service]) {
         let categories = truncate(&s.format_categories(), MAX_CAT);
         let service_url = sanitize_for_terminal(s.service_url.as_deref().unwrap_or("—"));
 
-        println!(
-            "  {:<w_id$}  {:<w_name$}  {:<w_cat$}  {}",
-            id, name, categories, service_url
-        );
+        println!("  {id:<w_id$}  {name:<w_name$}  {categories:<w_cat$}  {service_url}");
     }
 
     println!("\n{} service(s).", services.len());
@@ -270,7 +279,7 @@ fn render_detail(s: &Service) {
             let method_kind = ep.method_kind();
             let method = sanitize_for_terminal(method_kind.as_str());
             let path = sanitize_for_terminal(&ep.path);
-            println!("  {:>6} {:<40} {}", method, path, pricing);
+            println!("  {method:>6} {path:<40} {pricing}");
 
             let desc = ep
                 .description

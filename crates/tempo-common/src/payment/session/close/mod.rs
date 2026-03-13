@@ -38,6 +38,11 @@ pub enum CloseOutcome {
 ///
 /// Used by `tempo-wallet sessions close` to send a close credential to the server.
 /// Tries cooperative (server-side) close first, then falls back to on-chain close.
+///
+/// # Errors
+///
+/// Returns an error when persisted challenge/session fields are malformed,
+/// signer resolution fails, or both cooperative and on-chain close attempts fail.
 pub async fn close_session_from_record(
     record: &session_store::SessionRecord,
     config: &Config,
@@ -103,7 +108,7 @@ pub async fn close_session_from_record(
                     },
                 );
             }
-            tracing::info!("Cooperative close failed: {coop_err:#}")
+            tracing::info!("Cooperative close failed: {coop_err:#}");
         }
     }
 
@@ -138,6 +143,6 @@ pub async fn close_session_from_record(
                 amount_display,
             })
         }
-        other => Ok(other),
+        other @ CloseOutcome::Pending { .. } => Ok(other),
     }
 }

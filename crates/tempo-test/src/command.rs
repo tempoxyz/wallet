@@ -20,6 +20,7 @@ use crate::assert::{parse_json_stdout, parse_toon_stdout};
 ///     )
 /// }
 /// ```
+#[must_use]
 pub fn make_test_command(binary_path: std::path::PathBuf, temp_dir: &TempDir) -> Command {
     let mut cmd = Command::new(binary_path);
 
@@ -36,6 +37,10 @@ pub fn make_test_command(binary_path: std::path::PathBuf, temp_dir: &TempDir) ->
 }
 
 /// Run a command with a format flag (`-j` or `-t`) prepended, parse stdout.
+///
+/// # Panics
+///
+/// Panics when command execution fails or the command exits unsuccessfully.
 pub fn run_structured(
     cmd_fn: impl Fn(&TempDir) -> Command,
     temp: &TempDir,

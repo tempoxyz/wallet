@@ -93,13 +93,12 @@ pub(super) async fn send_open_with_retry(
                 status_code: 410,
             }
             .into());
-        } else {
-            return Err(PaymentError::PaymentRejected {
-                reason: truncate(body),
-                status_code: 410,
-            }
-            .into());
         }
+        return Err(PaymentError::PaymentRejected {
+            reason: truncate(body),
+            status_code: 410,
+        }
+        .into());
     }
 
     let body = resp.body_string().unwrap_or_default();

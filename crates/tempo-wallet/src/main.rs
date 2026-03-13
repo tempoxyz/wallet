@@ -1,6 +1,20 @@
 #![forbid(unsafe_code)]
 #![deny(warnings)]
 #![warn(unreachable_pub)]
+#![allow(
+    clippy::assigning_clones,
+    clippy::cast_possible_truncation,
+    clippy::fn_params_excessive_bools,
+    clippy::items_after_statements,
+    clippy::manual_let_else,
+    clippy::needless_pass_by_value,
+    clippy::option_if_let_else,
+    clippy::redundant_pub_crate,
+    clippy::struct_field_names,
+    clippy::too_many_lines,
+    clippy::unnecessary_wraps,
+    clippy::unused_async
+)]
 
 mod analytics;
 mod app;

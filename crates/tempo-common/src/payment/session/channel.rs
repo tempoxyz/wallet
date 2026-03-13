@@ -98,6 +98,67 @@ fn is_rpc_range_error(err: &str) -> bool {
         || err.contains("Log response size exceeded")
 }
 
+fn should_halve_range(err: &str, chunk_start: u64, chunk_end: u64) -> bool {
+    is_rpc_range_error(err) && (chunk_end - chunk_start) > 1000
+}
+
+async fn append_discovered_channels_from_logs(
+    logs: &[alloy::rpc::types::Log],
+    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
+    network: NetworkId,
+    escrow: Address,
+    results: &mut Vec<DiscoveredChannel>,
+) {
+    for log in logs {
+        let topics = log.topics();
+        if topics.len() < 4 {
+            continue;
+        }
+        let channel_id = topics[1];
+
+        // ChannelOpened event non-indexed data layout (ABI-encoded):
+        //   [0..32]   address token       (left-padded, address at bytes 12..32)
+        //   [32..64]  uint256 deposit
+        //   [64..96]  bytes32 salt
+        let data = log.data().data.as_ref();
+        if data.len() < 96 {
+            continue;
+        }
+        let log_token = Address::from_slice(&data[12..32]);
+
+        let on_chain = match get_channel_on_chain(provider, escrow, channel_id).await {
+            Ok(Some(ch)) => ch,
+            Ok(None) => continue,
+            Err(e) => {
+                tracing::warn!(
+                    network = network.as_str(),
+                    %channel_id,
+                    %e,
+                    "failed to query channel state, skipping"
+                );
+                continue;
+            }
+        };
+
+        if results
+            .iter()
+            .any(|r: &DiscoveredChannel| r.channel_id == channel_id)
+        {
+            continue;
+        }
+
+        results.push(DiscoveredChannel {
+            network,
+            channel_id,
+            escrow_contract: escrow,
+            currency: log_token,
+            deposit: on_chain.deposit,
+            settled: on_chain.settled,
+            close_requested_at: on_chain.close_requested_at,
+        });
+    }
+}
+
 // ==================== Channel Queries ====================
 
 /// Query the escrow contract for a specific channel's state.
@@ -105,6 +166,10 @@ fn is_rpc_range_error(err: &str) -> bool {
 /// Returns `Ok(None)` if `deposit == 0` or `finalized == true` (channel
 /// does not exist or is already settled). Returns `Err` on RPC failures
 /// so callers can distinguish "no channel" from "network error".
+///
+/// # Errors
+///
+/// Returns an error when the RPC call fails or return data cannot be decoded.
 pub async fn get_channel_on_chain(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
@@ -151,6 +216,7 @@ pub async fn get_channel_on_chain(
 ///
 /// This scans `ChannelOpened` events on the network's default escrow contract
 /// filtered only by payer (not payee), so it finds *all* channels for this wallet.
+#[allow(clippy::too_many_lines)]
 pub async fn find_all_channels_for_payer(
     config: &Config,
     payer: Address,
@@ -205,7 +271,7 @@ pub async fn find_all_channels_for_payer(
             Ok(logs) => logs,
             Err(e) => {
                 let err_str = e.to_string();
-                if is_rpc_range_error(&err_str) && (chunk_end - chunk_start) > 1000 {
+                if should_halve_range(&err_str, chunk_start, chunk_end) {
                     let halved = (chunk_end - chunk_start) / 2;
                     tracing::debug!(
                         network = network.as_str(),
@@ -231,55 +297,7 @@ pub async fn find_all_channels_for_payer(
             }
         };
 
-        for log in &logs {
-            let topics = log.topics();
-            if topics.len() < 4 {
-                continue;
-            }
-            let channel_id = topics[1];
-
-            // ChannelOpened event non-indexed data layout (ABI-encoded):
-            //   [0..32]   address token       (left-padded, address at bytes 12..32)
-            //   [32..64]  uint256 deposit
-            //   [64..96]  bytes32 salt
-            let data = log.data().data.as_ref();
-            if data.len() < 96 {
-                continue;
-            }
-            let log_token = Address::from_slice(&data[12..32]);
-
-            let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await {
-                Ok(Some(ch)) => ch,
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::warn!(
-                        network = network.as_str(),
-                        %channel_id,
-                        %e,
-                        "failed to query channel state, skipping"
-                    );
-                    continue;
-                }
-            };
-
-            // Skip if we already found this channel_id
-            if results
-                .iter()
-                .any(|r: &DiscoveredChannel| r.channel_id == channel_id)
-            {
-                continue;
-            }
-
-            results.push(DiscoveredChannel {
-                network,
-                channel_id,
-                escrow_contract: escrow,
-                currency: log_token,
-                deposit: on_chain.deposit,
-                settled: on_chain.settled,
-                close_requested_at: on_chain.close_requested_at,
-            });
-        }
+        append_discovered_channels_from_logs(&logs, &provider, network, escrow, &mut results).await;
 
         if chunk_start == earliest {
             break;
@@ -292,7 +310,7 @@ pub async fn find_all_channels_for_payer(
 
 // ==================== Channel Helpers ====================
 
-/// Read CLOSE_GRACE_PERIOD from the escrow contract. Returns None on error.
+/// Read `CLOSE_GRACE_PERIOD` from the escrow contract. Returns `None` on error.
 pub async fn read_grace_period(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
@@ -312,6 +330,11 @@ pub async fn read_grace_period(
 /// Returns `Ok(Some((token_address, deposit, settled)))` if the channel
 /// exists on-chain, `Ok(None)` if confirmed not found (deposit == 0 or finalized),
 /// or `Err` on RPC/config errors (callers should NOT treat errors as "missing").
+///
+/// # Errors
+///
+/// Returns an error when the channel ID is malformed, RPC access fails,
+/// or on-chain channel state cannot be queried.
 pub async fn query_channel_state(
     config: &Config,
     channel_id_hex: &str,
@@ -327,9 +350,8 @@ pub async fn query_channel_state(
     let provider = alloy::providers::RootProvider::new_http(rpc_url);
     let escrow = network.escrow_contract();
 
-    let on_chain = match get_channel_on_chain(&provider, escrow, channel_id).await? {
-        Some(ch) => ch,
-        None => return Ok(None),
+    let Some(on_chain) = get_channel_on_chain(&provider, escrow, channel_id).await? else {
+        return Ok(None);
     };
 
     Ok(Some((
@@ -340,6 +362,10 @@ pub async fn query_channel_state(
 }
 
 /// Query the on-chain TIP20 token balance for an account.
+///
+/// # Errors
+///
+/// Returns an error when the token contract call fails.
 pub async fn query_token_balance(
     provider: &impl Provider,
     token: Address,

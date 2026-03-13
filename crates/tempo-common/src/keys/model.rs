@@ -14,6 +14,7 @@ pub enum WalletType {
 }
 
 impl WalletType {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Local => "local",
@@ -33,7 +34,7 @@ pub enum KeyType {
 }
 
 /// Token spending limit stored in keys.toml.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredTokenLimit {
     /// Token contract address.
     pub currency: Address,
@@ -63,7 +64,7 @@ pub struct KeyEntry {
     /// Wrapped in [`Zeroizing`] so the secret is scrubbed from memory on drop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<Zeroizing<String>>,
-    /// Key authorization (RLP-encoded SignedKeyAuthorization hex).
+    /// Key authorization (RLP-encoded `SignedKeyAuthorization` hex).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_authorization: Option<String>,
     /// Key expiry as unix timestamp.
@@ -161,6 +162,7 @@ impl std::fmt::Debug for KeyEntry {
 
 impl KeyEntry {
     /// Parse and validate the wallet address field.
+    #[must_use]
     pub fn wallet_address_parsed(&self) -> Option<Address> {
         (!self.wallet_address.is_empty())
             .then(|| self.wallet_address.parse().ok())
@@ -168,17 +170,20 @@ impl KeyEntry {
     }
 
     /// Parse and validate the optional signer key address field.
+    #[must_use]
     pub fn key_address_parsed(&self) -> Option<Address> {
         self.key_address.as_deref()?.parse().ok()
     }
 
     /// Canonical lowercase `0x` wallet address when valid.
+    #[must_use]
     pub fn wallet_address_hex(&self) -> Option<String> {
         self.wallet_address_parsed()
             .map(|address| format!("{address:#x}"))
     }
 
     /// Canonical lowercase `0x` signer key address when valid.
+    #[must_use]
     pub fn key_address_hex(&self) -> Option<String> {
         self.key_address_parsed()
             .map(|address| format!("{address:#x}"))
@@ -217,11 +222,13 @@ impl KeyEntry {
     }
 
     /// Whether this entry has an inline private key.
+    #[must_use]
     pub fn has_inline_key(&self) -> bool {
         self.key.as_ref().is_some_and(|key| !key.is_empty())
     }
 
     /// Whether this entry represents a direct EOA signer (wallet == signer key).
+    #[must_use]
     pub fn is_direct_eoa_key(&self) -> bool {
         self.wallet_type == WalletType::Local
             && self.wallet_address_parsed().is_some()
@@ -233,12 +240,14 @@ impl KeyEntry {
     }
 
     /// Compare wallet address against a parsed [`Address`].
+    #[must_use]
     pub fn wallet_address_matches(&self, address: Address) -> bool {
         self.wallet_address_parsed()
             .is_some_and(|stored| stored == address)
     }
 
     /// Compare signer key address against a parsed [`Address`].
+    #[must_use]
     pub fn key_address_matches(&self, address: Address) -> bool {
         self.key_address_parsed()
             .is_some_and(|stored| stored == address)
@@ -278,7 +287,7 @@ mod tests {
             key_address: Some("0xdef".to_string()),
             key: Some(Zeroizing::new("0xsecret".to_string())),
             key_authorization: Some("0xauth".to_string()),
-            expiry: Some(1700000000),
+            expiry: Some(1_700_000_000),
             limits: vec![StoredTokenLimit {
                 currency: "0x20c000000000000000000000b9537d11c60e8b50"
                     .parse()

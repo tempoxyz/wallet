@@ -52,9 +52,9 @@ pub(super) async fn list_sessions(
 
     // Build local views and filter by selected states
     for s in &filtered_local {
-        let (status, _) = s.status_at(session_store::now_secs());
+        let (session_status, _) = s.status_at(session_store::now_secs());
         let v = ChannelView::from(*s);
-        let matches = match status {
+        let matches = match session_status {
             SessionStatus::Active => selected.contains(&SessionStateArg::Active),
             SessionStatus::Closing => selected.contains(&SessionStateArg::Closing),
             SessionStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
@@ -88,15 +88,13 @@ pub(super) async fn list_sessions(
             if local_ids.contains(&channel_id_hex.to_lowercase()) {
                 continue;
             }
-            let grace = match grace_cache.get(&ch.escrow_contract) {
-                Some(&g) => g,
-                None => {
-                    let g =
-                        super::util::resolve_grace_period(config, ch.network, ch.escrow_contract)
-                            .await;
-                    grace_cache.insert(ch.escrow_contract, g);
-                    g
-                }
+            let grace = if let Some(&g) = grace_cache.get(&ch.escrow_contract) {
+                g
+            } else {
+                let g =
+                    super::util::resolve_grace_period(config, ch.network, ch.escrow_contract).await;
+                grace_cache.insert(ch.escrow_contract, g);
+                g
             };
 
             let mut v = ChannelView::from_on_chain(

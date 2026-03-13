@@ -55,7 +55,7 @@ const SOURCE_CHAINS: &[SourceChain] = &[
 ];
 
 /// Returns all supported source chains.
-pub(super) fn source_chains() -> &'static [SourceChain] {
+pub(super) const fn source_chains() -> &'static [SourceChain] {
     SOURCE_CHAINS
 }
 
@@ -164,7 +164,7 @@ pub(super) async fn create_deposit_address(
 
 /// Status of a cross-chain deposit tracked by Relay.
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct DepositStatus {
+pub(super) struct DepositStatus {
     /// One of: waiting, pending, submitted, success, failure, refunded.
     pub(crate) status: String,
     /// Transaction hashes on the source chain.
@@ -185,7 +185,7 @@ pub(super) async fn poll_deposit_status(
     relay_api: &str,
     request_id: &str,
 ) -> Result<Option<DepositStatus>, TempoError> {
-    let url = format!("{}/intents/status/v3?requestId={}", relay_api, request_id);
+    let url = format!("{relay_api}/intents/status/v3?requestId={request_id}");
 
     let resp = client
         .get(&url)

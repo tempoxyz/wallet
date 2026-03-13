@@ -163,12 +163,12 @@ impl HttpClient {
     /// The underlying reqwest client.
     ///
     /// Used by session flows that need direct access to the reqwest client.
-    pub(crate) fn client(&self) -> &reqwest::Client {
+    pub(crate) const fn client(&self) -> &reqwest::Client {
         &self.client
     }
 
     /// The HTTP method from the request plan.
-    pub(crate) fn method(&self) -> &reqwest::Method {
+    pub(crate) const fn method(&self) -> &reqwest::Method {
         &self.plan.method
     }
 
@@ -193,12 +193,12 @@ impl HttpClient {
     }
 
     /// Whether agent-level log messages should be printed (`-v`).
-    pub(crate) fn log_enabled(&self) -> bool {
+    pub(crate) const fn log_enabled(&self) -> bool {
         self.verbosity.log_enabled()
     }
 
     /// Whether debug-level log messages should be printed (`-vv`).
-    pub(crate) fn debug_enabled(&self) -> bool {
+    pub(crate) const fn debug_enabled(&self) -> bool {
         self.verbosity.debug_enabled()
     }
 
@@ -255,7 +255,7 @@ impl HttpClient {
 
                         // Apply jitter if configured
                         if let Some(pct) = plan.retry_jitter_pct {
-                            let jitter = ((delay_ms as f64) * (pct as f64 / 100.0)) as u64;
+                            let jitter = ((delay_ms as f64) * (f64::from(pct) / 100.0)) as u64;
                             if jitter > 0 {
                                 // Best-effort random jitter to avoid synchronized retries.
                                 let mut bytes = [0u8; 8];
@@ -263,7 +263,7 @@ impl HttpClient {
                                     u64::from_le_bytes(bytes) % jitter
                                 } else {
                                     // Deterministic fallback when entropy is unavailable.
-                                    (attempt as u64).saturating_mul(997) % jitter
+                                    u64::from(attempt).saturating_mul(997) % jitter
                                 };
                                 delay_ms = delay_ms.saturating_add(rand);
                             }

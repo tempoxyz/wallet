@@ -44,16 +44,15 @@ pub fn sign_file(
         source: err,
     })?;
     let default_comment;
-    let comment = match trusted_comment {
-        Some(c) => c,
-        None => {
-            let filename = path
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_default();
-            default_comment = format!("file:{filename}");
-            &default_comment
-        }
+    let comment = if let Some(c) = trusted_comment {
+        c
+    } else {
+        let filename = path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        default_comment = format!("file:{filename}");
+        &default_comment
     };
     let pk = PublicKey::from_secret_key(sk).map_err(|err| SignError::Crypto {
         operation: "derive public key",

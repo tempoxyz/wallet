@@ -28,7 +28,7 @@ pub(crate) struct OutputOptions {
 
 impl OutputOptions {
     /// Whether agent-level log messages should be printed (`-v`).
-    pub(crate) fn log_enabled(&self) -> bool {
+    pub(crate) const fn log_enabled(&self) -> bool {
         self.verbosity.log_enabled()
     }
 }
@@ -72,8 +72,11 @@ pub(crate) fn handle_response(
     let status = response.status_code;
 
     // Capture receipt header before consuming response for output
-    let receipt_hdr =
-        save_receipt_path.and_then(|_| response.header("payment-receipt").map(|s| s.to_string()));
+    let receipt_hdr = save_receipt_path.and_then(|_| {
+        response
+            .header("payment-receipt")
+            .map(std::string::ToString::to_string)
+    });
 
     render_response(output_opts, response)?;
 
@@ -360,12 +363,8 @@ mod tests {
             .collect();
         let cli = Cli::try_parse_from(all).unwrap();
         let query = cli.query;
-        let cli = Cli::try_parse_from(
-            std::iter::once("tempo-request")
-                .chain(args.iter().copied())
-                .collect::<Vec<&str>>(),
-        )
-        .unwrap();
+        let cli = Cli::try_parse_from(std::iter::once("tempo-request").chain(args.iter().copied()))
+            .unwrap();
         (cli, query)
     }
 

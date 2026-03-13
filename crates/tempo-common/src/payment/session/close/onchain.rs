@@ -17,7 +17,7 @@ use crate::network::NetworkId;
 
 type SessionResult<T> = Result<T, TempoError>;
 
-/// Submit requestClose() or withdraw() directly on-chain as a Tempo type-0x76 transaction.
+/// Submit `requestClose()` or `withdraw()` directly on-chain as a Tempo type-0x76 transaction.
 ///
 /// The escrow contract's payer-initiated close is a two-step process:
 /// 1. `requestClose(channelId)` — starts a 15-minute grace period
@@ -45,14 +45,11 @@ pub(super) async fn close_on_chain(
         alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     // Check current channel state to determine which step we're on
-    let on_chain = match get_channel_on_chain(&provider, escrow_contract, channel_id).await? {
-        Some(channel) => channel,
-        None => {
-            return Ok(CloseOutcome::Closed {
-                tx_url: None,
-                amount_display: None,
-            })
-        }
+    let Some(on_chain) = get_channel_on_chain(&provider, escrow_contract, channel_id).await? else {
+        return Ok(CloseOutcome::Closed {
+            tx_url: None,
+            amount_display: None,
+        });
     };
 
     let from = wallet.from;
@@ -160,6 +157,10 @@ pub(super) async fn close_on_chain(
 /// regardless of whether the current key matches the channel's
 /// `authorizedSigner`. This allows closing orphaned channels after key
 /// rotation or expiry.
+///
+/// # Errors
+///
+/// Returns an error when signer resolution or on-chain close operations fail.
 pub async fn close_discovered_channel(
     channel: &super::super::channel::DiscoveredChannel,
     config: &Config,
@@ -184,6 +185,11 @@ pub async fn close_discovered_channel(
 /// Uses the payer-initiated path (`requestClose` → `withdraw`) which works
 /// regardless of the channel's authorized signer. This allows closing
 /// orphaned channels after key rotation or expiry.
+///
+/// # Errors
+///
+/// Returns an error when the channel ID is malformed, channel lookup fails,
+/// signer resolution fails, or on-chain close operations fail.
 pub async fn close_channel_by_id(
     config: &Config,
     channel_id_hex: &str,
@@ -211,12 +217,11 @@ pub async fn close_channel_by_id(
         })?;
 
     let owned_wallet;
-    let wallet = match wallet_override {
-        Some(w) => w,
-        None => {
-            owned_wallet = keys.signer(network)?;
-            &owned_wallet
-        }
+    let wallet = if let Some(w) = wallet_override {
+        w
+    } else {
+        owned_wallet = keys.signer(network)?;
+        &owned_wallet
     };
 
     close_on_chain(

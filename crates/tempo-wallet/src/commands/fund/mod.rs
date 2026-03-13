@@ -195,8 +195,7 @@ pub(super) fn render_balance_diff(before: &[TokenBalance], after: &[TokenBalance
         let prev = before
             .iter()
             .find(|b| b.currency == cur.currency)
-            .map(|b| b.balance.as_str())
-            .unwrap_or("0");
+            .map_or("0", |b| b.balance.as_str());
         if !balances_equal(&cur.balance, prev) {
             eprintln!("  {} balance: {} -> {}", cur.symbol, prev, cur.balance);
         }

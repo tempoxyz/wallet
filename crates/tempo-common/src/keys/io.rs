@@ -1,4 +1,4 @@
-//! File I/O for wallet keys (load, save, keys_path).
+//! File I/O for wallet keys (load, save, `keys_path`).
 
 use std::fs;
 use std::io::Write;
@@ -40,6 +40,10 @@ struct KeystoreLoadDiagnostics {
 
 impl Keystore {
     /// Get the keys.toml file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Tempo home directory cannot be resolved.
     pub fn keys_path() -> Result<PathBuf, TempoError> {
         Ok(wallet_dir()?.join(KEYS_FILE_NAME))
     }
@@ -48,12 +52,21 @@ impl Keystore {
     ///
     /// Use after a mutation (login, logout, key creation) to get the
     /// freshly-persisted state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when key data cannot be loaded from disk.
     pub fn reload(&self) -> Result<Self, TempoError> {
         Self::load_from_disk()
     }
 
     /// Load wallet keys, using `private_key` if provided (ephemeral),
     /// otherwise reading from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the provided private key is invalid or
+    /// persistent key data cannot be loaded.
     pub fn load(private_key: Option<&str>) -> Result<Self, TempoError> {
         if let Some(pk) = private_key {
             return Self::from_private_key(pk);
@@ -109,6 +122,10 @@ impl Keystore {
     ///
     /// No-op when an ephemeral key override is active (e.g., `--private-key`),
     /// to avoid overwriting the persistent keys.toml with transient data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when serialization or atomic file write operations fail.
     pub fn save(&self) -> Result<(), TempoError> {
         if self.ephemeral {
             return Ok(());
@@ -121,13 +138,14 @@ impl Keystore {
              {body}"
         );
         {
-            std::fs::create_dir_all(path.parent().ok_or_else(|| {
+            let parent = path.parent().ok_or_else(|| {
                 TempoError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     format!("path has no parent directory: {}", path.display()),
                 ))
-            })?)?;
-            let mut temp = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+            })?;
+            std::fs::create_dir_all(parent)?;
+            let mut temp = tempfile::NamedTempFile::new_in(parent)?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;

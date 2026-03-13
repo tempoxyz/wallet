@@ -40,11 +40,11 @@ fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) 
                         .get("content-type")
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("none");
-                    eprintln!("[voucher POST: {} content-type={}]", status, ct);
+                    eprintln!("[voucher POST: {status} content-type={ct}]");
                 }
             }
             Err(e) => {
-                eprintln!("[voucher POST failed: {}]", e);
+                eprintln!("[voucher POST failed: {e}]");
             }
         }
     });
@@ -56,7 +56,7 @@ fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) 
 /// process is interrupted, the session record reflects the last voucher sent.
 ///
 /// The server has a known race condition where its `wait_for_update` notification
-/// can be lost (tokio::sync::Notify without permit storage). When a voucher POST
+/// can be lost (`tokio::sync::Notify` without permit storage). When a voucher POST
 /// arrives but the server hasn't started awaiting yet, the notification is dropped
 /// and the stream stalls. We work around this by re-posting the same voucher if
 /// no progress is seen within a short timeout after the last need-voucher event.
@@ -121,16 +121,14 @@ pub(super) async fn stream_sse_response(
                     if voucher_retry_count > MAX_VOUCHER_RETRIES {
                         if runtime.debug_enabled() {
                             eprintln!(
-                                "[stream stall — voucher not accepted after {} retries]",
-                                MAX_VOUCHER_RETRIES
+                                "[stream stall — voucher not accepted after {MAX_VOUCHER_RETRIES} retries]"
                             );
                         }
                         break;
                     }
                     if runtime.debug_enabled() {
                         eprintln!(
-                            "[re-posting voucher (retry {}/{})]",
-                            voucher_retry_count, MAX_VOUCHER_RETRIES
+                            "[re-posting voucher (retry {voucher_retry_count}/{MAX_VOUCHER_RETRIES})]"
                         );
                     }
                     let verbose = runtime.debug_enabled();
@@ -185,7 +183,7 @@ pub(super) async fn stream_sse_response(
                         let (content, finished) = parse_sse_chunk(&data);
                         if let Some(content) = content {
                             token_count += 1;
-                            write!(stdout, "{}", content)?;
+                            write!(stdout, "{content}")?;
                             stdout.flush()?;
                         }
                         if finished {
@@ -214,8 +212,7 @@ pub(super) async fn stream_sse_response(
 
                         if runtime.debug_enabled() {
                             eprintln!(
-                                "[voucher top-up: required={} authorizing={}]",
-                                required, authorize_amount
+                                "[voucher top-up: required={required} authorizing={authorize_amount}]"
                             );
                         }
 
@@ -252,10 +249,10 @@ pub(super) async fn stream_sse_response(
                             eprintln!("  Channel: {}", receipt.channel_id);
                             eprintln!("  Spent: {}", receipt.spent);
                             if let Some(units) = receipt.units {
-                                eprintln!("  Units: {}", units);
+                                eprintln!("  Units: {units}");
                             }
                             if let Some(ref tx) = receipt.tx_hash {
-                                eprintln!("  TX: {}", tx);
+                                eprintln!("  TX: {tx}");
                             }
                         }
                         // Receipt signals stream completion
@@ -270,7 +267,7 @@ pub(super) async fn stream_sse_response(
     writeln!(stdout)?;
 
     if runtime.log_enabled() {
-        eprintln!("Tokens streamed: {}", token_count);
+        eprintln!("Tokens streamed: {token_count}");
         let cumulative_display =
             tempo_common::cli::format::format_token_amount(state.cumulative_amount, ctx.network_id);
         eprintln!("Voucher cumulative: {cumulative_display}");
@@ -282,7 +279,7 @@ pub(super) async fn stream_sse_response(
 /// Parse an SSE data chunk, extracting token content and finish status.
 ///
 /// Returns `(content, finished)`:
-/// - `content`: The text token from an OpenAI `delta.content` field, or the raw
+/// - `content`: The text token from an `OpenAI` `delta.content` field, or the raw
 ///   text for non-JSON SSE. `None` for role-only deltas or empty content.
 /// - `finished`: `true` if `finish_reason` is non-null (model done generating).
 fn parse_sse_chunk(raw: &str) -> (Option<String>, bool) {

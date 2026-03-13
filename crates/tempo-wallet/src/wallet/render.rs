@@ -59,7 +59,7 @@ pub(crate) async fn build_key_info(
 
     KeyInfo {
         address,
-        key: entry.key.as_deref().map(|s| s.to_string()),
+        key: entry.key.as_deref().cloned(),
         chain_id: current_chain_id,
         network: Some(network.as_str().to_string()),
         wallet_address: wallet_addr,
@@ -132,11 +132,11 @@ pub(crate) fn format_expiry_countdown(timestamp: u64) -> String {
     let hours = (remaining % 86400) / 3600;
     let minutes = (remaining % 3600) / 60;
     if days > 0 {
-        format!("{}d {}h", days, hours)
+        format!("{days}d {hours}h")
     } else if hours > 0 {
-        format!("{}h {}m", hours, minutes)
+        format!("{hours}h {minutes}m")
     } else {
-        format!("{}m", minutes)
+        format!("{minutes}m")
     }
 }
 
@@ -186,8 +186,7 @@ fn compute_locked(
         .and_then(NetworkId::from_chain_id)
         .map(|n| n.token())
         .filter(|t| t.symbol == sym)
-        .map(|t| t.decimals as usize)
-        .unwrap_or(6);
+        .map_or(6, |t| t.decimals as usize);
 
     let locked_raw: u128 = sessions
         .iter()
@@ -258,10 +257,10 @@ mod tests {
     #[test]
     fn test_key_expiry_timestamp_with_value() {
         let entry = KeyEntry {
-            expiry: Some(1750000000),
+            expiry: Some(1_750_000_000),
             ..Default::default()
         };
-        assert_eq!(key_expiry_timestamp(&entry), Some(1750000000));
+        assert_eq!(key_expiry_timestamp(&entry), Some(1_750_000_000));
     }
 
     #[test]

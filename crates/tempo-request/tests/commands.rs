@@ -501,8 +501,7 @@ async fn test_402_payment_narration_verbose() {
     let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
     assert!(
         stderr.contains("payment required:"),
-        "should narrate 402 payment requirement: {}",
-        stderr
+        "should narrate 402 payment requirement: {stderr}"
     );
 }
 
@@ -523,8 +522,7 @@ async fn test_402_paid_summary_verbose_and_quiet() {
     let stderr_default = String::from_utf8_lossy(&output_default.stderr);
     assert!(
         !stderr_default.contains("Paid "),
-        "expected no paid summary in default mode, got: {}",
-        stderr_default
+        "expected no paid summary in default mode, got: {stderr_default}"
     );
 
     // Verbose: summary should be printed
@@ -539,8 +537,7 @@ async fn test_402_paid_summary_verbose_and_quiet() {
     let stderr_verbose = String::from_utf8_lossy(&output_verbose.stderr);
     assert!(
         stderr_verbose.contains("Paid "),
-        "expected paid summary in verbose mode, got: {}",
-        stderr_verbose
+        "expected paid summary in verbose mode, got: {stderr_verbose}"
     );
 
     // Quiet: summary should be suppressed
@@ -552,17 +549,16 @@ async fn test_402_paid_summary_verbose_and_quiet() {
     let stderr_quiet = String::from_utf8_lossy(&output_quiet.stderr);
     assert!(
         !stderr_quiet.contains("Paid "),
-        "expected no paid summary in quiet mode, got: {}",
-        stderr_quiet
+        "expected no paid summary in quiet mode, got: {stderr_quiet}"
     );
 }
 
-/// Analytics PaymentSuccess tx_hash should be the extracted hex, not the raw header
+/// Analytics `PaymentSuccess` `tx_hash` should be the extracted hex, not the raw header
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_analytics_tx_hash_is_extracted_hex() {
     // Simple 64-nybble hex hash
     let tx_hash = format!("0x{}", "ab".repeat(32));
-    let receipt_value = format!("tx={}", tx_hash);
+    let receipt_value = format!("tx={tx_hash}");
     let h = PaymentTestHarness::charge_with_receipt("ok", &receipt_value).await;
 
     // Set up analytics tap file
@@ -586,7 +582,7 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
         }
     }
     let Some(json_str) = found else {
-        panic!("missing payment_success event: {}", content);
+        panic!("missing payment_success event: {content}");
     };
     let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     let got = v.get("tx_hash").and_then(|x| x.as_str()).unwrap_or("");
@@ -596,13 +592,11 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
         got.starts_with("0x") && got.len() == 66 && got[2..].chars().all(|c| c.is_ascii_hexdigit());
     assert!(
         got.is_empty() || is_hex,
-        "tx_hash should be empty or a 0x-hex hash, got: {}",
-        got
+        "tx_hash should be empty or a 0x-hex hash, got: {got}"
     );
     assert!(
         !got.contains('='),
-        "tx_hash should not be a raw header with fields: {}",
-        got
+        "tx_hash should not be a raw header with fields: {got}"
     );
 }
 
@@ -665,7 +659,7 @@ async fn test_402_charge_flow_with_private_key_flag() {
     );
 }
 
-/// --private-key via TEMPO_PRIVATE_KEY env var works.
+/// --private-key via `TEMPO_PRIVATE_KEY` env var works.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_env() {
     let rpc = MockRpcServer::start(42431).await;
@@ -1367,7 +1361,7 @@ async fn test_offline_flag_no_socket_opened() {
 
 // ==================== Analytics Events Sequencing & Redaction ====================
 
-/// Helper to parse the TEMPO_TEST_EVENTS file into a list of (event_name, props_json).
+/// Helper to parse the `TEMPO_TEST_EVENTS` file into a list of (`event_name`, `props_json`).
 fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
     let content = std::fs::read_to_string(path).unwrap_or_default();
     content
@@ -2074,8 +2068,7 @@ async fn test_retry_http_retries_on_specified_codes() {
     // Should have waited at least the backoff time (retried once)
     assert!(
         elapsed.as_millis() >= 10,
-        "should have retried with backoff: elapsed={:?}",
-        elapsed
+        "should have retried with backoff: elapsed={elapsed:?}"
     );
 }
 
@@ -2361,7 +2354,7 @@ async fn test_payment_credential_not_leaked_in_verbose_logs() {
     );
 }
 
-/// An empty URL argument should fail with E_USAGE (exit code 2).
+/// An empty URL argument should fail with `E_USAGE` (exit code 2).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_empty_url_fails_with_usage_error() {
     let temp = TestConfigBuilder::new().build();

@@ -1,4 +1,4 @@
-//! SQLite CRUD operations for session persistence.
+//! `SQLite` CRUD operations for session persistence.
 
 use std::error::Error;
 use std::fs;
@@ -25,6 +25,20 @@ where
         source: Box::new(source),
     }
     .into()
+}
+
+fn integer_conversion_error(field: &'static str, value: u64) -> TempoError {
+    store_error(
+        "serialize session integer field",
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{field} value {value} exceeds i64::MAX"),
+        ),
+    )
+}
+
+fn to_i64_checked(value: u64, field: &'static str) -> SessionStoreResult<i64> {
+    i64::try_from(value).map_err(|_| integer_conversion_error(field, value))
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -111,6 +125,11 @@ fn save_session_conn(
     record: &SessionRecord,
 ) -> SessionStoreResult<()> {
     let key = session_key(&record.origin);
+    let chain_id = to_i64_checked(record.chain_id, "chain_id")?;
+    let close_requested_at = to_i64_checked(record.close_requested_at, "close_requested_at")?;
+    let grace_ready_at = to_i64_checked(record.grace_ready_at, "grace_ready_at")?;
+    let created_at = to_i64_checked(record.created_at, "created_at")?;
+    let last_used_at = to_i64_checked(record.last_used_at, "last_used_at")?;
     let escrow_contract = format!("{:#x}", record.escrow_contract);
     let authorized_signer = format!("{:#x}", record.authorized_signer);
     let channel_id = record.channel_id_hex();
@@ -126,7 +145,7 @@ fn save_session_conn(
             record.version,
             record.origin,
             record.request_url,
-            record.chain_id as i64,
+            chain_id,
             escrow_contract,
             record.currency,
             record.recipient,
@@ -139,93 +158,97 @@ fn save_session_conn(
             record.cumulative_amount.to_string(),
             record.challenge_echo,
             record.state.as_str(),
-            record.close_requested_at as i64,
-            record.grace_ready_at as i64,
-            record.created_at as i64,
-            record.last_used_at as i64,
+            close_requested_at,
+            grace_ready_at,
+            created_at,
+            last_used_at,
         ],
     )
     .map_err(|err| store_error("save session", err))?;
     Ok(())
 }
 
+fn decode_u64_column(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+    column: &'static str,
+) -> rusqlite::Result<u64> {
+    let raw = row.get::<_, i64>(index)?;
+    u64::try_from(raw).map_err(|_| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            Type::Integer,
+            Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("negative value for {column}: {raw}"),
+            )),
+        )
+    })
+}
+
+fn decode_u128_column(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+    column: &'static str,
+) -> rusqlite::Result<u128> {
+    let raw = row.get::<_, String>(index)?;
+    raw.parse::<u128>().map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            Type::Text,
+            Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid {column} value '{raw}': {err}"),
+            )),
+        )
+    })
+}
+
+fn decode_address_column(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+    column: &'static str,
+) -> rusqlite::Result<Address> {
+    let raw = row.get::<_, String>(index)?;
+    raw.parse::<Address>().map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            Type::Text,
+            Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid {column} value '{raw}': {err}"),
+            )),
+        )
+    })
+}
+
+fn decode_b256_column(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+    column: &'static str,
+) -> rusqlite::Result<B256> {
+    let raw = row.get::<_, String>(index)?;
+    raw.parse::<B256>().map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            Type::Text,
+            Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid {column} value '{raw}': {err}"),
+            )),
+        )
+    })
+}
+
+fn decode_session_state(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<SessionStatus> {
+    let state_value = row.get::<_, String>(index)?;
+    SessionStatus::try_from_db_str(&state_value)
+        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(err)))
+}
+
 /// Map a row (with the standard SELECT column order) to a `SessionRecord`.
 fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
-    fn decode_u64_column(
-        row: &rusqlite::Row<'_>,
-        index: usize,
-        column: &'static str,
-    ) -> rusqlite::Result<u64> {
-        let raw = row.get::<_, i64>(index)?;
-        u64::try_from(raw).map_err(|_| {
-            rusqlite::Error::FromSqlConversionFailure(
-                index,
-                Type::Integer,
-                Box::new(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("negative value for {column}: {raw}"),
-                )),
-            )
-        })
-    }
-
-    fn decode_u128_column(
-        row: &rusqlite::Row<'_>,
-        index: usize,
-        column: &'static str,
-    ) -> rusqlite::Result<u128> {
-        let raw = row.get::<_, String>(index)?;
-        raw.parse::<u128>().map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(
-                index,
-                Type::Text,
-                Box::new(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("invalid {column} value '{raw}': {err}"),
-                )),
-            )
-        })
-    }
-
-    fn decode_address_column(
-        row: &rusqlite::Row<'_>,
-        index: usize,
-        column: &'static str,
-    ) -> rusqlite::Result<Address> {
-        let raw = row.get::<_, String>(index)?;
-        raw.parse::<Address>().map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(
-                index,
-                Type::Text,
-                Box::new(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("invalid {column} value '{raw}': {err}"),
-                )),
-            )
-        })
-    }
-
-    fn decode_b256_column(
-        row: &rusqlite::Row<'_>,
-        index: usize,
-        column: &'static str,
-    ) -> rusqlite::Result<B256> {
-        let raw = row.get::<_, String>(index)?;
-        raw.parse::<B256>().map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(
-                index,
-                Type::Text,
-                Box::new(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("invalid {column} value '{raw}': {err}"),
-                )),
-            )
-        })
-    }
-
-    let state_value = row.get::<_, String>(15)?;
-    let state = SessionStatus::try_from_db_str(&state_value)
-        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(15, Type::Text, Box::new(err)))?;
+    let state = decode_session_state(row, 15)?;
 
     let mut record = SessionRecord {
         version: row.get::<_, u32>(0)?,
@@ -297,7 +320,7 @@ fn load_session_conn(
     }
 }
 
-fn is_malformed_session_row_error(err: &rusqlite::Error) -> bool {
+const fn is_malformed_session_row_error(err: &rusqlite::Error) -> bool {
     matches!(
         err,
         rusqlite::Error::FromSqlConversionFailure(_, _, _)
@@ -316,7 +339,7 @@ fn delete_session_by_channel_id_conn(
     conn: &rusqlite::Connection,
     channel_id: B256,
 ) -> SessionStoreResult<()> {
-    let channel_id = format!("{:#x}", channel_id);
+    let channel_id = format!("{channel_id:#x}");
     conn.execute(
         "DELETE FROM sessions WHERE LOWER(channel_id) = ?1",
         params![channel_id],
@@ -369,30 +392,51 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> SessionStoreResult<Vec<Ses
 // ---------------------------------------------------------------------------
 
 /// Load a session record by key. Returns `None` if not found.
+///
+/// # Errors
+///
+/// Returns an error when the backing database cannot be opened/read or SQL fails.
 pub fn load_session(key: &str) -> SessionStoreResult<Option<SessionRecord>> {
     let conn = open_db()?;
     load_session_conn(&conn, key)
 }
 
 /// Save a session record to the database.
+///
+/// # Errors
+///
+/// Returns an error when the database cannot be opened, integer fields exceed
+/// storage bounds, or the insert/update operation fails.
 pub fn save_session(record: &SessionRecord) -> SessionStoreResult<()> {
     let conn = open_db()?;
     save_session_conn(&conn, record)
 }
 
 /// Delete a session record by key.
+///
+/// # Errors
+///
+/// Returns an error when the database cannot be opened or deletion fails.
 pub fn delete_session(key: &str) -> SessionStoreResult<()> {
     let conn = open_db()?;
     delete_session_conn(&conn, key)
 }
 
 /// Delete a session record by channel ID.
+///
+/// # Errors
+///
+/// Returns an error when the database cannot be opened or deletion fails.
 pub fn delete_session_by_channel_id(channel_id: B256) -> SessionStoreResult<()> {
     let conn = open_db()?;
     delete_session_by_channel_id_conn(&conn, channel_id)
 }
 
-/// List all session records, ordered by last_used_at descending.
+/// List all session records, ordered by `last_used_at` descending.
+///
+/// # Errors
+///
+/// Returns an error when the database cannot be opened or listing fails.
 pub fn list_sessions() -> SessionStoreResult<Vec<SessionRecord>> {
     let conn = open_db()?;
     list_sessions_conn(&conn)
@@ -407,6 +451,11 @@ pub fn take_store_diagnostics() -> SessionStoreDiagnostics {
 }
 
 /// Update close state fields by channel ID for a local session (no-op if not found).
+///
+/// # Errors
+///
+/// Returns an error when the database cannot be opened, timestamp values
+/// exceed storage bounds, or the update fails.
 pub fn update_session_close_state_by_channel_id(
     channel_id: B256,
     state: SessionStatus,
@@ -414,10 +463,12 @@ pub fn update_session_close_state_by_channel_id(
     grace_ready_at: u64,
 ) -> SessionStoreResult<()> {
     let conn = open_db()?;
-    let channel_id = format!("{:#x}", channel_id);
+    let close_requested_at = to_i64_checked(close_requested_at, "close_requested_at")?;
+    let grace_ready_at = to_i64_checked(grace_ready_at, "grace_ready_at")?;
+    let channel_id = format!("{channel_id:#x}");
     conn.execute(
         "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
-        params![state.as_str(), close_requested_at as i64, grace_ready_at as i64, channel_id],
+        params![state.as_str(), close_requested_at, grace_ready_at, channel_id],
     )
     .map_err(|err| store_error("update session close state", err))?;
     Ok(())

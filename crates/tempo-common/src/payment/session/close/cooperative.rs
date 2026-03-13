@@ -112,12 +112,12 @@ pub(super) async fn try_server_close(
         source: Box::new(source),
     })?;
     let payload = SessionCredentialPayload::Close {
-        channel_id: format!("{:#x}", channel_id),
+        channel_id: format!("{channel_id:#x}"),
         cumulative_amount: cumulative_amount.to_string(),
         signature: format!("0x{}", hex::encode(sig)),
     };
     let credential =
-        mpp::PaymentCredential::with_source(echo.clone(), record.payer.to_string(), payload);
+        mpp::PaymentCredential::with_source(echo.clone(), record.payer.clone(), payload);
     let auth = mpp::format_authorization(&credential).map_err(|source| {
         PaymentError::ChallengeFormatSource {
             context: "close credential",
@@ -179,12 +179,14 @@ mod tests {
                     let mut c = counters.lock().unwrap();
                     if has_auth {
                         c.1 += 1;
+                        drop(c);
                         axum::http::Response::builder()
                             .status(200)
                             .body(axum::body::Body::empty())
                             .unwrap()
                     } else {
                         c.0 += 1;
+                        drop(c);
                         axum::http::Response::builder()
                             .status(402)
                             .header(

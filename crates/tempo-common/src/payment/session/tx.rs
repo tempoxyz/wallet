@@ -40,7 +40,7 @@ const MAX_FEE_PER_GAS: u128 = mpp::client::tempo::MAX_FEE_PER_GAS;
 /// Static max priority fee per gas (1 gwei).
 const MAX_PRIORITY_FEE_PER_GAS: u128 = mpp::client::tempo::MAX_PRIORITY_FEE_PER_GAS;
 
-/// Expiring nonce key (U256::MAX).
+/// Expiring nonce key (`U256::MAX`).
 const EXPIRING_NONCE_KEY: U256 = U256::MAX;
 
 /// Validity window (in seconds) for expiring nonce transactions.
@@ -67,6 +67,10 @@ fn is_key_already_exists_error(err: &impl std::fmt::Display) -> bool {
 /// Uses expiring nonces (nonceKey=MAX, nonce=0) and static gas fees
 /// (Tempo has a fixed 20 gwei base fee), so only a single RPC call
 /// (`eth_estimateGas`) is needed.
+///
+/// # Errors
+///
+/// Returns an error when gas estimation, transaction signing, or encoding fails.
 pub async fn resolve_and_sign_tx(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
     wallet: &Signer,
@@ -157,6 +161,10 @@ pub async fn resolve_and_sign_tx(
 /// Submit a Tempo type-0x76 transaction and return the tx hash.
 ///
 /// Uses expiring nonces so no on-chain nonce fetch is needed.
+///
+/// # Errors
+///
+/// Returns an error when signing fails or transaction broadcast fails.
 pub async fn submit_tempo_tx(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
     wallet: &Signer,
@@ -185,6 +193,7 @@ pub async fn submit_tempo_tx(
 /// Constructs a 2-call sequence:
 /// 1. `approve(escrow_contract, deposit)` on the currency token
 /// 2. `IEscrow::open(payee, currency, deposit, salt, authorizedSigner)` on the escrow contract
+#[must_use]
 pub fn build_open_calls(
     currency: Address,
     escrow_contract: Address,

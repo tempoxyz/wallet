@@ -69,81 +69,95 @@ pub enum NetworkId {
 
 impl NetworkId {
     /// Resolve an optional network name to a `NetworkId`, defaulting to Tempo mainnet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a provided network string does not map to a
+    /// supported `NetworkId`.
     pub fn resolve(network: Option<&str>) -> Result<Self, TempoError> {
-        match network {
-            None => Ok(NetworkId::Tempo),
-            Some(s) => s.parse::<NetworkId>().map_err(TempoError::from),
-        }
+        network.map_or_else(
+            || Ok(Self::Tempo),
+            |s| s.parse::<Self>().map_err(TempoError::from),
+        )
     }
 
     /// Get the string identifier for this network.
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
-            NetworkId::Tempo => TEMPO,
-            NetworkId::TempoModerato => TEMPO_MODERATO,
+            Self::Tempo => TEMPO,
+            Self::TempoModerato => TEMPO_MODERATO,
         }
     }
 
     /// Get the chain ID for this network.
+    #[must_use]
     pub const fn chain_id(&self) -> u64 {
         match self {
-            NetworkId::Tempo => TEMPO_CHAIN_ID,
-            NetworkId::TempoModerato => TEMPO_MODERATO_CHAIN_ID,
+            Self::Tempo => TEMPO_CHAIN_ID,
+            Self::TempoModerato => TEMPO_MODERATO_CHAIN_ID,
         }
     }
 
     /// Look up a network by its EVM chain ID.
-    pub fn from_chain_id(chain_id: u64) -> Option<Self> {
+    #[must_use]
+    pub const fn from_chain_id(chain_id: u64) -> Option<Self> {
         match chain_id {
-            TEMPO_CHAIN_ID => Some(NetworkId::Tempo),
-            TEMPO_MODERATO_CHAIN_ID => Some(NetworkId::TempoModerato),
+            TEMPO_CHAIN_ID => Some(Self::Tempo),
+            TEMPO_MODERATO_CHAIN_ID => Some(Self::TempoModerato),
             _ => None,
         }
     }
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `chain_id` is not one of the built-in Tempo networks.
     pub fn require_chain_id(chain_id: u64) -> Result<Self, TempoError> {
         Self::from_chain_id(chain_id)
             .ok_or_else(|| ConfigError::UnsupportedChainId(chain_id).into())
     }
 
     /// Get the default RPC URL for this network.
+    #[must_use]
     pub const fn default_rpc_url(&self) -> &'static str {
         match self {
             // Basic-auth credentials are public rate-limit tokens, not secrets.
-            NetworkId::Tempo => "https://beautiful-tesla:great-benz@rpc.mainnet.tempo.xyz",
-            NetworkId::TempoModerato => "https://rpc.moderato.tempo.xyz",
+            Self::Tempo => "https://beautiful-tesla:great-benz@rpc.mainnet.tempo.xyz",
+            Self::TempoModerato => "https://rpc.moderato.tempo.xyz",
         }
     }
 
     /// Get the auth server URL for browser-based wallet authentication.
     ///
     /// The `auth=` parameter is a public routing token, not a secret.
+    #[must_use]
     pub const fn auth_url(&self) -> &'static str {
         match self {
-            NetworkId::Tempo => {
-                "https://wallet.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish"
-            }
-            NetworkId::TempoModerato => {
+            Self::Tempo => "https://wallet.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish",
+            Self::TempoModerato => {
                 "https://wallet.moderato.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish"
             }
         }
     }
 
     /// Get the block explorer base URL for this network.
-    const fn explorer_base_url(&self) -> &'static str {
+    const fn explorer_base_url(self) -> &'static str {
         match self {
-            NetworkId::Tempo => "https://explore.mainnet.tempo.xyz",
-            NetworkId::TempoModerato => "https://explore.moderato.tempo.xyz",
+            Self::Tempo => "https://explore.mainnet.tempo.xyz",
+            Self::TempoModerato => "https://explore.moderato.tempo.xyz",
         }
     }
 
     /// Build a transaction URL on the block explorer.
+    #[must_use]
     pub fn tx_url(&self, hash: &str) -> String {
         format!("{}/receipt/{}", self.explorer_base_url(), hash)
     }
 
     /// Build an address URL on the block explorer.
+    #[must_use]
     pub fn address_url(&self, addr: &str) -> String {
         format!("{}/address/{}", self.explorer_base_url(), addr)
     }
@@ -151,18 +165,20 @@ impl NetworkId {
     /// Get the default escrow contract address for this network.
     ///
     /// These match the addresses in `mpp::client::channel_ops::default_escrow_contract`.
+    #[must_use]
     pub const fn escrow_contract(&self) -> Address {
         match self {
-            NetworkId::Tempo => TEMPO_ESCROW,
-            NetworkId::TempoModerato => TEMPO_MODERATO_ESCROW,
+            Self::Tempo => TEMPO_ESCROW,
+            Self::TempoModerato => TEMPO_MODERATO_ESCROW,
         }
     }
 
     /// Get the payment token for this network.
+    #[must_use]
     pub const fn token(&self) -> &'static TokenConfig {
         match self {
-            NetworkId::Tempo => &TEMPO_TOKEN,
-            NetworkId::TempoModerato => &TEMPO_MODERATO_TOKEN,
+            Self::Tempo => &TEMPO_TOKEN,
+            Self::TempoModerato => &TEMPO_MODERATO_TOKEN,
         }
     }
 }

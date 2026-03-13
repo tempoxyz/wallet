@@ -30,7 +30,7 @@ pub(crate) struct ParsedChallenge {
 }
 
 impl ParsedChallenge {
-    pub(crate) fn intent_str(&self) -> &'static str {
+    pub(crate) const fn intent_str(&self) -> &'static str {
         if self.is_session {
             "session"
         } else {

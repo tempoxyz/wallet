@@ -31,9 +31,14 @@ impl Drop for SessionLock {
 }
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
+///
+/// # Errors
+///
+/// Returns an error when the wallet directory cannot be created, lock file
+/// creation/open fails, or the file lock cannot be acquired.
 pub fn acquire_origin_lock(key: &str) -> Result<SessionLock, TempoError> {
     let dir = ensure_wallet_dir()?;
-    let lock_path = dir.join(format!("{}.lock", key));
+    let lock_path = dir.join(format!("{key}.lock"));
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)

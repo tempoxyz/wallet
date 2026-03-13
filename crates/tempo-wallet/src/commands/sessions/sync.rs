@@ -21,7 +21,7 @@ struct SyncOriginResponse {
 }
 
 impl SyncOriginResponse {
-    fn recovered(status: &'static str, remaining_secs: u64) -> Self {
+    const fn recovered(status: &'static str, remaining_secs: u64) -> Self {
         Self {
             recovered: true,
             status: Some(status),

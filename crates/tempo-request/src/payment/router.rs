@@ -35,8 +35,7 @@ pub(crate) async fn dispatch_payment(
             return Err(PaymentError::ChallengeSchema {
                 context: "payment challenge network",
                 reason: format!(
-                    "Server requested network '{}' but --network is '{}'",
-                    network, allowed
+                    "Server requested network '{network}' but --network is '{allowed}'"
                 ),
             }
             .into());

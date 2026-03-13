@@ -155,7 +155,7 @@ pub enum NetworkError {
     Http(String),
     #[error("HTTP request error: {0}")]
     Reqwest(#[from] reqwest::Error),
-    #[error("{}", format_http_status_error(.operation, .status, .body.as_deref()))]
+    #[error("{}", format_http_status_error(.operation, *.status, .body.as_deref()))]
     HttpStatus {
         operation: &'static str,
         status: u16,
@@ -205,12 +205,10 @@ pub enum NetworkError {
     OfflineMode,
 }
 
-fn format_http_status_error(operation: &str, status: &u16, body: Option<&str>) -> String {
+fn format_http_status_error(operation: &str, status: u16, body: Option<&str>) -> String {
     match body {
-        Some(text) if !text.is_empty() => {
-            format!("HTTP {} during {operation}: {text}", status)
-        }
-        _ => format!("HTTP {} during {operation}", status),
+        Some(text) if !text.is_empty() => format!("HTTP {status} during {operation}: {text}"),
+        _ => format!("HTTP {status} during {operation}"),
     }
 }
 
@@ -460,8 +458,7 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("Failed to parse relay quote response"),
-            "unexpected display: {}",
-            err
+            "unexpected display: {err}"
         );
     }
 

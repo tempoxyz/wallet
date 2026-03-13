@@ -17,6 +17,10 @@ pub struct MockServer {
 
 impl MockServer {
     /// Start a server that always returns the given status, headers, and body.
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start(status: u16, headers: Vec<(&str, &str)>, body: &str) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -57,7 +61,7 @@ impl MockServer {
                 .unwrap();
         });
 
-        MockServer {
+        Self {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
@@ -66,6 +70,10 @@ impl MockServer {
 
     /// Start a payment mock: returns 402 + WWW-Authenticate when no Authorization
     /// header is present, returns 200 + body when Authorization header is present.
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start_payment(www_authenticate: &str, success_body: &str) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -105,7 +113,7 @@ impl MockServer {
                 .unwrap();
         });
 
-        MockServer {
+        Self {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
@@ -113,6 +121,10 @@ impl MockServer {
     }
 
     /// Start a payment mock that also returns a Payment-Receipt header on success.
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start_payment_with_receipt(
         www_authenticate: &str,
         success_body: &str,
@@ -163,7 +175,7 @@ impl MockServer {
                 .unwrap();
         });
 
-        MockServer {
+        Self {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
@@ -171,6 +183,10 @@ impl MockServer {
     }
 
     /// Start a mock that echoes request headers back as a JSON body.
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start_echo_headers() -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -180,7 +196,7 @@ impl MockServer {
             "/{*path}",
             any(move |headers: axum::http::HeaderMap| async move {
                 let mut map = serde_json::Map::new();
-                for (k, v) in headers.iter() {
+                for (k, v) in &headers {
                     if let Ok(s) = v.to_str() {
                         map.insert(
                             k.as_str().to_string(),
@@ -203,7 +219,7 @@ impl MockServer {
                 .unwrap();
         });
 
-        MockServer {
+        Self {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
@@ -212,6 +228,10 @@ impl MockServer {
 
     /// Start a mock that echoes back the full request as JSON:
     /// `{ "method": "...", "path": "...", "query": "...", "headers": {...}, "body": "..." }`
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start_echo_request() -> Self {
         use axum::http::Request;
 
@@ -226,7 +246,7 @@ impl MockServer {
                 let path = req.uri().path().to_string();
                 let query = req.uri().query().unwrap_or("").to_string();
                 let mut hdr_map = serde_json::Map::new();
-                for (k, v) in req.headers().iter() {
+                for (k, v) in req.headers() {
                     if let Ok(s) = v.to_str() {
                         hdr_map.insert(
                             k.as_str().to_string(),
@@ -259,7 +279,7 @@ impl MockServer {
                 .unwrap();
         });
 
-        MockServer {
+        Self {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
@@ -267,6 +287,10 @@ impl MockServer {
     }
 
     /// Start a mock that returns an SSE stream with the given raw body.
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start_sse(body: &str) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -299,7 +323,7 @@ impl MockServer {
                 .unwrap();
         });
 
-        MockServer {
+        Self {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
@@ -307,6 +331,7 @@ impl MockServer {
     }
 
     /// Get the full URL for a path on this server.
+    #[must_use]
     pub fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
@@ -331,6 +356,10 @@ pub struct MockRpcServer {
 
 impl MockRpcServer {
     /// Start a mock RPC server for the given chain ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start(chain_id: u64) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -366,7 +395,7 @@ impl MockRpcServer {
                 .unwrap();
         });
 
-        MockRpcServer {
+        Self {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
@@ -383,6 +412,7 @@ impl Drop for MockRpcServer {
 }
 
 /// Generate a mock JSON-RPC response for a given method.
+#[must_use]
 pub fn mock_rpc_response(req: &serde_json::Value, chain_id: u64) -> serde_json::Value {
     let method = req["method"].as_str().unwrap_or("");
     let id = req["id"].clone();
@@ -462,6 +492,10 @@ impl MockServicesServer {
     }
 
     /// Start a mock services directory with a custom payload.
+    ///
+    /// # Panics
+    ///
+    /// Panics when binding or running the mock server fails.
     pub async fn start_with_payload(payload: serde_json::Value) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -485,7 +519,7 @@ impl MockServicesServer {
                 .unwrap();
         });
 
-        MockServicesServer {
+        Self {
             services_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,

@@ -24,17 +24,17 @@ pub enum ExitCode {
 
 impl ExitCode {
     /// Convert to process exit code.
-    pub fn code(self) -> i32 {
+    pub const fn code(self) -> i32 {
         self as i32
     }
 
     /// Machine-readable error code label for structured error output.
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
-            ExitCode::GeneralError => "E_GENERAL",
-            ExitCode::InvalidUsage => "E_USAGE",
-            ExitCode::NetworkError => "E_NETWORK",
-            ExitCode::PaymentFailed => "E_PAYMENT",
+            Self::GeneralError => "E_GENERAL",
+            Self::InvalidUsage => "E_USAGE",
+            Self::NetworkError => "E_NETWORK",
+            Self::PaymentFailed => "E_PAYMENT",
         }
     }
 
@@ -55,18 +55,19 @@ impl From<&crate::error::TempoError> for ExitCode {
         use crate::error::{KeyError, TempoError};
 
         match err {
-            TempoError::Config(_) => ExitCode::InvalidUsage,
             TempoError::Key(k) => match k {
-                KeyError::LoginExpired => ExitCode::GeneralError,
-                _ => ExitCode::InvalidUsage,
+                KeyError::LoginExpired => Self::GeneralError,
+                _ => Self::InvalidUsage,
             },
-            TempoError::Input(_) => ExitCode::InvalidUsage,
-            TempoError::Network(_) => ExitCode::NetworkError,
-            TempoError::Payment(_) => ExitCode::PaymentFailed,
+            TempoError::Network(_) => Self::NetworkError,
+            TempoError::Payment(_) => Self::PaymentFailed,
             TempoError::Io(_) | TempoError::Json(_) | TempoError::ToonEncode(_) => {
-                ExitCode::GeneralError
+                Self::GeneralError
             }
-            TempoError::TomlParse(_) | TempoError::TomlSerialize(_) => ExitCode::InvalidUsage,
+            TempoError::Config(_)
+            | TempoError::Input(_)
+            | TempoError::TomlParse(_)
+            | TempoError::TomlSerialize(_) => Self::InvalidUsage,
         }
     }
 }

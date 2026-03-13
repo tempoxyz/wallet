@@ -58,8 +58,7 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> Result<(), 
     let success = balances_after
         .as_ref()
         .zip(balances_before.as_ref())
-        .map(|(after, before)| has_balance_changed(before, after))
-        .unwrap_or(true);
+        .is_none_or(|(after, before)| has_balance_changed(before, after));
 
     let response = FundResponse {
         network: ctx.network.as_str().to_string(),
@@ -93,20 +92,17 @@ async fn wait_for_balance(
     )
     .await;
 
-    match result {
-        Some(new_balances) => {
-            if ctx.output_format == OutputFormat::Text {
-                render_balance_diff(initial, &new_balances);
-            }
-            Some(new_balances)
+    if let Some(new_balances) = result {
+        if ctx.output_format == OutputFormat::Text {
+            render_balance_diff(initial, &new_balances);
         }
-        None => {
-            if ctx.output_format == OutputFormat::Text {
-                eprintln!(
-                    "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo wallet whoami' to check later."
-                );
-            }
-            Some(query_all_balances(&ctx.config, ctx.network, address).await)
+        Some(new_balances)
+    } else {
+        if ctx.output_format == OutputFormat::Text {
+            eprintln!(
+                "Balance did not change within {FAUCET_POLL_TIMEOUT_SECS}s. Run 'tempo wallet whoami' to check later."
+            );
         }
+        Some(query_all_balances(&ctx.config, ctx.network, address).await)
     }
 }

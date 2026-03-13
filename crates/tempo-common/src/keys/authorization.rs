@@ -20,7 +20,7 @@ const DEFAULT_EXPIRY_SECS: u64 = 30 * 24 * 60 * 60;
 const DEFAULT_LIMIT: u64 = 100_000_000;
 
 /// Decoded and validated key authorization.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedKeyAuth {
     pub hex: String,
     pub expiry: u64,
@@ -29,7 +29,7 @@ pub struct ValidatedKeyAuth {
     pub limits: Vec<StoredTokenLimit>,
 }
 
-/// Decode a hex-encoded SignedKeyAuthorization.
+/// Decode a hex-encoded `SignedKeyAuthorization`.
 ///
 /// Accepts hex strings with or without a "0x" prefix.
 /// Logs a warning if the input is present but fails to decode.
@@ -53,13 +53,17 @@ pub fn decode(hex_str: &str) -> Option<SignedKeyAuthorization> {
 }
 
 /// Validate a key authorization hex string against an expected key ID.
+///
+/// # Errors
+///
+/// Returns an error when the authorization payload is malformed or targets a
+/// different key than `expected_key_id`.
 pub fn validate(
     hex_str: Option<&str>,
     expected_key_id: Address,
 ) -> Result<Option<ValidatedKeyAuth>, TempoError> {
-    let hex_str = match hex_str {
-        Some(s) => s,
-        None => return Ok(None),
+    let Some(hex_str) = hex_str else {
+        return Ok(None);
     };
 
     let signed = decode(hex_str).ok_or(ConfigError::InvalidKeyAuthorization)?;
@@ -108,6 +112,11 @@ pub fn validate(
 ///
 /// Returns the validated auth containing hex, expiry, and token limits.
 /// Uses $100 USDC limit and 30-day expiry.
+///
+/// # Errors
+///
+/// Returns an error when the chain ID is unsupported or the authorization
+/// signature operation fails.
 pub fn sign(
     wallet_signer: &PrivateKeySigner,
     access_signer: &PrivateKeySigner,
@@ -199,15 +208,15 @@ mod tests {
             chain_id: 42431,
             key_type: SignatureType::Secp256k1,
             key_id,
-            expiry: Some(9999999999),
+            expiry: Some(9_999_999_999),
             limits: None,
         };
 
         let sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
-        let signed = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
+        let signed_auth = auth.into_signed(PrimitiveSignature::Secp256k1(sig));
 
         let mut buf = Vec::new();
-        signed.encode(&mut buf);
+        signed_auth.encode(&mut buf);
         format!("0x{}", hex::encode(&buf))
     }
 
@@ -219,7 +228,7 @@ mod tests {
         assert!(result.is_ok());
         let validated = result.unwrap().unwrap();
         assert_eq!(validated.hex, hex);
-        assert_eq!(validated.expiry, 9999999999);
+        assert_eq!(validated.expiry, 9_999_999_999);
         assert_eq!(validated.chain_id, 42431);
         assert_eq!(validated.key_type, KeyType::Secp256k1);
     }

@@ -165,13 +165,13 @@ fn build_extra_headers(
     if let Some(ref user) = query.user {
         if !has_header(raw_headers, "authorization") {
             let encoded = base64::engine::general_purpose::STANDARD.encode(user);
-            headers.push(("authorization".to_string(), format!("Basic {}", encoded)));
+            headers.push(("authorization".to_string(), format!("Basic {encoded}")));
         }
     }
     // Add Authorization: Bearer if provided and not explicitly overridden
     if let Some(ref token) = query.bearer {
         if !has_header(raw_headers, "authorization") && query.user.is_none() {
-            headers.push(("authorization".to_string(), format!("Bearer {}", token)));
+            headers.push(("authorization".to_string(), format!("Bearer {token}")));
         }
     }
     // Add Referer header if provided and not overridden via -H

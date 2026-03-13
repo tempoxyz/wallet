@@ -40,7 +40,8 @@ pub enum SessionStatus {
 }
 
 impl SessionStatus {
-    pub fn as_str(self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Active => "active",
             Self::Closing => "closing",
@@ -95,14 +96,15 @@ pub struct SessionRecord {
     pub last_used_at: u64,
 }
 
-fn default_version() -> u32 {
+const fn default_version() -> u32 {
     1
 }
 
-fn default_state() -> SessionStatus {
+const fn default_state() -> SessionStatus {
     SessionStatus::Active
 }
 
+#[must_use]
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -112,23 +114,27 @@ pub fn now_secs() -> u64 {
 
 impl SessionRecord {
     /// Parse the cumulative amount.
+    #[must_use]
     pub const fn cumulative_amount_u128(&self) -> u128 {
         self.cumulative_amount
     }
 
     /// Parse the deposit amount.
+    #[must_use]
     pub const fn deposit_u128(&self) -> u128 {
         self.deposit
     }
 
     /// Parse the channel ID.
+    #[must_use]
     pub const fn channel_id_b256(&self) -> B256 {
         self.channel_id
     }
 
     /// Canonical lowercase hex representation of channel ID.
+    #[must_use]
     pub fn channel_id_hex(&self) -> String {
-        format!("{:#x}", self.channel_id)
+        format!("{channel_id:#x}", channel_id = self.channel_id)
     }
 
     /// Update the cumulative amount (monotonic: never decreases).
@@ -142,6 +148,7 @@ impl SessionRecord {
     }
 
     /// Derive the network from `chain_id`.
+    #[must_use]
     pub fn network_id(&self) -> NetworkId {
         NetworkId::from_chain_id(self.chain_id).unwrap_or_default()
     }
@@ -168,7 +175,8 @@ impl SessionRecord {
     /// - Active sessions: `(SessionStatus::Active, None)`
     /// - Closing with time remaining: `(SessionStatus::Closing, Some(secs))`
     /// - Closing with grace elapsed: `(SessionStatus::Finalizable, Some(0))`
-    pub fn status_at(&self, now: u64) -> (SessionStatus, Option<u64>) {
+    #[must_use]
+    pub const fn status_at(&self, now: u64) -> (SessionStatus, Option<u64>) {
         match self.state {
             SessionStatus::Closing => {
                 let rem = self.grace_ready_at.saturating_sub(now);
@@ -189,10 +197,10 @@ impl SessionRecord {
 /// Compute a session key from the origin URL (extract `scheme://host[:port]`).
 ///
 /// Non-alphanumeric chars (except `-` and `.`) are replaced with `_`.
+#[must_use]
 pub fn session_key(origin: &str) -> String {
     let normalized = url::Url::parse(origin)
-        .map(|u| u.origin().ascii_serialization())
-        .unwrap_or_else(|_| origin.to_string());
+        .map_or_else(|_| origin.to_string(), |u| u.origin().ascii_serialization());
 
     normalized
         .chars()
@@ -334,7 +342,7 @@ mod tests {
     fn test_deposit_u128_valid() {
         let mut record = test_record("https://example.com", "salt");
         record.deposit = 5_000_000;
-        assert_eq!(record.deposit_u128(), 5000000u128);
+        assert_eq!(record.deposit_u128(), 5_000_000_u128);
     }
 
     #[test]

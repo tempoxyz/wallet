@@ -14,7 +14,12 @@ use crate::network::NetworkId;
 use super::authorization;
 use super::Keystore;
 
-/// Parse a private key hex string into a PrivateKeySigner.
+/// Parse a private key hex string into a `PrivateKeySigner`.
+///
+/// # Errors
+///
+/// Returns an error when the key is not valid hex, has the wrong length, or
+/// cannot be parsed into a signer.
 pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoError> {
     let key = pk_str.trim();
     let key_hex = key.strip_prefix("0x").unwrap_or(key);
@@ -41,6 +46,11 @@ impl Keystore {
     /// Looks up the key entry for the network, parses the private key,
     /// resolves the signing mode (direct EOA or keychain with optional
     /// key authorization), and returns a ready-to-use [`Signer`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no key is configured for the network, stored
+    /// addresses are malformed, or signer parsing fails.
     pub fn signer(&self, network: NetworkId) -> Result<Signer, TempoError> {
         let key_entry = self.key_for_network(network).ok_or_else(|| {
             TempoError::from(ConfigError::Missing(format!(
@@ -73,10 +83,10 @@ impl Keystore {
                 .as_deref()
                 .and_then(authorization::decode);
 
-            let key_authorization = if !self.is_provisioned(network) {
-                local_auth.map(Box::new)
-            } else {
+            let key_authorization = if self.is_provisioned(network) {
                 None
+            } else {
+                local_auth.map(Box::new)
             };
 
             TempoSigningMode::Keychain {
@@ -135,7 +145,7 @@ mod tests {
                         .unwrap()
                 );
             }
-            _ => panic!("expected Keychain mode"),
+            TempoSigningMode::Direct => panic!("expected Keychain mode"),
         }
     }
 
@@ -158,7 +168,7 @@ mod tests {
             } => {
                 assert!(key_authorization.is_none());
             }
-            _ => panic!("expected Keychain mode"),
+            TempoSigningMode::Direct => panic!("expected Keychain mode"),
         }
     }
 

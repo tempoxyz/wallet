@@ -6,12 +6,11 @@ use tempo_common::error::TempoError;
 
 /// Run the tempo-wallet application.
 pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
-    let command = match cli.command.take() {
-        Some(c) => c,
-        None => {
-            use clap::CommandFactory;
-            return Cli::command().print_help().map_err(Into::into);
-        }
+    let command = if let Some(c) = cli.command.take() {
+        c
+    } else {
+        use clap::CommandFactory;
+        return Cli::command().print_help().map_err(Into::into);
     };
 
     tempo_common::cli::run_cli(&cli.global, &["tempo_wallet"], |ctx| async move {
@@ -46,7 +45,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
 }
 
 /// Derive a short analytics-friendly name from a parsed command.
-fn command_name(command: &Commands) -> &'static str {
+const fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Login => "login",
         Commands::Logout { .. } => "logout",

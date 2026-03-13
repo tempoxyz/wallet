@@ -327,7 +327,7 @@ async fn close_orphaned_channels(ctx: &Context) -> Result<(), TempoError> {
     Ok(())
 }
 
-/// Finalize channels that have had requestClose() submitted and whose grace period has elapsed.
+/// Finalize channels that have had `requestClose()` submitted and whose grace period has elapsed.
 async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let now = session_store::now_secs();
@@ -432,7 +432,7 @@ struct CloseSummary {
 type CloseOpResult = std::result::Result<CloseOutcome, TempoError>;
 
 impl CloseSummary {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             closed: 0,
             pending: 0,

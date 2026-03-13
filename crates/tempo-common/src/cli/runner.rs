@@ -29,6 +29,11 @@ use crate::payment::session;
 ///     (cmd_name, do_work(&ctx, command).await)
 /// }).await
 /// ```
+///
+/// # Errors
+///
+/// Returns an error when context construction fails or the provided handler
+/// returns an error.
 pub async fn run_cli<F, Fut, E>(
     global: &GlobalArgs,
     target_crates: &[&str],
@@ -101,7 +106,7 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), TempoError>) {
                 || runtime::render_error_fallback(code),
             );
         }
-        _ => {
+        OutputFormat::Text => {
             eprintln!("Error: {e:#}");
         }
     }

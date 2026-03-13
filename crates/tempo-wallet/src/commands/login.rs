@@ -53,7 +53,7 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
 
 fn track_login_result(a: &tempo_common::analytics::Analytics, result: &Result<(), TempoError>) {
     match result {
-        Ok(_) => a.track_event(analytics::LOGIN_SUCCESS),
+        Ok(()) => a.track_event(analytics::LOGIN_SUCCESS),
         Err(e) => {
             let is_timeout = matches!(e, TempoError::Key(KeyError::LoginExpired));
             if is_timeout {
@@ -147,8 +147,8 @@ fn prompt_and_open_browser(code: &str, url: &str) {
 
 fn try_open_browser(url: &str) {
     if let Err(e) = webbrowser::open(url) {
-        eprintln!("Failed to open browser: {}", e);
-        eprintln!("Please open this URL manually: {}", url);
+        eprintln!("Failed to open browser: {e}");
+        eprintln!("Please open this URL manually: {url}");
     }
 }
 
@@ -277,7 +277,7 @@ async fn create_device_code(
     pub_key: &str,
     code_challenge: &str,
 ) -> Result<String, TempoError> {
-    let url = format!("{}/cli-auth/device-code", base_url);
+    let url = format!("{base_url}/cli-auth/device-code");
     let resp = client
         .post(&url)
         .json(&serde_json::json!({
@@ -321,7 +321,7 @@ async fn poll_device_code(
     code: &str,
     code_verifier: &str,
 ) -> Result<PollResponse, TempoError> {
-    let url = format!("{}/cli-auth/poll/{}", base_url, code);
+    let url = format!("{base_url}/cli-auth/poll/{code}");
     let resp = client
         .post(&url)
         .json(&serde_json::json!({

@@ -45,9 +45,7 @@ pub(super) struct SessionContext<'a> {
     pub(super) reqwest_client: &'a reqwest::Client,
 }
 
-/// Extract the origin (scheme://host\[:port\]) from a URL.
+/// Extract the origin (<scheme://host>\[:port\]) from a URL.
 fn extract_origin(url: &str) -> String {
-    url::Url::parse(url)
-        .map(|u| u.origin().ascii_serialization())
-        .unwrap_or_else(|_| url.to_string())
+    url::Url::parse(url).map_or_else(|_| url.to_string(), |u| u.origin().ascii_serialization())
 }

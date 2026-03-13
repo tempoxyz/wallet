@@ -32,9 +32,9 @@ pub fn build_manifest(
             path: artifacts_dir.to_string(),
             source,
         })?
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    entries.sort_by_key(std::fs::DirEntry::file_name);
 
     for entry in entries {
         let path = entry.path();

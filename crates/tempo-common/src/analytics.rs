@@ -1,4 +1,4 @@
-//! Opt-out telemetry via PostHog.
+//! Opt-out telemetry via `PostHog`.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -73,16 +73,18 @@ fn is_telemetry_disabled(config: &Config) -> bool {
 /// analytics — the user will simply appear as a new anonymous user.
 fn anonymous_id() -> String {
     let mut hasher = DefaultHasher::new();
-    let mut has_input = false;
-    if let Ok(name) = hostname::get() {
+    let has_host_input = hostname::get().is_ok_and(|name| {
         name.hash(&mut hasher);
-        has_input = true;
-    }
+        true
+    });
     // Include the OS username so different users on the same host get distinct IDs
-    if let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
-        user.hash(&mut hasher);
-        has_input = true;
-    }
+    let has_user_input = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .is_ok_and(|user| {
+            user.hash(&mut hasher);
+            true
+        });
+    let has_input = has_host_input || has_user_input;
     // Fallback: use the config directory path as a stable per-user identifier
     // (avoids all container users collapsing to the same anonymous ID)
     if !has_input {
@@ -179,7 +181,10 @@ impl Analytics {
 
     pub async fn flush(&self) {
         let handles = {
-            let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            let mut pending = self
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             std::mem::take(&mut *pending)
         };
 
@@ -192,7 +197,7 @@ fn test_tap_event(name: &str, props: &Value) {
         if path.is_empty() {
             return;
         }
-        let line = format!("{}|{}\n", name, props);
+        let line = format!("{name}|{props}\n");
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -216,11 +221,13 @@ fn test_tap_event(name: &str, props: &Value) {
 pub struct Event(&'static str);
 
 impl Event {
+    #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self(name)
     }
 
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         self.0
     }
 }

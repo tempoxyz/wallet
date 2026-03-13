@@ -54,12 +54,14 @@ impl Keystore {
     }
 
     /// Number of key entries.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.keys.len()
     }
 
     /// Whether the keystore has no keys.
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
 
@@ -67,6 +69,10 @@ impl Keystore {
     ///
     /// Derives the address from the key and creates a single-account
     /// key set with an inline key. Not written to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the provided private key cannot be parsed.
     pub fn from_private_key(key: &str) -> Result<Self, TempoError> {
         let signer = super::parse_private_key_signer(key)?;
         let mut key_entry = KeyEntry {
@@ -84,6 +90,7 @@ impl Keystore {
     /// Get the primary key entry.
     ///
     /// Deterministic selection: passkey > first key with a signing key > first entry.
+    #[must_use]
     pub fn primary_key(&self) -> Option<&KeyEntry> {
         if let Some(entry) = self
             .keys
@@ -102,12 +109,14 @@ impl Keystore {
     ///
     /// Returns `true` when the primary key has a wallet address AND
     /// an inline `key`.
+    #[must_use]
     pub fn has_wallet(&self) -> bool {
         self.primary_key()
             .is_some_and(|entry| entry.wallet_address_parsed().is_some() && entry.has_inline_key())
     }
 
     /// Check if a wallet is connected with a key for the given network.
+    #[must_use]
     pub fn has_key_for_network(&self, network: NetworkId) -> bool {
         self.has_wallet() && self.keys.iter().any(|k| k.chain_id == network.chain_id())
     }
@@ -115,17 +124,21 @@ impl Keystore {
     /// Ensure a wallet with a key for the given network is available.
     ///
     /// Returns an error with a helpful message if no wallet or key is configured.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no usable wallet/key exists for `network`.
     pub fn ensure_key_for_network(&self, network: NetworkId) -> Result<(), TempoError> {
         let setup_cmd = "tempo wallet login";
 
         if !self.has_key_for_network(network) {
-            let msg = if !self.has_wallet() {
-                format!("No wallet configured. Run '{setup_cmd}'.")
-            } else {
+            let msg = if self.has_wallet() {
                 format!(
                     "No key configured for network '{}'. Run '{setup_cmd}'.",
                     network.as_str()
                 )
+            } else {
+                format!("No wallet configured. Run '{setup_cmd}'.")
             };
             return Err(ConfigError::Missing(msg).into());
         }
@@ -134,10 +147,9 @@ impl Keystore {
     }
 
     /// Get the wallet address of the primary key.
+    #[must_use]
     pub fn wallet_address(&self) -> &str {
-        self.primary_key()
-            .map(|a| a.wallet_address.as_str())
-            .unwrap_or("")
+        self.primary_key().map_or("", |a| a.wallet_address.as_str())
     }
 
     /// Parse the wallet address as an [`Address`], returning `None` if no wallet is configured
@@ -152,6 +164,7 @@ impl Keystore {
     }
 
     /// Check if a network's key is provisioned on-chain.
+    #[must_use]
     pub fn is_provisioned(&self, network: NetworkId) -> bool {
         self.key_for_network(network).is_some_and(|k| k.provisioned)
     }
@@ -160,6 +173,7 @@ impl Keystore {
     ///
     /// Matches on `chain_id`, then falls back to direct EOA keys
     /// (wallet == signer) which work on any network.
+    #[must_use]
     pub fn key_for_network(&self, network: NetworkId) -> Option<&KeyEntry> {
         let chain_id = network.chain_id();
         // Try exact chain_id match first
@@ -171,6 +185,7 @@ impl Keystore {
     }
 
     /// Find the key for a specific parsed wallet address on a given network.
+    #[must_use]
     pub fn key_for_wallet_address_and_network(
         &self,
         wallet_address: Address,
@@ -183,6 +198,7 @@ impl Keystore {
     }
 
     /// Find the first passkey wallet entry, if one exists.
+    #[must_use]
     pub fn find_passkey_wallet(&self) -> Option<&KeyEntry> {
         self.keys
             .iter()
@@ -190,6 +206,10 @@ impl Keystore {
     }
 
     /// Delete all passkey entries for a parsed wallet address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no passkey entries match `wallet_address`.
     pub fn delete_passkey_wallet_address(
         &mut self,
         wallet_address: Address,
@@ -217,18 +237,17 @@ impl Keystore {
             .keys
             .iter()
             .position(|k| k.wallet_address_matches(wallet_address) && k.chain_id == chain_id);
-        match idx {
-            Some(i) => &mut self.keys[i],
-            None => {
-                let mut entry = KeyEntry {
-                    chain_id,
-                    ..Default::default()
-                };
-                entry.set_wallet_address(wallet_address);
-                self.keys.push(entry);
-                let last = self.keys.len() - 1;
-                &mut self.keys[last]
-            }
+        if let Some(i) = idx {
+            &mut self.keys[i]
+        } else {
+            let mut entry = KeyEntry {
+                chain_id,
+                ..Default::default()
+            };
+            entry.set_wallet_address(wallet_address);
+            self.keys.push(entry);
+            let last = self.keys.len() - 1;
+            &mut self.keys[last]
         }
     }
 }
@@ -799,11 +818,11 @@ expiry = 1750000000
 "#;
         let keys: Keystore = toml::from_str(toml_str).unwrap();
         let entry = keys.primary_key().unwrap();
-        assert_eq!(entry.expiry, Some(1750000000));
+        assert_eq!(entry.expiry, Some(1_750_000_000));
 
         let serialized = toml::to_string_pretty(&keys).unwrap();
         let parsed: Keystore = toml::from_str(&serialized).unwrap();
-        assert_eq!(parsed.primary_key().unwrap().expiry, Some(1750000000));
+        assert_eq!(parsed.primary_key().unwrap().expiry, Some(1_750_000_000));
     }
 
     #[test]

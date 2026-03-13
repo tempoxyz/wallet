@@ -87,7 +87,7 @@ pub(super) enum EndpointMethod<'a> {
 }
 
 impl<'a> EndpointMethod<'a> {
-    fn parse(value: &'a str) -> Self {
+    const fn parse(value: &'a str) -> Self {
         if value.eq_ignore_ascii_case("GET") {
             return Self::Get;
         }
@@ -112,7 +112,7 @@ impl<'a> EndpointMethod<'a> {
         Self::Other(value)
     }
 
-    pub(super) fn as_str(self) -> &'a str {
+    pub(super) const fn as_str(self) -> &'a str {
         match self {
             Self::Get => "GET",
             Self::Post => "POST",
@@ -125,7 +125,7 @@ impl<'a> EndpointMethod<'a> {
         }
     }
 
-    pub(super) fn supports_body(self) -> bool {
+    pub(super) const fn supports_body(self) -> bool {
         !matches!(self, Self::Get | Self::Head)
     }
 }

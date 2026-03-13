@@ -63,7 +63,7 @@ pub(crate) fn init_tracing(silent: bool, verbose: u8, target_crates: &[&str]) {
         .init();
 }
 
-/// Initialize color support based on user preference and NO_COLOR env var.
+/// Initialize color support based on user preference and `NO_COLOR` env var.
 pub(crate) fn init_color_support(color: ColorMode) {
     use colored::control;
     use std::io::IsTerminal;
@@ -84,7 +84,7 @@ pub(crate) fn init_color_support(color: ColorMode) {
 /// Build a structured error payload used by extension binaries.
 pub(crate) fn render_error_payload(err: &TempoError, code: &str) -> serde_json::Value {
     let message = err.to_string();
-    let cause = err.source().map(|c| c.to_string());
+    let cause = err.source().map(std::string::ToString::to_string);
 
     let mut obj = serde_json::json!({
         "code": code,

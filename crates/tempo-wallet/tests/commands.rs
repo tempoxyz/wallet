@@ -104,8 +104,10 @@ fn whoami_emits_keystore_degraded_event_for_malformed_keys_file() {
     let payload = events
         .iter()
         .find(|(name, _)| name == "keystore_load_degraded")
-        .map(|(_, payload)| payload)
-        .unwrap_or_else(|| panic!("missing keystore_load_degraded event: {events:?}"));
+        .map_or_else(
+            || panic!("missing keystore_load_degraded event: {events:?}"),
+            |(_, payload)| payload,
+        );
 
     assert!(
         payload["strict_parse_failures"].as_u64().unwrap_or(0) >= 1,
@@ -354,8 +356,10 @@ fn sessions_list_emits_degraded_event_for_malformed_session_row() {
     let payload = events
         .iter()
         .find(|(name, _)| name == "session_store_degraded")
-        .map(|(_, payload)| payload)
-        .unwrap_or_else(|| panic!("missing session_store_degraded event: {events:?}"));
+        .map_or_else(
+            || panic!("missing session_store_degraded event: {events:?}"),
+            |(_, payload)| payload,
+        );
 
     assert!(
         payload["malformed_list_drops"].as_u64().unwrap_or(0) >= 1,
@@ -392,7 +396,7 @@ async fn services_category_filter() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert!(parsed.as_array().is_some_and(|a| a.is_empty()));
+    assert!(parsed.as_array().is_some_and(std::vec::Vec::is_empty));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -422,7 +426,7 @@ async fn services_search_filter() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert!(parsed.as_array().is_some_and(|a| a.is_empty()));
+    assert!(parsed.as_array().is_some_and(std::vec::Vec::is_empty));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

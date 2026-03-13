@@ -6,7 +6,7 @@ pub(crate) fn format_http_error(status: u16) -> String {
 }
 
 /// Map an HTTP status code to a short human-readable reason phrase.
-fn http_status_text(code: u16) -> &'static str {
+const fn http_status_text(code: u16) -> &'static str {
     match code {
         400 => "Bad Request",
         401 => "Unauthorized",

@@ -19,24 +19,23 @@ struct LogoutResponse {
 }
 
 pub(crate) fn run(ctx: &Context, yes: bool) -> Result<(), TempoError> {
-    let (wallet_addr, wallet_address) = match resolve_passkey_wallet(&ctx.keys)? {
-        Some(wallet) => wallet,
-        None => {
-            output::emit_by_format(
-                ctx.output_format,
-                &LogoutResponse {
-                    logged_in: false,
-                    disconnected: false,
-                    wallet: None,
-                    message: Some("not logged in".to_string()),
-                },
-                || {
-                    eprintln!("Not logged in.");
-                    Ok(())
-                },
-            )?;
-            return Ok(());
-        }
+    let (wallet_addr, wallet_address) = if let Some(wallet) = resolve_passkey_wallet(&ctx.keys)? {
+        wallet
+    } else {
+        output::emit_by_format(
+            ctx.output_format,
+            &LogoutResponse {
+                logged_in: false,
+                disconnected: false,
+                wallet: None,
+                message: Some("not logged in".to_string()),
+            },
+            || {
+                eprintln!("Not logged in.");
+                Ok(())
+            },
+        )?;
+        return Ok(());
     };
 
     let short_addr = if wallet_addr.len() > 10 {
@@ -46,7 +45,7 @@ pub(crate) fn run(ctx: &Context, yes: bool) -> Result<(), TempoError> {
             &wallet_addr[wallet_addr.len() - 4..]
         )
     } else {
-        wallet_addr.to_string()
+        wallet_addr.clone()
     };
     if !crate::prompt::confirm(&format!("Disconnect wallet {short_addr}?"), yes)? {
         output::emit_by_format(

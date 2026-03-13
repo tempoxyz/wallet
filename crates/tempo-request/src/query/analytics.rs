@@ -70,7 +70,7 @@ pub(crate) struct PaymentAnalytics<'a> {
 }
 
 impl<'a> PaymentAnalytics<'a> {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         ctx: &'a Context,
         network: &'a str,
         amount: &'a str,

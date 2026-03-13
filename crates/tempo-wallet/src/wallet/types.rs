@@ -55,7 +55,7 @@ pub(crate) struct KeysResponse {
 }
 
 impl KeysResponse {
-    pub(crate) fn new(keys: Vec<KeyInfo>) -> Self {
+    pub(crate) const fn new(keys: Vec<KeyInfo>) -> Self {
         let total = keys.len();
         Self { keys, total }
     }

@@ -19,9 +19,9 @@ pub(super) fn build_open_payload(
 ) -> SessionCredentialPayload {
     SessionCredentialPayload::Open {
         payload_type: "transaction".to_string(),
-        channel_id: format!("{:#x}", channel_id),
+        channel_id: format!("{channel_id:#x}"),
         transaction,
-        authorized_signer: Some(format!("{:#x}", authorized_signer)),
+        authorized_signer: Some(format!("{authorized_signer:#x}")),
         cumulative_amount: cumulative_amount.to_string(),
         signature: format!("0x{}", hex::encode(voucher_sig)),
     }

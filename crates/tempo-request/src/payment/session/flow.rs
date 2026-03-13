@@ -38,7 +38,7 @@ fn session_reuse_preserved_error(source: TempoError) -> TempoError {
     .into()
 }
 
-fn challenge_missing_field(context: &'static str, field: &'static str) -> PaymentError {
+const fn challenge_missing_field(context: &'static str, field: &'static str) -> PaymentError {
     PaymentError::ChallengeMissingField { context, field }
 }
 
@@ -180,7 +180,7 @@ pub(crate) async fn handle_session_request(
     if escrow_contract != expected_escrow {
         return Err(PaymentError::ChallengeUntrustedEscrow {
             context: "session challenge escrow contract",
-            provided: escrow_str.to_string(),
+            provided: escrow_str.clone(),
             expected: expected_escrow.to_string(),
             network: network_name.to_string(),
         }
@@ -216,7 +216,7 @@ pub(crate) async fn handle_session_request(
         println!("Protocol: MPP (https://mpp.dev)");
         println!("Method: {}", challenge.method);
         println!("Intent: session");
-        println!("Network: {}", network_name);
+        println!("Network: {network_name}");
         println!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),
@@ -235,7 +235,7 @@ pub(crate) async fn handle_session_request(
         if let Some(ref deposit) = session_req.suggested_deposit {
             let deposit_val: u128 = deposit.parse().unwrap_or(0);
             let deposit_display = format_token_amount(deposit_val, network_id);
-            println!("Suggested deposit: {}", deposit_display);
+            println!("Suggested deposit: {deposit_display}");
         }
 
         return Ok(PaymentResult {
@@ -257,7 +257,7 @@ pub(crate) async fn handle_session_request(
     // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).
     // Cap at 5 tokens to limit exposure to malicious servers.
     // Also clamp to the wallet's available balance so we don't revert on insufficient funds.
-    let base_units: u128 = 10u128.saturating_pow(network_id.token().decimals as u32);
+    let base_units: u128 = 10u128.saturating_pow(u32::from(network_id.token().decimals));
     let max_deposit: u128 = 5u128.saturating_mul(base_units);
     let mut deposit: u128 = session_req
         .suggested_deposit
@@ -290,9 +290,9 @@ pub(crate) async fn handle_session_request(
         }
     }
 
-    let did = format!("did:pkh:eip155:{}:{:#x}", chain_id, from);
-    let recipient_hex = format!("{:#x}", recipient);
-    let currency_hex = format!("{:#x}", currency);
+    let did = format!("did:pkh:eip155:{chain_id}:{from:#x}");
+    let recipient_hex = format!("{recipient:#x}");
+    let currency_hex = format!("{currency:#x}");
 
     // Check for an existing persisted session.
     // Reuse requires matching payer AND challenge parameters (escrow, currency,
@@ -391,10 +391,7 @@ pub(crate) async fn handle_session_request(
 
     if http.log_enabled() {
         let deposit_display = format_token_amount(deposit, network_id);
-        eprintln!(
-            "Opening channel {:#x} (deposit: {})",
-            channel_id, deposit_display
-        );
+        eprintln!("Opening channel {channel_id:#x} (deposit: {deposit_display})");
     }
 
     let open_calls = session::build_open_calls(
@@ -481,7 +478,7 @@ pub(crate) async fn handle_session_request(
         tick_cost,
         deposit,
         max_pay,
-        salt: format!("{:#x}", salt),
+        salt: format!("{salt:#x}"),
         recipient,
         currency,
         reqwest_client: http.client(),
@@ -499,7 +496,7 @@ pub(crate) async fn handle_session_request(
         persist_session(&ctx, &state)?;
         return Ok(PaymentResult {
             tx_hash: None,
-            session_id: Some(format!("{:#x}", channel_id)),
+            session_id: Some(format!("{channel_id:#x}")),
             status_code: open_response.status_code,
             response: Some(open_response),
         });

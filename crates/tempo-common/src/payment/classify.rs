@@ -21,6 +21,7 @@ pub fn extract_json_error(body: &str) -> Option<String> {
 }
 
 /// Map mpp validation errors to tempo-wallet error types.
+#[must_use]
 pub fn map_mpp_validation_error(
     e: mpp::MppError,
     challenge: &mpp::PaymentChallenge,
@@ -40,7 +41,8 @@ pub fn map_mpp_validation_error(
     }
 }
 
-/// Classify an mpp provider error into a TempoError with actionable context.
+/// Classify an mpp provider error into a `TempoError` with actionable context.
+#[must_use]
 pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate::error::TempoError {
     use mpp::client::TempoClientError;
 
@@ -227,7 +229,7 @@ mod tests {
         let err = mpp::MppError::Http("something unexpected".to_string());
         match classify_payment_error(err, &NetworkId::Tempo) {
             TempoError::Network(NetworkError::Http(msg)) => {
-                assert_eq!(msg, "something unexpected")
+                assert_eq!(msg, "something unexpected");
             }
             other => panic!("Expected Http passthrough, got: {other}"),
         }

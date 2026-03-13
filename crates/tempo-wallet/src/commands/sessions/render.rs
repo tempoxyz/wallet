@@ -22,8 +22,8 @@ pub(super) struct ChannelView {
     pub(super) channel_id: String,
     pub(super) network: String,
     /// When `Some`, the Channel line is shown in text output.
-    /// Non-empty values are used as the header; empty values fall back to channel_id.
-    /// When `None`, channel_id is the header and no Channel line is shown.
+    /// Non-empty values are used as the header; empty values fall back to `channel_id`.
+    /// When `None`, `channel_id` is the header and no Channel line is shown.
     pub(super) origin: Option<String>,
     pub(super) symbol: &'static str,
     pub(super) unlimited: bool,
@@ -63,7 +63,7 @@ impl ChannelView {
             (SessionStatus::Orphaned, None)
         };
 
-        ChannelView {
+        Self {
             channel_id: channel_id.to_string(),
             network: network.as_str().to_string(),
             origin: None,
@@ -90,7 +90,7 @@ impl From<&session_store::SessionRecord> for ChannelView {
 
         let (status, remaining_secs) = session.status_at(session_store::now_secs());
 
-        ChannelView {
+        Self {
             channel_id: session.channel_id_hex(),
             network: session.network_id().as_str().to_string(),
             origin: Some(session.origin.clone()),

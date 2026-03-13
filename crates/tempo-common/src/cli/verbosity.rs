@@ -9,12 +9,14 @@ pub struct Verbosity {
 
 impl Verbosity {
     /// Whether agent-level log messages should be printed (`-v`).
-    pub fn log_enabled(&self) -> bool {
+    #[must_use]
+    pub const fn log_enabled(&self) -> bool {
         self.level >= 1 && self.show_output
     }
 
     /// Whether debug-level log messages should be printed (`-vv`).
-    pub fn debug_enabled(&self) -> bool {
+    #[must_use]
+    pub const fn debug_enabled(&self) -> bool {
         self.level >= 2 && self.show_output
     }
 }

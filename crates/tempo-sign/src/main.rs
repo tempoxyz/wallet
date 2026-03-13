@@ -76,8 +76,7 @@ fn run() -> Result<(), SignError> {
 
             let count = manifest["binaries"]
                 .as_object()
-                .map(|m| m.len())
-                .unwrap_or(0);
+                .map_or(0, serde_json::Map::len);
             println!();
             println!("Wrote {output} ({count} binaries)");
             Ok(())

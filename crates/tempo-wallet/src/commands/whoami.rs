@@ -114,7 +114,7 @@ async fn build_response(
             locked: bb.locked,
             available: bb.available,
             active_sessions: bb.session_count,
-            symbol: symbol.clone(),
+            symbol,
         });
     } else if let Some(b) = balance {
         response.balance = Some(BalanceInfo {
@@ -122,7 +122,7 @@ async fn build_response(
             locked: "0".to_string(),
             available: b,
             active_sessions: 0,
-            symbol: symbol.clone(),
+            symbol,
         });
     }
 

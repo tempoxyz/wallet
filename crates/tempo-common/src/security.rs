@@ -18,6 +18,7 @@ fn normalize_header_name(name: &str) -> String {
 /// For sensitive headers (Authorization, Cookie, etc.) the credential portion
 /// is replaced with `[REDACTED]`. For `Authorization` / `Proxy-Authorization`
 /// the scheme (e.g. `Bearer`, `Basic`) is preserved so the log remains useful.
+#[must_use]
 pub fn redact_header_value(name: &str, value: &str) -> String {
     let lower = normalize_header_name(name);
     if !SENSITIVE_HEADERS.contains(&lower.as_str()) {
@@ -37,9 +38,11 @@ pub fn redact_header_value(name: &str, value: &str) -> String {
 ///
 /// Query strings often contain secrets (`?api_key=...`, `?token=...`), so we
 /// only keep the scheme + host + path.
+#[must_use]
 pub fn redact_url(raw: &str) -> String {
-    match url::Url::parse(raw) {
-        Ok(mut parsed) => {
+    url::Url::parse(raw).map_or_else(
+        |_| raw.to_string(),
+        |mut parsed| {
             if !parsed.username().is_empty() {
                 let _ = parsed.set_username("[REDACTED]");
             }
@@ -49,12 +52,12 @@ pub fn redact_url(raw: &str) -> String {
             parsed.set_query(None);
             parsed.set_fragment(None);
             parsed.to_string()
-        }
-        Err(_) => raw.to_string(),
-    }
+        },
+    )
 }
 
 /// Truncate an error message to avoid leaking sensitive server responses.
+#[must_use]
 pub fn sanitize_error(err: &str) -> String {
     const MAX_LEN: usize = 200;
     if err.len() <= MAX_LEN {
@@ -75,6 +78,10 @@ pub fn sanitize_error(err: &str) -> String {
 ///
 /// Rejects characters that agents commonly hallucinate: `?`, `#`, `%`,
 /// whitespace, and any non-hex-digit after the prefix.
+///
+/// # Errors
+///
+/// Returns an error when the value is not a valid `0x`-prefixed hex string.
 pub fn validate_hex_input(value: &str, label: &str) -> Result<(), crate::error::InputError> {
     if !value.starts_with("0x") {
         return Err(crate::error::InputError::InvalidHexInput(format!(

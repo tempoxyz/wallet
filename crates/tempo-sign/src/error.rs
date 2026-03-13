@@ -29,27 +29,27 @@ pub enum SignError {
 impl Display for SignError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SignError::Io { operation, source } => {
+            Self::Io { operation, source } => {
                 write!(f, "I/O error during {operation}: {source}")
             }
-            SignError::IoWithPath {
+            Self::IoWithPath {
                 operation,
                 path,
                 source,
             } => {
                 write!(f, "I/O error during {operation}: {path}: {source}")
             }
-            SignError::Crypto { operation, source } => {
+            Self::Crypto { operation, source } => {
                 write!(f, "Crypto error during {operation}: {source}")
             }
-            SignError::CryptoWithPath {
+            Self::CryptoWithPath {
                 operation,
                 path,
                 source,
             } => {
                 write!(f, "Crypto error during {operation}: {path}: {source}")
             }
-            SignError::Serialization { operation, source } => {
+            Self::Serialization { operation, source } => {
                 write!(f, "Serialization error during {operation}: {source}")
             }
         }
@@ -59,11 +59,9 @@ impl Display for SignError {
 impl std::error::Error for SignError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SignError::Io { source, .. } => Some(source),
-            SignError::IoWithPath { source, .. } => Some(source),
-            SignError::Crypto { source, .. } => Some(source),
-            SignError::CryptoWithPath { source, .. } => Some(source),
-            SignError::Serialization { source, .. } => Some(source),
+            Self::Io { source, .. } | Self::IoWithPath { source, .. } => Some(source),
+            Self::Crypto { source, .. } | Self::CryptoWithPath { source, .. } => Some(source),
+            Self::Serialization { source, .. } => Some(source),
         }
     }
 }

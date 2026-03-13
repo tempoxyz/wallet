@@ -16,22 +16,27 @@ pub enum OutputFormat {
 
 impl OutputFormat {
     /// Whether this format produces structured (non-text) output.
-    pub fn is_structured(&self) -> bool {
-        matches!(self, OutputFormat::Json | OutputFormat::Toon)
+    #[must_use]
+    pub const fn is_structured(&self) -> bool {
+        matches!(self, Self::Json | Self::Toon)
     }
 
     /// Serialize a value according to this format.
     ///
     /// JSON uses compact encoding; use [`serde_json::to_string_pretty`]
     /// directly when indented JSON is needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when JSON/TOON serialization fails.
     pub fn serialize(&self, value: &impl serde::Serialize) -> Result<String, TempoError> {
         match self {
-            OutputFormat::Json => Ok(serde_json::to_string(value)?),
-            OutputFormat::Toon => {
+            Self::Json => Ok(serde_json::to_string(value)?),
+            Self::Toon => {
                 let encoded = toon_format::encode_default(value).map_err(TempoError::ToonEncode)?;
                 Ok(quote_toon_ambiguous_hex_literals(&encoded))
             }
-            OutputFormat::Text => unreachable!("serialize called with Text format"),
+            Self::Text => unreachable!("serialize called with Text format"),
         }
     }
 }
@@ -53,14 +58,14 @@ fn quote_toon_ambiguous_hex_literals(input: &str) -> String {
         backslashes % 2 == 1
     }
 
-    fn is_left_boundary(ch: Option<char>) -> bool {
+    const fn is_left_boundary(ch: Option<char>) -> bool {
         matches!(
             ch,
             None | Some(' ' | ':' | ',' | '|' | '\t' | '[' | '{' | '\n')
         )
     }
 
-    fn is_right_boundary(ch: Option<char>) -> bool {
+    const fn is_right_boundary(ch: Option<char>) -> bool {
         matches!(
             ch,
             None | Some(' ' | ':' | ',' | '|' | '\t' | ']' | '}' | '\n')
@@ -122,6 +127,10 @@ pub(crate) fn format_structured(
 }
 
 /// Render a structured payload as a string, using pretty JSON for `json` output.
+///
+/// # Errors
+///
+/// Returns an error when structured serialization fails.
 pub fn format_structured_pretty_json(
     format: OutputFormat,
     value: &impl Serialize,
@@ -134,6 +143,10 @@ pub fn format_structured_pretty_json(
 }
 
 /// Emit structured payload (`json` or `toon`) to stdout.
+///
+/// # Errors
+///
+/// Returns an error when structured serialization fails.
 pub fn emit_structured(format: OutputFormat, value: &impl Serialize) -> Result<(), TempoError> {
     println!("{}", format_structured(format, value)?);
     Ok(())
@@ -142,6 +155,10 @@ pub fn emit_structured(format: OutputFormat, value: &impl Serialize) -> Result<(
 /// Emit structured payload when structured output is selected.
 ///
 /// Returns `true` when structured output was emitted.
+///
+/// # Errors
+///
+/// Returns an error when structured serialization fails.
 pub fn emit_structured_if_selected(
     format: OutputFormat,
     value: &impl Serialize,
@@ -155,6 +172,10 @@ pub fn emit_structured_if_selected(
 }
 
 /// Emit either structured payload or text output depending on selected format.
+///
+/// # Errors
+///
+/// Returns an error when rendering the selected output format fails.
 pub fn emit_by_format(
     format: OutputFormat,
     structured_value: &impl Serialize,
@@ -170,6 +191,10 @@ pub fn emit_by_format(
 /// Run a text renderer only when output format is text.
 ///
 /// Returns `true` when the text renderer ran.
+///
+/// # Errors
+///
+/// Returns an error when text rendering fails.
 pub fn run_text_only(
     format: OutputFormat,
     text_renderer: impl FnOnce() -> Result<(), TempoError>,
