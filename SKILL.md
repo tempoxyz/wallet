@@ -23,8 +23,14 @@ Use this flow when user intent is setup/bootstrap.
 ### Setup State Machine
 
 ```bash
-# 1) Ensure CLI exists
-command -v tempo >/dev/null 2>&1 || curl -fsSL https://tempo.xyz/install | bash
+# 0) Resolve a stable user home/bin path (some agent shells have empty HOME)
+USER_HOME="${HOME:-$(eval echo "~$(id -un)")}"; USER_BIN="$USER_HOME/.local/bin"
+
+# 1) Ensure CLI exists (agent-safe: install user-local, no sudo)
+command -v tempo >/dev/null 2>&1 || (mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh)
+
+# 1b) Ensure user-local bin is on PATH when fallback install is used
+export PATH="$USER_BIN:$PATH"
 
 # 2) Validate install
 tempo wallet --help
@@ -33,32 +39,44 @@ tempo wallet --help
 tempo wallet -t whoami
 
 # 4) Login only if needed (interactive)
-tempo wallet -t login
+tempo wallet login
 
 # 5) Re-check readiness
 tempo wallet -t whoami
-
-# 6) Smoke test discovery
-tempo wallet -t services --search ai
 ```
 
-`tempo wallet -t login` requires user browser/passkey action. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation.
+`tempo wallet login` requires user browser/passkey action and opens the auth URL in text mode. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation.
+
+When run by agents, execute `tempo wallet login` with a long command timeout (at least 16 minutes) so the process can wait for user approval instead of being killed by the runner.
+
+Do not use `sudo` in non-interactive agent shells. Use user-local install via `TEMPO_BIN_DIR="$USER_BIN"`.
 
 ### Done Criteria
 
 - `tempo` command executes.
 - `tempo wallet -t whoami` returns `ready=true`.
-- `tempo wallet -t services --search ai` succeeds.
 
-### Setup Success Report
+### Setup Completion Output
 
-Return these fields after setup:
+After setup, provide:
 
-- `tempo_installed`: `true|false`
-- `wallet_ready`: `true|false`
-- `wallet_address`: from `whoami` if present
-- `smoke_test`: `pass|fail`
-- `next_commands`: 1-2 concrete commands user can run next
+- Installation location and version (`command -v tempo` and `tempo --version`).
+- Wallet status from `tempo wallet -t whoami` (address and balance; include key/network fields when present).
+- 2-3 simple starter prompts tailored to currently available services.
+
+To generate starter prompts, list available services and pick useful beginner examples:
+
+```bash
+tempo wallet -t services --search ai
+```
+
+Starter prompts should be user-facing tasks (not command templates), for example:
+
+- Avoid chat/conversational LLM starter prompts when already talking to an agent. Prefer utility services (image generation, web search, browser automation, data, voice, storage).
+
+- "Generate a dog image with a blue background and save it as `dog.png`."
+- "Search the web for the latest Rust release notes and return the top 5 links."
+- "Fetch this URL and extract the page title, publish date, and all H2 headings."
 
 ## Fast Path (Post-Setup)
 
@@ -115,7 +133,7 @@ tempo request -t -X POST -H 'Content-Type: application/json' --json '{"input":".
 Response handling:
 
 - Return result payload to user directly when request succeeds.
-- If response is a usage/auth readiness error, run required wallet command (usually `tempo wallet -t login`) and retry once.
+- If response is a usage/auth readiness error, run required wallet command (usually `tempo wallet login`) and retry once.
 - If response indicates payment/funding limit issues, report clearly and stop.
 
 ## Service Selection Rubric
@@ -131,7 +149,7 @@ When multiple services match a user request, choose in this order:
 
 - Always discover URL/path before request; never guess endpoint paths.
 - `tempo request` is curl-syntax compatible for common flags, so curl command patterns can be reused directly (method flags, headers, data, redirects, timeouts, output options).
-- Use `-t` for agent calls to keep output compact.
+- Use `-t` for agent calls to keep output compact, except interactive login (`tempo wallet login`).
 - Use `--dry-run` before potentially expensive requests.
 - For command details, prefer `tempo request -t --describe`, `tempo wallet -t --describe`, or `--help` instead of hardcoding long option lists.
 
@@ -140,7 +158,8 @@ When multiple services match a user request, choose in this order:
 | Symptom | Action |
 |---|---|
 | `tempo: command not found` | Run `curl -fsSL https://tempo.xyz/install \| bash`, then retry the original command. |
-| `ready=false` or `No wallet configured` | Run `tempo wallet -t login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
+| Install fails due to permissions/path | Resolve `USER_HOME="${HOME:-$(eval echo "~$(id -un)")}"; USER_BIN="$USER_HOME/.local/bin"`, then `mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh`, then `export PATH="$USER_BIN:$PATH"` and retry. |
+| `ready=false` or `No wallet configured` | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
 | Service not found for query | Broaden search terms with `tempo wallet -t services --search <broader_query>`, then inspect candidate details. |
 | Endpoint returns usage/path error | Re-open service details with `tempo wallet -t services <SERVICE_ID>` and use discovered method/path exactly. |
 | Insufficient funds or spending limit exceeded | Report clearly and stop; ask user to fund or adjust limits before retrying. |
