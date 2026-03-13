@@ -12,7 +12,7 @@ use tempo_common::{
     cli::{
         context::Context,
         output,
-        terminal::{address_link, print_field_w},
+        terminal::{address_link, print_field_raw_w, print_field_w},
     },
     error::TempoError,
     keys::Keystore,
@@ -86,7 +86,7 @@ fn render_keys(response: &KeysResponse, keystore: &Keystore, sessions: &[session
 
         if let Some(wallet) = &key.wallet_address {
             let wallet_link = address_link(explorer.unwrap_or_default(), wallet);
-            print_field_w(10, "Wallet", &wallet_link);
+            print_field_raw_w(10, "Wallet", &wallet_link);
         }
         if let (Some(bal), Some(sym)) = (key.balance.as_deref(), key.symbol.as_deref()) {
             if let Some(bb) = balance_breakdown(bal, sym, Some(entry.chain_id), sessions) {
@@ -113,7 +113,7 @@ fn render_keys(response: &KeysResponse, keystore: &Keystore, sessions: &[session
             print_field_w(10, "Key", pk.as_str());
         } else {
             let key_link = address_link(explorer.unwrap_or_default(), &key.address);
-            print_field_w(10, "Key", &key_link);
+            print_field_raw_w(10, "Key", &key_link);
         }
         if let Some(net) = explorer {
             print_field_w(10, "Chain", net.as_str());
