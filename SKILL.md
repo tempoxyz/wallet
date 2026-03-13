@@ -23,8 +23,8 @@ Use this flow when user intent is setup/bootstrap.
 ### Setup State Machine
 
 ```bash
-# 0) Resolve a stable user home/bin path (some agent shells have empty HOME)
-USER_HOME="${HOME:-$(eval echo "~$(id -un)")}"; USER_BIN="$USER_HOME/.local/bin"
+# 0) Resolve a stable user-local bin path
+USER_BIN="${TEMPO_BIN_DIR:-$(cd ~ && pwd)/.local/bin}"
 
 # 1) Ensure CLI exists (agent-safe: install user-local, no sudo)
 command -v tempo >/dev/null 2>&1 || (mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh)
@@ -49,7 +49,7 @@ tempo wallet -t whoami
 
 When run by agents, execute `tempo wallet login` with a long command timeout (at least 16 minutes) so the process can wait for user approval instead of being killed by the runner.
 
-Do not use `sudo` in non-interactive agent shells. Use user-local install via `TEMPO_BIN_DIR="$USER_BIN"`.
+Do not use `sudo` in non-interactive agent shells. Use user-local install via `TEMPO_BIN_DIR` (defaulting to `~/.local/bin`).
 
 ### Done Criteria
 
@@ -158,7 +158,7 @@ When multiple services match a user request, choose in this order:
 | Symptom | Action |
 |---|---|
 | `tempo: command not found` | Run `curl -fsSL https://tempo.xyz/install \| bash`, then retry the original command. |
-| Install fails due to permissions/path | Resolve `USER_HOME="${HOME:-$(eval echo "~$(id -un)")}"; USER_BIN="$USER_HOME/.local/bin"`, then `mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh`, then `export PATH="$USER_BIN:$PATH"` and retry. |
+| Install fails due to permissions/path | Resolve `USER_BIN="${TEMPO_BIN_DIR:-$(cd ~ && pwd)/.local/bin}"`, then `mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh`, then `export PATH="$USER_BIN:$PATH"` and retry. |
 | `ready=false` or `No wallet configured` | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
 | Service not found for query | Broaden search terms with `tempo wallet -t services --search <broader_query>`, then inspect candidate details. |
 | Endpoint returns usage/path error | Re-open service details with `tempo wallet -t services <SERVICE_ID>` and use discovered method/path exactly. |
