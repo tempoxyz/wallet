@@ -59,10 +59,9 @@ pub(crate) enum Commands {
     Transfer {
         /// Amount in human units ("1.00", "50", "all")
         amount: String,
-        /// Token symbol or address (e.g. "usdc.e", "0x20c0...")
+        /// Token contract address (0x...)
         token: String,
-        /// Recipient address
-        #[arg(long)]
+        /// Recipient address (0x...)
         to: String,
         /// Pay fees in a different token (default: same token)
         #[arg(long)]
