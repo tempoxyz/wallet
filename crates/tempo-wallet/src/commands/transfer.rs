@@ -288,7 +288,7 @@ pub(crate) async fn run(
 
     output::emit_by_format(ctx.output_format, &response, || {
         eprintln!();
-        eprintln!("  ✓ Submitted");
+        eprintln!("  Submitted");
         eprintln!("    TX: {}", tx_hash);
         eprintln!("    {}", tx_url);
         Ok(())
