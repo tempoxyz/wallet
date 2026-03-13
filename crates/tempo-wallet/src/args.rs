@@ -55,7 +55,11 @@ pub(crate) enum Commands {
     #[command(display_order = 4, name = "keys")]
     Keys,
     /// Transfer tokens to an address
-    #[command(display_order = 5)]
+    #[command(display_order = 5, arg_required_else_help = true)]
+    #[command(after_help = "\
+Examples:
+  tempo wallet transfer 1.00 0x20c0...b50 0x70997...9C8
+  tempo wallet transfer all 0x20c0...b50 0x70997...9C8 --dry-run")]
     Transfer {
         /// Amount in human units ("1.00", "50", "all")
         amount: String,
