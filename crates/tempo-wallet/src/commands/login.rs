@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy::{primitives::Address, providers::ProviderBuilder, signers::local::PrivateKeySigner};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use colored::Colorize;
 use serde::Deserialize;
@@ -28,7 +28,17 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
 
-    if !already_logged_in {
+    let needs_reauth = if already_logged_in {
+        is_key_revoked_or_expired(ctx).await
+    } else {
+        false
+    };
+
+    if needs_reauth {
+        invalidate_stale_key(ctx)?;
+    }
+
+    if !already_logged_in || needs_reauth {
         let result = do_login(ctx).await;
 
         if let Some(ref a) = ctx.analytics {
@@ -38,7 +48,7 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
     }
 
     if ctx.output_format == OutputFormat::Text {
-        let msg = if already_logged_in {
+        let msg = if already_logged_in && !needs_reauth {
             "Already logged in.\n"
         } else {
             "\nWallet connected!\n"
@@ -48,6 +58,64 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
 
     let keys = ctx.keys.reload()?;
     show_whoami(ctx, Some(&keys), None).await
+}
+
+/// Check whether the stored access key has been revoked or has expired on-chain.
+///
+/// Returns `true` when the key is definitively invalid, `false` otherwise
+/// (including on RPC errors — we don't want network failures to block login).
+async fn is_key_revoked_or_expired(ctx: &Context) -> bool {
+    let Some(key_entry) = ctx.keys.key_for_network(ctx.network) else {
+        return false;
+    };
+    let Some(wallet_address) = key_entry.wallet_address_parsed() else {
+        return false;
+    };
+    let Some(key_address) = key_entry.key_address_parsed() else {
+        return false;
+    };
+    // Direct EOA keys (wallet == signer) are not keychain-managed
+    if key_entry.is_direct_eoa_key() {
+        return false;
+    }
+
+    let rpc_url = ctx.config.rpc_url(ctx.network);
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
+    let token = ctx.network.token();
+
+    match mpp::client::tempo::signing::keychain::query_key_spending_limit(
+        &provider,
+        wallet_address,
+        key_address,
+        token.address,
+    )
+    .await
+    {
+        Ok(_) => false,
+        Err(e) => {
+            let msg = e.to_string().to_lowercase();
+            msg.contains("revoked") || msg.contains("expired")
+        }
+    }
+}
+
+/// Remove a revoked/expired key so the fresh login flow can proceed.
+fn invalidate_stale_key(ctx: &Context) -> Result<(), TempoError> {
+    let Some(key_entry) = ctx.keys.key_for_network(ctx.network) else {
+        return Ok(());
+    };
+    let Some(wallet_address) = key_entry.wallet_address_parsed() else {
+        return Ok(());
+    };
+
+    let mut keys = ctx.keys.clone();
+    keys.delete_passkey_wallet_address(wallet_address)?;
+    keys.save()?;
+
+    if ctx.output_format == OutputFormat::Text {
+        eprintln!("Existing access key is no longer valid. Re-authenticating...");
+    }
+    Ok(())
 }
 
 fn track_login_result(a: &tempo_common::analytics::Analytics, result: &Result<(), TempoError>) {

@@ -92,7 +92,11 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate:
                 .into()
             }
             TempoClientError::TransactionReverted(msg) => {
-                PaymentError::TransactionReverted(msg).into()
+                if msg.contains("revoked") {
+                    PaymentError::AccessKeyRevoked.into()
+                } else {
+                    PaymentError::TransactionReverted(msg).into()
+                }
             }
         },
         other => {
@@ -245,6 +249,17 @@ mod tests {
         assert!(matches!(
             classify_payment_error(err, &NetworkId::Tempo),
             TempoError::Payment(PaymentError::TransactionReverted(msg)) if msg == "execution reverted"
+        ));
+    }
+
+    #[test]
+    fn test_classify_transaction_reverted_with_revoked_key() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::TransactionReverted(
+            "Keychain signature validation failed: access key has been revoked".to_string(),
+        ));
+        assert!(matches!(
+            classify_payment_error(err, &NetworkId::Tempo),
+            TempoError::Payment(PaymentError::AccessKeyRevoked)
         ));
     }
 
