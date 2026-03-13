@@ -15,6 +15,8 @@ pub struct MockServer {
     pub base_url: String,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     _handle: tokio::task::JoinHandle<()>,
+    /// Deferred www-authenticate header (set after server binds so realm can match origin).
+    www_auth_tx: Option<std::sync::Arc<tokio::sync::watch::Sender<String>>>,
 }
 
 impl MockServer {
@@ -67,6 +69,7 @@ impl MockServer {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
+            www_auth_tx: None,
         }
     }
 
@@ -119,6 +122,7 @@ impl MockServer {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
+            www_auth_tx: None,
         }
     }
 
@@ -181,6 +185,127 @@ impl MockServer {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
+            www_auth_tx: None,
+        }
+    }
+
+    /// Set the WWW-Authenticate header for a deferred payment mock.
+    pub fn set_www_authenticate(&self, value: &str) {
+        if let Some(tx) = &self.www_auth_tx {
+            let _ = tx.send(value.to_string());
+        }
+    }
+
+    /// Start a payment mock where the WWW-Authenticate header is set after binding.
+    ///
+    /// Call [`Self::set_www_authenticate`] after construction to provide the header
+    /// (e.g. with a realm matching this server's origin).
+    pub async fn start_payment_deferred(success_body: &str) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+
+        let (watch_tx, watch_rx) = tokio::sync::watch::channel(String::new());
+        let watch_tx = std::sync::Arc::new(watch_tx);
+        let owned_body = success_body.to_string();
+
+        let app = Router::new().route(
+            "/{*path}",
+            any(move |headers: axum::http::HeaderMap| {
+                let rx = watch_rx.clone();
+                let b = owned_body.clone();
+                async move {
+                    if headers.get("authorization").is_some() {
+                        (StatusCode::OK, b).into_response()
+                    } else {
+                        let h = rx.borrow().clone();
+                        let mut response =
+                            (StatusCode::PAYMENT_REQUIRED, "Payment Required").into_response();
+                        response.headers_mut().insert(
+                            axum::http::HeaderName::from_static("www-authenticate"),
+                            axum::http::HeaderValue::from_str(&h).unwrap(),
+                        );
+                        response
+                    }
+                }
+            }),
+        );
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        Self {
+            base_url,
+            shutdown_tx: Some(shutdown_tx),
+            _handle: handle,
+            www_auth_tx: Some(watch_tx),
+        }
+    }
+
+    /// Start a deferred payment mock that also returns a Payment-Receipt header.
+    pub async fn start_payment_deferred_with_receipt(
+        success_body: &str,
+        receipt_header: &str,
+    ) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+
+        let (watch_tx, watch_rx) = tokio::sync::watch::channel(String::new());
+        let watch_tx = std::sync::Arc::new(watch_tx);
+        let owned_body = success_body.to_string();
+        let owned_receipt = receipt_header.to_string();
+
+        let app = Router::new().route(
+            "/{*path}",
+            any(move |headers: axum::http::HeaderMap| {
+                let rx = watch_rx.clone();
+                let b = owned_body.clone();
+                let r = owned_receipt.clone();
+                async move {
+                    if headers.get("authorization").is_some() {
+                        let mut resp = (StatusCode::OK, b).into_response();
+                        resp.headers_mut().insert(
+                            axum::http::HeaderName::from_static("payment-receipt"),
+                            axum::http::HeaderValue::from_str(&r).unwrap(),
+                        );
+                        resp
+                    } else {
+                        let h = rx.borrow().clone();
+                        let mut response =
+                            (StatusCode::PAYMENT_REQUIRED, "Payment Required").into_response();
+                        response.headers_mut().insert(
+                            axum::http::HeaderName::from_static("www-authenticate"),
+                            axum::http::HeaderValue::from_str(&h).unwrap(),
+                        );
+                        response
+                    }
+                }
+            }),
+        );
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        Self {
+            base_url,
+            shutdown_tx: Some(shutdown_tx),
+            _handle: handle,
+            www_auth_tx: Some(watch_tx),
         }
     }
 
@@ -225,6 +350,7 @@ impl MockServer {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
+            www_auth_tx: None,
         }
     }
 
@@ -285,6 +411,7 @@ impl MockServer {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
+            www_auth_tx: None,
         }
     }
 
@@ -329,6 +456,7 @@ impl MockServer {
             base_url,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
+            www_auth_tx: None,
         }
     }
 

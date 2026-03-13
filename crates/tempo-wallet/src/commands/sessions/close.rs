@@ -219,7 +219,43 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
 }
 
 /// Close a single channel by its on-chain ID (0x...).
+///
+/// If a local session record exists for this channel, routes through
+/// `close_session_from_record` which tries cooperative close first.
+/// Falls back to on-chain-only close when no local record is found.
 async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoError> {
+    let channel_id = super::util::parse_channel_id(target)?;
+
+    // Try local session record first — enables cooperative close
+    if let Ok(Some(record)) = session_store::load_session_by_channel_id(channel_id) {
+        if record.network_id() == ctx.network {
+            let show_output = ctx.verbosity.show_output;
+            let analytics = ctx.analytics.as_ref();
+            let key = session_store::session_key(&record.origin);
+            let mut summary = CloseSummary::new();
+
+            let result =
+                close_session_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+            if matches!(result, Ok(CloseOutcome::Closed { .. })) {
+                if let Err(e) = session_store::delete_session(&key) {
+                    if show_output {
+                        eprintln!("  Failed to remove local session: {e}");
+                    }
+                }
+            }
+            let cid = record.channel_id_hex();
+            summary.record_outcome(
+                result,
+                Some(&record.origin),
+                &record.origin,
+                &cid,
+                show_output,
+            );
+            return summary.print(ctx.output_format, "No channel to close.", "closed");
+        }
+    }
+
+    // No local record (orphaned channel) — on-chain close only
     let mut summary = CloseSummary::new();
     let result = close_channel_by_id(&ctx.config, target, ctx.network, None, &ctx.keys).await;
     summary.record_finalize_outcome(result, target, true);

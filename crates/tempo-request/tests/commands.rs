@@ -5,7 +5,7 @@
 mod common;
 
 use crate::common::{
-    assert_exit_code, charge_www_authenticate, get_combined_output, setup_config_only,
+    assert_exit_code, charge_www_authenticate_with_realm, get_combined_output, setup_config_only,
     test_command, write_test_files, MockRpcServer, MockServer, PaymentTestHarness,
     TestConfigBuilder, HARDHAT_PRIVATE_KEY, MODERATO_CHARGE_CHALLENGE,
 };
@@ -631,8 +631,9 @@ async fn test_402_charge_flow_keychain() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_flag() {
     let rpc = MockRpcServer::start(42431).await;
-    let www_auth = charge_www_authenticate("test-pk");
-    let server = MockServer::start_payment(&www_auth, "private key charge ok").await;
+    let server = MockServer::start_payment_deferred("private key charge ok").await;
+    let www_auth = charge_www_authenticate_with_realm("test-pk", &server.base_url);
+    server.set_www_authenticate(&www_auth);
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
@@ -663,8 +664,9 @@ async fn test_402_charge_flow_with_private_key_flag() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_env() {
     let rpc = MockRpcServer::start(42431).await;
-    let www_auth = charge_www_authenticate("test-pk-env");
-    let server = MockServer::start_payment(&www_auth, "env key charge ok").await;
+    let server = MockServer::start_payment_deferred("env key charge ok").await;
+    let www_auth = charge_www_authenticate_with_realm("test-pk-env", &server.base_url);
+    server.set_www_authenticate(&www_auth);
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
@@ -691,8 +693,9 @@ async fn test_402_charge_flow_with_private_key_env() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_without_0x_prefix() {
     let rpc = MockRpcServer::start(42431).await;
-    let www_auth = charge_www_authenticate("test-pk-no0x");
-    let server = MockServer::start_payment(&www_auth, "no prefix ok").await;
+    let server = MockServer::start_payment_deferred("no prefix ok").await;
+    let www_auth = charge_www_authenticate_with_realm("test-pk-no0x", &server.base_url);
+    server.set_www_authenticate(&www_auth);
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
@@ -721,8 +724,9 @@ async fn test_private_key_without_0x_prefix() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_invalid_hex_fails() {
     let rpc = MockRpcServer::start(42431).await;
-    let www_auth = charge_www_authenticate("test-pk-bad");
-    let server = MockServer::start_payment(&www_auth, "should not reach").await;
+    let server = MockServer::start_payment_deferred("should not reach").await;
+    let www_auth = charge_www_authenticate_with_realm("test-pk-bad", &server.base_url);
+    server.set_www_authenticate(&www_auth);
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
@@ -744,8 +748,9 @@ async fn test_private_key_invalid_hex_fails() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_wrong_length_fails() {
     let rpc = MockRpcServer::start(42431).await;
-    let www_auth = charge_www_authenticate("test-pk-short");
-    let server = MockServer::start_payment(&www_auth, "should not reach").await;
+    let server = MockServer::start_payment_deferred("should not reach").await;
+    let www_auth = charge_www_authenticate_with_realm("test-pk-short", &server.base_url);
+    server.set_www_authenticate(&www_auth);
 
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
@@ -767,8 +772,9 @@ async fn test_private_key_wrong_length_fails() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_flag_overrides_wallet() {
     let rpc = MockRpcServer::start(42431).await;
-    let www_auth = charge_www_authenticate("test-pk-override");
-    let server = MockServer::start_payment(&www_auth, "override ok").await;
+    let server = MockServer::start_payment_deferred("override ok").await;
+    let www_auth = charge_www_authenticate_with_realm("test-pk-override", &server.base_url);
+    server.set_www_authenticate(&www_auth);
 
     // Set up keys.toml with a DIFFERENT key (Hardhat #1) that points to a
     // different address. The --private-key flag should be used instead.
@@ -1972,13 +1978,9 @@ async fn test_retry_http_retries_on_specified_codes() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_network_mismatch_preserves_router_wording_and_exit_class() {
-    let www_auth = charge_www_authenticate("test-network-mismatch");
-    let server = MockServer::start(
-        402,
-        vec![("www-authenticate", &www_auth)],
-        "Payment Required",
-    )
-    .await;
+    let server = MockServer::start_payment_deferred("Payment Required").await;
+    let www_auth = charge_www_authenticate_with_realm("test-network-mismatch", &server.base_url);
+    server.set_www_authenticate(&www_auth);
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
@@ -2093,8 +2095,9 @@ async fn test_connect_timeout_flag() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_private_key_not_leaked_in_verbose_logs() {
     let rpc = MockRpcServer::start(42431).await;
-    let www_auth = charge_www_authenticate("test-pk-leak");
-    let server = MockServer::start_payment(&www_auth, "pk leak test ok").await;
+    let server = MockServer::start_payment_deferred("pk leak test ok").await;
+    let www_auth = charge_www_authenticate_with_realm("test-pk-leak", &server.base_url);
+    server.set_www_authenticate(&www_auth);
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
 
@@ -2262,5 +2265,98 @@ async fn test_large_header_value_handled() {
     assert!(
         stdout.contains(&large_value),
         "stdout should contain the large header value"
+    );
+}
+
+// ── Realm validation ────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_realm_bare_fqdn_accepted() {
+    // Realm set as bare host:port (no scheme) — should match.
+    let rpc = MockRpcServer::start(42431).await;
+    let server = MockServer::start_payment_deferred("ok").await;
+    let port = server
+        .base_url
+        .strip_prefix("http://")
+        .unwrap()
+        .split(':')
+        .next_back()
+        .unwrap();
+    let realm = format!("127.0.0.1:{port}");
+    let www_auth = format!(
+        r#"Payment id="test-bare", realm="{realm}", method="tempo", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
+    );
+    server.set_www_authenticate(&www_auth);
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(tempo_test::fixture::MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    let output = test_command(&temp)
+        .arg(server.url("/paid"))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "bare FQDN realm should be accepted: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_realm_with_scheme_prefix_accepted() {
+    // Realm set as "http://host:port" — should also match.
+    let rpc = MockRpcServer::start(42431).await;
+    let server = MockServer::start_payment_deferred("ok").await;
+    let realm_with_scheme = &server.base_url; // "http://127.0.0.1:PORT"
+    let www_auth = format!(
+        r#"Payment id="test-scheme", realm="{realm_with_scheme}", method="tempo", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
+    );
+    server.set_www_authenticate(&www_auth);
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(tempo_test::fixture::MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    let output = test_command(&temp)
+        .arg(server.url("/paid"))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "realm with scheme prefix should be accepted: {}",
+        get_combined_output(&output)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_realm_mismatch_rejected() {
+    // Realm set to a completely different host — should be rejected.
+    let server = MockServer::start_payment_deferred("ok").await;
+    let www_auth = format!(
+        r#"Payment id="test-mismatch", realm="evil.example.com", method="tempo", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
+    );
+    server.set_www_authenticate(&www_auth);
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("TEMPO_PRIVATE_KEY", HARDHAT_PRIVATE_KEY)
+        .arg(server.url("/paid"))
+        .output()
+        .unwrap();
+
+    assert_exit_code(&output, 4, "mismatched realm should exit with E_PAYMENT");
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("does not match request host"),
+        "should report realm mismatch: {combined}"
     );
 }

@@ -192,19 +192,11 @@ pub(super) async fn stream_sse_response(
                     }
                     SseEvent::PaymentNeedVoucher(nv) => {
                         let required: u128 = nv.required_cumulative.parse().unwrap_or(0);
-                        let server_deposit: u128 = nv.deposit.parse().unwrap_or(0);
 
-                        // Authorize up to the full deposit so the server can
-                        // stream multiple tokens before needing another voucher,
-                        // instead of a network round-trip per token.
-                        // Clamp to our known channel deposit to prevent a
-                        // malicious server from coercing an overly large voucher.
-                        let authorize_amount = if server_deposit > 0 {
-                            server_deposit
-                        } else {
-                            required
-                        }
-                        .min(ctx.deposit);
+                        // Use the server's required amount, clamped to our known
+                        // channel deposit to prevent a malicious server from
+                        // coercing an overly large voucher.
+                        let authorize_amount = required.min(ctx.deposit);
 
                         if runtime.debug_enabled() {
                             eprintln!(
@@ -226,10 +218,12 @@ pub(super) async fn stream_sse_response(
                         let verbose = runtime.debug_enabled();
                         post_voucher(&voucher_client, ctx.url, &auth, verbose);
 
-                        // For our persisted record, keep the exact required amount so
-                        // cooperative close can match the server's expectation precisely.
+                        // For our persisted record, keep the exact required amount
+                        // (clamped to deposit) so cooperative close can match the
+                        // server's expectation precisely.
                         // Enforce monotonicity: never decrease the cumulative amount.
-                        state.cumulative_amount = required.max(state.cumulative_amount);
+                        state.cumulative_amount =
+                            required.min(ctx.deposit).max(state.cumulative_amount);
                         let _ = persist_session(ctx, state);
 
                         // Track this voucher for retry if the server stalls
