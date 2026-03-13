@@ -23,6 +23,7 @@ pub(crate) struct QueryFailurePayload {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct PaymentStartedPayload {
+    pub(crate) url: String,
     pub(crate) network: String,
     pub(crate) amount: String,
     pub(crate) currency: String,
@@ -31,6 +32,7 @@ pub(crate) struct PaymentStartedPayload {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct PaymentSuccessPayload {
+    pub(crate) url: String,
     pub(crate) network: String,
     pub(crate) amount: String,
     pub(crate) currency: String,
@@ -43,6 +45,7 @@ pub(crate) struct PaymentSuccessPayload {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct PaymentFailurePayload {
+    pub(crate) url: String,
     pub(crate) network: String,
     pub(crate) amount: String,
     pub(crate) currency: String,
