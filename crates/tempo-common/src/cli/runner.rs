@@ -18,15 +18,14 @@ use crate::{
 /// Handles the boilerplate that every extension binary repeats:
 /// 1. Initialize tracing and color support
 /// 2. Build the shared `Context`
-/// 3. Track the command run event
-/// 4. Run the handler
-/// 5. Track success/failure and flush analytics
+/// 3. Run the handler
+/// 4. Track success/failure (with duration) and flush analytics
 ///
 /// The handler receives the `Context` and returns a `(&str, Result)` tuple
 /// where the `&str` is the analytics command name.
 ///
 /// ```ignore
-/// cli::run_cli(&global, &["tempo_wallet"], |ctx| async move {
+/// cli::run_cli(&global, &["tempo_wallet"], "tempo-wallet", |ctx| async move {
 ///     let cmd_name = command_name(&command);
 ///     (cmd_name, do_work(&ctx, command).await)
 /// }).await
@@ -39,6 +38,7 @@ use crate::{
 pub async fn run_cli<F, Fut, E>(
     global: &GlobalArgs,
     target_crates: &[&str],
+    app_id: &'static str,
     handler: F,
 ) -> Result<(), TempoError>
 where
@@ -50,10 +50,12 @@ where
     runtime::init_color_support(global.color);
     global.warn_argv_private_key();
 
-    let ctx = global.build_context().await?;
+    let ctx = global.build_context(app_id).await?;
     let analytics = ctx.analytics.clone();
 
+    let start = std::time::Instant::now();
     let (cmd_name, result) = handler(ctx).await;
+    let duration = start.elapsed();
 
     let session_store_diagnostics = session::take_store_diagnostics();
     let keystore_diagnostics = keys::take_keystore_load_summary();
@@ -85,7 +87,7 @@ where
         }
     }
 
-    tracking::track_result(&analytics, cmd_name, &result);
+    tracking::track_result(&analytics, cmd_name, &result, duration);
     if let Some(ref a) = analytics {
         a.flush().await;
     }

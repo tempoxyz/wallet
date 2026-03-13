@@ -17,41 +17,47 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
         return Cli::command().print_help().map_err(Into::into);
     };
 
-    tempo_common::cli::run_cli(&cli.global, &["tempo_wallet"], |ctx| async move {
-        let cmd_name = command_name(&command);
-        tempo_common::cli::tracking::track_command(&ctx.analytics, cmd_name);
-        let result = match command {
-            Commands::Login => login::run(&ctx).await,
-            Commands::Logout { yes } => logout::run(&ctx, yes),
-            Commands::Completions { shell } => completions::run(&ctx, shell),
-            Commands::Fund {
-                address,
-                no_wait,
-                dry_run,
-            } => fund::run(&ctx, address, no_wait, dry_run).await,
-            Commands::Whoami => whoami::run(&ctx).await,
-            Commands::Keys => keys::run(&ctx).await,
-            Commands::Sessions { command } => {
-                sessions::run(
-                    &ctx,
-                    command.unwrap_or(SessionCommands::List { state: vec![] }),
-                )
-                .await
-            }
-            Commands::Transfer {
-                amount,
-                token,
-                to,
-                fee_token,
-                dry_run,
-            } => transfer::run(&ctx, amount, token, to, fee_token, dry_run).await,
-            Commands::MppSign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
-            Commands::Services {
-                service_id, search, ..
-            } => services::run(&ctx, services::ServicesArgs { service_id, search }).await,
-        };
-        (cmd_name, result)
-    })
+    tempo_common::cli::run_cli(
+        &cli.global,
+        &["tempo_wallet"],
+        "tempo-wallet",
+        |ctx| async move {
+            let cmd_name = command_name(&command);
+            let result = match command {
+                Commands::Login => login::run(&ctx).await,
+                Commands::Logout { yes } => logout::run(&ctx, yes),
+                Commands::Completions { shell } => completions::run(&ctx, shell),
+                Commands::Fund {
+                    address,
+                    no_wait,
+                    dry_run,
+                } => fund::run(&ctx, address, no_wait, dry_run).await,
+                Commands::Whoami => whoami::run(&ctx).await,
+                Commands::Keys => keys::run(&ctx).await,
+                Commands::Sessions { command } => {
+                    sessions::run(
+                        &ctx,
+                        command.unwrap_or(SessionCommands::List { state: vec![] }),
+                    )
+                    .await
+                }
+                Commands::Transfer {
+                    amount,
+                    token,
+                    to,
+                    fee_token,
+                    dry_run,
+                } => transfer::run(&ctx, amount, token, to, fee_token, dry_run).await,
+                Commands::MppSign { challenge, dry_run } => {
+                    sign::run(&ctx, challenge, dry_run).await
+                }
+                Commands::Services {
+                    service_id, search, ..
+                } => services::run(&ctx, services::ServicesArgs { service_id, search }).await,
+            };
+            (cmd_name, result)
+        },
+    )
     .await
 }
 

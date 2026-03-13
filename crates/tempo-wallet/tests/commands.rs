@@ -103,9 +103,9 @@ fn whoami_emits_keystore_degraded_event_for_malformed_keys_file() {
     let events = parse_events_log(&events_path);
     let payload = events
         .iter()
-        .find(|(name, _)| name == "keystore_load_degraded")
+        .find(|(name, _)| name == "keystore load degraded")
         .map_or_else(
-            || panic!("missing keystore_load_degraded event: {events:?}"),
+            || panic!("missing keystore load degraded event: {events:?}"),
             |(_, payload)| payload,
         );
 
@@ -355,9 +355,9 @@ fn sessions_list_emits_degraded_event_for_malformed_session_row() {
     let events = parse_events_log(&events_path);
     let payload = events
         .iter()
-        .find(|(name, _)| name == "session_store_degraded")
+        .find(|(name, _)| name == "session store degraded")
         .map_or_else(
-            || panic!("missing session_store_degraded event: {events:?}"),
+            || panic!("missing session store degraded event: {events:?}"),
             |(_, payload)| payload,
         );
 
