@@ -83,10 +83,10 @@ pub fn normalize_address_input(value: &str) -> &str {
     value.strip_prefix("tempox").unwrap_or(value)
 }
 
-/// Parse a user-provided address string into an [`Address`].
+/// Parse a user-provided address string into an [`alloy::primitives::Address`].
 ///
 /// Accepts both `0x…` and `tempox0x…` formats. Validates the hex content
-/// and returns a parsed [`Address`].
+/// and returns a parsed address.
 pub fn parse_address_input(
     value: &str,
     label: &str,
@@ -305,7 +305,7 @@ mod tests {
         let addr =
             parse_address_input("0xabcdef1234567890abcdef1234567890abcdef12", "address").unwrap();
         assert_eq!(
-            format!("{:#x}", addr),
+            format!("{addr:#x}"),
             "0xabcdef1234567890abcdef1234567890abcdef12"
         );
     }
@@ -318,7 +318,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            format!("{:#x}", addr),
+            format!("{addr:#x}"),
             "0xabcdef1234567890abcdef1234567890abcdef12"
         );
     }

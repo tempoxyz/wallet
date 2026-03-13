@@ -1,17 +1,22 @@
 //! Transfer tokens to an address.
 
-use alloy::primitives::utils::{format_units, parse_units, ParseUnits};
-use alloy::primitives::{Address, Bytes, TxKind, U256};
-use alloy::providers::Provider;
-use alloy::sol;
-use alloy::sol_types::SolCall;
-use anyhow::{bail, Context, Result};
+use alloy::{
+    primitives::{
+        utils::{format_units, parse_units, ParseUnits},
+        Address, Bytes, TxKind, U256,
+    },
+    providers::Provider,
+    sol,
+    sol_types::SolCall,
+};
 use serde::Serialize;
 use tempo_primitives::transaction::Call;
 
-use tempo_common::cli::context::Context as CliContext;
-use tempo_common::cli::output;
-use tempo_common::payment::session::submit_tempo_tx;
+use tempo_common::{
+    cli::{context::Context as CliContext, output},
+    error::{InputError, NetworkError, TempoError},
+    payment::session::submit_tempo_tx,
+};
 
 sol! {
     #[sol(rpc)]
@@ -37,7 +42,7 @@ struct ResolvedToken {
 /// Resolve a `0x`-prefixed token address, querying symbol and decimals on-chain.
 ///
 /// Accepts both `0x…` and `tempox0x…` formats.
-async fn resolve_token(input: &str, provider: &impl Provider) -> Result<ResolvedToken> {
+async fn resolve_token(input: &str, provider: &impl Provider) -> Result<ResolvedToken, TempoError> {
     let address = tempo_common::security::parse_address_input(input, "token address")?;
 
     let contract = ITIP20::new(address, provider);
@@ -46,14 +51,16 @@ async fn resolve_token(input: &str, provider: &impl Provider) -> Result<Resolved
         .decimals()
         .call()
         .await
-        .context("Failed to query token decimals")?;
+        .map_err(|source| NetworkError::RpcSource {
+            operation: "query token decimals",
+            source: Box::new(source),
+        })?;
 
     let symbol = contract
         .symbol()
         .call()
         .await
-        .map(|s| s.to_string())
-        .unwrap_or_else(|_| format!("{:#x}", address));
+        .unwrap_or_else(|_| format!("{address:#x}"));
 
     Ok(ResolvedToken {
         address,
@@ -75,42 +82,57 @@ async fn resolve_amount(
     token: &ResolvedToken,
     from: Address,
     provider: &impl Provider,
-) -> Result<(U256, String)> {
+) -> Result<(U256, String), TempoError> {
     if input.eq_ignore_ascii_case("all") {
         let balance = query_balance(provider, token.address, from).await?;
         if balance.is_zero() {
-            bail!("Balance is zero — nothing to transfer.");
+            return Err(InputError::InvalidHexInput(
+                "Balance is zero — nothing to transfer.".to_string(),
+            )
+            .into());
         }
         let human = format_units(balance, token.decimals).expect("decimals <= 77");
         return Ok((balance, human));
     }
 
     let parsed = parse_units(input, token.decimals)
-        .map_err(|_| anyhow::anyhow!("Invalid amount: '{input}'"))?;
+        .map_err(|_| InputError::InvalidHexInput(format!("Invalid amount: '{input}'")))?;
     let amount = match parsed {
         ParseUnits::U256(v) => v,
         ParseUnits::I256(v) => {
             if v.is_negative() {
-                bail!("Amount must be positive.");
+                return Err(
+                    InputError::InvalidHexInput("Amount must be positive.".to_string()).into(),
+                );
             }
             v.into_raw()
         }
     };
 
     if amount.is_zero() {
-        bail!("Amount must be greater than zero.");
+        return Err(
+            InputError::InvalidHexInput("Amount must be greater than zero.".to_string()).into(),
+        );
     }
 
     Ok((amount, input.to_string()))
 }
 
-async fn query_balance(provider: &impl Provider, token: Address, account: Address) -> Result<U256> {
+async fn query_balance(
+    provider: &impl Provider,
+    token: Address,
+    account: Address,
+) -> Result<U256, TempoError> {
     let contract = ITIP20::new(token, provider);
-    let balance = contract
-        .balanceOf(account)
-        .call()
-        .await
-        .context("Failed to query token balance")?;
+    let balance =
+        contract
+            .balanceOf(account)
+            .call()
+            .await
+            .map_err(|source| NetworkError::RpcSource {
+                operation: "query token balance",
+                source: Box::new(source),
+            })?;
     Ok(balance)
 }
 
@@ -145,7 +167,7 @@ pub(crate) async fn run(
     to: String,
     fee_token_input: Option<String>,
     dry_run: bool,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     // Ensure wallet is connected
     ctx.keys.ensure_key_for_network(ctx.network)?;
 
@@ -180,8 +202,8 @@ pub(crate) async fn run(
             amount: amount_human,
             symbol: token.symbol,
             token: format!("{:#x}", token.address),
-            to: format!("{:#x}", to_address),
-            from: format!("{:#x}", from),
+            to: format!("{to_address:#x}"),
+            from: format!("{from:#x}"),
             fee: None,
             blockhash: None,
         };
@@ -195,7 +217,7 @@ pub(crate) async fn run(
                 format_address(to_address)
             );
             eprintln!("  From: {}", format_address(from));
-            eprintln!("  Fee token: {:#x}", fee_token_address);
+            eprintln!("  Fee token: {fee_token_address:#x}");
             Ok(())
         });
     }
@@ -241,8 +263,10 @@ pub(crate) async fn run(
 
     // Mark provisioned if this was the first tx
     if !ctx.keys.is_provisioned(ctx.network) {
-        ctx.keys
-            .mark_provisioned(ctx.network, ctx.keys.wallet_address());
+        if let Some(wallet_address) = ctx.keys.wallet_address_parsed() {
+            ctx.keys
+                .mark_provisioned_address(ctx.network, wallet_address);
+        }
     }
 
     let tx_url = ctx.network.tx_url(&tx_hash);
@@ -253,8 +277,8 @@ pub(crate) async fn run(
         amount: amount_human,
         symbol: token.symbol,
         token: format!("{:#x}", token.address),
-        to: format!("{:#x}", to_address),
-        from: format!("{:#x}", from),
+        to: format!("{to_address:#x}"),
+        from: format!("{from:#x}"),
         fee: None,
         blockhash: None,
     };
@@ -263,13 +287,13 @@ pub(crate) async fn run(
         eprintln!();
         eprintln!("  Submitted");
         eprintln!("    TX: {}", response.tx_hash.as_deref().unwrap_or(""));
-        eprintln!("    {}", tx_url);
+        eprintln!("    {tx_url}");
         Ok(())
     })
 }
 
 fn format_address(addr: Address) -> String {
-    let s = format!("{:#x}", addr);
+    let s = format!("{addr:#x}");
     if s.len() > 12 {
         format!("{}…{}", &s[..6], &s[s.len() - 4..])
     } else {

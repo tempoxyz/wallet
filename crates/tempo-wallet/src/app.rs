@@ -2,7 +2,9 @@
 
 use crate::{
     args::{Cli, Commands, ServicesCommands, SessionCommands},
-    commands::{completions, fund, keys, login, logout, services, sessions, sign, transfer, whoami},
+    commands::{
+        completions, fund, keys, login, logout, services, sessions, sign, transfer, whoami,
+    },
 };
 use tempo_common::error::TempoError;
 
