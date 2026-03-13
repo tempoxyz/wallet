@@ -242,13 +242,16 @@ fn render_detail(s: &Service) {
     }
     println!();
 
-    print_field("ID", &s.id);
-    print_field("Categories", &s.format_categories());
-    print_field("Service URL", s.service_url.as_deref().unwrap_or("—"));
-    print_field("Upstream URL", &s.url);
+    print_field("ID", &sanitize_for_terminal(&s.id));
+    print_field("Categories", &sanitize_for_terminal(&s.format_categories()));
+    print_field(
+        "Service URL",
+        &sanitize_for_terminal(s.service_url.as_deref().unwrap_or("—")),
+    );
+    print_field("Upstream URL", &sanitize_for_terminal(&s.url));
 
     if !s.tags.is_empty() {
-        print_field("Tags", &s.tags.join(", "));
+        print_field("Tags", &sanitize_for_terminal(&s.tags.join(", ")));
     }
 
     if let Some(docs) = &s.docs {
@@ -260,16 +263,16 @@ fn render_detail(s: &Service) {
             println!();
             println!("Docs:");
             if let Some(v) = &docs.homepage {
-                print_field("  Homepage", v);
+                print_field("  Homepage", &sanitize_for_terminal(v));
             }
             if let Some(v) = &docs.llms_txt {
-                print_field("  LLMs.txt", v);
+                print_field("  LLMs.txt", &sanitize_for_terminal(v));
             }
             if let Some(v) = &docs.openapi {
-                print_field("  OpenAPI", v);
+                print_field("  OpenAPI", &sanitize_for_terminal(v));
             }
             if let Some(v) = &docs.api_reference {
-                print_field("  API Reference", v);
+                print_field("  API Reference", &sanitize_for_terminal(v));
             }
         }
     }
