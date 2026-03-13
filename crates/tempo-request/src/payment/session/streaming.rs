@@ -199,15 +199,12 @@ pub(super) async fn stream_sse_response(
                         // instead of a network round-trip per token.
                         // Clamp to our known channel deposit to prevent a
                         // malicious server from coercing an overly large voucher.
-                        let mut authorize_amount = if server_deposit > 0 {
+                        let authorize_amount = if server_deposit > 0 {
                             server_deposit
                         } else {
                             required
                         }
                         .min(ctx.deposit);
-                        if let Some(cap) = ctx.max_pay {
-                            authorize_amount = authorize_amount.min(cap);
-                        }
 
                         if runtime.debug_enabled() {
                             eprintln!(

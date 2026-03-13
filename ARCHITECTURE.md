@@ -96,8 +96,6 @@ This means conversion at boundaries should look like:
 
 - Parse/format/schema failures: wrap the concrete source error (`PaymentError::ChallengeParseSource`, `PaymentError::ChallengeFormatSource`, `NetworkError::ResponseSchemaSource`, etc.).
 - Session persistence and reuse protection: keep causal source chains (`SessionPersistenceSource` / `SessionPersistenceContextSource`) so troubleshooting retains root cause fidelity.
-- Business-rule denials (for example client-side `--max-pay` policy checks): use stable reason strings intentionally.
-
 Compatibility exceptions are explicit and regression-tested:
 
 - Payment classification keeps `NetworkError::Http(...)` as an opaque fallback for unmatched provider errors.

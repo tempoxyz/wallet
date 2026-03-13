@@ -217,34 +217,6 @@ pub(crate) struct QueryArgs {
     )]
     pub write_meta: Option<String>,
 
-    /// Hard cap the maximum amount to pay (integer of minimal units)
-    #[arg(
-        long = "max-pay",
-        value_name = "AMOUNT",
-        help_heading = "Payment Options"
-    )]
-    pub max_pay: Option<u128>,
-
-    /// Currency for --max-pay (symbol or address)
-    #[arg(
-        long = "currency",
-        value_name = "ADDR|SYMBOL",
-        help_heading = "Payment Options"
-    )]
-    pub max_pay_currency: Option<String>,
-
-    /// Save parsed payment receipt to a file (JSON) when available
-    #[arg(
-        long = "save-receipt",
-        value_name = "FILE",
-        help_heading = "Payment Options"
-    )]
-    pub save_receipt: Option<String>,
-
-    /// Output machine-readable price JSON on --dry-run for 402 responses
-    #[arg(long = "price-json", help_heading = "Payment Options", hide = true)]
-    pub price_json: bool,
-
     /// Use an HTTP/HTTPS proxy
     #[arg(long = "proxy", value_name = "URL", help_heading = "HTTP Options")]
     pub proxy: Option<String>,

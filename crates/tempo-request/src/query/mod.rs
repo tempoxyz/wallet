@@ -11,15 +11,13 @@ pub(crate) mod payload;
 pub(crate) mod prepare;
 pub(crate) mod sse;
 
-use alloy::primitives::Address;
-
 use crate::{
     args::QueryArgs,
     payment::{router::dispatch_payment, types::PaymentResult},
 };
 use tempo_common::{
-    cli::{context::Context, output::emit_by_format},
-    error::{NetworkError, PaymentError, TempoError},
+    cli::context::Context,
+    error::{NetworkError, TempoError},
     security::redact_url,
 };
 
@@ -85,7 +83,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
 
     if response.status_code != 402 {
         analytics::track_query_success(ctx, &sanitized_url, &method_str, response.status_code);
-        output::handle_response(&output_opts, response, None)?;
+        output::handle_response(&output_opts, response)?;
         return Ok(());
     }
 
@@ -100,21 +98,6 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
 
     let challenge = challenge::parse_payment_challenge(&response)?;
 
-    // Dry-run price output for agents
-    if prepared.http.dry_run && query.price_json {
-        let obj = serde_json::json!({
-            "intent": challenge.intent_str(),
-            "network": challenge.network.as_str(),
-            "amount": challenge.amount,
-            "currency": challenge.currency,
-        });
-        emit_by_format(output_opts.output_format, &obj, || {
-            println!("{}", serde_json::to_string_pretty(&obj)?);
-            Ok(())
-        })?;
-        return Ok(());
-    }
-
     if prepared.http.log_enabled() {
         eprintln!(
             "Payment required: intent={} network={} amount={}",
@@ -122,31 +105,6 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
             challenge.network.as_str(),
             challenge.amount_display(),
         );
-    }
-
-    // Enforce client-side price cap if configured
-    if let Some(ref cur) = query.max_pay_currency {
-        if !max_pay_currency_matches(cur, &challenge.currency, challenge.network) {
-            // Intentional business-rule message: there is no underlying source error
-            // object to preserve here, and wording is compatibility-sensitive.
-            return Err(PaymentError::PaymentRejected {
-                reason: "requested currency does not match client max-pay-currency".to_string(),
-                status_code: 402,
-            }
-            .into());
-        }
-    }
-    if let Some(max_val) = query.max_pay {
-        if let Ok(req_val) = challenge.amount.parse::<u128>() {
-            if req_val > max_val {
-                // Intentional business-rule message for stable CLI UX.
-                return Err(PaymentError::PaymentRejected {
-                    reason: "price exceeds client max".to_string(),
-                    status_code: 402,
-                }
-                .into());
-            }
-        }
     }
 
     // Skip wallet login for dry-run or when a private key is provided directly
@@ -176,7 +134,6 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
         challenge.challenge,
         challenge_network,
         &ctx.keys,
-        query.max_pay,
     )
     .await;
 
@@ -207,7 +164,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
                     );
                 }
 
-                output::handle_response(&output_opts, resp, query.save_receipt.as_deref())?;
+                output::handle_response(&output_opts, resp)?;
             }
             Ok(())
         }
@@ -216,62 +173,5 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
             pay_analytics.track_failure(&err);
             Err(err)
         }
-    }
-}
-
-fn max_pay_currency_matches(
-    requested: &str,
-    challenge_currency: &str,
-    network: tempo_common::network::NetworkId,
-) -> bool {
-    let requested = requested.trim();
-    if requested.is_empty() {
-        return false;
-    }
-
-    if let Ok(requested_address) = requested.parse::<Address>() {
-        if let Ok(challenge_address) = challenge_currency.trim().parse::<Address>() {
-            return requested_address == challenge_address;
-        }
-        return requested_address == network.token().address;
-    }
-
-    requested.eq_ignore_ascii_case(challenge_currency)
-        || requested.eq_ignore_ascii_case(network.token().symbol)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::max_pay_currency_matches;
-    use tempo_common::network::NetworkId;
-
-    #[test]
-    fn max_pay_currency_matches_symbol_case_insensitive() {
-        assert!(max_pay_currency_matches("usdc", "USDC", NetworkId::Tempo));
-    }
-
-    #[test]
-    fn max_pay_currency_matches_network_token_address() {
-        let token_addr = format!("{:#x}", NetworkId::Tempo.token().address);
-        assert!(max_pay_currency_matches(
-            &token_addr,
-            "USDC",
-            NetworkId::Tempo
-        ));
-    }
-
-    #[test]
-    fn max_pay_currency_matches_challenge_address() {
-        let addr = "0x20c000000000000000000000b9537d11c60e8b50";
-        assert!(max_pay_currency_matches(addr, addr, NetworkId::Tempo));
-    }
-
-    #[test]
-    fn max_pay_currency_rejects_mismatch() {
-        assert!(!max_pay_currency_matches(
-            "pathUSD",
-            "USDC",
-            NetworkId::Tempo
-        ));
     }
 }

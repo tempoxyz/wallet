@@ -925,78 +925,6 @@ async fn test_sse_json_error_event() {
 // ==================== Curl Parity Smoke Tests ====================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_dry_run_price_json() {
-    // Valid 402 challenge with method="tempo" intent="charge"
-    let www_auth = charge_www_authenticate("price-test");
-    let server = MockServer::start(
-        402,
-        vec![("www-authenticate", &www_auth)],
-        "Payment Required",
-    )
-    .await;
-    let temp = TestConfigBuilder::new().build();
-
-    let output = test_command(&temp)
-        .args(["--dry-run", "--price-json", &server.url("/api")])
-        .output()
-        .unwrap();
-
-    let combined = get_combined_output(&output);
-    assert!(
-        output.status.success(),
-        "dry-run --price-json should exit 0: {combined}"
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("invalid JSON: {stdout} — {e}"));
-    assert!(
-        parsed.get("intent").is_some(),
-        "missing 'intent' in price JSON"
-    );
-    assert!(
-        parsed.get("amount").is_some(),
-        "missing 'amount' in price JSON"
-    );
-    assert!(
-        parsed.get("currency").is_some(),
-        "missing 'currency' in price JSON"
-    );
-    assert!(
-        parsed.get("network").is_some(),
-        "missing 'network' in price JSON"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_dry_run_price_json_toon_output() {
-    let www_auth = charge_www_authenticate("price-test");
-    let server = MockServer::start(
-        402,
-        vec![("www-authenticate", &www_auth)],
-        "Payment Required",
-    )
-    .await;
-    let temp = TestConfigBuilder::new().build();
-
-    let output = test_command(&temp)
-        .args(["-t", "--dry-run", "--price-json", &server.url("/api")])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "dry-run TOON output should succeed"
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value =
-        toon_format::decode_default(stdout.trim()).expect("valid TOON payload");
-    assert!(parsed.get("intent").is_some(), "missing 'intent' field");
-    assert!(parsed.get("amount").is_some(), "missing 'amount' field");
-    assert!(parsed.get("currency").is_some(), "missing 'currency' field");
-    assert!(parsed.get("network").is_some(), "missing 'network' field");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_referer_header() {
     let server = MockServer::start_echo_headers().await;
     let temp = TestConfigBuilder::new().build();
@@ -1988,36 +1916,6 @@ async fn test_write_meta_creates_json_file() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_save_receipt_writes_receipt_json() {
-    let receipt_value =
-        "tx=0xaabbccdd, status=confirmed, method=charge, timestamp=2025-01-01T00:00:00Z";
-    let h = PaymentTestHarness::charge_with_receipt("receipt body", receipt_value).await;
-
-    let receipt_path = h.temp.path().join("receipt.json");
-    let output = test_command(&h.temp)
-        .args([
-            "--save-receipt",
-            receipt_path.to_str().unwrap(),
-            &h.url("/api"),
-        ])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "save-receipt should succeed: {}",
-        get_combined_output(&output)
-    );
-    // Receipt file should exist (may fail to parse the mock receipt, but file should be attempted)
-    // The test verifies the flag is wired correctly.
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("receipt body"),
-        "should still output response body: {stdout}"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_max_redirs_limits_redirects() {
     // Server that always redirects to itself
     let server = MockServer::start(
@@ -2069,50 +1967,6 @@ async fn test_retry_http_retries_on_specified_codes() {
     assert!(
         elapsed.as_millis() >= 10,
         "should have retried with backoff: elapsed={elapsed:?}"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_max_pay_rejects_expensive_charge() {
-    let h = PaymentTestHarness::charge_with_body("should not see this").await;
-
-    // The mock challenge requests 1_000_000 (1 USDC in minimal units).
-    // Set --max-pay to 1 (way below the challenge amount).
-    let output = test_command(&h.temp)
-        .args(["--max-pay", "1", &h.url("/api")])
-        .output()
-        .unwrap();
-
-    assert_exit_code(&output, 4, "max-pay should exit with E_PAYMENT");
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains("Payment rejected by server: price exceeds client max"),
-        "should preserve max-pay rejection wording: {combined}"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_max_pay_currency_rejects_with_stable_message_and_exit_code() {
-    let h = PaymentTestHarness::charge_with_body("should not see this").await;
-
-    // The mock challenge is tempo-moderato/pathUSD. Using USDC must be rejected
-    // before payment dispatch with a stable business-rule message.
-    let output = test_command(&h.temp)
-        .args(["--currency", "USDC", &h.url("/api")])
-        .output()
-        .unwrap();
-
-    assert_exit_code(
-        &output,
-        4,
-        "max-pay-currency mismatch should exit with E_PAYMENT",
-    );
-    let combined = get_combined_output(&output);
-    assert!(
-        combined.contains(
-            "Payment rejected by server: requested currency does not match client max-pay-currency"
-        ),
-        "should preserve max-pay-currency rejection wording: {combined}"
     );
 }
 

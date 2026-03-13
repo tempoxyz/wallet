@@ -1,9 +1,9 @@
 ---
 name: tempo
 description: |
-  Agent-first, curl-compatible CLI for discovering services and calling HTTP APIs with built-in payments. Use `tempo wallet` to check readiness and discover service endpoints, then use `tempo request` to execute calls. If an endpoint returns `402 Payment Required`, tempo handles MPP payment and retries automatically.
+  Agent-first, curl-compatible CLI for discovering services and calling HTTP APIs with built-in payments. Use `tempo wallet` to check readiness and discover service endpoints, then use `tempo request` to execute calls. If an endpoint returns `402 Payment Required`, tempo handles payment and retries automatically.
 
-  TRIGGERS: call API, use an API, HTTP request, make a request, external data, no API key, paid API, "find info about", "look up", travel, search, scrape, generate image, generate video, social data, send email, validate email, phone call, research, use llm
+  TRIGGERS: call API, use an API, HTTP request, make a request, external data, no API key, paid API, "I need to access", "can you call"
 ---
 
 # tempo
@@ -23,26 +23,24 @@ Use this flow when user intent is setup/bootstrap.
 ### Setup State Machine
 
 ```bash
-# 0) Resolve a stable user-local bin path
-USER_BIN="${TEMPO_BIN_DIR:-$(cd ~ && pwd)/.local/bin}"
+# 0) Resolve canonical user-local tempo path
+USER_BIN="${TEMPO_BIN_DIR:-$HOME/.local/bin}"
+TEMPO="$USER_BIN/tempo"
 
 # 1) Ensure CLI exists (agent-safe: install user-local, no sudo)
-command -v tempo >/dev/null 2>&1 || (mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh)
+[ -x "$TEMPO" ] || (mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh)
 
-# 1b) Ensure user-local bin is on PATH when fallback install is used
-export PATH="$USER_BIN:$PATH"
+# 3) Validate install
+"$TEMPO" wallet --help
 
-# 2) Validate install
-tempo wallet --help
+# 4) Check readiness
+"$TEMPO" wallet -t whoami
 
-# 3) Check readiness
-tempo wallet -t whoami
+# 5) Login only if needed (interactive)
+"$TEMPO" wallet login
 
-# 4) Login only if needed (interactive)
-tempo wallet login
-
-# 5) Re-check readiness
-tempo wallet -t whoami
+# 6) Re-check readiness
+"$TEMPO" wallet -t whoami
 ```
 
 `tempo wallet login` requires user browser/passkey action and opens the auth URL in text mode. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation.
@@ -50,6 +48,8 @@ tempo wallet -t whoami
 When run by agents, execute `tempo wallet login` with a long command timeout (at least 16 minutes) so the process can wait for user approval instead of being killed by the runner.
 
 Do not use `sudo` in non-interactive agent shells. Use user-local install via `TEMPO_BIN_DIR` (defaulting to `~/.local/bin`).
+
+Do not use `export PATH=...` in agent command examples. Use `"$HOME/.local/bin/tempo" ...` directly for deterministic behavior across isolated shells.
 
 ### Done Criteria
 
@@ -60,7 +60,7 @@ Do not use `sudo` in non-interactive agent shells. Use user-local install via `T
 
 After setup, provide:
 
-- Installation location and version (`command -v tempo` and `tempo --version`).
+- Installation location and version (`$HOME/.local/bin/tempo --version`).
 - Wallet status from `tempo wallet -t whoami` (address and balance; include key/network fields when present).
 - 2-3 simple starter prompts tailored to currently available services.
 
@@ -157,8 +157,8 @@ When multiple services match a user request, choose in this order:
 
 | Symptom | Action |
 |---|---|
-| `tempo: command not found` | Run `curl -fsSL https://tempo.xyz/install \| bash`, then retry the original command. |
-| Install fails due to permissions/path | Resolve `USER_BIN="${TEMPO_BIN_DIR:-$(cd ~ && pwd)/.local/bin}"`, then `mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh`, then `export PATH="$USER_BIN:$PATH"` and retry. |
+| `tempo: command not found` | Run `mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then retry using `"$HOME/.local/bin/tempo" ...`. |
+| Install fails due to permissions/path | Resolve `USER_BIN="${TEMPO_BIN_DIR:-$HOME/.local/bin}"; TEMPO="$USER_BIN/tempo"`, then `mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh`, then retry using `"$TEMPO" ...`. |
 | `ready=false` or `No wallet configured` | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
 | Service not found for query | Broaden search terms with `tempo wallet -t services --search <broader_query>`, then inspect candidate details. |
 | Endpoint returns usage/path error | Re-open service details with `tempo wallet -t services <SERVICE_ID>` and use discovered method/path exactly. |
