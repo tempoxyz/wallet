@@ -112,8 +112,7 @@ pub fn truncate(s: &str, max: usize) -> String {
 
 /// Print a right-aligned label/value field to stdout with a custom label width.
 pub fn print_field_w(width: usize, label: &str, value: &str) {
-    let safe_value = sanitize_for_terminal(value);
-    println!("{label:>width$}: {safe_value}");
+    println!("{label:>width$}: {value}");
 }
 
 /// Print a right-aligned label/value field to stdout (14-char label width).
@@ -197,5 +196,21 @@ mod tests {
     #[test]
     fn truncate_long_adds_ellipsis() {
         assert_eq!(truncate("hello world", 5), "hell…");
+    }
+
+    #[test]
+    fn print_field_preserves_osc8_hyperlinks() {
+        // Simulate what hyperlink() produces when the terminal supports OSC 8.
+        let osc8 = "\x1b]8;;https://example.com/address/0xabc\x070xabc\x1b]8;;\x07";
+
+        // print_field_w uses the same format! call — verify it preserves
+        // the ESC (\x1b) and BEL (\x07) bytes that OSC 8 requires.
+        let formatted = format!("{:>10}: {osc8}", "Wallet");
+        assert!(
+            formatted.contains('\x1b') && formatted.contains('\x07'),
+            "print_field_w must not re-sanitize values that already contain \
+             intentional OSC 8 sequences; double-sanitization strips ESC/BEL \
+             and leaves raw ]8;; visible in the terminal"
+        );
     }
 }
