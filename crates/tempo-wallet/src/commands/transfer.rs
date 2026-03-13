@@ -11,7 +11,6 @@ use tempo_primitives::transaction::Call;
 
 use tempo_common::cli::context::Context as CliContext;
 use tempo_common::cli::output;
-use tempo_common::network::NetworkId;
 use tempo_common::payment::session::submit_tempo_tx;
 
 sol! {
@@ -20,6 +19,7 @@ sol! {
         function transfer(address to, uint256 amount) external returns (bool);
         function balanceOf(address account) external view returns (uint256);
         function decimals() external view returns (uint8);
+        function symbol() external view returns (string);
     }
 }
 
@@ -27,109 +27,38 @@ sol! {
 // Token resolution
 // ---------------------------------------------------------------------------
 
-/// Resolve a token symbol or address to a token address and decimals.
-///
-/// Symbols are resolved against the dynamic tokenlist at
-/// `https://tokenlist.tempo.xyz/list/{chain_id}`. Matching is
-/// case-insensitive against `symbol` and `extensions.label`.
-/// Raw `0x`-prefixed addresses are also accepted (decimals queried on-chain).
+/// A resolved token: address, display symbol, and decimals.
 struct ResolvedToken {
     address: Address,
     symbol: String,
     decimals: u8,
 }
 
-/// Tokenlist JSON shape (Uniswap token-lists compatible).
-#[derive(serde::Deserialize)]
-struct TokenList {
-    tokens: Vec<TokenListEntry>,
-}
-
-#[derive(serde::Deserialize)]
-struct TokenListEntry {
-    symbol: String,
-    address: String,
-    decimals: u8,
-    #[serde(default)]
-    extensions: TokenExtensions,
-}
-
-#[derive(serde::Deserialize, Default)]
-struct TokenExtensions {
-    #[serde(default)]
-    label: Option<String>,
-}
-
-/// Fetch the tokenlist for the given network and match by symbol or label.
-async fn resolve_token_from_list(input: &str, network: NetworkId) -> Result<Option<ResolvedToken>> {
-    let url = format!("https://tokenlist.tempo.xyz/list/{}", network.chain_id());
-    let resp = reqwest::get(&url)
-        .await
-        .context("Failed to fetch tokenlist")?;
-    let list: TokenList = resp.json().await.context("Failed to parse tokenlist")?;
-
-    let needle = input.to_lowercase();
-    let entry = list.tokens.iter().find(|t| {
-        t.symbol.to_lowercase() == needle
-            || t.extensions
-                .label
-                .as_deref()
-                .is_some_and(|l| l.to_lowercase() == needle)
-    });
-
-    match entry {
-        Some(t) => {
-            let address: Address = t
-                .address
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid address in tokenlist: {}", t.address))?;
-            let display = t.extensions.label.as_deref().unwrap_or(&t.symbol);
-            Ok(Some(ResolvedToken {
-                address,
-                symbol: display.to_string(),
-                decimals: t.decimals,
-            }))
-        }
-        None => Ok(None),
-    }
-}
-
-async fn resolve_token(
-    input: &str,
-    network: NetworkId,
-    provider: &impl Provider,
-) -> Result<ResolvedToken> {
-    // Skip tokenlist lookup for raw addresses
-    if !input.starts_with("0x") && !input.starts_with("0X") {
-        match resolve_token_from_list(input, network).await {
-            Ok(Some(resolved)) => return Ok(resolved),
-            Ok(None) => {
-                bail!("Unknown token '{input}'. Use a symbol from the tokenlist or a 0x address.");
-            }
-            Err(e) => {
-                tracing::warn!("Tokenlist fetch failed, falling back to on-chain: {e}");
-                // Fall through to try as address below (will likely fail for symbols)
-            }
-        }
-    }
-
-    // Try as raw address
+/// Resolve a `0x`-prefixed token address, querying symbol and decimals on-chain.
+async fn resolve_token(input: &str, provider: &impl Provider) -> Result<ResolvedToken> {
     tempo_common::security::validate_hex_input(input, "token address")?;
     let address: Address = input
         .parse()
         .map_err(|_| anyhow::anyhow!("Invalid token address: {input}"))?;
 
-    // Query decimals on-chain
     let contract = ITIP20::new(address, provider);
+
     let decimals = contract
         .decimals()
         .call()
         .await
         .context("Failed to query token decimals")?;
 
+    let symbol = contract
+        .symbol()
+        .call()
+        .await
+        .map(|s| s.to_string())
+        .unwrap_or_else(|_| format!("{:#x}", address));
+
     Ok(ResolvedToken {
         address,
-        symbol: format!("{:#x}", address),
+        symbol,
         decimals,
     })
 }
@@ -224,25 +153,25 @@ pub(crate) async fn run(
     let wallet = ctx.keys.signer(ctx.network)?;
     let from = wallet.from;
 
-    let rpc_url = ctx.config.rpc_url(ctx.network);
-    let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url.clone());
-
-    // Resolve token
-    let token = resolve_token(&token_input, ctx.network, &provider).await?;
-
-    // Resolve recipient — strip optional `tempox` prefix
+    // Validate recipient address early (no network needed)
     let to_raw = to.strip_prefix("tempox").unwrap_or(&to);
     tempo_common::security::validate_hex_input(to_raw, "recipient address")?;
     let to_address: Address = to_raw
         .parse()
         .map_err(|_| anyhow::anyhow!("Invalid recipient address: {to}"))?;
 
+    let rpc_url = ctx.config.rpc_url(ctx.network);
+    let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url.clone());
+
+    // Resolve token
+    let token = resolve_token(&token_input, &provider).await?;
+
     // Resolve amount
     let (amount_atomic, amount_human) = resolve_amount(&amount, &token, from, &provider).await?;
 
     // Resolve fee token (default: same token as transfer)
     let fee_token_address = if let Some(ref ft) = fee_token_input {
-        let ft_resolved = resolve_token(ft, ctx.network, &provider).await?;
+        let ft_resolved = resolve_token(ft, &provider).await?;
         ft_resolved.address
     } else {
         token.address

@@ -718,11 +718,15 @@ fn transfer_help_shows_flags() {
 
     assert!(output.status.success());
     let combined = get_combined_output(&output);
-    assert!(combined.contains("--to"), "should show --to flag");
+    assert!(combined.contains("<TO>"), "should show TO positional arg");
     assert!(combined.contains("--dry-run"), "should show --dry-run flag");
     assert!(
         combined.contains("--fee-token"),
         "should show --fee-token flag"
+    );
+    assert!(
+        combined.contains("Token contract address"),
+        "should describe token as contract address: {combined}"
     );
 }
 
@@ -733,8 +737,7 @@ fn transfer_no_wallet_fails() {
         .args([
             "transfer",
             "1.00",
-            "usdc",
-            "--to",
+            "0x20c0000000000000000000000b9537d11c60e8b50",
             "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
         ])
         .output()
@@ -749,14 +752,140 @@ fn transfer_no_wallet_fails() {
 }
 
 #[test]
-fn transfer_missing_to_flag_fails() {
+fn transfer_no_wallet_json_fails() {
     let temp = TestConfigBuilder::new().build();
     let output = test_command(&temp)
-        .args(["transfer", "1.00", "usdc"])
+        .args([
+            "-j",
+            "transfer",
+            "1.00",
+            "0x20c0000000000000000000000b9537d11c60e8b50",
+            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        ])
         .output()
         .unwrap();
 
-    assert_exit_code(&output, 2, "missing --to should exit with E_USAGE");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn transfer_missing_recipient_fails() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args([
+            "transfer",
+            "1.00",
+            "0x20c0000000000000000000000b9537d11c60e8b50",
+        ])
+        .output()
+        .unwrap();
+
+    assert_exit_code(&output, 2, "missing recipient should exit with E_USAGE");
+}
+
+#[test]
+fn transfer_missing_amount_fails() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp).args(["transfer"]).output().unwrap();
+
+    assert_exit_code(&output, 2, "missing amount should exit with E_USAGE");
+}
+
+#[test]
+fn transfer_missing_token_fails() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["transfer", "1.00"])
+        .output()
+        .unwrap();
+
+    assert_exit_code(&output, 2, "missing token should exit with E_USAGE");
+}
+
+#[test]
+fn transfer_invalid_token_address_fails() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .build();
+
+    let output = test_command(&temp)
+        .args([
+            "-n",
+            "tempo-moderato",
+            "transfer",
+            "1.00",
+            "not-an-address",
+            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("token address"),
+        "should mention token address error: {combined}"
+    );
+}
+
+#[test]
+fn transfer_invalid_recipient_address_fails() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .build();
+
+    // Use a non-0x string for recipient to trigger the validate_hex_input error
+    // before any on-chain calls happen
+    let output = test_command(&temp)
+        .args([
+            "-n",
+            "tempo-moderato",
+            "transfer",
+            "1.00",
+            "0x0000000000000000000000000000000000000001",
+            "not-an-address",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("recipient address"),
+        "should mention recipient address error: {combined}"
+    );
+}
+
+#[test]
+fn transfer_with_fee_token_flag_parses() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["transfer", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("--fee-token"),
+        "should show --fee-token: {combined}"
+    );
+}
+
+#[test]
+fn transfer_with_dry_run_flag_parses() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["transfer", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("--dry-run"),
+        "should show --dry-run: {combined}"
+    );
 }
 
 // ==================== unknown subcommand ====================
