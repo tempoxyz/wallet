@@ -360,6 +360,39 @@ fn delete_session_conn(conn: &rusqlite::Connection, key: &str) -> SessionStoreRe
     Ok(())
 }
 
+fn load_session_by_channel_id_conn(
+    conn: &rusqlite::Connection,
+    channel_id: B256,
+) -> SessionStoreResult<Option<SessionRecord>> {
+    let channel_id = format!("{channel_id:#x}");
+    let mut stmt = conn
+        .prepare(
+            "SELECT version, origin, request_url, chain_id,
+                    escrow_contract, currency, recipient, payer, authorized_signer,
+                    salt, channel_id, deposit, tick_cost, cumulative_amount,
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+             FROM sessions WHERE LOWER(channel_id) = ?1",
+        )
+        .map_err(|err| store_error("prepare session load by channel id query", err))?;
+
+    let result = stmt.query_row(params![channel_id], map_session_row);
+
+    match result {
+        Ok(record) => Ok(Some(record)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) if is_malformed_session_row_error(&e) => {
+            MALFORMED_LOAD_DROPS.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                %channel_id,
+                error = %e,
+                "Skipping malformed session row while loading by channel ID"
+            );
+            Ok(None)
+        }
+        Err(e) => Err(store_error("load session by channel id", e)),
+    }
+}
+
 fn delete_session_by_channel_id_conn(
     conn: &rusqlite::Connection,
     channel_id: B256,
@@ -445,6 +478,16 @@ pub fn save_session(record: &SessionRecord) -> SessionStoreResult<()> {
 pub fn delete_session(key: &str) -> SessionStoreResult<()> {
     let conn = open_db()?;
     delete_session_conn(&conn, key)
+}
+
+/// Load a session record by channel ID. Returns `None` if not found.
+///
+/// # Errors
+///
+/// Returns an error when the database cannot be opened or SQL fails.
+pub fn load_session_by_channel_id(channel_id: B256) -> SessionStoreResult<Option<SessionRecord>> {
+    let conn = open_db()?;
+    load_session_by_channel_id_conn(&conn, channel_id)
 }
 
 /// Delete a session record by channel ID.
