@@ -130,7 +130,7 @@ impl GlobalArgs {
     pub(crate) fn warn_argv_private_key(&self) {
         if self.private_key.is_some() && std::env::var("TEMPO_PRIVATE_KEY").is_err() {
             eprintln!(
-                "⚠ WARNING: --private-key on the command line exposes your key in the process list."
+                "WARNING: --private-key on the command line exposes your key in the process list."
             );
             eprintln!("  Use TEMPO_PRIVATE_KEY environment variable instead.");
         }
