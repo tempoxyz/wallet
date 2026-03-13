@@ -2,7 +2,7 @@
 
 use crate::{
     args::{Cli, Commands, ServicesCommands, SessionCommands},
-    commands::{completions, fund, keys, login, logout, services, sessions, sign, whoami},
+    commands::{completions, fund, keys, login, logout, services, sessions, sign, transfer, whoami},
 };
 use tempo_common::error::TempoError;
 
@@ -36,6 +36,13 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                 )
                 .await
             }
+            Commands::Transfer {
+                amount,
+                token,
+                to,
+                fee_token,
+                dry_run,
+            } => transfer::run(&ctx, amount, token, to, fee_token, dry_run).await,
             Commands::MppSign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
             Commands::Services {
                 service_id, search, ..
@@ -60,6 +67,7 @@ const fn command_name(command: &Commands) -> &'static str {
             Some(SessionCommands::Close { .. }) => "sessions close",
             Some(SessionCommands::Sync { .. }) => "sessions sync",
         },
+        Commands::Transfer { .. } => "transfer",
         Commands::MppSign { .. } => "mpp-sign",
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",

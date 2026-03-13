@@ -706,6 +706,59 @@ fn version_flag_outputs_version() {
     );
 }
 
+// ==================== transfer ====================
+
+#[test]
+fn transfer_help_shows_flags() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["transfer", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(combined.contains("--to"), "should show --to flag");
+    assert!(combined.contains("--dry-run"), "should show --dry-run flag");
+    assert!(
+        combined.contains("--fee-token"),
+        "should show --fee-token flag"
+    );
+}
+
+#[test]
+fn transfer_no_wallet_fails() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args([
+            "transfer",
+            "1.00",
+            "usdc",
+            "--to",
+            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("No wallet") || combined.contains("login"),
+        "should mention no wallet or login: {combined}"
+    );
+}
+
+#[test]
+fn transfer_missing_to_flag_fails() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["transfer", "1.00", "usdc"])
+        .output()
+        .unwrap();
+
+    assert_exit_code(&output, 2, "missing --to should exit with E_USAGE");
+}
+
 // ==================== unknown subcommand ====================
 
 #[test]
