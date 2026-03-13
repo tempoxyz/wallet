@@ -6577,6 +6577,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tempo-common",
+ "tempo-primitives",
  "tempo-test",
  "tokio",
  "toon-format",

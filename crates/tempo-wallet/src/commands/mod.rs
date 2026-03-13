@@ -8,4 +8,5 @@ pub(crate) mod logout;
 pub(crate) mod services;
 pub(crate) mod sessions;
 pub(crate) mod sign;
+pub(crate) mod transfer;
 pub(crate) mod whoami;

@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 tempo-common = { path = "../tempo-common" }
+tempo-primitives.workspace = true
 alloy.workspace = true
 anyhow.workspace = true
 base64.workspace = true

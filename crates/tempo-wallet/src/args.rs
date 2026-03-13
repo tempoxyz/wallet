@@ -54,6 +54,23 @@ pub(crate) enum Commands {
     /// List keys and their spending limits
     #[command(display_order = 4, name = "keys")]
     Keys,
+    /// Transfer tokens to an address
+    #[command(display_order = 5)]
+    Transfer {
+        /// Amount in human units ("1.00", "50", "all")
+        amount: String,
+        /// Token symbol or address (e.g. "usdc.e", "0x20c0...")
+        token: String,
+        /// Recipient address
+        #[arg(long)]
+        to: String,
+        /// Pay fees in a different token (default: same token)
+        #[arg(long)]
+        fee_token: Option<String>,
+        /// Show plan + fee estimate, don't send
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Fund your wallet (testnet faucet or mainnet bridge)
     #[command(display_order = 7, name = "fund")]
     Fund {

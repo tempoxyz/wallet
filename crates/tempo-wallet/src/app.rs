@@ -3,7 +3,9 @@
 use anyhow::Result;
 
 use crate::args::{Cli, Commands, ServicesCommands, SessionCommands};
-use crate::commands::{completions, fund, keys, login, logout, services, sessions, sign, whoami};
+use crate::commands::{
+    completions, fund, keys, login, logout, services, sessions, sign, transfer, whoami,
+};
 
 /// Run the tempo-wallet application.
 pub(crate) async fn run(mut cli: Cli) -> Result<()> {
@@ -36,6 +38,13 @@ pub(crate) async fn run(mut cli: Cli) -> Result<()> {
                 )
                 .await
             }
+            Commands::Transfer {
+                amount,
+                token,
+                to,
+                fee_token,
+                dry_run,
+            } => transfer::run(&ctx, amount, token, to, fee_token, dry_run).await,
             Commands::MppSign { challenge, dry_run } => sign::run(&ctx, challenge, dry_run).await,
             Commands::Services {
                 service_id, search, ..
@@ -60,6 +69,7 @@ fn command_name(command: &Commands) -> &'static str {
             Some(SessionCommands::Close { .. }) => "sessions close",
             Some(SessionCommands::Sync { .. }) => "sessions sync",
         },
+        Commands::Transfer { .. } => "transfer",
         Commands::MppSign { .. } => "mpp-sign",
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",
