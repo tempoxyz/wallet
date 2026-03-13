@@ -1,5 +1,6 @@
 //! Data types for wallet keys.
 
+use alloy::primitives::Address;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -13,6 +14,7 @@ pub enum WalletType {
 }
 
 impl WalletType {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Local => "local",
@@ -32,10 +34,10 @@ pub enum KeyType {
 }
 
 /// Token spending limit stored in keys.toml.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredTokenLimit {
     /// Token contract address.
-    pub currency: String,
+    pub currency: Address,
     /// Spending limit amount (as string to avoid precision issues).
     pub limit: String,
 }
@@ -62,7 +64,7 @@ pub struct KeyEntry {
     /// Wrapped in [`Zeroizing`] so the secret is scrubbed from memory on drop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<Zeroizing<String>>,
-    /// Key authorization (RLP-encoded SignedKeyAuthorization hex).
+    /// Key authorization (RLP-encoded `SignedKeyAuthorization` hex).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_authorization: Option<String>,
     /// Key expiry as unix timestamp.
@@ -74,6 +76,71 @@ pub struct KeyEntry {
     /// Whether this key has been provisioned on-chain.
     #[serde(default)]
     pub provisioned: bool,
+}
+
+/// TOML persistence shape for a key entry.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct StoredKeyEntry {
+    #[serde(default)]
+    pub wallet_type: WalletType,
+    #[serde(default)]
+    pub wallet_address: String,
+    #[serde(default)]
+    pub chain_id: u64,
+    #[serde(default)]
+    pub key_type: KeyType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<Zeroizing<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_authorization: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiry: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<StoredTokenLimit>,
+    #[serde(default)]
+    pub provisioned: bool,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct StoredKeystore {
+    #[serde(default)]
+    pub keys: Vec<StoredKeyEntry>,
+}
+
+impl From<KeyEntry> for StoredKeyEntry {
+    fn from(value: KeyEntry) -> Self {
+        Self {
+            wallet_type: value.wallet_type,
+            wallet_address: value.wallet_address,
+            chain_id: value.chain_id,
+            key_type: value.key_type,
+            key_address: value.key_address,
+            key: value.key,
+            key_authorization: value.key_authorization,
+            expiry: value.expiry,
+            limits: value.limits,
+            provisioned: value.provisioned,
+        }
+    }
+}
+
+impl From<StoredKeyEntry> for KeyEntry {
+    fn from(value: StoredKeyEntry) -> Self {
+        Self {
+            wallet_type: value.wallet_type,
+            wallet_address: value.wallet_address,
+            chain_id: value.chain_id,
+            key_type: value.key_type,
+            key_address: value.key_address,
+            key: value.key,
+            key_authorization: value.key_authorization,
+            expiry: value.expiry,
+            limits: value.limits,
+            provisioned: value.provisioned,
+        }
+    }
 }
 
 impl std::fmt::Debug for KeyEntry {
@@ -90,6 +157,100 @@ impl std::fmt::Debug for KeyEntry {
             .field("limits", &self.limits)
             .field("provisioned", &self.provisioned)
             .finish()
+    }
+}
+
+impl KeyEntry {
+    /// Parse and validate the wallet address field.
+    #[must_use]
+    pub fn wallet_address_parsed(&self) -> Option<Address> {
+        (!self.wallet_address.is_empty())
+            .then(|| self.wallet_address.parse().ok())
+            .flatten()
+    }
+
+    /// Parse and validate the optional signer key address field.
+    #[must_use]
+    pub fn key_address_parsed(&self) -> Option<Address> {
+        self.key_address.as_deref()?.parse().ok()
+    }
+
+    /// Canonical lowercase `0x` wallet address when valid.
+    #[must_use]
+    pub fn wallet_address_hex(&self) -> Option<String> {
+        self.wallet_address_parsed()
+            .map(|address| format!("{address:#x}"))
+    }
+
+    /// Canonical lowercase `0x` signer key address when valid.
+    #[must_use]
+    pub fn key_address_hex(&self) -> Option<String> {
+        self.key_address_parsed()
+            .map(|address| format!("{address:#x}"))
+    }
+
+    /// Set wallet address in canonical lowercase hex format.
+    pub fn set_wallet_address(&mut self, address: Address) {
+        self.wallet_address = format!("{address:#x}");
+    }
+
+    /// Set signer key address in canonical lowercase hex format.
+    pub fn set_key_address(&mut self, address: Option<Address>) {
+        self.key_address = address.map(|address| format!("{address:#x}"));
+    }
+
+    /// Validate and canonicalize persisted identity fields.
+    ///
+    /// Returns `false` if a non-empty wallet address or present key address
+    /// cannot be parsed as an EVM address.
+    pub fn normalize_identity(&mut self) -> bool {
+        if !self.wallet_address.is_empty() {
+            let Some(wallet) = self.wallet_address_parsed() else {
+                return false;
+            };
+            self.set_wallet_address(wallet);
+        }
+
+        if self.key_address.is_some() {
+            let Some(key) = self.key_address_parsed() else {
+                return false;
+            };
+            self.set_key_address(Some(key));
+        }
+
+        true
+    }
+
+    /// Whether this entry has an inline private key.
+    #[must_use]
+    pub fn has_inline_key(&self) -> bool {
+        self.key.as_ref().is_some_and(|key| !key.is_empty())
+    }
+
+    /// Whether this entry represents a direct EOA signer (wallet == signer key).
+    #[must_use]
+    pub fn is_direct_eoa_key(&self) -> bool {
+        self.wallet_type == WalletType::Local
+            && self.wallet_address_parsed().is_some()
+            && self
+                .key_address_parsed()
+                .zip(self.wallet_address_parsed())
+                .is_some_and(|(signer, wallet)| signer == wallet)
+            && self.has_inline_key()
+    }
+
+    /// Compare wallet address against a parsed [`Address`].
+    #[must_use]
+    pub fn wallet_address_matches(&self, address: Address) -> bool {
+        self.wallet_address_parsed()
+            .is_some_and(|stored| stored == address)
+    }
+
+    /// Compare signer key address against a parsed [`Address`].
+    #[must_use]
+    pub fn key_address_matches(&self, address: Address) -> bool {
+        self.key_address_parsed()
+            .is_some_and(|stored| stored == address)
     }
 }
 
@@ -126,9 +287,11 @@ mod tests {
             key_address: Some("0xdef".to_string()),
             key: Some(Zeroizing::new("0xsecret".to_string())),
             key_authorization: Some("0xauth".to_string()),
-            expiry: Some(1700000000),
+            expiry: Some(1_700_000_000),
             limits: vec![StoredTokenLimit {
-                currency: "0xUSDC".to_string(),
+                currency: "0x20c000000000000000000000b9537d11c60e8b50"
+                    .parse()
+                    .unwrap(),
                 limit: "1000".to_string(),
             }],
             provisioned: true,
@@ -177,5 +340,134 @@ mod tests {
         assert_eq!(deserialized.key_authorization, None);
         assert_eq!(deserialized.expiry, None);
         assert!(deserialized.limits.is_empty());
+    }
+
+    #[test]
+    fn key_entry_parsed_addresses() {
+        let entry = KeyEntry {
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            key_address: Some("0x2222222222222222222222222222222222222222".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            entry.wallet_address_parsed(),
+            Some(
+                "0x1111111111111111111111111111111111111111"
+                    .parse()
+                    .unwrap()
+            )
+        );
+        assert_eq!(
+            entry.key_address_parsed(),
+            Some(
+                "0x2222222222222222222222222222222222222222"
+                    .parse()
+                    .unwrap()
+            )
+        );
+
+        assert_eq!(
+            entry.wallet_address_hex().as_deref(),
+            Some("0x1111111111111111111111111111111111111111")
+        );
+        assert_eq!(
+            entry.key_address_hex().as_deref(),
+            Some("0x2222222222222222222222222222222222222222")
+        );
+    }
+
+    #[test]
+    fn key_entry_wallet_match_uses_typed_comparison() {
+        let entry = KeyEntry {
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            ..Default::default()
+        };
+
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let other: Address = "0x2222222222222222222222222222222222222222"
+            .parse()
+            .unwrap();
+
+        assert!(entry.wallet_address_matches(wallet));
+        assert!(!entry.wallet_address_matches(other));
+    }
+
+    #[test]
+    fn key_entry_typed_match_helpers() {
+        let entry = KeyEntry {
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            key_address: Some("0x2222222222222222222222222222222222222222".to_string()),
+            ..Default::default()
+        };
+
+        let wallet = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let key = "0x2222222222222222222222222222222222222222"
+            .parse()
+            .unwrap();
+        let other = "0x3333333333333333333333333333333333333333"
+            .parse()
+            .unwrap();
+
+        assert!(entry.wallet_address_matches(wallet));
+        assert!(entry.key_address_matches(key));
+        assert!(!entry.wallet_address_matches(other));
+        assert!(!entry.key_address_matches(other));
+    }
+
+    #[test]
+    fn key_entry_direct_eoa_detection() {
+        let entry = KeyEntry {
+            wallet_type: WalletType::Local,
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            key_address: Some("0x1111111111111111111111111111111111111111".to_string()),
+            key: Some(Zeroizing::new("0xkey".to_string())),
+            ..Default::default()
+        };
+        assert!(entry.is_direct_eoa_key());
+
+        let not_direct = KeyEntry {
+            key_address: Some("0x2222222222222222222222222222222222222222".to_string()),
+            ..entry
+        };
+        assert!(!not_direct.is_direct_eoa_key());
+    }
+
+    #[test]
+    fn key_entry_normalize_identity_canonicalizes_addresses() {
+        let mut entry = KeyEntry {
+            wallet_address: "0x111111111111111111111111111111111111AbCd".to_string(),
+            key_address: Some("0x222222222222222222222222222222222222Ef01".to_string()),
+            ..Default::default()
+        };
+
+        assert!(entry.normalize_identity());
+        assert_eq!(
+            entry.wallet_address,
+            "0x111111111111111111111111111111111111abcd"
+        );
+        assert_eq!(
+            entry.key_address.as_deref(),
+            Some("0x222222222222222222222222222222222222ef01")
+        );
+    }
+
+    #[test]
+    fn key_entry_normalize_identity_rejects_invalid_addresses() {
+        let mut entry = KeyEntry {
+            wallet_address: "not-an-address".to_string(),
+            ..Default::default()
+        };
+        assert!(!entry.normalize_identity());
+
+        let mut entry_with_bad_key = KeyEntry {
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            key_address: Some("bad-key-address".to_string()),
+            ..Default::default()
+        };
+        assert!(!entry_with_bad_key.normalize_identity());
     }
 }

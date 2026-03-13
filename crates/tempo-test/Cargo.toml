@@ -5,6 +5,9 @@ edition = "2021"
 description = "Shared test utilities for Tempo CLI integration tests"
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 assert_cmd.workspace = true
 axum.workspace = true

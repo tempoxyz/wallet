@@ -6,6 +6,9 @@ description = "Generate signed release manifests for Tempo CLI extensions"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "tempo-sign"
 path = "src/main.rs"

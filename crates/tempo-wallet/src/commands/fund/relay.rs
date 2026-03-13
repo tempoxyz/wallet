@@ -1,11 +1,12 @@
 //! Relay bridge API client — deposit address creation and status polling.
 
 use alloy::primitives::Address;
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use tempo_common::error::NetworkError;
-use tempo_common::network;
+use tempo_common::{
+    error::{NetworkError, TempoError},
+    network,
+};
 
 /// Truncate a response body for error messages (max 500 chars).
 fn truncate_response(text: &str) -> &str {
@@ -56,7 +57,7 @@ const SOURCE_CHAINS: &[SourceChain] = &[
 ];
 
 /// Returns all supported source chains.
-pub(super) fn source_chains() -> &'static [SourceChain] {
+pub(super) const fn source_chains() -> &'static [SourceChain] {
     SOURCE_CHAINS
 }
 
@@ -77,7 +78,7 @@ pub(super) async fn create_deposit_address(
     source_chain: &SourceChain,
     recipient: &str,
     destination_chain_id: u64,
-) -> anyhow::Result<DepositAddressResult> {
+) -> Result<DepositAddressResult, TempoError> {
     let url = format!("{}/quote/v2", source_chain.relay_api);
 
     let body = serde_json::json!({
@@ -100,34 +101,49 @@ pub(super) async fn create_deposit_address(
         .json(&body)
         .send()
         .await
-        .context("Failed to request deposit address from Relay")?;
+        .map_err(NetworkError::Reqwest)?;
 
     let status = resp.status();
-    let text = resp.text().await.context("Failed to read Relay response")?;
+    let text = resp.text().await.map_err(NetworkError::Reqwest)?;
 
     if !status.is_success() {
         let truncated = truncate_response(&text);
-        anyhow::bail!(NetworkError::Http(format!(
-            "Relay API returned {status}: {truncated}"
-        )));
+        return Err(NetworkError::HttpStatus {
+            operation: "request relay quote",
+            status: status.as_u16(),
+            body: Some(truncated.to_string()),
+        }
+        .into());
     }
 
     let json: serde_json::Value =
-        serde_json::from_str(&text).context("Failed to parse Relay quote response")?;
+        serde_json::from_str(&text).map_err(|source| NetworkError::ResponseParse {
+            context: "relay quote response",
+            source,
+        })?;
 
     let steps = json["steps"]
         .as_array()
-        .context("Missing 'steps' in Relay response")?;
+        .ok_or(NetworkError::ResponseMissingField {
+            context: "relay quote response",
+            field: "steps",
+        })?;
 
     for step in steps {
         if step["id"].as_str() == Some("deposit") {
             let deposit_address = step["depositAddress"]
                 .as_str()
-                .context("Missing 'depositAddress' in deposit step")?
+                .ok_or(NetworkError::ResponseMissingField {
+                    context: "relay quote response",
+                    field: "depositAddress in deposit step",
+                })?
                 .to_string();
             let request_id = step["requestId"]
                 .as_str()
-                .context("Missing 'requestId' in deposit step")?
+                .ok_or(NetworkError::ResponseMissingField {
+                    context: "relay quote response",
+                    field: "requestId in deposit step",
+                })?
                 .to_string();
 
             return Ok(DepositAddressResult {
@@ -137,9 +153,11 @@ pub(super) async fn create_deposit_address(
         }
     }
 
-    anyhow::bail!(NetworkError::Http(
-        "No deposit step found in Relay response".to_string()
-    ))
+    Err(NetworkError::ResponseMissingEntry {
+        context: "relay quote response",
+        entry: "deposit step",
+    }
+    .into())
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +166,7 @@ pub(super) async fn create_deposit_address(
 
 /// Status of a cross-chain deposit tracked by Relay.
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct DepositStatus {
+pub(super) struct DepositStatus {
     /// One of: waiting, pending, submitted, success, failure, refunded.
     pub(crate) status: String,
     /// Transaction hashes on the source chain.
@@ -168,27 +186,33 @@ pub(super) async fn poll_deposit_status(
     client: &reqwest::Client,
     relay_api: &str,
     request_id: &str,
-) -> anyhow::Result<Option<DepositStatus>> {
-    let url = format!("{}/intents/status/v3?requestId={}", relay_api, request_id);
+) -> Result<Option<DepositStatus>, TempoError> {
+    let url = format!("{relay_api}/intents/status/v3?requestId={request_id}");
 
     let resp = client
         .get(&url)
         .send()
         .await
-        .context("Failed to poll Relay deposit status")?;
+        .map_err(NetworkError::Reqwest)?;
 
     let status = resp.status();
-    let text = resp.text().await.context("Failed to read Relay response")?;
+    let text = resp.text().await.map_err(NetworkError::Reqwest)?;
 
     if !status.is_success() {
         let truncated = truncate_response(&text);
-        anyhow::bail!(NetworkError::Http(format!(
-            "Relay API returned {status}: {truncated}"
-        )));
+        return Err(NetworkError::HttpStatus {
+            operation: "poll relay status",
+            status: status.as_u16(),
+            body: Some(truncated.to_string()),
+        }
+        .into());
     }
 
     let deposit_status: DepositStatus =
-        serde_json::from_str(&text).context("Failed to parse Relay status response")?;
+        serde_json::from_str(&text).map_err(|source| NetworkError::ResponseParse {
+            context: "relay status response",
+            source,
+        })?;
 
     if deposit_status.status.is_empty() {
         return Ok(None);

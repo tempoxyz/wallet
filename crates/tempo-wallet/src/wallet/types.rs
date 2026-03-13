@@ -14,11 +14,11 @@ pub(crate) struct TokenBalance {
 pub(crate) struct SpendingLimitInfo {
     pub unlimited: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<f64>,
+    pub limit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub remaining: Option<f64>,
+    pub remaining: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub spent: Option<f64>,
+    pub spent: Option<String>,
 }
 
 /// Key details for JSON output.
@@ -40,7 +40,7 @@ pub(crate) struct KeyInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub balance: Option<f64>,
+    pub balance: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spending_limit: Option<SpendingLimitInfo>,
     /// Key expiry as an ISO-8601 UTC timestamp (JSON).
@@ -55,7 +55,7 @@ pub(crate) struct KeysResponse {
 }
 
 impl KeysResponse {
-    pub(crate) fn new(keys: Vec<KeyInfo>) -> Self {
+    pub(crate) const fn new(keys: Vec<KeyInfo>) -> Self {
         let total = keys.len();
         Self { keys, total }
     }
@@ -72,9 +72,9 @@ pub(crate) struct BalanceBreakdown {
 /// Nested balance object for structured JSON output.
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct BalanceInfo {
-    pub total: f64,
-    pub locked: f64,
-    pub available: f64,
+    pub total: String,
+    pub locked: String,
+    pub available: String,
     pub active_sessions: usize,
     pub symbol: String,
 }

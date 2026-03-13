@@ -2,9 +2,22 @@
 
 use std::fs::OpenOptions;
 
-use anyhow::{Context, Result};
+use std::error::Error;
+
+use crate::error::{PaymentError, TempoError};
 
 use super::storage::ensure_wallet_dir;
+
+fn lock_error<E>(operation: &'static str, source: E) -> TempoError
+where
+    E: Error + Send + Sync + 'static,
+{
+    PaymentError::SessionPersistenceSource {
+        operation,
+        source: Box::new(source),
+    }
+    .into()
+}
 
 /// File lock guard for an origin/session key.
 pub struct SessionLock {
@@ -18,24 +31,29 @@ impl Drop for SessionLock {
 }
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
-pub fn acquire_origin_lock(key: &str) -> Result<SessionLock> {
+///
+/// # Errors
+///
+/// Returns an error when the wallet directory cannot be created, lock file
+/// creation/open fails, or the file lock cannot be acquired.
+pub fn acquire_origin_lock(key: &str) -> Result<SessionLock, TempoError> {
     let dir = ensure_wallet_dir()?;
-    let lock_path = dir.join(format!("{}.lock", key));
+    let lock_path = dir.join(format!("{key}.lock"));
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
         .write(true)
         .open(lock_path)
-        .context("Failed to create/open session lock file")?;
-    fs2::FileExt::try_lock_exclusive(&file).context("Failed to acquire session lock")?;
+        .map_err(|err| lock_error("open session lock file", err))?;
+    fs2::FileExt::try_lock_exclusive(&file)
+        .map_err(|err| lock_error("acquire session lock", err))?;
     Ok(SessionLock { file })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::session_key;
-    use super::*;
+    use super::{super::model::session_key, *};
 
     #[test]
     fn test_origin_lock_is_exclusive() {

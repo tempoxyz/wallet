@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install uninstall
+.PHONY: build release clean check test fix install uninstall run coverage
 
 build:
 	cargo build
@@ -24,15 +24,20 @@ clean:
 
 # Run all tests (uses mocks, no network required)
 test:
-	cargo nextest run --workspace
+	cargo test --workspace --all-features --locked
 
+# Full local parity with CI lint+test gates.
+# Requires `typos` and `cargo-deny` to be installed.
 check:
-	cargo fmt --all --check
-	cargo clippy --workspace --all-targets -- -D warnings
-	cargo nextest run --workspace
+	cargo +nightly fmt --all -- --check
+	cargo +nightly clippy --workspace --all-targets --all-features --locked -- -D warnings
+	cargo test --workspace --all-features --locked
+	RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps --locked
+	typos
+	cargo deny check
 
 fix:
-	cargo fmt
+	cargo +nightly fmt --all
 	cargo clippy --fix --allow-dirty --allow-staged
 
 # Generate coverage locally (requires cargo-llvm-cov and llvm-tools-preview)

@@ -64,19 +64,15 @@ Payment is automatic: sends request, gets 402 challenge, signs payment, retries 
 - **Use `--dry-run` before expensive operations.** Preview cost without paying.
 - **Check balance before large operations.** Some calls can be expensive.
 
-## Setup
+## Setup Assumption
 
-If `tempo` is not found, install it first:
+If this skill is already loaded, treat it as already set up. Do not run install/login bootstrap preemptively.
 
-```bash
-curl -fsSL https://tempo.xyz/install | bash
-```
+Run requests directly and only trigger recovery when a command fails due to missing CLI or wallet auth:
 
-Then log in (opens browser for passkey auth):
-
-```bash
-tempo wallet -t login
-```
+- If `tempo` is missing, install with `curl -fsSL https://tempo.xyz/install | bash`, then retry.
+- If wallet auth is missing, run `tempo wallet -t login`, wait for user completion, then retry.
+- For first-call confidence, optionally run `tempo wallet -t whoami` and continue when `ready` is `true`.
 
 ## Agent Usage
 

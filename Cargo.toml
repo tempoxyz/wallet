@@ -2,9 +2,27 @@
 members = ["crates/*"]
 resolver = "2"
 
+[workspace.lints]
+[workspace.lints.clippy]
+dbg-macro = "warn"
+manual-string-new = "warn"
+uninlined-format-args = "warn"
+use-self = "warn"
+redundant-clone = "warn"
+default-constructed-unit-structs = "allow"
+
+[workspace.lints.rust]
+rust-2018-idioms = "warn"
+unreachable-pub = "warn"
+unused-must-use = "warn"
+redundant-lifetimes = "warn"
+unnameable-types = "warn"
+
+[workspace.lints.rustdoc]
+all = "warn"
+
 [workspace.dependencies]
 alloy = { version = "1.6", default-features = false, features = ["std", "providers", "provider-http", "reqwest", "signer-local", "sol-types", "contract"] }
-anyhow = "1.0"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"

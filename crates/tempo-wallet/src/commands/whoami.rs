@@ -1,23 +1,25 @@
 //! Whoami / wallet status display.
 
-use std::collections::HashMap;
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
+use alloy::primitives::Address;
 use serde::Serialize;
 
-use crate::analytics::WHOAMI_VIEWED;
-use crate::wallet::{
-    balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
-    print_key_limits_to, query_all_balances, BalanceInfo, KeyInfo,
+use crate::{
+    analytics::WHOAMI_VIEWED,
+    wallet::{
+        balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
+        print_key_limits_to, query_all_balances, BalanceInfo, KeyInfo,
+    },
 };
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::cli::terminal::address_link;
-use tempo_common::config::Config;
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
-use tempo_common::payment::session;
+use tempo_common::{
+    cli::{context::Context, output, output::OutputFormat, terminal::address_link},
+    config::Config,
+    error::TempoError,
+    keys::Keystore,
+    network::NetworkId,
+    payment::session,
+};
 
 #[derive(Debug, Default, Serialize)]
 struct StatusResponse {
@@ -33,7 +35,7 @@ struct StatusResponse {
     key_expiry: Option<u64>,
 }
 
-pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
+pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
     ctx.track_event(WHOAMI_VIEWED);
     show_whoami(ctx, None, None).await
 }
@@ -42,7 +44,7 @@ pub(super) async fn show_whoami(
     ctx: &Context,
     keys: Option<&Keystore>,
     wallet_address: Option<&str>,
-) -> anyhow::Result<()> {
+) -> Result<(), TempoError> {
     let keys = keys.unwrap_or(&ctx.keys);
     let response = build_response(&ctx.config, keys, ctx.network, wallet_address).await;
     response.render(ctx.output_format)
@@ -64,7 +66,9 @@ async fn build_response(
     }
 
     let active_entry = if let Some(addr) = wallet_address {
-        keys.key_for_wallet_and_network(addr, network)
+        addr.parse::<Address>()
+            .ok()
+            .and_then(|address| keys.key_for_wallet_address_and_network(address, network))
     } else {
         keys.key_for_network(network)
     };
@@ -76,14 +80,15 @@ async fn build_response(
         return response;
     };
 
-    if !key_entry.wallet_address.is_empty() {
-        response.wallet = Some(key_entry.wallet_address.clone());
-    }
+    let Some(wallet_addr) = canonical_wallet_address_hex(key_entry) else {
+        response.ready = false;
+        return response;
+    };
+    response.wallet = Some(wallet_addr.clone());
 
-    let wallet_addr = response.wallet.as_deref().unwrap_or("");
     let balance_cache = HashMap::from([(
-        (wallet_addr.to_string(), key_entry.chain_id),
-        query_all_balances(config, network, wallet_addr).await,
+        (wallet_addr.clone(), key_entry.chain_id),
+        query_all_balances(config, network, &wallet_addr).await,
     )]);
 
     let mut key_info = build_key_info(config, network, chain_id, key_entry, &balance_cache).await;
@@ -91,7 +96,7 @@ async fn build_response(
     key_info.wallet_address = None;
     key_info.wallet_type = None;
 
-    let balance_f64 = key_info.balance.take();
+    let balance = key_info.balance.take();
     let symbol = key_info
         .symbol
         .clone()
@@ -99,30 +104,29 @@ async fn build_response(
 
     // Compute locked balance from active sessions
     let sessions = session::list_sessions().unwrap_or_default();
-    if let Some(bb) = balance_f64
-        .map(|b| format!("{b}"))
+    if let Some(bb) = balance
         .as_deref()
         .zip(Some(symbol.as_str()))
         .and_then(|(bal, sym)| balance_breakdown(bal, sym, chain_id, &sessions))
     {
         response.balance = Some(BalanceInfo {
-            total: bb.total.parse().unwrap_or(0.0),
-            locked: bb.locked.parse().unwrap_or(0.0),
-            available: bb.available.parse().unwrap_or(0.0),
+            total: bb.total,
+            locked: bb.locked,
+            available: bb.available,
             active_sessions: bb.session_count,
-            symbol: symbol.clone(),
+            symbol,
         });
-    } else if let Some(b) = balance_f64 {
+    } else if let Some(b) = balance {
         response.balance = Some(BalanceInfo {
-            total: b,
-            locked: 0.0,
+            total: b.clone(),
+            locked: "0".to_string(),
             available: b,
             active_sessions: 0,
-            symbol: symbol.clone(),
+            symbol,
         });
     }
 
-    if key_entry.key_address.is_none() {
+    if key_entry.key_address_parsed().is_none() {
         response.ready = false;
     }
     response.key = Some(key_info);
@@ -137,8 +141,12 @@ async fn build_response(
     response
 }
 
+fn canonical_wallet_address_hex(key_entry: &tempo_common::keys::KeyEntry) -> Option<String> {
+    key_entry.wallet_address_hex()
+}
+
 impl StatusResponse {
-    fn render(&self, format: OutputFormat) -> anyhow::Result<()> {
+    fn render(&self, format: OutputFormat) -> Result<(), TempoError> {
         output::emit_by_format(format, self, || {
             let w = &mut std::io::stdout();
             let explorer = self
@@ -194,6 +202,24 @@ impl StatusResponse {
             }
 
             Ok(())
-        })
+        })?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempo_common::keys::KeyEntry;
+
+    #[test]
+    fn canonical_wallet_address_hex_rejects_malformed_address() {
+        let entry = KeyEntry {
+            wallet_address: "not-an-address".to_string(),
+            ..Default::default()
+        };
+
+        assert!(canonical_wallet_address_hex(&entry).is_none());
     }
 }

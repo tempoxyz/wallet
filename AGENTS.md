@@ -47,7 +47,7 @@ Wallet identity and custody extension, plus session/service management. Source o
 - `crates/tempo-wallet/src/app.rs` - Command dispatch: context building, command routing, analytics
 - `crates/tempo-wallet/src/analytics.rs` - Wallet-specific analytics events and payloads
 - `crates/tempo-wallet/src/prompt.rs` - Interactive prompt helpers
-- `crates/tempo-wallet/src/account/` - Wallet account types (balances, keys, spending limits) and on-chain queries
+- `crates/tempo-wallet/src/wallet/` - Wallet account types (balances, keys, spending limits) and on-chain queries
   - `mod.rs`, `types.rs`, `query.rs`, `render.rs`
 - `crates/tempo-wallet/src/commands/` - Command implementations (all take `&Context` as first arg)
   - `login.rs` - Login command (passkey authentication flow)
@@ -68,10 +68,8 @@ HTTP client with built-in MPP payment support. Source organized by module direct
 - `crates/tempo-request/src/args.rs` - clap definitions (Cli, QueryArgs)
 - `crates/tempo-request/src/app.rs` - Command dispatch
 - `crates/tempo-request/src/analytics.rs` - Request-specific analytics events and payloads
-- `crates/tempo-request/src/commands/` - Command entrypoint
-  - `mod.rs`, `query.rs`
-- `crates/tempo-request/src/request/` - Request building, output rendering, and analytics helpers
-  - `mod.rs`, `analytics.rs`, `headers.rs`, `output.rs`, `payload.rs`, `payment_challenge.rs`, `prepare.rs`, `sse.rs`
+- `crates/tempo-request/src/query/` - Query flow (request prep, output, challenge parsing, SSE, analytics)
+  - `mod.rs`, `analytics.rs`, `challenge.rs`, `headers.rs`, `output.rs`, `payload.rs`, `prepare.rs`, `sse.rs`
 - `crates/tempo-request/src/http/` - HTTP client and request handling
   - `mod.rs`, `client.rs`, `fmt.rs`, `response.rs`
 - `crates/tempo-request/src/payment/` - Payment flows (charge + session)
@@ -134,7 +132,7 @@ Example summary format:
 ### Rust Conventions
 
 - **Edition**: Rust 2021
-- **Error handling**: Use `thiserror` for error types (`TempoError`), `anyhow` for propagation
+- **Error handling**: Prefer typed `TempoError` boundaries and source-carrying variants (`*Source`) where a concrete underlying error exists
 - **Async runtime**: Tokio (minimal features: macros, rt-multi-thread, signal)
 - **Serialization**: Serde with derive macros
 
@@ -147,11 +145,14 @@ Example summary format:
 ```rust
 use std::path::PathBuf;
 
-use anyhow::Result;
 use clap::Parser;
 
 use tempo_common::config::Config;
 use tempo_common::error::TempoError;
+
+fn run() -> Result<(), TempoError> {
+    Ok(())
+}
 ```
 
 ### Error Handling Pattern

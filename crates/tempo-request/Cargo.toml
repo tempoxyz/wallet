@@ -10,6 +10,9 @@ readme = "../../README.md"
 keywords = ["http", "cli", "payments", "mpp"]
 categories = ["command-line-utilities"]
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "tempo-request"
 path = "src/main.rs"
@@ -17,10 +20,10 @@ path = "src/main.rs"
 [dependencies]
 tempo-common = { path = "../tempo-common" }
 alloy.workspace = true
-anyhow.workspace = true
 base64.workspace = true
 clap.workspace = true
 futures.workspace = true
+getrandom.workspace = true
 hex.workspace = true
 mpp.workspace = true
 reqwest = { workspace = true, features = ["stream"] }

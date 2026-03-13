@@ -1,12 +1,12 @@
 //! Payment analytics tracking for query command flows.
 
+use std::fmt::Display;
+
 use crate::analytics::{
     PaymentFailurePayload, PaymentStartedPayload, PaymentSuccessPayload, QueryFailurePayload,
     QueryStartedPayload, QuerySuccessPayload,
 };
-use tempo_common::analytics::Event;
-use tempo_common::cli::context::Context;
-use tempo_common::security::sanitize_error;
+use tempo_common::{analytics::Event, cli::context::Context, security::sanitize_error};
 
 const QUERY_STARTED: Event = Event::new("query_started");
 const QUERY_SUCCESS: Event = Event::new("query_success");
@@ -68,7 +68,7 @@ pub(crate) struct PaymentAnalytics<'a> {
 }
 
 impl<'a> PaymentAnalytics<'a> {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         ctx: &'a Context,
         network: &'a str,
         amount: &'a str,
@@ -102,7 +102,7 @@ impl<'a> PaymentAnalytics<'a> {
     /// successful (the non-402 path fires this directly from `mod.rs`).
     pub(crate) fn track_success(
         &self,
-        tx_hash: String,
+        tx_hash: Option<String>,
         session_id: Option<String>,
         url: &str,
         method: &str,
@@ -122,7 +122,7 @@ impl<'a> PaymentAnalytics<'a> {
         track_query_success(self.ctx, url, method, status_code);
     }
 
-    pub(crate) fn track_failure(&self, err: &anyhow::Error) {
+    pub(crate) fn track_failure(&self, err: &impl Display) {
         self.ctx.track(
             PAYMENT_FAILURE,
             PaymentFailurePayload {

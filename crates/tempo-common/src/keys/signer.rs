@@ -4,26 +4,30 @@
 //! resolves a network's key entry into a ready-to-use [`Signer`]
 //! (private key signer + signing mode + effective `from` address).
 
-use alloy::primitives::Address;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
-use crate::error::{ConfigError, KeyError, TempoError};
-use crate::network::NetworkId;
+use crate::{
+    error::{ConfigError, KeyError, TempoError},
+    network::NetworkId,
+};
 
-use super::authorization;
-use super::Keystore;
+use super::{authorization, Keystore};
 
-/// Parse a private key hex string into a PrivateKeySigner.
+/// Parse a private key hex string into a `PrivateKeySigner`.
+///
+/// # Errors
+///
+/// Returns an error when the key is not valid hex, has the wrong length, or
+/// cannot be parsed into a signer.
 pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoError> {
     let key = pk_str.trim();
     let key_hex = key.strip_prefix("0x").unwrap_or(key);
-    let bytes = hex::decode(key_hex)
-        .map_err(|_| KeyError::InvalidKey("Invalid private key format".to_string()))?;
+    let bytes = hex::decode(key_hex).map_err(|_| KeyError::InvalidKeyFormat)?;
     if bytes.len() != 32 {
-        return Err(KeyError::InvalidKey("Invalid private key format".to_string()).into());
+        return Err(KeyError::InvalidKeyFormat.into());
     }
-    PrivateKeySigner::from_slice(&bytes).map_err(|e| KeyError::InvalidKey(e.to_string()).into())
+    PrivateKeySigner::from_slice(&bytes).map_err(|_| KeyError::InvalidKeyFormat.into())
 }
 
 /// A loaded wallet signer ready for transaction signing.
@@ -42,6 +46,11 @@ impl Keystore {
     /// Looks up the key entry for the network, parses the private key,
     /// resolves the signing mode (direct EOA or keychain with optional
     /// key authorization), and returns a ready-to-use [`Signer`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no key is configured for the network, stored
+    /// addresses are malformed, or signer parsing fails.
     pub fn signer(&self, network: NetworkId) -> Result<Signer, TempoError> {
         let key_entry = self.key_for_network(network).ok_or_else(|| {
             TempoError::from(ConfigError::Missing(format!(
@@ -59,11 +68,11 @@ impl Keystore {
             })?;
         let signer = parse_private_key_signer(pk)?;
 
-        let wallet_address: Address = key_entry.wallet_address.parse().map_err(|e| {
-            TempoError::from(ConfigError::Invalid(format!(
-                "Invalid wallet address: {}",
-                e
-            )))
+        let wallet_address: Address = key_entry.wallet_address_parsed().ok_or_else(|| {
+            TempoError::from(ConfigError::InvalidAddress {
+                context: "wallet",
+                value: key_entry.wallet_address.clone(),
+            })
         })?;
 
         let signing_mode = if wallet_address == signer.address() {
@@ -74,10 +83,10 @@ impl Keystore {
                 .as_deref()
                 .and_then(authorization::decode);
 
-            let key_authorization = if !self.is_provisioned(network) {
-                local_auth.map(Box::new)
-            } else {
+            let key_authorization = if self.is_provisioned(network) {
                 None
+            } else {
+                local_auth.map(Box::new)
             };
 
             TempoSigningMode::Keychain {
@@ -136,7 +145,7 @@ mod tests {
                         .unwrap()
                 );
             }
-            _ => panic!("expected Keychain mode"),
+            TempoSigningMode::Direct => panic!("expected Keychain mode"),
         }
     }
 
@@ -159,7 +168,7 @@ mod tests {
             } => {
                 assert!(key_authorization.is_none());
             }
-            _ => panic!("expected Keychain mode"),
+            TempoSigningMode::Direct => panic!("expected Keychain mode"),
         }
     }
 

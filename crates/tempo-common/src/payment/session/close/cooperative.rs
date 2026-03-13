@@ -4,17 +4,22 @@
 //! on-chain, avoiding the payer-initiated grace period.
 
 use alloy::primitives::{Address, B256};
-use anyhow::{Context, Result};
 
-use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
-use mpp::protocol::methods::tempo::sign_voucher;
-use mpp::{parse_receipt, ChallengeEcho};
+use mpp::{
+    parse_receipt,
+    protocol::methods::tempo::{session::SessionCredentialPayload, sign_voucher},
+    ChallengeEcho,
+};
 
 use mpp::protocol::core::extract_tx_hash;
 
 use super::super::store as session_store;
-use crate::cli::format::format_token_amount;
-use crate::error::PaymentError;
+use crate::{
+    cli::format::format_token_amount,
+    error::{KeyError, NetworkError, PaymentError, TempoError},
+};
+
+type SessionResult<T> = Result<T, TempoError>;
 
 /// Attempt a cooperative (server-side) close of a session without on-chain fallback.
 ///
@@ -24,21 +29,22 @@ use crate::error::PaymentError;
 async fn try_cooperative_close_from_record(
     record: &session_store::SessionRecord,
     keys: &crate::keys::Keystore,
-) -> Result<()> {
-    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo)
-        .context("Failed to parse persisted challenge echo")?;
+) -> SessionResult<()> {
+    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).map_err(|source| {
+        NetworkError::ResponseParse {
+            context: "persisted challenge echo",
+            source,
+        }
+    })?;
 
     let network_id = record.network_id();
     let wallet = keys.signer(network_id)?;
 
-    let channel_id: B256 = record.channel_id_b256()?;
+    let channel_id: B256 = record.channel_id;
 
-    let escrow_contract: Address = record
-        .escrow_contract
-        .parse()
-        .context("Invalid escrow_contract in session record")?;
+    let escrow_contract: Address = record.escrow_contract;
 
-    let cumulative_amount: u128 = record.cumulative_amount_u128()?;
+    let cumulative_amount: u128 = record.cumulative_amount_u128();
 
     let client = reqwest::Client::new();
     try_server_close(
@@ -68,7 +74,7 @@ pub(super) async fn try_server_close(
     chain_id: u64,
     cumulative_amount: u128,
     client: &reqwest::Client,
-) -> Result<Option<String>> {
+) -> SessionResult<Option<String>> {
     let close_url = if record.request_url.is_empty() {
         &record.origin
     } else {
@@ -88,7 +94,7 @@ pub(super) async fn try_server_close(
 
     let network_id = record.network_id();
     let spent_fmt = format_token_amount(cumulative_amount, network_id);
-    let deposit_u = record.deposit_u128().unwrap_or(0);
+    let deposit_u = record.deposit;
     let deposit_fmt = format_token_amount(deposit_u, network_id);
     tracing::info!(
         spent = %spent_fmt,
@@ -105,22 +111,29 @@ pub(super) async fn try_server_close(
         chain_id,
     )
     .await
-    .context("Failed to sign close voucher")?;
+    .map_err(|source| KeyError::SigningOperationSource {
+        operation: "sign close voucher",
+        source: Box::new(source),
+    })?;
     let payload = SessionCredentialPayload::Close {
-        channel_id: format!("{:#x}", channel_id),
+        channel_id: format!("{channel_id:#x}"),
         cumulative_amount: cumulative_amount.to_string(),
         signature: format!("0x{}", hex::encode(sig)),
     };
     let credential =
-        mpp::PaymentCredential::with_source(echo.clone(), record.payer.to_string(), payload);
-    let auth =
-        mpp::format_authorization(&credential).context("Failed to format close credential")?;
+        mpp::PaymentCredential::with_source(echo.clone(), record.payer.clone(), payload);
+    let auth = mpp::format_authorization(&credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "close credential",
+            source: Box::new(source),
+        }
+    })?;
     let response = client
         .post(close_url)
         .header("Authorization", &auth)
         .send()
         .await
-        .context("Channel close request failed")?;
+        .map_err(NetworkError::Reqwest)?;
 
     // Interpret response and optionally retry once with required cumulative
     let status = response.status();
@@ -170,12 +183,14 @@ mod tests {
                     let mut c = counters.lock().unwrap();
                     if has_auth {
                         c.1 += 1;
+                        drop(c);
                         axum::http::Response::builder()
                             .status(200)
                             .body(axum::body::Body::empty())
                             .unwrap()
                     } else {
                         c.0 += 1;
+                        drop(c);
                         axum::http::Response::builder()
                             .status(402)
                             .header(
@@ -208,16 +223,22 @@ mod tests {
             origin: base.clone(),
             request_url: base.clone(),
             chain_id: 4217,
-            escrow_contract: "0x0000000000000000000000000000000000000001".into(),
+            escrow_contract: "0x0000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
             currency: "0x0000000000000000000000000000000000000001".into(),
             recipient: "0x0000000000000000000000000000000000000002".into(),
             payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003".into(),
-            authorized_signer: "0x0000000000000000000000000000000000000003".into(),
+            authorized_signer: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
             salt: "0x00".into(),
-            channel_id: "0x01".into(),
-            deposit: "1000".into(),
-            tick_cost: "1".into(),
-            cumulative_amount: "2".into(),
+            channel_id: "0x0000000000000000000000000000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
+            deposit: 1000,
+            tick_cost: 1,
+            cumulative_amount: 2,
             challenge_echo: serde_json::to_string(&mpp::ChallengeEcho {
                 id: "abc".into(),
                 realm: "test".into(),

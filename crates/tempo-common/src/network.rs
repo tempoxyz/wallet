@@ -1,8 +1,8 @@
 //! Network types and explorer configuration for Tempo blockchain networks.
 
-use std::fmt;
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
+use alloy::primitives::{address, Address};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ConfigError, NetworkError, TempoError};
@@ -20,9 +20,13 @@ const TEMPO_CHAIN_ID: u64 = 4217;
 const TEMPO_MODERATO_CHAIN_ID: u64 = 42431;
 
 /// pathUSD token address (testnet).
-const PATH_USD_TOKEN: &str = "0x20c0000000000000000000000000000000000000";
+const PATH_USD_TOKEN: Address = address!("20c0000000000000000000000000000000000000");
 /// USDC token address (mainnet).
-pub const USDCE_TOKEN: &str = "0x20c000000000000000000000b9537d11c60e8b50";
+pub const USDCE_TOKEN: Address = address!("20c000000000000000000000b9537d11c60e8b50");
+/// Escrow contract address (mainnet).
+const TEMPO_ESCROW: Address = address!("0901aed692c755b870f9605e56baa66c35beff69");
+/// Escrow contract address (moderato testnet).
+const TEMPO_MODERATO_ESCROW: Address = address!("542831e3e4ace07559b7c8787395f4fb99f70787");
 
 /// Token configuration for Tempo mainnet (USDC).
 const TEMPO_TOKEN: TokenConfig = TokenConfig {
@@ -48,7 +52,7 @@ pub struct TokenConfig {
     /// Number of decimal places
     pub decimals: u8,
     /// Token address - contract address for EVM chains (ERC20)
-    pub address: &'static str,
+    pub address: Address,
 }
 
 /// Static network identifier with compile-time metadata.
@@ -64,84 +68,95 @@ pub enum NetworkId {
 
 impl NetworkId {
     /// Resolve an optional network name to a `NetworkId`, defaulting to Tempo mainnet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a provided network string does not map to a
+    /// supported `NetworkId`.
     pub fn resolve(network: Option<&str>) -> Result<Self, TempoError> {
-        match network {
-            None => Ok(NetworkId::Tempo),
-            Some(s) => s
-                .parse::<NetworkId>()
-                .map_err(|_| NetworkError::UnknownNetwork(s.to_string()).into()),
-        }
+        network.map_or_else(
+            || Ok(Self::Tempo),
+            |s| s.parse::<Self>().map_err(TempoError::from),
+        )
     }
 
     /// Get the string identifier for this network.
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
-            NetworkId::Tempo => TEMPO,
-            NetworkId::TempoModerato => TEMPO_MODERATO,
+            Self::Tempo => TEMPO,
+            Self::TempoModerato => TEMPO_MODERATO,
         }
     }
 
     /// Get the chain ID for this network.
+    #[must_use]
     pub const fn chain_id(&self) -> u64 {
         match self {
-            NetworkId::Tempo => TEMPO_CHAIN_ID,
-            NetworkId::TempoModerato => TEMPO_MODERATO_CHAIN_ID,
+            Self::Tempo => TEMPO_CHAIN_ID,
+            Self::TempoModerato => TEMPO_MODERATO_CHAIN_ID,
         }
     }
 
     /// Look up a network by its EVM chain ID.
-    pub fn from_chain_id(chain_id: u64) -> Option<Self> {
+    #[must_use]
+    pub const fn from_chain_id(chain_id: u64) -> Option<Self> {
         match chain_id {
-            TEMPO_CHAIN_ID => Some(NetworkId::Tempo),
-            TEMPO_MODERATO_CHAIN_ID => Some(NetworkId::TempoModerato),
+            TEMPO_CHAIN_ID => Some(Self::Tempo),
+            TEMPO_MODERATO_CHAIN_ID => Some(Self::TempoModerato),
             _ => None,
         }
     }
 
     /// Look up a network by chain ID, returning an error for unsupported chains.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `chain_id` is not one of the built-in Tempo networks.
     pub fn require_chain_id(chain_id: u64) -> Result<Self, TempoError> {
-        Self::from_chain_id(chain_id).ok_or_else(|| {
-            ConfigError::Invalid(format!("Unsupported chainId: {}", chain_id)).into()
-        })
+        Self::from_chain_id(chain_id)
+            .ok_or_else(|| ConfigError::UnsupportedChainId(chain_id).into())
     }
 
     /// Get the default RPC URL for this network.
+    #[must_use]
     pub const fn default_rpc_url(&self) -> &'static str {
         match self {
             // Basic-auth credentials are public rate-limit tokens, not secrets.
-            NetworkId::Tempo => "https://beautiful-tesla:great-benz@rpc.mainnet.tempo.xyz",
-            NetworkId::TempoModerato => "https://rpc.moderato.tempo.xyz",
+            Self::Tempo => "https://beautiful-tesla:great-benz@rpc.mainnet.tempo.xyz",
+            Self::TempoModerato => "https://rpc.moderato.tempo.xyz",
         }
     }
 
     /// Get the auth server URL for browser-based wallet authentication.
     ///
     /// The `auth=` parameter is a public routing token, not a secret.
+    #[must_use]
     pub const fn auth_url(&self) -> &'static str {
         match self {
-            NetworkId::Tempo => {
-                "https://wallet.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish"
-            }
-            NetworkId::TempoModerato => {
+            Self::Tempo => "https://wallet.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish",
+            Self::TempoModerato => {
                 "https://wallet.moderato.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish"
             }
         }
     }
 
     /// Get the block explorer base URL for this network.
-    const fn explorer_base_url(&self) -> &'static str {
+    const fn explorer_base_url(self) -> &'static str {
         match self {
-            NetworkId::Tempo => "https://explore.mainnet.tempo.xyz",
-            NetworkId::TempoModerato => "https://explore.moderato.tempo.xyz",
+            Self::Tempo => "https://explore.mainnet.tempo.xyz",
+            Self::TempoModerato => "https://explore.moderato.tempo.xyz",
         }
     }
 
     /// Build a transaction URL on the block explorer.
+    #[must_use]
     pub fn tx_url(&self, hash: &str) -> String {
         format!("{}/receipt/{}", self.explorer_base_url(), hash)
     }
 
     /// Build an address URL on the block explorer.
+    #[must_use]
     pub fn address_url(&self, addr: &str) -> String {
         format!("{}/address/{}", self.explorer_base_url(), addr)
     }
@@ -149,32 +164,41 @@ impl NetworkId {
     /// Get the default escrow contract address for this network.
     ///
     /// These match the addresses in `mpp::client::channel_ops::default_escrow_contract`.
-    pub const fn escrow_contract(&self) -> &'static str {
+    #[must_use]
+    pub const fn escrow_contract(&self) -> Address {
         match self {
-            NetworkId::Tempo => "0x0901aED692C755b870F9605E56BAA66c35BEfF69",
-            NetworkId::TempoModerato => "0x542831e3E4Ace07559b7C8787395f4Fb99F70787",
+            Self::Tempo => TEMPO_ESCROW,
+            Self::TempoModerato => TEMPO_MODERATO_ESCROW,
         }
     }
 
     /// Get the payment token for this network.
+    #[must_use]
     pub const fn token(&self) -> &'static TokenConfig {
         match self {
-            NetworkId::Tempo => &TEMPO_TOKEN,
-            NetworkId::TempoModerato => &TEMPO_MODERATO_TOKEN,
+            Self::Tempo => &TEMPO_TOKEN,
+            Self::TempoModerato => &TEMPO_MODERATO_TOKEN,
         }
     }
 }
 
 impl FromStr for NetworkId {
-    type Err = String;
+    type Err = NetworkError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            TEMPO => Ok(NetworkId::Tempo),
-            TEMPO_MODERATO => Ok(NetworkId::TempoModerato),
-            _ => Err(format!("Unknown network: {}", s)),
-        }
+        parse_network_name(s).ok_or_else(|| NetworkError::UnknownNetwork(s.to_string()))
     }
+}
+
+fn parse_network_name(value: &str) -> Option<NetworkId> {
+    let normalized = value.trim();
+    if normalized.eq_ignore_ascii_case(TEMPO) {
+        return Some(NetworkId::Tempo);
+    }
+    if normalized.eq_ignore_ascii_case(TEMPO_MODERATO) {
+        return Some(NetworkId::TempoModerato);
+    }
+    None
 }
 
 impl fmt::Display for NetworkId {
@@ -286,6 +310,14 @@ mod tests {
     }
 
     #[test]
+    fn test_network_name_trimmed() {
+        assert_eq!(
+            "  tempo-moderato  ".parse::<NetworkId>().unwrap(),
+            NetworkId::TempoModerato
+        );
+    }
+
+    #[test]
     fn test_resolve_defaults_to_tempo() {
         assert_eq!(NetworkId::resolve(None).unwrap(), NetworkId::Tempo);
     }
@@ -327,8 +359,8 @@ mod tests {
     fn test_escrow_contract_addresses() {
         let tempo = NetworkId::Tempo.escrow_contract();
         let moderato = NetworkId::TempoModerato.escrow_contract();
-        assert!(tempo.starts_with("0x"));
-        assert!(moderato.starts_with("0x"));
+        assert_eq!(tempo, TEMPO_ESCROW);
+        assert_eq!(moderato, TEMPO_MODERATO_ESCROW);
         assert_ne!(tempo, moderato);
     }
 

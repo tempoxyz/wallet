@@ -133,7 +133,7 @@ async fn test_connection_refused() {
             continue;
         }
 
-        assert_exit_code(&output, 1, "connection refused should exit with E_GENERAL");
+        assert_exit_code(&output, 3, "connection refused should exit with E_NETWORK");
         let combined = get_combined_output(&output);
         assert!(
             combined.contains("error")
@@ -357,7 +357,7 @@ async fn test_retries_and_backoff_on_unreachable_host() {
         .output()
         .unwrap();
 
-    assert_exit_code(&output, 1, "unreachable host should exit with E_GENERAL");
+    assert_exit_code(&output, 3, "unreachable host should exit with E_NETWORK");
     // Should emit JSON error to stdout
     let stdout = String::from_utf8_lossy(&output.stdout);
     let _: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json error");
@@ -501,8 +501,7 @@ async fn test_402_payment_narration_verbose() {
     let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
     assert!(
         stderr.contains("payment required:"),
-        "should narrate 402 payment requirement: {}",
-        stderr
+        "should narrate 402 payment requirement: {stderr}"
     );
 }
 
@@ -523,8 +522,7 @@ async fn test_402_paid_summary_verbose_and_quiet() {
     let stderr_default = String::from_utf8_lossy(&output_default.stderr);
     assert!(
         !stderr_default.contains("Paid "),
-        "expected no paid summary in default mode, got: {}",
-        stderr_default
+        "expected no paid summary in default mode, got: {stderr_default}"
     );
 
     // Verbose: summary should be printed
@@ -539,8 +537,7 @@ async fn test_402_paid_summary_verbose_and_quiet() {
     let stderr_verbose = String::from_utf8_lossy(&output_verbose.stderr);
     assert!(
         stderr_verbose.contains("Paid "),
-        "expected paid summary in verbose mode, got: {}",
-        stderr_verbose
+        "expected paid summary in verbose mode, got: {stderr_verbose}"
     );
 
     // Quiet: summary should be suppressed
@@ -552,17 +549,16 @@ async fn test_402_paid_summary_verbose_and_quiet() {
     let stderr_quiet = String::from_utf8_lossy(&output_quiet.stderr);
     assert!(
         !stderr_quiet.contains("Paid "),
-        "expected no paid summary in quiet mode, got: {}",
-        stderr_quiet
+        "expected no paid summary in quiet mode, got: {stderr_quiet}"
     );
 }
 
-/// Analytics PaymentSuccess tx_hash should be the extracted hex, not the raw header
+/// Analytics `PaymentSuccess` `tx_hash` should be the extracted hex, not the raw header
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_analytics_tx_hash_is_extracted_hex() {
     // Simple 64-nybble hex hash
     let tx_hash = format!("0x{}", "ab".repeat(32));
-    let receipt_value = format!("tx={}", tx_hash);
+    let receipt_value = format!("tx={tx_hash}");
     let h = PaymentTestHarness::charge_with_receipt("ok", &receipt_value).await;
 
     // Set up analytics tap file
@@ -586,7 +582,7 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
         }
     }
     let Some(json_str) = found else {
-        panic!("missing payment_success event: {}", content);
+        panic!("missing payment_success event: {content}");
     };
     let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     let got = v.get("tx_hash").and_then(|x| x.as_str()).unwrap_or("");
@@ -596,13 +592,11 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
         got.starts_with("0x") && got.len() == 66 && got[2..].chars().all(|c| c.is_ascii_hexdigit());
     assert!(
         got.is_empty() || is_hex,
-        "tx_hash should be empty or a 0x-hex hash, got: {}",
-        got
+        "tx_hash should be empty or a 0x-hex hash, got: {got}"
     );
     assert!(
         !got.contains('='),
-        "tx_hash should not be a raw header with fields: {}",
-        got
+        "tx_hash should not be a raw header with fields: {got}"
     );
 }
 
@@ -665,7 +659,7 @@ async fn test_402_charge_flow_with_private_key_flag() {
     );
 }
 
-/// --private-key via TEMPO_PRIVATE_KEY env var works.
+/// --private-key via `TEMPO_PRIVATE_KEY` env var works.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_charge_flow_with_private_key_env() {
     let rpc = MockRpcServer::start(42431).await;
@@ -1196,8 +1190,8 @@ async fn test_402_malformed_www_authenticate() {
 
     assert_exit_code(
         &output,
-        1,
-        "malformed WWW-Authenticate should exit with E_GENERAL",
+        4,
+        "malformed WWW-Authenticate should exit with E_PAYMENT",
     );
     let combined = get_combined_output(&output);
     // Should error about missing Payment protocol or WWW-Authenticate
@@ -1263,6 +1257,29 @@ async fn test_error_json_for_invalid_url() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_error_json_for_invalid_http_method() {
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-j", "-X", "NOPE??", "https://example.com/api"])
+        .output()
+        .unwrap();
+
+    assert_exit_code(&output, 2, "invalid HTTP method should exit with E_USAGE");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["code"], "E_USAGE");
+    assert!(
+        parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("Invalid HTTP method"),
+        "expected invalid method message, got: {}",
+        parsed["message"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_error_json_for_connection_refused() {
     let temp = TestConfigBuilder::new().build();
 
@@ -1271,7 +1288,7 @@ async fn test_error_json_for_connection_refused() {
         .output()
         .unwrap();
 
-    assert_exit_code(&output, 1, "connection refused should exit with E_GENERAL");
+    assert_exit_code(&output, 3, "connection refused should exit with E_NETWORK");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert!(parsed["code"].is_string());
@@ -1344,7 +1361,7 @@ async fn test_offline_flag_no_socket_opened() {
 
 // ==================== Analytics Events Sequencing & Redaction ====================
 
-/// Helper to parse the TEMPO_TEST_EVENTS file into a list of (event_name, props_json).
+/// Helper to parse the `TEMPO_TEST_EVENTS` file into a list of (`event_name`, `props_json`).
 fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
     let content = std::fs::read_to_string(path).unwrap_or_default();
     content
@@ -1404,7 +1421,7 @@ async fn test_analytics_event_sequence_failure() {
         .args(["http://127.0.0.1:1/unreachable"])
         .output()
         .unwrap();
-    assert_exit_code(&output, 1, "connection failure should exit with E_GENERAL");
+    assert_exit_code(&output, 3, "connection failure should exit with E_NETWORK");
 
     let events = parse_events_log(&events_path);
     let names: Vec<&str> = events.iter().map(|(n, _)| n.as_str()).collect();
@@ -1713,7 +1730,7 @@ async fn test_toon_input_invalid_data_errors() {
         .output()
         .unwrap();
 
-    assert_exit_code(&output, 1, "invalid TOON input should exit with E_GENERAL");
+    assert_exit_code(&output, 2, "invalid TOON input should exit with E_USAGE");
     let combined = get_combined_output(&output);
     assert!(
         combined.contains("TOON") || combined.contains("decode"),
@@ -2051,8 +2068,7 @@ async fn test_retry_http_retries_on_specified_codes() {
     // Should have waited at least the backoff time (retried once)
     assert!(
         elapsed.as_millis() >= 10,
-        "should have retried with backoff: elapsed={:?}",
-        elapsed
+        "should have retried with backoff: elapsed={elapsed:?}"
     );
 }
 
@@ -2067,16 +2083,65 @@ async fn test_max_pay_rejects_expensive_charge() {
         .output()
         .unwrap();
 
+    assert_exit_code(&output, 4, "max-pay should exit with E_PAYMENT");
+    let combined = get_combined_output(&output);
     assert!(
-        !output.status.success(),
-        "max-pay should reject expensive charge"
+        combined.contains("Payment rejected by server: price exceeds client max"),
+        "should preserve max-pay rejection wording: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_max_pay_currency_rejects_with_stable_message_and_exit_code() {
+    let h = PaymentTestHarness::charge_with_body("should not see this").await;
+
+    // The mock challenge is tempo-moderato/pathUSD. Using USDC must be rejected
+    // before payment dispatch with a stable business-rule message.
+    let output = test_command(&h.temp)
+        .args(["--currency", "USDC", &h.url("/api")])
+        .output()
+        .unwrap();
+
+    assert_exit_code(
+        &output,
+        4,
+        "max-pay-currency mismatch should exit with E_PAYMENT",
     );
     let combined = get_combined_output(&output);
     assert!(
-        combined.to_lowercase().contains("exceeds")
-            || combined.to_lowercase().contains("max")
-            || combined.to_lowercase().contains("cap"),
-        "should mention payment cap exceeded: {combined}"
+        combined.contains(
+            "Payment rejected by server: requested currency does not match client max-pay-currency"
+        ),
+        "should preserve max-pay-currency rejection wording: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_network_mismatch_preserves_router_wording_and_exit_class() {
+    let www_auth = charge_www_authenticate("test-network-mismatch");
+    let server = MockServer::start(
+        402,
+        vec![("www-authenticate", &www_auth)],
+        "Payment Required",
+    )
+    .await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("TEMPO_PRIVATE_KEY", HARDHAT_PRIVATE_KEY)
+        .args(["--network", "tempo", &server.url("/paid")])
+        .output()
+        .unwrap();
+
+    assert_exit_code(
+        &output,
+        4,
+        "challenge network mismatch should exit with E_PAYMENT",
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Server requested network 'tempo-moderato' but --network is 'tempo'"),
+        "should preserve router mismatch wording: {combined}"
     );
 }
 
@@ -2248,6 +2313,25 @@ async fn test_output_file_in_nonexistent_directory_fails() {
     );
 }
 
+/// `-o` path traversal should be rejected.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_output_file_path_traversal_rejected() {
+    let server = MockServer::start(200, vec![], "should not write").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .args(["-o", "../escape.txt", &server.url("/test")])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "path traversal should fail");
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("path traversal") || combined.contains("Invalid output path"),
+        "error should mention invalid output path: {combined}"
+    );
+}
+
 /// Verbose payment flow must not leak private key material in stderr.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_payment_credential_not_leaked_in_verbose_logs() {
@@ -2270,7 +2354,7 @@ async fn test_payment_credential_not_leaked_in_verbose_logs() {
     );
 }
 
-/// An empty URL argument should fail with E_USAGE (exit code 2).
+/// An empty URL argument should fail with `E_USAGE` (exit code 2).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_empty_url_fails_with_usage_error() {
     let temp = TestConfigBuilder::new().build();

@@ -3,17 +3,16 @@
 //! Handles Server-Sent Events (SSE) response streams with mid-stream
 //! voucher top-ups and retry logic for lost server notifications.
 
-use std::io::Write;
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 
-use anyhow::{Context, Result};
 use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
-use super::persist::persist_session;
-use super::voucher::build_voucher_credential;
-use super::{SessionContext, SessionState};
+use super::{
+    persist::persist_session, voucher::build_voucher_credential, SessionContext, SessionState,
+};
+use tempo_common::error::{NetworkError, PaymentError, TempoError};
 
 /// Post a voucher to the server in a background task.
 ///
@@ -40,11 +39,11 @@ fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) 
                         .get("content-type")
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("none");
-                    eprintln!("[voucher POST: {} content-type={}]", status, ct);
+                    eprintln!("[voucher POST: {status} content-type={ct}]");
                 }
             }
             Err(e) => {
-                eprintln!("[voucher POST failed: {}]", e);
+                eprintln!("[voucher POST failed: {e}]");
             }
         }
     });
@@ -56,7 +55,7 @@ fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) 
 /// process is interrupted, the session record reflects the last voucher sent.
 ///
 /// The server has a known race condition where its `wait_for_update` notification
-/// can be lost (tokio::sync::Notify without permit storage). When a voucher POST
+/// can be lost (`tokio::sync::Notify` without permit storage). When a voucher POST
 /// arrives but the server hasn't started awaiting yet, the notification is dropped
 /// and the stream stalls. We work around this by re-posting the same voucher if
 /// no progress is seen within a short timeout after the last need-voucher event.
@@ -64,7 +63,7 @@ pub(super) async fn stream_sse_response(
     ctx: &SessionContext<'_>,
     state: &mut SessionState,
     response: reqwest::Response,
-) -> Result<()> {
+) -> Result<(), TempoError> {
     let runtime = ctx.http;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
@@ -121,16 +120,14 @@ pub(super) async fn stream_sse_response(
                     if voucher_retry_count > MAX_VOUCHER_RETRIES {
                         if runtime.debug_enabled() {
                             eprintln!(
-                                "[stream stall — voucher not accepted after {} retries]",
-                                MAX_VOUCHER_RETRIES
+                                "[stream stall — voucher not accepted after {MAX_VOUCHER_RETRIES} retries]"
                             );
                         }
                         break;
                     }
                     if runtime.debug_enabled() {
                         eprintln!(
-                            "[re-posting voucher (retry {}/{})]",
-                            voucher_retry_count, MAX_VOUCHER_RETRIES
+                            "[re-posting voucher (retry {voucher_retry_count}/{MAX_VOUCHER_RETRIES})]"
                         );
                     }
                     let verbose = runtime.debug_enabled();
@@ -149,7 +146,7 @@ pub(super) async fn stream_sse_response(
                 break;
             }
         };
-        let chunk = chunk.context("Stream error")?;
+        let chunk = chunk.map_err(NetworkError::Reqwest)?;
         let chunk_str = String::from_utf8_lossy(&chunk);
         // Normalize \r\n to \n so SSE event boundary detection works with
         // servers/proxies that emit CRLF line endings.
@@ -160,9 +157,11 @@ pub(super) async fn stream_sse_response(
         }
 
         if buffer.len() > MAX_BUFFER_SIZE {
-            return Err(tempo_common::error::NetworkError::Http(
-                format!("SSE buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event — aborting stream")
-            ).into());
+            return Err(tempo_common::error::NetworkError::ResponseSchema {
+                context: "SSE stream",
+                reason: format!("buffer exceeded {MAX_BUFFER_SIZE} bytes without a complete event"),
+            }
+            .into());
         }
 
         while let Some(pos) = buffer.find("\n\n") {
@@ -183,7 +182,7 @@ pub(super) async fn stream_sse_response(
                         let (content, finished) = parse_sse_chunk(&data);
                         if let Some(content) = content {
                             token_count += 1;
-                            write!(stdout, "{}", content)?;
+                            write!(stdout, "{content}")?;
                             stdout.flush()?;
                         }
                         if finished {
@@ -212,8 +211,7 @@ pub(super) async fn stream_sse_response(
 
                         if runtime.debug_enabled() {
                             eprintln!(
-                                "[voucher top-up: required={} authorizing={}]",
-                                required, authorize_amount
+                                "[voucher top-up: required={required} authorizing={authorize_amount}]"
                             );
                         }
 
@@ -221,8 +219,12 @@ pub(super) async fn stream_sse_response(
                         state.cumulative_amount = authorize_amount.max(state.cumulative_amount);
                         let voucher =
                             build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
-                        let auth = mpp::format_authorization(&voucher)
-                            .context("Failed to format voucher")?;
+                        let auth = mpp::format_authorization(&voucher).map_err(|source| {
+                            PaymentError::ChallengeFormatSource {
+                                context: "voucher credential",
+                                source: Box::new(source),
+                            }
+                        })?;
 
                         let verbose = runtime.debug_enabled();
                         post_voucher(&voucher_client, ctx.url, &auth, verbose);
@@ -246,10 +248,10 @@ pub(super) async fn stream_sse_response(
                             eprintln!("  Channel: {}", receipt.channel_id);
                             eprintln!("  Spent: {}", receipt.spent);
                             if let Some(units) = receipt.units {
-                                eprintln!("  Units: {}", units);
+                                eprintln!("  Units: {units}");
                             }
                             if let Some(ref tx) = receipt.tx_hash {
-                                eprintln!("  TX: {}", tx);
+                                eprintln!("  TX: {tx}");
                             }
                         }
                         // Receipt signals stream completion
@@ -264,7 +266,7 @@ pub(super) async fn stream_sse_response(
     writeln!(stdout)?;
 
     if runtime.log_enabled() {
-        eprintln!("Tokens streamed: {}", token_count);
+        eprintln!("Tokens streamed: {token_count}");
         let cumulative_display =
             tempo_common::cli::format::format_token_amount(state.cumulative_amount, ctx.network_id);
         eprintln!("Voucher cumulative: {cumulative_display}");
@@ -276,7 +278,7 @@ pub(super) async fn stream_sse_response(
 /// Parse an SSE data chunk, extracting token content and finish status.
 ///
 /// Returns `(content, finished)`:
-/// - `content`: The text token from an OpenAI `delta.content` field, or the raw
+/// - `content`: The text token from an `OpenAI` `delta.content` field, or the raw
 ///   text for non-JSON SSE. `None` for role-only deltas or empty content.
 /// - `finished`: `true` if `finish_reason` is non-null (model done generating).
 fn parse_sse_chunk(raw: &str) -> (Option<String>, bool) {

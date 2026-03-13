@@ -1,28 +1,52 @@
 //! Keystore query, selection, and mutation logic.
 
 use alloy::primitives::Address;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::Zeroizing;
 
-use crate::error::{ConfigError, TempoError};
-use crate::network::NetworkId;
+use crate::{
+    error::{ConfigError, TempoError},
+    network::NetworkId,
+};
 
-use super::model::{KeyEntry, WalletType};
+use super::model::{KeyEntry, StoredKeystore, WalletType};
 
 /// Wallet keys stored in keys.toml.
 ///
 /// Supports multiple key entries via `[[keys]]` array of tables.
 /// Key selection is deterministic: passkey > first key with key > first key.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct Keystore {
-    #[serde(default)]
     pub(crate) keys: Vec<KeyEntry>,
 
     /// Whether this keystore was built from an ephemeral `--private-key`
     /// override. Ephemeral keystores are never written to disk.
-    #[serde(skip)]
     pub ephemeral: bool,
+}
+
+impl Serialize for Keystore {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let stored = StoredKeystore {
+            keys: self.keys.iter().cloned().map(Into::into).collect(),
+        };
+        stored.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Keystore {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let stored = StoredKeystore::deserialize(deserializer)?;
+        Ok(Self {
+            keys: stored.keys.into_iter().map(Into::into).collect(),
+            ephemeral: false,
+        })
+    }
 }
 
 impl Keystore {
@@ -32,12 +56,14 @@ impl Keystore {
     }
 
     /// Number of key entries.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.keys.len()
     }
 
     /// Whether the keystore has no keys.
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
 
@@ -45,15 +71,18 @@ impl Keystore {
     ///
     /// Derives the address from the key and creates a single-account
     /// key set with an inline key. Not written to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the provided private key cannot be parsed.
     pub fn from_private_key(key: &str) -> Result<Self, TempoError> {
         let signer = super::parse_private_key_signer(key)?;
-        let address = signer.address().to_string();
-        let key_entry = KeyEntry {
-            wallet_address: address.clone(),
-            key_address: Some(address),
+        let mut key_entry = KeyEntry {
             key: Some(Zeroizing::new(key.to_string())),
             ..Default::default()
         };
+        key_entry.set_wallet_address(signer.address());
+        key_entry.set_key_address(Some(signer.address()));
         Ok(Self {
             keys: vec![key_entry],
             ephemeral: true,
@@ -63,6 +92,7 @@ impl Keystore {
     /// Get the primary key entry.
     ///
     /// Deterministic selection: passkey > first key with a signing key > first entry.
+    #[must_use]
     pub fn primary_key(&self) -> Option<&KeyEntry> {
         if let Some(entry) = self
             .keys
@@ -71,11 +101,7 @@ impl Keystore {
         {
             return Some(entry);
         }
-        if let Some(entry) = self
-            .keys
-            .iter()
-            .find(|k| k.key.as_ref().is_some_and(|ak| !ak.is_empty()))
-        {
+        if let Some(entry) = self.keys.iter().find(|entry| entry.has_inline_key()) {
             return Some(entry);
         }
         self.keys.first()
@@ -85,13 +111,14 @@ impl Keystore {
     ///
     /// Returns `true` when the primary key has a wallet address AND
     /// an inline `key`.
+    #[must_use]
     pub fn has_wallet(&self) -> bool {
-        self.primary_key().is_some_and(|a| {
-            !a.wallet_address.is_empty() && a.key.as_ref().is_some_and(|k| !k.is_empty())
-        })
+        self.primary_key()
+            .is_some_and(|entry| entry.wallet_address_parsed().is_some() && entry.has_inline_key())
     }
 
     /// Check if a wallet is connected with a key for the given network.
+    #[must_use]
     pub fn has_key_for_network(&self, network: NetworkId) -> bool {
         self.has_wallet() && self.keys.iter().any(|k| k.chain_id == network.chain_id())
     }
@@ -99,40 +126,47 @@ impl Keystore {
     /// Ensure a wallet with a key for the given network is available.
     ///
     /// Returns an error with a helpful message if no wallet or key is configured.
-    pub fn ensure_key_for_network(&self, network: NetworkId) -> Result<()> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no usable wallet/key exists for `network`.
+    pub fn ensure_key_for_network(&self, network: NetworkId) -> Result<(), TempoError> {
         let setup_cmd = "tempo wallet login";
 
         if !self.has_key_for_network(network) {
-            let msg = if !self.has_wallet() {
-                format!("No wallet configured. Run '{setup_cmd}'.")
-            } else {
+            let msg = if self.has_wallet() {
                 format!(
                     "No key configured for network '{}'. Run '{setup_cmd}'.",
                     network.as_str()
                 )
+            } else {
+                format!("No wallet configured. Run '{setup_cmd}'.")
             };
-            anyhow::bail!(ConfigError::Missing(msg));
+            return Err(ConfigError::Missing(msg).into());
         }
 
         Ok(())
     }
 
     /// Get the wallet address of the primary key.
+    #[must_use]
     pub fn wallet_address(&self) -> &str {
-        self.primary_key()
-            .map(|a| a.wallet_address.as_str())
-            .unwrap_or("")
+        self.primary_key().map_or("", |a| a.wallet_address.as_str())
     }
 
     /// Parse the wallet address as an [`Address`], returning `None` if no wallet is configured
     /// or the address is invalid.
     pub fn wallet_address_parsed(&self) -> Option<Address> {
-        self.has_wallet()
-            .then(|| self.wallet_address().parse().ok())
-            .flatten()
+        self.primary_key().and_then(KeyEntry::wallet_address_parsed)
+    }
+
+    /// Canonical lowercase `0x` wallet address of the primary key when valid.
+    pub fn wallet_address_hex(&self) -> Option<String> {
+        self.primary_key().and_then(KeyEntry::wallet_address_hex)
     }
 
     /// Check if a network's key is provisioned on-chain.
+    #[must_use]
     pub fn is_provisioned(&self, network: NetworkId) -> bool {
         self.key_for_network(network).is_some_and(|k| k.provisioned)
     }
@@ -141,6 +175,7 @@ impl Keystore {
     ///
     /// Matches on `chain_id`, then falls back to direct EOA keys
     /// (wallet == signer) which work on any network.
+    #[must_use]
     pub fn key_for_network(&self, network: NetworkId) -> Option<&KeyEntry> {
         let chain_id = network.chain_id();
         // Try exact chain_id match first
@@ -148,76 +183,73 @@ impl Keystore {
             return Some(entry);
         }
         // Direct EOA keys (wallet == signer) work on any network
-        self.keys.iter().find(|k| {
-            k.wallet_type == WalletType::Local
-                && k.key_address.as_deref() == Some(&k.wallet_address)
-                && k.key.as_ref().is_some_and(|ak| !ak.is_empty())
-        })
+        self.keys.iter().find(|k| k.is_direct_eoa_key())
     }
 
-    /// Find the key for a specific wallet address on a given network.
-    ///
-    /// Matches by (wallet_address, chain_id). Returns `None` if no match found.
-    pub fn key_for_wallet_and_network(
+    /// Find the key for a specific parsed wallet address on a given network.
+    #[must_use]
+    pub fn key_for_wallet_address_and_network(
         &self,
-        wallet_address: &str,
+        wallet_address: Address,
         network: NetworkId,
     ) -> Option<&KeyEntry> {
         let chain_id = network.chain_id();
-        self.keys.iter().find(|k| {
-            k.wallet_address.eq_ignore_ascii_case(wallet_address) && k.chain_id == chain_id
-        })
+        self.keys
+            .iter()
+            .find(|k| k.wallet_address_matches(wallet_address) && k.chain_id == chain_id)
     }
 
     /// Find the first passkey wallet entry, if one exists.
+    #[must_use]
     pub fn find_passkey_wallet(&self) -> Option<&KeyEntry> {
         self.keys
             .iter()
             .find(|k| k.wallet_type == WalletType::Passkey)
     }
 
-    /// Delete all passkey entries for a given wallet address (case-insensitive).
+    /// Delete all passkey entries for a parsed wallet address.
     ///
-    /// Removes all entries where wallet_type is Passkey and wallet_address matches.
-    /// Returns an error if no matching entries are found.
-    pub fn delete_passkey_wallet(&mut self, wallet_address: &str) -> Result<(), TempoError> {
+    /// # Errors
+    ///
+    /// Returns an error when no passkey entries match `wallet_address`.
+    pub fn delete_passkey_wallet_address(
+        &mut self,
+        wallet_address: Address,
+    ) -> Result<(), TempoError> {
         let before = self.keys.len();
         self.keys.retain(|k| {
-            !(k.wallet_type == WalletType::Passkey
-                && k.wallet_address.eq_ignore_ascii_case(wallet_address))
+            !(k.wallet_type == WalletType::Passkey && k.wallet_address_matches(wallet_address))
         });
         if self.keys.len() == before {
             return Err(ConfigError::Missing(format!(
-                "No passkey wallet found for '{wallet_address}'."
+                "No passkey wallet found for '{wallet_address:#x}'."
             ))
             .into());
         }
         Ok(())
     }
 
-    /// Find or create an entry by wallet address and chain ID.
-    ///
-    /// Matches by (wallet_address, chain_id) so the same wallet can have
-    /// separate keys on different networks. Falls back to creating a new entry.
-    pub fn upsert_by_wallet_and_chain(
+    /// Find or create an entry by parsed wallet address and chain ID.
+    pub fn upsert_by_wallet_address_and_chain(
         &mut self,
-        wallet_address: &str,
+        wallet_address: Address,
         chain_id: u64,
     ) -> &mut KeyEntry {
-        let idx = self.keys.iter().position(|k| {
-            k.wallet_address.eq_ignore_ascii_case(wallet_address) && k.chain_id == chain_id
-        });
-        match idx {
-            Some(i) => &mut self.keys[i],
-            None => {
-                self.keys.push(KeyEntry {
-                    wallet_address: wallet_address.to_string(),
-                    chain_id,
-                    ..Default::default()
-                });
-                let last = self.keys.len() - 1;
-                &mut self.keys[last]
-            }
+        let idx = self
+            .keys
+            .iter()
+            .position(|k| k.wallet_address_matches(wallet_address) && k.chain_id == chain_id);
+        if let Some(i) = idx {
+            &mut self.keys[i]
+        } else {
+            let mut entry = KeyEntry {
+                chain_id,
+                ..Default::default()
+            };
+            entry.set_wallet_address(wallet_address);
+            self.keys.push(entry);
+            let last = self.keys.len() - 1;
+            &mut self.keys[last]
         }
     }
 }
@@ -260,16 +292,32 @@ mod tests {
         assert!(!keys.has_wallet());
 
         // wallet_address alone is not enough
-        let keys = make_keys("0xtest", None);
+        let keys = make_keys(TEST_ADDRESS, None);
         assert!(!keys.has_wallet());
 
         // needs wallet_address + key
-        let keys = make_keys("0xtest", Some(TEST_PRIVATE_KEY));
+        let keys = make_keys(TEST_ADDRESS, Some(TEST_PRIVATE_KEY));
         assert!(keys.has_wallet());
 
         // empty key doesn't count
-        let keys = make_keys("0xtest", Some(""));
+        let keys = make_keys(TEST_ADDRESS, Some(""));
         assert!(!keys.has_wallet());
+
+        // malformed wallet addresses are not considered configured
+        let keys = make_keys("not-an-address", Some(TEST_PRIVATE_KEY));
+        assert!(!keys.has_wallet());
+    }
+
+    #[test]
+    fn test_wallet_address_hex_is_canonical() {
+        let keys = make_keys(
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            Some(TEST_PRIVATE_KEY),
+        );
+        assert_eq!(
+            keys.wallet_address_hex().as_deref(),
+            Some("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266")
+        );
     }
 
     #[test]
@@ -290,7 +338,7 @@ mod tests {
     fn test_serialization_with_key() {
         let mut keys = Keystore::default();
         let key_entry = KeyEntry {
-            wallet_address: "0xwallet".to_string(),
+            wallet_address: TEST_ADDRESS.to_string(),
             key_address: Some("0xsigner".to_string()),
             key: Some(Zeroizing::new("0xaccesskey".to_string())),
             key_authorization: Some("auth123".to_string()),
@@ -306,7 +354,7 @@ mod tests {
         assert!(!toml_str.contains("private_key"));
 
         let parsed: Keystore = toml::from_str(&toml_str).unwrap();
-        assert_eq!(parsed.wallet_address(), "0xwallet");
+        assert_eq!(parsed.wallet_address(), TEST_ADDRESS);
         assert!(parsed.has_wallet());
     }
 
@@ -314,7 +362,7 @@ mod tests {
     fn test_new_format_loads_correctly() {
         let toml_str = r#"
 [[keys]]
-wallet_address = "0xtest"
+wallet_address = "0x1111111111111111111111111111111111111111"
 chain_id = 4217
 key_address = "0xsigner"
 key = "0xaccesskey"
@@ -322,7 +370,10 @@ key_authorization = "auth123"
 provisioned = true
 "#;
         let keys: Keystore = toml::from_str(toml_str).unwrap();
-        assert_eq!(keys.wallet_address(), "0xtest");
+        assert_eq!(
+            keys.wallet_address(),
+            "0x1111111111111111111111111111111111111111"
+        );
         assert!(keys.has_wallet());
         assert!(keys.is_provisioned(NetworkId::Tempo));
     }
@@ -343,14 +394,17 @@ wallet_address = "0xtest"
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Passkey,
-            wallet_address: "0xABC".to_string(),
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
             key_address: Some("0xsigner1".to_string()),
             key: Some(Zeroizing::new("0xaccesskey1".to_string())),
             key_authorization: Some("auth".to_string()),
             ..Default::default()
         });
         assert!(keys.primary_key().is_some());
-        assert_eq!(keys.wallet_address(), "0xABC");
+        assert_eq!(
+            keys.wallet_address(),
+            "0x1111111111111111111111111111111111111111"
+        );
         assert!(keys.has_wallet());
         let key_entry = keys.primary_key().unwrap();
         assert_eq!(key_entry.key_address, Some("0xsigner1".to_string()));
@@ -393,9 +447,30 @@ provisioned = true
             ..Default::default()
         });
 
-        keys.delete_passkey_wallet("0xBBB").unwrap();
+        let passkey_wallet: Address = "0xbbb0000000000000000000000000000000000000"
+            .parse()
+            .unwrap();
+        keys.keys[1].wallet_address = format!("{passkey_wallet:#x}");
+
+        keys.delete_passkey_wallet_address(passkey_wallet).unwrap();
         assert_eq!(keys.keys.len(), 1);
         assert_eq!(keys.primary_key().unwrap().wallet_address, "0xAAA");
+    }
+
+    #[test]
+    fn test_delete_passkey_wallet_address() {
+        let mut keys = Keystore::default();
+        keys.keys.push(KeyEntry {
+            wallet_type: WalletType::Passkey,
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            ..Default::default()
+        });
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+
+        keys.delete_passkey_wallet_address(wallet).unwrap();
+        assert!(keys.keys.is_empty());
     }
 
     #[test]
@@ -426,22 +501,28 @@ provisioned = true
     #[test]
     fn test_upsert_by_wallet_and_chain_creates_new() {
         let mut keys = Keystore::default();
-        let entry = keys.upsert_by_wallet_and_chain("0xABC", 4217);
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
         entry.wallet_type = WalletType::Passkey;
         entry.key_address = Some("0xsigner1".to_string());
         entry.key = Some(Zeroizing::new("0xaccesskey1".to_string()));
         entry.provisioned = true;
 
         assert_eq!(keys.keys.len(), 1);
-        assert_eq!(keys.wallet_address(), "0xABC");
+        assert_eq!(keys.wallet_address(), format!("{wallet:#x}"));
     }
 
     #[test]
     fn test_upsert_by_wallet_and_chain_updates_existing() {
         let mut keys = Keystore::default();
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
         keys.keys.push(KeyEntry {
             wallet_type: WalletType::Passkey,
-            wallet_address: "0xABC".to_string(),
+            wallet_address: format!("{wallet:#x}"),
             chain_id: 4217,
             key_address: Some("0xsigner1".to_string()),
             key: Some(Zeroizing::new("0xaccesskey1".to_string())),
@@ -449,7 +530,7 @@ provisioned = true
             ..Default::default()
         });
 
-        let entry = keys.upsert_by_wallet_and_chain("0xABC", 4217);
+        let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
         entry.key_address = Some("0xsigner2".to_string());
         entry.key = Some(Zeroizing::new("0xaccesskey2".to_string()));
         entry.provisioned = false;
@@ -461,14 +542,37 @@ provisioned = true
     }
 
     #[test]
+    fn test_upsert_by_wallet_address_and_chain_updates_existing() {
+        let mut keys = Keystore::default();
+        keys.keys.push(KeyEntry {
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            chain_id: 4217,
+            provisioned: false,
+            ..Default::default()
+        });
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+
+        let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
+        entry.provisioned = true;
+
+        assert_eq!(keys.keys.len(), 1);
+        assert!(keys.keys[0].provisioned);
+    }
+
+    #[test]
     fn test_upsert_by_wallet_and_chain_different_chains() {
         let mut keys = Keystore::default();
-        let entry = keys.upsert_by_wallet_and_chain("0xABC", 4217);
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
         entry.wallet_type = WalletType::Passkey;
         entry.key_address = Some("0xsigner1".to_string());
         entry.key = Some(Zeroizing::new("0xkey1".to_string()));
 
-        let entry2 = keys.upsert_by_wallet_and_chain("0xABC", 42431);
+        let entry2 = keys.upsert_by_wallet_address_and_chain(wallet, 42431);
         entry2.wallet_type = WalletType::Passkey;
         entry2.key_address = Some("0xsigner2".to_string());
         entry2.key = Some(Zeroizing::new("0xkey2".to_string()));
@@ -490,6 +594,26 @@ provisioned = true
         });
         assert!(keys.find_passkey_wallet().is_some());
         assert_eq!(keys.find_passkey_wallet().unwrap().wallet_address, "0xABC");
+    }
+
+    #[test]
+    fn test_key_for_wallet_address_and_network() {
+        let mut keys = Keystore::default();
+        keys.keys.push(KeyEntry {
+            wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
+            chain_id: 4217,
+            ..Default::default()
+        });
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+
+        assert!(keys
+            .key_for_wallet_address_and_network(wallet, NetworkId::Tempo)
+            .is_some());
+        assert!(keys
+            .key_for_wallet_address_and_network(wallet, NetworkId::TempoModerato)
+            .is_none());
     }
 
     #[test]
@@ -696,11 +820,11 @@ expiry = 1750000000
 "#;
         let keys: Keystore = toml::from_str(toml_str).unwrap();
         let entry = keys.primary_key().unwrap();
-        assert_eq!(entry.expiry, Some(1750000000));
+        assert_eq!(entry.expiry, Some(1_750_000_000));
 
         let serialized = toml::to_string_pretty(&keys).unwrap();
         let parsed: Keystore = toml::from_str(&serialized).unwrap();
-        assert_eq!(parsed.primary_key().unwrap().expiry, Some(1750000000));
+        assert_eq!(parsed.primary_key().unwrap().expiry, Some(1_750_000_000));
     }
 
     #[test]
@@ -765,19 +889,29 @@ wallet_address = "0xtest"
 key = "0xaccesskey"
 
 [[keys.limits]]
-currency = "0xUSDC"
+currency = "0x20c000000000000000000000b9537d11c60e8b50"
 limit = "100000000"
 
 [[keys.limits]]
-currency = "0xPATH"
+currency = "0x20c0000000000000000000000000000000000000"
 limit = "50000000"
 "#;
         let keys: Keystore = toml::from_str(toml_str).unwrap();
         let entry = keys.primary_key().unwrap();
         assert_eq!(entry.limits.len(), 2);
-        assert_eq!(entry.limits[0].currency, "0xUSDC");
+        assert_eq!(
+            entry.limits[0].currency,
+            "0x20c000000000000000000000b9537d11c60e8b50"
+                .parse::<Address>()
+                .unwrap()
+        );
         assert_eq!(entry.limits[0].limit, "100000000");
-        assert_eq!(entry.limits[1].currency, "0xPATH");
+        assert_eq!(
+            entry.limits[1].currency,
+            "0x20c0000000000000000000000000000000000000"
+                .parse::<Address>()
+                .unwrap()
+        );
         assert_eq!(entry.limits[1].limit, "50000000");
 
         let serialized = toml::to_string_pretty(&keys).unwrap();
@@ -803,19 +937,25 @@ wallet_address = "0xtest"
             wallet_address: "0xLocal".to_string(),
             ..Default::default()
         });
-        let err = keys.delete_passkey_wallet("0xNonExistent").unwrap_err();
+        let wallet: Address = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let err = keys.delete_passkey_wallet_address(wallet).unwrap_err();
         assert!(err.to_string().contains("No passkey wallet found"));
     }
 
     #[test]
     fn test_upsert_case_insensitive() {
         let mut keys = Keystore::default();
+        let wallet: Address = "0x000000000000000000000000000000000000abcd"
+            .parse()
+            .unwrap();
         keys.keys.push(KeyEntry {
-            wallet_address: "0xAbCd".to_string(),
+            wallet_address: "0x000000000000000000000000000000000000ABCD".to_string(),
             chain_id: 4217,
             ..Default::default()
         });
-        let entry = keys.upsert_by_wallet_and_chain("0xABCD", 4217);
+        let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
         entry.provisioned = true;
         assert_eq!(keys.keys.len(), 1);
         assert!(keys.keys[0].provisioned);

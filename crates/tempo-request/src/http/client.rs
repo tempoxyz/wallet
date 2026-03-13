@@ -2,11 +2,15 @@
 
 use std::time::Duration;
 
-use anyhow::Result;
 use tracing::warn;
 
 use super::response::HttpResponse;
-use tempo_common::network::NetworkId;
+use tempo_common::{
+    error::{ConfigError, NetworkError, TempoError},
+    network::NetworkId,
+};
+
+type HttpResult<T> = std::result::Result<T, TempoError>;
 
 /// Default User-Agent header value for requests.
 pub(crate) const DEFAULT_USER_AGENT: &str = concat!("tempo/", env!("CARGO_PKG_VERSION"));
@@ -85,7 +89,7 @@ impl HttpClient {
         verbosity: tempo_common::cli::Verbosity,
         network: Option<NetworkId>,
         dry_run: bool,
-    ) -> Result<Self> {
+    ) -> HttpResult<Self> {
         let verbose_connection = verbosity.debug_enabled();
         let mut builder = reqwest::Client::builder().connection_verbose(verbose_connection);
 
@@ -113,7 +117,8 @@ impl HttpClient {
         if plan.no_proxy {
             builder = builder.no_proxy();
         } else if let Some(ref p) = plan.proxy {
-            let proxy = reqwest::Proxy::all(p)?;
+            let proxy =
+                reqwest::Proxy::all(p).map_err(|source| ConfigError::InvalidProxyUrl { source })?;
             builder = builder.proxy(proxy);
         }
 
@@ -146,7 +151,7 @@ impl HttpClient {
             builder = builder.default_headers(header_map);
         }
 
-        let client = builder.build()?;
+        let client = builder.build().map_err(NetworkError::Reqwest)?;
 
         Ok(Self {
             plan,
@@ -160,12 +165,12 @@ impl HttpClient {
     /// The underlying reqwest client.
     ///
     /// Used by session flows that need direct access to the reqwest client.
-    pub(crate) fn client(&self) -> &reqwest::Client {
+    pub(crate) const fn client(&self) -> &reqwest::Client {
         &self.client
     }
 
     /// The HTTP method from the request plan.
-    pub(crate) fn method(&self) -> &reqwest::Method {
+    pub(crate) const fn method(&self) -> &reqwest::Method {
         &self.plan.method
     }
 
@@ -190,12 +195,12 @@ impl HttpClient {
     }
 
     /// Whether agent-level log messages should be printed (`-v`).
-    pub(crate) fn log_enabled(&self) -> bool {
+    pub(crate) const fn log_enabled(&self) -> bool {
         self.verbosity.log_enabled()
     }
 
     /// Whether debug-level log messages should be printed (`-vv`).
-    pub(crate) fn debug_enabled(&self) -> bool {
+    pub(crate) const fn debug_enabled(&self) -> bool {
         self.verbosity.debug_enabled()
     }
 
@@ -209,7 +214,7 @@ impl HttpClient {
         &self,
         url: &str,
         extra_headers: &[(String, String)],
-    ) -> Result<HttpResponse> {
+    ) -> HttpResult<HttpResponse> {
         let plan = &self.plan;
         let mut attempt: u32 = 0;
         let mut backoff = plan.base_backoff_ms;
@@ -223,7 +228,7 @@ impl HttpClient {
                 if let Some(data) = plan.body.as_deref() {
                     req = req.body(data.to_vec());
                 }
-                let response = req.send().await?;
+                let response = req.send().await.map_err(NetworkError::Reqwest)?;
                 HttpResponse::from_reqwest(response).await
             }
             .await;
@@ -252,15 +257,16 @@ impl HttpClient {
 
                         // Apply jitter if configured
                         if let Some(pct) = plan.retry_jitter_pct {
-                            let jitter = ((delay_ms as f64) * (pct as f64 / 100.0)) as u64;
+                            let jitter = ((delay_ms as f64) * (f64::from(pct) / 100.0)) as u64;
                             if jitter > 0 {
-                                // Very cheap pseudo-random from time; sufficient for jittering backoff
-                                let rand = (std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .subsec_nanos()
-                                    % (jitter as u32))
-                                    as u64;
+                                // Best-effort random jitter to avoid synchronized retries.
+                                let mut bytes = [0u8; 8];
+                                let rand = if getrandom::getrandom(&mut bytes).is_ok() {
+                                    u64::from_le_bytes(bytes) % jitter
+                                } else {
+                                    // Deterministic fallback when entropy is unavailable.
+                                    u64::from(attempt).saturating_mul(997) % jitter
+                                };
                                 delay_ms = delay_ms.saturating_add(rand);
                             }
                         }
@@ -283,13 +289,11 @@ impl HttpClient {
                     return Ok(resp);
                 }
                 Err(e) => {
-                    let is_transient = {
-                        if let Some(re) = e.downcast_ref::<reqwest::Error>() {
-                            re.is_connect() || re.is_timeout()
-                        } else {
-                            false
-                        }
-                    };
+                    let is_transient = matches!(
+                        &e,
+                        TempoError::Network(NetworkError::Reqwest(re))
+                            if re.is_connect() || re.is_timeout()
+                    );
                     if is_transient && attempt < plan.max_retries {
                         let delay_ms = backoff;
                         if self.debug_enabled() {
@@ -315,13 +319,12 @@ impl HttpClient {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
-    use axum::extract::State;
-    use axum::http::StatusCode;
-    use axum::response::IntoResponse;
-    use axum::routing::get;
+    use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get};
 
     use super::*;
 

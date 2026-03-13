@@ -4,6 +4,18 @@ use std::sync::OnceLock;
 
 use crate::network::NetworkId;
 
+const SUPPORTED_TERMINAL_VARS: &[&str] = &[
+    "ITERM_SESSION_ID",
+    "WT_SESSION",
+    "WEZTERM_PANE",
+    "GHOSTTY_RESOURCES_DIR",
+    "KITTY_WINDOW_ID",
+    "ALACRITTY_SOCKET",
+    "KONSOLE_VERSION",
+];
+
+const SUPPORTED_TERM_PROGRAMS: &[&str] = &["vscode", "Hyper"];
+
 /// Strip control characters from a string to prevent terminal escape injection.
 ///
 /// Removes all C0 control characters (0x00–0x1F) and DEL (0x7F) except for
@@ -11,6 +23,7 @@ use crate::network::NetworkId;
 /// - ANSI escape sequence injection (CSI, OSC, etc.)
 /// - OSC 8 breakout via BEL (\x07)
 /// - Cursor manipulation and line erasure
+#[must_use]
 pub fn sanitize_for_terminal(s: &str) -> String {
     s.chars()
         .filter(|c| {
@@ -22,17 +35,19 @@ pub fn sanitize_for_terminal(s: &str) -> String {
 
 /// Format text as a clickable hyperlink using the OSC 8 protocol.
 /// Both text and url are sanitized to strip control characters.
+#[must_use]
 pub fn hyperlink(text: &str, url: &str) -> String {
     let clean_text = sanitize_for_terminal(text);
     if supports_hyperlinks() {
         let clean_url = sanitize_for_terminal(url);
-        format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", clean_url, clean_text)
+        format!("\x1b]8;;{clean_url}\x07{clean_text}\x1b]8;;\x07")
     } else {
         clean_text
     }
 }
 
 /// Format an address as a clickable hyperlink for the given network.
+#[must_use]
 pub fn address_link(network: NetworkId, address: &str) -> String {
     let url = network.address_url(address);
     hyperlink(address, &url)
@@ -57,24 +72,12 @@ fn detect_hyperlink_support() -> bool {
         return false;
     }
 
-    const SUPPORTED_TERMINAL_VARS: &[&str] = &[
-        "ITERM_SESSION_ID",
-        "WT_SESSION",
-        "WEZTERM_PANE",
-        "GHOSTTY_RESOURCES_DIR",
-        "KITTY_WINDOW_ID",
-        "ALACRITTY_SOCKET",
-        "KONSOLE_VERSION",
-    ];
-
     if SUPPORTED_TERMINAL_VARS
         .iter()
         .any(|var| env::var(var).is_ok())
     {
         return true;
     }
-
-    const SUPPORTED_TERM_PROGRAMS: &[&str] = &["vscode", "Hyper"];
 
     if let Ok(term_program) = env::var("TERM_PROGRAM") {
         if SUPPORTED_TERM_PROGRAMS.contains(&term_program.as_str()) {
@@ -96,6 +99,7 @@ fn detect_hyperlink_support() -> bool {
 }
 
 /// Truncate a display string to `max` characters, appending `…` if truncated.
+#[must_use]
 pub fn truncate(s: &str, max: usize) -> String {
     let safe = sanitize_for_terminal(s);
     if safe.chars().count() <= max {
@@ -109,7 +113,7 @@ pub fn truncate(s: &str, max: usize) -> String {
 /// Print a right-aligned label/value field to stdout with a custom label width.
 pub fn print_field_w(width: usize, label: &str, value: &str) {
     let safe_value = sanitize_for_terminal(value);
-    println!("{:>width$}: {safe_value}", label);
+    println!("{label:>width$}: {safe_value}");
 }
 
 /// Print a right-aligned label/value field to stdout (14-char label width).
@@ -130,8 +134,7 @@ mod tests {
 
         assert!(
             !result.contains('\x1b'),
-            "hyperlink() must strip escape sequences from text, got: {:?}",
-            result
+            "hyperlink() must strip escape sequences from text, got: {result:?}"
         );
     }
 
@@ -144,8 +147,7 @@ mod tests {
 
         assert!(
             !result.contains('\x07') && !result.contains('\x1b'),
-            "hyperlink() must strip BEL/ESC from text to prevent OSC 8 breakout, got: {:?}",
-            result
+            "hyperlink() must strip BEL/ESC from text to prevent OSC 8 breakout, got: {result:?}"
         );
     }
 
@@ -157,8 +159,7 @@ mod tests {
         let clean_url = sanitize_for_terminal(malicious_url);
         assert!(
             !clean_url.contains('\x07') && !clean_url.contains('\x1b'),
-            "sanitized URL must not contain BEL/ESC control characters: {:?}",
-            clean_url
+            "sanitized URL must not contain BEL/ESC control characters: {clean_url:?}"
         );
     }
 

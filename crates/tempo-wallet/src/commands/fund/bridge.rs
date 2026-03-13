@@ -5,15 +5,18 @@ use std::time::{Duration, Instant};
 use qrcode::render::unicode;
 
 use crate::wallet::{query_all_balances, TokenBalance};
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::cli::terminal::address_link;
-
-use super::relay::{
-    create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
+use tempo_common::{
+    cli::{context::Context, output, output::OutputFormat, terminal::address_link},
+    error::{NetworkError, TempoError},
 };
-use super::{has_balance_changed, render_balance_diff, FundResponse, POLL_INTERVAL_SECS};
+
+use super::{
+    has_balance_changed,
+    relay::{
+        create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
+    },
+    render_balance_diff, FundResponse, POLL_INTERVAL_SECS,
+};
 
 /// Default source chain for bridging (Base).
 const DEFAULT_SOURCE_CHAIN_ID: u64 = 8453;
@@ -21,7 +24,7 @@ const DEFAULT_SOURCE_CHAIN_ID: u64 = 8453;
 /// Timeout for polling bridge deposit status (seconds).
 const BRIDGE_POLL_TIMEOUT_SECS: u64 = 600;
 
-pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Result<()> {
+pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> Result<(), TempoError> {
     let balances_before = query_all_balances(&ctx.config, ctx.network, address).await;
 
     // Use Base as default source chain
@@ -37,7 +40,8 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> anyhow::Res
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .user_agent(format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")))
-        .build()?;
+        .build()
+        .map_err(NetworkError::Reqwest)?;
     let deposit =
         create_deposit_address(&client, source_chain, address, ctx.network.chain_id()).await?;
 

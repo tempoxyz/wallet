@@ -1,19 +1,21 @@
-//! Opt-out telemetry via PostHog.
+//! Opt-out telemetry via `PostHog`.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    io::Write,
+    sync::{Arc, Mutex},
+};
 
 use posthog_rs::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
-use tokio::task::JoinHandle;
-use tokio::time::{timeout, Duration};
+use tokio::{
+    task::JoinHandle,
+    time::{timeout, Duration},
+};
 
-use crate::config::Config;
-use crate::keys::Keystore;
-use crate::network::NetworkId;
+use crate::{config::Config, keys::Keystore, network::NetworkId};
 
 // ---------------------------------------------------------------------------
 // PostHog client
@@ -73,16 +75,18 @@ fn is_telemetry_disabled(config: &Config) -> bool {
 /// analytics — the user will simply appear as a new anonymous user.
 fn anonymous_id() -> String {
     let mut hasher = DefaultHasher::new();
-    let mut has_input = false;
-    if let Ok(name) = hostname::get() {
+    let has_host_input = hostname::get().is_ok_and(|name| {
         name.hash(&mut hasher);
-        has_input = true;
-    }
+        true
+    });
     // Include the OS username so different users on the same host get distinct IDs
-    if let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
-        user.hash(&mut hasher);
-        has_input = true;
-    }
+    let has_user_input = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .is_ok_and(|user| {
+            user.hash(&mut hasher);
+            true
+        });
+    let has_input = has_host_input || has_user_input;
     // Fallback: use the config directory path as a stable per-user identifier
     // (avoids all container users collapsing to the same anonymous ID)
     if !has_input {
@@ -108,12 +112,7 @@ impl Analytics {
         }
 
         let client = posthog_rs::client(POSTHOG_API_KEY).await;
-        let addr = keys.wallet_address();
-        let distinct_id = if addr.is_empty() {
-            anonymous_id()
-        } else {
-            addr.to_string()
-        };
+        let distinct_id = keys.wallet_address_hex().unwrap_or_else(anonymous_id);
 
         let analytics = Self {
             client: Arc::new(client),
@@ -152,11 +151,9 @@ impl Analytics {
     }
 
     pub fn identify(&self, keys: &Keystore) {
-        let addr = keys.wallet_address();
-        if addr.is_empty() {
+        let Some(wallet) = keys.wallet_address_hex() else {
             return;
-        }
-        let wallet = addr.to_string();
+        };
 
         let client = self.client.clone();
         let old_id = self.distinct_id.clone();
@@ -186,7 +183,10 @@ impl Analytics {
 
     pub async fn flush(&self) {
         let handles = {
-            let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            let mut pending = self
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             std::mem::take(&mut *pending)
         };
 
@@ -199,7 +199,7 @@ fn test_tap_event(name: &str, props: &Value) {
         if path.is_empty() {
             return;
         }
-        let line = format!("{}|{}\n", name, props);
+        let line = format!("{name}|{props}\n");
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -223,11 +223,13 @@ fn test_tap_event(name: &str, props: &Value) {
 pub struct Event(&'static str);
 
 impl Event {
+    #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self(name)
     }
 
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         self.0
     }
 }
@@ -241,6 +243,8 @@ pub mod events {
     pub const COMMAND_FAILURE: Event = Event::new("command_failure");
     pub const COOP_CLOSE_SUCCESS: Event = Event::new("coop_close_success");
     pub const COOP_CLOSE_FAILURE: Event = Event::new("coop_close_failure");
+    pub const SESSION_STORE_DEGRADED: Event = Event::new("session_store_degraded");
+    pub const KEYSTORE_LOAD_DEGRADED: Event = Event::new("keystore_load_degraded");
 }
 
 /// Marker trait for analytics event payloads.
@@ -267,4 +271,17 @@ pub(crate) struct CommandFailurePayload {
 pub(crate) struct CoopClosePayload {
     pub(crate) network: String,
     pub(crate) channel_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SessionStoreDegradedPayload {
+    pub(crate) malformed_load_drops: u64,
+    pub(crate) malformed_list_drops: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct KeystoreLoadDegradedPayload {
+    pub(crate) strict_parse_failures: u64,
+    pub(crate) salvage_malformed_entries: u64,
+    pub(crate) filtered_invalid_entries: u64,
 }

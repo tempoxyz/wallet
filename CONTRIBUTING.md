@@ -5,6 +5,7 @@ Thanks for your interest in contributing! This guide covers everything you need 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
+- [Pull Requests](#pull-requests)
 - [Build & Test](#build--test)
 - [Pre-Commit Checklist](#pre-commit-checklist)
 - [Linting](#linting)
@@ -24,6 +25,39 @@ cd wallet
 make build
 make test
 ```
+
+## Pull Requests
+
+### Titles
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) with an optional scope:
+
+```text
+<type>(<scope>): <short description>
+```
+
+Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`
+
+Examples:
+
+- `fix(request): preserve receipt schema for malformed headers`
+- `refactor(common): centralize output formatting helpers`
+
+### Descriptions
+
+Keep it short: what changed and why.
+
+Do:
+
+- Write 1–3 sentences summarizing behavior changes
+- Explain why if the diff is not self-evident
+- Link related issue(s) when available
+
+Don't:
+
+- Paste file lists from the diff
+- Add long stale sections (“Files Changed”, “Implementation Details”)
+- Pad with filler language
 
 ## Build & Test
 
@@ -102,7 +136,7 @@ crates/
 │   │   ├── app.rs               # Command dispatch
 │   │   ├── analytics.rs         # Wallet-specific analytics events
 │   │   ├── prompt.rs            # Interactive prompt helpers
-│   │   ├── account/             # Wallet account types, on-chain queries, rendering
+│   │   ├── wallet/              # Wallet account types, on-chain queries, rendering
 │   │   └── commands/            # Command implementations
 │   │       ├── login.rs, logout.rs, whoami.rs, keys.rs, sign.rs, completions.rs
 │   │       ├── fund/            # Fund wallet (faucet, bridge, relay)
@@ -115,8 +149,7 @@ crates/
 │   │   ├── args.rs              # clap definitions (Cli, QueryArgs)
 │   │   ├── app.rs               # Command dispatch
 │   │   ├── analytics.rs         # Request-specific analytics events
-│   │   ├── commands/            # Command entrypoint (query.rs)
-│   │   ├── request/             # Request building, output, SSE, headers
+│   │   ├── query/               # Query flow (challenge parsing, request prep, output, SSE, analytics)
 │   │   ├── http/                # HTTP client, response handling, formatting
 │   │   └── payment/             # Payment flows (charge, session, router)
 │   └── tests/                   # Integration tests (assert_cmd)
@@ -135,14 +168,17 @@ This repository is a Cargo workspace with binary crates and one internal shared 
 ```rust
 use std::path::PathBuf;
 
-use anyhow::Result;
 use clap::Parser;
 
 use tempo_common::config::Config;
 use tempo_common::error::TempoError;
+
+fn run() -> Result<(), TempoError> {
+    Ok(())
+}
 ```
 
-**Error handling** — `TempoError` (thiserror) for typed errors, `anyhow` for propagation.
+**Error handling** — `TempoError` (thiserror) for typed boundaries; prefer source-carrying variants (`*Source`) when a concrete underlying error exists.
 
 **Modules** — each module has a single responsibility. Shared logic goes in `tempo-common`. All commands go in `tempo-wallet/src/commands/`.
 

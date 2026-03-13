@@ -2,9 +2,8 @@
 
 use std::time::{Duration, Instant};
 
-use alloy::signers::local::PrivateKeySigner;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use colored::Colorize;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -13,17 +12,18 @@ use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
 use crate::analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::error::{InputError, KeyError, NetworkError, TempoError};
-use tempo_common::keys::{Keystore, WalletType};
-use tempo_common::network::NetworkId;
-use tempo_common::security::sanitize_error;
+use tempo_common::{
+    cli::{context::Context, output::OutputFormat},
+    error::{ConfigError, InputError, KeyError, NetworkError, TempoError},
+    keys::{Keystore, WalletType},
+    network::NetworkId,
+    security::sanitize_error,
+};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
-pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
+pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
     ctx.track_event(analytics::LOGIN_STARTED);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
@@ -50,16 +50,11 @@ pub(crate) async fn run(ctx: &Context) -> anyhow::Result<()> {
     show_whoami(ctx, Some(&keys), None).await
 }
 
-fn track_login_result(a: &tempo_common::analytics::Analytics, result: &anyhow::Result<()>) {
+fn track_login_result(a: &tempo_common::analytics::Analytics, result: &Result<(), TempoError>) {
     match result {
-        Ok(_) => a.track_event(analytics::LOGIN_SUCCESS),
+        Ok(()) => a.track_event(analytics::LOGIN_SUCCESS),
         Err(e) => {
-            let is_timeout = e.chain().any(|cause| {
-                matches!(
-                    cause.downcast_ref(),
-                    Some(TempoError::Key(KeyError::LoginExpired))
-                )
-            });
+            let is_timeout = matches!(e, TempoError::Key(KeyError::LoginExpired));
             if is_timeout {
                 a.track_event(analytics::LOGIN_TIMEOUT);
             } else {
@@ -74,12 +69,14 @@ fn track_login_result(a: &tempo_common::analytics::Analytics, result: &anyhow::R
     }
 }
 
-async fn do_login(ctx: &Context) -> anyhow::Result<()> {
+async fn do_login(ctx: &Context) -> Result<(), TempoError> {
     let auth_server_url =
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
 
-    let parsed_url = Url::parse(&auth_server_url)
-        .map_err(|e| InputError::InvalidUrl(format!("auth server: {e}")))?;
+    let parsed_url = Url::parse(&auth_server_url).map_err(|source| InputError::UrlParseFor {
+        context: "auth server",
+        source,
+    })?;
     let auth_base_url = parsed_url.origin().ascii_serialization();
 
     let local_signer = PrivateKeySigner::random();
@@ -89,9 +86,11 @@ async fn do_login(ctx: &Context) -> anyhow::Result<()> {
         .to_encoded_point(false);
     let pub_key = format!("0x{}", hex::encode(uncompressed.as_bytes()));
 
-    let (code_verifier, code_challenge) = generate_pkce_pair();
+    let (code_verifier, code_challenge) = generate_pkce_pair()?;
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .build()
+        .map_err(NetworkError::Reqwest)?;
     let code = create_device_code(&client, &auth_base_url, &pub_key, &code_challenge).await?;
 
     let mut auth_url = parsed_url;
@@ -147,8 +146,8 @@ fn prompt_and_open_browser(code: &str, url: &str) {
 
 fn try_open_browser(url: &str) {
     if let Err(e) = webbrowser::open(url) {
-        eprintln!("Failed to open browser: {}", e);
-        eprintln!("Please open this URL manually: {}", url);
+        eprintln!("Failed to open browser: {e}");
+        eprintln!("Please open this URL manually: {url}");
     }
 }
 
@@ -179,16 +178,20 @@ async fn poll_until_authorized(
             if err.to_lowercase().contains("expired") {
                 return Err(KeyError::LoginExpired.into());
             }
-            return Err(NetworkError::Http(err.clone()).into());
+            // Intentional server-provided reason passthrough: the poll response only
+            // contains a string error field (no structured source object).
+            return Err(NetworkError::ResponseSchema {
+                context: "login poll response",
+                reason: err.clone(),
+            }
+            .into());
         }
 
         if resp.status == PollStatus::Authorized {
             return Ok(AuthCallback {
-                account_address: resp.account_address.ok_or_else(|| {
-                    TempoError::from(NetworkError::Http(
-                        "Missing account_address in authorized response".to_string(),
-                    ))
-                })?,
+                account_address: resp
+                    .account_address
+                    .ok_or_else(|| TempoError::from(InputError::MissingAuthorizedAccountAddress))?,
                 key_authorization: resp.key_authorization,
                 duration_secs: start.elapsed().as_secs(),
             });
@@ -205,6 +208,15 @@ fn save_keys(
     callback: AuthCallback,
     local_signer: PrivateKeySigner,
 ) -> Result<(), TempoError> {
+    let wallet_address: Address =
+        callback
+            .account_address
+            .parse()
+            .map_err(|_| ConfigError::InvalidAddress {
+                context: "authorized response account_address",
+                value: callback.account_address.clone(),
+            })?;
+
     let validated = tempo_common::keys::authorization::validate(
         callback.key_authorization.as_deref(),
         local_signer.address(),
@@ -212,7 +224,7 @@ fn save_keys(
     let key_auth_hex = validated.as_ref().map(|v| v.hex.clone());
 
     let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(local_signer.to_bytes())));
-    let access_key_address = local_signer.address().to_string();
+    let access_key_address = local_signer.address();
 
     let mut keys = keys.clone();
 
@@ -222,13 +234,9 @@ fn save_keys(
         .and_then(|v| (v.chain_id != 0).then_some(v.chain_id))
         .unwrap_or(default_chain_id);
 
-    let entry = keys.upsert_by_wallet_and_chain(&callback.account_address, chain_id);
+    let entry = keys.upsert_by_wallet_address_and_chain(wallet_address, chain_id);
 
-    let keep_provisioned = entry
-        .key_address
-        .as_deref()
-        .is_some_and(|a| a == access_key_address)
-        && entry.provisioned;
+    let keep_provisioned = entry.key_address_matches(access_key_address) && entry.provisioned;
 
     if let Some(ref v) = validated {
         entry.key_type = v.key_type;
@@ -237,8 +245,8 @@ fn save_keys(
     }
 
     entry.wallet_type = WalletType::Passkey;
-    entry.wallet_address = callback.account_address;
-    entry.key_address = Some(access_key_address);
+    entry.set_wallet_address(wallet_address);
+    entry.set_key_address(Some(access_key_address));
     entry.key = Some(access_key_hex);
     entry.key_authorization = key_auth_hex;
     entry.provisioned = keep_provisioned;
@@ -268,7 +276,7 @@ async fn create_device_code(
     pub_key: &str,
     code_challenge: &str,
 ) -> Result<String, TempoError> {
-    let url = format!("{}/cli-auth/device-code", base_url);
+    let url = format!("{base_url}/cli-auth/device-code");
     let resp = client
         .post(&url)
         .json(&serde_json::json!({
@@ -278,15 +286,16 @@ async fn create_device_code(
         }))
         .send()
         .await
-        .map_err(|e| NetworkError::Http(format!("Failed to create device code: {}", e)))?;
+        .map_err(NetworkError::Reqwest)?;
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(NetworkError::Http(format!(
-            "Device code request failed ({}): {}",
-            status, body
-        ))
+        let body = resp.text().await.map_err(NetworkError::Reqwest)?;
+        return Err(NetworkError::HttpStatus {
+            operation: "request device code",
+            status: status.as_u16(),
+            body: Some(body),
+        }
         .into());
     }
 
@@ -295,15 +304,14 @@ async fn create_device_code(
         code: String,
     }
 
-    resp.json::<DeviceCodeResponse>()
-        .await
+    let body = resp.text().await.map_err(NetworkError::Reqwest)?;
+    serde_json::from_str::<DeviceCodeResponse>(&body)
         .map(|r| r.code)
-        .map_err(|e| {
-            TempoError::from(NetworkError::Http(format!(
-                "Failed to parse device code response: {}",
-                e
-            )))
+        .map_err(|source| NetworkError::ResponseParse {
+            context: "login device code response",
+            source,
         })
+        .map_err(TempoError::from)
 }
 
 async fn poll_device_code(
@@ -312,7 +320,7 @@ async fn poll_device_code(
     code: &str,
     code_verifier: &str,
 ) -> Result<PollResponse, TempoError> {
-    let url = format!("{}/cli-auth/poll/{}", base_url, code);
+    let url = format!("{base_url}/cli-auth/poll/{code}");
     let resp = client
         .post(&url)
         .json(&serde_json::json!({
@@ -320,7 +328,7 @@ async fn poll_device_code(
         }))
         .send()
         .await
-        .map_err(|e| NetworkError::Http(format!("Failed to poll device code: {}", e)))?;
+        .map_err(NetworkError::Reqwest)?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(KeyError::LoginExpired.into());
@@ -328,30 +336,37 @@ async fn poll_device_code(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(
-            NetworkError::Http(format!("Poll request failed ({}): {}", status, body)).into(),
-        );
+        let body = resp.text().await.map_err(NetworkError::Reqwest)?;
+        return Err(NetworkError::HttpStatus {
+            operation: "poll login status",
+            status: status.as_u16(),
+            body: Some(body),
+        }
+        .into());
     }
 
-    resp.json::<PollResponse>().await.map_err(|e| {
-        TempoError::from(NetworkError::Http(format!(
-            "Failed to parse poll response: {}",
-            e
-        )))
-    })
+    let body = resp.text().await.map_err(NetworkError::Reqwest)?;
+    serde_json::from_str::<PollResponse>(&body)
+        .map_err(|source| NetworkError::ResponseParse {
+            context: "login poll response",
+            source,
+        })
+        .map_err(TempoError::from)
 }
 
-fn generate_pkce_pair() -> (String, String) {
+fn generate_pkce_pair() -> Result<(String, String), TempoError> {
     let mut bytes = [0u8; 32];
-    getrandom::getrandom(&mut bytes).expect("failed to generate random bytes");
+    getrandom::getrandom(&mut bytes).map_err(|source| KeyError::SigningOperationSource {
+        operation: "generate PKCE verifier",
+        source: Box::new(source),
+    })?;
     let verifier = URL_SAFE_NO_PAD.encode(bytes);
 
     let mut hasher = Sha256::new();
     hasher.update(verifier.as_bytes());
     let challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
 
-    (verifier, challenge)
+    Ok((verifier, challenge))
 }
 
 #[cfg(test)]
@@ -360,14 +375,14 @@ mod tests {
 
     #[test]
     fn test_pkce_pair_lengths() {
-        let (verifier, challenge) = generate_pkce_pair();
+        let (verifier, challenge) = generate_pkce_pair().expect("pkce generation should succeed");
         assert_eq!(verifier.len(), 43);
         assert_eq!(challenge.len(), 43);
     }
 
     #[test]
     fn test_pkce_pair_is_base64url() {
-        let (verifier, challenge) = generate_pkce_pair();
+        let (verifier, challenge) = generate_pkce_pair().expect("pkce generation should succeed");
         let is_base64url = |s: &str| {
             s.chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -391,8 +406,8 @@ mod tests {
 
     #[test]
     fn test_pkce_pairs_are_unique() {
-        let (v1, _) = generate_pkce_pair();
-        let (v2, _) = generate_pkce_pair();
+        let (v1, _) = generate_pkce_pair().expect("pkce generation should succeed");
+        let (v2, _) = generate_pkce_pair().expect("pkce generation should succeed");
         assert_ne!(v1, v2);
     }
 }

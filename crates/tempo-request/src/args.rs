@@ -302,7 +302,7 @@ pub(crate) struct QueryArgs {
 
 impl QueryArgs {
     /// Whether the request should use streaming mode (raw, SSE passthrough, or SSE→NDJSON).
-    pub(crate) fn is_streaming(&self) -> bool {
+    pub(crate) const fn is_streaming(&self) -> bool {
         self.stream || self.sse || self.sse_json
     }
 }

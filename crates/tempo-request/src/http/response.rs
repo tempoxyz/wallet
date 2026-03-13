@@ -1,6 +1,12 @@
 //! HTTP response type.
 
-use anyhow::Result;
+use tempo_common::error::{NetworkError, TempoError};
+
+type HttpResult<T> = std::result::Result<T, TempoError>;
+
+fn normalize_header_name(name: &str) -> String {
+    name.trim().to_ascii_lowercase()
+}
 
 #[derive(Debug)]
 pub(crate) struct HttpResponse {
@@ -23,18 +29,22 @@ pub(crate) fn headers_from_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<
         .filter_map(|(k, v)| {
             v.to_str()
                 .ok()
-                .map(|s| (k.as_str().to_lowercase(), s.to_string()))
+                .map(|s| (normalize_header_name(k.as_str()), s.to_string()))
         })
         .collect()
 }
 
 impl HttpResponse {
     /// Convert a reqwest response into an `HttpResponse`.
-    pub(crate) async fn from_reqwest(response: reqwest::Response) -> Result<Self> {
+    pub(crate) async fn from_reqwest(response: reqwest::Response) -> HttpResult<Self> {
         let status_code = response.status().as_u16();
         let final_url = Some(response.url().to_string());
         let headers = headers_from_reqwest(response.headers());
-        let body = response.bytes().await?.to_vec();
+        let body = response
+            .bytes()
+            .await
+            .map_err(NetworkError::Reqwest)?
+            .to_vec();
 
         Ok(Self {
             status_code,
@@ -48,18 +58,25 @@ impl HttpResponse {
     ///
     /// # Errors
     /// Returns an error if the body is not valid UTF-8.
-    pub(crate) fn body_string(&self) -> Result<String> {
-        Ok(std::str::from_utf8(&self.body)?.to_string())
+    pub(crate) fn body_string(&self) -> Result<String, TempoError> {
+        let text = std::str::from_utf8(&self.body).map_err(|source| {
+            NetworkError::ResponseSchemaSource {
+                context: "HTTP response body",
+                source: Box::new(source),
+            }
+        })?;
+        Ok(text.to_string())
     }
 
     /// Look up a header value by name.
     ///
-    /// Header names are stored lowercase; pass a lowercase key.
+    /// Header lookup is case-insensitive.
     pub(crate) fn header(&self, name: &str) -> Option<&str> {
+        let name = normalize_header_name(name);
         self.headers
             .iter()
             .rev()
-            .find(|(k, _)| k == name)
+            .find(|(k, _)| k == &name)
             .map(|(_, v)| v.as_str())
     }
 }
@@ -125,13 +142,13 @@ mod tests {
     }
 
     #[test]
-    fn header_lookup_is_case_sensitive() {
+    fn header_lookup_is_case_insensitive() {
         let resp = HttpResponse {
             status_code: 200,
             headers: vec![("content-type".into(), "text/plain".into())],
             body: Vec::new(),
             final_url: None,
         };
-        assert_eq!(resp.header("Content-Type"), None);
+        assert_eq!(resp.header("Content-Type"), Some("text/plain"));
     }
 }

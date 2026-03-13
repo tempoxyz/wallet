@@ -1,6 +1,6 @@
 //! Session persistence helper for request-time session flows.
 
-use anyhow::{Context, Result};
+use tempo_common::error::{PaymentError, TempoError};
 
 use tempo_common::payment::session::{
     load_session, now_secs, save_session, session_key, SessionRecord, SessionStatus,
@@ -9,15 +9,26 @@ use tempo_common::payment::session::{
 use super::{SessionContext, SessionState};
 
 /// Persist or update the session record to disk.
-pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) -> Result<()> {
+pub(super) fn persist_session(
+    ctx: &SessionContext<'_>,
+    state: &SessionState,
+) -> Result<(), TempoError> {
     let now = now_secs();
 
-    let echo_json =
-        serde_json::to_string(ctx.echo).context("Failed to serialize challenge echo")?;
+    let echo_json = serde_json::to_string(ctx.echo).map_err(|source| {
+        PaymentError::SessionPersistenceSource {
+            operation: "serialize challenge echo",
+            source: Box::new(source),
+        }
+    })?;
 
     let session_key = session_key(ctx.url);
-    let existing =
-        load_session(&session_key)?.filter(|r| r.channel_id == format!("{:#x}", state.channel_id));
+    let existing = load_session(&session_key)
+        .map_err(|source| PaymentError::SessionPersistenceSource {
+            operation: "load session",
+            source: Box::new(source),
+        })?
+        .filter(|r| r.channel_id == state.channel_id);
 
     let record = if let Some(mut rec) = existing {
         // Update existing record
@@ -31,16 +42,16 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
             origin: ctx.origin.to_string(),
             request_url: ctx.url.to_string(),
             chain_id: state.chain_id,
-            escrow_contract: format!("{:#x}", state.escrow_contract),
-            currency: ctx.currency.clone(),
-            recipient: ctx.recipient.clone(),
+            escrow_contract: state.escrow_contract,
+            currency: format!("{:#x}", ctx.currency),
+            recipient: format!("{:#x}", ctx.recipient),
             payer: ctx.did.to_string(),
-            authorized_signer: format!("{:#x}", ctx.signer.address()),
+            authorized_signer: ctx.signer.address(),
             salt: ctx.salt.clone(),
-            channel_id: format!("{:#x}", state.channel_id),
-            deposit: ctx.deposit.to_string(),
-            tick_cost: ctx.tick_cost.to_string(),
-            cumulative_amount: state.cumulative_amount.to_string(),
+            channel_id: state.channel_id,
+            deposit: ctx.deposit,
+            tick_cost: ctx.tick_cost,
+            cumulative_amount: state.cumulative_amount,
             challenge_echo: echo_json,
             state: SessionStatus::Active,
             close_requested_at: 0,
@@ -50,7 +61,10 @@ pub(super) fn persist_session(ctx: &SessionContext<'_>, state: &SessionState) ->
         }
     };
 
-    save_session(&record)?;
+    save_session(&record).map_err(|source| PaymentError::SessionPersistenceSource {
+        operation: "save session",
+        source: Box::new(source),
+    })?;
 
     if ctx.http.log_enabled() {
         let cumulative_display =

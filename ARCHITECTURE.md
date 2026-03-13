@@ -53,7 +53,7 @@ tempo-wallet/src/
   app.rs               — build Context, dispatch commands, track analytics
   analytics.rs         — wallet-specific analytics events and payloads
   prompt.rs            — interactive prompt helpers
-  account/             — wallet account types, on-chain queries, rendering
+  wallet/              — wallet account types, on-chain queries, rendering
     types.rs, query.rs, render.rs
   commands/
     login.rs           — passkey authentication flow
@@ -75,16 +75,33 @@ tempo-request/src/
   args.rs              — Cli struct (flattens GlobalArgs), QueryArgs
   app.rs               — dispatch to request command
   analytics.rs         — request-specific analytics events and payloads
-  commands/            — command entrypoint
-    query.rs           — main request execution logic
-  request/             — request building and output
-    analytics.rs, headers.rs, output.rs, payload.rs, payment_challenge.rs, prepare.rs, sse.rs
+  query/               — query command flow (request prep, output, SSE, analytics)
+    analytics.rs, challenge.rs, headers.rs, output.rs, payload.rs, prepare.rs, sse.rs
   http/                — HTTP client, response handling, formatting
     client.rs, fmt.rs, response.rs
   payment/             — payment flows (charge + session)
     charge.rs, router.rs
     session/           — session flow, channel opening, voucher, streaming, persistence
 ```
+
+## Typed Error Boundary Pattern
+
+Error handling follows a typed-boundary model:
+
+1. Prefer source-carrying variants (`*Source`) when an underlying error object exists.
+2. Preserve user-facing wording stability at CLI boundaries by keeping display strings deterministic.
+3. Reserve free-form string reasons for business-rule rejections where no concrete source error exists.
+
+This means conversion at boundaries should look like:
+
+- Parse/format/schema failures: wrap the concrete source error (`PaymentError::ChallengeParseSource`, `PaymentError::ChallengeFormatSource`, `NetworkError::ResponseSchemaSource`, etc.).
+- Session persistence and reuse protection: keep causal source chains (`SessionPersistenceSource` / `SessionPersistenceContextSource`) so troubleshooting retains root cause fidelity.
+- Business-rule denials (for example client-side `--max-pay` policy checks): use stable reason strings intentionally.
+
+Compatibility exceptions are explicit and regression-tested:
+
+- Payment classification keeps `NetworkError::Http(...)` as an opaque fallback for unmatched provider errors.
+- Router network mismatch intentionally uses `PaymentError::ChallengeSchema` with the preserved wording: `Server requested network '...' but --network is '...'`.
 
 ## Payment Flows
 
@@ -150,11 +167,11 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `crates/tempo-common/src/payment/classify.rs` | Payment error classification and extraction |
 | `crates/tempo-common/src/payment/session/` | Session persistence (store), channel queries, close, tx signing |
 | `crates/tempo-wallet/src/app.rs` | Wallet command dispatch lifecycle |
-| `crates/tempo-wallet/src/account/` | Wallet account types (balances, spending limits), on-chain queries |
+| `crates/tempo-wallet/src/wallet/` | Wallet account types (balances, spending limits), on-chain queries |
 | `crates/tempo-wallet/src/commands/login.rs` | Login command and passkey authentication flow |
 | `crates/tempo-wallet/src/commands/sessions/` | Session management commands (list/close/sync) |
 | `crates/tempo-wallet/src/commands/services/` | Service directory listing and detail views |
 | `crates/tempo-request/src/http/` | HTTP client, response handling, formatting |
-| `crates/tempo-request/src/request/` | Request building (headers, payload, SSE, output) |
+| `crates/tempo-request/src/query/` | Query flow (challenge parsing, request prep, output, SSE, analytics) |
 | `crates/tempo-request/src/payment/charge.rs` | One-shot on-chain charge payment |
 | `crates/tempo-request/src/payment/session/` | Session flow, channel opening, voucher, streaming |

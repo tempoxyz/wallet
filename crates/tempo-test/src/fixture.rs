@@ -1,7 +1,6 @@
 //! Test data, constants, configuration builders, session seeders, and harnesses.
 
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -40,6 +39,7 @@ provisioned = true
 pub const MODERATO_CHARGE_CHALLENGE: &str = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
 
 /// Build a WWW-Authenticate header for a Moderato charge challenge.
+#[must_use]
 pub fn charge_www_authenticate(id: &str) -> String {
     format!(
         r#"Payment id="{id}", realm="mock", method="tempo", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
@@ -63,6 +63,11 @@ impl Default for TestConfigBuilder {
 
 impl TestConfigBuilder {
     /// Create a new test config builder with an empty temp directory.
+    ///
+    /// # Panics
+    ///
+    /// Panics when creating the temporary directory fails.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             temp_dir: TempDir::new().expect("Failed to create temp directory"),
@@ -86,6 +91,7 @@ impl TestConfigBuilder {
     }
 
     /// Build the test configuration, writing files to the `~/.tempo/` layout.
+    #[must_use]
     pub fn build(self) -> TempDir {
         write_test_files(
             self.temp_dir.path(),
@@ -100,6 +106,10 @@ impl TestConfigBuilder {
 ///
 /// Useful for tests that already own a `TempDir` and need to set up the
 /// directory without going through `TestConfigBuilder`.
+///
+/// # Panics
+///
+/// Panics when creating directories or writing files fails.
 pub fn write_test_files(root: &Path, config_toml: &str, keys_toml: Option<&str>) {
     let tempo_home = root.join(".tempo");
     let wallet_dir = tempo_home.join("wallet");
@@ -119,6 +129,10 @@ pub fn setup_config_only(temp: &TempDir, rpc_base_url: &str) {
 // ── Session seeder ──────────────────────────────────────────────────────
 
 /// Seed a local session record directly into the sessions database for tests.
+///
+/// # Panics
+///
+/// Panics when opening or mutating the `SQLite` session database fails.
 pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
     let db_path = temp_dir.path().join(".tempo/wallet/sessions.db");
     if let Some(parent) = db_path.parent() {
@@ -153,10 +167,13 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
     )
     .expect("create sessions schema");
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    )
+    .expect("system time seconds should fit in i64");
     let key = if origin.starts_with("https://example.com") {
         "https___example.com".to_string()
     } else {
@@ -200,6 +217,21 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
         ],
     )
     .expect("insert session record");
+}
+
+/// Corrupt the deposit field for a seeded local session row.
+///
+/// # Panics
+///
+/// Panics when opening or mutating the `SQLite` session database fails.
+pub fn corrupt_local_session_deposit(temp_dir: &TempDir, origin: &str, value: &str) {
+    let db_path = temp_dir.path().join(".tempo/wallet/sessions.db");
+    let conn = Connection::open(&db_path).expect("open sessions.db");
+    conn.execute(
+        "UPDATE sessions SET deposit = ?1 WHERE origin = ?2",
+        rusqlite::params![value, origin],
+    )
+    .expect("update malformed session row");
 }
 
 // ── Payment test harness ────────────────────────────────────────────────
@@ -250,7 +282,7 @@ impl PaymentTestHarness {
                 rpc.base_url
             ))
             .build();
-        PaymentTestHarness { rpc, server, temp }
+        Self { rpc, server, temp }
     }
 
     async fn build(body: &str, keys_toml: &str, id: &str) -> Self {
@@ -264,10 +296,11 @@ impl PaymentTestHarness {
                 rpc.base_url
             ))
             .build();
-        PaymentTestHarness { rpc, server, temp }
+        Self { rpc, server, temp }
     }
 
     /// Get the full URL for a path on the mock HTTP server.
+    #[must_use]
     pub fn url(&self, path: &str) -> String {
         self.server.url(path)
     }

@@ -1,12 +1,16 @@
 //! Configuration management for Tempo CLI.
 
-use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Component, Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ConfigError, TempoError};
-use crate::network::NetworkId;
+use crate::{
+    error::{ConfigError, TempoError},
+    network::NetworkId,
+};
 
 /// Application configuration (optional RPC overrides, telemetry).
 ///
@@ -36,7 +40,7 @@ pub struct TelemetryConfig {
 }
 
 impl TelemetryConfig {
-    fn default_enabled() -> bool {
+    const fn default_enabled() -> bool {
         true
     }
 }
@@ -55,49 +59,48 @@ impl Config {
     ///
     /// If `rpc_override` is provided, it is applied to all built-in networks,
     /// taking precedence over any config file settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the path is invalid, the file cannot be read,
+    /// or the TOML payload cannot be parsed.
     pub fn load(
         config_path: Option<impl AsRef<Path>>,
         rpc_override: Option<&str>,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, TempoError> {
         let (config_path, explicit) = if let Some(path) = config_path {
             let path = PathBuf::from(path.as_ref());
             if path.components().any(|c| matches!(c, Component::ParentDir)) {
-                return Err(ConfigError::Invalid(
-                    "Invalid config path: path traversal (..) not allowed".to_string(),
-                )
-                .into());
+                return Err(ConfigError::InvalidConfigPathTraversal.into());
             }
             (path, true)
         } else {
             (Self::default_config_path()?, false)
         };
 
-        let mut config = if !config_path.exists() {
+        let mut config = if config_path.exists() {
+            let content = std::fs::read_to_string(&config_path).map_err(|source| {
+                ConfigError::ReadConfigFile {
+                    path: config_path.display().to_string(),
+                    source,
+                }
+            })?;
+
+            toml::from_str(&content).map_err(|source| ConfigError::ParseConfigFile {
+                path: config_path.display().to_string(),
+                source,
+            })?
+        } else {
             if explicit {
-                anyhow::bail!(ConfigError::Missing(format!(
+                return Err(ConfigError::Missing(format!(
                     "Config file not found at {}.",
                     config_path.display()
-                )));
+                ))
+                .into());
             }
             let config = Self::default();
             let _ = Self::write_default(&config_path, &config);
             config
-        } else {
-            let content = std::fs::read_to_string(&config_path).map_err(|e| {
-                ConfigError::Invalid(format!(
-                    "Failed to read config file at {}: {}",
-                    config_path.display(),
-                    e
-                ))
-            })?;
-
-            toml::from_str(&content).map_err(|e| {
-                ConfigError::Invalid(format!(
-                    "Failed to parse config file at {}: {}",
-                    config_path.display(),
-                    e
-                ))
-            })?
         };
 
         if let Some(url) = rpc_override {
@@ -110,12 +113,16 @@ impl Config {
     }
 
     /// Get the default config file path (`$TEMPO_HOME/config.toml` or `~/.tempo/config.toml`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Tempo home directory cannot be resolved.
     pub fn default_config_path() -> Result<PathBuf, TempoError> {
         Ok(crate::tempo_home()?.join("config.toml"))
     }
 
     /// Write a default config file with helpful comments.
-    fn write_default(config_path: &Path, config: &Config) -> Result<(), TempoError> {
+    fn write_default(config_path: &Path, config: &Self) -> Result<(), TempoError> {
         let body = toml::to_string_pretty(config)?;
         let content = format!(
             "# Tempo wallet configuration\n\
@@ -128,13 +135,14 @@ impl Config {
         );
         {
             use std::io::Write;
-            std::fs::create_dir_all(config_path.parent().ok_or_else(|| {
+            let parent = config_path.parent().ok_or_else(|| {
                 TempoError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     format!("path has no parent directory: {}", config_path.display()),
                 ))
-            })?)?;
-            let mut temp = tempfile::NamedTempFile::new_in(config_path.parent().unwrap())?;
+            })?;
+            std::fs::create_dir_all(parent)?;
+            let mut temp = tempfile::NamedTempFile::new_in(parent)?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -154,12 +162,15 @@ impl Config {
     ///
     /// Always returns a valid URL: falls back to the network's default for
     /// missing or invalid overrides.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if a hardcoded built-in default RPC URL is invalid.
     pub fn rpc_url(&self, network: NetworkId) -> url::Url {
         let url_str = self
             .rpc
             .get(&network)
-            .map(String::as_str)
-            .unwrap_or_else(|| network.default_rpc_url());
+            .map_or_else(|| network.default_rpc_url(), String::as_str);
 
         url_str.parse().unwrap_or_else(|_| {
             network
@@ -195,7 +206,7 @@ mod tests {
         fn build(self) -> Config {
             Config {
                 rpc: self.rpc,
-                telemetry: Default::default(),
+                telemetry: TelemetryConfig::default(),
             }
         }
     }
@@ -288,7 +299,7 @@ mod tests {
                     "https://moderato.example.com".to_string(),
                 ),
             ]),
-            telemetry: Default::default(),
+            telemetry: TelemetryConfig::default(),
         };
 
         let content = toml::to_string_pretty(&config).expect("serialize");

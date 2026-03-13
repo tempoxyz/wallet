@@ -2,13 +2,12 @@
 
 use clap::{ArgAction, Parser};
 
-use super::context::ContextArgs;
-use super::output::OutputFormat;
-use super::runtime::ColorMode;
-use super::verbosity::Verbosity;
+use super::{context::ContextArgs, output::OutputFormat, runtime::ColorMode, verbosity::Verbosity};
+use crate::error::TempoError;
 
 /// Global CLI flags shared by all Tempo extension binaries.
 #[derive(Parser, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct GlobalArgs {
     /// Configuration file path
     #[arg(
@@ -100,6 +99,7 @@ impl GlobalArgs {
     /// When neither `--json-output` nor `--toon-output` is explicitly set and
     /// stdout is not a terminal, defaults to JSON for machine-friendly output.
     /// Set `TEMPO_NO_AUTO_JSON=1` to disable auto-detection.
+    #[must_use]
     pub fn resolve_output_format(&self) -> OutputFormat {
         use std::io::IsTerminal;
         if self.json_output {
@@ -114,6 +114,7 @@ impl GlobalArgs {
     }
 
     /// Build a `Verbosity` from CLI flags (silent overrides verbose).
+    #[must_use]
     pub fn verbosity(&self) -> Verbosity {
         Verbosity {
             level: if self.silent { 0 } else { self.verbose.min(3) },
@@ -134,7 +135,7 @@ impl GlobalArgs {
     }
 
     /// Build the shared runtime context from these global args.
-    pub(crate) async fn build_context(&self) -> anyhow::Result<super::context::Context> {
+    pub(crate) async fn build_context(&self) -> Result<super::context::Context, TempoError> {
         super::context::Context::build(self.context_args()).await
     }
 
@@ -198,6 +199,7 @@ impl GlobalArgs {
 ///
 /// Wraps `clap::Parser::try_parse` to intercept `DisplayVersion` and emit
 /// structured version info when `-j` or `-t` is present.
+#[must_use]
 pub fn parse_cli<T: clap::Parser + clap::CommandFactory>() -> T {
     // Handle --describe before normal parsing
     if std::env::args().any(|a| a == "--describe") {
@@ -280,7 +282,7 @@ fn describe_command(cmd: &clap::Command) -> serde_json::Value {
         } else if arg.get_long().is_some() || arg.get_short().is_some() {
             map.insert("type".into(), serde_json::Value::String("option".into()));
             if let Some(val_names) = arg.get_value_names() {
-                let names: Vec<&str> = val_names.iter().map(|v| v.as_str()).collect();
+                let names: Vec<&str> = val_names.iter().map(clap::builder::Str::as_str).collect();
                 if names.len() == 1 {
                     map.insert(
                         "value_name".into(),
@@ -300,7 +302,7 @@ fn describe_command(cmd: &clap::Command) -> serde_json::Value {
             let values: Vec<&str> = possible
                 .iter()
                 .filter(|v| !v.is_hide_set())
-                .map(|v| v.get_name())
+                .map(clap::builder::PossibleValue::get_name)
                 .collect();
             if !values.is_empty() {
                 map.insert("possible_values".into(), serde_json::json!(values));

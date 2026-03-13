@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
+use alloy::primitives::Address;
 
-use super::render::{render_channel_list, ChannelView};
-use super::{session_store, SessionStatus};
+use super::{
+    render::{render_channel_list, ChannelView},
+    session_store, SessionStatus,
+};
 use crate::args::SessionStateArg;
-use tempo_common::cli::context::Context;
-use tempo_common::payment::session::find_all_channels_for_payer;
+use tempo_common::{
+    cli::context::Context, error::TempoError, payment::session::find_all_channels_for_payer,
+};
 
 /// List payment sessions.
 ///
@@ -14,7 +17,10 @@ use tempo_common::payment::session::find_all_channels_for_payer;
 /// view of active, orphaned, and closing channels. With `--state orphaned`,
 /// scans on-chain for channels without a local session. With `--state finalizable`,
 /// shows channels pending finalization (requestClose submitted, awaiting grace period).
-pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -> Result<()> {
+pub(super) async fn list_sessions(
+    ctx: &Context,
+    states: Vec<SessionStateArg>,
+) -> Result<(), TempoError> {
     let config = &ctx.config;
     let output_format = ctx.output_format;
     let network = ctx.network;
@@ -48,9 +54,9 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
 
     // Build local views and filter by selected states
     for s in &filtered_local {
-        let (status, _) = s.status_at(session_store::now_secs());
+        let (session_status, _) = s.status_at(session_store::now_secs());
         let v = ChannelView::from(*s);
-        let matches = match status {
+        let matches = match session_status {
             SessionStatus::Active => selected.contains(&SessionStateArg::Active),
             SessionStatus::Closing => selected.contains(&SessionStateArg::Closing),
             SessionStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
@@ -73,31 +79,28 @@ pub(super) async fn list_sessions(ctx: &Context, states: Vec<SessionStateArg>) -
         let channels = find_all_channels_for_payer(config, wallet_addr, network).await;
 
         // Avoid duplicates by skipping any with a local session
-        let local_ids: HashSet<String> = filtered_local
-            .iter()
-            .map(|s| s.channel_id.to_lowercase())
-            .collect();
+        let local_ids: HashSet<String> =
+            filtered_local.iter().map(|s| s.channel_id_hex()).collect();
 
         // Cache grace per escrow to reduce RPC chatter
-        let mut grace_cache: HashMap<String, u64> = HashMap::new();
+        let mut grace_cache: HashMap<Address, u64> = HashMap::new();
 
         for ch in &channels {
-            if local_ids.contains(&ch.channel_id.to_lowercase()) {
+            let channel_id_hex = format!("{:#x}", ch.channel_id);
+            if local_ids.contains(&channel_id_hex.to_lowercase()) {
                 continue;
             }
-            let grace = match grace_cache.get(&ch.escrow_contract) {
-                Some(&g) => g,
-                None => {
-                    let g =
-                        super::util::resolve_grace_period(config, ch.network, &ch.escrow_contract)
-                            .await;
-                    grace_cache.insert(ch.escrow_contract.clone(), g);
-                    g
-                }
+            let grace = if let Some(&g) = grace_cache.get(&ch.escrow_contract) {
+                g
+            } else {
+                let g =
+                    super::util::resolve_grace_period(config, ch.network, ch.escrow_contract).await;
+                grace_cache.insert(ch.escrow_contract, g);
+                g
             };
 
             let mut v = ChannelView::from_on_chain(
-                &ch.channel_id,
+                &channel_id_hex,
                 network,
                 ch.deposit,
                 ch.settled,
@@ -156,16 +159,18 @@ mod tests {
             origin: "https://api.example.com".into(),
             request_url: "https://api.example.com/v1".into(),
             chain_id: 4217,
-            escrow_contract: "0x00".into(),
+            escrow_contract: Address::ZERO,
             currency: "0x00".into(),
             recipient: "0x00".into(),
             payer: "did:pkh:eip155:4217:0x00".into(),
-            authorized_signer: "0x00".into(),
+            authorized_signer: Address::ZERO,
             salt: "0x00".into(),
-            channel_id: "0xabc".into(),
-            deposit: "1000000".into(),
-            tick_cost: "100".into(),
-            cumulative_amount: "2000".into(),
+            channel_id: "0x0000000000000000000000000000000000000000000000000000000000000abc"
+                .parse()
+                .unwrap(),
+            deposit: 1_000_000,
+            tick_cost: 100,
+            cumulative_amount: 2_000,
             challenge_echo: "{}".into(),
             state,
             close_requested_at: if state == SessionStatus::Closing {

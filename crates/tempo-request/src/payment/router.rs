@@ -2,19 +2,21 @@
 //!
 //! This module is crate-internal and intentionally decoupled from CLI types.
 
-use anyhow::Result;
-
 use mpp::PaymentChallenge;
 
 use crate::http::HttpClient;
-use tempo_common::config::Config;
-use tempo_common::error::PaymentError;
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
+use tempo_common::{
+    config::Config,
+    error::{PaymentError, TempoError},
+    keys::Keystore,
+    network::NetworkId,
+};
 
-use super::charge::handle_charge_request;
-use super::session::handle_session_request;
-use super::types::{PaymentResult, ResolvedChallenge};
+use super::{
+    charge::handle_charge_request,
+    session::handle_session_request,
+    types::{PaymentResult, ResolvedChallenge},
+};
 
 /// Dispatch to charge or session payment flow.
 ///
@@ -31,13 +33,15 @@ pub(crate) async fn dispatch_payment(
     network: NetworkId,
     keys: &Keystore,
     max_pay: Option<u128>,
-) -> Result<PaymentResult> {
+) -> Result<PaymentResult, TempoError> {
     if let Some(allowed) = http.network {
         if allowed != network {
-            return Err(PaymentError::InvalidChallenge(format!(
-                "Server requested network '{}' but --network is '{}'",
-                network, allowed
-            ))
+            return Err(PaymentError::ChallengeSchema {
+                context: "payment challenge network",
+                reason: format!(
+                    "Server requested network '{network}' but --network is '{allowed}'"
+                ),
+            }
             .into());
         }
     }

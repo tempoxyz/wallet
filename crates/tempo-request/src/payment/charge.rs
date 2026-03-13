@@ -3,13 +3,14 @@
 //! This module handles the MPP protocol (<https://mpp.dev>) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
-use anyhow::{Context, Result};
 use mpp::client::PaymentProvider;
 
 use crate::http::{HttpClient, HttpResponse};
-use tempo_common::cli::terminal::sanitize_for_terminal;
-use tempo_common::error::{ConfigError, PaymentError};
-use tempo_common::keys::Signer;
+use tempo_common::{
+    cli::terminal::sanitize_for_terminal,
+    error::{ConfigError, PaymentError, TempoError},
+    keys::Signer,
+};
 
 use super::types::{PaymentResult, ResolvedChallenge};
 use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
@@ -23,7 +24,7 @@ pub(super) async fn handle_charge_request(
     url: &str,
     resolved: ResolvedChallenge,
     signer: Signer,
-) -> Result<PaymentResult> {
+) -> Result<PaymentResult, TempoError> {
     let challenge = &resolved.challenge;
 
     challenge
@@ -32,7 +33,10 @@ pub(super) async fn handle_charge_request(
 
     let provider =
         mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str())
-            .map_err(|e| ConfigError::Invalid(e.to_string()))?
+            .map_err(|source| ConfigError::ProviderInitSource {
+                provider: "tempo payment provider",
+                source: Box::new(source),
+            })?
             .with_signing_mode(signer.signing_mode);
 
     let credential = provider
@@ -40,13 +44,17 @@ pub(super) async fn handle_charge_request(
         .await
         .map_err(|e| classify_payment_error(e, &resolved.network_id))?;
 
-    let auth_header =
-        mpp::format_authorization(&credential).context("Failed to format Authorization header")?;
+    let auth_header = mpp::format_authorization(&credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "Authorization header",
+            source: Box::new(source),
+        }
+    })?;
 
     if http.dry_run {
         eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
         return Ok(PaymentResult {
-            tx_hash: String::new(),
+            tx_hash: None,
             session_id: None,
             status_code: 200,
             response: None,
@@ -60,13 +68,10 @@ pub(super) async fn handle_charge_request(
         return Err(parse_payment_rejection(&resp).into());
     }
 
-    let tx_hash = resp
-        .header("payment-receipt")
-        .and_then(|h| {
-            mpp::protocol::core::extract_tx_hash(h)
-                .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
-        })
-        .unwrap_or_default();
+    let tx_hash = resp.header("payment-receipt").and_then(|h| {
+        mpp::protocol::core::extract_tx_hash(h)
+            .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
+    });
 
     Ok(PaymentResult {
         tx_hash,

@@ -74,6 +74,62 @@ pub(super) struct Endpoint {
     pub(super) docs: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum EndpointMethod<'a> {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
+    Head,
+    Options,
+    Other(&'a str),
+}
+
+impl<'a> EndpointMethod<'a> {
+    const fn parse(value: &'a str) -> Self {
+        if value.eq_ignore_ascii_case("GET") {
+            return Self::Get;
+        }
+        if value.eq_ignore_ascii_case("POST") {
+            return Self::Post;
+        }
+        if value.eq_ignore_ascii_case("PUT") {
+            return Self::Put;
+        }
+        if value.eq_ignore_ascii_case("PATCH") {
+            return Self::Patch;
+        }
+        if value.eq_ignore_ascii_case("DELETE") {
+            return Self::Delete;
+        }
+        if value.eq_ignore_ascii_case("HEAD") {
+            return Self::Head;
+        }
+        if value.eq_ignore_ascii_case("OPTIONS") {
+            return Self::Options;
+        }
+        Self::Other(value)
+    }
+
+    pub(super) const fn as_str(self) -> &'a str {
+        match self {
+            Self::Get => "GET",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Patch => "PATCH",
+            Self::Delete => "DELETE",
+            Self::Head => "HEAD",
+            Self::Options => "OPTIONS",
+            Self::Other(value) => value,
+        }
+    }
+
+    pub(super) const fn supports_body(self) -> bool {
+        !matches!(self, Self::Get | Self::Head)
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub(super) struct EndpointPayment {
     pub(super) intent: String,
@@ -99,9 +155,22 @@ pub(super) struct Provider {
     pub(super) icon: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServiceId(String);
+
+impl ServiceId {
+    fn parse(value: &str) -> Option<Self> {
+        let normalized = value.trim().to_ascii_lowercase();
+        (!normalized.is_empty()).then_some(Self(normalized))
+    }
+}
+
 impl ServiceRegistry {
     pub(super) fn find(&self, id: &str) -> Option<&Service> {
-        self.services.iter().find(|s| s.id.eq_ignore_ascii_case(id))
+        let target = ServiceId::parse(id)?;
+        self.services
+            .iter()
+            .find(|s| ServiceId::parse(&s.id).as_ref() == Some(&target))
     }
 }
 
@@ -116,6 +185,10 @@ impl Service {
 }
 
 impl Endpoint {
+    pub(super) fn method_kind(&self) -> EndpointMethod<'_> {
+        EndpointMethod::parse(&self.method)
+    }
+
     pub(super) fn format_pricing(&self) -> String {
         match &self.payment {
             None => "free".to_string(),
@@ -224,5 +297,59 @@ mod tests {
             docs: None,
         };
         assert_eq!(ep.format_pricing(), "$1.000000 session");
+    }
+
+    #[test]
+    fn service_find_normalizes_identifier() {
+        let registry = ServiceRegistry {
+            services: vec![Service {
+                id: "MY-SERVICE".to_string(),
+                name: "n".to_string(),
+                url: "u".to_string(),
+                service_url: None,
+                description: None,
+                icon: None,
+                categories: Vec::new(),
+                integration: None,
+                tags: Vec::new(),
+                status: None,
+                docs: None,
+                methods: HashMap::new(),
+                realm: None,
+                endpoints: Vec::new(),
+                provider: None,
+            }],
+        };
+
+        assert!(registry.find("my-service").is_some());
+        assert!(registry.find("  my-service  ").is_some());
+        assert!(registry.find("").is_none());
+    }
+
+    #[test]
+    fn endpoint_method_is_normalized() {
+        let endpoint = Endpoint {
+            method: "post".into(),
+            path: "/v1/test".into(),
+            description: None,
+            payment: None,
+            docs: None,
+        };
+
+        assert_eq!(endpoint.method_kind().as_str(), "POST");
+        assert!(endpoint.method_kind().supports_body());
+    }
+
+    #[test]
+    fn endpoint_method_get_disables_body_examples() {
+        let endpoint = Endpoint {
+            method: "GET".into(),
+            path: "/v1/test".into(),
+            description: None,
+            payment: None,
+            docs: None,
+        };
+
+        assert!(!endpoint.method_kind().supports_body());
     }
 }

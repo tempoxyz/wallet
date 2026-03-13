@@ -2,21 +2,25 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use anyhow::Result;
 use futures::future::join_all;
 
 use crate::wallet::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits, query_all_balances, KeysResponse, TokenBalance,
 };
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::cli::terminal::{address_link, print_field_w};
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
-use tempo_common::payment::session;
+use tempo_common::{
+    cli::{
+        context::Context,
+        output,
+        terminal::{address_link, print_field_w},
+    },
+    error::TempoError,
+    keys::Keystore,
+    network::NetworkId,
+    payment::session,
+};
 
-pub(crate) async fn run(ctx: &Context) -> Result<()> {
+pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
     let config = &ctx.config;
     let network = ctx.network;
     let keystore = &ctx.keys;
@@ -25,15 +29,15 @@ pub(crate) async fn run(ctx: &Context) -> Result<()> {
     let mut seen = BTreeSet::new();
     let mut balance_tasks = Vec::new();
     for entry in keystore.iter() {
-        if entry.wallet_address.is_empty() {
+        let Some(wallet_address_hex) = entry.wallet_address_hex() else {
             continue;
-        }
-        let cache_key = (entry.wallet_address.clone(), entry.chain_id);
+        };
+        let cache_key = (wallet_address_hex.clone(), entry.chain_id);
         if !seen.insert(cache_key) {
             continue;
         }
         let entry_network = NetworkId::from_chain_id(entry.chain_id).unwrap_or(network);
-        let addr = entry.wallet_address.clone();
+        let addr = wallet_address_hex;
         let chain_id = entry.chain_id;
         balance_tasks.push(async move {
             let balances = query_all_balances(config, entry_network, &addr).await;
@@ -84,9 +88,8 @@ fn render_keys(response: &KeysResponse, keystore: &Keystore, sessions: &[session
             let wallet_link = address_link(explorer.unwrap_or_default(), wallet);
             print_field_w(10, "Wallet", &wallet_link);
         }
-        if let (Some(bal), Some(sym)) = (key.balance, &key.symbol) {
-            let bal_str = format!("{bal}");
-            if let Some(bb) = balance_breakdown(&bal_str, sym, Some(entry.chain_id), sessions) {
+        if let (Some(bal), Some(sym)) = (key.balance.as_deref(), key.symbol.as_deref()) {
+            if let Some(bb) = balance_breakdown(bal, sym, Some(entry.chain_id), sessions) {
                 let session_label = if bb.session_count == 1 {
                     "session"
                 } else {

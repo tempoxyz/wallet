@@ -5,12 +5,13 @@
 //! and broadcast helpers remain in `tempo_common::payment::session::tx`.
 
 use alloy::primitives::Address;
-use anyhow::Result;
 
 use crate::http::{HttpClient, HttpResponse};
-use tempo_common::error::{ConfigError, PaymentError};
-use tempo_common::keys::Signer;
-use tempo_common::payment::session as common_tx;
+use tempo_common::{
+    error::{ConfigError, PaymentError, TempoError},
+    keys::Signer,
+    payment::session as common_tx,
+};
 
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {
@@ -31,10 +32,13 @@ pub(super) async fn create_tempo_payment_from_calls(
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
     chain_id: u64,
-) -> Result<TempoPaymentResult> {
+) -> Result<TempoPaymentResult, TempoError> {
     let rpc_url: url::Url = rpc_url_str
         .parse()
-        .map_err(|e| ConfigError::Invalid(format!("invalid RPC URL: {}", e)))?;
+        .map_err(|source| ConfigError::InvalidUrl {
+            context: "RPC",
+            source,
+        })?;
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;
@@ -51,7 +55,7 @@ pub(super) async fn send_open_with_retry(
     url: &str,
     auth_header: &str,
     delays_ms: &[u64],
-) -> Result<HttpResponse> {
+) -> Result<HttpResponse, TempoError> {
     let truncate = |s: String| -> String { s.chars().take(500).collect() };
 
     let headers = vec![("Authorization".to_string(), auth_header.to_string())];
@@ -84,18 +88,19 @@ pub(super) async fn send_open_with_retry(
                     .into());
                 }
             }
+            // Intentional operator-facing retry exhaustion message; this path has
+            // no richer source error beyond repeated 410 channel-not-found responses.
             return Err(PaymentError::PaymentRejected {
                 reason: "Server could not find channel after retries".to_string(),
                 status_code: 410,
             }
             .into());
-        } else {
-            return Err(PaymentError::PaymentRejected {
-                reason: truncate(body),
-                status_code: 410,
-            }
-            .into());
         }
+        return Err(PaymentError::PaymentRejected {
+            reason: truncate(body),
+            status_code: 410,
+        }
+        .into());
     }
 
     let body = resp.body_string().unwrap_or_default();

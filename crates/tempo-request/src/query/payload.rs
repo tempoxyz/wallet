@@ -1,8 +1,6 @@
 //! Request body resolution and form encoding for query inputs.
 
-use anyhow::{Context as _, Result};
-
-use tempo_common::error::InputError;
+use tempo_common::error::{InputError, TempoError};
 
 /// Maximum request body size (100 MB)
 const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
@@ -15,12 +13,13 @@ pub(crate) fn append_data_to_query(
     url: &mut url::Url,
     data: &[String],
     data_urlencode: &[String],
-) -> Result<()> {
+) -> Result<(), TempoError> {
     // Raw -d data (verbatim, joined by '&')
     let mut raw = String::new();
     if !data.is_empty() {
         let combined = resolve_and_join_data(data)?;
-        raw = String::from_utf8(combined).context("data is not valid UTF-8 for --get")?;
+        raw =
+            String::from_utf8(combined).map_err(|source| InputError::GetDataNotUtf8 { source })?;
     }
     // Encoded data from --data-urlencode
     let enc_pairs = parse_data_urlencode(data_urlencode)?;
@@ -38,9 +37,9 @@ pub(crate) fn append_data_to_query(
     Ok(())
 }
 
-pub(crate) fn validate_body_size(len: usize) -> Result<()> {
+pub(crate) fn validate_body_size(len: usize) -> Result<(), TempoError> {
     if len > MAX_BODY_SIZE {
-        anyhow::bail!(InputError::BodyTooLarge(MAX_BODY_SIZE));
+        return Err(InputError::BodyTooLarge(MAX_BODY_SIZE).into());
     }
     Ok(())
 }
@@ -51,7 +50,7 @@ pub(crate) fn validate_body_size(len: usize) -> Result<()> {
 /// - `@filename` — read the file as binary
 /// - `@-` — read stdin as binary
 /// - anything else — treat as a literal UTF-8 string
-fn resolve_data(data: &str) -> Result<Vec<u8>> {
+fn resolve_data(data: &str) -> Result<Vec<u8>, TempoError> {
     use std::io::Read;
 
     if let Some(path) = data.strip_prefix('@') {
@@ -78,7 +77,7 @@ fn resolve_data(data: &str) -> Result<Vec<u8>> {
 }
 
 /// Resolve and join multiple `-d` data items with `&` separators.
-fn resolve_and_join_data(data: &[String]) -> Result<Vec<u8>> {
+fn resolve_and_join_data(data: &[String]) -> Result<Vec<u8>, TempoError> {
     let mut combined = Vec::new();
     for item in data {
         let bytes = resolve_data(item)?;
@@ -96,10 +95,10 @@ pub(crate) fn resolve_method_and_body(
     data: &[String],
     json: Option<&str>,
     toon: Option<&str>,
-) -> Result<(reqwest::Method, Option<Vec<u8>>)> {
+) -> Result<(reqwest::Method, Option<Vec<u8>>), TempoError> {
     let body = if let Some(toon_data) = toon {
-        let value: serde_json::Value = toon_format::decode_default(toon_data)
-            .map_err(|e| anyhow::anyhow!("failed to decode TOON input: {e}"))?;
+        let value: serde_json::Value =
+            toon_format::decode_default(toon_data).map_err(InputError::InvalidToonInput)?;
         Some(serde_json::to_string(&value)?.into_bytes())
     } else if let Some(json) = json {
         Some(json.as_bytes().to_vec())
@@ -115,7 +114,7 @@ pub(crate) fn resolve_method_and_body(
 
     let method = match method {
         Some(m) => reqwest::Method::from_bytes(m.to_uppercase().as_bytes())
-            .map_err(|_| anyhow::anyhow!("invalid HTTP method: {m}"))?,
+            .map_err(|_| InputError::InvalidMethod(m.to_owned()))?,
         None => {
             if body.is_some() {
                 reqwest::Method::POST
@@ -129,7 +128,9 @@ pub(crate) fn resolve_method_and_body(
 }
 
 /// Parse --data-urlencode items into (name, value) tuples with URL-encoding applied.
-pub(crate) fn parse_data_urlencode(items: &[String]) -> Result<Vec<(Option<String>, String)>> {
+pub(crate) fn parse_data_urlencode(
+    items: &[String],
+) -> Result<Vec<(Option<String>, String)>, TempoError> {
     let mut pairs = Vec::new();
     for it in items {
         if let Some(rest) = it.strip_prefix('@') {
@@ -246,6 +247,17 @@ mod tests {
         assert!(
             msg.contains("TOON"),
             "error should mention TOON, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_invalid_method_reports_typed_input_error() {
+        let result = resolve_method_and_body(Some("NOPE??"), &[], None, None);
+        assert!(result.is_err(), "expected error for invalid HTTP method");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Invalid HTTP method"),
+            "error should mention invalid HTTP method, got: {msg}"
         );
     }
 

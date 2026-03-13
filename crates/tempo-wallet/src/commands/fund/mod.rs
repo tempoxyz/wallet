@@ -8,14 +8,18 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::analytics;
-use crate::analytics::{WalletFundFailurePayload, WalletFundPayload};
-use crate::wallet::TokenBalance;
-use tempo_common::cli::context::Context;
-use tempo_common::error::ConfigError;
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
-use tempo_common::security::sanitize_error;
+use crate::{
+    analytics,
+    analytics::{WalletFundFailurePayload, WalletFundPayload},
+    wallet::TokenBalance,
+};
+use tempo_common::{
+    cli::context::Context,
+    error::{ConfigError, TempoError},
+    keys::Keystore,
+    network::NetworkId,
+    security::sanitize_error,
+};
 
 use self::relay::DepositStatus;
 
@@ -53,7 +57,7 @@ pub(crate) async fn run(
     address: Option<String>,
     no_wait: bool,
     dry_run: bool,
-) -> anyhow::Result<()> {
+) -> Result<(), TempoError> {
     let method = match ctx.network {
         NetworkId::TempoModerato => "faucet",
         NetworkId::Tempo => "bridge",
@@ -73,7 +77,7 @@ async fn run_inner(
     address: Option<String>,
     no_wait: bool,
     dry_run: bool,
-) -> anyhow::Result<()> {
+) -> Result<(), TempoError> {
     let wallet_address = resolve_address(address, &ctx.keys)?;
 
     if dry_run {
@@ -87,7 +91,7 @@ async fn run_inner(
     }
 }
 
-fn dry_run_fund(ctx: &Context, wallet_address: &str) -> anyhow::Result<()> {
+fn dry_run_fund(ctx: &Context, wallet_address: &str) -> Result<(), TempoError> {
     use tempo_common::cli::output;
 
     let action = match ctx.network {
@@ -118,7 +122,9 @@ fn dry_run_fund(ctx: &Context, wallet_address: &str) -> anyhow::Result<()> {
             ctx.network.as_str()
         );
         Ok(())
-    })
+    })?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -126,21 +132,17 @@ fn dry_run_fund(ctx: &Context, wallet_address: &str) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Resolve the target wallet address from an explicit arg or the keystore default.
-fn resolve_address(address: Option<String>, keys: &Keystore) -> anyhow::Result<String> {
+fn resolve_address(address: Option<String>, keys: &Keystore) -> Result<String, TempoError> {
     if let Some(addr) = address {
         tempo_common::security::validate_hex_input(&addr, "wallet address")?;
         return Ok(addr);
     }
 
-    let wallet_addr = keys.wallet_address();
-
-    if wallet_addr.is_empty() {
-        anyhow::bail!(ConfigError::Missing(
-            "No wallet configured. Run 'tempo wallet login'.".to_string(),
-        ));
-    }
-
-    Ok(wallet_addr.to_string())
+    keys.wallet_address_hex().ok_or_else(|| {
+        // Intentional UX/business-rule message: this is a missing prerequisite,
+        // not a wrapped source error.
+        ConfigError::Missing("No wallet configured. Run 'tempo wallet login'.".to_string()).into()
+    })
 }
 
 /// Generic polling helper: calls `poll_fn` every `interval` until it returns
@@ -197,8 +199,7 @@ pub(super) fn render_balance_diff(before: &[TokenBalance], after: &[TokenBalance
         let prev = before
             .iter()
             .find(|b| b.currency == cur.currency)
-            .map(|b| b.balance.as_str())
-            .unwrap_or("0");
+            .map_or("0", |b| b.balance.as_str());
         if !balances_equal(&cur.balance, prev) {
             eprintln!("  {} balance: {} -> {}", cur.symbol, prev, cur.balance);
         }
@@ -219,7 +220,7 @@ fn track_fund_start(ctx: &Context, method: &str) {
     );
 }
 
-fn track_fund_result(ctx: &Context, method: &str, result: &anyhow::Result<()>) {
+fn track_fund_result(ctx: &Context, method: &str, result: &Result<(), TempoError>) {
     match result {
         Ok(()) => {
             ctx.track(
