@@ -111,6 +111,9 @@ pub fn truncate(s: &str, max: usize) -> String {
 }
 
 /// Print a right-aligned label/value field to stdout with a custom label width.
+///
+/// The value is sanitized to strip control characters. For pre-formatted values
+/// (e.g. containing OSC 8 hyperlinks), use [`print_field_raw_w`] instead.
 pub fn print_field_w(width: usize, label: &str, value: &str) {
     let safe_value = sanitize_for_terminal(value);
     println!("{label:>width$}: {safe_value}");
@@ -119,6 +122,17 @@ pub fn print_field_w(width: usize, label: &str, value: &str) {
 /// Print a right-aligned label/value field to stdout (14-char label width).
 pub fn print_field(label: &str, value: &str) {
     print_field_w(14, label, value);
+}
+
+/// Like [`print_field_w`] but skips sanitization — use for values that already
+/// contain intentional terminal sequences (e.g. OSC 8 hyperlinks from [`hyperlink`]).
+pub fn print_field_raw_w(width: usize, label: &str, value: &str) {
+    println!("{label:>width$}: {value}");
+}
+
+/// Like [`print_field`] but skips sanitization.
+pub fn print_field_raw(label: &str, value: &str) {
+    print_field_raw_w(14, label, value);
 }
 
 #[cfg(test)]
@@ -197,5 +211,26 @@ mod tests {
     #[test]
     fn truncate_long_adds_ellipsis() {
         assert_eq!(truncate("hello world", 5), "hell…");
+    }
+
+    #[test]
+    fn print_field_raw_preserves_osc8_hyperlinks() {
+        // Simulate what hyperlink() produces when the terminal supports OSC 8.
+        let osc8 = "\x1b]8;;https://example.com/address/0xabc\x070xabc\x1b]8;;\x07";
+
+        // print_field_raw_w uses the same format! — verify it preserves
+        // the ESC (\x1b) and BEL (\x07) bytes that OSC 8 requires.
+        let formatted = format!("{:>10}: {osc8}", "Wallet");
+        assert!(
+            formatted.contains('\x1b') && formatted.contains('\x07'),
+            "print_field_raw_w must preserve intentional OSC 8 sequences"
+        );
+
+        // Whereas print_field_w would strip them (the original bug).
+        let sanitized = format!("{:>10}: {}", "Wallet", sanitize_for_terminal(osc8));
+        assert!(
+            !sanitized.contains('\x1b') && !sanitized.contains('\x07'),
+            "print_field_w must sanitize control characters"
+        );
     }
 }
