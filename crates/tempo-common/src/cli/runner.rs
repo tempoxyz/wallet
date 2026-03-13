@@ -52,6 +52,7 @@ where
 
     let ctx = global.build_context(app_id).await?;
     let analytics = ctx.analytics.clone();
+    let ctx_network = ctx.network;
 
     let start = std::time::Instant::now();
     let (cmd_name, result) = handler(ctx).await;
@@ -92,7 +93,29 @@ where
         a.flush().await;
     }
 
-    result.map_err(Into::into)
+    let final_result = result.map_err(Into::into);
+
+    // Auto-invalidate revoked access keys so the next `login` re-authorizes
+    if matches!(
+        &final_result,
+        Err(TempoError::Payment(
+            crate::error::PaymentError::AccessKeyRevoked
+        ))
+    ) {
+        if let Ok(mut ks) = keys::Keystore::load(None) {
+            if let Some(entry) = ks.key_for_network(ctx_network) {
+                if let Some(wallet) = entry.wallet_address_parsed() {
+                    let _ = ks.delete_passkey_wallet_address(wallet);
+                    let _ = ks.save();
+                    tracing::info!(
+                        "revoked access key removed — run 'tempo wallet login' to re-authorize"
+                    );
+                }
+            }
+        }
+    }
+
+    final_result
 }
 
 /// Run a CLI binary with shared error handling.

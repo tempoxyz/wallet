@@ -236,6 +236,8 @@ pub enum PaymentError {
         "Key is not provisioned on-chain. Retry the request to auto-provision, or run '{hint}'."
     )]
     AccessKeyNotProvisioned { hint: String },
+    #[error("Access key has been revoked. Run 'tempo wallet login' to re-authorize.")]
+    AccessKeyRevoked,
     #[error("Unsupported payment method: {0}")]
     UnsupportedPaymentMethod(String),
     #[error("Unsupported payment intent: {0}")]
@@ -419,6 +421,13 @@ mod tests {
             err.to_string(),
             "Key is not provisioned on-chain. Retry the request to auto-provision, or run 'tempo wallet login'."
         );
+    }
+
+    #[test]
+    fn test_access_key_revoked_display() {
+        let err = PaymentError::AccessKeyRevoked;
+        assert!(err.to_string().contains("revoked"));
+        assert!(err.to_string().contains("tempo wallet login"));
     }
 
     #[test]
