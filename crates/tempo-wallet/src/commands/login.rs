@@ -97,8 +97,16 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
     auth_url.query_pairs_mut().append_pair("code", &code);
     let url_str = auth_url.to_string();
 
+    // Always print a manual fallback URL, even in machine output modes.
+    eprintln!("Auth URL: {url_str}");
+
+    // Always attempt browser open, even in machine output modes.
+    // Some agents run login with non-text output (`-t`/JSON) and still need
+    // the browser flow to start.
+    try_open_browser(&url_str);
+
     if ctx.output_format == OutputFormat::Text {
-        prompt_and_open_browser(&code, &url_str);
+        show_login_prompt(&code);
     }
 
     ctx.track_event(analytics::CALLBACK_WINDOW_OPENED);
@@ -128,8 +136,8 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
     Ok(())
 }
 
-/// Display the verification code and open the browser for authentication.
-fn prompt_and_open_browser(code: &str, url: &str) {
+/// Display the verification code and wait prompt for authentication.
+fn show_login_prompt(code: &str) {
     let display_code = if code.len() == 8 {
         format!("{}-{}", &code[..4], &code[4..])
     } else {
@@ -138,16 +146,13 @@ fn prompt_and_open_browser(code: &str, url: &str) {
     eprintln!();
     eprintln!("Verification code: {}", display_code.bold());
     eprintln!();
-
-    try_open_browser(url);
-
     eprintln!("Waiting for authentication...");
 }
 
 fn try_open_browser(url: &str) {
     if let Err(e) = webbrowser::open(url) {
         eprintln!("Failed to open browser: {e}");
-        eprintln!("Please open this URL manually: {url}");
+        eprintln!("Use the Auth URL above to continue.");
     }
 }
 
