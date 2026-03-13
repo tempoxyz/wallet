@@ -150,7 +150,6 @@ pub(crate) async fn handle_session_request(
     resolved: ResolvedChallenge,
     signer: Signer,
     _keys: &Keystore,
-    max_pay: Option<u128>,
 ) -> Result<PaymentResult, TempoError> {
     let challenge = &resolved.challenge;
     let network_id = resolved.network_id;
@@ -278,11 +277,6 @@ pub(crate) async fn handle_session_request(
         .unwrap_or(base_units)
         .min(max_deposit);
 
-    // Cap deposit at the user's --max-pay limit if set
-    if let Some(cap) = max_pay {
-        deposit = deposit.min(cap);
-    }
-
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
     // gas is paid in USDC via account abstraction).
@@ -347,7 +341,6 @@ pub(crate) async fn handle_session_request(
             origin: &origin,
             tick_cost,
             deposit: prev_deposit,
-            max_pay,
             salt: record.salt.clone(),
             recipient,
             currency,
@@ -489,7 +482,6 @@ pub(crate) async fn handle_session_request(
         origin: &origin,
         tick_cost,
         deposit,
-        max_pay,
         salt: format!("{salt:#x}"),
         recipient,
         currency,

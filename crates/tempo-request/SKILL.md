@@ -107,8 +107,6 @@ tempo request -t --describe
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Show what would be paid without executing |
-| `--max-pay <AMOUNT>` | Hard cap on the maximum amount to pay |
-| `--currency <ADDR\|SYMBOL>` | Currency for `--max-pay` |
 
 ### HTTP Options
 

@@ -71,35 +71,14 @@ pub(crate) fn build_output_options(
     }
 }
 
-/// Handle a final response: render output, optionally save the payment receipt, and fail on HTTP errors.
+/// Handle a final response: render output and fail on HTTP errors.
 pub(crate) fn handle_response(
     output_opts: &OutputOptions,
     response: HttpResponse,
-    save_receipt_path: Option<&str>,
 ) -> Result<(), TempoError> {
     let status = response.status_code;
 
-    // Capture receipt header before consuming response for output
-    let receipt_hdr = save_receipt_path.and_then(|_| {
-        response
-            .header("payment-receipt")
-            .map(std::string::ToString::to_string)
-    });
-
     render_response(output_opts, response)?;
-
-    // Optionally save receipt JSON if present
-    if let (Some(path), Some(h)) = (save_receipt_path, receipt_hdr.as_ref()) {
-        match mpp::parse_receipt(h) {
-            Ok(receipt) => {
-                let s = serde_json::to_string_pretty(&receipt)?;
-                std::fs::write(path, s)?;
-            }
-            Err(e) => {
-                tracing::warn!("failed to parse receipt for --save-receipt: {e}");
-            }
-        }
-    }
 
     if status >= 400 {
         return Err(NetworkError::HttpStatus {
@@ -296,14 +275,14 @@ mod tests {
     fn test_handle_response_success_status() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(200, b"ok");
-        assert!(handle_response(&opts, resp, None).is_ok());
+        assert!(handle_response(&opts, resp).is_ok());
     }
 
     #[test]
     fn test_handle_response_4xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(404, b"not found");
-        let err = handle_response(&opts, resp, None).unwrap_err();
+        let err = handle_response(&opts, resp).unwrap_err();
         assert!(err.to_string().contains("404"));
     }
 
@@ -311,7 +290,7 @@ mod tests {
     fn test_handle_response_5xx_fails() {
         let opts = test_opts(false);
         let resp = HttpResponse::for_test(500, b"internal error");
-        let err = handle_response(&opts, resp, None).unwrap_err();
+        let err = handle_response(&opts, resp).unwrap_err();
         assert!(err.to_string().contains("Internal Server Error"));
     }
 
