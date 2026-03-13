@@ -19,6 +19,7 @@ pub(crate) struct ContextArgs {
     pub(crate) private_key: Option<String>,
     pub(crate) output_format: OutputFormat,
     pub(crate) verbosity: Verbosity,
+    pub(crate) app_id: &'static str,
 }
 
 /// Shared runtime context used by extension command handlers.
@@ -57,7 +58,7 @@ impl Context {
             .transpose()?;
         let network = NetworkId::resolve(args.requested_network.as_deref())?;
         let keys = Keystore::load(args.private_key.as_deref())?;
-        let analytics = Analytics::new(network, &config, &keys).await;
+        let analytics = Analytics::new(network, &config, &keys, args.app_id).await;
 
         Ok(Self {
             config,

@@ -571,18 +571,18 @@ async fn test_analytics_tx_hash_is_extracted_hex() {
         .unwrap();
     assert!(output.status.success(), "expected success");
 
-    // Read captured events and find payment_success
+    // Read captured events and find payment succeeded
     let content = std::fs::read_to_string(&events_path).unwrap();
     let mut found = None;
     for line in content.lines() {
         if let Some((name, json_str)) = line.split_once('|') {
-            if name == "payment_success" {
+            if name == "payment succeeded" {
                 found = Some(json_str.to_string());
             }
         }
     }
     let Some(json_str) = found else {
-        panic!("missing payment_success event: {content}");
+        panic!("missing payment succeeded event: {content}");
     };
     let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     let got = v.get("tx_hash").and_then(|x| x.as_str()).unwrap_or("");
@@ -1288,8 +1288,8 @@ async fn test_offline_flag_no_socket_opened() {
     // No query_started event should be emitted (offline bails before tracking)
     let raw = std::fs::read_to_string(&events_path).unwrap_or_default();
     assert!(
-        !raw.contains("query_started"),
-        "no query_started event should fire in offline mode: {raw}"
+        !raw.contains("query started"),
+        "no query started event should fire in offline mode: {raw}"
     );
 }
 
@@ -1326,22 +1326,21 @@ async fn test_analytics_event_sequence_success() {
 
     // Must contain the core sequence in order
     assert!(
-        names.contains(&"command_run"),
-        "missing command_run: {names:?}"
+        names.contains(&"command succeeded"),
+        "missing command succeeded: {names:?}"
     );
     assert!(
-        names.contains(&"query_started"),
-        "missing query_started: {names:?}"
+        names.contains(&"query started"),
+        "missing query started: {names:?}"
     );
     assert!(
-        names.contains(&"query_success"),
-        "missing query_success: {names:?}"
+        names.contains(&"query succeeded"),
+        "missing query succeeded: {names:?}"
     );
 
-    // Verify ordering: command_run before query_started before query_success
+    // Verify ordering: query started before query succeeded
     let pos = |name: &str| names.iter().position(|n| *n == name);
-    assert!(pos("command_run") < pos("query_started"));
-    assert!(pos("query_started") < pos("query_success"));
+    assert!(pos("query started") < pos("query succeeded"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1361,19 +1360,19 @@ async fn test_analytics_event_sequence_failure() {
     let names: Vec<&str> = events.iter().map(|(n, _)| n.as_str()).collect();
 
     assert!(
-        names.contains(&"query_started"),
-        "missing query_started: {names:?}"
+        names.contains(&"query started"),
+        "missing query started: {names:?}"
     );
     assert!(
-        names.contains(&"query_failure"),
-        "missing query_failure: {names:?}"
+        names.contains(&"query failed"),
+        "missing query failed: {names:?}"
     );
-    assert!(pos_of(&names, "query_started") < pos_of(&names, "query_failure"));
+    assert!(pos_of(&names, "query started") < pos_of(&names, "query failed"));
 
-    // Verify query_failure has a sanitized error (not empty, bounded)
+    // Verify query failed has a sanitized error (not empty, bounded)
     let failure_props = events
         .iter()
-        .find(|(n, _)| n == "query_failure")
+        .find(|(n, _)| n == "query failed")
         .map(|(_, v)| v)
         .unwrap();
     let err = failure_props["error"].as_str().unwrap();

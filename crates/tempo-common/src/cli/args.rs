@@ -137,7 +137,7 @@ impl GlobalArgs {
     }
 
     /// Build a `ContextArgs` for context construction.
-    pub(crate) fn context_args(&self) -> ContextArgs {
+    pub(crate) fn context_args(&self, app_id: &'static str) -> ContextArgs {
         ContextArgs {
             config_path: self.config.clone(),
             rpc_url: self.rpc_url.clone(),
@@ -145,12 +145,16 @@ impl GlobalArgs {
             private_key: self.private_key.clone(),
             output_format: self.resolve_output_format(),
             verbosity: self.verbosity(),
+            app_id,
         }
     }
 
     /// Build the shared runtime context from these global args.
-    pub(crate) async fn build_context(&self) -> Result<super::context::Context, TempoError> {
-        super::context::Context::build(self.context_args()).await
+    pub(crate) async fn build_context(
+        &self,
+        app_id: &'static str,
+    ) -> Result<super::context::Context, TempoError> {
+        super::context::Context::build(self.context_args(app_id)).await
     }
 
     /// Emit a JSON schema of the CLI command tree and exit.

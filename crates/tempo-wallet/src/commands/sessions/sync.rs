@@ -3,7 +3,7 @@ use alloy::primitives::Address;
 use super::{session_store, SessionStatus};
 use tempo_common::{analytics::Event, cli::context::Context, error::TempoError};
 
-const SESSION_RECOVERED: Event = Event::new("session_recovered");
+const SESSION_RECOVERED: Event = Event::new("session recovered");
 use tempo_common::{
     cli::output,
     payment::session::{get_channel_on_chain, query_channel_state},

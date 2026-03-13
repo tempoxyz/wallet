@@ -8,12 +8,12 @@ use crate::analytics::{
 };
 use tempo_common::{analytics::Event, cli::context::Context, security::sanitize_error};
 
-const QUERY_STARTED: Event = Event::new("query_started");
-const QUERY_SUCCESS: Event = Event::new("query_success");
-const QUERY_FAILURE: Event = Event::new("query_failure");
-const PAYMENT_STARTED: Event = Event::new("payment_started");
-const PAYMENT_SUCCESS: Event = Event::new("payment_success");
-const PAYMENT_FAILURE: Event = Event::new("payment_failure");
+const QUERY_STARTED: Event = Event::new("query started");
+const QUERY_SUCCESS: Event = Event::new("query succeeded");
+const QUERY_FAILURE: Event = Event::new("query failed");
+const PAYMENT_STARTED: Event = Event::new("payment started");
+const PAYMENT_SUCCESS: Event = Event::new("payment succeeded");
+const PAYMENT_FAILURE: Event = Event::new("payment failed");
 
 // ---------------------------------------------------------------------------
 // Pre-402 query tracking (no payment context needed)
