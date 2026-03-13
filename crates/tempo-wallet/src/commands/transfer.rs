@@ -29,7 +29,9 @@ sol! {
 
 /// Resolve a token symbol or address to a token address and decimals.
 ///
-/// Built-in symbols: `usdc`, `usdc.e`, `pathusd`.
+/// Symbols are resolved against the dynamic tokenlist at
+/// `https://tokenlist.tempo.xyz/list/{chain_id}`. Matching is
+/// case-insensitive against `symbol` and `extensions.label`.
 /// Raw `0x`-prefixed addresses are also accepted (decimals queried on-chain).
 struct ResolvedToken {
     address: Address,
@@ -37,20 +39,58 @@ struct ResolvedToken {
     decimals: u8,
 }
 
-fn resolve_token_builtin(input: &str, network: NetworkId) -> Option<ResolvedToken> {
-    let token = network.token();
+/// Tokenlist JSON shape (Uniswap token-lists compatible).
+#[derive(serde::Deserialize)]
+struct TokenList {
+    tokens: Vec<TokenListEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct TokenListEntry {
+    symbol: String,
+    address: String,
+    decimals: u8,
+    #[serde(default)]
+    extensions: TokenExtensions,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct TokenExtensions {
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// Fetch the tokenlist for the given network and match by symbol or label.
+async fn resolve_token_from_list(input: &str, network: NetworkId) -> Result<Option<ResolvedToken>> {
+    let url = format!("https://tokenlist.tempo.xyz/list/{}", network.chain_id());
+    let resp = reqwest::get(&url)
+        .await
+        .context("Failed to fetch tokenlist")?;
+    let list: TokenList = resp.json().await.context("Failed to parse tokenlist")?;
+
     let needle = input.to_lowercase();
-    // Match against known symbols for the network
-    match needle.as_str() {
-        s if s == token.symbol.to_lowercase() || s == "usdc.e" || s == "usdc" || s == "pathusd" => {
-            let address: Address = token.address.parse().ok()?;
-            Some(ResolvedToken {
+    let entry = list.tokens.iter().find(|t| {
+        t.symbol.to_lowercase() == needle
+            || t.extensions
+                .label
+                .as_deref()
+                .is_some_and(|l| l.to_lowercase() == needle)
+    });
+
+    match entry {
+        Some(t) => {
+            let address: Address = t
+                .address
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid address in tokenlist: {}", t.address))?;
+            let display = t.extensions.label.as_deref().unwrap_or(&t.symbol);
+            Ok(Some(ResolvedToken {
                 address,
-                symbol: token.symbol.to_string(),
-                decimals: token.decimals,
-            })
+                symbol: display.to_string(),
+                decimals: t.decimals,
+            }))
         }
-        _ => None,
+        None => Ok(None),
     }
 }
 
@@ -59,9 +99,18 @@ async fn resolve_token(
     network: NetworkId,
     provider: &impl Provider,
 ) -> Result<ResolvedToken> {
-    // Try built-in symbol first
-    if let Some(resolved) = resolve_token_builtin(input, network) {
-        return Ok(resolved);
+    // Skip tokenlist lookup for raw addresses
+    if !input.starts_with("0x") && !input.starts_with("0X") {
+        match resolve_token_from_list(input, network).await {
+            Ok(Some(resolved)) => return Ok(resolved),
+            Ok(None) => {
+                bail!("Unknown token '{input}'. Use a symbol from the tokenlist or a 0x address.");
+            }
+            Err(e) => {
+                tracing::warn!("Tokenlist fetch failed, falling back to on-chain: {e}");
+                // Fall through to try as address below (will likely fail for symbols)
+            }
+        }
     }
 
     // Try as raw address
