@@ -5,8 +5,10 @@
 
 use alloy::primitives::utils::format_units;
 
-use crate::error::{NetworkError, PaymentError};
-use crate::network::NetworkId;
+use crate::{
+    error::{NetworkError, PaymentError},
+    network::NetworkId,
+};
 
 /// Extract the first meaningful error string from a JSON response body.
 ///

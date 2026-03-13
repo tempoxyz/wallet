@@ -3,16 +3,15 @@
 //! Handles Server-Sent Events (SSE) response streams with mid-stream
 //! voucher top-ups and retry logic for lost server notifications.
 
-use std::io::Write;
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 
 use futures::StreamExt;
 
 use mpp::server::sse::{parse_event, SseEvent};
 
-use super::persist::persist_session;
-use super::voucher::build_voucher_credential;
-use super::{SessionContext, SessionState};
+use super::{
+    persist::persist_session, voucher::build_voucher_credential, SessionContext, SessionState,
+};
 use tempo_common::error::{NetworkError, PaymentError, TempoError};
 
 /// Post a voucher to the server in a background task.

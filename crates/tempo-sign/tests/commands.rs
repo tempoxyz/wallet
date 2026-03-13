@@ -1,7 +1,6 @@
 //! Integration tests for tempo-sign.
 
-use std::fs;
-use std::process::Command;
+use std::{fs, process::Command};
 
 fn tempo_sign() -> Command {
     Command::new(assert_cmd::cargo::cargo_bin!("tempo-sign"))

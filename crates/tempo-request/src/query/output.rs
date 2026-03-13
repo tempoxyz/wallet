@@ -1,15 +1,23 @@
 //! Response rendering, receipt display, and file output.
 
-use std::io::Write;
-use std::path::{Component, Path};
+use std::{
+    io::Write,
+    path::{Component, Path},
+};
 
-use crate::args::QueryArgs;
-use crate::http::{format_http_error, print_headers, HttpResponse};
-use tempo_common::cli::output::{format_structured_pretty_json, OutputFormat};
-use tempo_common::cli::terminal::hyperlink;
-use tempo_common::cli::Verbosity;
-use tempo_common::error::{InputError, NetworkError, TempoError};
-use tempo_common::network::NetworkId;
+use crate::{
+    args::QueryArgs,
+    http::{format_http_error, print_headers, HttpResponse},
+};
+use tempo_common::{
+    cli::{
+        output::{format_structured_pretty_json, OutputFormat},
+        terminal::hyperlink,
+        Verbosity,
+    },
+    error::{InputError, NetworkError, TempoError},
+    network::NetworkId,
+};
 
 /// Output/display options extracted from CLI arguments.
 ///

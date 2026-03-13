@@ -5,8 +5,10 @@ use std::time::Duration;
 use tracing::warn;
 
 use super::response::HttpResponse;
-use tempo_common::error::{ConfigError, NetworkError, TempoError};
-use tempo_common::network::NetworkId;
+use tempo_common::{
+    error::{ConfigError, NetworkError, TempoError},
+    network::NetworkId,
+};
 
 type HttpResult<T> = std::result::Result<T, TempoError>;
 
@@ -317,13 +319,12 @@ impl HttpClient {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
-    use axum::extract::State;
-    use axum::http::StatusCode;
-    use axum::response::IntoResponse;
-    use axum::routing::get;
+    use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get};
 
     use super::*;
 

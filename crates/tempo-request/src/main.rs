@@ -14,6 +14,7 @@
     clippy::too_many_lines,
     clippy::useless_let_if_seq
 )]
+//! CLI entry point for `tempo-request`.
 
 mod analytics;
 mod app;

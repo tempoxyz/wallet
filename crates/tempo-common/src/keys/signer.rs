@@ -4,15 +4,15 @@
 //! resolves a network's key entry into a ready-to-use [`Signer`]
 //! (private key signer + signing mode + effective `from` address).
 
-use alloy::primitives::Address;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 
-use crate::error::{ConfigError, KeyError, TempoError};
-use crate::network::NetworkId;
+use crate::{
+    error::{ConfigError, KeyError, TempoError},
+    network::NetworkId,
+};
 
-use super::authorization;
-use super::Keystore;
+use super::{authorization, Keystore};
 
 /// Parse a private key hex string into a `PrivateKeySigner`.
 ///

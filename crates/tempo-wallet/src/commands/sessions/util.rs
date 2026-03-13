@@ -2,10 +2,12 @@
 
 use alloy::primitives::{Address, B256};
 
-use tempo_common::config::Config;
-use tempo_common::error::{InputError, TempoError};
-use tempo_common::network::NetworkId;
-use tempo_common::payment::session::DEFAULT_GRACE_PERIOD_SECS;
+use tempo_common::{
+    config::Config,
+    error::{InputError, TempoError},
+    network::NetworkId,
+    payment::session::DEFAULT_GRACE_PERIOD_SECS,
+};
 
 type SessionResult<T> = std::result::Result<T, TempoError>;
 

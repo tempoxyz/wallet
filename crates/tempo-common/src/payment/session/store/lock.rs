@@ -53,8 +53,7 @@ pub fn acquire_origin_lock(key: &str) -> Result<SessionLock, TempoError> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::session_key;
-    use super::*;
+    use super::{super::model::session_key, *};
 
     #[test]
     fn test_origin_lock_is_exclusive() {

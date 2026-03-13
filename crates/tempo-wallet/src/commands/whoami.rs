@@ -1,25 +1,25 @@
 //! Whoami / wallet status display.
 
-use std::collections::HashMap;
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 use alloy::primitives::Address;
 use serde::Serialize;
 
-use crate::analytics::WHOAMI_VIEWED;
-use crate::wallet::{
-    balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
-    print_key_limits_to, query_all_balances, BalanceInfo, KeyInfo,
+use crate::{
+    analytics::WHOAMI_VIEWED,
+    wallet::{
+        balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
+        print_key_limits_to, query_all_balances, BalanceInfo, KeyInfo,
+    },
 };
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::cli::terminal::address_link;
-use tempo_common::config::Config;
-use tempo_common::error::TempoError;
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
-use tempo_common::payment::session;
+use tempo_common::{
+    cli::{context::Context, output, output::OutputFormat, terminal::address_link},
+    config::Config,
+    error::TempoError,
+    keys::Keystore,
+    network::NetworkId,
+    payment::session,
+};
 
 #[derive(Debug, Default, Serialize)]
 struct StatusResponse {

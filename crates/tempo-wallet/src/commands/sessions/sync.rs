@@ -1,13 +1,13 @@
 use alloy::primitives::Address;
 
 use super::{session_store, SessionStatus};
-use tempo_common::analytics::Event;
-use tempo_common::cli::context::Context;
-use tempo_common::error::TempoError;
+use tempo_common::{analytics::Event, cli::context::Context, error::TempoError};
 
 const SESSION_RECOVERED: Event = Event::new("session_recovered");
-use tempo_common::cli::output;
-use tempo_common::payment::session::{get_channel_on_chain, query_channel_state};
+use tempo_common::{
+    cli::output,
+    payment::session::{get_channel_on_chain, query_channel_state},
+};
 
 #[derive(serde::Serialize)]
 struct SyncOriginResponse {

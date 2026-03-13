@@ -14,11 +14,13 @@ use alloy::primitives::{Address, B256};
 use mpp::ChallengeEcho;
 
 use super::store as session_store;
-use crate::analytics::{events, Analytics};
-use crate::cli::format::format_token_amount;
-use crate::config::Config;
-use crate::error::{NetworkError, PaymentError, TempoError};
-use crate::keys::Keystore;
+use crate::{
+    analytics::{events, Analytics},
+    cli::format::format_token_amount,
+    config::Config,
+    error::{NetworkError, PaymentError, TempoError},
+    keys::Keystore,
+};
 
 type SessionResult<T> = Result<T, TempoError>;
 

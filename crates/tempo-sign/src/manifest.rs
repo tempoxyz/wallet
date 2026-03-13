@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use serde_json::json;
 
-use crate::error::SignError;
-use crate::sign::{sha256_file, sign_file, SKIP_EXTENSIONS};
+use crate::{
+    error::SignError,
+    sign::{sha256_file, sign_file, SKIP_EXTENSIONS},
+};
 
 #[allow(clippy::too_many_arguments)]
 pub fn build_manifest(

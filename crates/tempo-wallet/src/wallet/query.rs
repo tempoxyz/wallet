@@ -1,14 +1,13 @@
 //! On-chain balance and spending-limit queries.
 
-use alloy::primitives::utils::format_units;
-use alloy::primitives::{Address, U256};
-use alloy::providers::ProviderBuilder;
+use alloy::{
+    primitives::{utils::format_units, Address, U256},
+    providers::ProviderBuilder,
+};
 use mpp::client::tempo::signing::keychain::query_key_spending_limit;
 use tracing::debug;
 
-use tempo_common::config::Config;
-use tempo_common::keys::KeyEntry;
-use tempo_common::network::NetworkId;
+use tempo_common::{config::Config, keys::KeyEntry, network::NetworkId};
 
 use super::types::{SpendingLimitInfo, TokenBalance};
 

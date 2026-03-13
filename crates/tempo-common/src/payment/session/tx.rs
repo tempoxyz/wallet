@@ -4,16 +4,20 @@
 //! All transactions use expiring nonces (nonceKey=MAX, nonce=0) so no
 //! on-chain nonce fetch is needed.
 
-use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
-use alloy::providers::Provider;
-use alloy::sol;
-use alloy::sol_types::SolCall;
+use alloy::{
+    primitives::{Address, Bytes, TxKind, B256, U256},
+    providers::Provider,
+    sol,
+    sol_types::SolCall,
+};
 use tempo_primitives::transaction::Call;
 
 use mpp::client::tempo::{charge::tx_builder, signing};
 
-use crate::error::{KeyError, NetworkError, TempoError};
-use crate::keys::Signer;
+use crate::{
+    error::{KeyError, NetworkError, TempoError},
+    keys::Signer,
+};
 
 type SessionResult<T> = Result<T, TempoError>;
 

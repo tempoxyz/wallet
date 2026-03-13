@@ -1,19 +1,21 @@
 //! Opt-out telemetry via `PostHog`.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    io::Write,
+    sync::{Arc, Mutex},
+};
 
 use posthog_rs::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
-use tokio::task::JoinHandle;
-use tokio::time::{timeout, Duration};
+use tokio::{
+    task::JoinHandle,
+    time::{timeout, Duration},
+};
 
-use crate::config::Config;
-use crate::keys::Keystore;
-use crate::network::NetworkId;
+use crate::{config::Config, keys::Keystore, network::NetworkId};
 
 // ---------------------------------------------------------------------------
 // PostHog client

@@ -1,0 +1,18 @@
+[files]
+extend-exclude = [
+  ".git",
+  "target",
+  "Cargo.lock",
+  "*.json",
+  "**/tests/**",
+  "**/test/**",
+  "**/*_test.*",
+  "**/*_tests.*",
+]
+
+[default.extend-words]
+ba = "ba"
+froms = "froms"
+unparseable = "unparseable"
+Yhe = "Yhe"
+ND = "ND"

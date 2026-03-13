@@ -1,18 +1,20 @@
 //! Display and formatting helpers for wallet account data.
 
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use alloy::primitives::utils::format_units;
-use alloy::primitives::U256;
+use alloy::primitives::{utils::format_units, U256};
 
-use tempo_common::config::Config;
-use tempo_common::keys::KeyEntry;
-use tempo_common::network::NetworkId;
-use tempo_common::payment::session::SessionRecord;
+use tempo_common::{
+    config::Config, keys::KeyEntry, network::NetworkId, payment::session::SessionRecord,
+};
 
-use super::query;
-use super::types::{BalanceBreakdown, KeyInfo, TokenBalance};
+use super::{
+    query,
+    types::{BalanceBreakdown, KeyInfo, TokenBalance},
+};
 
 // ---------------------------------------------------------------------------
 // Key info builder

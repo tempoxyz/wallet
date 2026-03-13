@@ -8,13 +8,17 @@ use crate::wallet::{
     balance_breakdown, build_key_info, format_expiry_countdown, key_expiry_timestamp,
     print_key_limits, query_all_balances, KeysResponse, TokenBalance,
 };
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::cli::terminal::{address_link, print_field_w};
-use tempo_common::error::TempoError;
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
-use tempo_common::payment::session;
+use tempo_common::{
+    cli::{
+        context::Context,
+        output,
+        terminal::{address_link, print_field_w},
+    },
+    error::TempoError,
+    keys::Keystore,
+    network::NetworkId,
+    payment::session,
+};
 
 pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
     let config = &ctx.config;

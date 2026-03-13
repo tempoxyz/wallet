@@ -1,7 +1,6 @@
 //! Network types and explorer configuration for Tempo blockchain networks.
 
-use std::fmt;
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 use alloy::primitives::{address, Address};
 use serde::{Deserialize, Serialize};

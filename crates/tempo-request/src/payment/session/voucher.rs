@@ -2,9 +2,10 @@
 
 use alloy::primitives::{Address, B256};
 
-use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
-use mpp::protocol::methods::tempo::sign_voucher;
-use mpp::ChallengeEcho;
+use mpp::{
+    protocol::methods::tempo::{session::SessionCredentialPayload, sign_voucher},
+    ChallengeEcho,
+};
 
 use super::SessionState;
 use tempo_common::error::{KeyError, TempoError};

@@ -1,11 +1,13 @@
 //! Shared base context for extension CLIs.
 
 use super::verbosity::Verbosity;
-use crate::analytics::{Analytics, Event, EventPayload};
-use crate::config::Config;
-use crate::error::TempoError;
-use crate::keys::Keystore;
-use crate::network::NetworkId;
+use crate::{
+    analytics::{Analytics, Event, EventPayload},
+    config::Config,
+    error::TempoError,
+    keys::Keystore,
+    network::NetworkId,
+};
 
 use super::output::OutputFormat;
 

@@ -2,10 +2,7 @@
 
 use clap::{ArgAction, Parser};
 
-use super::context::ContextArgs;
-use super::output::OutputFormat;
-use super::runtime::ColorMode;
-use super::verbosity::Verbosity;
+use super::{context::ContextArgs, output::OutputFormat, runtime::ColorMode, verbosity::Verbosity};
 use crate::error::TempoError;
 
 /// Global CLI flags shared by all Tempo extension binaries.

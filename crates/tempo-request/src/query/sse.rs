@@ -6,8 +6,10 @@ use futures::StreamExt;
 
 use super::output::OutputOptions;
 use crate::http::{format_http_error, headers_from_reqwest, print_headers, HttpClient};
-use tempo_common::cli::format::now_utc;
-use tempo_common::error::{NetworkError, TempoError};
+use tempo_common::{
+    cli::format::now_utc,
+    error::{NetworkError, TempoError},
+};
 
 use super::output::write_meta_if_requested;
 

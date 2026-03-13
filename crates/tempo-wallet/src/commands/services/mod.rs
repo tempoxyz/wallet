@@ -4,8 +4,10 @@ mod client;
 mod model;
 mod render;
 
-use tempo_common::cli::context::Context;
-use tempo_common::error::{ConfigError, TempoError};
+use tempo_common::{
+    cli::context::Context,
+    error::{ConfigError, TempoError},
+};
 
 use client::{fetch_services, simple_client};
 use render::{render_service_detail, render_service_list};

@@ -3,16 +3,20 @@
 //! Functions for querying channel state from the escrow contract
 //! and scanning `ChannelOpened` events.
 
-use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::{Address, Bytes, B256, U256};
-use alloy::providers::Provider;
-use alloy::rpc::types::{Filter, TransactionRequest};
-use alloy::sol;
-use alloy::sol_types::SolCall;
+use alloy::{
+    eips::BlockNumberOrTag,
+    primitives::{Address, Bytes, B256, U256},
+    providers::Provider,
+    rpc::types::{Filter, TransactionRequest},
+    sol,
+    sol_types::SolCall,
+};
 
-use crate::config::Config;
-use crate::error::{InputError, NetworkError, TempoError};
-use crate::network::NetworkId;
+use crate::{
+    config::Config,
+    error::{InputError, NetworkError, TempoError},
+    network::NetworkId,
+};
 
 type SessionResult<T> = Result<T, TempoError>;
 

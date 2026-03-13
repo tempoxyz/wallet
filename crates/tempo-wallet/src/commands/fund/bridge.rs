@@ -5,16 +5,18 @@ use std::time::{Duration, Instant};
 use qrcode::render::unicode;
 
 use crate::wallet::{query_all_balances, TokenBalance};
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::cli::terminal::address_link;
-use tempo_common::error::{NetworkError, TempoError};
-
-use super::relay::{
-    create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
+use tempo_common::{
+    cli::{context::Context, output, output::OutputFormat, terminal::address_link},
+    error::{NetworkError, TempoError},
 };
-use super::{has_balance_changed, render_balance_diff, FundResponse, POLL_INTERVAL_SECS};
+
+use super::{
+    has_balance_changed,
+    relay::{
+        create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
+    },
+    render_balance_diff, FundResponse, POLL_INTERVAL_SECS,
+};
 
 /// Default source chain for bridging (Base).
 const DEFAULT_SOURCE_CHAIN_ID: u64 = 8453;

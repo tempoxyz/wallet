@@ -1,19 +1,27 @@
 //! On-chain channel close (payer-initiated `requestClose` → `withdraw`).
 
-use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
-use alloy::sol_types::SolCall;
+use alloy::{
+    primitives::{Address, Bytes, TxKind, B256, U256},
+    sol_types::SolCall,
+};
 use tempo_primitives::transaction::Call;
 
-use super::super::channel::{get_channel_on_chain, read_grace_period, IEscrow};
-use super::super::store as session_store;
-use super::super::store::SessionStatus;
-use super::super::tx::submit_tempo_tx;
-use super::super::DEFAULT_GRACE_PERIOD_SECS;
-use super::CloseOutcome;
-use crate::config::Config;
-use crate::error::{InputError, PaymentError, TempoError};
-use crate::keys::{Keystore, Signer};
-use crate::network::NetworkId;
+use super::{
+    super::{
+        channel::{get_channel_on_chain, read_grace_period, IEscrow},
+        store as session_store,
+        store::SessionStatus,
+        tx::submit_tempo_tx,
+        DEFAULT_GRACE_PERIOD_SECS,
+    },
+    CloseOutcome,
+};
+use crate::{
+    config::Config,
+    error::{InputError, PaymentError, TempoError},
+    keys::{Keystore, Signer},
+    network::NetworkId,
+};
 
 type SessionResult<T> = Result<T, TempoError>;
 

@@ -1,14 +1,14 @@
 //! `SQLite` CRUD operations for session persistence.
 
-use std::error::Error;
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    error::Error,
+    fs, io,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use alloy::primitives::{Address, B256};
-use rusqlite::params;
-use rusqlite::types::Type;
+use rusqlite::{params, types::Type};
 
 use crate::error::{PaymentError, TempoError};
 
@@ -476,8 +476,7 @@ pub fn update_session_close_state_by_channel_id(
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::now_secs;
-    use super::*;
+    use super::{super::model::now_secs, *};
 
     fn test_record(origin: &str, salt: &str) -> SessionRecord {
         let now = now_secs();

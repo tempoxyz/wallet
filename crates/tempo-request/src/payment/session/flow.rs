@@ -1,22 +1,34 @@
 use std::error::Error;
 
 use alloy::primitives::{Address, B256};
-use mpp::parse_receipt;
-use mpp::protocol::core::extract_tx_hash;
-use mpp::protocol::methods::tempo::session::TempoSessionExt;
-use mpp::protocol::methods::tempo::{compute_channel_id, sign_voucher};
+use mpp::{
+    parse_receipt,
+    protocol::{
+        core::extract_tx_hash,
+        methods::tempo::{compute_channel_id, session::TempoSessionExt, sign_voucher},
+    },
+};
 
-use super::persist::persist_session;
-use super::voucher::{build_open_payload, build_voucher_credential};
-use super::{extract_origin, open, streaming, SessionContext, SessionState};
-use crate::http::HttpResponse;
-use crate::payment::types::{PaymentResult, ResolvedChallenge};
-use tempo_common::cli::format::format_token_amount;
-use tempo_common::cli::terminal::{address_link, sanitize_for_terminal};
-use tempo_common::error::{KeyError, NetworkError, PaymentError, TempoError};
-use tempo_common::keys::{Keystore, Signer};
-use tempo_common::payment::classify::map_mpp_validation_error;
-use tempo_common::payment::session;
+use super::{
+    extract_origin, open,
+    persist::persist_session,
+    streaming,
+    voucher::{build_open_payload, build_voucher_credential},
+    SessionContext, SessionState,
+};
+use crate::{
+    http::HttpResponse,
+    payment::types::{PaymentResult, ResolvedChallenge},
+};
+use tempo_common::{
+    cli::{
+        format::format_token_amount,
+        terminal::{address_link, sanitize_for_terminal},
+    },
+    error::{KeyError, NetworkError, PaymentError, TempoError},
+    keys::{Keystore, Signer},
+    payment::{classify::map_mpp_validation_error, session},
+};
 
 fn session_store_error<E>(operation: &'static str, source: E) -> TempoError
 where

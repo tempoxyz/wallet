@@ -2,10 +2,14 @@
 
 use serde::Serialize;
 
-use tempo_common::cli::output;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::cli::terminal::{print_field, sanitize_for_terminal, truncate};
-use tempo_common::error::TempoError;
+use tempo_common::{
+    cli::{
+        output,
+        output::OutputFormat,
+        terminal::{print_field, sanitize_for_terminal, truncate},
+    },
+    error::TempoError,
+};
 
 use super::model::{EndpointPayment, Service, ServiceDocs};
 

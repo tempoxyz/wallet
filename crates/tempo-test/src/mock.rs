@@ -1,9 +1,11 @@
 //! Mock servers for integration tests: HTTP, JSON-RPC, and MPP service directory.
 
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::routing::{any, get};
-use axum::{Json, Router};
+use axum::{
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{any, get},
+    Json, Router,
+};
 use serde_json::json;
 
 // ── Generic HTTP mock ───────────────────────────────────────────────────

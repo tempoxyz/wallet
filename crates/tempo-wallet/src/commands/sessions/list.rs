@@ -2,12 +2,14 @@ use std::collections::{HashMap, HashSet};
 
 use alloy::primitives::Address;
 
-use super::render::{render_channel_list, ChannelView};
-use super::{session_store, SessionStatus};
+use super::{
+    render::{render_channel_list, ChannelView},
+    session_store, SessionStatus,
+};
 use crate::args::SessionStateArg;
-use tempo_common::cli::context::Context;
-use tempo_common::error::TempoError;
-use tempo_common::payment::session::find_all_channels_for_payer;
+use tempo_common::{
+    cli::context::Context, error::TempoError, payment::session::find_all_channels_for_payer,
+};
 
 /// List payment sessions.
 ///

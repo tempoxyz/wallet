@@ -3,8 +3,10 @@
 use alloy::primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use tempo_common::error::{NetworkError, TempoError};
-use tempo_common::network;
+use tempo_common::{
+    error::{NetworkError, TempoError},
+    network,
+};
 
 /// Truncate a response body for error messages (max 500 chars).
 fn truncate_response(text: &str) -> &str {

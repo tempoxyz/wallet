@@ -8,14 +8,18 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::analytics;
-use crate::analytics::{WalletFundFailurePayload, WalletFundPayload};
-use crate::wallet::TokenBalance;
-use tempo_common::cli::context::Context;
-use tempo_common::error::{ConfigError, TempoError};
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
-use tempo_common::security::sanitize_error;
+use crate::{
+    analytics,
+    analytics::{WalletFundFailurePayload, WalletFundPayload},
+    wallet::TokenBalance,
+};
+use tempo_common::{
+    cli::context::Context,
+    error::{ConfigError, TempoError},
+    keys::Keystore,
+    network::NetworkId,
+    security::sanitize_error,
+};
 
 use self::relay::DepositStatus;
 

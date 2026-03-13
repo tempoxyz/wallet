@@ -1,14 +1,17 @@
 //! Session rendering: view models and output rendering (text, JSON).
 
-use alloy::primitives::utils::format_units;
-use alloy::primitives::U256;
+use alloy::primitives::{utils::format_units, U256};
 use serde::Serialize;
 
 use super::{session_store, SessionStatus};
-use tempo_common::cli::format::{format_duration, format_relative_time, format_utc_timestamp};
-use tempo_common::cli::output;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::error::TempoError;
+use tempo_common::{
+    cli::{
+        format::{format_duration, format_relative_time, format_utc_timestamp},
+        output,
+        output::OutputFormat,
+    },
+    error::TempoError,
+};
 
 // ---------------------------------------------------------------------------
 // ChannelView — unified view model for session/channel display

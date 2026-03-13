@@ -2,14 +2,14 @@
 
 use std::io::{self, Read};
 
-use mpp::client::PaymentProvider;
-use mpp::protocol::methods::tempo::TempoChargeExt;
+use mpp::{client::PaymentProvider, protocol::methods::tempo::TempoChargeExt};
 
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::error::{ConfigError, InputError, PaymentError, TempoError};
-use tempo_common::network::NetworkId;
-use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
+use tempo_common::{
+    cli::{context::Context, output::OutputFormat},
+    error::{ConfigError, InputError, PaymentError, TempoError},
+    network::NetworkId,
+    payment::classify::{classify_payment_error, map_mpp_validation_error},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportedPaymentMethod {

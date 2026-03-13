@@ -665,8 +665,7 @@ fn sign_empty_stdin_fails() {
 
 #[test]
 fn sign_dry_run_reads_from_stdin() {
-    use std::io::Write;
-    use std::process::Stdio;
+    use std::{io::Write, process::Stdio};
 
     let temp = TestConfigBuilder::new().build();
     let mut child = test_command(&temp)

@@ -2,10 +2,11 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use alloy::primitives::Address;
-use alloy::rlp::{Decodable, Encodable};
-use alloy::signers::local::PrivateKeySigner;
-use alloy::signers::SignerSync;
+use alloy::{
+    primitives::Address,
+    rlp::{Decodable, Encodable},
+    signers::{local::PrivateKeySigner, SignerSync},
+};
 use tempo_primitives::transaction::{
     KeyAuthorization, PrimitiveSignature, SignatureType, SignedKeyAuthorization, TokenLimit,
 };

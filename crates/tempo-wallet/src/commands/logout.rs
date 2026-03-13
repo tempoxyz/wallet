@@ -3,10 +3,11 @@
 use alloy::primitives::Address;
 
 use crate::analytics::LOGOUT;
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::error::{ConfigError, TempoError};
-use tempo_common::keys::Keystore;
+use tempo_common::{
+    cli::{context::Context, output},
+    error::{ConfigError, TempoError},
+    keys::Keystore,
+};
 
 #[derive(serde::Serialize)]
 struct LogoutResponse {

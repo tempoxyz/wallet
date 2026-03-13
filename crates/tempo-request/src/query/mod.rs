@@ -13,13 +13,15 @@ pub(crate) mod sse;
 
 use alloy::primitives::Address;
 
-use crate::args::QueryArgs;
-use crate::payment::router::dispatch_payment;
-use crate::payment::types::PaymentResult;
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output::emit_by_format;
-use tempo_common::error::{NetworkError, PaymentError, TempoError};
-use tempo_common::security::redact_url;
+use crate::{
+    args::QueryArgs,
+    payment::{router::dispatch_payment, types::PaymentResult},
+};
+use tempo_common::{
+    cli::{context::Context, output::emit_by_format},
+    error::{NetworkError, PaymentError, TempoError},
+    security::redact_url,
+};
 
 use self::output::{build_output_options, write_meta_if_requested};
 

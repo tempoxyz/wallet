@@ -4,8 +4,10 @@ use alloy::primitives::Address;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::Zeroizing;
 
-use crate::error::{ConfigError, TempoError};
-use crate::network::NetworkId;
+use crate::{
+    error::{ConfigError, TempoError},
+    network::NetworkId,
+};
 
 use super::model::{KeyEntry, StoredKeystore, WalletType};
 

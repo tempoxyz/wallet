@@ -2,18 +2,22 @@
 
 use base64::Engine;
 
-use crate::args::QueryArgs;
-use crate::http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT};
-use tempo_common::cli::context::Context;
-use tempo_common::error::{InputError, TempoError};
-use tempo_common::network::NetworkId;
-
-use super::headers::{
-    has_header, parse_headers, should_auto_add_json_content_type, validate_header_size,
+use crate::{
+    args::QueryArgs,
+    http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT},
 };
-use super::payload::{
-    append_data_to_query, join_form_pairs, parse_data_urlencode, resolve_method_and_body,
-    validate_body_size,
+use tempo_common::{
+    cli::context::Context,
+    error::{InputError, TempoError},
+    network::NetworkId,
+};
+
+use super::{
+    headers::{has_header, parse_headers, should_auto_add_json_content_type, validate_header_size},
+    payload::{
+        append_data_to_query, join_form_pairs, parse_data_urlencode, resolve_method_and_body,
+        validate_body_size,
+    },
 };
 
 /// Default HTTP status codes considered transient/retryable (curl parity).

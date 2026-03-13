@@ -1,7 +1,6 @@
 //! Test data, constants, configuration builders, session seeders, and harnesses.
 
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use rusqlite::Connection;
 use tempfile::TempDir;

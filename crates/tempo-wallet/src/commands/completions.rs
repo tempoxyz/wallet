@@ -4,8 +4,7 @@ use clap::CommandFactory;
 use clap_complete::{generate, Shell};
 
 use crate::args::Cli;
-use tempo_common::cli::context::Context;
-use tempo_common::error::TempoError;
+use tempo_common::{cli::context::Context, error::TempoError};
 
 /// Run the completions command: generate for a specific shell, or list supported shells.
 pub(crate) fn run(_ctx: &Context, shell: Option<Shell>) -> Result<(), TempoError> {

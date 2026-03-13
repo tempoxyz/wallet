@@ -12,6 +12,7 @@
     clippy::unnecessary_wraps,
     clippy::unused_async
 )]
+//! CLI entry point for `tempo-wallet`.
 
 mod analytics;
 mod app;

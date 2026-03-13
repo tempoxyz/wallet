@@ -2,10 +2,8 @@
 
 use std::time::{Duration, Instant};
 
-use alloy::primitives::Address;
-use alloy::signers::local::PrivateKeySigner;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use colored::Colorize;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -14,12 +12,13 @@ use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
 use crate::analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::error::{ConfigError, InputError, KeyError, NetworkError, TempoError};
-use tempo_common::keys::{Keystore, WalletType};
-use tempo_common::network::NetworkId;
-use tempo_common::security::sanitize_error;
+use tempo_common::{
+    cli::{context::Context, output::OutputFormat},
+    error::{ConfigError, InputError, KeyError, NetworkError, TempoError},
+    keys::{Keystore, WalletType},
+    network::NetworkId,
+    security::sanitize_error,
+};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;

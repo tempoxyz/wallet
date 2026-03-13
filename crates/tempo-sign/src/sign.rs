@@ -1,5 +1,7 @@
-use std::io::{Cursor, Read};
-use std::path::Path;
+use std::{
+    io::{Cursor, Read},
+    path::Path,
+};
 
 use minisign::PublicKey;
 use sha2::{Digest, Sha256};

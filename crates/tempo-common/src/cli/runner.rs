@@ -1,15 +1,17 @@
 //! CLI lifecycle: command execution with shared setup and teardown.
 
-use super::args::GlobalArgs;
-use super::context;
-use super::exit_codes;
-use super::output::{self, OutputFormat};
-use super::runtime;
-use super::tracking;
-use crate::analytics::{events, KeystoreLoadDegradedPayload, SessionStoreDegradedPayload};
-use crate::error::TempoError;
-use crate::keys;
-use crate::payment::session;
+use super::{
+    args::GlobalArgs,
+    context, exit_codes,
+    output::{self, OutputFormat},
+    runtime, tracking,
+};
+use crate::{
+    analytics::{events, KeystoreLoadDegradedPayload, SessionStoreDegradedPayload},
+    error::TempoError,
+    keys,
+    payment::session,
+};
 
 /// Run a CLI command with shared setup and teardown.
 ///

@@ -1,12 +1,16 @@
 //! Configuration management for Tempo CLI.
 
-use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Component, Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ConfigError, TempoError};
-use crate::network::NetworkId;
+use crate::{
+    error::{ConfigError, TempoError},
+    network::NetworkId,
+};
 
 /// Application configuration (optional RPC overrides, telemetry).
 ///

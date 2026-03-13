@@ -5,11 +5,10 @@ use std::time::Duration;
 use alloy::providers::{Provider, ProviderBuilder};
 
 use crate::wallet::{query_all_balances, TokenBalance};
-use tempo_common::cli::context::Context;
-use tempo_common::cli::output;
-use tempo_common::cli::output::OutputFormat;
-use tempo_common::cli::terminal::address_link;
-use tempo_common::error::{NetworkError, TempoError};
+use tempo_common::{
+    cli::{context::Context, output, output::OutputFormat, terminal::address_link},
+    error::{NetworkError, TempoError},
+};
 
 use super::{
     has_balance_changed, poll_until, render_balance_diff, FundResponse, POLL_INTERVAL_SECS,

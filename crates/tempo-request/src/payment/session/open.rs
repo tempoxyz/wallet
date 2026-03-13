@@ -7,9 +7,11 @@
 use alloy::primitives::Address;
 
 use crate::http::{HttpClient, HttpResponse};
-use tempo_common::error::{ConfigError, PaymentError, TempoError};
-use tempo_common::keys::Signer;
-use tempo_common::payment::session as common_tx;
+use tempo_common::{
+    error::{ConfigError, PaymentError, TempoError},
+    keys::Signer,
+    payment::session as common_tx,
+};
 
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {

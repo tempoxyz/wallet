@@ -1,13 +1,13 @@
 //! Parsing and validation of 402 payment challenges.
 
-use mpp::protocol::methods::tempo::session::TempoSessionExt;
-use mpp::protocol::methods::tempo::TempoChargeExt;
+use mpp::protocol::methods::tempo::{session::TempoSessionExt, TempoChargeExt};
 
 use crate::http::HttpResponse;
-use tempo_common::cli::format::format_token_amount;
-use tempo_common::cli::terminal::sanitize_for_terminal;
-use tempo_common::error::{PaymentError, TempoError};
-use tempo_common::network::NetworkId;
+use tempo_common::{
+    cli::{format::format_token_amount, terminal::sanitize_for_terminal},
+    error::{PaymentError, TempoError},
+    network::NetworkId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportedPaymentMethod {

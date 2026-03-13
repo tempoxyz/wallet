@@ -5,15 +5,19 @@
 
 use alloy::primitives::{Address, B256};
 
-use mpp::protocol::methods::tempo::session::SessionCredentialPayload;
-use mpp::protocol::methods::tempo::sign_voucher;
-use mpp::{parse_receipt, ChallengeEcho};
+use mpp::{
+    parse_receipt,
+    protocol::methods::tempo::{session::SessionCredentialPayload, sign_voucher},
+    ChallengeEcho,
+};
 
 use mpp::protocol::core::extract_tx_hash;
 
 use super::super::store as session_store;
-use crate::cli::format::format_token_amount;
-use crate::error::{KeyError, NetworkError, PaymentError, TempoError};
+use crate::{
+    cli::format::format_token_amount,
+    error::{KeyError, NetworkError, PaymentError, TempoError},
+};
 
 type SessionResult<T> = Result<T, TempoError>;
 

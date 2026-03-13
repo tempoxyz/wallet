@@ -5,14 +5,18 @@
 use mpp::PaymentChallenge;
 
 use crate::http::HttpClient;
-use tempo_common::config::Config;
-use tempo_common::error::{PaymentError, TempoError};
-use tempo_common::keys::Keystore;
-use tempo_common::network::NetworkId;
+use tempo_common::{
+    config::Config,
+    error::{PaymentError, TempoError},
+    keys::Keystore,
+    network::NetworkId,
+};
 
-use super::charge::handle_charge_request;
-use super::session::handle_session_request;
-use super::types::{PaymentResult, ResolvedChallenge};
+use super::{
+    charge::handle_charge_request,
+    session::handle_session_request,
+    types::{PaymentResult, ResolvedChallenge},
+};
 
 /// Dispatch to charge or session payment flow.
 ///

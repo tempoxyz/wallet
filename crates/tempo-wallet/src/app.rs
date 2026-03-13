@@ -1,7 +1,9 @@
 //! Application entry point: build context, dispatch command, flush analytics.
 
-use crate::args::{Cli, Commands, ServicesCommands, SessionCommands};
-use crate::commands::{completions, fund, keys, login, logout, services, sessions, sign, whoami};
+use crate::{
+    args::{Cli, Commands, ServicesCommands, SessionCommands},
+    commands::{completions, fund, keys, login, logout, services, sessions, sign, whoami},
+};
 use tempo_common::error::TempoError;
 
 /// Run the tempo-wallet application.

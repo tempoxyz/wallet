@@ -1,9 +1,11 @@
 //! File I/O for wallet keys (load, save, `keys_path`).
 
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use alloy::primitives::Address;
 

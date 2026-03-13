@@ -5,6 +5,7 @@ Thanks for your interest in contributing! This guide covers everything you need 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
+- [Pull Requests](#pull-requests)
 - [Build & Test](#build--test)
 - [Pre-Commit Checklist](#pre-commit-checklist)
 - [Linting](#linting)
@@ -24,6 +25,39 @@ cd wallet
 make build
 make test
 ```
+
+## Pull Requests
+
+### Titles
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) with an optional scope:
+
+```text
+<type>(<scope>): <short description>
+```
+
+Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`
+
+Examples:
+
+- `fix(request): preserve receipt schema for malformed headers`
+- `refactor(common): centralize output formatting helpers`
+
+### Descriptions
+
+Keep it short: what changed and why.
+
+Do:
+
+- Write 1–3 sentences summarizing behavior changes
+- Explain why if the diff is not self-evident
+- Link related issue(s) when available
+
+Don't:
+
+- Paste file lists from the diff
+- Add long stale sections (“Files Changed”, “Implementation Details”)
+- Pad with filler language
 
 ## Build & Test
 
