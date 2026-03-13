@@ -61,6 +61,7 @@ pub(crate) fn track_query_success(ctx: &Context, url: &str, method: &str, status
 /// started/success/failure events identically for both charge and session flows.
 pub(crate) struct PaymentAnalytics<'a> {
     ctx: &'a Context,
+    url: &'a str,
     network: &'a str,
     amount: &'a str,
     currency: &'a str,
@@ -70,6 +71,7 @@ pub(crate) struct PaymentAnalytics<'a> {
 impl<'a> PaymentAnalytics<'a> {
     pub(crate) const fn new(
         ctx: &'a Context,
+        url: &'a str,
         network: &'a str,
         amount: &'a str,
         currency: &'a str,
@@ -77,6 +79,7 @@ impl<'a> PaymentAnalytics<'a> {
     ) -> Self {
         Self {
             ctx,
+            url,
             network,
             amount,
             currency,
@@ -88,6 +91,7 @@ impl<'a> PaymentAnalytics<'a> {
         self.ctx.track(
             PAYMENT_STARTED,
             PaymentStartedPayload {
+                url: self.url.to_string(),
                 network: self.network.to_string(),
                 amount: self.amount.to_string(),
                 currency: self.currency.to_string(),
@@ -111,6 +115,7 @@ impl<'a> PaymentAnalytics<'a> {
         self.ctx.track(
             PAYMENT_SUCCESS,
             PaymentSuccessPayload {
+                url: self.url.to_string(),
                 network: self.network.to_string(),
                 amount: self.amount.to_string(),
                 currency: self.currency.to_string(),
@@ -126,6 +131,7 @@ impl<'a> PaymentAnalytics<'a> {
         self.ctx.track(
             PAYMENT_FAILURE,
             PaymentFailurePayload {
+                url: self.url.to_string(),
                 network: self.network.to_string(),
                 amount: self.amount.to_string(),
                 currency: self.currency.to_string(),

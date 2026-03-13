@@ -161,6 +161,7 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
 
     let pay_analytics = analytics::PaymentAnalytics::new(
         ctx,
+        &sanitized_url,
         challenge_network.as_str(),
         &challenge.amount,
         &challenge.currency,
