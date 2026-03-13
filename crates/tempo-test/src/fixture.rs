@@ -39,10 +39,18 @@ provisioned = true
 pub const MODERATO_CHARGE_CHALLENGE: &str = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
 
 /// Build a WWW-Authenticate header for a Moderato charge challenge.
+///
+/// `realm` should be the FQDN (host\[:port\]) of the server under test.
+/// If a full URL is passed (e.g. `"http://127.0.0.1:PORT"`), the scheme
+/// is stripped automatically.
 #[must_use]
-pub fn charge_www_authenticate(id: &str) -> String {
+pub fn charge_www_authenticate_with_realm(id: &str, realm: &str) -> String {
+    let realm = realm
+        .strip_prefix("https://")
+        .or_else(|| realm.strip_prefix("http://"))
+        .unwrap_or(realm);
     format!(
-        r#"Payment id="{id}", realm="mock", method="tempo", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
+        r#"Payment id="{id}", realm="{realm}", method="tempo", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
     )
 }
 
@@ -273,8 +281,9 @@ impl PaymentTestHarness {
     /// Charge flow that also returns a Payment-Receipt header.
     pub async fn charge_with_receipt(body: &str, receipt: &str) -> Self {
         let rpc = MockRpcServer::start(42431).await;
-        let www_auth = charge_www_authenticate("test-receipt");
-        let server = MockServer::start_payment_with_receipt(&www_auth, body, receipt).await;
+        let server = MockServer::start_payment_deferred_with_receipt(body, receipt).await;
+        let www_auth = charge_www_authenticate_with_realm("test-receipt", &server.base_url);
+        server.set_www_authenticate(&www_auth);
         let temp = TestConfigBuilder::new()
             .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
             .with_config_toml(format!(
@@ -287,8 +296,10 @@ impl PaymentTestHarness {
 
     async fn build(body: &str, keys_toml: &str, id: &str) -> Self {
         let rpc = MockRpcServer::start(42431).await;
-        let www_auth = charge_www_authenticate(id);
-        let server = MockServer::start_payment(&www_auth, body).await;
+        // Bind the mock server first so we know its origin for the realm.
+        let server = MockServer::start_payment_deferred(body).await;
+        let www_auth = charge_www_authenticate_with_realm(id, &server.base_url);
+        server.set_www_authenticate(&www_auth);
         let temp = TestConfigBuilder::new()
             .with_keys_toml(keys_toml)
             .with_config_toml(format!(

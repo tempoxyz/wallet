@@ -122,6 +122,20 @@ impl GlobalArgs {
         }
     }
 
+    /// Warn if private key was provided via CLI argument instead of environment variable.
+    ///
+    /// Command-line arguments are visible in process listings (`ps`), so passing
+    /// secrets via `--private-key` is a security risk. The environment variable
+    /// `TEMPO_PRIVATE_KEY` is the recommended alternative.
+    pub(crate) fn warn_argv_private_key(&self) {
+        if self.private_key.is_some() && std::env::var("TEMPO_PRIVATE_KEY").is_err() {
+            eprintln!(
+                "⚠ WARNING: --private-key on the command line exposes your key in the process list."
+            );
+            eprintln!("  Use TEMPO_PRIVATE_KEY environment variable instead.");
+        }
+    }
+
     /// Build a `ContextArgs` for context construction.
     pub(crate) fn context_args(&self) -> ContextArgs {
         ContextArgs {

@@ -48,6 +48,7 @@ where
 {
     runtime::init_tracing(global.silent, global.verbose, target_crates);
     runtime::init_color_support(global.color);
+    global.warn_argv_private_key();
 
     let ctx = global.build_context().await?;
     let analytics = ctx.analytics.clone();

@@ -71,6 +71,12 @@ fn open_db() -> SessionStoreResult<rusqlite::Connection> {
 fn open_db_at(path: &Path) -> SessionStoreResult<rusqlite::Connection> {
     let conn = rusqlite::Connection::open(path)
         .map_err(|err| store_error("open sessions database", err))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|err| store_error("set sessions database permissions", err))?;
+    }
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA synchronous = NORMAL;
@@ -83,6 +89,14 @@ fn open_db_at(path: &Path) -> SessionStoreResult<rusqlite::Connection> {
 }
 
 fn init_schema(conn: &rusqlite::Connection) -> SessionStoreResult<()> {
+    // If the table exists but has a different column set (e.g. legacy
+    // `network_name`), drop it. Sessions are ephemeral local state;
+    // open channels remain safe on-chain regardless of local records.
+    if table_needs_reset(conn) {
+        conn.execute_batch("DROP TABLE IF EXISTS sessions;")
+            .map_err(|err| store_error("drop outdated sessions table", err))?;
+    }
+
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
             key               TEXT PRIMARY KEY,
@@ -110,10 +124,21 @@ fn init_schema(conn: &rusqlite::Connection) -> SessionStoreResult<()> {
     )
     .map_err(|err| store_error("create sessions schema", err))?;
 
-    conn.pragma_update(None, "user_version", 1)
-        .map_err(|err| store_error("set sessions database version", err))?;
-
     Ok(())
+}
+
+/// Expected column count for the sessions table.
+const EXPECTED_COLUMN_COUNT: usize = 21;
+
+/// Check whether an existing `sessions` table has a mismatched schema.
+fn table_needs_reset(conn: &rusqlite::Connection) -> bool {
+    let col_count: usize = conn
+        .prepare("PRAGMA table_info(sessions)")
+        .and_then(|mut stmt| stmt.query_map([], |_| Ok(())).map(|rows| rows.count()))
+        .unwrap_or(0);
+
+    // 0 means the table doesn't exist yet — no reset needed.
+    col_count > 0 && col_count != EXPECTED_COLUMN_COUNT
 }
 
 // ---------------------------------------------------------------------------
@@ -706,5 +731,70 @@ mod tests {
         assert_eq!(loaded.state, SessionStatus::Closing);
         assert_eq!(loaded.close_requested_at, 1000);
         assert_eq!(loaded.grace_ready_at, 2000);
+    }
+
+    #[test]
+    fn test_table_needs_reset_detects_legacy_schema() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("sessions.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+
+        // Create old 22-column schema with network_name
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                key               TEXT PRIMARY KEY,
+                version           INTEGER NOT NULL DEFAULT 1,
+                origin            TEXT NOT NULL UNIQUE,
+                request_url       TEXT NOT NULL DEFAULT '',
+                network_name      TEXT NOT NULL,
+                chain_id          INTEGER NOT NULL,
+                escrow_contract   TEXT NOT NULL,
+                currency          TEXT NOT NULL,
+                recipient         TEXT NOT NULL,
+                payer             TEXT NOT NULL,
+                authorized_signer TEXT NOT NULL,
+                salt              TEXT NOT NULL,
+                channel_id        TEXT NOT NULL,
+                deposit           TEXT NOT NULL,
+                tick_cost         TEXT NOT NULL,
+                cumulative_amount TEXT NOT NULL,
+                challenge_echo    TEXT NOT NULL,
+                state             TEXT NOT NULL DEFAULT 'active',
+                close_requested_at INTEGER NOT NULL DEFAULT 0,
+                grace_ready_at     INTEGER NOT NULL DEFAULT 0,
+                created_at        INTEGER NOT NULL,
+                last_used_at      INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+
+        assert!(
+            table_needs_reset(&conn),
+            "22-column legacy schema should trigger reset"
+        );
+
+        // init_schema should drop and recreate
+        init_schema(&conn).unwrap();
+
+        assert!(
+            !table_needs_reset(&conn),
+            "schema should match after init_schema recreates table"
+        );
+
+        // Verify new schema has expected column count
+        let col_count: usize = conn
+            .prepare("PRAGMA table_info(sessions)")
+            .and_then(|mut stmt| stmt.query_map([], |_| Ok(())).map(|rows| rows.count()))
+            .unwrap();
+        assert_eq!(col_count, EXPECTED_COLUMN_COUNT);
+    }
+
+    #[test]
+    fn test_table_needs_reset_false_when_schema_matches() {
+        let (_tmp, conn) = test_db();
+        assert!(
+            !table_needs_reset(&conn),
+            "current schema should not trigger reset"
+        );
     }
 }
