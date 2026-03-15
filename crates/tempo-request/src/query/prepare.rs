@@ -4,7 +4,7 @@ use base64::Engine;
 
 use crate::{
     args::QueryArgs,
-    http::{HttpClient, HttpRequestPlan, DEFAULT_USER_AGENT},
+    http::{HttpClient, HttpRequestBody, HttpRequestPlan, DEFAULT_USER_AGENT},
 };
 use tempo_common::{
     cli::context::Context,
@@ -16,7 +16,7 @@ use super::{
     headers::{has_header, parse_headers, should_auto_add_json_content_type, validate_header_size},
     payload::{
         append_data_to_query, join_form_pairs, parse_data_urlencode, resolve_method_and_body,
-        validate_body_size,
+        resolve_multipart, validate_body_size,
     },
 };
 
@@ -89,22 +89,40 @@ fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan, TempoError> 
     } else {
         query.method.as_deref()
     };
-    let (data, json, toon) = if suppress_body {
-        (&[][..], None, None)
-    } else {
-        (
-            query.data.as_slice(),
-            query.json.as_deref(),
-            query.toon.as_deref(),
-        )
-    };
-    let (method, body) = resolve_method_and_body(method_override, data, json, toon)?;
 
+    // Multipart form: -F/--form takes a separate path
+    let (method, body) = if !suppress_body && !query.form.is_empty() {
+        let (method, body) = resolve_multipart(method_override, &query.form)?;
+        (method, Some(body))
+    } else {
+        let (data, json, toon) = if suppress_body {
+            (&[][..], None, None)
+        } else {
+            (
+                query.data.as_slice(),
+                query.json.as_deref(),
+                query.toon.as_deref(),
+            )
+        };
+        let (method, body) = resolve_method_and_body(method_override, data, json, toon)?;
+        (method, body.map(HttpRequestBody::Bytes))
+    };
+
+    let data = if suppress_body {
+        &[][..]
+    } else {
+        query.data.as_slice()
+    };
     let headers = build_extra_headers(query, suppress_body, data);
 
     // If not using -G, merge --data-urlencode into body (form-encoded)
     let body = if !query.get && !query.data_urlencode.is_empty() {
-        let mut base = body.unwrap_or_default();
+        let mut base = match body {
+            Some(HttpRequestBody::Bytes(b)) => b,
+            None => Vec::new(),
+            // clap conflicts_with prevents this, but guard defensively
+            Some(HttpRequestBody::Multipart(_)) => unreachable!(),
+        };
         let enc_pairs = parse_data_urlencode(&query.data_urlencode)?;
         let form = join_form_pairs(&enc_pairs);
         if !base.is_empty() {
@@ -112,7 +130,7 @@ fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan, TempoError> 
         }
         base.extend_from_slice(form.as_bytes());
         validate_body_size(base.len())?;
-        Some(base)
+        Some(HttpRequestBody::Bytes(base))
     } else {
         body
     };

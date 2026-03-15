@@ -15,12 +15,38 @@ type HttpResult<T> = std::result::Result<T, TempoError>;
 /// Default User-Agent header value for requests.
 pub(crate) const DEFAULT_USER_AGENT: &str = concat!("tempo/", env!("CARGO_PKG_VERSION"));
 
+/// A single field in a multipart form body.
+#[derive(Debug, Clone)]
+pub(crate) enum MultipartField {
+    Text {
+        name: String,
+        value: String,
+    },
+    File {
+        name: String,
+        filename: String,
+        content_type: Option<String>,
+        bytes: Vec<u8>,
+    },
+}
+
+/// Replayable HTTP request body.
+///
+/// Multipart bodies cannot use `reqwest::multipart::Form` directly because
+/// `Form` is not `Clone`. Instead we store the field specs and rebuild a
+/// fresh `Form` on every send (initial, retry, and payment replay).
+#[derive(Debug, Clone)]
+pub(crate) enum HttpRequestBody {
+    Bytes(Vec<u8>),
+    Multipart(Vec<MultipartField>),
+}
+
 /// Pre-resolved HTTP request plan, independent of CLI types.
 #[derive(Debug)]
 pub(crate) struct HttpRequestPlan {
     pub(crate) method: reqwest::Method,
     pub(crate) headers: Vec<(String, String)>,
-    pub(crate) body: Option<Vec<u8>>,
+    pub(crate) body: Option<HttpRequestBody>,
     pub(crate) timeout_secs: Option<u64>,
     pub(crate) connect_timeout_secs: Option<u64>,
     pub(crate) follow_redirects: bool,
@@ -175,8 +201,67 @@ impl HttpClient {
     }
 
     /// The request body from the request plan, if any.
-    pub(crate) fn body(&self) -> Option<&[u8]> {
-        self.plan.body.as_deref()
+    pub(crate) fn body(&self) -> Option<&HttpRequestBody> {
+        self.plan.body.as_ref()
+    }
+
+    /// Build a reqwest `Form` from stored multipart field specs.
+    fn build_multipart_form(fields: &[MultipartField]) -> reqwest::multipart::Form {
+        let mut form = reqwest::multipart::Form::new();
+        for field in fields {
+            match field {
+                MultipartField::Text { name, value } => {
+                    form = form.text(name.clone(), value.clone());
+                }
+                MultipartField::File {
+                    name,
+                    filename,
+                    content_type,
+                    bytes,
+                } => {
+                    let part =
+                        reqwest::multipart::Part::bytes(bytes.clone()).file_name(filename.clone());
+                    let part = match content_type {
+                        Some(mime) => part.mime_str(mime).unwrap_or_else(|_| {
+                            reqwest::multipart::Part::bytes(bytes.clone())
+                                .file_name(filename.clone())
+                        }),
+                        None => part,
+                    };
+                    form = form.part(name.clone(), part);
+                }
+            }
+        }
+        form
+    }
+
+    /// Apply the request body to a request builder (standalone variant for callers
+    /// that hold a body reference rather than the full plan).
+    pub(crate) fn apply_body_from(
+        req: reqwest::RequestBuilder,
+        body: Option<&HttpRequestBody>,
+    ) -> reqwest::RequestBuilder {
+        match body {
+            Some(HttpRequestBody::Bytes(data)) => req.body(data.clone()),
+            Some(HttpRequestBody::Multipart(fields)) => {
+                req.multipart(Self::build_multipart_form(fields))
+            }
+            None => req,
+        }
+    }
+
+    /// Apply the request body to a request builder.
+    fn apply_body(
+        req: reqwest::RequestBuilder,
+        body: &Option<HttpRequestBody>,
+    ) -> reqwest::RequestBuilder {
+        match body {
+            Some(HttpRequestBody::Bytes(data)) => req.body(data.clone()),
+            Some(HttpRequestBody::Multipart(fields)) => {
+                req.multipart(Self::build_multipart_form(fields))
+            }
+            None => req,
+        }
     }
 
     /// Build a raw reqwest request from the plan for streaming use.
@@ -188,9 +273,7 @@ impl HttpClient {
         for (name, value) in &self.plan.headers {
             req = req.header(name.as_str(), value.as_str());
         }
-        if let Some(ref body) = self.plan.body {
-            req = req.body(body.clone());
-        }
+        req = Self::apply_body(req, &self.plan.body);
         req
     }
 
@@ -225,9 +308,7 @@ impl HttpClient {
                 for (name, value) in extra_headers {
                     req = req.header(name.as_str(), value.as_str());
                 }
-                if let Some(data) = plan.body.as_deref() {
-                    req = req.body(data.to_vec());
-                }
+                req = Self::apply_body(req, &plan.body);
                 let response = req.send().await.map_err(NetworkError::Reqwest)?;
                 HttpResponse::from_reqwest(response).await
             }

@@ -26,7 +26,7 @@ futures.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 mpp.workspace = true
-reqwest = { workspace = true, features = ["stream"] }
+reqwest = { workspace = true, features = ["stream", "multipart"] }
 serde.workspace = true
 serde_json.workspace = true
 tempo-primitives.workspace = true

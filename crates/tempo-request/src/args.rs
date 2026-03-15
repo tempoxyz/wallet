@@ -270,6 +270,16 @@ pub(crate) struct QueryArgs {
         help_heading = "HTTP Options"
     )]
     pub data_urlencode: Vec<String>,
+
+    /// Multipart form field (name=value, name=@file, name=@file;type=mime)
+    #[arg(
+        short = 'F',
+        long = "form",
+        value_name = "FIELD",
+        help_heading = "HTTP Options",
+        conflicts_with_all = ["data", "data_urlencode", "json", "toon", "get"]
+    )]
+    pub form: Vec<String>,
 }
 
 impl QueryArgs {
