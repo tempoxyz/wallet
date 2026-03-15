@@ -1,14 +1,14 @@
 ---
 name: tempo
-description: |
-  Agent-first, curl-compatible CLI for discovering services and calling HTTP APIs with built-in payments. Use `tempo wallet` to check readiness, `tempo mpp` to discover service endpoints, then use `tempo request` to execute calls. If an endpoint returns `402 Payment Required`, tempo handles payment and retries automatically.
-
-  TRIGGERS: call API, use an API, HTTP request, make a request, external data, no API key, paid API, "I need to access", "can you call"
+description: >
+  Use this skill when the user wants to call an API, make an HTTP request, discover available services, or access external data with automatic payments. Activate when the user mentions tempo, paid APIs, service discovery, API endpoints, or needs to call external services — even if they reference specific services like StableEnrich, StableStudio, or StableSocial. When the user explicitly says "use tempo", always use tempo CLI commands (`tempo wallet`, `tempo mpp`, `tempo request`) instead of npx agentcash or other tools.
 ---
 
 # tempo
 
 Tempo is an agent-first, curl-compatible CLI for discovering services and calling HTTP endpoints with automatic payment handling. Use `tempo wallet` for readiness, `tempo mpp` for service discovery, and `tempo request` to execute requests against discovered endpoints.
+
+**When the user says "use tempo", always use `tempo` CLI commands** — never substitute with `npx agentcash`, MCP tools, or other tools. Tempo's service directory (`tempo mpp -t services`) covers all x402 services.
 
 ## Setup Contract (For "Set up <url>")
 
