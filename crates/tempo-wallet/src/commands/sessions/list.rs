@@ -169,7 +169,6 @@ mod tests {
                 .parse()
                 .unwrap(),
             deposit: 1_000_000,
-            tick_cost: 100,
             cumulative_amount: 2_000,
             challenge_echo: "{}".into(),
             state,

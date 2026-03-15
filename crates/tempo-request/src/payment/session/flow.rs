@@ -172,7 +172,7 @@ pub(crate) async fn handle_session_request(
         .chain_id()
         .ok_or_else(|| challenge_missing_field("session request", "chainId"))?;
 
-    let tick_cost: u128 =
+    let amount: u128 =
         session_req
             .amount
             .parse::<u128>()
@@ -211,7 +211,7 @@ pub(crate) async fn handle_session_request(
         .map_err(|source| challenge_address_parse("session challenge recipient", source))?;
 
     if http.log_enabled() {
-        let cost_display = format_token_amount(tick_cost, network_id);
+        let cost_display = format_token_amount(amount, network_id);
         eprintln!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),
@@ -221,7 +221,7 @@ pub(crate) async fn handle_session_request(
 
     // Dry-run: print session parameters and exit without signing or transacting
     if http.dry_run {
-        let cost_display = format_token_amount(tick_cost, network_id);
+        let cost_display = format_token_amount(amount, network_id);
 
         println!("[DRY RUN] Session payment would be made:");
         println!("Protocol: MPP (https://mpp.dev)");
@@ -312,9 +312,9 @@ pub(crate) async fn handle_session_request(
     // Check for an existing persisted session (inside the lock so that
     // concurrent workers see channels opened by earlier workers).
     // Reuse requires matching payer and channel identity fields (escrow,
-    // currency, recipient, chain). tick_cost is intentionally excluded:
-    // it is pricing metadata, not channel identity, and varying prices
-    // (e.g. different models on the same origin) must not cause channel churn.
+    // currency, recipient, chain). The request price is not part of
+    // channel identity — varying prices (e.g. different models on the
+    // same origin) must not cause channel churn.
     let existing = session::load_session(&session_key)
         .map_err(|err| session_store_error("load session", err))?;
     let reuse = existing.as_ref().is_some_and(|r| {
@@ -342,7 +342,7 @@ pub(crate) async fn handle_session_request(
             channel_id,
             escrow_contract,
             chain_id,
-            cumulative_amount: (prev_cumulative + tick_cost).min(prev_deposit),
+            cumulative_amount: (prev_cumulative + amount).min(prev_deposit),
         };
 
         let ctx = SessionContext {
@@ -353,7 +353,6 @@ pub(crate) async fn handle_session_request(
             url,
             network_id,
             origin: &origin,
-            tick_cost,
             deposit: prev_deposit,
             salt: record.salt.clone(),
             recipient,
@@ -406,7 +405,7 @@ pub(crate) async fn handle_session_request(
         authorized_signer,
     );
 
-    let initial_cumulative = tick_cost;
+    let initial_cumulative = amount;
     let voucher_sig = sign_voucher(
         &signer.signer,
         channel_id,
@@ -478,7 +477,6 @@ pub(crate) async fn handle_session_request(
         url,
         network_id,
         origin: &origin,
-        tick_cost,
         deposit,
         salt: format!("{salt:#x}"),
         recipient,
@@ -520,7 +518,7 @@ pub(crate) async fn handle_session_request(
 /// Check whether a persisted session record can be reused for a new request.
 ///
 /// Reuse requires matching payer and channel identity fields (escrow,
-/// currency, recipient, chain). `tick_cost` is intentionally excluded:
+/// currency, recipient, chain). The request price is not checked —
 /// it is pricing metadata, not channel identity, and varying prices
 /// (e.g. different models on the same origin) must not cause channel churn.
 fn is_session_reusable(
@@ -540,13 +538,14 @@ fn is_session_reusable(
 
 #[cfg(test)]
 mod tests {
-    use super::is_session_reusable;
-    use super::session_store_error;
+    use super::{is_session_reusable, session_store_error};
     use alloy::primitives::Address;
-    use tempo_common::error::{PaymentError, TempoError};
-    use tempo_common::payment::session::{now_secs, SessionRecord, SessionStatus};
+    use tempo_common::{
+        error::{PaymentError, TempoError},
+        payment::session::{now_secs, SessionRecord, SessionStatus},
+    };
 
-    fn make_record(tick_cost: u128) -> SessionRecord {
+    fn make_record() -> SessionRecord {
         let now = now_secs();
         SessionRecord {
             version: 1,
@@ -561,7 +560,6 @@ mod tests {
             salt: "0x00".into(),
             channel_id: alloy::primitives::B256::ZERO,
             deposit: 1_000_000,
-            tick_cost,
             cumulative_amount: 500,
             challenge_echo: "echo".into(),
             state: SessionStatus::Active,
@@ -585,22 +583,10 @@ mod tests {
     }
 
     #[test]
-    fn reuse_ignores_tick_cost_difference() {
-        let record = make_record(100);
-        // Same channel identity, different tick_cost (new model price) — must reuse
+    fn reuse_same_channel_identity() {
+        let record = make_record();
         assert!(is_session_reusable(
             &record,
-            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
-            Address::ZERO,
-            "0x0000000000000000000000000000000000000001",
-            "0x0000000000000000000000000000000000000002",
-            4217,
-        ));
-
-        // Verify with a completely different tick_cost
-        let record2 = make_record(999_999);
-        assert!(is_session_reusable(
-            &record2,
             "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
             Address::ZERO,
             "0x0000000000000000000000000000000000000001",
@@ -611,7 +597,7 @@ mod tests {
 
     #[test]
     fn reuse_rejects_different_payer() {
-        let record = make_record(100);
+        let record = make_record();
         assert!(!is_session_reusable(
             &record,
             "did:pkh:eip155:4217:0xdifferentpayer",
@@ -624,7 +610,7 @@ mod tests {
 
     #[test]
     fn reuse_rejects_different_recipient() {
-        let record = make_record(100);
+        let record = make_record();
         assert!(!is_session_reusable(
             &record,
             "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
@@ -637,7 +623,7 @@ mod tests {
 
     #[test]
     fn reuse_rejects_different_chain() {
-        let record = make_record(100);
+        let record = make_record();
         assert!(!is_session_reusable(
             &record,
             "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",

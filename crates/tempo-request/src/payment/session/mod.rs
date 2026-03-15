@@ -35,7 +35,6 @@ pub(super) struct SessionContext<'a> {
     pub(super) url: &'a str,
     pub(super) network_id: NetworkId,
     pub(super) origin: &'a str,
-    pub(super) tick_cost: u128,
     pub(super) deposit: u128,
     pub(super) salt: String,
     pub(super) recipient: Address,

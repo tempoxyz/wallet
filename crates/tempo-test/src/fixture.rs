@@ -163,7 +163,6 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             salt              TEXT NOT NULL,
             channel_id        TEXT NOT NULL,
             deposit           TEXT NOT NULL,
-            tick_cost         TEXT NOT NULL,
             cumulative_amount TEXT NOT NULL,
             challenge_echo    TEXT NOT NULL,
             state             TEXT NOT NULL DEFAULT 'active',
@@ -200,11 +199,11 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
         "INSERT OR REPLACE INTO sessions (
             key, version, origin, request_url, chain_id,
             escrow_contract, currency, recipient, payer, authorized_signer,
-            salt, channel_id, deposit, tick_cost, cumulative_amount,
+            salt, channel_id, deposit, cumulative_amount,
             challenge_echo, state, close_requested_at,
             grace_ready_at, created_at, last_used_at
         ) VALUES (?1, 1, ?2, ?3, 4217, ?4, ?5, ?6, ?7, ?8, ?9,
-                  ?10, ?11, ?12, ?13, ?14, 'active', 0, 0, ?15, ?16)",
+                  ?10, ?11, ?12, ?13, 'active', 0, 0, ?14, ?15)",
         rusqlite::params![
             key,
             origin,
@@ -217,7 +216,6 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             "0x00",
             "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
             "1000000",
-            "100",
             "0",
             "{}",
             now,

@@ -237,7 +237,6 @@ mod tests {
                 .parse()
                 .unwrap(),
             deposit: 1000,
-            tick_cost: 1,
             cumulative_amount: 2,
             challenge_echo: serde_json::to_string(&mpp::ChallengeEcho {
                 id: "abc".into(),

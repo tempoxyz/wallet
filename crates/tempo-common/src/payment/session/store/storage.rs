@@ -112,7 +112,6 @@ fn init_schema(conn: &rusqlite::Connection) -> SessionStoreResult<()> {
             salt              TEXT NOT NULL,
             channel_id        TEXT NOT NULL,
             deposit           TEXT NOT NULL,
-            tick_cost         TEXT NOT NULL,
             cumulative_amount TEXT NOT NULL,
             challenge_echo    TEXT NOT NULL,
             state             TEXT NOT NULL DEFAULT 'active',
@@ -128,7 +127,7 @@ fn init_schema(conn: &rusqlite::Connection) -> SessionStoreResult<()> {
 }
 
 /// Expected column count for the sessions table.
-const EXPECTED_COLUMN_COUNT: usize = 21;
+const EXPECTED_COLUMN_COUNT: usize = 20;
 
 /// Check whether an existing `sessions` table has a mismatched schema.
 fn table_needs_reset(conn: &rusqlite::Connection) -> bool {
@@ -162,9 +161,9 @@ fn save_session_conn(
         "INSERT OR REPLACE INTO sessions (
             key, version, origin, request_url, chain_id,
             escrow_contract, currency, recipient, payer, authorized_signer,
-            salt, channel_id, deposit, tick_cost, cumulative_amount,
+            salt, channel_id, deposit, cumulative_amount,
             challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         params![
             key,
             record.version,
@@ -179,7 +178,6 @@ fn save_session_conn(
             record.salt,
             channel_id,
             record.deposit.to_string(),
-            record.tick_cost.to_string(),
             record.cumulative_amount.to_string(),
             record.challenge_echo,
             record.state.as_str(),
@@ -273,7 +271,7 @@ fn decode_session_state(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Resu
 
 /// Map a row (with the standard SELECT column order) to a `SessionRecord`.
 fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
-    let state = decode_session_state(row, 15)?;
+    let state = decode_session_state(row, 14)?;
 
     let mut record = SessionRecord {
         version: row.get::<_, u32>(0)?,
@@ -288,14 +286,13 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         salt: row.get(9)?,
         channel_id: decode_b256_column(row, 10, "channel_id")?,
         deposit: decode_u128_column(row, 11, "deposit")?,
-        tick_cost: decode_u128_column(row, 12, "tick_cost")?,
-        cumulative_amount: decode_u128_column(row, 13, "cumulative_amount")?,
-        challenge_echo: row.get(14)?,
+        cumulative_amount: decode_u128_column(row, 12, "cumulative_amount")?,
+        challenge_echo: row.get(13)?,
         state,
-        close_requested_at: decode_u64_column(row, 16, "close_requested_at")?,
-        grace_ready_at: decode_u64_column(row, 17, "grace_ready_at")?,
-        created_at: decode_u64_column(row, 18, "created_at")?,
-        last_used_at: decode_u64_column(row, 19, "last_used_at")?,
+        close_requested_at: decode_u64_column(row, 15, "close_requested_at")?,
+        grace_ready_at: decode_u64_column(row, 16, "grace_ready_at")?,
+        created_at: decode_u64_column(row, 17, "created_at")?,
+        last_used_at: decode_u64_column(row, 18, "last_used_at")?,
     };
 
     if !record.normalize_persisted_identity() {
@@ -320,7 +317,7 @@ fn load_session_conn(
         .prepare(
             "SELECT version, origin, request_url, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
-                    salt, channel_id, deposit, tick_cost, cumulative_amount,
+                    salt, channel_id, deposit, cumulative_amount,
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
              FROM sessions WHERE key = ?1",
         )
@@ -369,7 +366,7 @@ fn load_session_by_channel_id_conn(
         .prepare(
             "SELECT version, origin, request_url, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
-                    salt, channel_id, deposit, tick_cost, cumulative_amount,
+                    salt, channel_id, deposit, cumulative_amount,
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
              FROM sessions WHERE LOWER(channel_id) = ?1",
         )
@@ -411,7 +408,7 @@ fn list_sessions_conn(conn: &rusqlite::Connection) -> SessionStoreResult<Vec<Ses
         .prepare(
             "SELECT version, origin, request_url, chain_id,
                     escrow_contract, currency, recipient, payer, authorized_signer,
-                    salt, channel_id, deposit, tick_cost, cumulative_amount,
+                    salt, channel_id, deposit, cumulative_amount,
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
              FROM sessions ORDER BY last_used_at DESC",
         )
@@ -561,7 +558,6 @@ mod tests {
             salt: salt.into(),
             channel_id: B256::ZERO,
             deposit: 1_000_000,
-            tick_cost: 100,
             cumulative_amount: 0,
             challenge_echo: "echo".into(),
             state: SessionStatus::Active,
@@ -782,7 +778,7 @@ mod tests {
         let db_path = tmp.path().join("sessions.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
 
-        // Create old 22-column schema with network_name
+        // Create old 21-column schema with network_name and tick_cost
         conn.execute_batch(
             "CREATE TABLE sessions (
                 key               TEXT PRIMARY KEY,
@@ -813,7 +809,7 @@ mod tests {
 
         assert!(
             table_needs_reset(&conn),
-            "22-column legacy schema should trigger reset"
+            "21-column legacy schema should trigger reset"
         );
 
         // init_schema should drop and recreate
@@ -842,57 +838,6 @@ mod tests {
     }
 
     #[test]
-    fn test_different_tick_cost_does_not_create_separate_session() {
-        let (_tmp, conn) = test_db();
-
-        // Save a session with tick_cost = 100
-        let mut r1 = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
-        r1.tick_cost = 100;
-        r1.cumulative_amount = 100;
-        save_session_conn(&conn, &r1).unwrap();
-
-        // Save again with a different tick_cost (different model price)
-        // Same origin → same key → should overwrite, not create a second row
-        let mut r2 = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
-        r2.tick_cost = 500;
-        r2.cumulative_amount = 600;
-        save_session_conn(&conn, &r2).unwrap();
-
-        let all = list_sessions_conn(&conn).unwrap();
-        assert_eq!(
-            all.len(),
-            1,
-            "same origin must produce a single session row"
-        );
-        assert_eq!(all[0].cumulative_amount, 600);
-    }
-
-    #[test]
-    fn test_session_reusable_after_tick_cost_change() {
-        let (_tmp, conn) = test_db();
-
-        // Simulate: first request opens channel at tick_cost=100
-        let mut r = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
-        r.tick_cost = 100;
-        r.cumulative_amount = 100;
-        save_session_conn(&conn, &r).unwrap();
-
-        // Load the session back — it should be found regardless of what
-        // the new tick_cost is (tick_cost is not part of the key)
-        let key = session_key("https://openrouter.mpp.tempo.xyz");
-        let loaded = load_session_conn(&conn, &key).unwrap().unwrap();
-        assert_eq!(loaded.tick_cost, 100);
-        assert_eq!(loaded.cumulative_amount, 100);
-
-        // The channel identity fields match — reuse is valid.
-        // A new request with tick_cost=500 should increment cumulative_amount.
-        let new_tick_cost: u128 = 500;
-        let new_cumulative = loaded.cumulative_amount + new_tick_cost;
-        assert_eq!(new_cumulative, 600);
-        assert!(new_cumulative <= loaded.deposit, "within deposit cap");
-    }
-
-    #[test]
     fn test_concurrent_writers_see_session_after_lock_release() {
         let (_tmp, conn) = test_db();
 
@@ -906,6 +851,46 @@ mod tests {
         assert!(
             loaded.is_some(),
             "second writer must see session saved by first writer"
+        );
+    }
+
+    /// Demonstrates that without external locking, concurrent load-then-save
+    /// loses increments. Two writers each load cumulative_amount=100, add
+    /// their own tick, and save — the last writer wins, losing the other's
+    /// increment. This confirms the file lock in `flow.rs` is required.
+    #[test]
+    fn test_concurrent_load_modify_save_without_lock_loses_increment() {
+        let (_tmp, conn) = test_db();
+
+        let mut r = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
+        r.cumulative_amount = 100;
+        save_session_conn(&conn, &r).unwrap();
+
+        let key = session_key("https://openrouter.mpp.tempo.xyz");
+
+        // Both "workers" load the same snapshot (cumulative_amount = 100)
+        let snap_a = load_session_conn(&conn, &key).unwrap().unwrap();
+        let snap_b = load_session_conn(&conn, &key).unwrap().unwrap();
+
+        // Worker A adds 50, worker B adds 80 — both from stale base
+        let mut rec_a = snap_a;
+        rec_a.cumulative_amount += 50; // 150
+        save_session_conn(&conn, &rec_a).unwrap();
+
+        let mut rec_b = snap_b;
+        rec_b.cumulative_amount += 80; // 180 (from stale 100, not 150)
+        save_session_conn(&conn, &rec_b).unwrap();
+
+        let final_rec = load_session_conn(&conn, &key).unwrap().unwrap();
+        // Without locking the correct result would be 100 + 50 + 80 = 230.
+        // The last writer wins so we get 180 — worker A's 50 is lost.
+        assert_eq!(
+            final_rec.cumulative_amount, 180,
+            "last-writer-wins: worker A's increment is lost without locking"
+        );
+        assert_ne!(
+            final_rec.cumulative_amount, 230,
+            "without locking the combined increment is NOT preserved"
         );
     }
 }
