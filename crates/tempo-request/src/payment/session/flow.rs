@@ -325,11 +325,14 @@ pub(crate) async fn handle_session_request(
     let existing = session::load_session(&session_key)
         .map_err(|err| session_store_error("load session", err))?;
     let reuse = existing.as_ref().is_some_and(|r| {
-        r.payer == did
-            && r.escrow_contract == escrow_contract
-            && r.currency == currency_hex
-            && r.recipient == recipient_hex
-            && r.chain_id == chain_id
+        is_session_reusable(
+            r,
+            &did,
+            escrow_contract,
+            &currency_hex,
+            &recipient_hex,
+            chain_id,
+        )
     });
 
     if reuse {
@@ -510,10 +513,60 @@ pub(crate) async fn handle_session_request(
     Ok(result)
 }
 
+/// Check whether a persisted session record can be reused for a new request.
+///
+/// Reuse requires matching payer and channel identity fields (escrow,
+/// currency, recipient, chain). `tick_cost` is intentionally excluded:
+/// it is pricing metadata, not channel identity, and varying prices
+/// (e.g. different models on the same origin) must not cause channel churn.
+fn is_session_reusable(
+    record: &tempo_common::payment::session::SessionRecord,
+    payer_did: &str,
+    escrow: Address,
+    currency: &str,
+    recipient: &str,
+    chain_id: u64,
+) -> bool {
+    record.payer == payer_did
+        && record.escrow_contract == escrow
+        && record.currency == currency
+        && record.recipient == recipient
+        && record.chain_id == chain_id
+}
+
 #[cfg(test)]
 mod tests {
+    use super::is_session_reusable;
     use super::session_store_error;
+    use alloy::primitives::Address;
     use tempo_common::error::{PaymentError, TempoError};
+    use tempo_common::payment::session::{now_secs, SessionRecord, SessionStatus};
+
+    fn make_record(tick_cost: u128) -> SessionRecord {
+        let now = now_secs();
+        SessionRecord {
+            version: 1,
+            origin: "https://openrouter.mpp.tempo.xyz".into(),
+            request_url: "https://openrouter.mpp.tempo.xyz/v1/chat/completions".into(),
+            chain_id: 4217,
+            escrow_contract: Address::ZERO,
+            currency: "0x0000000000000000000000000000000000000001".into(),
+            recipient: "0x0000000000000000000000000000000000000002".into(),
+            payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099".into(),
+            authorized_signer: Address::ZERO,
+            salt: "0x00".into(),
+            channel_id: alloy::primitives::B256::ZERO,
+            deposit: 1_000_000,
+            tick_cost,
+            cumulative_amount: 500,
+            challenge_echo: "echo".into(),
+            state: SessionStatus::Active,
+            close_requested_at: 0,
+            grace_ready_at: 0,
+            created_at: now,
+            last_used_at: now,
+        }
+    }
 
     #[test]
     fn session_store_error_maps_to_payment_error() {
@@ -525,5 +578,69 @@ mod tests {
             }
             other => panic!("unexpected error variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn reuse_ignores_tick_cost_difference() {
+        let record = make_record(100);
+        // Same channel identity, different tick_cost (new model price) — must reuse
+        assert!(is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+        ));
+
+        // Verify with a completely different tick_cost
+        let record2 = make_record(999_999);
+        assert!(is_session_reusable(
+            &record2,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_different_payer() {
+        let record = make_record(100);
+        assert!(!is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0xdifferentpayer",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_different_recipient() {
+        let record = make_record(100);
+        assert!(!is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0xdifferentrecipient",
+            4217,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_different_chain() {
+        let record = make_record(100);
+        assert!(!is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            42431, // different chain
+        ));
     }
 }

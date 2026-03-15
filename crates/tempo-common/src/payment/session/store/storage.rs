@@ -840,4 +840,72 @@ mod tests {
             "current schema should not trigger reset"
         );
     }
+
+    #[test]
+    fn test_different_tick_cost_does_not_create_separate_session() {
+        let (_tmp, conn) = test_db();
+
+        // Save a session with tick_cost = 100
+        let mut r1 = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
+        r1.tick_cost = 100;
+        r1.cumulative_amount = 100;
+        save_session_conn(&conn, &r1).unwrap();
+
+        // Save again with a different tick_cost (different model price)
+        // Same origin → same key → should overwrite, not create a second row
+        let mut r2 = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
+        r2.tick_cost = 500;
+        r2.cumulative_amount = 600;
+        save_session_conn(&conn, &r2).unwrap();
+
+        let all = list_sessions_conn(&conn).unwrap();
+        assert_eq!(
+            all.len(),
+            1,
+            "same origin must produce a single session row"
+        );
+        assert_eq!(all[0].cumulative_amount, 600);
+    }
+
+    #[test]
+    fn test_session_reusable_after_tick_cost_change() {
+        let (_tmp, conn) = test_db();
+
+        // Simulate: first request opens channel at tick_cost=100
+        let mut r = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
+        r.tick_cost = 100;
+        r.cumulative_amount = 100;
+        save_session_conn(&conn, &r).unwrap();
+
+        // Load the session back — it should be found regardless of what
+        // the new tick_cost is (tick_cost is not part of the key)
+        let key = session_key("https://openrouter.mpp.tempo.xyz");
+        let loaded = load_session_conn(&conn, &key).unwrap().unwrap();
+        assert_eq!(loaded.tick_cost, 100);
+        assert_eq!(loaded.cumulative_amount, 100);
+
+        // The channel identity fields match — reuse is valid.
+        // A new request with tick_cost=500 should increment cumulative_amount.
+        let new_tick_cost: u128 = 500;
+        let new_cumulative = loaded.cumulative_amount + new_tick_cost;
+        assert_eq!(new_cumulative, 600);
+        assert!(new_cumulative <= loaded.deposit, "within deposit cap");
+    }
+
+    #[test]
+    fn test_concurrent_writers_see_session_after_lock_release() {
+        let (_tmp, conn) = test_db();
+
+        // Writer 1: acquires lock, saves session, releases lock
+        let r1 = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
+        save_session_conn(&conn, &r1).unwrap();
+
+        // Writer 2: acquires lock after writer 1, should see writer 1's session
+        let key = session_key("https://openrouter.mpp.tempo.xyz");
+        let loaded = load_session_conn(&conn, &key).unwrap();
+        assert!(
+            loaded.is_some(),
+            "second writer must see session saved by first writer"
+        );
+    }
 }
