@@ -80,6 +80,10 @@ pub struct SessionRecord {
     pub salt: String,
     pub channel_id: B256,
     pub deposit: u128,
+    /// Deprecated: tick_cost is pricing metadata from the server's 402
+    /// challenge, not channel state. It is written on creation for schema
+    /// compatibility but not used for reuse decisions or protocol logic.
+    /// The client receives a fresh price quote in every 402 response.
     pub tick_cost: u128,
     pub cumulative_amount: u128,
     pub challenge_echo: String,
