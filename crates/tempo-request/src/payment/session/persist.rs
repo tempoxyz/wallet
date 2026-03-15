@@ -50,7 +50,6 @@ pub(super) fn persist_session(
             salt: ctx.salt.clone(),
             channel_id: state.channel_id,
             deposit: ctx.deposit,
-            tick_cost: ctx.tick_cost,
             cumulative_amount: state.cumulative_amount,
             challenge_echo: echo_json,
             state: SessionStatus::Active,

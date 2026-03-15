@@ -80,7 +80,6 @@ pub struct SessionRecord {
     pub salt: String,
     pub channel_id: B256,
     pub deposit: u128,
-    pub tick_cost: u128,
     pub cumulative_amount: u128,
     pub challenge_echo: String,
     /// Explicit lifecycle state.
@@ -233,7 +232,6 @@ mod tests {
             salt: salt.into(),
             channel_id: B256::ZERO,
             deposit: 1_000_000,
-            tick_cost: 100,
             cumulative_amount: 0,
             challenge_echo: "echo".into(),
             state: SessionStatus::Active,

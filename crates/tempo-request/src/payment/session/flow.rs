@@ -172,7 +172,7 @@ pub(crate) async fn handle_session_request(
         .chain_id()
         .ok_or_else(|| challenge_missing_field("session request", "chainId"))?;
 
-    let tick_cost: u128 =
+    let amount: u128 =
         session_req
             .amount
             .parse::<u128>()
@@ -211,7 +211,7 @@ pub(crate) async fn handle_session_request(
         .map_err(|source| challenge_address_parse("session challenge recipient", source))?;
 
     if http.log_enabled() {
-        let cost_display = format_token_amount(tick_cost, network_id);
+        let cost_display = format_token_amount(amount, network_id);
         eprintln!(
             "Cost per {}: {}",
             session_req.unit_type.as_deref().unwrap_or("request"),
@@ -221,7 +221,7 @@ pub(crate) async fn handle_session_request(
 
     // Dry-run: print session parameters and exit without signing or transacting
     if http.dry_run {
-        let cost_display = format_token_amount(tick_cost, network_id);
+        let cost_display = format_token_amount(amount, network_id);
 
         println!("[DRY RUN] Session payment would be made:");
         println!("Protocol: MPP (https://mpp.dev)");
@@ -300,18 +300,32 @@ pub(crate) async fn handle_session_request(
     let recipient_hex = format!("{recipient:#x}");
     let currency_hex = format!("{currency:#x}");
 
-    // Check for an existing persisted session.
-    // Reuse requires matching payer AND challenge parameters (escrow, currency,
-    // recipient, chain) to avoid a wasted round trip when the server changes config.
+    // === Reuse check + open (under lock) ===
+    //
+    // Acquire a blocking per-origin lock so concurrent workers serialize
+    // the reuse-check-then-open sequence. The lock is dropped as soon as
+    // the critical section completes (before sending the actual request or
+    // streaming SSE) to avoid serializing long-running request I/O.
+    let lock_guard = session::acquire_origin_lock(&session_key)
+        .map_err(|e| session_store_error("acquire session lock", e))?;
+
+    // Check for an existing persisted session (inside the lock so that
+    // concurrent workers see channels opened by earlier workers).
+    // Reuse requires matching payer and channel identity fields (escrow,
+    // currency, recipient, chain). The request price is not part of
+    // channel identity — varying prices (e.g. different models on the
+    // same origin) must not cause channel churn.
     let existing = session::load_session(&session_key)
         .map_err(|err| session_store_error("load session", err))?;
     let reuse = existing.as_ref().is_some_and(|r| {
-        r.payer == did
-            && r.escrow_contract == escrow_contract
-            && r.currency == currency_hex
-            && r.recipient == recipient_hex
-            && r.chain_id == chain_id
-            && r.tick_cost == tick_cost
+        is_session_reusable(
+            r,
+            &did,
+            escrow_contract,
+            &currency_hex,
+            &recipient_hex,
+            chain_id,
+        )
     });
 
     if reuse {
@@ -328,7 +342,7 @@ pub(crate) async fn handle_session_request(
             channel_id,
             escrow_contract,
             chain_id,
-            cumulative_amount: (prev_cumulative + tick_cost).min(prev_deposit),
+            cumulative_amount: (prev_cumulative + amount).min(prev_deposit),
         };
 
         let ctx = SessionContext {
@@ -339,13 +353,16 @@ pub(crate) async fn handle_session_request(
             url,
             network_id,
             origin: &origin,
-            tick_cost,
             deposit: prev_deposit,
             salt: record.salt.clone(),
             recipient,
             currency,
             reqwest_client: http.client(),
         };
+
+        // Release the lock before sending the request — the critical
+        // section (reuse decision) is complete.
+        drop(lock_guard);
 
         match send_session_request(&ctx, &mut state).await {
             Ok(result) => {
@@ -360,27 +377,7 @@ pub(crate) async fn handle_session_request(
                 return Err(session_reuse_preserved_error(e));
             }
         }
-    } else if existing.is_some() {
-        // Different payer or params — clean up
-        if http.log_enabled() {
-            eprintln!("Session mismatch, opening new channel...");
-        }
-        session::delete_session(&session_key)
-            .map_err(|err| session_store_error("delete session", err))?;
     }
-
-    // === Open a new channel ===
-
-    // Acquire per-origin lock to prevent duplicate opens across processes
-    let _lock_guard = match session::acquire_origin_lock(&session_key) {
-        Ok(l) => Some(l),
-        Err(e) => {
-            if http.log_enabled() {
-                eprintln!("[warn] could not acquire session lock: {e:#}");
-            }
-            None
-        }
-    };
 
     let salt = B256::random();
     let authorized_signer = key_address;
@@ -408,7 +405,7 @@ pub(crate) async fn handle_session_request(
         authorized_signer,
     );
 
-    let initial_cumulative = tick_cost;
+    let initial_cumulative = amount;
     let voucher_sig = sign_voucher(
         &signer.signer,
         channel_id,
@@ -480,7 +477,6 @@ pub(crate) async fn handle_session_request(
         url,
         network_id,
         origin: &origin,
-        tick_cost,
         deposit,
         salt: format!("{salt:#x}"),
         recipient,
@@ -498,6 +494,8 @@ pub(crate) async fn handle_session_request(
 
     if !is_sse && open_response.status_code < 400 {
         persist_session(&ctx, &state)?;
+        // Lock released — channel is persisted and visible to other workers.
+        drop(lock_guard);
         return Ok(PaymentResult {
             tx_hash: None,
             session_id: Some(format!("{channel_id:#x}")),
@@ -506,16 +504,71 @@ pub(crate) async fn handle_session_request(
         });
     }
 
+    // Persist before releasing the lock so concurrent workers see the channel.
+    persist_session(&ctx, &state)?;
+    drop(lock_guard);
+
     let result = send_session_request(&ctx, &mut state).await?;
 
+    // Re-persist after streaming to update cumulative_amount.
     persist_session(&ctx, &state)?;
     Ok(result)
 }
 
+/// Check whether a persisted session record can be reused for a new request.
+///
+/// Reuse requires matching payer and channel identity fields (escrow,
+/// currency, recipient, chain). The request price is not checked —
+/// it is pricing metadata, not channel identity, and varying prices
+/// (e.g. different models on the same origin) must not cause channel churn.
+fn is_session_reusable(
+    record: &tempo_common::payment::session::SessionRecord,
+    payer_did: &str,
+    escrow: Address,
+    currency: &str,
+    recipient: &str,
+    chain_id: u64,
+) -> bool {
+    record.payer == payer_did
+        && record.escrow_contract == escrow
+        && record.currency == currency
+        && record.recipient == recipient
+        && record.chain_id == chain_id
+}
+
 #[cfg(test)]
 mod tests {
-    use super::session_store_error;
-    use tempo_common::error::{PaymentError, TempoError};
+    use super::{is_session_reusable, session_store_error};
+    use alloy::primitives::Address;
+    use tempo_common::{
+        error::{PaymentError, TempoError},
+        payment::session::{now_secs, SessionRecord, SessionStatus},
+    };
+
+    fn make_record() -> SessionRecord {
+        let now = now_secs();
+        SessionRecord {
+            version: 1,
+            origin: "https://openrouter.mpp.tempo.xyz".into(),
+            request_url: "https://openrouter.mpp.tempo.xyz/v1/chat/completions".into(),
+            chain_id: 4217,
+            escrow_contract: Address::ZERO,
+            currency: "0x0000000000000000000000000000000000000001".into(),
+            recipient: "0x0000000000000000000000000000000000000002".into(),
+            payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099".into(),
+            authorized_signer: Address::ZERO,
+            salt: "0x00".into(),
+            channel_id: alloy::primitives::B256::ZERO,
+            deposit: 1_000_000,
+            cumulative_amount: 500,
+            challenge_echo: "echo".into(),
+            state: SessionStatus::Active,
+            close_requested_at: 0,
+            grace_ready_at: 0,
+            created_at: now,
+            last_used_at: now,
+        }
+    }
 
     #[test]
     fn session_store_error_maps_to_payment_error() {
@@ -527,5 +580,57 @@ mod tests {
             }
             other => panic!("unexpected error variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn reuse_same_channel_identity() {
+        let record = make_record();
+        assert!(is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_different_payer() {
+        let record = make_record();
+        assert!(!is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0xdifferentpayer",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_different_recipient() {
+        let record = make_record();
+        assert!(!is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0xdifferentrecipient",
+            4217,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_different_chain() {
+        let record = make_record();
+        assert!(!is_session_reusable(
+            &record,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            42431, // different chain
+        ));
     }
 }

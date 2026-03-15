@@ -32,6 +32,12 @@ impl Drop for SessionLock {
 
 /// Acquire a per-origin exclusive lock to serialize open/persist operations.
 ///
+/// Uses a **blocking** lock so that concurrent workers wait for the first
+/// to finish rather than proceeding unlocked. The caller should drop the
+/// returned guard as soon as the critical section (reuse check + channel
+/// open + persist) is complete — do NOT hold it across long-running
+/// operations like SSE streaming.
+///
 /// # Errors
 ///
 /// Returns an error when the wallet directory cannot be created, lock file
@@ -46,8 +52,7 @@ pub fn acquire_origin_lock(key: &str) -> Result<SessionLock, TempoError> {
         .write(true)
         .open(lock_path)
         .map_err(|err| lock_error("open session lock file", err))?;
-    fs2::FileExt::try_lock_exclusive(&file)
-        .map_err(|err| lock_error("acquire session lock", err))?;
+    fs2::FileExt::lock_exclusive(&file).map_err(|err| lock_error("acquire session lock", err))?;
     Ok(SessionLock { file })
 }
 
@@ -64,9 +69,27 @@ mod tests {
         let key = session_key("https://example.com");
         let lock1 = acquire_origin_lock(&key).expect("first lock should succeed");
 
-        // Second lock should fail while the first guard is held
-        let second = acquire_origin_lock(&key);
-        assert!(second.is_err(), "second lock should be exclusive-error");
+        // Verify exclusivity from another thread: try_lock should fail
+        // while the first guard is held.
+        let key_clone = key.clone();
+        let result = std::thread::spawn(move || {
+            let dir = ensure_wallet_dir().unwrap();
+            let lock_path = dir.join(format!("{key_clone}.lock"));
+            let file = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(lock_path)
+                .unwrap();
+            fs2::FileExt::try_lock_exclusive(&file)
+        })
+        .join()
+        .unwrap();
+        assert!(
+            result.is_err(),
+            "second lock from another thread should fail while first is held"
+        );
 
         drop(lock1);
 
