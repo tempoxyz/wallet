@@ -300,9 +300,28 @@ pub(crate) async fn handle_session_request(
     let recipient_hex = format!("{recipient:#x}");
     let currency_hex = format!("{currency:#x}");
 
-    // Check for an existing persisted session.
-    // Reuse requires matching payer AND challenge parameters (escrow, currency,
-    // recipient, chain) to avoid a wasted round trip when the server changes config.
+    // === Open a new channel ===
+
+    // Acquire per-origin lock to prevent duplicate opens across processes.
+    // The lock must be held BEFORE the reuse check so that concurrent
+    // workers don't all decide "no reusable session" and each open a
+    // fresh channel.
+    let _lock_guard = match session::acquire_origin_lock(&session_key) {
+        Ok(l) => Some(l),
+        Err(e) => {
+            if http.log_enabled() {
+                eprintln!("[warn] could not acquire session lock: {e:#}");
+            }
+            None
+        }
+    };
+
+    // Check for an existing persisted session (inside the lock so that
+    // concurrent workers see channels opened by earlier workers).
+    // Reuse requires matching payer and channel identity fields (escrow,
+    // currency, recipient, chain). tick_cost is intentionally excluded:
+    // it is pricing metadata, not channel identity, and varying prices
+    // (e.g. different models on the same origin) must not cause channel churn.
     let existing = session::load_session(&session_key)
         .map_err(|err| session_store_error("load session", err))?;
     let reuse = existing.as_ref().is_some_and(|r| {
@@ -311,7 +330,6 @@ pub(crate) async fn handle_session_request(
             && r.currency == currency_hex
             && r.recipient == recipient_hex
             && r.chain_id == chain_id
-            && r.tick_cost == tick_cost
     });
 
     if reuse {
@@ -360,27 +378,7 @@ pub(crate) async fn handle_session_request(
                 return Err(session_reuse_preserved_error(e));
             }
         }
-    } else if existing.is_some() {
-        // Different payer or params — clean up
-        if http.log_enabled() {
-            eprintln!("Session mismatch, opening new channel...");
-        }
-        session::delete_session(&session_key)
-            .map_err(|err| session_store_error("delete session", err))?;
     }
-
-    // === Open a new channel ===
-
-    // Acquire per-origin lock to prevent duplicate opens across processes
-    let _lock_guard = match session::acquire_origin_lock(&session_key) {
-        Ok(l) => Some(l),
-        Err(e) => {
-            if http.log_enabled() {
-                eprintln!("[warn] could not acquire session lock: {e:#}");
-            }
-            None
-        }
-    };
 
     let salt = B256::random();
     let authorized_signer = key_address;

@@ -31,8 +31,10 @@ pub(super) fn persist_session(
         .filter(|r| r.channel_id == state.channel_id);
 
     let record = if let Some(mut rec) = existing {
-        // Update existing record
+        // Update existing record — refresh tick_cost so it reflects the
+        // latest server-quoted price (pricing metadata, not channel identity).
         rec.set_cumulative_amount(state.cumulative_amount);
+        rec.tick_cost = ctx.tick_cost;
         rec.challenge_echo = echo_json;
         rec.touch();
         rec
