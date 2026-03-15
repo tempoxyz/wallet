@@ -300,21 +300,14 @@ pub(crate) async fn handle_session_request(
     let recipient_hex = format!("{recipient:#x}");
     let currency_hex = format!("{currency:#x}");
 
-    // === Open a new channel ===
-
-    // Acquire per-origin lock to prevent duplicate opens across processes.
-    // The lock must be held BEFORE the reuse check so that concurrent
-    // workers don't all decide "no reusable session" and each open a
-    // fresh channel.
-    let _lock_guard = match session::acquire_origin_lock(&session_key) {
-        Ok(l) => Some(l),
-        Err(e) => {
-            if http.log_enabled() {
-                eprintln!("[warn] could not acquire session lock: {e:#}");
-            }
-            None
-        }
-    };
+    // === Reuse check + open (under lock) ===
+    //
+    // Acquire a blocking per-origin lock so concurrent workers serialize
+    // the reuse-check-then-open sequence. The lock is dropped as soon as
+    // the critical section completes (before sending the actual request or
+    // streaming SSE) to avoid serializing long-running request I/O.
+    let lock_guard = session::acquire_origin_lock(&session_key)
+        .map_err(|e| session_store_error("acquire session lock", e))?;
 
     // Check for an existing persisted session (inside the lock so that
     // concurrent workers see channels opened by earlier workers).
@@ -367,6 +360,10 @@ pub(crate) async fn handle_session_request(
             currency,
             reqwest_client: http.client(),
         };
+
+        // Release the lock before sending the request — the critical
+        // section (reuse decision) is complete.
+        drop(lock_guard);
 
         match send_session_request(&ctx, &mut state).await {
             Ok(result) => {
@@ -499,6 +496,8 @@ pub(crate) async fn handle_session_request(
 
     if !is_sse && open_response.status_code < 400 {
         persist_session(&ctx, &state)?;
+        // Lock released — channel is persisted and visible to other workers.
+        drop(lock_guard);
         return Ok(PaymentResult {
             tx_hash: None,
             session_id: Some(format!("{channel_id:#x}")),
@@ -507,8 +506,13 @@ pub(crate) async fn handle_session_request(
         });
     }
 
+    // Persist before releasing the lock so concurrent workers see the channel.
+    persist_session(&ctx, &state)?;
+    drop(lock_guard);
+
     let result = send_session_request(&ctx, &mut state).await?;
 
+    // Re-persist after streaming to update cumulative_amount.
     persist_session(&ctx, &state)?;
     Ok(result)
 }
