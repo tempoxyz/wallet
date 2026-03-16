@@ -46,26 +46,26 @@ This cleanup does **not** carry legacy/backward-compatibility obligations for in
 
 ## Cross-Phase Quality Gates
 
-- [ ] `make check` passes.
-- [ ] Existing integration suites pass.
-- [ ] Existing MPP boundary tests pass (`crates/tempo-request/tests/mpp_boundary.rs`).
-- [ ] New/changed units include focused unit tests (happy path + failure path).
-- [ ] No phase introduces undocumented environment variables or behavior toggles.
-- [ ] `ARCHITECTURE.md` and crate SKILL docs are updated if boundaries/contracts changed.
+- [x] `make check` passes.
+- [x] Existing integration suites pass.
+- [x] Existing MPP boundary tests pass (`crates/tempo-request/tests/mpp_boundary.rs`).
+- [x] New/changed units include focused unit tests (happy path + failure path).
+- [x] No phase introduces undocumented environment variables or behavior toggles.
+- [x] `ARCHITECTURE.md` and crate SKILL docs are updated if boundaries/contracts changed.
 
 ## Phase 0: Baseline Locks (Pre-Refactor)
 
 ### Checklist
 
-- [ ] Capture current behavior locks for session open/reuse/request/streaming/close in tests before moving code.
-- [ ] Add explicit regression tests for terminal sanitization in all session `PaymentRejected` pathways.
-- [ ] Add selector-parity and duplicate-finalize tests as non-regression anchors (if not already exhaustive).
+- [x] Capture current behavior locks for session open/reuse/request/streaming/close in tests before moving code.
+- [x] Add explicit regression tests for terminal sanitization in all session `PaymentRejected` pathways.
+- [x] Add selector-parity and duplicate-finalize tests as non-regression anchors (if not already exhaustive).
 
 ### Acceptance Criteria
 
-- [ ] A failing change to any of the following is detected by tests: session reuse eligibility, open retry policy, stream voucher retry/backoff progression, close target selection parity.
-- [ ] A fixture with control characters/ANSI escape content in server error payloads cannot reach terminal output unsanitized.
-- [ ] Baseline tests are deterministic (no wall-clock sleeps beyond bounded test controls).
+- [x] A failing change to any of the following is detected by tests: session reuse eligibility, open retry policy, stream voucher retry/backoff progression, close target selection parity.
+- [x] A fixture with control characters/ANSI escape content in server error payloads cannot reach terminal output unsanitized.
+- [x] Baseline tests are deterministic (no wall-clock sleeps beyond bounded test controls).
 
 ## Phase 1: Split Session Flow Into Stages
 
@@ -79,16 +79,16 @@ Create internal stage modules and move logic out of `handle_session_request`:
 
 ### Checklist
 
-- [ ] Introduce stage modules with narrow public functions and private helpers.
-- [ ] Keep side-effecting operations (disk/network/console) at stage boundaries, not interleaved with pure decisions.
-- [ ] Convert `handle_session_request` into orchestration glue with explicit stage transitions.
-- [ ] Add stage-level tests proving identical decisions for representative fixtures.
+- [x] Introduce stage modules with narrow public functions and private helpers.
+- [x] Keep side-effecting operations (disk/network/console) at stage boundaries, not interleaved with pure decisions.
+- [x] Convert `handle_session_request` into orchestration glue with explicit stage transitions.
+- [x] Add stage-level tests proving identical decisions for representative fixtures.
 
 ### Acceptance Criteria
 
-- [ ] `handle_session_request` no longer contains multi-concern business logic; each stage is independently testable.
-- [ ] No behavior drift in end-to-end tests for: fresh open, reusable channel success, invalidated-channel fallback, reuse-failure preservation.
-- [ ] Stage transition errors preserve typed `TempoError` chains.
+- [x] `handle_session_request` no longer contains multi-concern business logic; each stage is independently testable.
+- [x] No behavior drift in end-to-end tests for: fresh open, reusable channel success, invalidated-channel fallback, reuse-failure preservation.
+- [x] Stage transition errors preserve typed `TempoError` chains.
 
 ## Phase 2: Normalize Shared Types
 
@@ -101,16 +101,16 @@ Introduce focused context structs so each stage receives only required inputs:
 
 ### Checklist
 
-- [ ] Replace ad-hoc tuples and repeated argument threading with named structs.
-- [ ] Ensure each struct captures invariants (e.g., parsed identifiers, normalized origin, bounded deposit).
-- [ ] Ensure types are minimal (no “god context” that reintroduces hidden coupling).
-- [ ] Add unit tests for constructor/validation logic on shared types.
+- [x] Replace ad-hoc tuples and repeated argument threading with named structs.
+- [x] Ensure each struct captures invariants (e.g., parsed identifiers, normalized origin, bounded deposit).
+- [x] Ensure types are minimal (no “god context” that reintroduces hidden coupling).
+- [x] Add unit tests for constructor/validation logic on shared types.
 
 ### Acceptance Criteria
 
-- [ ] No tuple return values remain across session orchestration boundaries.
-- [ ] Every shared struct has at least one invariant test and one serialization/format test if persisted/rendered.
-- [ ] Static analysis (clippy + tests) shows no new `unwrap`-style panic risk in refactored paths.
+- [x] No tuple return values remain across session orchestration boundaries.
+- [x] Every shared struct has at least one invariant test and one serialization/format test if persisted/rendered.
+- [x] Static analysis (clippy + tests) shows no new `unwrap`-style panic risk in refactored paths.
 
 ## Phase 3: Consolidate Error Mapping
 
@@ -122,16 +122,16 @@ Add a dedicated error-mapping module for session operations:
 
 ### Checklist
 
-- [ ] Create one mapping surface for session HTTP problem/error payloads.
-- [ ] Route `flow.rs`, `open.rs`, `streaming.rs`, and close/sync session HTTP errors through it.
-- [ ] Encode sanitization rules in helpers, not call-site conventions.
-- [ ] Add table-driven tests for JSON problem, JSON `error`, plaintext, oversized body, and malformed body.
+- [x] Create one mapping surface for session HTTP problem/error payloads.
+- [x] Route `flow.rs`, `open.rs`, `streaming.rs`, and close/sync session HTTP errors through it.
+- [x] Encode sanitization rules in helpers, not call-site conventions.
+- [x] Add table-driven tests for JSON problem, JSON `error`, plaintext, oversized body, and malformed body.
 
 ### Acceptance Criteria
 
-- [ ] No duplicate free-form reason extraction logic remains in scoped files.
-- [ ] All server-derived `PaymentRejected.reason` strings are sanitized and length-bounded.
-- [ ] Problem classification behavior remains unchanged for known session problem types.
+- [x] No duplicate free-form reason extraction logic remains in scoped files.
+- [x] All server-derived `PaymentRejected.reason` strings are sanitized and length-bounded.
+- [x] Problem classification behavior remains unchanged for known session problem types.
 
 ## Phase 4: Streaming Isolation
 
@@ -143,16 +143,16 @@ Move streaming voucher/top-up retry policy into a dedicated coordinator:
 
 ### Checklist
 
-- [ ] Extract coordinator managing pending voucher state, retry counter, and timeout transitions.
-- [ ] Keep SSE parsing/printing separate from voucher transport policy.
-- [ ] Keep `HEAD`-first with `POST` fallback behavior explicit and covered.
-- [ ] Keep idempotency-key handling deterministic across retries and fallback paths.
+- [x] Extract coordinator managing pending voucher state, retry counter, and timeout transitions.
+- [x] Keep SSE parsing/printing separate from voucher transport policy.
+- [x] Keep `HEAD`-first with `POST` fallback behavior explicit and covered.
+- [x] Keep idempotency-key handling deterministic across retries and fallback paths.
 
 ### Acceptance Criteria
 
-- [ ] Retry/backoff progression is unit-tested (base stall, exponential increase, capped normal timeout, retry exhaustion).
-- [ ] Transport fallback matrix is covered (`HEAD` unsupported, transport error, problem response, success receipt).
-- [ ] No duplicate voucher submission occurs after terminal receipt/finalization signals.
+- [x] Retry/backoff progression is unit-tested (base stall, exponential increase, capped normal timeout, retry exhaustion).
+- [x] Transport fallback matrix is covered (`HEAD` unsupported, transport error, problem response, success receipt).
+- [x] No duplicate voucher submission occurs after terminal receipt/finalization signals.
 
 ## Phase 5: Wallet Session Command Cohesion
 
@@ -164,16 +164,16 @@ In `tempo-wallet` session commands:
 
 ### Checklist
 
-- [ ] Consolidate selector semantics into shared helpers consumed by both dry-run and execute.
-- [ ] Keep structured output free of stray informational stderr noise.
-- [ ] Ensure orphaned discovery persistence and render rules stay consistent between list/sync/close.
-- [ ] Add contract tests for command output shape and selector precedence.
+- [x] Consolidate selector semantics into shared helpers consumed by both dry-run and execute.
+- [x] Keep structured output free of stray informational stderr noise.
+- [x] Ensure orphaned discovery persistence and render rules stay consistent between list/sync/close.
+- [x] Add contract tests for command output shape and selector precedence.
 
 ### Acceptance Criteria
 
-- [ ] Dry-run and execute target sets are identical for equivalent flag combinations.
-- [ ] Channel-ID, URL, `--all`, `--orphaned`, and `--finalize` precedence is single-path and regression-tested.
-- [ ] No duplicate finalize-attempt side effects occur in mixed local/orphaned flows.
+- [x] Dry-run and execute target sets are identical for equivalent flag combinations.
+- [x] Channel-ID, URL, `--all`, `--orphaned`, and `--finalize` precedence is single-path and regression-tested.
+- [x] No duplicate finalize-attempt side effects occur in mixed local/orphaned flows.
 
 ## Documentation Plan
 
@@ -191,28 +191,28 @@ This cleanup will be delivered in the same active PR. Treat phases as internal r
 
 Before implementation starts:
 
-- [ ] Group commits by phase so each phase can be reviewed and reverted independently.
-- [ ] Keep phase ordering explicit in commit messages/checkpoints (0 → 5).
+- [x] Group commits by phase so each phase can be reviewed and reverted independently.
+- [x] Keep phase ordering explicit in commit messages/checkpoints (0 → 5).
 
 ### Rollback Triggers
 
 Any one trigger below requires immediate rollback or revert of the active phase commit group inside the PR:
 
-- [ ] Behavior lock test regression in session reuse/open/request/streaming/close semantics.
-- [ ] Any unsanitized server-provided text reaching terminal-facing `PaymentRejected` output.
-- [ ] Selector parity regression between dry-run and execute close targeting.
-- [ ] Duplicate finalize-attempt side effect in mixed local/orphaned flows.
-- [ ] Newly introduced non-deterministic test that cannot be bounded within existing CI tolerances.
+- Behavior lock test regression in session reuse/open/request/streaming/close semantics.
+- Any unsanitized server-provided text reaching terminal-facing `PaymentRejected` output.
+- Selector parity regression between dry-run and execute close targeting.
+- Duplicate finalize-attempt side effect in mixed local/orphaned flows.
+- Newly introduced non-deterministic test that cannot be bounded within existing CI tolerances.
 
 ### Final Sign-Off Checklist
 
 Before declaring the cleanup complete:
 
-- [ ] All phase acceptance criteria are checked and linked to commits/checkpoints in this PR.
-- [ ] `ARCHITECTURE.md` reflects final stage and coordinator boundaries.
-- [ ] Root and crate `README` files reflect any user-facing contract changes (or explicit note that none occurred).
-- [ ] Root `SKILL.md`, `crates/tempo-wallet/SKILL.md`, and `crates/tempo-request/SKILL.md` reflect final command/flow contracts.
-- [ ] `make check` passes on the final integration branch.
+- [x] All phase acceptance criteria are checked and linked to commits/checkpoints in this PR.
+- [x] `ARCHITECTURE.md` reflects final stage and coordinator boundaries.
+- [x] Root and crate `README` files reflect any user-facing contract changes (or explicit note that none occurred).
+- [x] Root `SKILL.md`, `crates/tempo-wallet/SKILL.md`, and `crates/tempo-request/SKILL.md` reflect final command/flow contracts.
+- [x] `make check` passes on the final integration branch.
 
 ## Rollout Strategy
 
