@@ -324,18 +324,18 @@ pub enum PaymentError {
     MissingHeader(String),
     #[error("Challenge expired: {0}")]
     ChallengeExpired(String),
-    #[error("Session persistence error during {operation}: {reason}")]
+    #[error("Channel persistence error during {operation}: {reason}")]
     ChannelPersistence {
         operation: &'static str,
         reason: String,
     },
-    #[error("Session persistence error during {operation}: {source}")]
+    #[error("Channel persistence error during {operation}: {source}")]
     ChannelPersistenceSource {
         operation: &'static str,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
-    #[error("Session persistence error during {operation}: {context}: {source:#}")]
+    #[error("Channel persistence error during {operation}: {context}: {source:#}")]
     ChannelPersistenceContextSource {
         operation: &'static str,
         context: &'static str,
@@ -586,7 +586,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Session persistence error during load session: database locked"
+            "Channel persistence error during load session: database locked"
         );
     }
 
@@ -651,7 +651,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "Session persistence error during save session: database locked"
+            "Channel persistence error during save session: database locked"
         );
     }
 
@@ -666,7 +666,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "Session persistence error during session request reuse: Session request failed; session state preserved for on-chain dispute: Invalid HTTP method: BAD"
+            "Channel persistence error during session request reuse: Session request failed; session state preserved for on-chain dispute: Invalid HTTP method: BAD"
         );
     }
 }
