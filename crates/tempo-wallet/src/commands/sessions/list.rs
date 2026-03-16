@@ -112,18 +112,8 @@ fn persist_discovered_channel(
     grace_period: u64,
 ) -> Result<(), TempoError> {
     let now = session::now_secs();
-    let grace_ready_at = if ch.close_requested_at > 0 {
-        ch.close_requested_at.saturating_add(grace_period)
-    } else {
-        0
-    };
-    let state = if ch.close_requested_at == 0 {
-        ChannelStatus::Orphaned
-    } else if grace_ready_at <= now {
-        ChannelStatus::Finalizable
-    } else {
-        ChannelStatus::Closing
-    };
+    let grace_ready_at = super::util::grace_ready_at(ch.close_requested_at, grace_period);
+    let state = super::util::status_from_close_timing(ch.close_requested_at, grace_period, now);
 
     let record = session::ChannelRecord {
         version: 1,

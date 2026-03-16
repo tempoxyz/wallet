@@ -1,6 +1,6 @@
 use alloy::primitives::Address;
 
-use super::{session, ChannelStatus};
+use super::session;
 use tempo_common::{
     analytics::Event,
     cli::context::Context,
@@ -83,7 +83,7 @@ async fn sync_global(ctx: &Context) -> Result<SyncSummary, TempoError> {
 }
 
 async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<SyncSummary, TempoError> {
-    let origin = normalize_origin(origin_input);
+    let origin = super::util::normalize_origin(origin_input);
     let records: Vec<_> = session::load_channels_by_origin(&origin)?
         .into_iter()
         .filter(|record| record.network_id() == ctx.network)
@@ -124,12 +124,10 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<SyncSummary, T
         if on_chain.close_requested_at > 0 {
             let grace =
                 super::util::resolve_grace_period(&ctx.config, rec.network_id(), escrow).await;
-            let ready_at = on_chain.close_requested_at + grace;
-            let status = if ready_at <= session::now_secs() {
-                ChannelStatus::Finalizable
-            } else {
-                ChannelStatus::Closing
-            };
+            let now = session::now_secs();
+            let ready_at = super::util::grace_ready_at(on_chain.close_requested_at, grace);
+            let status =
+                super::util::status_from_close_timing(on_chain.close_requested_at, grace, now);
             let _ = session::update_channel_close_state(
                 &rec.channel_id_hex(),
                 status,
@@ -146,9 +144,4 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<SyncSummary, T
         recovered,
         removed,
     })
-}
-
-fn normalize_origin(target: &str) -> String {
-    url::Url::parse(target)
-        .map_or_else(|_| target.to_string(), |u| u.origin().ascii_serialization())
 }

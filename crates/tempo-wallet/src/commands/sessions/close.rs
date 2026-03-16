@@ -186,22 +186,14 @@ async fn dry_run_close(ctx: &Context, selection: CloseSelection<'_>) -> Result<(
                     if local_ids.contains(&ch.channel_id) {
                         continue;
                     }
-                    let state = if ch.close_requested_at == 0 {
-                        ChannelStatus::Orphaned
-                    } else {
-                        let grace = super::util::resolve_grace_period(
-                            &ctx.config,
-                            ctx.network,
-                            ch.escrow_contract,
-                        )
-                        .await;
-                        let ready_at = ch.close_requested_at.saturating_add(grace);
-                        if ready_at <= now {
-                            ChannelStatus::Finalizable
-                        } else {
-                            ChannelStatus::Closing
-                        }
-                    };
+                    let grace = super::util::resolve_grace_period(
+                        &ctx.config,
+                        ctx.network,
+                        ch.escrow_contract,
+                    )
+                    .await;
+                    let state =
+                        super::util::status_from_close_timing(ch.close_requested_at, grace, now);
 
                     targets.push(DryRunTarget {
                         channel_id: format!("{:#x}", ch.channel_id),
@@ -262,22 +254,14 @@ async fn dry_run_close(ctx: &Context, selection: CloseSelection<'_>) -> Result<(
                     if local_ids.contains(&ch.channel_id) {
                         continue;
                     }
-                    let state = if ch.close_requested_at == 0 {
-                        ChannelStatus::Orphaned
-                    } else {
-                        let grace = super::util::resolve_grace_period(
-                            &ctx.config,
-                            ctx.network,
-                            ch.escrow_contract,
-                        )
-                        .await;
-                        let ready_at = ch.close_requested_at.saturating_add(grace);
-                        if ready_at <= now {
-                            ChannelStatus::Finalizable
-                        } else {
-                            ChannelStatus::Closing
-                        }
-                    };
+                    let grace = super::util::resolve_grace_period(
+                        &ctx.config,
+                        ctx.network,
+                        ch.escrow_contract,
+                    )
+                    .await;
+                    let state =
+                        super::util::status_from_close_timing(ch.close_requested_at, grace, now);
 
                     targets.push(DryRunTarget {
                         channel_id: format!("{:#x}", ch.channel_id),
@@ -295,7 +279,7 @@ async fn dry_run_close(ctx: &Context, selection: CloseSelection<'_>) -> Result<(
                     state: None,
                 });
             } else {
-                let origin = normalize_origin(target);
+                let origin = super::util::normalize_origin(target);
                 let records: Vec<_> = session::load_channels_by_origin(&origin)?
                     .into_iter()
                     .filter(|record| record.network_id() == ctx.network)
@@ -454,7 +438,7 @@ async fn close_by_url(
     let output_format = ctx.output_format;
     let analytics = ctx.analytics.as_ref();
 
-    let origin = normalize_origin(target);
+    let origin = super::util::normalize_origin(target);
     let sessions: Vec<_> = session::load_channels_by_origin(&origin)?
         .into_iter()
         .filter(|record| record.network_id() == ctx.network)
@@ -807,11 +791,6 @@ fn maybe_delete_session_by_channel_id(channel_id: &str) {
             );
         }
     }
-}
-
-fn normalize_origin(target: &str) -> String {
-    url::Url::parse(target)
-        .map_or_else(|_| target.to_string(), |u| u.origin().ascii_serialization())
 }
 
 #[cfg(test)]

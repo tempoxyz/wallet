@@ -2,6 +2,7 @@
 
 use alloy::primitives::{Address, B256};
 
+use super::ChannelStatus;
 use tempo_common::{
     config::Config,
     error::{InputError, TempoError},
@@ -54,4 +55,60 @@ pub(super) async fn resolve_grace_period(
     tempo_common::session::read_grace_period(&provider, escrow)
         .await
         .unwrap_or(DEFAULT_GRACE_PERIOD_SECS)
+}
+
+pub(super) fn grace_ready_at(close_requested_at: u64, grace_period: u64) -> u64 {
+    if close_requested_at == 0 {
+        0
+    } else {
+        close_requested_at.saturating_add(grace_period)
+    }
+}
+
+pub(super) fn status_from_close_timing(
+    close_requested_at: u64,
+    grace_period: u64,
+    now: u64,
+) -> ChannelStatus {
+    if close_requested_at == 0 {
+        ChannelStatus::Orphaned
+    } else if grace_ready_at(close_requested_at, grace_period) <= now {
+        ChannelStatus::Finalizable
+    } else {
+        ChannelStatus::Closing
+    }
+}
+
+pub(super) fn normalize_origin(target: &str) -> String {
+    url::Url::parse(target)
+        .map_or_else(|_| target.to_string(), |u| u.origin().ascii_serialization())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{grace_ready_at, status_from_close_timing};
+    use crate::commands::sessions::ChannelStatus;
+
+    #[test]
+    fn status_from_close_timing_classifies_expected_states() {
+        let now = 1_000;
+        assert_eq!(
+            status_from_close_timing(0, 900, now),
+            ChannelStatus::Orphaned
+        );
+        assert_eq!(
+            status_from_close_timing(500, 900, now),
+            ChannelStatus::Closing
+        );
+        assert_eq!(
+            status_from_close_timing(1, 900, now),
+            ChannelStatus::Finalizable
+        );
+    }
+
+    #[test]
+    fn grace_ready_at_handles_zero_close_requested_timestamp() {
+        assert_eq!(grace_ready_at(0, 900), 0);
+        assert_eq!(grace_ready_at(10, 900), 910);
+    }
 }
