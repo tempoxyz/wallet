@@ -4,16 +4,104 @@
 //! context, and extracts error messages from JSON response bodies.
 
 use alloy::primitives::utils::format_units;
+use serde::Deserialize;
+use std::collections::BTreeMap;
 
 use crate::{
     error::{NetworkError, PaymentError},
     network::NetworkId,
 };
 
+pub const SESSION_PROBLEM_CHANNEL_NOT_FOUND: &str =
+    "https://paymentauth.org/problems/session/channel-not-found";
+pub const SESSION_PROBLEM_INSUFFICIENT_BALANCE: &str =
+    "https://paymentauth.org/problems/session/insufficient-balance";
+pub const SESSION_PROBLEM_CHALLENGE_NOT_FOUND: &str =
+    "https://paymentauth.org/problems/session/challenge-not-found";
+pub const SESSION_PROBLEM_DELTA_TOO_SMALL: &str =
+    "https://paymentauth.org/problems/session/delta-too-small";
+pub const SESSION_PROBLEM_AMOUNT_EXCEEDS_DEPOSIT: &str =
+    "https://paymentauth.org/problems/session/amount-exceeds-deposit";
+pub const SESSION_PROBLEM_CHANNEL_FINALIZED: &str =
+    "https://paymentauth.org/problems/session/channel-finalized";
+pub const SESSION_PROBLEM_INVALID_SIGNATURE: &str =
+    "https://paymentauth.org/problems/session/invalid-signature";
+pub const SESSION_PROBLEM_SIGNER_MISMATCH: &str =
+    "https://paymentauth.org/problems/session/signer-mismatch";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionProblemType {
+    ChannelNotFound,
+    InsufficientBalance,
+    ChallengeNotFound,
+    DeltaTooSmall,
+    AmountExceedsDeposit,
+    ChannelFinalized,
+    InvalidSignature,
+    SignerMismatch,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ProblemDetails {
+    #[serde(rename = "type")]
+    pub problem_type: String,
+    pub title: Option<String>,
+    pub status: Option<u16>,
+    pub detail: Option<String>,
+    #[serde(rename = "requiredTopUp")]
+    pub required_top_up: Option<String>,
+    #[serde(rename = "channelId")]
+    pub channel_id: Option<String>,
+    #[serde(flatten)]
+    pub extensions: BTreeMap<String, serde_json::Value>,
+}
+
+impl ProblemDetails {
+    #[must_use]
+    pub fn classify(&self) -> SessionProblemType {
+        match self.problem_type.as_str() {
+            SESSION_PROBLEM_CHANNEL_NOT_FOUND => SessionProblemType::ChannelNotFound,
+            SESSION_PROBLEM_INSUFFICIENT_BALANCE => SessionProblemType::InsufficientBalance,
+            SESSION_PROBLEM_CHALLENGE_NOT_FOUND => SessionProblemType::ChallengeNotFound,
+            SESSION_PROBLEM_DELTA_TOO_SMALL => SessionProblemType::DeltaTooSmall,
+            SESSION_PROBLEM_AMOUNT_EXCEEDS_DEPOSIT => SessionProblemType::AmountExceedsDeposit,
+            SESSION_PROBLEM_CHANNEL_FINALIZED => SessionProblemType::ChannelFinalized,
+            SESSION_PROBLEM_INVALID_SIGNATURE => SessionProblemType::InvalidSignature,
+            SESSION_PROBLEM_SIGNER_MISMATCH => SessionProblemType::SignerMismatch,
+            _ => SessionProblemType::Unknown,
+        }
+    }
+
+    #[must_use]
+    pub fn message(&self) -> String {
+        let detail = self
+            .detail
+            .as_deref()
+            .or(self.title.as_deref())
+            .unwrap_or("payment request rejected");
+        format!("{}: {detail}", self.problem_type)
+    }
+}
+
+/// Parse RFC 9457 Problem Details JSON.
+#[must_use]
+pub fn parse_problem_details(body: &str) -> Option<ProblemDetails> {
+    let problem: ProblemDetails = serde_json::from_str(body).ok()?;
+    if problem.problem_type.trim().is_empty() {
+        return None;
+    }
+    Some(problem)
+}
+
 /// Extract the first meaningful error string from a JSON response body.
 ///
 /// Checks `error`, `message`, and `detail` fields in order.
 pub fn extract_json_error(body: &str) -> Option<String> {
+    if let Some(problem) = parse_problem_details(body) {
+        return Some(problem.message());
+    }
+
     let json: serde_json::Value = serde_json::from_str(body).ok()?;
     json.get("error")
         .or_else(|| json.get("message"))
@@ -135,6 +223,21 @@ fn classify_mpp_http_error(message: String) -> NetworkError {
 mod tests {
     use super::*;
     use crate::error::TempoError;
+
+    #[test]
+    fn test_parse_problem_details_session_type() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/channel-not-found","detail":"missing channel","status":410,"channelId":"0xabc"}"#;
+        let problem = parse_problem_details(body).expect("problem details should parse");
+        assert_eq!(problem.classify(), SessionProblemType::ChannelNotFound);
+        assert_eq!(problem.detail.as_deref(), Some("missing channel"));
+        assert_eq!(problem.channel_id.as_deref(), Some("0xabc"));
+    }
+
+    #[test]
+    fn test_parse_problem_details_requires_type() {
+        let body = r#"{"title":"oops"}"#;
+        assert!(parse_problem_details(body).is_none());
+    }
 
     #[test]
     fn test_classify_spending_limit() {
@@ -290,6 +393,18 @@ mod tests {
         assert_eq!(
             extract_json_error(body),
             Some("something went wrong".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_json_error_problem_details_preferred() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/insufficient-balance","detail":"need top-up","message":"fallback"}"#;
+        assert_eq!(
+            extract_json_error(body),
+            Some(
+                "https://paymentauth.org/problems/session/insufficient-balance: need top-up"
+                    .to_string()
+            )
         );
     }
 

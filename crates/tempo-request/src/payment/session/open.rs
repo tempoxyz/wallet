@@ -10,8 +10,20 @@ use crate::http::{HttpClient, HttpResponse};
 use tempo_common::{
     error::{ConfigError, PaymentError, TempoError},
     keys::Signer,
-    payment::session as common_tx,
+    payment::{
+        classify::{parse_problem_details, SessionProblemType},
+        session as common_tx,
+    },
 };
+
+fn should_retry_open_response(status_code: u16, body: &str) -> bool {
+    if status_code != 410 {
+        return false;
+    }
+
+    parse_problem_details(body)
+        .is_some_and(|problem| problem.classify() == SessionProblemType::ChannelNotFound)
+}
 
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {
@@ -67,7 +79,7 @@ pub(super) async fn send_open_with_retry(
 
     if resp.status_code == 410 {
         let body = resp.body_string().unwrap_or_default();
-        if body.contains("channel not funded") || body.contains("Channel Not Found") {
+        if should_retry_open_response(resp.status_code, &body) {
             if http.log_enabled() {
                 eprintln!("Server hasn't indexed channel yet, retrying...");
             }
@@ -77,10 +89,10 @@ pub(super) async fn send_open_with_retry(
                 if next.status_code < 400 {
                     return Ok(next);
                 }
-                if next.status_code != 410 {
-                    let nb = next.body_string().unwrap_or_default();
-                    let reason = tempo_common::payment::classify::extract_json_error(&nb)
-                        .unwrap_or_else(|| truncate(nb));
+                let next_body = next.body_string().unwrap_or_default();
+                if !should_retry_open_response(next.status_code, &next_body) {
+                    let reason = tempo_common::payment::classify::extract_json_error(&next_body)
+                        .unwrap_or_else(|| truncate(next_body));
                     return Err(PaymentError::PaymentRejected {
                         reason,
                         status_code: next.status_code,
@@ -96,8 +108,10 @@ pub(super) async fn send_open_with_retry(
             }
             .into());
         }
+        let reason = tempo_common::payment::classify::extract_json_error(&body)
+            .unwrap_or_else(|| truncate(body));
         return Err(PaymentError::PaymentRejected {
-            reason: truncate(body),
+            reason,
             status_code: 410,
         }
         .into());
@@ -111,4 +125,27 @@ pub(super) async fn send_open_with_retry(
         status_code: resp.status_code,
     }
     .into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_retry_open_response;
+
+    #[test]
+    fn retries_only_for_channel_not_found_problem_type() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/channel-not-found","detail":"channel unknown"}"#;
+        assert!(should_retry_open_response(410, body));
+    }
+
+    #[test]
+    fn does_not_retry_for_non_matching_problem_type() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/signer-mismatch","detail":"bad signer"}"#;
+        assert!(!should_retry_open_response(410, body));
+    }
+
+    #[test]
+    fn does_not_retry_when_status_is_not_410() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/channel-not-found"}"#;
+        assert!(!should_retry_open_response(402, body));
+    }
 }

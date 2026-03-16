@@ -27,8 +27,30 @@ use tempo_common::{
     },
     error::{KeyError, NetworkError, PaymentError, TempoError},
     keys::{Keystore, Signer},
-    payment::{classify::map_mpp_validation_error, session},
+    payment::{
+        classify::{map_mpp_validation_error, parse_problem_details, SessionProblemType},
+        session,
+    },
 };
+
+const DEFAULT_SESSION_CHAIN_ID: u64 = 42_431;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionRequestFailureKind {
+    ChannelInvalidated,
+    Other,
+}
+
+struct SessionRequestFailure {
+    source: TempoError,
+    kind: SessionRequestFailureKind,
+}
+
+impl SessionRequestFailure {
+    fn into_tempo(self) -> TempoError {
+        self.source
+    }
+}
 
 fn session_store_error<E>(operation: &'static str, source: E) -> TempoError
 where
@@ -64,6 +86,49 @@ fn challenge_address_parse(
     }
 }
 
+fn challenge_u128_parse(value: &str, context: &'static str) -> Result<u128, TempoError> {
+    value.parse::<u128>().map_err(|source| {
+        PaymentError::ChallengeValueParse {
+            context,
+            source: Box::new(source),
+        }
+        .into()
+    })
+}
+
+fn normalize_hex_identifier(value: &str) -> String {
+    if let Ok(address) = value.parse::<Address>() {
+        return format!("{address:#x}");
+    }
+    if let Ok(channel_id) = value.parse::<B256>() {
+        return format!("{channel_id:#x}");
+    }
+
+    let trimmed = value.trim();
+    if let Some(hex) = trimmed.strip_prefix("0x") {
+        return format!("0x{}", hex.to_ascii_lowercase());
+    }
+    if let Some(hex) = trimmed.strip_prefix("0X") {
+        return format!("0x{}", hex.to_ascii_lowercase());
+    }
+    trimmed.to_ascii_lowercase()
+}
+
+fn classify_session_failure(status_code: u16, body: &str) -> SessionRequestFailureKind {
+    if status_code == 410 {
+        if let Some(problem) = parse_problem_details(body) {
+            if matches!(
+                problem.classify(),
+                SessionProblemType::ChannelNotFound | SessionProblemType::ChannelFinalized
+            ) {
+                return SessionRequestFailureKind::ChannelInvalidated;
+            }
+        }
+    }
+
+    SessionRequestFailureKind::Other
+}
+
 /// Send the actual session request with a voucher and handle the response.
 ///
 /// Bypasses [`crate::http::HttpClient::execute()`] and uses the raw reqwest client directly
@@ -72,15 +137,23 @@ fn challenge_address_parse(
 async fn send_session_request(
     ctx: &ChannelContext<'_>,
     state: &mut ChannelState,
-) -> Result<PaymentResult, TempoError> {
-    let voucher_credential = build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
+) -> Result<PaymentResult, SessionRequestFailure> {
+    let voucher_credential = build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state)
+        .await
+        .map_err(|source| SessionRequestFailure {
+            source,
+            kind: SessionRequestFailureKind::Other,
+        })?;
 
-    let voucher_auth = mpp::format_authorization(&voucher_credential).map_err(|source| {
-        PaymentError::ChallengeFormatSource {
-            context: "voucher credential",
-            source: Box::new(source),
-        }
-    })?;
+    let voucher_auth =
+        mpp::format_authorization(&voucher_credential).map_err(|source| SessionRequestFailure {
+            source: PaymentError::ChallengeFormatSource {
+                context: "voucher credential",
+                source: Box::new(source),
+            }
+            .into(),
+            kind: SessionRequestFailureKind::Other,
+        })?;
 
     let data_request = ctx
         .reqwest_client
@@ -88,19 +161,30 @@ async fn send_session_request(
         .header("Authorization", &voucher_auth);
     let data_request = crate::http::HttpClient::apply_body_from(data_request, ctx.http.body());
 
-    let response = data_request.send().await.map_err(NetworkError::Reqwest)?;
+    let response = data_request
+        .send()
+        .await
+        .map_err(NetworkError::Reqwest)
+        .map_err(|source| SessionRequestFailure {
+            source: source.into(),
+            kind: SessionRequestFailureKind::Other,
+        })?;
 
     let status = response.status();
     if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
         let body = response.text().await.unwrap_or_default();
+        let failure_kind = classify_session_failure(status.as_u16(), &body);
         let raw_reason = tempo_common::payment::classify::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(500).collect::<String>());
         let reason = sanitize_for_terminal(&raw_reason);
-        return Err(PaymentError::PaymentRejected {
-            reason,
-            status_code: status.as_u16(),
-        }
-        .into());
+        return Err(SessionRequestFailure {
+            source: PaymentError::PaymentRejected {
+                reason,
+                status_code: status.as_u16(),
+            }
+            .into(),
+            kind: failure_kind,
+        });
     }
 
     let is_sse = response
@@ -112,7 +196,12 @@ async fn send_session_request(
     let channel_id = format!("{:#x}", state.channel_id);
 
     if is_sse {
-        streaming::stream_sse_response(ctx, state, response).await?;
+        streaming::stream_sse_response(ctx, state, response)
+            .await
+            .map_err(|source| SessionRequestFailure {
+                source,
+                kind: SessionRequestFailureKind::Other,
+            })?;
         Ok(PaymentResult {
             tx_hash: None,
             channel_id: Some(channel_id),
@@ -120,7 +209,12 @@ async fn send_session_request(
             response: None,
         })
     } else {
-        let http_response = HttpResponse::from_reqwest(response).await?;
+        let http_response = HttpResponse::from_reqwest(response)
+            .await
+            .map_err(|source| SessionRequestFailure {
+                source,
+                kind: SessionRequestFailureKind::Other,
+            })?;
         let status_code = http_response.status_code;
 
         Ok(PaymentResult {
@@ -166,18 +260,9 @@ pub(crate) async fn handle_session_request(
                 source: Box::new(source),
             })?;
 
-    let chain_id = session_req
-        .chain_id()
-        .ok_or_else(|| challenge_missing_field("session request", "chainId"))?;
+    let chain_id = session_req.chain_id().unwrap_or(DEFAULT_SESSION_CHAIN_ID);
 
-    let amount: u128 =
-        session_req
-            .amount
-            .parse::<u128>()
-            .map_err(|source| PaymentError::ChallengeValueParse {
-                context: "session request amount",
-                source: Box::new(source),
-            })?;
+    let amount = challenge_u128_parse(&session_req.amount, "session request amount")?;
 
     let escrow_str = session_req.escrow_contract().map_err(|_| {
         challenge_missing_field("session challenge escrow contract", "escrow contract")
@@ -239,7 +324,7 @@ pub(crate) async fn handle_session_request(
             println!("Recipient: {}", address_link(resolved.network_id, payee));
         }
         if let Some(ref deposit) = session_req.suggested_deposit {
-            let deposit_val: u128 = deposit.parse().unwrap_or(0);
+            let deposit_val = challenge_u128_parse(deposit, "session request suggestedDeposit")?;
             let deposit_display = format_token_amount(deposit_val, network_id);
             println!("Suggested deposit: {deposit_display}");
         }
@@ -265,12 +350,12 @@ pub(crate) async fn handle_session_request(
     // Also clamp to the wallet's available balance so we don't revert on insufficient funds.
     let base_units: u128 = 10u128.saturating_pow(u32::from(network_id.token().decimals));
     let max_deposit: u128 = 5u128.saturating_mul(base_units);
-    let mut deposit: u128 = session_req
+    let suggested_deposit = session_req
         .suggested_deposit
-        .as_ref()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(base_units)
-        .min(max_deposit);
+        .as_deref()
+        .map(|value| challenge_u128_parse(value, "session request suggestedDeposit"))
+        .transpose()?;
+    let mut deposit: u128 = suggested_deposit.unwrap_or(base_units).min(max_deposit);
 
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
@@ -301,8 +386,10 @@ pub(crate) async fn handle_session_request(
     // the reuse-check-then-open sequence. The lock is dropped as soon as
     // the critical section completes (before sending the actual request or
     // streaming SSE) to avoid serializing long-running request I/O.
-    let lock_guard = session::acquire_origin_lock(&session_key)
-        .map_err(|e| session_store_error("acquire session lock", e))?;
+    let mut lock_guard = Some(
+        session::acquire_origin_lock(&session_key)
+            .map_err(|e| session_store_error("acquire session lock", e))?,
+    );
 
     // Check for an existing persisted session (inside the lock so that
     // concurrent workers see channels opened by earlier workers).
@@ -365,19 +452,33 @@ pub(crate) async fn handle_session_request(
 
         // Release the lock before sending the request — the critical
         // section (reuse decision) is complete.
-        drop(lock_guard);
+        drop(lock_guard.take());
 
         match send_session_request(&ctx, &mut state).await {
             Ok(result) => {
                 persist_session(&ctx, &state)?;
                 return Ok(result);
             }
-            Err(e) => {
-                // A signed voucher may already have been transmitted, so
-                // persist the updated state and propagate the error instead
-                // of silently opening a new channel (which would double-charge).
-                let _ = persist_session(&ctx, &state);
-                return Err(session_reuse_preserved_error(e));
+            Err(failure) => {
+                if failure.kind == SessionRequestFailureKind::ChannelInvalidated {
+                    let channel_id_hex = format!("{channel_id:#x}");
+                    let _ = session::delete_channel(&channel_id_hex);
+                    if http.log_enabled() {
+                        eprintln!(
+                            "Persisted channel {channel_id_hex} rejected by server; opening a new channel"
+                        );
+                    }
+                    lock_guard = Some(
+                        session::acquire_origin_lock(&session_key)
+                            .map_err(|e| session_store_error("acquire session lock", e))?,
+                    );
+                } else {
+                    // A signed voucher may already have been transmitted, so
+                    // persist the updated state and propagate the error instead
+                    // of silently opening a new channel (which would double-charge).
+                    let _ = persist_session(&ctx, &state);
+                    return Err(session_reuse_preserved_error(failure.into_tempo()));
+                }
             }
         }
     }
@@ -499,7 +600,7 @@ pub(crate) async fn handle_session_request(
     if !is_sse && open_response.status_code < 400 {
         persist_session(&ctx, &state)?;
         // Lock released — channel is persisted and visible to other workers.
-        drop(lock_guard);
+        drop(lock_guard.take());
         return Ok(PaymentResult {
             tx_hash: None,
             channel_id: Some(format!("{channel_id:#x}")),
@@ -510,9 +611,11 @@ pub(crate) async fn handle_session_request(
 
     // Persist before releasing the lock so concurrent workers see the channel.
     persist_session(&ctx, &state)?;
-    drop(lock_guard);
+    drop(lock_guard.take());
 
-    let result = send_session_request(&ctx, &mut state).await?;
+    let result = send_session_request(&ctx, &mut state)
+        .await
+        .map_err(SessionRequestFailure::into_tempo)?;
 
     // Re-persist after streaming to update cumulative_amount.
     persist_session(&ctx, &state)?;
@@ -534,16 +637,19 @@ fn is_session_reusable(
     chain_id: u64,
 ) -> bool {
     record.state == tempo_common::payment::session::ChannelStatus::Active
-        && record.payer == payer
+        && normalize_hex_identifier(&record.payer) == normalize_hex_identifier(payer)
         && record.escrow_contract == escrow
-        && record.token == token
-        && record.payee == payee
+        && normalize_hex_identifier(&record.token) == normalize_hex_identifier(token)
+        && normalize_hex_identifier(&record.payee) == normalize_hex_identifier(payee)
         && record.chain_id == chain_id
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{is_session_reusable, session_store_error};
+    use super::{
+        classify_session_failure, is_session_reusable, normalize_hex_identifier,
+        session_store_error, SessionRequestFailureKind,
+    };
     use alloy::primitives::Address;
     use tempo_common::{
         error::{PaymentError, TempoError},
@@ -560,7 +666,7 @@ mod tests {
             escrow_contract: Address::ZERO,
             token: "0x0000000000000000000000000000000000000001".into(),
             payee: "0x0000000000000000000000000000000000000002".into(),
-            payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099".into(),
+            payer: "0x0000000000000000000000000000000000000099".into(),
             authorized_signer: Address::ZERO,
             salt: "0x00".into(),
             channel_id: alloy::primitives::B256::ZERO,
@@ -592,7 +698,7 @@ mod tests {
         let record = make_record();
         assert!(is_session_reusable(
             &record,
-            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            "0x0000000000000000000000000000000000000099",
             Address::ZERO,
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
@@ -605,7 +711,7 @@ mod tests {
         let record = make_record();
         assert!(!is_session_reusable(
             &record,
-            "did:pkh:eip155:4217:0xdifferentpayer",
+            "0xdifferentpayer",
             Address::ZERO,
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
@@ -618,7 +724,7 @@ mod tests {
         let record = make_record();
         assert!(!is_session_reusable(
             &record,
-            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            "0x0000000000000000000000000000000000000099",
             Address::ZERO,
             "0x0000000000000000000000000000000000000001",
             "0xdifferentrecipient",
@@ -631,11 +737,50 @@ mod tests {
         let record = make_record();
         assert!(!is_session_reusable(
             &record,
-            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099",
+            "0x0000000000000000000000000000000000000099",
             Address::ZERO,
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
             42431, // different chain
         ));
+    }
+
+    #[test]
+    fn reuse_normalizes_hex_fields() {
+        let mut record = make_record();
+        record.token = "0X0000000000000000000000000000000000000001".into();
+        record.payee = "0X0000000000000000000000000000000000000002".into();
+        record.payer = "0X0000000000000000000000000000000000000099".into();
+        assert!(is_session_reusable(
+            &record,
+            "0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+        ));
+    }
+
+    #[test]
+    fn channel_not_found_problem_is_recoverable() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/channel-not-found","detail":"not found"}"#;
+        assert_eq!(
+            classify_session_failure(410, body),
+            SessionRequestFailureKind::ChannelInvalidated
+        );
+    }
+
+    #[test]
+    fn unknown_problem_is_not_recoverable() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/invalid-signature","detail":"bad sig"}"#;
+        assert_eq!(
+            classify_session_failure(402, body),
+            SessionRequestFailureKind::Other
+        );
+    }
+
+    #[test]
+    fn normalize_hex_identifier_handles_prefix_case() {
+        assert_eq!(normalize_hex_identifier("0XABCDEF"), "0xabcdef".to_string());
     }
 }

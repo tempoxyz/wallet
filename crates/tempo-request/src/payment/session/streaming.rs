@@ -14,6 +14,23 @@ use super::{
 };
 use tempo_common::error::{NetworkError, PaymentError, TempoError};
 
+fn protocol_value_error(field: &'static str, value: &str) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!(
+            "Malformed payment protocol field: {field} must be an integer amount (got '{value}')"
+        ),
+        status_code: 502,
+    }
+    .into()
+}
+
+fn parse_protocol_u128(value: &str, field: &'static str) -> Result<u128, TempoError> {
+    value
+        .trim()
+        .parse::<u128>()
+        .map_err(|_| protocol_value_error(field, value))
+}
+
 /// Post a voucher to the server in a background task.
 ///
 /// We MUST NOT await the response inline because the server may respond
@@ -191,12 +208,21 @@ pub(super) async fn stream_sse_response(
                         }
                     }
                     SseEvent::PaymentNeedVoucher(nv) => {
-                        let required: u128 = nv.required_cumulative.parse().unwrap_or(0);
+                        let required = parse_protocol_u128(
+                            &nv.required_cumulative,
+                            "payment-need-voucher.requiredCumulative",
+                        )?;
+                        let accepted = parse_protocol_u128(
+                            &nv.accepted_cumulative,
+                            "payment-need-voucher.acceptedCumulative",
+                        )?;
+                        let on_chain_deposit =
+                            parse_protocol_u128(&nv.deposit, "payment-need-voucher.deposit")?;
 
                         // Use the server's required amount, clamped to our known
                         // channel deposit to prevent a malicious server from
                         // coercing an overly large voucher.
-                        let authorize_amount = required.min(ctx.deposit);
+                        let authorize_amount = required.min(on_chain_deposit);
 
                         if runtime.debug_enabled() {
                             eprintln!(
@@ -222,8 +248,10 @@ pub(super) async fn stream_sse_response(
                         // (clamped to deposit) so cooperative close can match the
                         // server's expectation precisely.
                         // Enforce monotonicity: never decrease the cumulative amount.
-                        state.cumulative_amount =
-                            required.min(ctx.deposit).max(state.cumulative_amount);
+                        state.cumulative_amount = required
+                            .max(accepted)
+                            .min(on_chain_deposit)
+                            .max(state.cumulative_amount);
                         let _ = persist_session(ctx, state);
 
                         // Track this voucher for retry if the server stalls
@@ -295,6 +323,18 @@ fn parse_sse_chunk(raw: &str) -> (Option<String>, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_protocol_u128_rejects_invalid_value() {
+        let err = parse_protocol_u128("abc", "field").unwrap_err();
+        assert!(err.to_string().contains("Malformed payment protocol field"));
+    }
+
+    #[test]
+    fn parse_protocol_u128_accepts_trimmed_integer() {
+        let value = parse_protocol_u128(" 42 ", "field").unwrap();
+        assert_eq!(value, 42);
+    }
 
     #[test]
     fn test_parse_sse_chunk_openai_delta_content() {
