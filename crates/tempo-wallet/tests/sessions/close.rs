@@ -391,3 +391,68 @@ async fn sessions_close_all_closes_multiple_local_sessions() {
         "second channel should be closed cooperatively: {observed:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sessions_close_origin_closes_all_matching_channels() {
+    let rpc = CloseRpcServer::start(RpcCloseConfig {
+        close_requested_at: 0,
+        finalized: false,
+        grace_period: 900,
+        orphaned_log_channel_id: None,
+    })
+    .await;
+    let close_server = CooperativeCloseServer::start().await;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    seed_session_for_close(
+        &temp,
+        "https://close-origin.example",
+        &close_server.close_url(),
+        4242,
+    );
+    insert_session_for_close(
+        &temp,
+        SECOND_CHANNEL_ID,
+        "https://close-origin.example",
+        &close_server.close_url(),
+        7777,
+    );
+
+    let output = test_command(&temp)
+        .args([
+            "-j",
+            "-n",
+            "tempo-moderato",
+            "sessions",
+            "close",
+            "https://close-origin.example",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "close by origin should close all matching channels: {}",
+        get_combined_output(&output)
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("json output should parse");
+    assert_eq!(parsed["closed"], 2);
+    assert_eq!(parsed["pending"], 0);
+    assert_eq!(parsed["failed"], 0);
+    assert_eq!(
+        session_row_count(&temp),
+        0,
+        "all matching channels should be removed locally after close"
+    );
+
+    let observed = close_server.snapshot();
+    assert_eq!(observed.prefetch_count, 2);
+    assert_eq!(observed.authorized_count, 2);
+}

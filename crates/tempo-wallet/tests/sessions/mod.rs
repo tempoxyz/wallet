@@ -499,13 +499,17 @@ fn insert_session_for_close(
 }
 
 fn read_close_state(temp: &tempfile::TempDir) -> Option<StoredCloseState> {
+    read_close_state_for(temp, SEEDED_CHANNEL_ID)
+}
+
+fn read_close_state_for(temp: &tempfile::TempDir, channel_id: &str) -> Option<StoredCloseState> {
     let db_path = temp.path().join(".tempo/wallet/channels.db");
     let conn = rusqlite::Connection::open(db_path).unwrap();
     conn.query_row(
         "SELECT state, close_requested_at, grace_ready_at
          FROM channels
          WHERE channel_id = ?1",
-        [SEEDED_CHANNEL_ID],
+        [channel_id],
         |row| {
             Ok(StoredCloseState {
                 state: row.get(0)?,

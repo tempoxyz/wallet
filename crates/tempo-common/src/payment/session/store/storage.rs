@@ -385,6 +385,43 @@ pub fn load_channel_by_origin(origin: &str) -> ChannelStoreResult<Option<Channel
     }
 }
 
+pub fn load_channels_by_origin(origin: &str) -> ChannelStoreResult<Vec<ChannelRecord>> {
+    let conn = open_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT version, origin, request_url, chain_id,
+                    escrow_contract, token, payee, payer, authorized_signer,
+                    salt, channel_id, deposit, cumulative_amount,
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+             FROM channels WHERE origin = ?1 ORDER BY last_used_at DESC",
+        )
+        .map_err(|err| store_error("prepare channels load by origin query", err))?;
+
+    let rows = stmt
+        .query_map(params![origin], map_channel_row)
+        .map_err(|err| store_error("load channels by origin", err))?;
+
+    let mut channels = Vec::new();
+    let mut dropped_rows = 0usize;
+    for row in rows {
+        match row {
+            Ok(channel) => channels.push(channel),
+            Err(err) => {
+                dropped_rows += 1;
+                tracing::warn!(
+                    "Skipping malformed channel row while loading channels by origin: {err}"
+                );
+            }
+        }
+    }
+
+    if dropped_rows > 0 {
+        MALFORMED_LIST_DROPS.fetch_add(dropped_rows as u64, Ordering::Relaxed);
+    }
+
+    Ok(channels)
+}
+
 pub fn find_reusable_channel(
     origin: &str,
     payer: &str,
@@ -624,5 +661,37 @@ mod tests {
         .unwrap();
 
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn load_channels_by_origin_returns_all_matching_records_ordered() {
+        let temp = tempdir().unwrap();
+        std::env::set_var("TEMPO_HOME", temp.path());
+
+        let first = sample_record(
+            alloy::primitives::B256::from([0x41; 32]),
+            10,
+            ChannelStatus::Active,
+        );
+        let second = sample_record(
+            alloy::primitives::B256::from([0x42; 32]),
+            20,
+            ChannelStatus::Closing,
+        );
+
+        save_channel(&first).unwrap();
+        save_channel(&second).unwrap();
+        let rows = load_channels_by_origin("https://api.example.com").unwrap();
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].channel_id,
+            alloy::primitives::B256::from([0x42; 32]),
+            "most recently used channel should appear first"
+        );
+        assert_eq!(
+            rows[1].channel_id,
+            alloy::primitives::B256::from([0x41; 32])
+        );
     }
 }

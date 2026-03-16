@@ -143,18 +143,24 @@ async fn dry_run_close(
             });
         } else {
             let origin = normalize_origin(target);
-            if let Some(rec) = session_store::load_channel_by_origin(&origin)? {
-                targets.push(DryRunTarget {
-                    channel_id: rec.channel_id_hex(),
-                    origin: Some(rec.origin.clone()),
-                    state: Some(format!("{:?}", rec.state)),
-                });
-            } else {
+            let records: Vec<_> = session_store::load_channels_by_origin(&origin)?
+                .into_iter()
+                .filter(|record| record.network_id() == ctx.network)
+                .collect();
+            if records.is_empty() {
                 targets.push(DryRunTarget {
                     channel_id: String::new(),
                     origin: Some(target.to_string()),
                     state: Some("not found".to_string()),
                 });
+            } else {
+                for rec in records {
+                    targets.push(DryRunTarget {
+                        channel_id: rec.channel_id_hex(),
+                        origin: Some(rec.origin.clone()),
+                        state: Some(format!("{:?}", rec.state)),
+                    });
+                }
             }
         }
     }
@@ -267,26 +273,31 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
     let analytics = ctx.analytics.as_ref();
 
     let origin = normalize_origin(target);
-    let session = session_store::load_channel_by_origin(&origin)?;
+    let sessions: Vec<_> = session_store::load_channels_by_origin(&origin)?
+        .into_iter()
+        .filter(|record| record.network_id() == ctx.network)
+        .collect();
     let mut summary = CloseSummary::new();
 
-    if let Some(record) = session {
-        let result = close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
-        if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
-                if show_output {
-                    eprintln!("  Failed to remove local session: {e}");
+    if !sessions.is_empty() {
+        for record in sessions {
+            let result = close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+            if matches!(result, Ok(CloseOutcome::Closed { .. })) {
+                if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
+                    if show_output {
+                        eprintln!("  Failed to remove local session: {e}");
+                    }
                 }
             }
+            let channel_id = record.channel_id_hex();
+            summary.record_outcome(
+                result,
+                Some(&record.origin),
+                &record.origin,
+                &channel_id,
+                show_output,
+            );
         }
-        let channel_id = record.channel_id_hex();
-        summary.record_outcome(
-            result,
-            Some(&record.origin),
-            &record.origin,
-            &channel_id,
-            show_output,
-        );
     } else {
         let emitted_text = output::run_text_only(output_format, || {
             println!("No active session for {target}");
