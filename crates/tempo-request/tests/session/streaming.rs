@@ -966,3 +966,97 @@ async fn paid_requests_include_idempotency_key_and_retry_path_stays_stable() {
         "retry/fallback voucher transport should reuse the same Idempotency-Key across duplicate processing handling"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn voucher_idempotency_replay_numeric_accepted_cumulative_is_successful() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: true,
+        voucher_head_unsupported: true,
+        sse_receipt_accepted: Some(2_500_000),
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/stream"));
+    assert!(first_output.status.success());
+
+    let second_output =
+        run_session_request(&temp, &server.url("/stream-idempotent-replay-numeric"));
+    assert!(
+        second_output.status.success(),
+        "numeric acceptedCumulative replay should be handled as success: {}",
+        get_combined_output(&second_output)
+    );
+
+    let observed = server.snapshot();
+    assert_eq!(
+        observed.idempotent_replay_problem_count, 1,
+        "server should emit one numeric delta-too-small replay response"
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(channels.len(), 1);
+    assert!(
+        channels[0].cumulative_amount >= 2_000_000,
+        "numeric acceptedCumulative should preserve monotonic channel persistence"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pending_voucher_update_timeout_fails_stream_request() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: true,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: Some(2_500_000),
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/stream"));
+    assert!(first_output.status.success());
+
+    let second_output = run_session_request_with_env(
+        &temp,
+        &server.url("/stream-head-hang"),
+        &[("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10")],
+    );
+    assert!(
+        !second_output.status.success(),
+        "stream should fail when voucher update task never completes: {}",
+        get_combined_output(&second_output)
+    );
+
+    let combined = get_combined_output(&second_output);
+    assert!(
+        combined.contains("stream ended before voucher update tasks completed"),
+        "expected pending-voucher completion timeout error: {combined}"
+    );
+
+    let observed = server.snapshot();
+    assert!(
+        observed.voucher_head_updates >= 1,
+        "hanging path should attempt voucher HEAD update"
+    );
+}

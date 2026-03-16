@@ -540,6 +540,14 @@ async fn session_handler(
             if method == reqwest::Method::HEAD {
                 let mut observations = state.observations.lock().unwrap();
                 observations.voucher_head_updates += 1;
+                if path.contains("head-hang") {
+                    drop(observations);
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    return Response::builder()
+                        .status(StatusCode::OK)
+                        .body(Body::empty())
+                        .unwrap();
+                }
                 let status = if state.config.voucher_head_unsupported {
                     StatusCode::METHOD_NOT_ALLOWED
                 } else {
@@ -559,13 +567,18 @@ async fn session_handler(
                     && observations.idempotent_replay_problem_count == 0
                 {
                     observations.idempotent_replay_problem_count += 1;
+                    let accepted_cumulative = if path.contains("idempotent-replay-numeric") {
+                        serde_json::json!(cumulative)
+                    } else {
+                        serde_json::json!(cumulative.to_string())
+                    };
                     let body = json!({
                         "type": "https://paymentauth.org/problems/session/delta-too-small",
                         "title": "Delta too small",
                         "status": 409,
                         "detail": "voucher cumulative amount is not increasing",
                         "channelId": channel_id,
-                        "acceptedCumulative": cumulative.to_string(),
+                        "acceptedCumulative": accepted_cumulative,
                     })
                     .to_string();
                     return Response::builder()
