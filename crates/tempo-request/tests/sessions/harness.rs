@@ -27,6 +27,16 @@ pub(crate) const PAYEE_A: &str = "0x1111111111111111111111111111111111111111";
 pub(crate) const PAYEE_B: &str = "0x2222222222222222222222222222222222222222";
 pub(crate) const SESSION_AMOUNT: u128 = 1_000_000;
 
+fn challenge_amount_for_path(path: &str) -> u128 {
+    if path.contains("amount-3x") {
+        SESSION_AMOUNT.saturating_mul(3)
+    } else if path.contains("amount-2x") {
+        SESSION_AMOUNT.saturating_mul(2)
+    } else {
+        SESSION_AMOUNT
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct StoredChannel {
     pub(crate) channel_id: String,
@@ -361,6 +371,7 @@ async fn session_handler(
     // This single handler emulates the full session-intent lifecycle and path-specific edge cases.
     let path = request.uri().path().to_string();
     let method = request.method().clone();
+    let challenge_amount = challenge_amount_for_path(&path);
     let payee = match state.config.payee_mode {
         PayeeMode::Fixed => PAYEE_A,
         PayeeMode::ByPath => {
@@ -402,7 +413,7 @@ async fn session_handler(
             method_details["feePayer"] = serde_json::json!(false);
         }
         let request_json = serde_json::json!({
-            "amount": SESSION_AMOUNT.to_string(),
+            "amount": challenge_amount.to_string(),
             "currency": MODERATO_TOKEN,
             recipient_field: payee,
             "suggestedDeposit": "2000000",

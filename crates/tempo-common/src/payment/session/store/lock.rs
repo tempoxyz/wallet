@@ -34,9 +34,10 @@ impl Drop for ChannelLock {
 ///
 /// Uses a **blocking** lock so that concurrent workers wait for the first
 /// to finish rather than proceeding unlocked. The caller should drop the
-/// returned guard as soon as the critical section (reuse check + channel
-/// open + persist) is complete — do NOT hold it across long-running
-/// operations like SSE streaming.
+/// returned guard when the request-level critical section is complete.
+/// The session request flow intentionally holds this lock across the paid
+/// request lifecycle (including voucher replay/streaming) so same-origin
+/// requests cannot race cumulative voucher updates on a shared channel.
 ///
 /// # Errors
 ///

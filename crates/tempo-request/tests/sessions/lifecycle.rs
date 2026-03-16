@@ -89,6 +89,65 @@ async fn opens_channel_persists_state_and_reuses_authorized_session() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn varying_challenge_amount_reuses_same_channel_identity() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: false,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: None,
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/amount-1x"));
+    assert!(
+        first_output.status.success(),
+        "first request should succeed: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output = run_session_request(&temp, &server.url("/amount-2x"));
+    assert!(
+        second_output.status.success(),
+        "second request should succeed with different challenge amount: {}",
+        get_combined_output(&second_output)
+    );
+
+    let observed = server.snapshot();
+    assert_eq!(
+        observed.open_count, 1,
+        "changing challenge amount must not force a new channel open"
+    );
+    assert_eq!(
+        observed.voucher_count, 1,
+        "second request should reuse with voucher replay"
+    );
+    assert_eq!(
+        observed.voucher_cumulative,
+        vec![SESSION_AMOUNT * 3],
+        "voucher cumulative should advance by the new request amount"
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(channels.len(), 1, "reuse should keep a single channel row");
+    assert_eq!(
+        channels[0].cumulative_amount,
+        SESSION_AMOUNT * 3,
+        "persisted cumulative should include both challenge amounts"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn payee_mismatch_forces_new_open() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
