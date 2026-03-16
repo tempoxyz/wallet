@@ -6572,6 +6572,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "assert_cmd",
+ "axum",
  "base64 0.22.1",
  "clap",
  "clap_complete",
@@ -6582,6 +6583,7 @@ dependencies = [
  "mpp",
  "qrcode",
  "reqwest 0.12.28",
+ "rusqlite",
  "serde",
  "serde_json",
  "serial_test",
