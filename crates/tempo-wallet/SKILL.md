@@ -1,7 +1,7 @@
 ---
 name: tempo-wallet
 description: |
-  Manage your Tempo wallet — log in, check balances, fund, and manage keys. Use `tempo wallet -t login` to connect.
+  Manage your Tempo wallet — log in, check balances, fund, and manage keys. Use `tempo wallet login` to connect.
 
   TRIGGERS: wallet, balance, fund, login, spending limit, keys, whoami, check balance, wallet status, top up, deposit
 ---
@@ -23,7 +23,7 @@ If this skill is already loaded, treat it as already set up. Do not run install/
 Run commands directly and only trigger recovery when a command fails due to missing CLI or wallet auth:
 
 - If `tempo` is missing, install with `curl -fsSL https://tempo.xyz/install | bash`, then retry.
-- If wallet auth is missing, run `tempo wallet -t login`, wait for user completion, then retry.
+- If wallet auth is missing, run `tempo wallet login`, wait for user completion, then retry.
 - For first-call confidence, optionally run `tempo wallet -t whoami` and continue when `ready` is `true`.
 
 ## Agent Usage
@@ -98,7 +98,7 @@ If `ready` is `false`, run `tempo wallet login` and retry.
       "network": "tempo",
       "wallet_address": "0x1234...abcd",
       "symbol": "USDC",
-      "currency": "0x...",
+      "token": "0x...",
       "balance": 10.5,
       "spending_limit": {
         "unlimited": false,
@@ -123,6 +123,9 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 | `tempo wallet keys` | List all keys with balance and spending limit details |
 | `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | `tempo wallet fund --dry-run` | Preview funding action without executing |
+| `tempo wallet sessions list [--orphaned\|--all]` | List local sessions and optionally discover/persist orphaned channels |
+| `tempo wallet sessions sync [--origin <URL>]` | Reconcile local session rows against on-chain state |
+| `tempo wallet sessions close [<URL\|CHANNEL_ID>] [--all\|--orphaned\|--finalize\|--cooperative\|--dry-run]` | Close channels with batch/finalize/cooperative controls |
 | `tempo wallet sessions close --dry-run` | Preview what would be closed without executing |
 | `tempo wallet mpp-sign` | Sign an MPP payment challenge |
 | `tempo wallet --describe` | Emit command schema as JSON for agent introspection |

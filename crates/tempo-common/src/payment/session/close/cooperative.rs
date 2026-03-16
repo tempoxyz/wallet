@@ -15,7 +15,7 @@ use mpp::protocol::core::extract_tx_hash;
 
 use super::super::store;
 use crate::{
-    cli::format::format_token_amount,
+    cli::{format::format_token_amount, terminal::sanitize_for_terminal},
     error::{KeyError, NetworkError, PaymentError, TempoError},
 };
 
@@ -114,8 +114,9 @@ pub(super) async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        let reason = crate::payment::extract_json_error(&body)
+        let raw_reason = crate::payment::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(200).collect());
+        let reason = sanitize_for_terminal(&raw_reason);
         return Err(PaymentError::PaymentRejected {
             reason,
             status_code: status.as_u16(),

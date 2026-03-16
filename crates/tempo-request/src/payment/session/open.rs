@@ -8,6 +8,7 @@ use alloy::primitives::Address;
 
 use crate::http::{HttpClient, HttpResponse};
 use tempo_common::{
+    cli::terminal::sanitize_for_terminal,
     error::{ConfigError, PaymentError, TempoError},
     keys::Signer,
     payment::{
@@ -97,8 +98,9 @@ pub(super) async fn send_open_with_retry(
                 }
                 let next_body = next.body_string().unwrap_or_default();
                 if !should_retry_open_response(next.status_code, &next_body) {
-                    let reason = tempo_common::payment::extract_json_error(&next_body)
+                    let raw_reason = tempo_common::payment::extract_json_error(&next_body)
                         .unwrap_or_else(|| truncate(next_body));
+                    let reason = sanitize_for_terminal(&raw_reason);
                     return Err(PaymentError::PaymentRejected {
                         reason,
                         status_code: next.status_code,
@@ -114,8 +116,9 @@ pub(super) async fn send_open_with_retry(
             }
             .into());
         }
-        let reason =
+        let raw_reason =
             tempo_common::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
+        let reason = sanitize_for_terminal(&raw_reason);
         return Err(PaymentError::PaymentRejected {
             reason,
             status_code: 410,
@@ -124,7 +127,9 @@ pub(super) async fn send_open_with_retry(
     }
 
     let body = resp.body_string().unwrap_or_default();
-    let reason = tempo_common::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
+    let raw_reason =
+        tempo_common::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
+    let reason = sanitize_for_terminal(&raw_reason);
     Err(PaymentError::PaymentRejected {
         reason,
         status_code: resp.status_code,

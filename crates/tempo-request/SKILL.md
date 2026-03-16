@@ -71,7 +71,7 @@ If this skill is already loaded, treat it as already set up. Do not run install/
 Run requests directly and only trigger recovery when a command fails due to missing CLI or wallet auth:
 
 - If `tempo` is missing, install with `curl -fsSL https://tempo.xyz/install | bash`, then retry.
-- If wallet auth is missing, run `tempo wallet -t login`, wait for user completion, then retry.
+- If wallet auth is missing, run `tempo wallet login`, wait for user completion, then retry.
 - For first-call confidence, optionally run `tempo wallet -t whoami` and continue when `ready` is `true`.
 
 ## Agent Usage
