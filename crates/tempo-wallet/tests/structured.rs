@@ -5,9 +5,10 @@ use std::process::Output;
 use serde_json::Value;
 
 mod common;
-use common::{
-    assert_clean_stderr, assert_json_toon_equivalent, seed_local_session, test_command,
-    MockServicesServer, TestConfigBuilder,
+use common::test_command;
+use tempo_test::{
+    assert_clean_stderr, assert_json_toon_equivalent, seed_local_session, MockServicesServer,
+    TestConfigBuilder,
 };
 
 fn run_both(temp: &tempfile::TempDir, args: &[&str]) -> (Output, Value, Output, Value) {

@@ -33,46 +33,6 @@ fn credential_source_from_payer(payer: &str, chain_id: u64) -> String {
     format!("did:pkh:eip155:{chain_id}:{}", payer.trim())
 }
 
-/// Attempt a cooperative (server-side) close of a session without on-chain fallback.
-///
-/// Used for best-effort cleanup when reusing a session fails — the result is
-/// typically discarded because the caller will open a new channel regardless.
-#[allow(dead_code)]
-async fn try_cooperative_close_from_record(
-    record: &session_store::ChannelRecord,
-    keys: &crate::keys::Keystore,
-) -> ChannelResult<()> {
-    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).map_err(|source| {
-        NetworkError::ResponseParse {
-            context: "persisted challenge echo",
-            source,
-        }
-    })?;
-
-    let network_id = record.network_id();
-    let wallet = keys.signer(network_id)?;
-
-    let channel_id: B256 = record.channel_id;
-
-    let escrow_contract: Address = record.escrow_contract;
-
-    let cumulative_amount: u128 = record.cumulative_amount_u128();
-
-    let client = reqwest::Client::new();
-    try_server_close(
-        record,
-        &echo,
-        &wallet.signer,
-        channel_id,
-        escrow_contract,
-        record.chain_id,
-        cumulative_amount,
-        &client,
-    )
-    .await
-    .map(|_| ())
-}
-
 /// Try cooperative close via the server.
 ///
 /// Returns the settlement transaction URL on success (if available).

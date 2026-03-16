@@ -10,11 +10,24 @@
 
 use std::process::Output;
 
-use crate::common::{
-    assert_exit_code, charge_www_authenticate_with_realm, get_combined_output, parse_events_log,
-    setup_config_only, test_command, write_test_files, MockRpcServer, MockServer,
-    PaymentTestHarness, TestConfigBuilder, MODERATO_CHARGE_CHALLENGE, MODERATO_PRIVATE_KEY,
+use crate::common::test_command;
+use tempo_test::{
+    assert_exit_code, charge_www_authenticate_with_realm, get_combined_output, setup_config_only,
+    write_test_files, MockRpcServer, MockServer, PaymentTestHarness, TestConfigBuilder,
+    MODERATO_CHARGE_CHALLENGE, MODERATO_PRIVATE_KEY,
 };
+
+fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    content
+        .lines()
+        .filter_map(|line| {
+            let (name, json_str) = line.split_once('|')?;
+            let value: serde_json::Value = serde_json::from_str(json_str).ok()?;
+            Some((name.to_string(), value))
+        })
+        .collect()
+}
 
 fn assert_success(output: &Output, context: &str) {
     assert!(

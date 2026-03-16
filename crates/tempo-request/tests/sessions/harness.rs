@@ -19,7 +19,8 @@ use rusqlite::Connection;
 use serde_json::json;
 use tempo_common::keys::parse_private_key_signer;
 
-use crate::common::{test_command, MODERATO_PRIVATE_KEY};
+use crate::common::test_command;
+use tempo_test::MODERATO_PRIVATE_KEY;
 
 pub(crate) const MODERATO_ESCROW: &str = "0x542831e3e4ace07559b7c8787395f4fb99f70787";
 pub(crate) const MODERATO_TOKEN: &str = "0x20c0000000000000000000000000000000000000";

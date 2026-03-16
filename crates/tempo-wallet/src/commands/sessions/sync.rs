@@ -89,7 +89,7 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
     super::list::list_channels(ctx, vec![]).await
 }
 
-/// Re-sync a single session's close state from on-chain for a given origin.
+/// Re-sync all matching sessions' close state from on-chain for a given origin.
 async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<(), TempoError> {
     let config = &ctx.config;
     let output_format = ctx.output_format;

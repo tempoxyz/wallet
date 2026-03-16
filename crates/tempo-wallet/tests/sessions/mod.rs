@@ -15,7 +15,7 @@ use mpp::{Base64UrlJson, PaymentChallenge};
 use serde_json::json;
 
 use super::*;
-use crate::common::{corrupt_local_session_deposit, seed_local_session};
+use tempo_test::{corrupt_local_session_deposit, seed_local_session};
 
 const MODERATO_ESCROW: &str = "0x542831e3e4ace07559b7c8787395f4fb99f70787";
 const MODERATO_TOKEN: &str = "0x20c0000000000000000000000000000000000000";

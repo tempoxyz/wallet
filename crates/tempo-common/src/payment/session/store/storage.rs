@@ -365,26 +365,6 @@ pub fn load_channel(channel_id: &str) -> ChannelStoreResult<Option<ChannelRecord
     load_channel_in_conn(&conn, channel_id)
 }
 
-pub fn load_channel_by_origin(origin: &str) -> ChannelStoreResult<Option<ChannelRecord>> {
-    let conn = open_db()?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT version, origin, request_url, chain_id,
-                    escrow_contract, token, payee, payer, authorized_signer,
-                    salt, channel_id, deposit, cumulative_amount,
-                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-             FROM channels WHERE origin = ?1 ORDER BY last_used_at DESC LIMIT 1",
-        )
-        .map_err(|err| store_error("prepare channel load by origin query", err))?;
-
-    let result = stmt.query_row(params![origin], map_channel_row);
-    match result {
-        Ok(record) => Ok(Some(record)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(store_error("load channel by origin", e)),
-    }
-}
-
 pub fn load_channels_by_origin(origin: &str) -> ChannelStoreResult<Vec<ChannelRecord>> {
     let conn = open_db()?;
     let mut stmt = conn
