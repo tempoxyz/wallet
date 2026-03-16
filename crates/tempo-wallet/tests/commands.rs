@@ -1,25 +1,12 @@
 //! Integration tests for tempo-wallet commands.
 
 mod common;
-#[path = "commands/sessions.rs"]
 mod sessions;
 
 use common::{
-    assert_exit_code, get_combined_output, test_command, MockServicesServer, TestConfigBuilder,
-    MODERATO_DIRECT_KEYS_TOML,
+    assert_exit_code, get_combined_output, parse_events_log, test_command, MockServicesServer,
+    TestConfigBuilder, MODERATO_DIRECT_KEYS_TOML,
 };
-
-fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
-    let content = std::fs::read_to_string(path).unwrap_or_default();
-    content
-        .lines()
-        .filter_map(|line| {
-            let (name, json_str) = line.split_once('|')?;
-            let value: serde_json::Value = serde_json::from_str(json_str).ok()?;
-            Some((name.to_string(), value))
-        })
-        .collect()
-}
 // ==================== whoami ====================
 
 #[test]

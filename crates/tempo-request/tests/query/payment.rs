@@ -198,7 +198,7 @@ async fn status_402_charge_flow_with_private_key_flag() {
         .args([
             "-v",
             "--private-key",
-            HARDHAT_PRIVATE_KEY,
+            MODERATO_PRIVATE_KEY,
             &server.url("/api"),
         ])
         .output()
@@ -228,7 +228,7 @@ async fn status_402_charge_flow_with_private_key_env() {
     setup_config_only(&temp, &rpc.base_url);
 
     let output = test_command(&temp)
-        .env("TEMPO_PRIVATE_KEY", HARDHAT_PRIVATE_KEY)
+        .env("TEMPO_PRIVATE_KEY", MODERATO_PRIVATE_KEY)
         .args(["-v", &server.url("/api")])
         .output()
         .unwrap();
@@ -257,7 +257,7 @@ async fn private_key_without_0x_prefix() {
     setup_config_only(&temp, &rpc.base_url);
 
     // Strip the 0x prefix
-    let pk_no_prefix = HARDHAT_PRIVATE_KEY.strip_prefix("0x").unwrap();
+    let pk_no_prefix = MODERATO_PRIVATE_KEY.strip_prefix("0x").unwrap();
 
     let output = test_command(&temp)
         .args(["--private-key", pk_no_prefix, &server.url("/api")])
@@ -332,7 +332,7 @@ async fn private_key_flag_overrides_wallet() {
     let www_auth = charge_www_authenticate_with_realm("test-pk-override", &server.base_url);
     server.set_www_authenticate(&www_auth);
 
-    // Set up keys.toml with a DIFFERENT key (Hardhat #1) that points to a
+    // Set up keys.toml with a DIFFERENT key that points to a
     // different address. The --private-key flag should be used instead.
     let wallet_toml = r#"
 [[keys]]
@@ -348,12 +348,11 @@ key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
     let keys_path = temp.path().join(".tempo/wallet/keys.toml");
     let wallet_before = std::fs::read_to_string(&keys_path).unwrap();
 
-    // Use Hardhat #0 via --private-key flag
     let output = test_command(&temp)
         .args([
             "-v",
             "--private-key",
-            HARDHAT_PRIVATE_KEY,
+            MODERATO_PRIVATE_KEY,
             &server.url("/api"),
         ])
         .output()
@@ -385,7 +384,7 @@ async fn private_key_no_payment_needed() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .args(["--private-key", HARDHAT_PRIVATE_KEY, &server.url("/test")])
+        .args(["--private-key", MODERATO_PRIVATE_KEY, &server.url("/test")])
         .output()
         .unwrap();
 

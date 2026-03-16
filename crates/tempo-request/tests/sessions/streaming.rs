@@ -1,4 +1,4 @@
-//! Streaming and protocol edge-case scenarios split from session_integration.rs.
+//! Streaming and protocol edge-case scenarios split from commands.rs.
 
 use super::*;
 
@@ -27,7 +27,7 @@ async fn dry_run_session_challenge_has_no_tx_no_db_write_and_shows_cost() {
         .args([
             "--dry-run",
             "--private-key",
-            HARDHAT_PRIVATE_KEY,
+            MODERATO_PRIVATE_KEY,
             "--network",
             "tempo-moderato",
             &server.url("/resource"),

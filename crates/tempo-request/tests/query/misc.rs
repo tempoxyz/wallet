@@ -393,7 +393,7 @@ async fn network_mismatch_preserves_router_wording_and_exit_class() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("TEMPO_PRIVATE_KEY", HARDHAT_PRIVATE_KEY)
+        .env("TEMPO_PRIVATE_KEY", MODERATO_PRIVATE_KEY)
         .args(["--network", "tempo", &server.url("/paid")])
         .output()
         .unwrap();
@@ -514,7 +514,7 @@ async fn private_key_not_leaked_in_verbose_logs() {
         .args([
             "-v",
             "--private-key",
-            HARDHAT_PRIVATE_KEY,
+            MODERATO_PRIVATE_KEY,
             &server.url("/api"),
         ])
         .output()
@@ -531,7 +531,7 @@ async fn private_key_not_leaked_in_verbose_logs() {
         "stderr must not contain the raw private key (without 0x prefix)"
     );
     assert!(
-        !stderr.contains(HARDHAT_PRIVATE_KEY),
+        !stderr.contains(MODERATO_PRIVATE_KEY),
         "stderr must not contain the full private key"
     );
 }
@@ -757,7 +757,7 @@ async fn realm_mismatch_rejected() {
     let temp = TestConfigBuilder::new().build();
 
     let output = test_command(&temp)
-        .env("TEMPO_PRIVATE_KEY", HARDHAT_PRIVATE_KEY)
+        .env("TEMPO_PRIVATE_KEY", MODERATO_PRIVATE_KEY)
         .arg(server.url("/paid"))
         .output()
         .unwrap();

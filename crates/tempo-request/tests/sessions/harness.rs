@@ -1,12 +1,4 @@
-//! Integration coverage for session-intent payment flows.
-
-mod common;
-#[path = "session_integration/lifecycle.rs"]
-mod lifecycle;
-#[path = "session_integration/spec_alignment.rs"]
-mod spec_alignment;
-#[path = "session_integration/streaming.rs"]
-mod streaming;
+//! Shared harness for session integration scenarios.
 
 use std::sync::{Arc, Mutex};
 
@@ -25,72 +17,73 @@ use mpp::{
 };
 use rusqlite::Connection;
 use serde_json::json;
-use tempo_common::{keys::parse_private_key_signer, payment::session::session_key};
+use tempo_common::keys::parse_private_key_signer;
 
-use crate::common::{get_combined_output, setup_config_only, test_command, HARDHAT_PRIVATE_KEY};
+use crate::common::{test_command, MODERATO_PRIVATE_KEY};
 
-const MODERATO_ESCROW: &str = "0x542831e3e4ace07559b7c8787395f4fb99f70787";
-const MODERATO_TOKEN: &str = "0x20c0000000000000000000000000000000000000";
-const PAYEE_A: &str = "0x1111111111111111111111111111111111111111";
-const PAYEE_B: &str = "0x2222222222222222222222222222222222222222";
-const SESSION_AMOUNT: u128 = 1_000_000;
+pub(crate) const MODERATO_ESCROW: &str = "0x542831e3e4ace07559b7c8787395f4fb99f70787";
+pub(crate) const MODERATO_TOKEN: &str = "0x20c0000000000000000000000000000000000000";
+pub(crate) const PAYEE_A: &str = "0x1111111111111111111111111111111111111111";
+pub(crate) const PAYEE_B: &str = "0x2222222222222222222222222222222222222222";
+pub(crate) const SESSION_AMOUNT: u128 = 1_000_000;
 
 #[derive(Debug, Clone)]
-struct StoredChannel {
-    channel_id: String,
-    payee: String,
-    state: String,
-    deposit: u128,
-    cumulative_amount: u128,
+pub(crate) struct StoredChannel {
+    pub(crate) channel_id: String,
+    pub(crate) payee: String,
+    pub(crate) state: String,
+    pub(crate) deposit: u128,
+    pub(crate) cumulative_amount: u128,
 }
 
 #[derive(Debug, Default)]
-struct SessionObservations {
-    open_count: usize,
-    voucher_count: usize,
-    top_up_count: usize,
-    top_up_actions: Vec<String>,
-    credential_sources: Vec<String>,
-    open_payload_keys: Vec<Vec<String>>,
-    voucher_payload_keys: Vec<Vec<String>>,
-    invalidating_problem_count: usize,
-    insufficient_balance_problem_count: usize,
-    idempotent_replay_problem_count: usize,
-    missing_idempotency_key_count: usize,
-    open_idempotency_keys: Vec<String>,
-    voucher_idempotency_keys: Vec<String>,
-    top_up_idempotency_keys: Vec<String>,
-    open_transactions: Vec<String>,
-    voucher_cumulative: Vec<u128>,
-    voucher_paths: Vec<String>,
-    top_up_paths: Vec<String>,
-    voucher_head_updates: usize,
-    voucher_head_statuses: Vec<u16>,
-    voucher_post_updates: usize,
-    unauth_head_count: usize,
-    unauth_non_head_count: usize,
-    top_up_challenge_not_found_problem_count: usize,
+/// Captured interactions from the mock payment server used by assertions.
+pub(crate) struct SessionObservations {
+    pub(crate) open_count: usize,
+    pub(crate) voucher_count: usize,
+    pub(crate) top_up_count: usize,
+    pub(crate) top_up_actions: Vec<String>,
+    pub(crate) credential_sources: Vec<String>,
+    pub(crate) open_payload_keys: Vec<Vec<String>>,
+    pub(crate) voucher_payload_keys: Vec<Vec<String>>,
+    pub(crate) invalidating_problem_count: usize,
+    pub(crate) insufficient_balance_problem_count: usize,
+    pub(crate) idempotent_replay_problem_count: usize,
+    pub(crate) missing_idempotency_key_count: usize,
+    pub(crate) open_idempotency_keys: Vec<String>,
+    pub(crate) voucher_idempotency_keys: Vec<String>,
+    pub(crate) top_up_idempotency_keys: Vec<String>,
+    pub(crate) open_transactions: Vec<String>,
+    pub(crate) voucher_cumulative: Vec<u128>,
+    pub(crate) voucher_paths: Vec<String>,
+    pub(crate) top_up_paths: Vec<String>,
+    pub(crate) voucher_head_updates: usize,
+    pub(crate) voucher_head_statuses: Vec<u16>,
+    pub(crate) voucher_post_updates: usize,
+    pub(crate) unauth_head_count: usize,
+    pub(crate) unauth_non_head_count: usize,
+    pub(crate) top_up_challenge_not_found_problem_count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum PayeeMode {
+pub(crate) enum PayeeMode {
     Fixed,
     ByPath,
 }
 
 #[derive(Debug)]
-struct SessionServerConfig {
-    payee_mode: PayeeMode,
-    open_receipt_accepted: Option<u128>,
-    sse_voucher_flow: bool,
-    voucher_head_unsupported: bool,
-    sse_receipt_accepted: Option<u128>,
-    sse_required_cumulative: Option<u128>,
-    sse_reported_deposit: Option<u128>,
-    invalidating_problem_type_once: Option<&'static str>,
-    insufficient_balance_once: bool,
-    error_after_payment_once_status: Option<u16>,
-    response_delay_ms: u64,
+pub(crate) struct SessionServerConfig {
+    pub(crate) payee_mode: PayeeMode,
+    pub(crate) open_receipt_accepted: Option<u128>,
+    pub(crate) sse_voucher_flow: bool,
+    pub(crate) voucher_head_unsupported: bool,
+    pub(crate) sse_receipt_accepted: Option<u128>,
+    pub(crate) sse_required_cumulative: Option<u128>,
+    pub(crate) sse_reported_deposit: Option<u128>,
+    pub(crate) invalidating_problem_type_once: Option<&'static str>,
+    pub(crate) insufficient_balance_once: bool,
+    pub(crate) error_after_payment_once_status: Option<u16>,
+    pub(crate) response_delay_ms: u64,
 }
 
 #[derive(Clone)]
@@ -100,28 +93,28 @@ struct SessionServerState {
     observations: Arc<Mutex<SessionObservations>>,
 }
 
-struct SessionServer {
-    base_url: String,
+pub(crate) struct SessionServer {
+    pub(crate) base_url: String,
     observations: Arc<Mutex<SessionObservations>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     _handle: tokio::task::JoinHandle<()>,
 }
 
-struct SessionRpcServer {
-    base_url: String,
+pub(crate) struct SessionRpcServer {
+    pub(crate) base_url: String,
     observations: Arc<Mutex<SessionRpcObservations>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     _handle: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Debug, Clone, Default)]
-struct SessionRpcObservations {
-    eth_call_count: usize,
-    send_raw_count: usize,
+pub(crate) struct SessionRpcObservations {
+    pub(crate) eth_call_count: usize,
+    pub(crate) send_raw_count: usize,
 }
 
 impl SessionServer {
-    async fn start(config: SessionServerConfig) -> Self {
+    pub(crate) async fn start(config: SessionServerConfig) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let base_url = format!("http://{}:{}", addr.ip(), addr.port());
@@ -156,11 +149,11 @@ impl SessionServer {
         }
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(crate) fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
 
-    fn snapshot(&self) -> SessionObservations {
+    pub(crate) fn snapshot(&self) -> SessionObservations {
         let guard = self.observations.lock().unwrap();
         SessionObservations {
             open_count: guard.open_count,
@@ -193,7 +186,7 @@ impl SessionServer {
 }
 
 impl SessionRpcServer {
-    async fn start() -> Self {
+    pub(crate) async fn start() -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let base_url = format!("http://{}:{}", addr.ip(), addr.port());
@@ -239,7 +232,7 @@ impl SessionRpcServer {
         }
     }
 
-    fn snapshot(&self) -> SessionRpcObservations {
+    pub(crate) fn snapshot(&self) -> SessionRpcObservations {
         self.observations.lock().unwrap().clone()
     }
 }
@@ -320,7 +313,7 @@ fn session_rpc_response(
 }
 
 fn encode_active_channel_return_data() -> String {
-    let payer = parse_private_key_signer(HARDHAT_PRIVATE_KEY)
+    let payer = parse_private_key_signer(MODERATO_PRIVATE_KEY)
         .unwrap()
         .address();
     let payee = PAYEE_A.parse().unwrap();
@@ -365,6 +358,7 @@ async fn session_handler(
     headers: HeaderMap,
     request: axum::http::Request<Body>,
 ) -> impl IntoResponse {
+    // This single handler emulates the full session-intent lifecycle and path-specific edge cases.
     let path = request.uri().path().to_string();
     let method = request.method().clone();
     let payee = match state.config.payee_mode {
@@ -809,20 +803,21 @@ fn build_session_receipt(channel_id: &str, accepted_cumulative: u128) -> String 
     mpp::base64url_encode(&encoded)
 }
 
-fn run_session_request(temp: &tempfile::TempDir, url: &str) -> std::process::Output {
+pub(crate) fn run_session_request(temp: &tempfile::TempDir, url: &str) -> std::process::Output {
     run_session_request_with_env(temp, url, &[])
 }
 
-fn run_session_request_with_env(
+pub(crate) fn run_session_request_with_env(
     temp: &tempfile::TempDir,
     url: &str,
     envs: &[(&str, &str)],
 ) -> std::process::Output {
+    // Use the real CLI binary to keep this harness as close as possible to production behavior.
     test_command(temp)
         .envs(envs.iter().copied())
         .args([
             "--private-key",
-            HARDHAT_PRIVATE_KEY,
+            MODERATO_PRIVATE_KEY,
             "--network",
             "tempo-moderato",
             url,
@@ -831,11 +826,11 @@ fn run_session_request_with_env(
         .unwrap()
 }
 
-fn spawn_session_request(temp: &tempfile::TempDir, url: &str) -> std::process::Child {
+pub(crate) fn spawn_session_request(temp: &tempfile::TempDir, url: &str) -> std::process::Child {
     spawn_session_request_with_env(temp, url, &[])
 }
 
-fn spawn_session_request_with_env(
+pub(crate) fn spawn_session_request_with_env(
     temp: &tempfile::TempDir,
     url: &str,
     envs: &[(&str, &str)],
@@ -844,7 +839,7 @@ fn spawn_session_request_with_env(
         .envs(envs.iter().copied())
         .args([
             "--private-key",
-            HARDHAT_PRIVATE_KEY,
+            MODERATO_PRIVATE_KEY,
             "--network",
             "tempo-moderato",
             url,
@@ -853,7 +848,7 @@ fn spawn_session_request_with_env(
         .unwrap()
 }
 
-fn load_channels(temp: &tempfile::TempDir) -> Vec<StoredChannel> {
+pub(crate) fn load_channels(temp: &tempfile::TempDir) -> Vec<StoredChannel> {
     let db_path = temp.path().join(".tempo/wallet/channels.db");
     let conn = Connection::open(db_path).unwrap();
     let mut stmt = conn
@@ -881,18 +876,19 @@ fn load_channels(temp: &tempfile::TempDir) -> Vec<StoredChannel> {
     rows.map(|row| row.unwrap()).collect()
 }
 
-fn set_all_channel_state(temp: &tempfile::TempDir, state: &str) {
+pub(crate) fn set_all_channel_state(temp: &tempfile::TempDir, state: &str) {
     let db_path = temp.path().join(".tempo/wallet/channels.db");
     let conn = Connection::open(db_path).unwrap();
     conn.execute("UPDATE channels SET state = ?1", [state])
         .unwrap();
 }
 
-fn wait_for_channel_cumulative(
+pub(crate) fn wait_for_channel_cumulative(
     temp: &tempfile::TempDir,
     expected: u128,
     timeout: std::time::Duration,
 ) -> bool {
+    // Poll storage because receipt/event ordering tests race with process and stream completion.
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() <= deadline {
         let channels = load_channels(temp);
@@ -907,7 +903,7 @@ fn wait_for_channel_cumulative(
     false
 }
 
-fn run_two_concurrent_session_requests(
+pub(crate) fn run_two_concurrent_session_requests(
     temp: &tempfile::TempDir,
     url: &str,
 ) -> (std::process::Output, std::process::Output) {
@@ -919,7 +915,7 @@ fn run_two_concurrent_session_requests(
     })
 }
 
-fn assert_payload_has_spec_fields(keys: &[String], context: &str, fields: &[&str]) {
+pub(crate) fn assert_payload_has_spec_fields(keys: &[String], context: &str, fields: &[&str]) {
     for field in fields {
         assert!(
             keys.iter().any(|key| key == field),

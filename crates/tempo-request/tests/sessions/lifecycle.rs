@@ -1,4 +1,4 @@
-//! Channel lifecycle and reuse regression scenarios split from session_integration.rs.
+//! Channel lifecycle and reuse regression scenarios split from commands.rs.
 
 use super::*;
 

@@ -1,4 +1,4 @@
-//! Organized command integration suites.
+//! Organized query-command integration suites.
 //!
 //! `basic` covers request flags and non-payment behavior.
 //! `payment` covers 402 handling and key provisioning paths.
@@ -11,9 +11,9 @@
 use std::process::Output;
 
 use crate::common::{
-    assert_exit_code, charge_www_authenticate_with_realm, get_combined_output, setup_config_only,
-    test_command, write_test_files, MockRpcServer, MockServer, PaymentTestHarness,
-    TestConfigBuilder, HARDHAT_PRIVATE_KEY, MODERATO_CHARGE_CHALLENGE,
+    assert_exit_code, charge_www_authenticate_with_realm, get_combined_output, parse_events_log,
+    setup_config_only, test_command, write_test_files, MockRpcServer, MockServer,
+    PaymentTestHarness, TestConfigBuilder, MODERATO_CHARGE_CHALLENGE, MODERATO_PRIVATE_KEY,
 };
 
 fn assert_success(output: &Output, context: &str) {

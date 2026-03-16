@@ -159,7 +159,7 @@ async fn failure_response_payment_receipt_is_not_treated_as_success() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stream_on_a_and_submit_voucher_top_up_on_b_same_handler() {
+async fn endpoint_switch_reuses_channel_and_targets_current_path_for_updates() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
         payee_mode: PayeeMode::Fixed,
@@ -290,7 +290,7 @@ async fn new_session_while_prior_stream_active_recovers_without_state_corruption
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn fee_payer_true_and_false_paths_cover_open_and_top_up_flows() {
+async fn fee_payer_variants_cover_open_and_top_up_flows() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
         payee_mode: PayeeMode::Fixed,

@@ -4,19 +4,6 @@ use super::*;
 
 // ==================== Analytics Events Sequencing & Redaction ====================
 
-/// Helper to parse the `TEMPO_TEST_EVENTS` file into a list of (`event_name`, `props_json`).
-fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
-    let content = std::fs::read_to_string(path).unwrap_or_default();
-    content
-        .lines()
-        .filter_map(|line| {
-            let (name, json_str) = line.split_once('|')?;
-            let v: serde_json::Value = serde_json::from_str(json_str).ok()?;
-            Some((name.to_string(), v))
-        })
-        .collect()
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn analytics_event_sequence_success() {
     let server = MockServer::start(200, vec![], "ok").await;

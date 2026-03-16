@@ -9,11 +9,10 @@ use crate::mock::{MockRpcServer, MockServer};
 
 // ── Wallet constants ────────────────────────────────────────────────────
 
-/// Hardhat account #0 private key (secp256k1).
-pub const HARDHAT_PRIVATE_KEY: &str =
+pub const MODERATO_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-/// Standard keys.toml for Moderato charge tests (Hardhat #0, Direct signing mode).
+/// Standard keys.toml for Moderato charge tests.
 pub const MODERATO_DIRECT_KEYS_TOML: &str = r#"
 [[keys]]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -35,7 +34,7 @@ provisioned = true
 // ── Payment challenge constants ─────────────────────────────────────────
 
 /// Base64url-no-padding of canonical JSON for a Moderato charge challenge
-/// (1 USDC to Hardhat #1, chain 42431).
+/// (1 USDC to address, chain 42431).
 pub const MODERATO_CHARGE_CHALLENGE: &str = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
 
 /// Build a WWW-Authenticate header for a Moderato charge challenge.
