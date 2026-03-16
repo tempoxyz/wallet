@@ -124,6 +124,26 @@ pub(crate) struct SessionRpcObservations {
     pub(crate) send_raw_count: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SessionRpcChannelMode {
+    Active,
+    Missing,
+    ActiveThenMissingAfterEthCalls { threshold: usize },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SessionRpcConfig {
+    pub(crate) channel_mode: SessionRpcChannelMode,
+}
+
+impl Default for SessionRpcConfig {
+    fn default() -> Self {
+        Self {
+            channel_mode: SessionRpcChannelMode::Active,
+        }
+    }
+}
+
 impl SessionServer {
     pub(crate) async fn start(config: SessionServerConfig) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -198,6 +218,10 @@ impl SessionServer {
 
 impl SessionRpcServer {
     pub(crate) async fn start() -> Self {
+        Self::start_with_config(SessionRpcConfig::default()).await
+    }
+
+    pub(crate) async fn start_with_config(config: SessionRpcConfig) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let base_url = format!("http://{}:{}", addr.ip(), addr.port());
@@ -209,16 +233,19 @@ impl SessionRpcServer {
                 let observations = observations.clone();
                 move |Json(body): Json<serde_json::Value>| {
                     let observations = observations.clone();
+                    let config = config;
                     async move {
                         let response = if let Some(batch) = body.as_array() {
                             serde_json::Value::Array(
                                 batch
                                     .iter()
-                                    .map(|request| session_rpc_response(request, &observations))
+                                    .map(|request| {
+                                        session_rpc_response(request, &observations, config)
+                                    })
                                     .collect(),
                             )
                         } else {
-                            session_rpc_response(&body, &observations)
+                            session_rpc_response(&body, &observations, config)
                         };
                         Json(response)
                     }
@@ -267,6 +294,7 @@ impl Drop for SessionServer {
 fn session_rpc_response(
     req: &serde_json::Value,
     observations: &Arc<Mutex<SessionRpcObservations>>,
+    config: SessionRpcConfig,
 ) -> serde_json::Value {
     let method = req["method"].as_str().unwrap_or("");
     let id = req["id"].clone();
@@ -281,7 +309,25 @@ fn session_rpc_response(
         "eth_call" => {
             let mut guard = observations.lock().unwrap();
             guard.eth_call_count += 1;
-            json!(encode_active_channel_return_data())
+            let mode = match config.channel_mode {
+                SessionRpcChannelMode::Active => SessionRpcChannelMode::Active,
+                SessionRpcChannelMode::Missing => SessionRpcChannelMode::Missing,
+                SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold } => {
+                    if guard.eth_call_count > threshold {
+                        SessionRpcChannelMode::Missing
+                    } else {
+                        SessionRpcChannelMode::Active
+                    }
+                }
+            };
+
+            match mode {
+                SessionRpcChannelMode::Active => json!(encode_active_channel_return_data()),
+                SessionRpcChannelMode::Missing => json!(encode_missing_channel_return_data()),
+                SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { .. } => {
+                    unreachable!("mode should be normalized before matching")
+                }
+            }
         }
         "eth_sendRawTransaction" => {
             let mut guard = observations.lock().unwrap();
@@ -337,6 +383,28 @@ fn encode_active_channel_return_data() -> String {
     encoded.extend(encode_address_word(token));
     encoded.extend(encode_address_word(authorized_signer));
     encoded.extend(encode_u128_word(10_000_000));
+    encoded.extend(encode_u128_word(0));
+    encoded.extend(encode_u64_word(0));
+    encoded.extend(encode_bool_word(false));
+
+    format!("0x{}", hex::encode(encoded))
+}
+
+fn encode_missing_channel_return_data() -> String {
+    let payer = parse_private_key_signer(MODERATO_PRIVATE_KEY)
+        .unwrap()
+        .address();
+    let payee = PAYEE_A.parse().unwrap();
+    let token = MODERATO_TOKEN.parse().unwrap();
+    let authorized_signer = payer;
+
+    let mut encoded = Vec::with_capacity(32 * 8);
+    encoded.extend(encode_address_word(payer));
+    encoded.extend(encode_address_word(payee));
+    encoded.extend(encode_address_word(token));
+    encoded.extend(encode_address_word(authorized_signer));
+
+    encoded.extend(encode_u128_word(0));
     encoded.extend(encode_u128_word(0));
     encoded.extend(encode_u64_word(0));
     encoded.extend(encode_bool_word(false));

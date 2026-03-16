@@ -391,8 +391,16 @@ async fn sse_voucher_flow_falls_back_to_post_and_persists_receipt() {
     );
 }
 
-async fn run_invalidating_problem_reopen_case(problem_type: &'static str) {
-    let rpc = SessionRpcServer::start().await;
+async fn run_invalidating_problem_case(
+    problem_type: &'static str,
+    rpc_config: SessionRpcConfig,
+) -> (
+    tempfile::TempDir,
+    SessionObservations,
+    std::process::Output,
+    String,
+) {
+    let rpc = SessionRpcServer::start_with_config(rpc_config).await;
     let server = SessionServer::start(SessionServerConfig {
         payee_mode: PayeeMode::Fixed,
         open_receipt_accepted: None,
@@ -422,12 +430,6 @@ async fn run_invalidating_problem_reopen_case(problem_type: &'static str) {
     let first_channel_id = channels_after_first[0].channel_id.clone();
 
     let second_output = run_session_request(&temp, &server.url("/resource"));
-    assert!(
-        second_output.status.success(),
-        "second request should reopen cleanly: {}",
-        get_combined_output(&second_output)
-    );
-
     let observed = server.snapshot();
     assert_eq!(
         observed.invalidating_problem_count, 1,
@@ -435,8 +437,27 @@ async fn run_invalidating_problem_reopen_case(problem_type: &'static str) {
     );
     assert_eq!(
         observed.voucher_count, 1,
-        "reopen path should attempt a single voucher on the invalidated channel"
+        "reuse path should attempt a single voucher on the invalidated channel"
     );
+
+    (temp, observed, second_output, first_channel_id)
+}
+
+async fn run_invalidating_problem_reopen_case(problem_type: &'static str) {
+    let (temp, observed, second_output, first_channel_id) = run_invalidating_problem_case(
+        problem_type,
+        SessionRpcConfig {
+            channel_mode: SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold: 3 },
+        },
+    )
+    .await;
+
+    assert!(
+        second_output.status.success(),
+        "second request should reopen cleanly once on-chain invalidation is confirmed: {}",
+        get_combined_output(&second_output)
+    );
+
     assert_eq!(
         observed.open_count, 2,
         "invalidated channel should trigger opening a replacement channel"
@@ -454,6 +475,44 @@ async fn run_invalidating_problem_reopen_case(problem_type: &'static str) {
     );
 }
 
+async fn run_invalidating_problem_unconfirmed_case(problem_type: &'static str) {
+    let (temp, observed, second_output, first_channel_id) = run_invalidating_problem_case(
+        problem_type,
+        SessionRpcConfig {
+            channel_mode: SessionRpcChannelMode::Active,
+        },
+    )
+    .await;
+
+    assert!(
+        !second_output.status.success(),
+        "second request should fail closed when invalidation is not confirmed on-chain: {}",
+        get_combined_output(&second_output)
+    );
+
+    let stderr = String::from_utf8_lossy(&second_output.stderr);
+    assert!(
+        stderr.contains("not confirmed on-chain"),
+        "error should explain fail-closed invalidation behavior: {stderr}"
+    );
+
+    assert_eq!(
+        observed.open_count, 1,
+        "unconfirmed invalidation must not trigger channel reopen"
+    );
+
+    let channels_after_second = load_channels(&temp);
+    assert_eq!(
+        channels_after_second.len(),
+        1,
+        "unconfirmed invalidation should preserve local channel record"
+    );
+    assert_eq!(
+        channels_after_second[0].channel_id, first_channel_id,
+        "unconfirmed invalidation must not replace the persisted channel"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn channel_not_found_problem_triggers_reopen() {
     run_invalidating_problem_reopen_case(
@@ -463,8 +522,24 @@ async fn channel_not_found_problem_triggers_reopen() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn channel_not_found_problem_without_on_chain_confirmation_fails_closed() {
+    run_invalidating_problem_unconfirmed_case(
+        "https://paymentauth.org/problems/session/channel-not-found",
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn channel_finalized_problem_triggers_reopen() {
     run_invalidating_problem_reopen_case(
+        "https://paymentauth.org/problems/session/channel-finalized",
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn channel_finalized_problem_without_on_chain_confirmation_fails_closed() {
+    run_invalidating_problem_unconfirmed_case(
         "https://paymentauth.org/problems/session/channel-finalized",
     )
     .await;

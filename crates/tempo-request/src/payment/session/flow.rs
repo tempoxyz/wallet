@@ -135,6 +135,32 @@ fn classify_session_failure(status_code: u16, body: &str) -> SessionRequestFailu
     SessionRequestFailureKind::Other
 }
 
+fn invalidation_confirmed_on_chain(on_chain: Option<&session::OnChainChannel>) -> bool {
+    match on_chain {
+        None => true,
+        Some(channel) => channel.close_requested_at != 0,
+    }
+}
+
+async fn confirm_server_invalidation_on_chain(
+    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
+    escrow_contract: Address,
+    channel_id: B256,
+) -> Result<bool, TempoError> {
+    let on_chain = session::get_channel_on_chain(provider, escrow_contract, channel_id).await?;
+    Ok(invalidation_confirmed_on_chain(on_chain.as_ref()))
+}
+
+fn unconfirmed_invalidation_error(channel_id: B256) -> TempoError {
+    PaymentError::ChannelPersistence {
+        operation: "session request reuse",
+        reason: format!(
+            "Session invalidation claim for channel {channel_id:#x} was not confirmed on-chain"
+        ),
+    }
+    .into()
+}
+
 fn challenge_channel_id_parse(value: &str, context: &'static str) -> Result<B256, TempoError> {
     value.parse::<B256>().map_err(|_| {
         let safe_value = sanitize_for_terminal(value);
@@ -1001,14 +1027,36 @@ async fn reuse_stage_execute(
         }
         Err(failure) => {
             if failure.kind == SessionRequestFailureKind::ChannelInvalidated {
-                let channel_id_hex = format!("{channel_id:#x}");
-                let _ = session::delete_channel(&channel_id_hex);
-                if http.log_enabled() {
-                    eprintln!(
-                        "Persisted channel {channel_id_hex} rejected by server; opening a new channel"
-                    );
+                let invalidation_confirmed = match confirm_server_invalidation_on_chain(
+                    &deposit.provider,
+                    challenge.escrow_contract,
+                    channel_id,
+                )
+                .await
+                {
+                    Ok(confirmed) => confirmed,
+                    Err(source) => {
+                        persist_session(&ctx, &state)
+                            .map_err(session_reuse_persist_failed_error)?;
+                        return Err(session_reuse_preserved_error(source));
+                    }
+                };
+
+                if invalidation_confirmed {
+                    let channel_id_hex = format!("{channel_id:#x}");
+                    let _ = session::delete_channel(&channel_id_hex);
+                    if http.log_enabled() {
+                        eprintln!(
+                            "Persisted channel {channel_id_hex} rejected by server and confirmed on-chain; opening a new channel"
+                        );
+                    }
+                    Ok(ReuseStageOutcome::NeedsOpen)
+                } else {
+                    persist_session(&ctx, &state).map_err(session_reuse_persist_failed_error)?;
+                    Err(session_reuse_preserved_error(
+                        unconfirmed_invalidation_error(channel_id),
+                    ))
                 }
-                Ok(ReuseStageOutcome::NeedsOpen)
             } else {
                 persist_session(&ctx, &state).map_err(session_reuse_persist_failed_error)?;
                 Err(session_reuse_preserved_error(failure.into_tempo()))
@@ -1233,8 +1281,8 @@ fn is_session_reusable(
 mod tests {
     use super::{
         apply_response_receipt, assess_on_chain_reusability, challenge_channel_id_parse,
-        classify_session_failure, is_on_chain_identity_match, is_session_reusable,
-        normalize_hex_identifier, parse_positive_problem_amount,
+        classify_session_failure, invalidation_confirmed_on_chain, is_on_chain_identity_match,
+        is_session_reusable, normalize_hex_identifier, parse_positive_problem_amount,
         session_reuse_persist_failed_error, session_store_error, validate_problem_channel_id,
         SessionRequestFailureKind,
     };
@@ -1246,7 +1294,7 @@ mod tests {
         error::{PaymentError, TempoError},
         payment::{
             classify::ProblemDetails,
-            session::{now_secs, ChannelRecord, ChannelStatus},
+            session::{now_secs, ChannelRecord, ChannelStatus, OnChainChannel},
         },
     };
 
@@ -1407,6 +1455,41 @@ mod tests {
             classify_session_failure(402, body),
             SessionRequestFailureKind::Other
         );
+    }
+
+    #[test]
+    fn invalidation_confirmed_on_chain_when_missing() {
+        assert!(invalidation_confirmed_on_chain(None));
+    }
+
+    #[test]
+    fn invalidation_confirmed_on_chain_when_close_requested() {
+        let channel = OnChainChannel {
+            payer: Address::ZERO,
+            payee: Address::ZERO,
+            token: Address::ZERO,
+            authorized_signer: Address::ZERO,
+            deposit: 1,
+            settled: 0,
+            close_requested_at: 123,
+        };
+
+        assert!(invalidation_confirmed_on_chain(Some(&channel)));
+    }
+
+    #[test]
+    fn invalidation_not_confirmed_on_chain_for_active_channel() {
+        let channel = OnChainChannel {
+            payer: Address::ZERO,
+            payee: Address::ZERO,
+            token: Address::ZERO,
+            authorized_signer: Address::ZERO,
+            deposit: 1,
+            settled: 0,
+            close_requested_at: 0,
+        };
+
+        assert!(!invalidation_confirmed_on_chain(Some(&channel)));
     }
 
     #[test]
