@@ -166,8 +166,7 @@ Close timing policy for payer-initiated close is currently contract-aligned:
 Receipt policy is warning-only by default:
 
 1. Missing or invalid `Payment-Receipt` on otherwise successful paid responses emits warnings.
-2. Runtime requests are not failed solely for missing/invalid receipts in default mode.
-3. `--strict-receipts` enables conformance mode and fails paid responses that omit or contain malformed `Payment-Receipt` headers.
+2. Runtime requests are not failed solely for missing/invalid receipts.
 
 ## `mpp` Boundary Guarantees
 

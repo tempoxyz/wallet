@@ -187,24 +187,7 @@ fn warn_invalid_payment_receipt(context: &str, reason: &str) {
     eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {reason}");
 }
 
-fn strict_missing_payment_receipt_error(context: &str) -> TempoError {
-    PaymentError::PaymentRejected {
-        reason: format!("Missing required Payment-Receipt on paid {context} (strict mode)"),
-        status_code: 502,
-    }
-    .into()
-}
-
-fn strict_invalid_payment_receipt_error(context: &str, reason: &str) -> TempoError {
-    PaymentError::PaymentRejected {
-        reason: format!("Invalid Payment-Receipt on paid {context} (strict mode): {reason}"),
-        status_code: 502,
-    }
-    .into()
-}
-
 fn apply_response_receipt(
-    strict_receipts: bool,
     response: &HttpResponse,
     state: &mut ChannelState,
     context: &str,
@@ -215,9 +198,6 @@ fn apply_response_receipt(
 
     let Some(receipt_header) = response.header("payment-receipt") else {
         warn_missing_payment_receipt(context);
-        if strict_receipts {
-            return Err(strict_missing_payment_receipt_error(context));
-        }
         return Ok(None);
     };
 
@@ -228,9 +208,6 @@ fn apply_response_receipt(
         }
         Err(reason) => {
             warn_invalid_payment_receipt(context, &reason);
-            if strict_receipts {
-                return Err(strict_invalid_payment_receipt_error(context, &reason));
-            }
             Ok(None)
         }
     }
@@ -389,12 +366,7 @@ async fn run_non_streaming_top_up_recovery(
         )
         .await?;
         if top_up_response.status_code < 400 {
-            let _ = apply_response_receipt(
-                ctx.http.strict_receipts_enabled(),
-                &top_up_response,
-                state,
-                "topUp response",
-            )?;
+            let _ = apply_response_receipt(&top_up_response, state, "topUp response")?;
             state.deposit = state.deposit.saturating_add(additional_deposit);
             let _ = persist_session(ctx, state);
             return Ok(());
@@ -549,16 +521,12 @@ async fn send_session_request(
                 kind: SessionRequestFailureKind::Other,
             })?;
         let status_code = http_response.status_code;
-        let tx_hash = apply_response_receipt(
-            ctx.http.strict_receipts_enabled(),
-            &http_response,
-            state,
-            "session response",
-        )
-        .map_err(|source| SessionRequestFailure {
-            source,
-            kind: SessionRequestFailureKind::Other,
-        })?;
+        let tx_hash = apply_response_receipt(&http_response, state, "session response").map_err(
+            |source| SessionRequestFailure {
+                source,
+                kind: SessionRequestFailureKind::Other,
+            },
+        )?;
 
         return Ok(PaymentResult {
             tx_hash,
@@ -980,12 +948,7 @@ pub(crate) async fn handle_session_request(
         cumulative_amount: initial_cumulative,
     };
 
-    let open_tx_hash = apply_response_receipt(
-        http.strict_receipts_enabled(),
-        &open_response,
-        &mut state,
-        "open response",
-    )?;
+    let open_tx_hash = apply_response_receipt(&open_response, &mut state, "open response")?;
     if let Some(tx_ref) = open_tx_hash.as_deref() {
         if http.log_enabled() {
             eprintln!("Channel open tx: {}", resolved.network_id.tx_url(tx_ref));

@@ -977,12 +977,12 @@ Record client transport behavior for voucher updates:
 Runtime policy is already decided in the Decisions section above:
 missing `Payment-Receipt` is warning-only by default.
 
-This task narrows to conformance controls for reference usage.
+This task is complete with warning-only runtime behavior and explicit test
+coverage for receipt expectations.
 
-1. Add a strict mode flag/config for tests
-   and conformance runs that fails on missing receipts.
-2. Document the default policy + strict mode behavior in `ARCHITECTURE.md`.
-3. Add integration tests that cover both default behavior and strict mode.
+1. Keep runtime behavior warning-only for missing/invalid receipts.
+2. Document receipt policy in `ARCHITECTURE.md`.
+3. Keep integration assertions for expected receipt behavior in mock flows.
 
 ### Files affected
 - `crates/tempo-request/src/payment/session/flow.rs`
@@ -1046,8 +1046,7 @@ Examples to list as server-side out of scope here:
 ## Task 15e — Reference Mode Conformance Gate
 
 Removed from scope for this alignment pass by explicit direction.
-`--strict-receipts` (Task 15b) remains the conformance control shipped in this
-repository for receipt strictness.
+No dedicated strict reference profile is shipped in this repository.
 
 ---
 

@@ -37,7 +37,7 @@ Shared library used by `tempo-wallet` and `tempo-request`. Contains core logic:
 - `crates/tempo-common/src/payment/` - Payment error classification and session management
   - `mod.rs` - (classify, session)
   - `classify.rs` - Payment error classification and extraction
-  - `session/` - Session persistence and channel management (channel.rs, close.rs, store.rs, tx.rs)
+  - `session/` - Channel persistence and channel management (channel.rs, close.rs, store.rs, tx.rs)
 
 #### `crates/tempo-wallet/` — package `tempo-wallet`, binary `tempo-wallet`
 
@@ -273,7 +273,7 @@ All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
 ├── config.toml              # Shared config (RPC overrides, telemetry)
 └── wallet/
     ├── keys.toml             # Wallet keys (mode 0600)
-    └── sessions.db           # Payment session state (SQLite)
+    └── channels.db           # Persisted payment channel state (SQLite)
 ```
 
 - Private keys: macOS Keychain (macOS) or inline in `keys.toml` (Linux)

@@ -128,7 +128,7 @@ crates/
 │       ├── keys/                # Key storage, signing, authorization
 │       └── payment/             # Payment error classification and session management
 │           ├── classify.rs      # Payment error classification
-│           └── session/         # Session persistence, channel queries, close, tx
+│           └── session/         # Channel persistence (SQLite), channel queries, close, tx
 ├── tempo-wallet/        # Wallet identity, custody, sessions, services, and signing
 │   ├── src/
 │   │   ├── main.rs              # CLI entry point

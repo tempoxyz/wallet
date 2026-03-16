@@ -114,20 +114,11 @@ async fn send_top_up(
                 }
                 Err(reason) => {
                     warn_invalid_payment_receipt("topUp response", &reason);
-                    if ctx.http.strict_receipts_enabled() {
-                        return Err(strict_invalid_payment_receipt_error(
-                            "topUp response",
-                            &reason,
-                        ));
-                    }
                 }
             }
         }
         None => {
             warn_missing_payment_receipt("topUp response");
-            if ctx.http.strict_receipts_enabled() {
-                return Err(strict_missing_payment_receipt_error("topUp response"));
-            }
         }
     }
 
@@ -140,22 +131,6 @@ fn warn_missing_payment_receipt(context: &str) {
 
 fn warn_invalid_payment_receipt(context: &str, reason: &str) {
     eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {reason}");
-}
-
-fn strict_missing_payment_receipt_error(context: &str) -> TempoError {
-    PaymentError::PaymentRejected {
-        reason: format!("Missing required Payment-Receipt on paid {context} (strict mode)"),
-        status_code: 502,
-    }
-    .into()
-}
-
-fn strict_invalid_payment_receipt_error(context: &str, reason: &str) -> TempoError {
-    PaymentError::PaymentRejected {
-        reason: format!("Invalid Payment-Receipt on paid {context} (strict mode): {reason}"),
-        status_code: 502,
-    }
-    .into()
 }
 
 fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
@@ -231,7 +206,6 @@ struct VoucherSubmitContext<'a> {
     state: &'a ChannelState,
     auth: &'a str,
     idempotency_key: &'a str,
-    strict_receipts: bool,
 }
 
 const fn should_fallback_to_post(status_code: u16) -> bool {
@@ -294,20 +268,11 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
                     }
                     Err(reason) => {
                         warn_invalid_payment_receipt("voucher response", &reason);
-                        if ctx.strict_receipts {
-                            return Err(strict_invalid_payment_receipt_error(
-                                "voucher response",
-                                &reason,
-                            ));
-                        }
                     }
                 }
             }
             None => {
                 warn_missing_payment_receipt("voucher response");
-                if ctx.strict_receipts {
-                    return Err(strict_missing_payment_receipt_error("voucher response"));
-                }
             }
         }
         return Ok(());
@@ -358,17 +323,10 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
                         }
                         Err(reason) => {
                             warn_invalid_payment_receipt("voucher response", &reason);
-                            if ctx.strict_receipts {
-                                return Err(strict_invalid_payment_receipt_error(
-                                    "voucher response",
-                                    &reason,
-                                ));
-                            }
                         }
                     }
-                } else if ctx.strict_receipts {
+                } else {
                     warn_missing_payment_receipt("voucher response");
-                    return Err(strict_missing_payment_receipt_error("voucher response"));
                 }
                 return Ok(());
             }
@@ -399,7 +357,6 @@ fn post_voucher(
     let signer = ctx.signer.clone();
     let did = ctx.did.to_string();
     let debug_enabled = ctx.http.debug_enabled();
-    let strict_receipts = ctx.http.strict_receipts_enabled();
     let url = ctx.url.to_string();
 
     let state = ChannelState {
@@ -423,7 +380,6 @@ fn post_voucher(
             state: &state,
             auth: &auth,
             idempotency_key: &idempotency_key,
-            strict_receipts,
         })
         .await;
         let _ = result_tx.send(VoucherTaskResult {
@@ -472,12 +428,6 @@ pub(super) async fn stream_sse_response(
                 }
                 Err(reason) => {
                     warn_invalid_payment_receipt("SSE response header", &reason);
-                    if ctx.http.strict_receipts_enabled() {
-                        return Err(strict_invalid_payment_receipt_error(
-                            "SSE response header",
-                            &reason,
-                        ));
-                    }
                 }
             }
         }
@@ -736,12 +686,6 @@ pub(super) async fn stream_sse_response(
                             }
                             Err(reason) => {
                                 warn_invalid_payment_receipt("SSE payment-receipt event", &reason);
-                                if ctx.http.strict_receipts_enabled() {
-                                    return Err(strict_invalid_payment_receipt_error(
-                                        "SSE payment-receipt event",
-                                        &reason,
-                                    ));
-                                }
                             }
                         }
                         if runtime.log_enabled() {
@@ -778,21 +722,12 @@ pub(super) async fn stream_sse_response(
             }
             Err(reason) => {
                 warn_invalid_payment_receipt("SSE response trailer", &reason);
-                if ctx.http.strict_receipts_enabled() {
-                    return Err(strict_invalid_payment_receipt_error(
-                        "SSE response trailer",
-                        &reason,
-                    ));
-                }
             }
         }
     }
 
     if response.status().is_success() && !saw_header_or_trailer_receipt {
         warn_missing_payment_receipt("SSE response");
-        if ctx.http.strict_receipts_enabled() {
-            return Err(strict_missing_payment_receipt_error("SSE response"));
-        }
     }
 
     writeln!(stdout)?;
@@ -1032,7 +967,6 @@ mod tests {
             state: &state,
             auth: "Payment test",
             idempotency_key: "idem-123",
-            strict_receipts: false,
         })
         .await;
 

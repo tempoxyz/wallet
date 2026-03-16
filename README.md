@@ -85,7 +85,7 @@ All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
 |------|------|-------------|
 | Config | `~/.tempo/config.toml` | RPC overrides, telemetry |
 | Keys | `~/.tempo/wallet/keys.toml` | Wallet keys (mode 0600) |
-| Sessions | `~/.tempo/wallet/sessions.db` | Payment session state |
+| Channels | `~/.tempo/wallet/channels.db` | Persisted channel state used for session reuse and close flows |
 
 ## Telemetry
 
