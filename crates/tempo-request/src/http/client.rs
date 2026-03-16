@@ -47,7 +47,6 @@ pub(crate) struct HttpRequestPlan {
     pub(crate) method: reqwest::Method,
     pub(crate) headers: Vec<(String, String)>,
     pub(crate) body: Option<HttpRequestBody>,
-    pub(crate) strict_receipts: bool,
     pub(crate) timeout_secs: Option<u64>,
     pub(crate) connect_timeout_secs: Option<u64>,
     pub(crate) follow_redirects: bool,
@@ -73,7 +72,6 @@ impl Default for HttpRequestPlan {
             method: reqwest::Method::GET,
             headers: vec![],
             body: None,
-            strict_receipts: false,
             timeout_secs: None,
             connect_timeout_secs: None,
             follow_redirects: false,
@@ -287,11 +285,6 @@ impl HttpClient {
     /// Whether debug-level log messages should be printed (`-vv`).
     pub(crate) const fn debug_enabled(&self) -> bool {
         self.verbosity.debug_enabled()
-    }
-
-    /// Whether successful paid responses must include parseable `Payment-Receipt` headers.
-    pub(crate) const fn strict_receipts_enabled(&self) -> bool {
-        self.plan.strict_receipts
     }
 
     /// Execute an HTTP request with retry logic.
