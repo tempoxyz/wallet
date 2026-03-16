@@ -188,7 +188,7 @@ async fn validate_reusable_channel_on_chain(
     escrow_contract: Address,
     channel_id: B256,
     amount: u128,
-) -> Result<Option<(session::OnChainChannel, u128)>, TempoError> {
+) -> Result<Option<ChannelOnChainAvailability>, TempoError> {
     let Some(on_chain) =
         session::get_channel_on_chain(provider, escrow_contract, channel_id).await?
     else {
@@ -199,7 +199,15 @@ async fn validate_reusable_channel_on_chain(
         return Ok(None);
     };
 
-    Ok(Some((on_chain, available_balance)))
+    Ok(Some(ChannelOnChainAvailability {
+        on_chain,
+        available_balance,
+    }))
+}
+
+struct ChannelOnChainAvailability {
+    on_chain: session::OnChainChannel,
+    available_balance: u128,
 }
 
 fn is_on_chain_identity_match(
@@ -592,10 +600,11 @@ async fn send_session_request(
 /// 5. Send the real request with a voucher
 /// 6. Stream SSE events (or return buffered response)
 /// 7. Persist/update the session (do NOT close the channel)
-struct ChallengeStageOutput {
+struct ResolvedSessionChallenge {
     network_id: tempo_common::network::NetworkId,
     chain_id: u64,
     amount: u128,
+    suggested_deposit: Option<u128>,
     escrow_contract: Address,
     token: Address,
     payee: Address,
@@ -614,7 +623,7 @@ struct ChallengeStageOutput {
 
 enum ChallengeStageOutcome {
     DryRun(PaymentResult),
-    Continue(Box<ChallengeStageOutput>),
+    Continue(Box<ResolvedSessionChallenge>),
 }
 
 struct DepositStageOutput {
@@ -623,22 +632,26 @@ struct DepositStageOutput {
     clamped_deposit: Option<u128>,
 }
 
-struct ReuseStageMatch {
+struct ChannelReuseCandidate {
     record: session::ChannelRecord,
     on_chain_deposit: u128,
     available_balance: u128,
 }
 
 enum ReuseStageOutcome {
-    Reused(PaymentResult),
+    Reused(PaidRequestResult),
     NeedsOpen,
 }
 
-struct OpenStageOutput {
+struct OpenExecutionPlan {
     state: ChannelState,
     salt_hex: String,
     open_tx_hash: Option<String>,
     open_response: HttpResponse,
+}
+
+struct PaidRequestResult {
+    payment: PaymentResult,
 }
 
 fn build_channel_context<'a>(
@@ -646,7 +659,7 @@ fn build_channel_context<'a>(
     http: &'a crate::http::HttpClient,
     url: &'a str,
     rpc_url: &'a str,
-    challenge: &'a ChallengeStageOutput,
+    challenge: &'a ResolvedSessionChallenge,
     deposit: &'a DepositStageOutput,
     salt: String,
 ) -> ChannelContext<'a> {
@@ -671,7 +684,7 @@ fn build_channel_context<'a>(
 }
 
 fn build_ondemand_reuse_record(
-    challenge: &ChallengeStageOutput,
+    challenge: &ResolvedSessionChallenge,
     url: &str,
     channel_id: B256,
     on_chain: &session::OnChainChannel,
@@ -722,6 +735,11 @@ async fn challenge_stage(
     let session_req = decode_session_request_with_default_chain_id(challenge)?;
     let chain_id = session_req.chain_id().unwrap_or(DEFAULT_SESSION_CHAIN_ID);
     let amount = challenge_u128_parse(&session_req.amount, "session request amount")?;
+    let suggested_deposit = session_req
+        .suggested_deposit
+        .as_deref()
+        .map(|value| challenge_u128_parse(value, "session request suggestedDeposit"))
+        .transpose()?;
 
     let escrow_str = session_req.escrow_contract().map_err(|_| {
         challenge_missing_field("session challenge escrow contract", "escrow contract")
@@ -813,10 +831,11 @@ async fn challenge_stage(
     let did = format!("did:pkh:eip155:{chain_id}:{from:#x}");
 
     Ok(ChallengeStageOutcome::Continue(Box::new(
-        ChallengeStageOutput {
+        ResolvedSessionChallenge {
             network_id,
             chain_id,
             amount,
+            suggested_deposit,
             escrow_contract,
             token,
             payee,
@@ -837,19 +856,15 @@ async fn challenge_stage(
 
 async fn deposit_stage(
     resolved: &ResolvedChallenge,
-    challenge: &ChallengeStageOutput,
+    challenge: &ResolvedSessionChallenge,
 ) -> Result<DepositStageOutput, TempoError> {
     let base_units: u128 = 10u128.saturating_pow(u32::from(challenge.network_id.token().decimals));
     let max_deposit: u128 = 5u128.saturating_mul(base_units);
 
-    let session_req = decode_session_request_with_default_chain_id(&resolved.challenge)?;
-    let suggested_deposit = session_req
+    let mut deposit = challenge
         .suggested_deposit
-        .as_deref()
-        .map(|value| challenge_u128_parse(value, "session request suggestedDeposit"))
-        .transpose()?;
-
-    let mut deposit = suggested_deposit.unwrap_or(base_units).min(max_deposit);
+        .unwrap_or(base_units)
+        .min(max_deposit);
     let mut clamped_deposit = None;
 
     let provider = alloy::providers::RootProvider::new_http(resolved.rpc_url.clone());
@@ -873,9 +888,9 @@ async fn deposit_stage(
 
 async fn reuse_stage_discover(
     url: &str,
-    challenge: &ChallengeStageOutput,
+    challenge: &ResolvedSessionChallenge,
     deposit: &DepositStageOutput,
-) -> Result<Option<ReuseStageMatch>, TempoError> {
+) -> Result<Option<ChannelReuseCandidate>, TempoError> {
     let mut reuse_candidates: Vec<session::ChannelRecord> = Vec::new();
 
     if let Some(channel_id) = challenge.suggested_channel_id {
@@ -885,7 +900,7 @@ async fn reuse_stage_discover(
 
         if let Some(record) = loaded {
             reuse_candidates.push(record);
-        } else if let Some((on_chain, _)) = validate_reusable_channel_on_chain(
+        } else if let Some(on_chain_availability) = validate_reusable_channel_on_chain(
             &deposit.provider,
             challenge.escrow_contract,
             channel_id,
@@ -894,14 +909,17 @@ async fn reuse_stage_discover(
         .await?
         {
             if is_on_chain_identity_match(
-                &on_chain,
+                &on_chain_availability.on_chain,
                 challenge.from,
                 challenge.payee,
                 challenge.token,
                 challenge.key_address,
             ) {
                 reuse_candidates.push(build_ondemand_reuse_record(
-                    challenge, url, channel_id, &on_chain,
+                    challenge,
+                    url,
+                    channel_id,
+                    &on_chain_availability.on_chain,
                 )?);
             }
         }
@@ -939,7 +957,7 @@ async fn reuse_stage_discover(
             continue;
         }
 
-        let Some((on_chain, available_balance)) = validate_reusable_channel_on_chain(
+        let Some(on_chain_availability) = validate_reusable_channel_on_chain(
             &deposit.provider,
             challenge.escrow_contract,
             candidate.channel_id,
@@ -951,7 +969,7 @@ async fn reuse_stage_discover(
         };
 
         if !is_on_chain_identity_match(
-            &on_chain,
+            &on_chain_availability.on_chain,
             challenge.from,
             challenge.payee,
             challenge.token,
@@ -960,10 +978,10 @@ async fn reuse_stage_discover(
             continue;
         }
 
-        return Ok(Some(ReuseStageMatch {
+        return Ok(Some(ChannelReuseCandidate {
             record: candidate,
-            on_chain_deposit: on_chain.deposit,
-            available_balance,
+            on_chain_deposit: on_chain_availability.on_chain.deposit,
+            available_balance: on_chain_availability.available_balance,
         }));
     }
 
@@ -975,9 +993,9 @@ async fn reuse_stage_execute(
     url: &str,
     resolved: &ResolvedChallenge,
     signer: &Signer,
-    challenge: &ChallengeStageOutput,
+    challenge: &ResolvedSessionChallenge,
     deposit: &DepositStageOutput,
-    reusable: ReuseStageMatch,
+    reusable: ChannelReuseCandidate,
 ) -> Result<ReuseStageOutcome, TempoError> {
     if http.log_enabled() {
         eprintln!(
@@ -1010,7 +1028,9 @@ async fn reuse_stage_execute(
     match send_session_request(&ctx, &mut state).await {
         Ok(result) => {
             persist_session(&ctx, &state)?;
-            Ok(ReuseStageOutcome::Reused(result))
+            Ok(ReuseStageOutcome::Reused(PaidRequestResult {
+                payment: result,
+            }))
         }
         Err(failure) => {
             if failure.kind == SessionRequestFailureKind::ChannelInvalidated {
@@ -1035,9 +1055,9 @@ async fn open_stage(
     url: &str,
     resolved: &ResolvedChallenge,
     signer: &Signer,
-    challenge: &ChallengeStageOutput,
+    challenge: &ResolvedSessionChallenge,
     deposit: &DepositStageOutput,
-) -> Result<OpenStageOutput, TempoError> {
+) -> Result<OpenExecutionPlan, TempoError> {
     let salt = B256::random();
     let channel_id = compute_channel_id(
         challenge.from,
@@ -1134,7 +1154,7 @@ async fn open_stage(
         }
     }
 
-    Ok(OpenStageOutput {
+    Ok(OpenExecutionPlan {
         state,
         salt_hex: format!("{salt:#x}"),
         open_tx_hash,
@@ -1145,13 +1165,13 @@ async fn open_stage(
 async fn request_stage(
     ctx: &ChannelContext<'_>,
     state: &mut ChannelState,
-) -> Result<PaymentResult, TempoError> {
+) -> Result<PaidRequestResult, TempoError> {
     persist_session(ctx, state)?;
     let result = send_session_request(ctx, state)
         .await
         .map_err(SessionRequestFailure::into_tempo)?;
     persist_session(ctx, state)?;
-    Ok(result)
+    Ok(PaidRequestResult { payment: result })
 }
 
 pub(crate) async fn handle_session_request(
@@ -1180,7 +1200,7 @@ pub(crate) async fn handle_session_request(
         )
         .await?
         {
-            ReuseStageOutcome::Reused(result) => return Ok(result),
+            ReuseStageOutcome::Reused(result) => return Ok(result.payment),
             ReuseStageOutcome::NeedsOpen => {}
         }
     }
@@ -1213,7 +1233,9 @@ pub(crate) async fn handle_session_request(
         });
     }
 
-    request_stage(&ctx, &mut opened.state).await
+    request_stage(&ctx, &mut opened.state)
+        .await
+        .map(|result| result.payment)
 }
 
 /// Check whether a persisted session record can be reused for a new request.
