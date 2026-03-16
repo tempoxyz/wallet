@@ -13,7 +13,7 @@ use mpp::{
 
 use mpp::protocol::core::extract_tx_hash;
 
-use super::super::store as session_store;
+use super::super::store;
 use crate::{
     cli::format::format_token_amount,
     error::{KeyError, NetworkError, PaymentError, TempoError},
@@ -38,7 +38,7 @@ fn credential_source_from_payer(payer: &str, chain_id: u64) -> String {
 /// Returns the settlement transaction URL on success (if available).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn try_server_close(
-    record: &session_store::ChannelRecord,
+    record: &store::ChannelRecord,
     echo: &ChallengeEcho,
     signer: &alloy::signers::local::PrivateKeySigner,
     channel_id: B256,
@@ -114,7 +114,7 @@ pub(super) async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        let reason = crate::payment::classify::extract_json_error(&body)
+        let reason = crate::payment::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(200).collect());
         return Err(PaymentError::PaymentRejected {
             reason,
@@ -226,7 +226,7 @@ mod tests {
         let (base, counters, _handle) = spawn_test_server().await;
 
         // Minimal synthetic record
-        let record = session_store::ChannelRecord {
+        let record = store::ChannelRecord {
             version: 1,
             origin: base.clone(),
             request_url: base.clone(),
@@ -257,7 +257,7 @@ mod tests {
                 opaque: None,
             })
             .unwrap(),
-            state: session_store::ChannelStatus::Active,
+            state: store::ChannelStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             created_at: 0,

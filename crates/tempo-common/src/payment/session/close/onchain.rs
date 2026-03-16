@@ -9,7 +9,7 @@ use tempo_primitives::transaction::Call;
 use super::{
     super::{
         channel::{get_channel_on_chain, read_grace_period, IEscrow},
-        store as session_store,
+        store,
         store::ChannelStatus,
         tx::submit_tempo_tx,
         DEFAULT_GRACE_PERIOD_SECS,
@@ -93,7 +93,7 @@ pub(super) async fn close_on_chain(
     let grace_period = read_grace_period(&provider, escrow_contract)
         .await
         .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
-    let now = session_store::now_secs();
+    let now = store::now_secs();
 
     match determine_close_step(on_chain.close_requested_at, grace_period, now) {
         // If closeRequestedAt is 0, we need to call requestClose() first
@@ -120,7 +120,7 @@ pub(super) async fn close_on_chain(
             let ready_at = now + grace_period;
 
             // Update local channel state if present
-            let _ = session_store::update_channel_close_state(
+            let _ = store::update_channel_close_state(
                 &format!("{channel_id:#x}"),
                 ChannelStatus::Closing,
                 now,
@@ -138,7 +138,7 @@ pub(super) async fn close_on_chain(
         } => {
             // Ensure pending close is persisted so `session list` can show the countdown
             // Update local channel state if present
-            let _ = session_store::update_channel_close_state(
+            let _ = store::update_channel_close_state(
                 &format!("{channel_id:#x}"),
                 ChannelStatus::Closing,
                 on_chain.close_requested_at,
@@ -171,7 +171,7 @@ pub(super) async fn close_on_chain(
     tracing::info!("withdraw TX: {}", tx_url);
 
     // Best-effort local cleanup is handled by callers, but mark state finalizable->finalized if present
-    let _ = session_store::update_channel_close_state(
+    let _ = store::update_channel_close_state(
         &format!("{channel_id:#x}"),
         ChannelStatus::Finalizable,
         on_chain.close_requested_at,

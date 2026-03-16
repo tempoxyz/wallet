@@ -8,7 +8,7 @@ use tempo_common::{
     cli::{context::Context, output::OutputFormat},
     error::{ConfigError, InputError, PaymentError, TempoError},
     network::NetworkId,
-    payment::classify::{classify_payment_error, map_mpp_validation_error},
+    payment::{classify_payment_error, map_mpp_validation_error},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

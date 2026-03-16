@@ -13,7 +13,7 @@ use alloy::primitives::{Address, B256};
 
 use mpp::ChallengeEcho;
 
-use super::store as session_store;
+use super::store;
 use crate::{
     analytics::{events, Analytics},
     cli::format::format_token_amount,
@@ -46,7 +46,7 @@ pub enum CloseOutcome {
 /// Returns an error when persisted challenge/session fields are malformed,
 /// signer resolution fails, or both cooperative and on-chain close attempts fail.
 pub async fn close_channel_from_record(
-    record: &session_store::ChannelRecord,
+    record: &store::ChannelRecord,
     config: &Config,
     analytics: Option<&Analytics>,
     keys: &Keystore,
@@ -157,7 +157,7 @@ pub async fn close_channel_from_record(
 ///
 /// Returns an error when cooperative close cannot be completed.
 pub async fn close_channel_from_record_cooperative(
-    record: &session_store::ChannelRecord,
+    record: &store::ChannelRecord,
     analytics: Option<&Analytics>,
     keys: &Keystore,
 ) -> ChannelResult<CloseOutcome> {

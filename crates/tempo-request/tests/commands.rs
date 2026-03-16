@@ -4,4 +4,4 @@
 
 mod common;
 mod query;
-mod sessions;
+mod session;

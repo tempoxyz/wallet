@@ -13,7 +13,7 @@ use tempo_common::{
 };
 
 // Common imports shared by submodules
-use tempo_common::payment::{session as session_store, session::ChannelStatus};
+use tempo_common::session::{self, ChannelStatus};
 
 pub(crate) async fn run(ctx: &Context, command: SessionCommands) -> Result<(), TempoError> {
     match command {

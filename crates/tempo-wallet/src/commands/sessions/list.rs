@@ -4,7 +4,7 @@ use alloy::primitives::Address;
 
 use super::{
     render::{render_channel_list, ChannelView},
-    session_store, ChannelStatus,
+    session, ChannelStatus,
 };
 use tempo_common::{
     cli::context::Context,
@@ -27,13 +27,13 @@ pub(super) async fn list_channels(
     let output_format = ctx.output_format;
     let network = ctx.network;
     let keys = &ctx.keys;
-    let now = session_store::now_secs();
+    let now = session::now_secs();
 
     let orphaned_only = orphaned && !all;
     let include_orphaned_discovery = orphaned || all;
 
     // Local sessions (DB only).
-    let sessions = session_store::list_channels()?;
+    let sessions = session::list_channels()?;
     let filtered_local: Vec<_> = sessions
         .iter()
         .filter(|s| s.network_id() == network)
@@ -111,7 +111,7 @@ fn persist_discovered_channel(
     wallet_addr: Address,
     grace_period: u64,
 ) -> Result<(), TempoError> {
-    let now = session_store::now_secs();
+    let now = session::now_secs();
     let grace_ready_at = if ch.close_requested_at > 0 {
         ch.close_requested_at.saturating_add(grace_period)
     } else {
@@ -125,7 +125,7 @@ fn persist_discovered_channel(
         ChannelStatus::Closing
     };
 
-    let record = session_store::ChannelRecord {
+    let record = session::ChannelRecord {
         version: 1,
         origin: String::new(),
         request_url: String::new(),
@@ -147,20 +147,20 @@ fn persist_discovered_channel(
         last_used_at: now,
     };
 
-    session_store::save_channel(&record)
+    session::save_channel(&record)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempo_common::payment::session::DEFAULT_GRACE_PERIOD_SECS;
+    use tempo_common::session::DEFAULT_GRACE_PERIOD_SECS;
 
     fn make_record(
         state: ChannelStatus,
         grace_ready_at: u64,
         last_used_at: u64,
-    ) -> session_store::ChannelRecord {
-        session_store::ChannelRecord {
+    ) -> session::ChannelRecord {
+        session::ChannelRecord {
             version: 1,
             origin: "https://api.example.com".into(),
             request_url: "https://api.example.com/v1".into(),
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_view_from_session_active() {
-        let now = session_store::now_secs();
+        let now = session::now_secs();
         let rec = make_record(ChannelStatus::Active, 0, now);
         let view = ChannelView::from(&rec);
         assert_eq!(view.status, ChannelStatus::Active);
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_view_from_session_closing_and_finalizable() {
-        let now = session_store::now_secs();
+        let now = session::now_secs();
         // Closing with time remaining
         let rec = make_record(ChannelStatus::Closing, now + 120, now);
         let view = ChannelView::from(&rec);

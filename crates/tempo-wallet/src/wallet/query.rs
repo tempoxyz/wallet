@@ -28,19 +28,16 @@ pub(crate) async fn query_all_balances(
 
     let token_config = network.token();
 
-    let balance = match tempo_common::payment::session::query_token_balance(
-        &provider,
-        token_config.address,
-        account,
-    )
-    .await
-    {
-        Ok(b) => b,
-        Err(e) => {
-            debug!(%e, token = token_config.symbol, "failed to query balance");
-            return Vec::new();
-        }
-    };
+    let balance =
+        match tempo_common::session::query_token_balance(&provider, token_config.address, account)
+            .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                debug!(%e, token = token_config.symbol, "failed to query balance");
+                return Vec::new();
+            }
+        };
 
     let balance_human = format_units(balance, token_config.decimals).expect("decimals <= 77");
 

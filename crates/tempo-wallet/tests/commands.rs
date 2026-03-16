@@ -1,7 +1,7 @@
 //! Integration tests for tempo-wallet commands.
 
 mod common;
-mod sessions;
+mod session;
 
 use common::test_command;
 use tempo_test::{

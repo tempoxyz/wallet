@@ -2,7 +2,7 @@
 //!
 //! Constructs the session-open transaction and retries submission
 //! when the server hasn't indexed the channel yet. Low-level signing
-//! and broadcast helpers remain in `tempo_common::payment::session::tx`.
+//! and broadcast helpers remain in `tempo_common::session::tx`.
 
 use alloy::primitives::Address;
 
@@ -97,7 +97,7 @@ pub(super) async fn send_open_with_retry(
                 }
                 let next_body = next.body_string().unwrap_or_default();
                 if !should_retry_open_response(next.status_code, &next_body) {
-                    let reason = tempo_common::payment::classify::extract_json_error(&next_body)
+                    let reason = tempo_common::payment::extract_json_error(&next_body)
                         .unwrap_or_else(|| truncate(next_body));
                     return Err(PaymentError::PaymentRejected {
                         reason,
@@ -114,8 +114,8 @@ pub(super) async fn send_open_with_retry(
             }
             .into());
         }
-        let reason = tempo_common::payment::classify::extract_json_error(&body)
-            .unwrap_or_else(|| truncate(body));
+        let reason =
+            tempo_common::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
         return Err(PaymentError::PaymentRejected {
             reason,
             status_code: 410,
@@ -124,8 +124,7 @@ pub(super) async fn send_open_with_retry(
     }
 
     let body = resp.body_string().unwrap_or_default();
-    let reason = tempo_common::payment::classify::extract_json_error(&body)
-        .unwrap_or_else(|| truncate(body));
+    let reason = tempo_common::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
     Err(PaymentError::PaymentRejected {
         reason,
         status_code: resp.status_code,

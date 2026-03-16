@@ -3,7 +3,7 @@
 use alloy::primitives::{utils::format_units, U256};
 use serde::Serialize;
 
-use super::{session_store, ChannelStatus};
+use super::{session, ChannelStatus};
 use tempo_common::{
     cli::{
         format::{format_duration, format_relative_time, format_utc_timestamp},
@@ -54,7 +54,7 @@ impl ChannelView {
         let remaining = deposit.saturating_sub(settled);
 
         let (status, remaining_secs) = if close_requested_at > 0 {
-            let now = session_store::now_secs();
+            let now = session::now_secs();
             let ready_at = close_requested_at + grace_period;
             let rem = ready_at.saturating_sub(now);
             if rem == 0 {
@@ -83,15 +83,15 @@ impl ChannelView {
     }
 }
 
-impl From<&session_store::ChannelRecord> for ChannelView {
-    fn from(session: &session_store::ChannelRecord) -> Self {
+impl From<&session::ChannelRecord> for ChannelView {
+    fn from(session: &session::ChannelRecord) -> Self {
         let t = session.network_id().token();
 
         let spent_u = session.cumulative_amount_u128();
         let limit_u = session.deposit_u128();
         let remaining_u = limit_u.saturating_sub(spent_u);
 
-        let (status, remaining_secs) = session.status_at(session_store::now_secs());
+        let (status, remaining_secs) = session.status_at(session::now_secs());
 
         Self {
             channel_id: session.channel_id_hex(),

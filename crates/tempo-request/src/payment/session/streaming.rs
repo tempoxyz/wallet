@@ -17,7 +17,7 @@ use super::{
 };
 use tempo_common::{
     error::{NetworkError, PaymentError, TempoError},
-    payment::classify::{parse_problem_details, SessionProblemType},
+    payment::{parse_problem_details, SessionProblemType},
 };
 
 fn protocol_value_error(field: &'static str, value: &str) -> TempoError {
@@ -59,7 +59,7 @@ async fn send_top_up(
     additional_deposit: u128,
     idempotency_key: &str,
 ) -> Result<(), TempoError> {
-    let calls = tempo_common::payment::session::build_top_up_calls(
+    let calls = tempo_common::session::build_top_up_calls(
         ctx.token,
         state.escrow_contract,
         state.channel_id,
@@ -94,7 +94,7 @@ async fn send_top_up(
     let response = crate::http::HttpResponse::from_reqwest(response).await?;
     if response.status_code >= 400 {
         let body = response.body_string().unwrap_or_default();
-        let reason = tempo_common::payment::classify::extract_json_error(&body)
+        let reason = tempo_common::payment::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(500).collect::<String>());
         return Err(PaymentError::PaymentRejected {
             reason,
@@ -175,7 +175,7 @@ fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
 }
 
 fn voucher_problem_error(status_code: u16, body: &str) -> TempoError {
-    let reason = tempo_common::payment::classify::extract_json_error(body)
+    let reason = tempo_common::payment::extract_json_error(body)
         .unwrap_or_else(|| body.chars().take(500).collect::<String>());
     PaymentError::PaymentRejected {
         reason,
@@ -185,7 +185,7 @@ fn voucher_problem_error(status_code: u16, body: &str) -> TempoError {
 }
 
 fn parse_problem_accepted_cumulative(
-    problem: &tempo_common::payment::classify::ProblemDetails,
+    problem: &tempo_common::payment::ProblemDetails,
 ) -> Option<u128> {
     problem
         .extensions
@@ -228,9 +228,9 @@ async fn fetch_fresh_session_echo(
         }
     })?;
 
-    challenge.validate_for_session("tempo").map_err(|err| {
-        tempo_common::payment::classify::map_mpp_validation_error(err, &challenge)
-    })?;
+    challenge
+        .validate_for_session("tempo")
+        .map_err(|err| tempo_common::payment::map_mpp_validation_error(err, &challenge))?;
 
     Ok(challenge.to_echo())
 }

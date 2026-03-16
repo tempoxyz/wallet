@@ -267,7 +267,7 @@ fn parse_positive_problem_amount(value: &str, context: &'static str) -> Result<u
 }
 
 fn parse_rejected_reason(status_code: u16, body: &str) -> TempoError {
-    let raw_reason = tempo_common::payment::classify::extract_json_error(body)
+    let raw_reason = tempo_common::payment::extract_json_error(body)
         .unwrap_or_else(|| body.chars().take(500).collect::<String>());
     let reason = sanitize_for_terminal(&raw_reason);
     PaymentError::PaymentRejected {
@@ -278,7 +278,7 @@ fn parse_rejected_reason(status_code: u16, body: &str) -> TempoError {
 }
 
 fn validate_problem_channel_id(
-    problem: &tempo_common::payment::classify::ProblemDetails,
+    problem: &tempo_common::payment::ProblemDetails,
     expected: B256,
 ) -> Result<(), TempoError> {
     let Some(value) = problem.channel_id.as_deref() else {
@@ -1055,7 +1055,7 @@ pub(crate) async fn handle_session_request(
 /// it is pricing metadata, not channel identity, and varying prices
 /// (e.g. different models on the same origin) must not cause channel churn.
 fn is_session_reusable(
-    record: &tempo_common::payment::session::ChannelRecord,
+    record: &tempo_common::session::ChannelRecord,
     payer: &str,
     escrow: Address,
     token: &str,
@@ -1063,7 +1063,7 @@ fn is_session_reusable(
     chain_id: u64,
     authorized_signer: Address,
 ) -> bool {
-    record.state == tempo_common::payment::session::ChannelStatus::Active
+    record.state == tempo_common::session::ChannelStatus::Active
         && normalize_hex_identifier(&record.payer) == normalize_hex_identifier(payer)
         && record.escrow_contract == escrow
         && normalize_hex_identifier(&record.token) == normalize_hex_identifier(token)
@@ -1278,7 +1278,7 @@ mod tests {
 
     #[test]
     fn on_chain_reusability_requires_open_channel_and_balance() {
-        let channel = tempo_common::payment::session::OnChainChannel {
+        let channel = tempo_common::session::OnChainChannel {
             payer: Address::ZERO,
             payee: Address::ZERO,
             token: Address::ZERO,
@@ -1290,7 +1290,7 @@ mod tests {
         assert_eq!(assess_on_chain_reusability(&channel, 200), Some(300));
         assert_eq!(assess_on_chain_reusability(&channel, 400), None);
 
-        let closing_channel = tempo_common::payment::session::OnChainChannel {
+        let closing_channel = tempo_common::session::OnChainChannel {
             close_requested_at: 1,
             ..channel
         };
@@ -1299,7 +1299,7 @@ mod tests {
 
     #[test]
     fn on_chain_identity_match_checks_all_identity_fields() {
-        let channel = tempo_common::payment::session::OnChainChannel {
+        let channel = tempo_common::session::OnChainChannel {
             payer: Address::from([0x11; 20]),
             payee: Address::from([0x22; 20]),
             token: Address::from([0x33; 20]),

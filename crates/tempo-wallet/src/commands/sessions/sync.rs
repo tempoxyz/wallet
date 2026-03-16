@@ -1,6 +1,6 @@
 use alloy::primitives::Address;
 
-use super::{session_store, ChannelStatus};
+use super::{session, ChannelStatus};
 use tempo_common::{
     analytics::Event,
     cli::context::Context,
@@ -41,7 +41,7 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
 }
 
 async fn sync_global(ctx: &Context) -> Result<SyncSummary, TempoError> {
-    let sessions = session_store::list_channels()?;
+    let sessions = session::list_channels()?;
 
     let mut processed = 0u32;
     let mut removed = 0u32;
@@ -70,7 +70,7 @@ async fn sync_global(ctx: &Context) -> Result<SyncSummary, TempoError> {
             if ctx.verbosity.show_output {
                 eprintln!("  Removed stale session: {}", session.origin);
             }
-            let _ = session_store::delete_channel(&channel_id);
+            let _ = session::delete_channel(&channel_id);
             removed = removed.saturating_add(1);
         }
     }
@@ -84,7 +84,7 @@ async fn sync_global(ctx: &Context) -> Result<SyncSummary, TempoError> {
 
 async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<SyncSummary, TempoError> {
     let origin = normalize_origin(origin_input);
-    let records: Vec<_> = session_store::load_channels_by_origin(&origin)?
+    let records: Vec<_> = session::load_channels_by_origin(&origin)?
         .into_iter()
         .filter(|record| record.network_id() == ctx.network)
         .collect();
@@ -114,7 +114,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<SyncSummary, T
         let on_chain = match get_channel_on_chain(&provider, escrow, rec.channel_id).await {
             Ok(Some(ch)) => ch,
             Ok(None) => {
-                let _ = session_store::delete_channel(&rec.channel_id_hex());
+                let _ = session::delete_channel(&rec.channel_id_hex());
                 removed = removed.saturating_add(1);
                 continue;
             }
@@ -125,12 +125,12 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<SyncSummary, T
             let grace =
                 super::util::resolve_grace_period(&ctx.config, rec.network_id(), escrow).await;
             let ready_at = on_chain.close_requested_at + grace;
-            let status = if ready_at <= session_store::now_secs() {
+            let status = if ready_at <= session::now_secs() {
                 ChannelStatus::Finalizable
             } else {
                 ChannelStatus::Closing
             };
-            let _ = session_store::update_channel_close_state(
+            let _ = session::update_channel_close_state(
                 &rec.channel_id_hex(),
                 status,
                 on_chain.close_requested_at,

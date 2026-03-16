@@ -51,7 +51,7 @@ pub(super) async fn resolve_grace_period(
     escrow: Address,
 ) -> u64 {
     let provider = make_provider(config, network);
-    tempo_common::payment::session::read_grace_period(&provider, escrow)
+    tempo_common::session::read_grace_period(&provider, escrow)
         .await
         .unwrap_or(DEFAULT_GRACE_PERIOD_SECS)
 }

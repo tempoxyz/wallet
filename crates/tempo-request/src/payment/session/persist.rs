@@ -4,9 +4,7 @@ use alloy::primitives::B256;
 
 use tempo_common::error::{PaymentError, TempoError};
 
-use tempo_common::payment::session::{
-    load_channel, now_secs, save_channel, ChannelRecord, ChannelStatus,
-};
+use tempo_common::session::{load_channel, now_secs, save_channel, ChannelRecord, ChannelStatus};
 
 use super::{ChannelContext, ChannelState};
 
