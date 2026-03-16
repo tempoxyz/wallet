@@ -130,6 +130,8 @@ If `ready` is `false`, run `tempo wallet login` and retry.
 | `tempo wallet mpp-sign` | Sign an MPP payment challenge |
 | `tempo wallet --describe` | Emit command schema as JSON for agent introspection |
 
+Session close target selection is deterministic and shared across dry-run and execute paths: `--finalize` > `--orphaned` > `--all` > explicit `<URL|CHANNEL_ID>`.
+
 ## Global Options
 
 These options are available on all commands:

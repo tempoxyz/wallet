@@ -162,5 +162,7 @@ When tempo request fails, read the error message — it tells you which command 
 1. tempo request sends the HTTP request normally
 2. If the server returns `402 Payment Required` with a `WWW-Authenticate: Payment` header, tempo request parses the challenge
 3. For **charge** intent: signs an on-chain payment transaction and retries with an `Authorization: Payment` credential
-4. For **session** intent: opens a payment channel on-chain (first request), then uses off-chain vouchers for subsequent requests to the same origin
+4. For **session** intent: runs staged orchestration (challenge → deposit → reuse/open → request), opens a payment channel on-chain on first use, then uses off-chain vouchers for subsequent requests to the same origin
 5. The server validates the credential and returns the response
+
+Session server-error mapping is centralized, so server-derived rejection reasons are consistently terminal-sanitized and length-bounded before becoming `PaymentRejected` output.

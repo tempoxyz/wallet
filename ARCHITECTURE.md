@@ -118,6 +118,16 @@ This mode requires no persistent state — each request is independently settled
 
 Session orchestration (flow, streaming, voucher) is implemented in `tempo-request/src/payment/session/`. Shared session infrastructure (persistence, channel queries, close operations, tx signing) lives in `tempo-common/src/payment/session/`.
 
+`handle_session_request` is intentionally stage-driven with explicit boundaries:
+
+1. `challenge_stage` parses/validates the challenge and resolves normalized session identity.
+2. `deposit_stage` derives deposit policy and wallet-balance clamp behavior.
+3. `reuse_stage` discovers/revalidates reusable channels (local plus on-chain identity checks).
+4. `open_stage` performs channel open and initial credential handshake.
+5. `request_stage` executes the paid request and receipt persistence.
+
+Session HTTP rejection mapping is centralized in `tempo-request/src/payment/session/error_map.rs` so `flow.rs`, `open.rs`, and `streaming.rs` share one sanitization and length-bounding policy for server-derived `PaymentRejected.reason` text.
+
 1. On first request, a channel is opened on-chain with a deposit.
 2. Subsequent requests exchange off-chain vouchers — signed cumulative amounts — instead of on-chain transactions.
 3. SSE streaming is supported: per-token voucher top-ups are issued as streamed data arrives.
@@ -129,6 +139,8 @@ Voucher transport behavior follows spec guidance for streaming compatibility:
 1. Voucher updates are attempted with `HEAD` first.
 2. Fallback to `POST` is used when `HEAD` is unsupported (`405`/`501`) or transport fails.
 3. Voucher/top-up submissions use a dedicated reqwest client (separate from stream response reading) to avoid head-of-line blocking and improve HTTP/2 multiplexing behavior.
+
+Streaming voucher retries are managed by an explicit coordinator in `streaming.rs` that owns pending-voucher state, retry counters, and stall-timeout backoff progression. This keeps transport retry policy isolated from SSE parsing and protocol decision logic.
 
 ## Wallet Types
 
