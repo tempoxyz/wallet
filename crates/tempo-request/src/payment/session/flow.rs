@@ -388,6 +388,15 @@ async fn run_non_streaming_top_up_recovery(
     state: &mut ChannelState,
     required_top_up: u128,
 ) -> Result<(), TempoError> {
+    if let Some(clamped) = ctx.clamped_deposit {
+        if ctx.http.log_enabled() {
+        eprintln!(
+            "Clamping deposit to 50% of wallet balance: {}",
+            format_token_amount(clamped, ctx.network_id)
+        );
+        }
+    }
+
     let additional_deposit = required_top_up.max(ctx.top_up_deposit);
     let mut echo = ctx.echo.clone();
     let top_up_idempotency_key = new_idempotency_key();
@@ -706,6 +715,7 @@ pub(crate) async fn handle_session_request(
         .map(|value| challenge_u128_parse(value, "session request suggestedDeposit"))
         .transpose()?;
     let mut deposit: u128 = suggested_deposit.unwrap_or(base_units).min(max_deposit);
+    let mut clamped_deposit: Option<u128> = None;
 
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
@@ -716,12 +726,7 @@ pub(crate) async fn handle_session_request(
         let usable = balance_u128 / 2;
         if usable < deposit {
             deposit = usable;
-            if http.log_enabled() {
-                eprintln!(
-                    "Clamping deposit to 50% of wallet balance: {}",
-                    format_token_amount(deposit, network_id)
-                );
-            }
+            clamped_deposit = Some(deposit);
         }
     }
 
@@ -859,6 +864,7 @@ pub(crate) async fn handle_session_request(
             network_id,
             origin: &origin,
             top_up_deposit: deposit,
+            clamped_deposit,
             fee_payer,
             salt: record.salt.clone(),
             payee,
@@ -904,6 +910,12 @@ pub(crate) async fn handle_session_request(
     );
 
     if http.log_enabled() {
+        if let Some(clamped) = clamped_deposit {
+            eprintln!(
+                "Clamping deposit to 50% of wallet balance: {}",
+                format_token_amount(clamped, network_id)
+            );
+        }
         let deposit_display = format_token_amount(deposit, network_id);
         eprintln!("Opening channel {channel_id:#x} (deposit: {deposit_display})");
     }
@@ -998,6 +1010,7 @@ pub(crate) async fn handle_session_request(
         network_id,
         origin: &origin,
         top_up_deposit: deposit,
+        clamped_deposit,
         fee_payer,
         salt: format!("{salt:#x}"),
         payee,

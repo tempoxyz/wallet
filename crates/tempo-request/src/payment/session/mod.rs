@@ -40,6 +40,7 @@ pub(super) struct ChannelContext<'a> {
     pub(super) network_id: NetworkId,
     pub(super) origin: &'a str,
     pub(super) top_up_deposit: u128,
+    pub(super) clamped_deposit: Option<u128>,
     pub(super) fee_payer: bool,
     pub(super) salt: String,
     pub(super) payee: Address,

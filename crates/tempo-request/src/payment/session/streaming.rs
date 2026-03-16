@@ -1171,6 +1171,7 @@ mod tests {
             network_id: tempo_common::network::NetworkId::Tempo,
             origin: "http://127.0.0.1",
             top_up_deposit: 100,
+            clamped_deposit: None,
             fee_payer: false,
             salt: "0x00".to_string(),
             payee: "0x0000000000000000000000000000000000000002"
@@ -1245,6 +1246,7 @@ mod tests {
             network_id: tempo_common::network::NetworkId::Tempo,
             origin: "http://127.0.0.1",
             top_up_deposit: 100,
+            clamped_deposit: None,
             fee_payer: false,
             salt: "0x00".to_string(),
             payee: "0x0000000000000000000000000000000000000002"
@@ -1310,6 +1312,7 @@ mod tests {
             network_id: tempo_common::network::NetworkId::Tempo,
             origin: "http://127.0.0.1",
             top_up_deposit: 100,
+            clamped_deposit: None,
             fee_payer: false,
             salt: "0x00".to_string(),
             payee: "0x0000000000000000000000000000000000000002"
