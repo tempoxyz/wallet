@@ -129,6 +129,61 @@ fn classify_session_failure(status_code: u16, body: &str) -> SessionRequestFailu
     SessionRequestFailureKind::Other
 }
 
+fn challenge_channel_id_parse(value: &str, context: &'static str) -> Result<B256, TempoError> {
+    value.parse::<B256>().map_err(|_| {
+        PaymentError::ChallengeParse {
+            context,
+            reason: format!("invalid channelId bytes32 value: {value}"),
+        }
+        .into()
+    })
+}
+
+fn assess_on_chain_reusability(channel: &session::OnChainChannel, amount: u128) -> Option<u128> {
+    if channel.close_requested_at != 0 {
+        return None;
+    }
+
+    let available_balance = channel.deposit.saturating_sub(channel.settled);
+    if available_balance < amount {
+        return None;
+    }
+
+    Some(available_balance)
+}
+
+async fn validate_reusable_channel_on_chain(
+    provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
+    escrow_contract: Address,
+    channel_id: B256,
+    amount: u128,
+) -> Result<Option<(session::OnChainChannel, u128)>, TempoError> {
+    let Some(on_chain) =
+        session::get_channel_on_chain(provider, escrow_contract, channel_id).await?
+    else {
+        return Ok(None);
+    };
+
+    let Some(available_balance) = assess_on_chain_reusability(&on_chain, amount) else {
+        return Ok(None);
+    };
+
+    Ok(Some((on_chain, available_balance)))
+}
+
+fn is_on_chain_identity_match(
+    on_chain: &session::OnChainChannel,
+    payer: Address,
+    payee: Address,
+    token: Address,
+    authorized_signer: Address,
+) -> bool {
+    on_chain.payer == payer
+        && on_chain.payee == payee
+        && on_chain.token == token
+        && on_chain.authorized_signer == authorized_signer
+}
+
 /// Send the actual session request with a voucher and handle the response.
 ///
 /// Bypasses [`crate::http::HttpClient::execute()`] and uses the raw reqwest client directly
@@ -339,11 +394,17 @@ pub(crate) async fn handle_session_request(
 
     let key_address = signer.signer.address();
     let from = signer.from;
+    let suggested_channel_id = session_req
+        .channel_id()
+        .as_deref()
+        .map(|value| challenge_channel_id_parse(value, "session request methodDetails.channelId"))
+        .transpose()?;
 
     // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
     let origin = extract_origin(url);
     let session_key = session::session_key(url);
+    let payer_hex = format!("{from:#x}");
 
     // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).
     // Cap at 5 tokens to limit exposure to malicious servers.
@@ -360,9 +421,8 @@ pub(crate) async fn handle_session_request(
     // Query on-chain token balance and clamp deposit to available funds.
     // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
     // gas is paid in USDC via account abstraction).
-    let balance_provider =
-        alloy::providers::ProviderBuilder::new().connect_http(resolved.rpc_url.clone());
-    if let Ok(balance) = session::query_token_balance(&balance_provider, token, from).await {
+    let provider = alloy::providers::RootProvider::new_http(resolved.rpc_url.clone());
+    if let Ok(balance) = session::query_token_balance(&provider, token, from).await {
         let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
         let usable = balance_u128 / 2;
         if usable < deposit {
@@ -391,47 +451,114 @@ pub(crate) async fn handle_session_request(
             .map_err(|e| session_store_error("acquire session lock", e))?,
     );
 
-    // Check for an existing persisted session (inside the lock so that
-    // concurrent workers see channels opened by earlier workers).
-    // Reuse requires matching payer and channel identity fields (escrow,
-    // token, payee, chain). The request price is not part of
-    // channel identity — varying prices (e.g. different models on the
-    // same origin) must not cause channel churn.
-    let existing = session::find_reusable_channel(
+    // Build reuse candidates in priority order:
+    // 1) server-suggested channelId (if present),
+    // 2) most-recent local reusable channel for this origin.
+    let mut reuse_candidates: Vec<session::ChannelRecord> = Vec::new();
+    if let Some(channel_id) = suggested_channel_id {
+        let channel_id_hex = format!("{channel_id:#x}");
+        let loaded = session::load_channel(&channel_id_hex)
+            .map_err(|err| session_store_error("load channel", err))?;
+        if let Some(record) = loaded {
+            reuse_candidates.push(record);
+        } else if let Some((on_chain, _available_balance)) =
+            validate_reusable_channel_on_chain(&provider, escrow_contract, channel_id, amount)
+                .await?
+        {
+            if is_on_chain_identity_match(&on_chain, from, payee, token, key_address) {
+                let now = session::now_secs();
+                let challenge_echo = serde_json::to_string(&echo)
+                    .map_err(|err| session_store_error("serialize challenge echo", err))?;
+                reuse_candidates.push(session::ChannelRecord {
+                    version: 1,
+                    origin: origin.clone(),
+                    request_url: url.to_string(),
+                    chain_id,
+                    escrow_contract,
+                    token: token_hex.clone(),
+                    payee: payee_hex.clone(),
+                    payer: payer_hex.clone(),
+                    authorized_signer: key_address,
+                    salt: "0x00".to_string(),
+                    channel_id,
+                    deposit: on_chain.deposit,
+                    cumulative_amount: on_chain.settled,
+                    challenge_echo,
+                    state: session::ChannelStatus::Active,
+                    close_requested_at: 0,
+                    grace_ready_at: 0,
+                    created_at: now,
+                    last_used_at: now,
+                });
+            }
+        }
+    }
+
+    if let Some(record) = session::find_reusable_channel(
         &origin,
-        &format!("{from:#x}"),
+        &payer_hex,
         escrow_contract,
         &token_hex,
         &payee_hex,
         chain_id,
     )
-    .map_err(|err| session_store_error("load session", err))?;
-    let reuse = existing.as_ref().is_some_and(|r| {
-        is_session_reusable(
-            r,
-            &format!("{from:#x}"),
+    .map_err(|err| session_store_error("load session", err))?
+    {
+        let seen = reuse_candidates.iter().any(|candidate| {
+            normalize_hex_identifier(&candidate.channel_id_hex())
+                == normalize_hex_identifier(&record.channel_id_hex())
+        });
+        if !seen {
+            reuse_candidates.push(record);
+        }
+    }
+
+    let mut reusable_channel = None;
+    for candidate in reuse_candidates {
+        if !is_session_reusable(
+            &candidate,
+            &payer_hex,
             escrow_contract,
             &token_hex,
             &payee_hex,
             chain_id,
-        )
-    });
+            key_address,
+        ) {
+            continue;
+        }
 
-    if reuse {
-        let record = existing.unwrap();
+        let Some((on_chain, available_balance)) = validate_reusable_channel_on_chain(
+            &provider,
+            escrow_contract,
+            candidate.channel_id,
+            amount,
+        )
+        .await?
+        else {
+            continue;
+        };
+
+        if !is_on_chain_identity_match(&on_chain, from, payee, token, key_address) {
+            continue;
+        }
+
+        reusable_channel = Some((candidate, on_chain.deposit, available_balance));
+        break;
+    }
+
+    if let Some((record, on_chain_deposit, available_balance)) = reusable_channel {
         if http.log_enabled() {
             eprintln!("Reusing session {} for {}", record.channel_id_hex(), origin);
         }
 
         let channel_id: B256 = record.channel_id;
         let prev_cumulative: u128 = record.cumulative_amount_u128();
-        let prev_deposit: u128 = record.deposit;
 
         let mut state = ChannelState {
             channel_id,
             escrow_contract,
             chain_id,
-            cumulative_amount: (prev_cumulative + amount).min(prev_deposit),
+            cumulative_amount: (prev_cumulative + amount).min(available_balance),
         };
 
         let ctx = ChannelContext {
@@ -443,7 +570,7 @@ pub(crate) async fn handle_session_request(
             url,
             network_id,
             origin: &origin,
-            deposit: prev_deposit,
+            deposit: on_chain_deposit,
             salt: record.salt.clone(),
             payee,
             token,
@@ -635,6 +762,7 @@ fn is_session_reusable(
     token: &str,
     payee: &str,
     chain_id: u64,
+    authorized_signer: Address,
 ) -> bool {
     record.state == tempo_common::payment::session::ChannelStatus::Active
         && normalize_hex_identifier(&record.payer) == normalize_hex_identifier(payer)
@@ -642,12 +770,14 @@ fn is_session_reusable(
         && normalize_hex_identifier(&record.token) == normalize_hex_identifier(token)
         && normalize_hex_identifier(&record.payee) == normalize_hex_identifier(payee)
         && record.chain_id == chain_id
+        && record.authorized_signer == authorized_signer
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_session_failure, is_session_reusable, normalize_hex_identifier,
+        assess_on_chain_reusability, challenge_channel_id_parse, classify_session_failure,
+        is_on_chain_identity_match, is_session_reusable, normalize_hex_identifier,
         session_store_error, SessionRequestFailureKind,
     };
     use alloy::primitives::Address;
@@ -703,6 +833,7 @@ mod tests {
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
             4217,
+            Address::ZERO,
         ));
     }
 
@@ -716,6 +847,7 @@ mod tests {
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
             4217,
+            Address::ZERO,
         ));
     }
 
@@ -729,6 +861,7 @@ mod tests {
             "0x0000000000000000000000000000000000000001",
             "0xdifferentrecipient",
             4217,
+            Address::ZERO,
         ));
     }
 
@@ -742,6 +875,7 @@ mod tests {
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
             42431, // different chain
+            Address::ZERO,
         ));
     }
 
@@ -758,6 +892,7 @@ mod tests {
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
             4217,
+            Address::ZERO,
         ));
     }
 
@@ -782,5 +917,62 @@ mod tests {
     #[test]
     fn normalize_hex_identifier_handles_prefix_case() {
         assert_eq!(normalize_hex_identifier("0XABCDEF"), "0xabcdef".to_string());
+    }
+
+    #[test]
+    fn challenge_channel_id_parse_rejects_invalid_bytes32() {
+        assert!(
+            challenge_channel_id_parse("0x1234", "ctx").is_err(),
+            "short channel IDs must be rejected"
+        );
+    }
+
+    #[test]
+    fn on_chain_reusability_requires_open_channel_and_balance() {
+        let channel = tempo_common::payment::session::OnChainChannel {
+            payer: Address::ZERO,
+            payee: Address::ZERO,
+            token: Address::ZERO,
+            authorized_signer: Address::ZERO,
+            deposit: 1_000,
+            settled: 700,
+            close_requested_at: 0,
+        };
+        assert_eq!(assess_on_chain_reusability(&channel, 200), Some(300));
+        assert_eq!(assess_on_chain_reusability(&channel, 400), None);
+
+        let closing_channel = tempo_common::payment::session::OnChainChannel {
+            close_requested_at: 1,
+            ..channel
+        };
+        assert_eq!(assess_on_chain_reusability(&closing_channel, 100), None);
+    }
+
+    #[test]
+    fn on_chain_identity_match_checks_all_identity_fields() {
+        let channel = tempo_common::payment::session::OnChainChannel {
+            payer: Address::from([0x11; 20]),
+            payee: Address::from([0x22; 20]),
+            token: Address::from([0x33; 20]),
+            authorized_signer: Address::from([0x44; 20]),
+            deposit: 1,
+            settled: 0,
+            close_requested_at: 0,
+        };
+
+        assert!(is_on_chain_identity_match(
+            &channel,
+            Address::from([0x11; 20]),
+            Address::from([0x22; 20]),
+            Address::from([0x33; 20]),
+            Address::from([0x44; 20])
+        ));
+        assert!(!is_on_chain_identity_match(
+            &channel,
+            Address::from([0x10; 20]),
+            Address::from([0x22; 20]),
+            Address::from([0x33; 20]),
+            Address::from([0x44; 20])
+        ));
     }
 }

@@ -32,6 +32,7 @@ pub(super) fn persist_session(
     let record = if let Some(mut rec) = existing {
         // Update existing record
         rec.set_cumulative_amount(state.cumulative_amount);
+        rec.deposit = ctx.deposit;
         rec.challenge_echo = echo_json;
         rec.touch();
         rec

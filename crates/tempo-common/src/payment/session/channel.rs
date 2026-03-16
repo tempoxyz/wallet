@@ -56,7 +56,10 @@ sol! {
 
 /// On-chain channel state returned by recovery functions.
 pub struct OnChainChannel {
+    pub payer: Address,
+    pub payee: Address,
     pub token: Address,
+    pub authorized_signer: Address,
     pub deposit: u128,
     pub settled: u128,
     pub close_requested_at: u64,
@@ -207,7 +210,10 @@ pub async fn get_channel_on_chain(
     }
 
     Ok(Some(OnChainChannel {
+        payer: decoded.payer,
+        payee: decoded.payee,
         token: decoded.token,
+        authorized_signer: decoded.authorizedSigner,
         deposit: decoded.deposit,
         settled: decoded.settled,
         close_requested_at: decoded.closeRequestedAt,
