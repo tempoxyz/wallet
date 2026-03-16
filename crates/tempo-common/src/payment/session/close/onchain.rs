@@ -10,7 +10,7 @@ use super::{
     super::{
         channel::{get_channel_on_chain, read_grace_period, IEscrow},
         store as session_store,
-        store::SessionStatus,
+        store::ChannelStatus,
         tx::submit_tempo_tx,
         DEFAULT_GRACE_PERIOD_SECS,
     },
@@ -23,7 +23,7 @@ use crate::{
     network::NetworkId,
 };
 
-type SessionResult<T> = Result<T, TempoError>;
+type ChannelResult<T> = Result<T, TempoError>;
 
 /// Submit `requestClose()` or `withdraw()` directly on-chain as a Tempo type-0x76 transaction.
 ///
@@ -45,7 +45,7 @@ pub(super) async fn close_on_chain(
     escrow_contract: Address,
     chain_id: u64,
     fee_token: Address,
-) -> SessionResult<CloseOutcome> {
+) -> ChannelResult<CloseOutcome> {
     let network_id = NetworkId::require_chain_id(chain_id)?;
     let rpc_url = config.rpc_url(network_id);
     let provider = alloy::providers::RootProvider::new_http(rpc_url.clone());
@@ -90,9 +90,9 @@ pub(super) async fn close_on_chain(
         let ready_at = now + grace_secs;
 
         // Update local session state if present
-        let _ = session_store::update_session_close_state_by_channel_id(
-            channel_id,
-            SessionStatus::Closing,
+        let _ = session_store::update_channel_close_state(
+            &format!("{channel_id:#x}"),
+            ChannelStatus::Closing,
             now,
             ready_at,
         );
@@ -113,9 +113,9 @@ pub(super) async fn close_on_chain(
 
         // Ensure pending close is persisted so `session list` can show the countdown
         // Update local session state if present
-        let _ = session_store::update_session_close_state_by_channel_id(
-            channel_id,
-            SessionStatus::Closing,
+        let _ = session_store::update_channel_close_state(
+            &format!("{channel_id:#x}"),
+            ChannelStatus::Closing,
             on_chain.close_requested_at,
             ready_at,
         );
@@ -146,9 +146,9 @@ pub(super) async fn close_on_chain(
     tracing::info!("withdraw TX: {}", tx_url);
 
     // Best-effort local cleanup is handled by callers, but mark state finalizable->finalized if present
-    let _ = session_store::update_session_close_state_by_channel_id(
-        channel_id,
-        SessionStatus::Finalizable,
+    let _ = session_store::update_channel_close_state(
+        &format!("{channel_id:#x}"),
+        ChannelStatus::Finalizable,
         on_chain.close_requested_at,
         now,
     );
@@ -173,7 +173,7 @@ pub async fn close_discovered_channel(
     channel: &super::super::channel::DiscoveredChannel,
     config: &Config,
     keys: &Keystore,
-) -> SessionResult<CloseOutcome> {
+) -> ChannelResult<CloseOutcome> {
     let network_id = channel.network;
     let wallet = keys.signer(network_id)?;
 
@@ -183,7 +183,7 @@ pub async fn close_discovered_channel(
         channel.channel_id,
         channel.escrow_contract,
         network_id.chain_id(),
-        channel.currency,
+        channel.token,
     )
     .await
 }
@@ -204,7 +204,7 @@ pub async fn close_channel_by_id(
     network: NetworkId,
     wallet_override: Option<&Signer>,
     keys: &Keystore,
-) -> SessionResult<CloseOutcome> {
+) -> ChannelResult<CloseOutcome> {
     let channel_id: B256 =
         channel_id_hex
             .parse()
@@ -238,7 +238,7 @@ pub async fn close_channel_by_id(
         channel_id,
         escrow,
         network.chain_id(),
-        on_chain.currency,
+        on_chain.token,
     )
     .await
 }

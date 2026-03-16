@@ -4,7 +4,7 @@ use alloy::primitives::Address;
 
 use super::{
     render::{render_channel_list, ChannelView},
-    session_store, SessionStatus,
+    session_store, ChannelStatus,
 };
 use crate::args::SessionStateArg;
 use tempo_common::{
@@ -17,7 +17,7 @@ use tempo_common::{
 /// view of active, orphaned, and closing channels. With `--state orphaned`,
 /// scans on-chain for channels without a local session. With `--state finalizable`,
 /// shows channels pending finalization (requestClose submitted, awaiting grace period).
-pub(super) async fn list_sessions(
+pub(super) async fn list_channels(
     ctx: &Context,
     states: Vec<SessionStateArg>,
 ) -> Result<(), TempoError> {
@@ -44,7 +44,7 @@ pub(super) async fn list_sessions(
     };
 
     // Local sessions (active/closing/finalizable)
-    let sessions = session_store::list_sessions()?;
+    let sessions = session_store::list_channels()?;
     let filtered_local: Vec<_> = sessions
         .iter()
         .filter(|s| s.network_id() == network)
@@ -57,9 +57,9 @@ pub(super) async fn list_sessions(
         let (session_status, _) = s.status_at(session_store::now_secs());
         let v = ChannelView::from(*s);
         let matches = match session_status {
-            SessionStatus::Active => selected.contains(&SessionStateArg::Active),
-            SessionStatus::Closing => selected.contains(&SessionStateArg::Closing),
-            SessionStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
+            ChannelStatus::Active => selected.contains(&SessionStateArg::Active),
+            ChannelStatus::Closing => selected.contains(&SessionStateArg::Closing),
+            ChannelStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
             _ => false,
         };
         if matches {
@@ -111,9 +111,9 @@ pub(super) async fn list_sessions(
             v.origin = Some(String::new());
 
             let include = match v.status {
-                SessionStatus::Orphaned => selected.contains(&SessionStateArg::Orphaned),
-                SessionStatus::Closing => selected.contains(&SessionStateArg::Closing),
-                SessionStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
+                ChannelStatus::Orphaned => selected.contains(&SessionStateArg::Orphaned),
+                ChannelStatus::Closing => selected.contains(&SessionStateArg::Closing),
+                ChannelStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
                 _ => false,
             };
             if !include {
@@ -150,18 +150,18 @@ mod tests {
     use tempo_common::payment::session::DEFAULT_GRACE_PERIOD_SECS;
 
     fn make_record(
-        state: SessionStatus,
+        state: ChannelStatus,
         grace_ready_at: u64,
         last_used_at: u64,
-    ) -> session_store::SessionRecord {
-        session_store::SessionRecord {
+    ) -> session_store::ChannelRecord {
+        session_store::ChannelRecord {
             version: 1,
             origin: "https://api.example.com".into(),
             request_url: "https://api.example.com/v1".into(),
             chain_id: 4217,
             escrow_contract: Address::ZERO,
-            currency: "0x00".into(),
-            recipient: "0x00".into(),
+            token: "0x00".into(),
+            payee: "0x00".into(),
             payer: "did:pkh:eip155:4217:0x00".into(),
             authorized_signer: Address::ZERO,
             salt: "0x00".into(),
@@ -172,7 +172,7 @@ mod tests {
             cumulative_amount: 2_000,
             challenge_echo: "{}".into(),
             state,
-            close_requested_at: if state == SessionStatus::Closing {
+            close_requested_at: if state == ChannelStatus::Closing {
                 grace_ready_at.saturating_sub(DEFAULT_GRACE_PERIOD_SECS)
             } else {
                 0
@@ -186,9 +186,9 @@ mod tests {
     #[test]
     fn test_view_from_session_active() {
         let now = session_store::now_secs();
-        let rec = make_record(SessionStatus::Active, 0, now);
+        let rec = make_record(ChannelStatus::Active, 0, now);
         let view = ChannelView::from(&rec);
-        assert_eq!(view.status, SessionStatus::Active);
+        assert_eq!(view.status, ChannelStatus::Active);
         assert!(view.remaining_secs.is_none());
     }
 
@@ -196,15 +196,15 @@ mod tests {
     fn test_view_from_session_closing_and_finalizable() {
         let now = session_store::now_secs();
         // Closing with time remaining
-        let rec = make_record(SessionStatus::Closing, now + 120, now);
+        let rec = make_record(ChannelStatus::Closing, now + 120, now);
         let view = ChannelView::from(&rec);
-        assert_eq!(view.status, SessionStatus::Closing);
+        assert_eq!(view.status, ChannelStatus::Closing);
         assert_eq!(view.remaining_secs, Some(120));
 
         // Finalizable (ready_at <= now)
-        let rec2 = make_record(SessionStatus::Closing, now, now);
+        let rec2 = make_record(ChannelStatus::Closing, now, now);
         let view2 = ChannelView::from(&rec2);
-        assert_eq!(view2.status, SessionStatus::Finalizable);
+        assert_eq!(view2.status, ChannelStatus::Finalizable);
         assert_eq!(view2.remaining_secs, Some(0));
     }
 }

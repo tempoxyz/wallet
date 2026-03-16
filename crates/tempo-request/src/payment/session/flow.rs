@@ -14,7 +14,7 @@ use super::{
     persist::persist_session,
     streaming,
     voucher::{build_open_payload, build_voucher_credential},
-    SessionContext, SessionState,
+    ChannelContext, ChannelState,
 };
 use crate::{
     http::HttpResponse,
@@ -34,7 +34,7 @@ fn session_store_error<E>(operation: &'static str, source: E) -> TempoError
 where
     E: Error + Send + Sync + 'static,
 {
-    PaymentError::SessionPersistenceSource {
+    PaymentError::ChannelPersistenceSource {
         operation,
         source: Box::new(source),
     }
@@ -42,7 +42,7 @@ where
 }
 
 fn session_reuse_preserved_error(source: TempoError) -> TempoError {
-    PaymentError::SessionPersistenceContextSource {
+    PaymentError::ChannelPersistenceContextSource {
         operation: "session request reuse",
         context: "Session request failed; session state preserved for on-chain dispute",
         source: Box::new(source),
@@ -70,8 +70,8 @@ fn challenge_address_parse(
 /// because session streaming requires access to `reqwest::Response` for SSE
 /// `bytes_stream()`, which `execute()` does not expose.
 async fn send_session_request(
-    ctx: &SessionContext<'_>,
-    state: &mut SessionState,
+    ctx: &ChannelContext<'_>,
+    state: &mut ChannelState,
 ) -> Result<PaymentResult, TempoError> {
     let voucher_credential = build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
 
@@ -115,7 +115,7 @@ async fn send_session_request(
         streaming::stream_sse_response(ctx, state, response).await?;
         Ok(PaymentResult {
             tx_hash: None,
-            session_id: Some(channel_id),
+            channel_id: Some(channel_id),
             status_code: 200,
             response: None,
         })
@@ -125,7 +125,7 @@ async fn send_session_request(
 
         Ok(PaymentResult {
             tx_hash: None,
-            session_id: Some(channel_id),
+            channel_id: Some(channel_id),
             status_code,
             response: Some(http_response),
         })
@@ -196,12 +196,12 @@ pub(crate) async fn handle_session_request(
         .into());
     }
 
-    let currency: Address = session_req
+    let token: Address = session_req
         .currency
         .parse()
         .map_err(|source| challenge_address_parse("session challenge currency", source))?;
 
-    let recipient: Address = session_req
+    let payee: Address = session_req
         .recipient
         .as_deref()
         .ok_or_else(|| challenge_missing_field("session challenge recipient", "recipient"))?
@@ -235,11 +235,8 @@ pub(crate) async fn handle_session_request(
             "Currency: {}",
             address_link(resolved.network_id, &session_req.currency)
         );
-        if let Some(ref recipient) = session_req.recipient {
-            println!(
-                "Recipient: {}",
-                address_link(resolved.network_id, recipient)
-            );
+        if let Some(ref payee) = session_req.recipient {
+            println!("Recipient: {}", address_link(resolved.network_id, payee));
         }
         if let Some(ref deposit) = session_req.suggested_deposit {
             let deposit_val: u128 = deposit.parse().unwrap_or(0);
@@ -249,7 +246,7 @@ pub(crate) async fn handle_session_request(
 
         return Ok(PaymentResult {
             tx_hash: None,
-            session_id: None,
+            channel_id: None,
             status_code: 200,
             response: None,
         });
@@ -280,7 +277,7 @@ pub(crate) async fn handle_session_request(
     // gas is paid in USDC via account abstraction).
     let balance_provider =
         alloy::providers::ProviderBuilder::new().connect_http(resolved.rpc_url.clone());
-    if let Ok(balance) = session::query_token_balance(&balance_provider, currency, from).await {
+    if let Ok(balance) = session::query_token_balance(&balance_provider, token, from).await {
         let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
         let usable = balance_u128 / 2;
         if usable < deposit {
@@ -295,8 +292,8 @@ pub(crate) async fn handle_session_request(
     }
 
     let did = format!("did:pkh:eip155:{chain_id}:{from:#x}");
-    let recipient_hex = format!("{recipient:#x}");
-    let currency_hex = format!("{currency:#x}");
+    let payee_hex = format!("{payee:#x}");
+    let token_hex = format!("{token:#x}");
 
     // === Reuse check + open (under lock) ===
     //
@@ -310,18 +307,25 @@ pub(crate) async fn handle_session_request(
     // Check for an existing persisted session (inside the lock so that
     // concurrent workers see channels opened by earlier workers).
     // Reuse requires matching payer and channel identity fields (escrow,
-    // currency, recipient, chain). The request price is not part of
+    // token, payee, chain). The request price is not part of
     // channel identity — varying prices (e.g. different models on the
     // same origin) must not cause channel churn.
-    let existing = session::load_session(&session_key)
-        .map_err(|err| session_store_error("load session", err))?;
+    let existing = session::find_reusable_channel(
+        &origin,
+        &format!("{from:#x}"),
+        escrow_contract,
+        &token_hex,
+        &payee_hex,
+        chain_id,
+    )
+    .map_err(|err| session_store_error("load session", err))?;
     let reuse = existing.as_ref().is_some_and(|r| {
         is_session_reusable(
             r,
-            &did,
+            &format!("{from:#x}"),
             escrow_contract,
-            &currency_hex,
-            &recipient_hex,
+            &token_hex,
+            &payee_hex,
             chain_id,
         )
     });
@@ -336,15 +340,16 @@ pub(crate) async fn handle_session_request(
         let prev_cumulative: u128 = record.cumulative_amount_u128();
         let prev_deposit: u128 = record.deposit;
 
-        let mut state = SessionState {
+        let mut state = ChannelState {
             channel_id,
             escrow_contract,
             chain_id,
             cumulative_amount: (prev_cumulative + amount).min(prev_deposit),
         };
 
-        let ctx = SessionContext {
+        let ctx = ChannelContext {
             signer: &signer.signer,
+            payer: from,
             echo: &echo,
             did: &did,
             http,
@@ -353,8 +358,8 @@ pub(crate) async fn handle_session_request(
             origin: &origin,
             deposit: prev_deposit,
             salt: record.salt.clone(),
-            recipient,
-            currency,
+            payee,
+            token,
             reqwest_client: http.client(),
         };
 
@@ -381,8 +386,8 @@ pub(crate) async fn handle_session_request(
     let authorized_signer = key_address;
     let channel_id = compute_channel_id(
         from,
-        recipient,
-        currency,
+        payee,
+        token,
         salt,
         authorized_signer,
         escrow_contract,
@@ -395,10 +400,10 @@ pub(crate) async fn handle_session_request(
     }
 
     let open_calls = session::build_open_calls(
-        currency,
+        token,
         escrow_contract,
         deposit,
-        recipient,
+        payee,
         salt,
         authorized_signer,
     );
@@ -421,7 +426,7 @@ pub(crate) async fn handle_session_request(
         resolved.rpc_url.as_str(),
         &signer,
         open_calls,
-        currency,
+        token,
         chain_id,
     )
     .await?;
@@ -460,15 +465,16 @@ pub(crate) async fn handle_session_request(
         }
     }
 
-    let mut state = SessionState {
+    let mut state = ChannelState {
         channel_id,
         escrow_contract,
         chain_id,
         cumulative_amount: initial_cumulative,
     };
 
-    let ctx = SessionContext {
+    let ctx = ChannelContext {
         signer: &signer.signer,
+        payer: from,
         echo: &echo,
         did: &did,
         http,
@@ -477,8 +483,8 @@ pub(crate) async fn handle_session_request(
         origin: &origin,
         deposit,
         salt: format!("{salt:#x}"),
-        recipient,
-        currency,
+        payee,
+        token,
         reqwest_client: http.client(),
     };
 
@@ -496,7 +502,7 @@ pub(crate) async fn handle_session_request(
         drop(lock_guard);
         return Ok(PaymentResult {
             tx_hash: None,
-            session_id: Some(format!("{channel_id:#x}")),
+            channel_id: Some(format!("{channel_id:#x}")),
             status_code: open_response.status_code,
             response: Some(open_response),
         });
@@ -516,21 +522,22 @@ pub(crate) async fn handle_session_request(
 /// Check whether a persisted session record can be reused for a new request.
 ///
 /// Reuse requires matching payer and channel identity fields (escrow,
-/// currency, recipient, chain). The request price is not checked —
+/// token, payee, chain). The request price is not checked —
 /// it is pricing metadata, not channel identity, and varying prices
 /// (e.g. different models on the same origin) must not cause channel churn.
 fn is_session_reusable(
-    record: &tempo_common::payment::session::SessionRecord,
-    payer_did: &str,
+    record: &tempo_common::payment::session::ChannelRecord,
+    payer: &str,
     escrow: Address,
-    currency: &str,
-    recipient: &str,
+    token: &str,
+    payee: &str,
     chain_id: u64,
 ) -> bool {
-    record.payer == payer_did
+    record.state == tempo_common::payment::session::ChannelStatus::Active
+        && record.payer == payer
         && record.escrow_contract == escrow
-        && record.currency == currency
-        && record.recipient == recipient
+        && record.token == token
+        && record.payee == payee
         && record.chain_id == chain_id
 }
 
@@ -540,19 +547,19 @@ mod tests {
     use alloy::primitives::Address;
     use tempo_common::{
         error::{PaymentError, TempoError},
-        payment::session::{now_secs, SessionRecord, SessionStatus},
+        payment::session::{now_secs, ChannelRecord, ChannelStatus},
     };
 
-    fn make_record() -> SessionRecord {
+    fn make_record() -> ChannelRecord {
         let now = now_secs();
-        SessionRecord {
+        ChannelRecord {
             version: 1,
             origin: "https://openrouter.mpp.tempo.xyz".into(),
             request_url: "https://openrouter.mpp.tempo.xyz/v1/chat/completions".into(),
             chain_id: 4217,
             escrow_contract: Address::ZERO,
-            currency: "0x0000000000000000000000000000000000000001".into(),
-            recipient: "0x0000000000000000000000000000000000000002".into(),
+            token: "0x0000000000000000000000000000000000000001".into(),
+            payee: "0x0000000000000000000000000000000000000002".into(),
             payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000099".into(),
             authorized_signer: Address::ZERO,
             salt: "0x00".into(),
@@ -560,7 +567,7 @@ mod tests {
             deposit: 1_000_000,
             cumulative_amount: 500,
             challenge_echo: "echo".into(),
-            state: SessionStatus::Active,
+            state: ChannelStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             created_at: now,
@@ -572,7 +579,7 @@ mod tests {
     fn session_store_error_maps_to_payment_error() {
         let err = session_store_error("load session", std::io::Error::other("sqlite busy"));
         match err {
-            TempoError::Payment(PaymentError::SessionPersistenceSource { operation, source }) => {
+            TempoError::Payment(PaymentError::ChannelPersistenceSource { operation, source }) => {
                 assert_eq!(operation, "load session");
                 assert_eq!(source.to_string(), "sqlite busy");
             }

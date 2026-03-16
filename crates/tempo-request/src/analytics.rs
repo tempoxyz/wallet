@@ -39,7 +39,7 @@ pub(crate) struct PaymentSuccessPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tx_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) session_id: Option<String>,
+    pub(crate) channel_id: Option<String>,
     pub(crate) intent: String,
 }
 

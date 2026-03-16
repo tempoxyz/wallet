@@ -19,7 +19,7 @@ use crate::http::HttpClient;
 use tempo_common::network::NetworkId;
 
 /// State for an active session channel.
-pub(super) struct SessionState {
+pub(super) struct ChannelState {
     pub(super) channel_id: B256,
     pub(super) escrow_contract: Address,
     pub(super) chain_id: u64,
@@ -27,8 +27,9 @@ pub(super) struct SessionState {
 }
 
 /// Shared context for session operations (streaming, closing).
-pub(super) struct SessionContext<'a> {
+pub(super) struct ChannelContext<'a> {
     pub(super) signer: &'a alloy::signers::local::PrivateKeySigner,
+    pub(super) payer: Address,
     pub(super) echo: &'a mpp::ChallengeEcho,
     pub(super) did: &'a str,
     pub(super) http: &'a HttpClient,
@@ -37,8 +38,8 @@ pub(super) struct SessionContext<'a> {
     pub(super) origin: &'a str,
     pub(super) deposit: u128,
     pub(super) salt: String,
-    pub(super) recipient: Address,
-    pub(super) currency: Address,
+    pub(super) payee: Address,
+    pub(super) token: Address,
     /// Shared reqwest client for connection pooling across session requests.
     pub(super) reqwest_client: &'a reqwest::Client,
 }

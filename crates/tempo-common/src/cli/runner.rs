@@ -58,7 +58,7 @@ where
     let (cmd_name, result) = handler(ctx).await;
     let duration = start.elapsed();
 
-    let session_store_diagnostics = session::take_store_diagnostics();
+    let session_store_diagnostics = session::take_channel_store_diagnostics();
     let keystore_diagnostics = keys::take_keystore_load_summary();
     if let Some(ref a) = analytics {
         if session_store_diagnostics.malformed_load_drops > 0

@@ -19,7 +19,7 @@ use crate::{
     error::{KeyError, NetworkError, PaymentError, TempoError},
 };
 
-type SessionResult<T> = Result<T, TempoError>;
+type ChannelResult<T> = Result<T, TempoError>;
 
 /// Attempt a cooperative (server-side) close of a session without on-chain fallback.
 ///
@@ -27,9 +27,9 @@ type SessionResult<T> = Result<T, TempoError>;
 /// typically discarded because the caller will open a new channel regardless.
 #[allow(dead_code)]
 async fn try_cooperative_close_from_record(
-    record: &session_store::SessionRecord,
+    record: &session_store::ChannelRecord,
     keys: &crate::keys::Keystore,
-) -> SessionResult<()> {
+) -> ChannelResult<()> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).map_err(|source| {
         NetworkError::ResponseParse {
             context: "persisted challenge echo",
@@ -66,7 +66,7 @@ async fn try_cooperative_close_from_record(
 /// Returns the settlement transaction URL on success (if available).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn try_server_close(
-    record: &session_store::SessionRecord,
+    record: &session_store::ChannelRecord,
     echo: &ChallengeEcho,
     signer: &alloy::signers::local::PrivateKeySigner,
     channel_id: B256,
@@ -74,7 +74,7 @@ pub(super) async fn try_server_close(
     chain_id: u64,
     cumulative_amount: u128,
     client: &reqwest::Client,
-) -> SessionResult<Option<String>> {
+) -> ChannelResult<Option<String>> {
     let close_url = if record.request_url.is_empty() {
         &record.origin
     } else {
@@ -218,7 +218,7 @@ mod tests {
         let (base, counters, _handle) = spawn_test_server().await;
 
         // Minimal synthetic record
-        let record = session_store::SessionRecord {
+        let record = session_store::ChannelRecord {
             version: 1,
             origin: base.clone(),
             request_url: base.clone(),
@@ -226,8 +226,8 @@ mod tests {
             escrow_contract: "0x0000000000000000000000000000000000000001"
                 .parse()
                 .unwrap(),
-            currency: "0x0000000000000000000000000000000000000001".into(),
-            recipient: "0x0000000000000000000000000000000000000002".into(),
+            token: "0x0000000000000000000000000000000000000001".into(),
+            payee: "0x0000000000000000000000000000000000000002".into(),
             payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003".into(),
             authorized_signer: "0x0000000000000000000000000000000000000003"
                 .parse()
@@ -249,7 +249,7 @@ mod tests {
                 opaque: None,
             })
             .unwrap(),
-            state: session_store::SessionStatus::Active,
+            state: session_store::ChannelStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             created_at: 0,

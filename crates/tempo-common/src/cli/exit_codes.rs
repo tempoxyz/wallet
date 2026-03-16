@@ -114,7 +114,7 @@ mod tests {
         use crate::error::{NetworkError, PaymentError, TempoError};
 
         let source: TempoError = NetworkError::Http("upstream unavailable".to_string()).into();
-        let err: TempoError = PaymentError::SessionPersistenceContextSource {
+        let err: TempoError = PaymentError::ChannelPersistenceContextSource {
             operation: "session request reuse",
             context: "Session request failed; session state preserved for on-chain dispute",
             source: Box::new(source),

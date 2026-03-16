@@ -5,7 +5,7 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct TokenBalance {
     pub symbol: String,
-    pub currency: String,
+    pub token: String,
     pub balance: String,
 }
 
@@ -38,7 +38,7 @@ pub(crate) struct KeyInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub currency: Option<String>,
+    pub token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub balance: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -18,7 +18,7 @@ use crate::{
     network::NetworkId,
 };
 
-type SessionResult<T> = Result<T, TempoError>;
+type ChannelResult<T> = Result<T, TempoError>;
 
 // ==================== ABI Definitions ====================
 
@@ -56,7 +56,7 @@ sol! {
 
 /// On-chain channel state returned by recovery functions.
 pub struct OnChainChannel {
-    pub currency: Address,
+    pub token: Address,
     pub deposit: u128,
     pub settled: u128,
     pub close_requested_at: u64,
@@ -67,7 +67,7 @@ pub struct DiscoveredChannel {
     pub network: NetworkId,
     pub channel_id: B256,
     pub escrow_contract: Address,
-    pub currency: Address,
+    pub token: Address,
     pub deposit: u128,
     pub settled: u128,
     pub close_requested_at: u64,
@@ -155,7 +155,7 @@ async fn append_discovered_channels_from_logs(
             network,
             channel_id,
             escrow_contract: escrow,
-            currency: log_token,
+            token: log_token,
             deposit: on_chain.deposit,
             settled: on_chain.settled,
             close_requested_at: on_chain.close_requested_at,
@@ -178,7 +178,7 @@ pub async fn get_channel_on_chain(
     provider: &alloy::providers::RootProvider<alloy::network::Ethereum>,
     escrow_contract: Address,
     channel_id: B256,
-) -> SessionResult<Option<OnChainChannel>> {
+) -> ChannelResult<Option<OnChainChannel>> {
     let call_data = IEscrow::getChannelCall {
         channelId: channel_id,
     }
@@ -207,7 +207,7 @@ pub async fn get_channel_on_chain(
     }
 
     Ok(Some(OnChainChannel {
-        currency: decoded.token,
+        token: decoded.token,
         deposit: decoded.deposit,
         settled: decoded.settled,
         close_requested_at: decoded.closeRequestedAt,
@@ -343,7 +343,7 @@ pub async fn query_channel_state(
     config: &Config,
     channel_id_hex: &str,
     network: NetworkId,
-) -> SessionResult<Option<(Address, u128, u128)>> {
+) -> ChannelResult<Option<(Address, u128, u128)>> {
     let channel_id: B256 =
         channel_id_hex
             .parse()
@@ -358,11 +358,7 @@ pub async fn query_channel_state(
         return Ok(None);
     };
 
-    Ok(Some((
-        on_chain.currency,
-        on_chain.deposit,
-        on_chain.settled,
-    )))
+    Ok(Some((on_chain.token, on_chain.deposit, on_chain.settled)))
 }
 
 /// Query the on-chain TIP20 token balance for an account.
@@ -374,7 +370,7 @@ pub async fn query_token_balance(
     provider: &impl Provider,
     token: Address,
     account: Address,
-) -> SessionResult<U256> {
+) -> ChannelResult<U256> {
     let contract = ITIP20::new(token, provider);
     let balance =
         contract

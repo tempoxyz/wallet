@@ -12,7 +12,7 @@ fn lock_error<E>(operation: &'static str, source: E) -> TempoError
 where
     E: Error + Send + Sync + 'static,
 {
-    PaymentError::SessionPersistenceSource {
+    PaymentError::ChannelPersistenceSource {
         operation,
         source: Box::new(source),
     }
@@ -20,11 +20,11 @@ where
 }
 
 /// File lock guard for an origin/session key.
-pub struct SessionLock {
+pub struct ChannelLock {
     file: std::fs::File,
 }
 
-impl Drop for SessionLock {
+impl Drop for ChannelLock {
     fn drop(&mut self) {
         let _ = fs2::FileExt::unlock(&self.file);
     }
@@ -42,7 +42,7 @@ impl Drop for SessionLock {
 ///
 /// Returns an error when the wallet directory cannot be created, lock file
 /// creation/open fails, or the file lock cannot be acquired.
-pub fn acquire_origin_lock(key: &str) -> Result<SessionLock, TempoError> {
+pub fn acquire_origin_lock(key: &str) -> Result<ChannelLock, TempoError> {
     let dir = ensure_wallet_dir()?;
     let lock_path = dir.join(format!("{key}.lock"));
     let file = OpenOptions::new()
@@ -53,7 +53,7 @@ pub fn acquire_origin_lock(key: &str) -> Result<SessionLock, TempoError> {
         .open(lock_path)
         .map_err(|err| lock_error("open session lock file", err))?;
     fs2::FileExt::lock_exclusive(&file).map_err(|err| lock_error("acquire session lock", err))?;
-    Ok(SessionLock { file })
+    Ok(ChannelLock { file })
 }
 
 #[cfg(test)]

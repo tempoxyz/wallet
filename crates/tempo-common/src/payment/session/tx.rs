@@ -19,7 +19,7 @@ use crate::{
     keys::Signer,
 };
 
-type SessionResult<T> = Result<T, TempoError>;
+type ChannelResult<T> = Result<T, TempoError>;
 
 // ==================== ABI Definitions ====================
 
@@ -82,7 +82,7 @@ pub async fn resolve_and_sign_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-) -> SessionResult<Vec<u8>> {
+) -> ChannelResult<Vec<u8>> {
     let nonce = 0u64;
     let valid_before = Some(expiring_valid_before());
 
@@ -176,7 +176,7 @@ pub async fn submit_tempo_tx(
     fee_token: Address,
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
-) -> SessionResult<String> {
+) -> ChannelResult<String> {
     let tx_bytes = resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls).await?;
 
     let pending = provider
@@ -195,11 +195,11 @@ pub async fn submit_tempo_tx(
 /// Build the escrow open calls: approve + open.
 ///
 /// Constructs a 2-call sequence:
-/// 1. `approve(escrow_contract, deposit)` on the currency token
-/// 2. `IEscrow::open(payee, currency, deposit, salt, authorizedSigner)` on the escrow contract
+/// 1. `approve(escrow_contract, deposit)` on the token token
+/// 2. `IEscrow::open(payee, token, deposit, salt, authorizedSigner)` on the escrow contract
 #[must_use]
 pub fn build_open_calls(
-    currency: Address,
+    token: Address,
     escrow_contract: Address,
     deposit: u128,
     payee: Address,
@@ -214,12 +214,12 @@ pub fn build_open_calls(
         .abi_encode(),
     );
     let open_data = Bytes::from(
-        IEscrow::openCall::new((payee, currency, deposit, salt, authorized_signer)).abi_encode(),
+        IEscrow::openCall::new((payee, token, deposit, salt, authorized_signer)).abi_encode(),
     );
 
     vec![
         Call {
-            to: TxKind::Call(currency),
+            to: TxKind::Call(token),
             value: U256::ZERO,
             input: approve_data,
         },

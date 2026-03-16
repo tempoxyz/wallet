@@ -103,7 +103,7 @@ async fn build_response(
         .unwrap_or_else(|| "tokens".to_string());
 
     // Compute locked balance from active sessions
-    let sessions = session::list_sessions().unwrap_or_default();
+    let sessions = session::list_channels().unwrap_or_default();
     if let Some(bb) = balance
         .as_deref()
         .zip(Some(symbol.as_str()))

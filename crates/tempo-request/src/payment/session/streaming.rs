@@ -10,7 +10,7 @@ use futures::StreamExt;
 use mpp::server::sse::{parse_event, SseEvent};
 
 use super::{
-    persist::persist_session, voucher::build_voucher_credential, SessionContext, SessionState,
+    persist::persist_session, voucher::build_voucher_credential, ChannelContext, ChannelState,
 };
 use tempo_common::error::{NetworkError, PaymentError, TempoError};
 
@@ -60,8 +60,8 @@ fn post_voucher(client: &reqwest::Client, url: &str, auth: &str, verbose: bool) 
 /// and the stream stalls. We work around this by re-posting the same voucher if
 /// no progress is seen within a short timeout after the last need-voucher event.
 pub(super) async fn stream_sse_response(
-    ctx: &SessionContext<'_>,
-    state: &mut SessionState,
+    ctx: &ChannelContext<'_>,
+    state: &mut ChannelState,
     response: reqwest::Response,
 ) -> Result<(), TempoError> {
     let runtime = ctx.http;

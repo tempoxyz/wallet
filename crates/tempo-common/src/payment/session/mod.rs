@@ -22,10 +22,9 @@ pub const DEFAULT_GRACE_PERIOD_SECS: u64 = 900;
 
 // Re-export public API from `store`
 pub use store::{
-    acquire_origin_lock, delete_session, delete_session_by_channel_id, list_sessions, load_session,
-    load_session_by_channel_id, now_secs, save_session, session_key, take_store_diagnostics,
-    update_session_close_state_by_channel_id, SessionLock, SessionRecord, SessionStatus,
-    SessionStoreDiagnostics,
+    acquire_origin_lock, delete_channel, find_reusable_channel, list_channels, load_channel,
+    load_channel_by_origin, now_secs, save_channel, session_key, take_channel_store_diagnostics,
+    update_channel_close_state, ChannelLock, ChannelRecord, ChannelStatus, ChannelStoreDiagnostics,
 };
 
 // Re-export public API from `channel`
@@ -36,7 +35,7 @@ pub use channel::{
 
 // Re-export public API from `close`
 pub use close::{
-    close_channel_by_id, close_discovered_channel, close_session_from_record, CloseOutcome,
+    close_channel_by_id, close_channel_from_record, close_discovered_channel, CloseOutcome,
 };
 
 // Re-export public API from `tx`

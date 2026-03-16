@@ -174,7 +174,7 @@ pub(super) fn has_balance_changed(initial: &[TokenBalance], current: &[TokenBala
         return true;
     }
     for cur in current {
-        let prev = initial.iter().find(|b| b.currency == cur.currency);
+        let prev = initial.iter().find(|b| b.token == cur.token);
         match prev {
             Some(prev) if !balances_equal(&prev.balance, &cur.balance) => return true,
             None => return true,
@@ -198,7 +198,7 @@ pub(super) fn render_balance_diff(before: &[TokenBalance], after: &[TokenBalance
     for cur in after {
         let prev = before
             .iter()
-            .find(|b| b.currency == cur.currency)
+            .find(|b| b.token == cur.token)
             .map_or("0", |b| b.balance.as_str());
         if !balances_equal(&cur.balance, prev) {
             eprintln!("  {} balance: {} -> {}", cur.symbol, prev, cur.balance);
@@ -248,10 +248,10 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<(), TempoError
 mod tests {
     use super::*;
 
-    fn tb(symbol: &str, currency: &str, balance: &str) -> TokenBalance {
+    fn tb(symbol: &str, token: &str, balance: &str) -> TokenBalance {
         TokenBalance {
             symbol: symbol.to_string(),
-            currency: currency.to_string(),
+            token: token.to_string(),
             balance: balance.to_string(),
         }
     }

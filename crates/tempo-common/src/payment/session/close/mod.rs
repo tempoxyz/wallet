@@ -22,7 +22,7 @@ use crate::{
     keys::Keystore,
 };
 
-type SessionResult<T> = Result<T, TempoError>;
+type ChannelResult<T> = Result<T, TempoError>;
 
 /// Outcome of an on-chain close attempt.
 pub enum CloseOutcome {
@@ -36,7 +36,7 @@ pub enum CloseOutcome {
     Pending { remaining_secs: u64 },
 }
 
-/// Close a session from a persisted record.
+/// Close a channel from a persisted record.
 ///
 /// Used by `tempo-wallet sessions close` to send a close credential to the server.
 /// Tries cooperative (server-side) close first, then falls back to on-chain close.
@@ -45,12 +45,12 @@ pub enum CloseOutcome {
 ///
 /// Returns an error when persisted challenge/session fields are malformed,
 /// signer resolution fails, or both cooperative and on-chain close attempts fail.
-pub async fn close_session_from_record(
-    record: &session_store::SessionRecord,
+pub async fn close_channel_from_record(
+    record: &session_store::ChannelRecord,
     config: &Config,
     analytics: Option<&Analytics>,
     keys: &Keystore,
-) -> SessionResult<CloseOutcome> {
+) -> ChannelResult<CloseOutcome> {
     let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).map_err(|source| {
         NetworkError::ResponseParse {
             context: "persisted challenge echo",
@@ -116,10 +116,10 @@ pub async fn close_session_from_record(
 
     let fee_token: Address =
         record
-            .currency
+            .token
             .parse()
-            .map_err(|source| PaymentError::SessionPersistenceSource {
-                operation: "parse session currency",
+            .map_err(|source| PaymentError::ChannelPersistenceSource {
+                operation: "parse session token",
                 source: Box::new(source),
             })?;
 

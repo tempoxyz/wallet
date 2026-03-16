@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
-use super::{session_store, SessionStatus};
+use super::{session_store, ChannelStatus};
 use tempo_common::{
     cli::{context::Context, format::format_duration, output, output::OutputFormat},
     error::{ConfigError, InputError, PaymentError, TempoError},
     payment::session::{
-        close_channel_by_id, close_discovered_channel, close_session_from_record,
+        close_channel_by_id, close_channel_from_record, close_discovered_channel,
         find_all_channels_for_payer, CloseOutcome,
     },
 };
@@ -122,7 +122,7 @@ async fn dry_run_close(
     let mut targets = Vec::new();
 
     if all || (!orphaned && !finalize && url.is_none()) {
-        let sessions = session_store::list_sessions()?;
+        let sessions = session_store::list_channels()?;
         for s in &sessions {
             if s.network_id() == ctx.network {
                 targets.push(DryRunTarget {
@@ -142,8 +142,8 @@ async fn dry_run_close(
                 state: None,
             });
         } else {
-            let key = session_store::session_key(target);
-            if let Some(rec) = session_store::load_session(&key)? {
+            let origin = normalize_origin(target);
+            if let Some(rec) = session_store::load_channel_by_origin(&origin)? {
                 targets.push(DryRunTarget {
                     channel_id: rec.channel_id_hex(),
                     origin: Some(rec.origin.clone()),
@@ -186,16 +186,15 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
     let mut summary = CloseSummary::new();
 
     // Phase 1: close local sessions (scoped to current network)
-    let all_sessions = session_store::list_sessions()?;
+    let all_sessions = session_store::list_channels()?;
     let sessions: Vec<_> = all_sessions
         .iter()
         .filter(|s| s.network_id() == ctx.network)
         .collect();
     for session in &sessions {
-        let key = session_store::session_key(&session.origin);
-        let result = close_session_from_record(session, &ctx.config, analytics, &ctx.keys).await;
+        let result = close_channel_from_record(session, &ctx.config, analytics, &ctx.keys).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            if let Err(e) = session_store::delete_session(&key) {
+            if let Err(e) = session_store::delete_channel(&session.channel_id_hex()) {
                 if show_output {
                     eprintln!("  Failed to remove local session: {e}");
                 }
@@ -221,23 +220,22 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
 /// Close a single channel by its on-chain ID (0x...).
 ///
 /// If a local session record exists for this channel, routes through
-/// `close_session_from_record` which tries cooperative close first.
+/// `close_channel_from_record` which tries cooperative close first.
 /// Falls back to on-chain-only close when no local record is found.
 async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoError> {
     let channel_id = super::util::parse_channel_id(target)?;
 
     // Try local session record first — enables cooperative close
-    if let Ok(Some(record)) = session_store::load_session_by_channel_id(channel_id) {
+    if let Ok(Some(record)) = session_store::load_channel(&format!("{channel_id:#x}")) {
         if record.network_id() == ctx.network {
             let show_output = ctx.verbosity.show_output;
             let analytics = ctx.analytics.as_ref();
-            let key = session_store::session_key(&record.origin);
             let mut summary = CloseSummary::new();
 
             let result =
-                close_session_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+                close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-                if let Err(e) = session_store::delete_session(&key) {
+                if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
                     if show_output {
                         eprintln!("  Failed to remove local session: {e}");
                     }
@@ -268,14 +266,14 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
     let output_format = ctx.output_format;
     let analytics = ctx.analytics.as_ref();
 
-    let key = session_store::session_key(target);
-    let session = session_store::load_session(&key)?;
+    let origin = normalize_origin(target);
+    let session = session_store::load_channel_by_origin(&origin)?;
     let mut summary = CloseSummary::new();
 
     if let Some(record) = session {
-        let result = close_session_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+        let result = close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            if let Err(e) = session_store::delete_session(&key) {
+            if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
                 if show_output {
                     eprintln!("  Failed to remove local session: {e}");
                 }
@@ -312,7 +310,7 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
 /// Shared by `close_all_sessions` (Phase 2) and `close_orphaned_channels`.
 async fn close_orphaned_into_summary(
     ctx: &Context,
-    local_sessions: &[session_store::SessionRecord],
+    local_sessions: &[session_store::ChannelRecord],
     summary: &mut CloseSummary,
 ) {
     let show_output = ctx.verbosity.show_output;
@@ -337,7 +335,7 @@ async fn close_orphaned_into_summary(
         let channel_id_hex = format!("{:#x}", ch.channel_id);
         let result = close_discovered_channel(ch, &ctx.config, &ctx.keys).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            let _ = session_store::delete_session_by_channel_id(ch.channel_id);
+            let _ = session_store::delete_channel(&format!("{:#x}", ch.channel_id));
         }
         summary.record_outcome(result, None, &channel_id_hex, &channel_id_hex, show_output);
     }
@@ -352,7 +350,7 @@ async fn close_orphaned_channels(ctx: &Context) -> Result<(), TempoError> {
         .into());
     }
 
-    let local_sessions = session_store::list_sessions()?;
+    let local_sessions = session_store::list_channels()?;
     let mut summary = CloseSummary::new();
 
     close_orphaned_into_summary(ctx, &local_sessions, &mut summary).await;
@@ -380,11 +378,11 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
     };
 
     // 1) Local sessions ready to finalize
-    for s in session_store::list_sessions()? {
+    for s in session_store::list_channels()? {
         if s.network_id() != ctx.network {
             continue;
         }
-        if !(s.state == SessionStatus::Closing && now >= s.grace_ready_at) {
+        if !(s.state == ChannelStatus::Closing && now >= s.grace_ready_at) {
             continue;
         }
         let channel_id = s.channel_id_hex();
@@ -600,7 +598,7 @@ impl CloseSummary {
 fn maybe_delete_session_by_channel_id(channel_id: &str) {
     match super::util::parse_channel_id(channel_id) {
         Ok(parsed) => {
-            let _ = session_store::delete_session_by_channel_id(parsed);
+            let _ = session_store::delete_channel(&format!("{parsed:#x}"));
         }
         Err(err) => {
             tracing::warn!(
@@ -610,6 +608,11 @@ fn maybe_delete_session_by_channel_id(channel_id: &str) {
             );
         }
     }
+}
+
+fn normalize_origin(target: &str) -> String {
+    url::Url::parse(target)
+        .map_or_else(|_| target.to_string(), |u| u.origin().ascii_serialization())
 }
 
 #[cfg(test)]

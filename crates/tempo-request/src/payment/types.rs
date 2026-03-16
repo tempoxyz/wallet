@@ -15,7 +15,7 @@ pub(crate) struct ResolvedChallenge {
 /// Result of a successful payment dispatch.
 pub(crate) struct PaymentResult {
     pub(crate) tx_hash: Option<String>,
-    pub(crate) session_id: Option<String>,
+    pub(crate) channel_id: Option<String>,
     pub(crate) status_code: u16,
     pub(crate) response: Option<HttpResponse>,
 }

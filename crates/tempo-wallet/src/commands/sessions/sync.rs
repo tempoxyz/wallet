@@ -1,6 +1,6 @@
 use alloy::primitives::Address;
 
-use super::{session_store, SessionStatus};
+use super::{session_store, ChannelStatus};
 use tempo_common::{analytics::Event, cli::context::Context, error::TempoError};
 
 const SESSION_RECOVERED: Event = Event::new("session recovered");
@@ -51,7 +51,7 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
         return sync_origin(ctx, origin_input).await;
     }
 
-    let sessions = session_store::list_sessions()?;
+    let sessions = session_store::list_channels()?;
 
     if !sessions.is_empty() {
         let mut removed = 0;
@@ -76,8 +76,7 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
                 if show_output {
                     eprintln!("  Removed stale session: {}", session.origin);
                 }
-                let key = session_store::session_key(&session.origin);
-                let _ = session_store::delete_session(&key);
+                let _ = session_store::delete_channel(&session.channel_id_hex());
                 removed += 1;
             }
         }
@@ -91,15 +90,15 @@ pub(super) async fn sync_sessions(ctx: &Context, origin: Option<&str>) -> Result
         }
     }
 
-    super::list::list_sessions(ctx, vec![]).await
+    super::list::list_channels(ctx, vec![]).await
 }
 
 /// Re-sync a single session's close state from on-chain for a given origin.
 async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<(), TempoError> {
     let config = &ctx.config;
     let output_format = ctx.output_format;
-    let key = session_store::session_key(origin_input);
-    let Some(rec) = session_store::load_session(&key)? else {
+    let origin = normalize_origin(origin_input);
+    let Some(rec) = session_store::load_channel_by_origin(&origin)? else {
         output::emit_by_format(
             output_format,
             &SyncOriginResponse::not_recovered("no local session for origin; cannot recover"),
@@ -123,7 +122,7 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<(), TempoError
         Ok(Some(ch)) => ch,
         Ok(None) => {
             // Channel settled — clean up local record
-            let _ = session_store::delete_session(&key);
+            let _ = session_store::delete_channel(&rec.channel_id_hex());
             output::emit_by_format(
                 output_format,
                 &SyncOriginResponse::not_recovered(
@@ -146,12 +145,12 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<(), TempoError
         let grace = super::util::resolve_grace_period(config, network_id, escrow).await;
         let ready_at = on_chain.close_requested_at + grace;
         let status = if ready_at <= session_store::now_secs() {
-            SessionStatus::Finalizable
+            ChannelStatus::Finalizable
         } else {
-            SessionStatus::Closing
+            ChannelStatus::Closing
         };
-        let _ = session_store::update_session_close_state_by_channel_id(
-            rec.channel_id,
+        let _ = session_store::update_channel_close_state(
+            &rec.channel_id_hex(),
             status,
             on_chain.close_requested_at,
             ready_at,
@@ -183,4 +182,9 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<(), TempoError
     }
 
     Ok(())
+}
+
+fn normalize_origin(target: &str) -> String {
+    url::Url::parse(target)
+        .map_or_else(|_| target.to_string(), |u| u.origin().ascii_serialization())
 }

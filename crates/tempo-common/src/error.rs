@@ -325,18 +325,18 @@ pub enum PaymentError {
     #[error("Challenge expired: {0}")]
     ChallengeExpired(String),
     #[error("Session persistence error during {operation}: {reason}")]
-    SessionPersistence {
+    ChannelPersistence {
         operation: &'static str,
         reason: String,
     },
     #[error("Session persistence error during {operation}: {source}")]
-    SessionPersistenceSource {
+    ChannelPersistenceSource {
         operation: &'static str,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
     #[error("Session persistence error during {operation}: {context}: {source:#}")]
-    SessionPersistenceContextSource {
+    ChannelPersistenceContextSource {
         operation: &'static str,
         context: &'static str,
         #[source]
@@ -580,7 +580,7 @@ mod tests {
 
     #[test]
     fn test_session_persistence_display() {
-        let err = PaymentError::SessionPersistence {
+        let err = PaymentError::ChannelPersistence {
             operation: "load session",
             reason: "database locked".to_string(),
         };
@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn test_session_persistence_source_display() {
-        let err = PaymentError::SessionPersistenceSource {
+        let err = PaymentError::ChannelPersistenceSource {
             operation: "save session",
             source: Box::new(std::io::Error::other("database locked")),
         };
@@ -658,7 +658,7 @@ mod tests {
     #[test]
     fn test_session_persistence_context_source_display() {
         let source: TempoError = InputError::InvalidMethod("BAD".to_string()).into();
-        let err = PaymentError::SessionPersistenceContextSource {
+        let err = PaymentError::ChannelPersistenceContextSource {
             operation: "session request reuse",
             context: "Session request failed; session state preserved for on-chain dispute",
             source: Box::new(source),

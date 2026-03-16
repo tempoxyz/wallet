@@ -7,7 +7,7 @@ use mpp::{
     ChallengeEcho,
 };
 
-use super::SessionState;
+use super::ChannelState;
 use tempo_common::error::{KeyError, TempoError};
 
 /// Build a `SessionCredentialPayload::Open` with the given transaction bytes.
@@ -33,7 +33,7 @@ pub(super) async fn build_voucher_credential(
     signer: &alloy::signers::local::PrivateKeySigner,
     echo: &ChallengeEcho,
     did: &str,
-    state: &SessionState,
+    state: &ChannelState,
 ) -> Result<mpp::PaymentCredential, TempoError> {
     let sig = sign_voucher(
         signer,

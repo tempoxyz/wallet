@@ -46,7 +46,7 @@ pub(crate) async fn query_all_balances(
 
     vec![TokenBalance {
         symbol: token_config.symbol.to_string(),
-        currency: format!("{:#x}", token_config.address),
+        token: format!("{:#x}", token_config.address),
         balance: balance_human,
     }]
 }

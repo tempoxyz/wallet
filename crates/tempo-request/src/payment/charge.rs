@@ -55,7 +55,7 @@ pub(super) async fn handle_charge_request(
         eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
         return Ok(PaymentResult {
             tx_hash: None,
-            session_id: None,
+            channel_id: None,
             status_code: 200,
             response: None,
         });
@@ -75,7 +75,7 @@ pub(super) async fn handle_charge_request(
 
     Ok(PaymentResult {
         tx_hash,
-        session_id: None,
+        channel_id: None,
         status_code: resp.status_code,
         response: Some(resp),
     })
