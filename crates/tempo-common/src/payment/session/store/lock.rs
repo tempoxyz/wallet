@@ -1,8 +1,6 @@
 //! Per-origin file locking for session operations.
 
-use std::fs::OpenOptions;
-
-use std::error::Error;
+use std::{error::Error, fs::OpenOptions, path::Path};
 
 use crate::error::{PaymentError, TempoError};
 
@@ -45,6 +43,10 @@ impl Drop for ChannelLock {
 /// creation/open fails, or the file lock cannot be acquired.
 pub fn acquire_origin_lock(key: &str) -> Result<ChannelLock, TempoError> {
     let dir = ensure_wallet_dir()?;
+    acquire_origin_lock_in_dir(key, &dir)
+}
+
+fn acquire_origin_lock_in_dir(key: &str, dir: &Path) -> Result<ChannelLock, TempoError> {
     let lock_path = dir.join(format!("{key}.lock"));
     let file = OpenOptions::new()
         .create(true)
@@ -63,19 +65,20 @@ mod tests {
 
     #[test]
     fn test_origin_lock_is_exclusive() {
-        // Redirect HOME to a temp directory to isolate lock files
+        // Use an explicit temp directory to avoid process-global env races.
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("HOME", tmp.path());
+        let lock_dir = tmp.path();
 
         let key = session_key("https://example.com");
-        let lock1 = acquire_origin_lock(&key).expect("first lock should succeed");
+        let lock1 = acquire_origin_lock_in_dir(&key, lock_dir).expect("first lock should succeed");
 
         // Verify exclusivity from another thread: try_lock should fail
         // while the first guard is held.
         let key_clone = key.clone();
+        let lock_dir = lock_dir.to_path_buf();
+        let lock_dir_for_thread = lock_dir.clone();
         let result = std::thread::spawn(move || {
-            let dir = ensure_wallet_dir().unwrap();
-            let lock_path = dir.join(format!("{key_clone}.lock"));
+            let lock_path = lock_dir_for_thread.join(format!("{key_clone}.lock"));
             let file = OpenOptions::new()
                 .create(true)
                 .truncate(false)
@@ -95,6 +98,6 @@ mod tests {
         drop(lock1);
 
         // After drop, we should be able to re-acquire
-        acquire_origin_lock(&key).expect("re-acquire after drop should succeed");
+        acquire_origin_lock_in_dir(&key, &lock_dir).expect("re-acquire after drop should succeed");
     }
 }
