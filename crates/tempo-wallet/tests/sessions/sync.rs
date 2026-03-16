@@ -2,7 +2,9 @@ use super::*;
 
 #[test]
 fn sessions_sync_empty_returns_expected_json_shape() {
-    let temp = TestConfigBuilder::new().build();
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .build();
     let output = test_command(&temp)
         .args(["-j", "sessions", "sync"])
         .output()
@@ -13,6 +15,20 @@ fn sessions_sync_empty_returns_expected_json_shape() {
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert!(parsed["sessions"].is_array());
     assert_eq!(parsed["total"], 0);
+}
+
+#[test]
+fn sessions_sync_requires_login() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["sessions", "sync"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("No wallet configured"));
+    assert!(stderr.contains("tempo wallet login"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -30,6 +46,7 @@ async fn sessions_sync_origin_reconciles_closing_state_and_grace_ready_at() {
     })
     .await;
     let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
         .with_config_toml(format!(
             "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
             rpc.base_url
@@ -62,10 +79,10 @@ async fn sessions_sync_origin_reconciles_closing_state_and_grace_ready_at() {
 
     let parsed: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("json output should parse");
-    assert_eq!(parsed["recovered"], true);
-    assert_eq!(parsed["status"], "closing");
+    assert_eq!(parsed["total"], 1);
+    assert_eq!(parsed["sessions"][0]["status"], "closing");
     assert!(
-        parsed["remaining_secs"]
+        parsed["sessions"][0]["remaining_secs"]
             .as_u64()
             .is_some_and(|remaining| remaining > 0 && remaining <= 900),
         "sync should report remaining close grace period: {parsed}"
@@ -93,6 +110,7 @@ async fn sessions_sync_origin_updates_all_matching_channels() {
     })
     .await;
     let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
         .with_config_toml(format!(
             "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
             rpc.base_url
@@ -132,12 +150,10 @@ async fn sessions_sync_origin_updates_all_matching_channels() {
 
     let parsed: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("json output should parse");
-    assert_eq!(parsed["processed"], 2);
-    assert_eq!(parsed["recovered_count"], 2);
-    assert_eq!(parsed["removed_count"], 0);
+    assert_eq!(parsed["total"], 2);
     assert!(
-        parsed["results"].is_array() && parsed["results"].as_array().unwrap().len() == 2,
-        "sync response should include one per-channel result: {parsed}"
+        parsed["sessions"].is_array() && parsed["sessions"].as_array().unwrap().len() == 2,
+        "sync should return reconciled channel list: {parsed}"
     );
 
     let first = read_close_state(&temp).expect("first channel should remain present");

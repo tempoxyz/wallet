@@ -6,44 +6,33 @@ use super::{
     render::{render_channel_list, ChannelView},
     session_store, ChannelStatus,
 };
-use crate::args::SessionStateArg;
 use tempo_common::{
-    cli::context::Context, error::TempoError, payment::session::find_all_channels_for_payer,
+    cli::context::Context,
+    error::TempoError,
+    payment::session::{find_all_channels_for_payer, DiscoveredChannel},
 };
 
 /// List payment sessions.
 ///
-/// By default lists local active sessions. With `--state all`, shows a unified
-/// view of active, orphaned, and closing channels. With `--state orphaned`,
-/// scans on-chain for channels without a local session. With `--state finalizable`,
-/// shows channels pending finalization (requestClose submitted, awaiting grace period).
+/// By default lists all non-finalized local sessions from the DB and does not
+/// perform network calls. With `--orphaned` (or `--all`) it scans on-chain for
+/// channels without a local session record, persists discovered channels to the
+/// local DB, and includes them in output.
 pub(super) async fn list_channels(
     ctx: &Context,
-    states: Vec<SessionStateArg>,
+    orphaned: bool,
+    all: bool,
 ) -> Result<(), TempoError> {
     let config = &ctx.config;
     let output_format = ctx.output_format;
     let network = ctx.network;
     let keys = &ctx.keys;
+    let now = session_store::now_secs();
 
-    // Expand `All` and apply default
-    let selected: Vec<SessionStateArg> = if states.is_empty() {
-        vec![SessionStateArg::Active, SessionStateArg::Closing]
-    } else if states.iter().any(|s| matches!(s, SessionStateArg::All)) {
-        vec![
-            SessionStateArg::Active,
-            SessionStateArg::Closing,
-            SessionStateArg::Finalizable,
-            SessionStateArg::Orphaned,
-        ]
-    } else {
-        states
-            .into_iter()
-            .filter(|s| !matches!(s, SessionStateArg::All))
-            .collect()
-    };
+    let orphaned_only = orphaned && !all;
+    let include_orphaned_discovery = orphaned || all;
 
-    // Local sessions (active/closing/finalizable)
+    // Local sessions (DB only).
     let sessions = session_store::list_channels()?;
     let filtered_local: Vec<_> = sessions
         .iter()
@@ -52,27 +41,21 @@ pub(super) async fn list_channels(
 
     let mut views: Vec<ChannelView> = Vec::new();
 
-    // Build local views and filter by selected states
+    // Build local views.
     for s in &filtered_local {
-        let (session_status, _) = s.status_at(session_store::now_secs());
-        let v = ChannelView::from(*s);
-        let matches = match session_status {
-            ChannelStatus::Active => selected.contains(&SessionStateArg::Active),
-            ChannelStatus::Closing => selected.contains(&SessionStateArg::Closing),
-            ChannelStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
-            _ => false,
-        };
-        if matches {
-            views.push(v);
+        let (session_status, _) = s.status_at(now);
+        if matches!(session_status, ChannelStatus::Finalized) {
+            continue;
         }
+        if orphaned_only && !matches!(session_status, ChannelStatus::Orphaned) {
+            continue;
+        }
+        let v = ChannelView::from(*s);
+        views.push(v);
     }
 
-    // Orphaned / on-chain closings if requested
-    let need_orphaned = selected.contains(&SessionStateArg::Orphaned)
-        || selected.contains(&SessionStateArg::Closing)
-        || selected.contains(&SessionStateArg::Finalizable);
-
-    if let Some(wallet_addr) = need_orphaned
+    // On-chain orphaned discovery is opt-in only.
+    if let Some(wallet_addr) = include_orphaned_discovery
         .then(|| keys.wallet_address_parsed())
         .flatten()
     {
@@ -107,41 +90,64 @@ pub(super) async fn list_channels(
                 ch.close_requested_at,
                 grace,
             );
+            persist_discovered_channel(ch, wallet_addr, grace)?;
             // Show the "Channel" line in text output (origin presence triggers it)
             v.origin = Some(String::new());
-
-            let include = match v.status {
-                ChannelStatus::Orphaned => selected.contains(&SessionStateArg::Orphaned),
-                ChannelStatus::Closing => selected.contains(&SessionStateArg::Closing),
-                ChannelStatus::Finalizable => selected.contains(&SessionStateArg::Finalizable),
-                _ => false,
-            };
-            if !include {
-                continue;
-            }
-
             views.push(v);
         }
     }
 
-    // Empty message by primary selection
-    let empty_msg = if selected
-        .iter()
-        .all(|s| matches!(s, SessionStateArg::Active | SessionStateArg::Closing))
-    {
-        "No active sessions."
-    } else if selected
-        .iter()
-        .all(|s| matches!(s, SessionStateArg::Closing | SessionStateArg::Finalizable))
-    {
-        "No sessions pending finalization."
-    } else if selected.len() == 1 && selected[0] == SessionStateArg::Orphaned {
+    let empty_msg = if orphaned_only {
         "No orphaned sessions found."
     } else {
         "No sessions found."
     };
 
     render_channel_list(&views, output_format, empty_msg, "session(s) total")
+}
+
+fn persist_discovered_channel(
+    ch: &DiscoveredChannel,
+    wallet_addr: Address,
+    grace_period: u64,
+) -> Result<(), TempoError> {
+    let now = session_store::now_secs();
+    let grace_ready_at = if ch.close_requested_at > 0 {
+        ch.close_requested_at.saturating_add(grace_period)
+    } else {
+        0
+    };
+    let state = if ch.close_requested_at == 0 {
+        ChannelStatus::Orphaned
+    } else if grace_ready_at <= now {
+        ChannelStatus::Finalizable
+    } else {
+        ChannelStatus::Closing
+    };
+
+    let record = session_store::ChannelRecord {
+        version: 1,
+        origin: String::new(),
+        request_url: String::new(),
+        chain_id: ch.network.chain_id(),
+        escrow_contract: ch.escrow_contract,
+        token: format!("{:#x}", ch.token),
+        payee: format!("{:#x}", Address::ZERO),
+        payer: format!("{wallet_addr:#x}"),
+        authorized_signer: Address::ZERO,
+        salt: "0x00".to_string(),
+        channel_id: ch.channel_id,
+        deposit: ch.deposit,
+        cumulative_amount: ch.settled,
+        challenge_echo: "{}".to_string(),
+        state,
+        close_requested_at: ch.close_requested_at,
+        grace_ready_at,
+        created_at: now,
+        last_used_at: now,
+    };
+
+    session_store::save_channel(&record)
 }
 
 #[cfg(test)]

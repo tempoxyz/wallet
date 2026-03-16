@@ -37,7 +37,10 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                 Commands::Sessions { command } => {
                     sessions::run(
                         &ctx,
-                        command.unwrap_or(SessionCommands::List { state: vec![] }),
+                        command.unwrap_or(SessionCommands::List {
+                            orphaned: false,
+                            all: false,
+                        }),
                     )
                     .await
                 }

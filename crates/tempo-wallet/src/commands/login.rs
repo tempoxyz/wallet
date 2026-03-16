@@ -211,7 +211,6 @@ fn show_login_prompt(code: &str) {
     } else {
         code.to_string()
     };
-    eprintln!();
     eprintln!("Verification code: {}", display_code.bold());
     eprintln!();
     eprintln!("Waiting for authentication...");

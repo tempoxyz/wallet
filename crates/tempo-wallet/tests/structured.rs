@@ -8,7 +8,7 @@ mod common;
 use common::test_command;
 use tempo_test::{
     assert_clean_stderr, assert_json_toon_equivalent, seed_local_session, MockServicesServer,
-    TestConfigBuilder,
+    TestConfigBuilder, MODERATO_DIRECT_KEYS_TOML,
 };
 
 fn run_both(temp: &tempfile::TempDir, args: &[&str]) -> (Output, Value, Output, Value) {
@@ -17,7 +17,9 @@ fn run_both(temp: &tempfile::TempDir, args: &[&str]) -> (Output, Value, Output, 
 
 #[test]
 fn sessions_list_json_and_toon_have_expected_shape() {
-    let temp = TestConfigBuilder::new().build();
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .build();
     seed_local_session(&temp, "https://example.com");
 
     let (json_out, json, toon_out, toon) = run_both(&temp, &["sessions", "list"]);
@@ -31,8 +33,28 @@ fn sessions_list_json_and_toon_have_expected_shape() {
 
 #[test]
 fn sessions_sync_empty_json_and_toon_shape() {
-    let temp = TestConfigBuilder::new().build();
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .build();
     let (json_out, json, toon_out, toon) = run_both(&temp, &["sessions", "sync"]);
+    assert_clean_stderr(&json_out);
+    assert_clean_stderr(&toon_out);
+    assert!(json.get("sessions").is_some());
+    assert!(json.get("total").is_some());
+    assert!(toon.get("sessions").is_some());
+    assert!(toon.get("total").is_some());
+    assert_json_toon_equivalent(&json, &toon);
+}
+
+#[test]
+fn sessions_sync_origin_missing_json_and_toon_shape() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .build();
+    let (json_out, json, toon_out, toon) = run_both(
+        &temp,
+        &["sessions", "sync", "--origin", "https://example.invalid"],
+    );
     assert_clean_stderr(&json_out);
     assert_clean_stderr(&toon_out);
     assert!(json.get("sessions").is_some());

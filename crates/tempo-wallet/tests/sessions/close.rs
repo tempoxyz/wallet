@@ -456,3 +456,43 @@ async fn sessions_close_origin_closes_all_matching_channels() {
     assert_eq!(observed.prefetch_count, 2);
     assert_eq!(observed.authorized_count, 2);
 }
+
+#[test]
+fn sessions_close_dry_run_without_target_requires_target_mode() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["sessions", "close", "--dry-run"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Specify a URL, channel ID"));
+}
+
+#[test]
+fn sessions_close_requires_login() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["sessions", "close", "https://close.example"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("No wallet configured"));
+    assert!(stderr.contains("tempo wallet login"));
+}
+
+#[test]
+fn sessions_close_cooperative_rejects_incompatible_modes() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp)
+        .args(["sessions", "close", "--cooperative", "--all"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--cooperative cannot be combined"));
+}

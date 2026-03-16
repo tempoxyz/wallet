@@ -390,10 +390,10 @@ async fn run_non_streaming_top_up_recovery(
 ) -> Result<(), TempoError> {
     if let Some(clamped) = ctx.clamped_deposit {
         if ctx.http.log_enabled() {
-        eprintln!(
-            "Clamping deposit to 50% of wallet balance: {}",
-            format_token_amount(clamped, ctx.network_id)
-        );
+            eprintln!(
+                "Clamping deposit to 50% of wallet balance: {}",
+                format_token_amount(clamped, ctx.network_id)
+            );
         }
     }
 

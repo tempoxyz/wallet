@@ -6,8 +6,7 @@ use tempo_common::{
     error::{ConfigError, InputError, PaymentError, TempoError},
     payment::session::{
         close_channel_by_id, close_channel_from_record, close_channel_from_record_cooperative,
-        close_discovered_channel,
-        find_all_channels_for_payer, CloseOutcome,
+        close_discovered_channel, find_all_channels_for_payer, CloseOutcome,
     },
 };
 
@@ -80,6 +79,20 @@ pub(super) async fn close_sessions(
         return Err(InputError::InvalidSessionCloseCooperativeCombination.into());
     }
 
+    if dry_run && url.is_none() && !all && !orphaned && !finalize {
+        return Err(InputError::MissingSessionCloseTarget.into());
+    }
+
+    if !ctx.keys.has_wallet() {
+        return Err(ConfigError::Missing(
+            "No wallet configured. Log in with 'tempo wallet login'.".to_string(),
+        )
+        .into());
+    }
+
+    // CLI flag semantics: `--cooperative` means cooperative-only (no fallback).
+    let cooperative_only = cooperative;
+
     if dry_run {
         return dry_run_close(ctx, url.as_deref(), all, orphaned, finalize).await;
     }
@@ -90,15 +103,15 @@ pub(super) async fn close_sessions(
         return close_orphaned_channels(ctx).await;
     }
     if all {
-        return close_all_sessions(ctx, cooperative).await;
+        return close_all_sessions(ctx, cooperative_only).await;
     }
 
     if let Some(ref target) = url {
         if target.starts_with("0x") {
             super::util::validate_channel_id(target)?;
-            return close_by_channel_id(ctx, target, cooperative).await;
+            return close_by_channel_id(ctx, target, cooperative_only).await;
         }
-        return close_by_url(ctx, target, cooperative).await;
+        return close_by_url(ctx, target, cooperative_only).await;
     }
 
     Err(InputError::MissingSessionCloseTarget.into())
@@ -126,15 +139,69 @@ async fn dry_run_close(
     }
 
     let mut targets = Vec::new();
+    let all_sessions = session_store::list_channels()?;
+    let local_sessions: Vec<_> = all_sessions
+        .iter()
+        .filter(|s| s.network_id() == ctx.network)
+        .collect();
+    let now = session_store::now_secs();
 
-    if all || (!orphaned && !finalize && url.is_none()) {
-        let sessions = session_store::list_channels()?;
-        for s in &sessions {
-            if s.network_id() == ctx.network {
+    if all {
+        for s in &local_sessions {
+            targets.push(DryRunTarget {
+                channel_id: s.channel_id_hex(),
+                origin: Some(s.origin.clone()),
+                state: Some(format!("{:?}", s.state)),
+            });
+        }
+    }
+
+    if finalize {
+        for s in &local_sessions {
+            let (status, _) = s.status_at(now);
+            if matches!(status, ChannelStatus::Finalizable) {
                 targets.push(DryRunTarget {
                     channel_id: s.channel_id_hex(),
                     origin: Some(s.origin.clone()),
-                    state: Some(format!("{:?}", s.state)),
+                    state: Some("Finalizable".to_string()),
+                });
+            }
+        }
+    }
+
+    if orphaned || all || finalize {
+        let local_ids: HashSet<_> = local_sessions.iter().map(|s| s.channel_id).collect();
+        if let Some(wallet_addr) = ctx.keys.wallet_address_parsed() {
+            let channels = find_all_channels_for_payer(&ctx.config, wallet_addr, ctx.network).await;
+            for ch in &channels {
+                if local_ids.contains(&ch.channel_id) {
+                    continue;
+                }
+                let state = if ch.close_requested_at == 0 {
+                    ChannelStatus::Orphaned
+                } else {
+                    let grace = super::util::resolve_grace_period(
+                        &ctx.config,
+                        ctx.network,
+                        ch.escrow_contract,
+                    )
+                    .await;
+                    let ready_at = ch.close_requested_at.saturating_add(grace);
+                    if ready_at <= now {
+                        ChannelStatus::Finalizable
+                    } else {
+                        ChannelStatus::Closing
+                    }
+                };
+
+                if finalize && !all && !matches!(state, ChannelStatus::Finalizable) {
+                    continue;
+                }
+
+                targets.push(DryRunTarget {
+                    channel_id: format!("{:#x}", ch.channel_id),
+                    origin: None,
+                    state: Some(format!("{state:?}")),
                 });
             }
         }
@@ -195,16 +262,17 @@ async fn close_local_record(
     record: &session_store::ChannelRecord,
     ctx: &Context,
     analytics: Option<&tempo_common::analytics::Analytics>,
-    cooperative: bool,
+    cooperative_only: bool,
 ) -> Result<CloseOutcome, TempoError> {
-    if cooperative {
+    if cooperative_only {
         return close_channel_from_record_cooperative(record, analytics, &ctx.keys).await;
     }
+    // Default mode: cooperative-first, with on-chain fallback if cooperative close fails.
     close_channel_from_record(record, &ctx.config, analytics, &ctx.keys).await
 }
 
 /// Close all local sessions and on-chain orphaned channels.
-async fn close_all_sessions(ctx: &Context, cooperative: bool) -> Result<(), TempoError> {
+async fn close_all_sessions(ctx: &Context, cooperative_only: bool) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let analytics = ctx.analytics.as_ref();
     let mut summary = CloseSummary::new();
@@ -216,7 +284,7 @@ async fn close_all_sessions(ctx: &Context, cooperative: bool) -> Result<(), Temp
         .filter(|s| s.network_id() == ctx.network)
         .collect();
     for session in &sessions {
-        let result = close_local_record(session, ctx, analytics, cooperative).await;
+        let result = close_local_record(session, ctx, analytics, cooperative_only).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
             if let Err(e) = session_store::delete_channel(&session.channel_id_hex()) {
                 if show_output {
@@ -235,7 +303,7 @@ async fn close_all_sessions(ctx: &Context, cooperative: bool) -> Result<(), Temp
     }
 
     // Phase 2: scan on-chain for orphaned channels
-    if !cooperative {
+    if !cooperative_only {
         close_orphaned_into_summary(ctx, &all_sessions, &mut summary).await;
     }
 
@@ -251,7 +319,7 @@ async fn close_all_sessions(ctx: &Context, cooperative: bool) -> Result<(), Temp
 async fn close_by_channel_id(
     ctx: &Context,
     target: &str,
-    cooperative: bool,
+    cooperative_only: bool,
 ) -> Result<(), TempoError> {
     let channel_id = super::util::parse_channel_id(target)?;
 
@@ -262,7 +330,7 @@ async fn close_by_channel_id(
             let analytics = ctx.analytics.as_ref();
             let mut summary = CloseSummary::new();
 
-            let result = close_local_record(&record, ctx, analytics, cooperative).await;
+            let result = close_local_record(&record, ctx, analytics, cooperative_only).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
                 if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
                     if show_output {
@@ -282,7 +350,7 @@ async fn close_by_channel_id(
         }
     }
 
-    if cooperative {
+    if cooperative_only {
         return Err(InputError::SessionCloseCooperativeRequiresLocalRecord.into());
     }
 
@@ -294,7 +362,11 @@ async fn close_by_channel_id(
 }
 
 /// Close a session by URL (local session lookup).
-async fn close_by_url(ctx: &Context, target: &str, cooperative: bool) -> Result<(), TempoError> {
+async fn close_by_url(
+    ctx: &Context,
+    target: &str,
+    cooperative_only: bool,
+) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let output_format = ctx.output_format;
     let analytics = ctx.analytics.as_ref();
@@ -308,7 +380,7 @@ async fn close_by_url(ctx: &Context, target: &str, cooperative: bool) -> Result<
 
     if !sessions.is_empty() {
         for record in sessions {
-            let result = close_local_record(&record, ctx, analytics, cooperative).await;
+            let result = close_local_record(&record, ctx, analytics, cooperative_only).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
                 if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
                     if show_output {
