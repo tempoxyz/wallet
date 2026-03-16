@@ -487,6 +487,45 @@ async fn test_402_charge_flow() {
     );
 }
 
+/// Missing receipts remain warning-only in default mode.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_charge_flow_default_mode_allows_missing_receipt() {
+    let h = PaymentTestHarness::charge_with_body("default receipt policy ok").await;
+
+    let output = test_command(&h.temp)
+        .args([&h.url("/api")])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "default mode should not fail on missing receipt: {combined}"
+    );
+}
+
+/// Strict receipt mode fails successful paid responses that omit Payment-Receipt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_402_charge_flow_strict_receipts_requires_header() {
+    let h = PaymentTestHarness::charge_with_body("strict receipt policy should fail").await;
+
+    let output = test_command(&h.temp)
+        .args(["--strict-receipts", &h.url("/api")])
+        .output()
+        .unwrap();
+
+    assert_exit_code(
+        &output,
+        4,
+        "strict receipts should fail missing Payment-Receipt with E_PAYMENT",
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Missing required Payment-Receipt"),
+        "strict receipt failure should mention missing Payment-Receipt: {combined}"
+    );
+}
+
 /// Payment narration is printed at -v when encountering a 402
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_402_payment_narration_verbose() {

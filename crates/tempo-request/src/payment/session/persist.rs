@@ -1,5 +1,7 @@
 //! Session persistence helper for request-time session flows.
 
+use alloy::primitives::B256;
+
 use tempo_common::error::{PaymentError, TempoError};
 
 use tempo_common::payment::session::{
@@ -32,7 +34,7 @@ pub(super) fn persist_session(
     let record = if let Some(mut rec) = existing {
         // Update existing record
         rec.set_cumulative_amount(state.cumulative_amount);
-        rec.deposit = ctx.deposit;
+        rec.deposit = state.deposit;
         rec.challenge_echo = echo_json;
         rec.touch();
         rec
@@ -46,10 +48,10 @@ pub(super) fn persist_session(
             token: format!("{:#x}", ctx.token),
             payee: format!("{:#x}", ctx.payee),
             payer: format!("{:#x}", ctx.payer),
-            authorized_signer: ctx.signer.address(),
+            authorized_signer: ctx.signer.signer.address(),
             salt: ctx.salt.clone(),
             channel_id: state.channel_id,
-            deposit: ctx.deposit,
+            deposit: state.deposit,
             cumulative_amount: state.cumulative_amount,
             challenge_echo: echo_json,
             state: ChannelStatus::Active,
@@ -71,5 +73,27 @@ pub(super) fn persist_session(
         eprintln!("Channel persisted (cumulative: {cumulative_display})");
     }
 
+    Ok(())
+}
+
+pub(super) fn persist_channel_cumulative_floor(
+    channel_id: B256,
+    accepted_cumulative: u128,
+) -> Result<(), TempoError> {
+    let channel_id_hex = format!("{channel_id:#x}");
+    let Some(mut record) =
+        load_channel(&channel_id_hex).map_err(|source| PaymentError::ChannelPersistenceSource {
+            operation: "load channel",
+            source: Box::new(source),
+        })?
+    else {
+        return Ok(());
+    };
+
+    record.set_cumulative_amount(accepted_cumulative);
+    save_channel(&record).map_err(|source| PaymentError::ChannelPersistenceSource {
+        operation: "save channel",
+        source: Box::new(source),
+    })?;
     Ok(())
 }

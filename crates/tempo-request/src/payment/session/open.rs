@@ -44,6 +44,7 @@ pub(super) async fn create_tempo_payment_from_calls(
     calls: Vec<tempo_primitives::transaction::Call>,
     fee_token: Address,
     chain_id: u64,
+    fee_payer: bool,
 ) -> Result<TempoPaymentResult, TempoError> {
     let rpc_url: url::Url = rpc_url_str
         .parse()
@@ -54,9 +55,10 @@ pub(super) async fn create_tempo_payment_from_calls(
     let provider = alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
 
     let from = signing.from;
-    let tx_bytes =
-        common_tx::resolve_and_sign_tx(&provider, signing, chain_id, fee_token, from, calls)
-            .await?;
+    let tx_bytes = common_tx::resolve_and_sign_tx_with_fee_payer(
+        &provider, signing, chain_id, fee_token, from, calls, fee_payer,
+    )
+    .await?;
 
     Ok(TempoPaymentResult { tx_bytes })
 }
@@ -66,11 +68,15 @@ pub(super) async fn send_open_with_retry(
     http: &HttpClient,
     url: &str,
     auth_header: &str,
+    idempotency_key: &str,
     delays_ms: &[u64],
 ) -> Result<HttpResponse, TempoError> {
     let truncate = |s: String| -> String { s.chars().take(500).collect() };
 
-    let headers = vec![("Authorization".to_string(), auth_header.to_string())];
+    let headers = vec![
+        ("Authorization".to_string(), auth_header.to_string()),
+        ("Idempotency-Key".to_string(), idempotency_key.to_string()),
+    ];
     let resp = http.execute(url, &headers).await?;
 
     if resp.status_code < 400 {

@@ -240,6 +240,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_problem_details_preserves_extension_fields() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/insufficient-balance","detail":"need top-up","requiredTopUp":"42","serverHint":"retry-after-head"}"#;
+        let problem = parse_problem_details(body).expect("problem details should parse");
+        assert_eq!(problem.required_top_up.as_deref(), Some("42"));
+        assert_eq!(
+            problem
+                .extensions
+                .get("serverHint")
+                .and_then(|v| v.as_str()),
+            Some("retry-after-head")
+        );
+    }
+
+    #[test]
     fn test_classify_spending_limit() {
         let err = mpp::MppError::Tempo(mpp::client::TempoClientError::SpendingLimitExceeded {
             token: "pathUSD".to_string(),

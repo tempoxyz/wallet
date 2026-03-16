@@ -28,9 +28,21 @@ storage use spec terminology (`channel`, `payee`, etc.).
 - [x] Task 5 — Strict protocol field parsing (§4)
 - [x] Task 6 — RFC 9457 Problem Details parsing (§10)
 - [x] Task 7 — On-chain validation + server-suggested channelId on reuse (§6.2)
+- [x] Task 8 — Active session guard (§1.3, §12.4)
+- [x] Task 9 — Receipt validation + acceptedCumulative persistence (§12.6, §12.4)
+- [x] Task 10 — feePayer support (§7)
+- [x] Task 11 — Streaming topUp + strict `payment-need-voucher` validation (§8.3.2, §11.6)
+- [x] Task 11b — Non-streaming auto-topUp on insufficient-balance (§11.2, §10.5)
+- [x] Task 12 — Idempotency-Key header handling (§11.4)
+- [x] Task 13 — HEAD for mid-stream voucher top-ups (§12.5)
+- [x] Task 13b — Observable voucher/topUp transport outcomes
 - [x] Task 14 — Test fixtures + existing test updates (baseline updates)
+- [x] Task 15 — Doc comments, ARCHITECTURE.md, deviation docs
+- [x] Task 15b — Receipt strictness policy (reference mode)
+- [x] Task 15c — Dependency guarantees (`mpp` crate)
+- [x] Task 15d — Scope Boundary: Client vs Server MUSTs
 - [x] Task 16 — `make check`
-- [ ] Tasks 8–13b, 15–15e — remaining protocol/compliance work
+- [x] Task 15e — removed from scope for this alignment pass
 
 ---
 
@@ -986,14 +998,22 @@ This implementation relies on protocol-critical behavior in `mpp`. Add an
 explicit verification task so compliance does not depend on implicit upstream
 assumptions.
 
-1. Verify and lock expectations for:
-   - EIP-712 voucher typed-data/domain construction behavior.
-   - Signature canonicalization and accepted formats (65-byte and EIP-2098).
-   - Unknown-field tolerance in credential/request/receipt parsing.
-2. Add local tests in this repo that assert these invariants at the
-   integration boundary.
-3. If any expectation is missing upstream, either patch upstream or add
-   local guard code and document the rationale.
+### Completion status
+
+Completed with explicit boundary tests and documentation.
+
+### Compliance matrix (Task 15c)
+
+| Invariant at `mpp` boundary | Why it matters | Local verification |
+|---|---|---|
+| EIP-712 voucher signatures are bound to `{chain_id, verifying_contract}` domain inputs | Prevents replay/acceptance across chain or escrow contexts | `crates/tempo-request/tests/mpp_boundary.rs::voucher_signature_is_bound_to_eip712_domain_inputs` verifies success on exact domain and failure when either field changes |
+| Signature boundary supports 65-byte and compact ERC-2098 forms | Ensures interop with mixed signer output forms while preserving signature correctness | `crates/tempo-request/tests/mpp_boundary.rs::voucher_signature_accepts_65_byte_and_compact_erc2098_with_local_normalization` verifies canonical 65-byte acceptance and local normalization of compact signatures before verifier call |
+| Unknown fields are tolerated for session request, credential payload, and receipt parsing | Preserves forward compatibility with server-side additive fields | `crates/tempo-request/tests/mpp_boundary.rs::mpp_parsing_tolerates_unknown_fields_for_session_boundary_types` verifies parse/decode succeeds with additive unknown fields |
+| RFC 9457 extension fields are preserved in local Problem Details parsing | Keeps recovery-relevant extension data available without brittle schema coupling | `crates/tempo-common/src/payment/classify.rs::test_parse_problem_details_preserves_extension_fields` verifies extension passthrough |
+
+`mpp` currently verifies canonical 65-byte voucher signatures directly. Compact
+ERC-2098 signatures are normalized to canonical 65-byte form at the local
+boundary before verification where that verifier path is used.
 
 ### Files affected
 - `crates/tempo-request/src/payment/session/voucher.rs`
@@ -1025,25 +1045,9 @@ Examples to list as server-side out of scope here:
 
 ## Task 15e — Reference Mode Conformance Gate
 
-Add a strict reference profile for conformance runs and CI so the
-open-source example implementation can be validated against normative
-client requirements before release.
-
-1. Add a `reference-strict` mode that enables:
-   - strict receipt enforcement (build on Task 15b),
-   - explicit close timing policy enforcement (build on Task 15),
-   - strict Problem Details typing (build on Task 6).
-2. Add a dedicated integration test job for this profile and require it in
-   pre-release checks.
-3. Extend Task 15c compliance matrix with a `strict-verified` column.
-
-### Files affected
-- `crates/tempo-request/src/args.rs`
-- `crates/tempo-request/src/payment/session/flow.rs`
-- `crates/tempo-request/src/payment/session/streaming.rs`
-- `crates/tempo-common/src/payment/session/close/onchain.rs`
-- `SPEC_ALIGNMENT.md`
-- `ARCHITECTURE.md`
+Removed from scope for this alignment pass by explicit direction.
+`--strict-receipts` (Task 15b) remains the conformance control shipped in this
+repository for receipt strictness.
 
 ---
 

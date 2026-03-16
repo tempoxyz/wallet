@@ -36,15 +36,15 @@ pub(crate) fn headers_from_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<
 
 impl HttpResponse {
     /// Convert a reqwest response into an `HttpResponse`.
-    pub(crate) async fn from_reqwest(response: reqwest::Response) -> HttpResult<Self> {
+    pub(crate) async fn from_reqwest(mut response: reqwest::Response) -> HttpResult<Self> {
         let status_code = response.status().as_u16();
         let final_url = Some(response.url().to_string());
-        let headers = headers_from_reqwest(response.headers());
-        let body = response
-            .bytes()
-            .await
-            .map_err(NetworkError::Reqwest)?
-            .to_vec();
+        let mut headers = headers_from_reqwest(response.headers());
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(NetworkError::Reqwest)? {
+            body.extend_from_slice(&chunk);
+        }
+        headers.extend(headers_from_reqwest(response.headers()));
 
         Ok(Self {
             status_code,

@@ -1,4 +1,4 @@
-//! Session management: persistence, channel queries, close operations.
+//! Session management: channel persistence, channel queries, close operations.
 //!
 //! This module provides the shared session infrastructure used by
 //! tempo-wallet (session listing, closing, and management commands).
@@ -9,7 +9,7 @@
 //!
 //! - `channel` — On-chain channel queries and event scanning
 //! - `close` — Channel close operations (cooperative and on-chain)
-//! - `store` — Session persistence (`SQLite`)
+//! - `store` — Channel persistence (`SQLite`)
 //! - `tx` — Shared Tempo transaction signing and broadcast helpers
 
 mod channel;
@@ -39,4 +39,7 @@ pub use close::{
 };
 
 // Re-export public API from `tx`
-pub use tx::{build_open_calls, resolve_and_sign_tx, submit_tempo_tx};
+pub use tx::{
+    build_open_calls, build_top_up_calls, resolve_and_sign_tx, resolve_and_sign_tx_with_fee_payer,
+    submit_tempo_tx,
+};

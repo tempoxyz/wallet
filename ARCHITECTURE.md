@@ -39,7 +39,7 @@ tempo-common/src/
   keys/                — key storage, signing, authorization; depends on config, network
   payment/             — payment error classification and session management
     classify.rs        — payment error classification and extraction
-    session/           — session persistence (store.rs), channel queries, close operations, tx signing
+    session/           — channel persistence (SQLite), channel queries, close operations, tx signing
 ```
 
 ## Binary Crate Structure
@@ -95,7 +95,7 @@ Error handling follows a typed-boundary model:
 This means conversion at boundaries should look like:
 
 - Parse/format/schema failures: wrap the concrete source error (`PaymentError::ChallengeParseSource`, `PaymentError::ChallengeFormatSource`, `NetworkError::ResponseSchemaSource`, etc.).
-- Session persistence and reuse protection: keep causal source chains (`SessionPersistenceSource` / `SessionPersistenceContextSource`) so troubleshooting retains root cause fidelity.
+- Channel persistence and reuse protection: keep causal source chains (`ChannelPersistenceSource` / `ChannelPersistenceContextSource`) so troubleshooting retains root cause fidelity.
 Compatibility exceptions are explicit and regression-tested:
 
 - Payment classification keeps `NetworkError::Http(...)` as an opaque fallback for unmatched provider errors.
@@ -121,8 +121,14 @@ Session orchestration (flow, streaming, voucher) is implemented in `tempo-reques
 1. On first request, a channel is opened on-chain with a deposit.
 2. Subsequent requests exchange off-chain vouchers — signed cumulative amounts — instead of on-chain transactions.
 3. SSE streaming is supported: per-token voucher top-ups are issued as streamed data arrives.
-4. Sessions persist across CLI invocations in a SQLite database (`tempo-common/src/payment/session/store.rs`).
+4. Channel state persists across CLI invocations in a SQLite database (`tempo-common/src/payment/session/store/storage.rs`).
 5. Channels can be closed explicitly. Local rows track explicit lifecycle state (active, closing, finalizable). Orphaned channels and close readiness are derived from on-chain state when needed.
+
+Voucher transport behavior follows spec guidance for streaming compatibility:
+
+1. Voucher updates are attempted with `HEAD` first.
+2. Fallback to `POST` is used when `HEAD` is unsupported (`405`/`501`) or transport fails.
+3. Voucher/top-up submissions use a dedicated reqwest client (separate from stream response reading) to avoid head-of-line blocking and improve HTTP/2 multiplexing behavior.
 
 ## Wallet Types
 
@@ -143,13 +149,40 @@ Determined by the relationship between `wallet_address` and `key_address` (`temp
 
 Key selection is deterministic: passkey > first key with inline `key` > first key (lexicographic).
 
-## Session Persistence
+## Channel Persistence
 
-- SQLite database stored at `$TEMPO_HOME/wallet/sessions.db` (default: `~/.tempo/wallet/sessions.db`).
-- Keyed by origin URL — returning requests to the same origin reuse existing channels.
-- `SessionRecord` stores channel state: channel ID, cumulative amount, deposit, nonce, and signing material.
-- 24-hour TTL on sessions; expired sessions are cleaned up automatically.
+- SQLite database stored at `$TEMPO_HOME/wallet/channels.db` (default: `~/.tempo/wallet/channels.db`).
+- Keyed by `channel_id` with an origin index for reuse lookups.
+- `ChannelRecord` stores channel state: channel ID, cumulative amount, deposit, payer/payee/token identity, and challenge echo data.
+- No fixed TTL is enforced; channels have no implicit expiry in local persistence.
 - Pending closes are tracked separately for grace-period finalization.
+
+Close timing policy for payer-initiated close is currently contract-aligned:
+
+1. `requestClose()` starts the escrow grace window.
+2. `withdraw()` is attempted when `now >= closeRequestedAt + gracePeriod`.
+3. The CLI does not currently add an extra 60-second cushion beyond contract grace by default.
+
+Receipt policy is warning-only by default:
+
+1. Missing or invalid `Payment-Receipt` on otherwise successful paid responses emits warnings.
+2. Runtime requests are not failed solely for missing/invalid receipts in default mode.
+3. `--strict-receipts` enables conformance mode and fails paid responses that omit or contain malformed `Payment-Receipt` headers.
+
+## `mpp` Boundary Guarantees
+
+Protocol-critical behavior delegated to `mpp` is locked with local boundary tests so upstream changes cannot silently alter client conformance.
+
+1. EIP-712 voucher signatures are verified as domain-bound to `chain_id` and `verifying_contract` (`crates/tempo-request/tests/mpp_boundary.rs`).
+2. Voucher verification is locked to canonical 65-byte signatures, and compact ERC-2098 signatures are normalized to canonical form at the local boundary before verification (`crates/tempo-request/tests/mpp_boundary.rs`).
+3. Unknown-field tolerance is verified for session request, credential payload, and receipt parsing (`crates/tempo-request/tests/mpp_boundary.rs`).
+4. RFC 9457 extension-field passthrough is verified in local problem parsing (`crates/tempo-common/src/payment/classify.rs`).
+
+## Client Scope Boundaries
+
+This repository is a client/reference wallet implementation. It enforces client-side requirements from the session spec and intentionally does not implement server-only operational MUSTs.
+
+Server-side concerns explicitly out of scope here include voucher rate limiting/anti-DoS policy, challenge-to-voucher audit trail persistence, receipt issuance guarantees, and per-session server accounting durability semantics.
 
 ## Key Files
 
@@ -163,7 +196,7 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 | `crates/tempo-common/src/security.rs` | Security utilities (safe logging, sanitization, redaction) |
 | `crates/tempo-common/src/keys/` | Key storage (model, I/O), signer resolution, authorization |
 | `crates/tempo-common/src/payment/classify.rs` | Payment error classification and extraction |
-| `crates/tempo-common/src/payment/session/` | Session persistence (store), channel queries, close, tx signing |
+| `crates/tempo-common/src/payment/session/` | Channel persistence (SQLite), channel queries, close, tx signing |
 | `crates/tempo-wallet/src/app.rs` | Wallet command dispatch lifecycle |
 | `crates/tempo-wallet/src/wallet/` | Wallet account types (balances, spending limits), on-chain queries |
 | `crates/tempo-wallet/src/commands/login.rs` | Login command and passkey authentication flow |

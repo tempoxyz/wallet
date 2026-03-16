@@ -1,19 +1,14 @@
 use std::error::Error;
 
 use alloy::primitives::{Address, B256};
-use mpp::{
-    parse_receipt,
-    protocol::{
-        core::extract_tx_hash,
-        methods::tempo::{compute_channel_id, session::TempoSessionExt, sign_voucher},
-    },
-};
+use mpp::protocol::methods::tempo::{compute_channel_id, session::TempoSessionExt, sign_voucher};
 
 use super::{
-    extract_origin, open,
+    extract_origin, new_idempotency_key, open,
     persist::persist_session,
+    receipt::parse_validated_session_receipt_header,
     streaming,
-    voucher::{build_open_payload, build_voucher_credential},
+    voucher::{build_open_payload, build_top_up_payload, build_voucher_credential},
     ChannelContext, ChannelState,
 };
 use crate::{
@@ -184,6 +179,247 @@ fn is_on_chain_identity_match(
         && on_chain.authorized_signer == authorized_signer
 }
 
+fn warn_missing_payment_receipt(context: &str) {
+    eprintln!("Warning: missing Payment-Receipt on successful paid {context}");
+}
+
+fn warn_invalid_payment_receipt(context: &str, reason: &str) {
+    eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {reason}");
+}
+
+fn strict_missing_payment_receipt_error(context: &str) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!("Missing required Payment-Receipt on paid {context} (strict mode)"),
+        status_code: 502,
+    }
+    .into()
+}
+
+fn strict_invalid_payment_receipt_error(context: &str, reason: &str) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!("Invalid Payment-Receipt on paid {context} (strict mode): {reason}"),
+        status_code: 502,
+    }
+    .into()
+}
+
+fn apply_response_receipt(
+    strict_receipts: bool,
+    response: &HttpResponse,
+    state: &mut ChannelState,
+    context: &str,
+) -> Result<Option<String>, TempoError> {
+    if !(200..=299).contains(&response.status_code) {
+        return Ok(None);
+    }
+
+    let Some(receipt_header) = response.header("payment-receipt") else {
+        warn_missing_payment_receipt(context);
+        if strict_receipts {
+            return Err(strict_missing_payment_receipt_error(context));
+        }
+        return Ok(None);
+    };
+
+    match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
+        Ok(receipt) => {
+            state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
+            Ok(receipt.tx_reference)
+        }
+        Err(reason) => {
+            warn_invalid_payment_receipt(context, &reason);
+            if strict_receipts {
+                return Err(strict_invalid_payment_receipt_error(context, &reason));
+            }
+            Ok(None)
+        }
+    }
+}
+
+fn parse_positive_problem_amount(value: &str, context: &'static str) -> Result<u128, TempoError> {
+    let amount = value
+        .parse::<u128>()
+        .map_err(|_| PaymentError::ChallengeParse {
+            context,
+            reason: format!("must be a positive integer amount (got '{value}')"),
+        })?;
+    if amount == 0 {
+        return Err(PaymentError::ChallengeSchema {
+            context,
+            reason: "must be > 0".to_string(),
+        }
+        .into());
+    }
+    Ok(amount)
+}
+
+fn parse_rejected_reason(status_code: u16, body: &str) -> TempoError {
+    let raw_reason = tempo_common::payment::classify::extract_json_error(body)
+        .unwrap_or_else(|| body.chars().take(500).collect::<String>());
+    let reason = sanitize_for_terminal(&raw_reason);
+    PaymentError::PaymentRejected {
+        reason,
+        status_code,
+    }
+    .into()
+}
+
+fn validate_problem_channel_id(
+    problem: &tempo_common::payment::classify::ProblemDetails,
+    expected: B256,
+) -> Result<(), TempoError> {
+    let Some(value) = problem.channel_id.as_deref() else {
+        return Ok(());
+    };
+    let parsed = challenge_channel_id_parse(value, "session Problem Details channelId")?;
+    if parsed != expected {
+        return Err(PaymentError::ChallengeSchema {
+            context: "session Problem Details channelId",
+            reason: format!("channelId mismatch (expected {expected:#x}, got {parsed:#x})"),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+async fn fetch_fresh_session_echo(
+    ctx: &ChannelContext<'_>,
+) -> Result<mpp::ChallengeEcho, TempoError> {
+    let response = ctx
+        .http
+        .build_raw_request(ctx.url)
+        .send()
+        .await
+        .map_err(NetworkError::Reqwest)?;
+
+    if response.status().as_u16() != 402 {
+        return Err(PaymentError::PaymentRejected {
+            reason: format!(
+                "Expected 402 while refreshing challenge, got HTTP {}",
+                response.status().as_u16()
+            ),
+            status_code: response.status().as_u16(),
+        }
+        .into());
+    }
+
+    let challenge_header = response
+        .headers()
+        .get("www-authenticate")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| PaymentError::MissingHeader("WWW-Authenticate".to_string()))?;
+
+    let challenge = mpp::parse_www_authenticate(challenge_header).map_err(|source| {
+        PaymentError::ChallengeParseSource {
+            context: "WWW-Authenticate header",
+            source: Box::new(source),
+        }
+    })?;
+
+    challenge
+        .validate_for_session("tempo")
+        .map_err(|err| map_mpp_validation_error(err, &challenge))?;
+
+    Ok(challenge.to_echo())
+}
+
+async fn send_top_up_request(
+    ctx: &ChannelContext<'_>,
+    echo: &mpp::ChallengeEcho,
+    state: &ChannelState,
+    additional_deposit: u128,
+    idempotency_key: &str,
+) -> Result<HttpResponse, TempoError> {
+    let calls = session::build_top_up_calls(
+        ctx.token,
+        state.escrow_contract,
+        state.channel_id,
+        additional_deposit,
+    );
+
+    let payment = open::create_tempo_payment_from_calls(
+        ctx.rpc_url,
+        ctx.signer,
+        calls,
+        ctx.token,
+        state.chain_id,
+        ctx.fee_payer,
+    )
+    .await?;
+    let tx_hex = format!("0x{}", hex::encode(&payment.tx_bytes));
+    let payload = build_top_up_payload(state.channel_id, tx_hex, additional_deposit);
+
+    let credential =
+        mpp::PaymentCredential::with_source(echo.clone(), ctx.did.to_string(), payload);
+    let auth_header = mpp::format_authorization(&credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "topUp credential",
+            source: Box::new(source),
+        }
+    })?;
+
+    let response = ctx
+        .reqwest_client
+        .post(ctx.url)
+        .header("Authorization", auth_header)
+        .header("Idempotency-Key", idempotency_key)
+        .send()
+        .await
+        .map_err(NetworkError::Reqwest)?;
+
+    HttpResponse::from_reqwest(response).await
+}
+
+async fn run_non_streaming_top_up_recovery(
+    ctx: &ChannelContext<'_>,
+    state: &mut ChannelState,
+    required_top_up: u128,
+) -> Result<(), TempoError> {
+    let additional_deposit = required_top_up.max(ctx.top_up_deposit);
+    let mut echo = ctx.echo.clone();
+    let top_up_idempotency_key = new_idempotency_key();
+
+    for retry in 0..=1 {
+        let top_up_response = send_top_up_request(
+            ctx,
+            &echo,
+            state,
+            additional_deposit,
+            &top_up_idempotency_key,
+        )
+        .await?;
+        if top_up_response.status_code < 400 {
+            let _ = apply_response_receipt(
+                ctx.http.strict_receipts_enabled(),
+                &top_up_response,
+                state,
+                "topUp response",
+            )?;
+            state.deposit = state.deposit.saturating_add(additional_deposit);
+            let _ = persist_session(ctx, state);
+            return Ok(());
+        }
+
+        let body = top_up_response.body_string().unwrap_or_default();
+        if retry == 0
+            && top_up_response.status_code == 410
+            && parse_problem_details(&body)
+                .is_some_and(|problem| problem.classify() == SessionProblemType::ChallengeNotFound)
+        {
+            echo = fetch_fresh_session_echo(ctx).await?;
+            continue;
+        }
+
+        return Err(parse_rejected_reason(top_up_response.status_code, &body));
+    }
+
+    Err(PaymentError::PaymentRejected {
+        reason: "Top-up retry exhausted".to_string(),
+        status_code: 410,
+    }
+    .into())
+}
+
 /// Send the actual session request with a voucher and handle the response.
 ///
 /// Bypasses [`crate::http::HttpClient::execute()`] and uses the raw reqwest client directly
@@ -193,77 +429,119 @@ async fn send_session_request(
     ctx: &ChannelContext<'_>,
     state: &mut ChannelState,
 ) -> Result<PaymentResult, SessionRequestFailure> {
-    let voucher_credential = build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state)
-        .await
-        .map_err(|source| SessionRequestFailure {
-            source,
-            kind: SessionRequestFailureKind::Other,
-        })?;
-
-    let voucher_auth =
-        mpp::format_authorization(&voucher_credential).map_err(|source| SessionRequestFailure {
-            source: PaymentError::ChallengeFormatSource {
-                context: "voucher credential",
-                source: Box::new(source),
-            }
-            .into(),
-            kind: SessionRequestFailureKind::Other,
-        })?;
-
-    let data_request = ctx
-        .reqwest_client
-        .request(ctx.http.method().clone(), ctx.url)
-        .header("Authorization", &voucher_auth);
-    let data_request = crate::http::HttpClient::apply_body_from(data_request, ctx.http.body());
-
-    let response = data_request
-        .send()
-        .await
-        .map_err(NetworkError::Reqwest)
-        .map_err(|source| SessionRequestFailure {
-            source: source.into(),
-            kind: SessionRequestFailureKind::Other,
-        })?;
-
-    let status = response.status();
-    if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
-        let body = response.text().await.unwrap_or_default();
-        let failure_kind = classify_session_failure(status.as_u16(), &body);
-        let raw_reason = tempo_common::payment::classify::extract_json_error(&body)
-            .unwrap_or_else(|| body.chars().take(500).collect::<String>());
-        let reason = sanitize_for_terminal(&raw_reason);
-        return Err(SessionRequestFailure {
-            source: PaymentError::PaymentRejected {
-                reason,
-                status_code: status.as_u16(),
-            }
-            .into(),
-            kind: failure_kind,
-        });
-    }
-
-    let is_sse = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|ct| ct.contains("text/event-stream"));
-
-    let channel_id = format!("{:#x}", state.channel_id);
-
-    if is_sse {
-        streaming::stream_sse_response(ctx, state, response)
+    let mut attempted_non_stream_top_up = false;
+    let request_idempotency_key = new_idempotency_key();
+    loop {
+        let voucher_credential = build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state)
             .await
             .map_err(|source| SessionRequestFailure {
                 source,
                 kind: SessionRequestFailureKind::Other,
             })?;
-        Ok(PaymentResult {
-            tx_hash: None,
-            channel_id: Some(channel_id),
-            status_code: 200,
-            response: None,
-        })
-    } else {
+
+        let voucher_auth = mpp::format_authorization(&voucher_credential).map_err(|source| {
+            SessionRequestFailure {
+                source: PaymentError::ChallengeFormatSource {
+                    context: "voucher credential",
+                    source: Box::new(source),
+                }
+                .into(),
+                kind: SessionRequestFailureKind::Other,
+            }
+        })?;
+
+        let mut data_request = ctx
+            .reqwest_client
+            .request(ctx.http.method().clone(), ctx.url)
+            .header("Authorization", &voucher_auth)
+            .header("Idempotency-Key", &request_idempotency_key);
+        data_request = crate::http::HttpClient::apply_body_from(data_request, ctx.http.body());
+
+        let response = data_request
+            .send()
+            .await
+            .map_err(NetworkError::Reqwest)
+            .map_err(|source| SessionRequestFailure {
+                source: source.into(),
+                kind: SessionRequestFailureKind::Other,
+            })?;
+
+        let status = response.status();
+        if status.as_u16() == 402 || status.is_client_error() || status.is_server_error() {
+            let body = response.text().await.unwrap_or_default();
+
+            if !attempted_non_stream_top_up && status.as_u16() == 402 {
+                if let Some(problem) = parse_problem_details(&body) {
+                    if problem.classify() == SessionProblemType::InsufficientBalance {
+                        validate_problem_channel_id(&problem, state.channel_id).map_err(
+                            |source| SessionRequestFailure {
+                                source,
+                                kind: SessionRequestFailureKind::Other,
+                            },
+                        )?;
+
+                        let required_top_up_value =
+                            problem.required_top_up.as_deref().ok_or_else(|| {
+                                SessionRequestFailure {
+                                    source: PaymentError::ChallengeMissingField {
+                                        context: "session insufficient-balance requiredTopUp",
+                                        field: "requiredTopUp",
+                                    }
+                                    .into(),
+                                    kind: SessionRequestFailureKind::Other,
+                                }
+                            })?;
+                        let required_top_up = parse_positive_problem_amount(
+                            required_top_up_value,
+                            "session insufficient-balance requiredTopUp",
+                        )
+                        .map_err(|source| SessionRequestFailure {
+                            source,
+                            kind: SessionRequestFailureKind::Other,
+                        })?;
+
+                        run_non_streaming_top_up_recovery(ctx, state, required_top_up)
+                            .await
+                            .map_err(|source| SessionRequestFailure {
+                                source,
+                                kind: SessionRequestFailureKind::Other,
+                            })?;
+                        attempted_non_stream_top_up = true;
+                        continue;
+                    }
+                }
+            }
+
+            let failure_kind = classify_session_failure(status.as_u16(), &body);
+            return Err(SessionRequestFailure {
+                source: parse_rejected_reason(status.as_u16(), &body),
+                kind: failure_kind,
+            });
+        }
+
+        let is_sse = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ct| ct.contains("text/event-stream"));
+
+        let channel_id = format!("{:#x}", state.channel_id);
+
+        if is_sse {
+            streaming::stream_sse_response(ctx, state, response)
+                .await
+                .map_err(|source| SessionRequestFailure {
+                    source,
+                    kind: SessionRequestFailureKind::Other,
+                })?;
+            return Ok(PaymentResult {
+                tx_hash: None,
+                channel_id: Some(channel_id),
+                status_code: 200,
+                response: None,
+            });
+        }
+
         let http_response = HttpResponse::from_reqwest(response)
             .await
             .map_err(|source| SessionRequestFailure {
@@ -271,13 +549,23 @@ async fn send_session_request(
                 kind: SessionRequestFailureKind::Other,
             })?;
         let status_code = http_response.status_code;
+        let tx_hash = apply_response_receipt(
+            ctx.http.strict_receipts_enabled(),
+            &http_response,
+            state,
+            "session response",
+        )
+        .map_err(|source| SessionRequestFailure {
+            source,
+            kind: SessionRequestFailureKind::Other,
+        })?;
 
-        Ok(PaymentResult {
-            tx_hash: None,
+        return Ok(PaymentResult {
+            tx_hash,
             channel_id: Some(channel_id),
             status_code,
             response: Some(http_response),
-        })
+        });
     }
 }
 
@@ -394,6 +682,7 @@ pub(crate) async fn handle_session_request(
 
     let key_address = signer.signer.address();
     let from = signer.from;
+    let fee_payer = session_req.fee_payer();
     let suggested_channel_id = session_req
         .channel_id()
         .as_deref()
@@ -442,14 +731,11 @@ pub(crate) async fn handle_session_request(
 
     // === Reuse check + open (under lock) ===
     //
-    // Acquire a blocking per-origin lock so concurrent workers serialize
-    // the reuse-check-then-open sequence. The lock is dropped as soon as
-    // the critical section completes (before sending the actual request or
-    // streaming SSE) to avoid serializing long-running request I/O.
-    let mut lock_guard = Some(
-        session::acquire_origin_lock(&session_key)
-            .map_err(|e| session_store_error("acquire session lock", e))?,
-    );
+    // Hold a blocking per-origin lock for the full paid request lifecycle.
+    // A channel permits only one active session at a time, so requests to
+    // the same origin are intentionally serialized until completion.
+    let _lock_guard = session::acquire_origin_lock(&session_key)
+        .map_err(|e| session_store_error("acquire session lock", e))?;
 
     // Build reuse candidates in priority order:
     // 1) server-suggested channelId (if present),
@@ -558,28 +844,27 @@ pub(crate) async fn handle_session_request(
             channel_id,
             escrow_contract,
             chain_id,
+            deposit: on_chain_deposit,
             cumulative_amount: (prev_cumulative + amount).min(available_balance),
         };
 
         let ctx = ChannelContext {
-            signer: &signer.signer,
+            signer: &signer,
             payer: from,
             echo: &echo,
             did: &did,
             http,
             url,
+            rpc_url: resolved.rpc_url.as_str(),
             network_id,
             origin: &origin,
-            deposit: on_chain_deposit,
+            top_up_deposit: deposit,
+            fee_payer,
             salt: record.salt.clone(),
             payee,
             token,
             reqwest_client: http.client(),
         };
-
-        // Release the lock before sending the request — the critical
-        // section (reuse decision) is complete.
-        drop(lock_guard.take());
 
         match send_session_request(&ctx, &mut state).await {
             Ok(result) => {
@@ -595,10 +880,6 @@ pub(crate) async fn handle_session_request(
                             "Persisted channel {channel_id_hex} rejected by server; opening a new channel"
                         );
                     }
-                    lock_guard = Some(
-                        session::acquire_origin_lock(&session_key)
-                            .map_err(|e| session_store_error("acquire session lock", e))?,
-                    );
                 } else {
                     // A signed voucher may already have been transmitted, so
                     // persist the updated state and propagate the error instead
@@ -636,6 +917,10 @@ pub(crate) async fn handle_session_request(
         authorized_signer,
     );
 
+    // Deviation from draft-tempo-session-00 §8.3.1: use `amount`
+    // (instead of the typical `0`) to pre-authorize one service unit and
+    // avoid an immediate extra voucher round trip before delivery starts.
+    // Server-side verification still enforces cumulativeAmount >= settled.
     let initial_cumulative = amount;
     let voucher_sig = sign_voucher(
         &signer.signer,
@@ -656,6 +941,7 @@ pub(crate) async fn handle_session_request(
         open_calls,
         token,
         chain_id,
+        fee_payer,
     )
     .await?;
 
@@ -682,34 +968,42 @@ pub(crate) async fn handle_session_request(
     })?;
 
     let delays = [2000_u64, 3000, 5000];
-    let open_response = open::send_open_with_retry(http, url, &auth_header, &delays).await?;
-
-    if let Some(receipt_str) = open_response.header("payment-receipt") {
-        if let Ok(receipt) = parse_receipt(receipt_str) {
-            let tx_ref = extract_tx_hash(receipt_str).unwrap_or(receipt.reference);
-            if http.log_enabled() {
-                eprintln!("Channel open tx: {}", resolved.network_id.tx_url(&tx_ref));
-            }
-        }
-    }
+    let open_idempotency_key = new_idempotency_key();
+    let open_response =
+        open::send_open_with_retry(http, url, &auth_header, &open_idempotency_key, &delays).await?;
 
     let mut state = ChannelState {
         channel_id,
         escrow_contract,
         chain_id,
+        deposit,
         cumulative_amount: initial_cumulative,
     };
 
+    let open_tx_hash = apply_response_receipt(
+        http.strict_receipts_enabled(),
+        &open_response,
+        &mut state,
+        "open response",
+    )?;
+    if let Some(tx_ref) = open_tx_hash.as_deref() {
+        if http.log_enabled() {
+            eprintln!("Channel open tx: {}", resolved.network_id.tx_url(tx_ref));
+        }
+    }
+
     let ctx = ChannelContext {
-        signer: &signer.signer,
+        signer: &signer,
         payer: from,
         echo: &echo,
         did: &did,
         http,
         url,
+        rpc_url: resolved.rpc_url.as_str(),
         network_id,
         origin: &origin,
-        deposit,
+        top_up_deposit: deposit,
+        fee_payer,
         salt: format!("{salt:#x}"),
         payee,
         token,
@@ -726,19 +1020,16 @@ pub(crate) async fn handle_session_request(
 
     if !is_sse && open_response.status_code < 400 {
         persist_session(&ctx, &state)?;
-        // Lock released — channel is persisted and visible to other workers.
-        drop(lock_guard.take());
         return Ok(PaymentResult {
-            tx_hash: None,
+            tx_hash: open_tx_hash,
             channel_id: Some(format!("{channel_id:#x}")),
             status_code: open_response.status_code,
             response: Some(open_response),
         });
     }
 
-    // Persist before releasing the lock so concurrent workers see the channel.
+    // Persist the opened channel before proceeding with voucher requests.
     persist_session(&ctx, &state)?;
-    drop(lock_guard.take());
 
     let result = send_session_request(&ctx, &mut state)
         .await
@@ -778,12 +1069,16 @@ mod tests {
     use super::{
         assess_on_chain_reusability, challenge_channel_id_parse, classify_session_failure,
         is_on_chain_identity_match, is_session_reusable, normalize_hex_identifier,
-        session_store_error, SessionRequestFailureKind,
+        parse_positive_problem_amount, session_store_error, validate_problem_channel_id,
+        SessionRequestFailureKind,
     };
-    use alloy::primitives::Address;
+    use alloy::primitives::{Address, B256};
     use tempo_common::{
         error::{PaymentError, TempoError},
-        payment::session::{now_secs, ChannelRecord, ChannelStatus},
+        payment::{
+            classify::ProblemDetails,
+            session::{now_secs, ChannelRecord, ChannelStatus},
+        },
     };
 
     fn make_record() -> ChannelRecord {
@@ -925,6 +1220,30 @@ mod tests {
             challenge_channel_id_parse("0x1234", "ctx").is_err(),
             "short channel IDs must be rejected"
         );
+    }
+
+    #[test]
+    fn parse_positive_problem_amount_rejects_zero() {
+        let err = parse_positive_problem_amount("0", "ctx").unwrap_err();
+        assert!(err.to_string().contains("must be > 0"));
+    }
+
+    #[test]
+    fn validate_problem_channel_id_rejects_mismatch() {
+        let expected = B256::from([0x11; 32]);
+        let problem = ProblemDetails {
+            problem_type: "https://paymentauth.org/problems/session/insufficient-balance"
+                .to_string(),
+            title: None,
+            status: Some(402),
+            detail: Some("need more deposit".to_string()),
+            required_top_up: Some("100".to_string()),
+            channel_id: Some(format!("{:#x}", B256::from([0x22; 32]))),
+            extensions: std::collections::BTreeMap::new(),
+        };
+
+        let err = validate_problem_channel_id(&problem, expected).unwrap_err();
+        assert!(err.to_string().contains("channelId mismatch"));
     }
 
     #[test]

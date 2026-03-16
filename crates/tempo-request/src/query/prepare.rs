@@ -150,6 +150,7 @@ fn build_request_plan(query: &QueryArgs) -> Result<HttpRequestPlan, TempoError> 
         method,
         headers,
         body,
+        strict_receipts: query.strict_receipts,
         timeout_secs: query.max_time,
         connect_timeout_secs: query.connect_timeout,
         follow_redirects: query.location,

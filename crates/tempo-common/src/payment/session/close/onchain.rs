@@ -38,6 +38,11 @@ type ChannelResult<T> = Result<T, TempoError>;
 /// - If 0: submits `requestClose()` and returns `Pending`
 /// - If non-zero and grace period elapsed: submits `withdraw()` and returns `Closed`
 /// - If non-zero but grace period not elapsed: returns `Pending`
+///
+/// Close timing policy: this client enforces the on-chain grace period exactly
+/// (`closeRequestedAt + gracePeriod`) and does not add an extra fixed cushion.
+/// This is an intentional interoperability-first choice; strict reference-mode
+/// behavior can add tighter policy checks at the CLI layer.
 pub(super) async fn close_on_chain(
     config: &Config,
     wallet: &Signer,

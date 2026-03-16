@@ -15,6 +15,23 @@ use tempo_common::{
 use super::types::{PaymentResult, ResolvedChallenge};
 use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
 
+fn strict_missing_payment_receipt_error(status_code: u16) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: "Missing required Payment-Receipt on paid charge response (strict mode)"
+            .to_string(),
+        status_code,
+    }
+    .into()
+}
+
+fn strict_invalid_payment_receipt_error(status_code: u16, reason: &str) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!("Invalid Payment-Receipt on paid charge response (strict mode): {reason}"),
+        status_code,
+    }
+    .into()
+}
+
 /// Handle an MPP charge payment flow (402 with intent="charge").
 ///
 /// Validates the challenge, builds and signs the transaction,
@@ -68,10 +85,26 @@ pub(super) async fn handle_charge_request(
         return Err(parse_payment_rejection(&resp).into());
     }
 
-    let tx_hash = resp.header("payment-receipt").and_then(|h| {
-        mpp::protocol::core::extract_tx_hash(h)
-            .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
-    });
+    let tx_hash = match resp.header("payment-receipt") {
+        Some(header) => {
+            if let Err(source) = mpp::parse_receipt(header) {
+                if http.strict_receipts_enabled() {
+                    return Err(strict_invalid_payment_receipt_error(
+                        resp.status_code,
+                        &source.to_string(),
+                    ));
+                }
+            }
+            mpp::protocol::core::extract_tx_hash(header)
+                .or_else(|| mpp::parse_receipt(header).ok().map(|r| r.reference))
+        }
+        None => {
+            if http.strict_receipts_enabled() {
+                return Err(strict_missing_payment_receipt_error(resp.status_code));
+            }
+            None
+        }
+    };
 
     Ok(PaymentResult {
         tx_hash,
