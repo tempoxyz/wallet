@@ -310,15 +310,15 @@ async fn stalled_voucher_resume_retries_with_backoff_up_to_configured_max() {
     );
     let elapsed = started.elapsed();
     assert!(
-        second_output.status.success(),
-        "stalled stream request should finish after retry budget: {}",
+        !second_output.status.success(),
+        "stalled stream request should fail after retry budget: {}",
         get_combined_output(&second_output)
     );
 
     let combined = get_combined_output(&second_output);
     assert!(
-        combined.contains("Warning: missing Payment-Receipt on successful paid SSE response"),
-        "stalled path should remain warning-only when retries exhaust without receipt: {combined}"
+        combined.contains("session voucher retries exhausted"),
+        "stalled path should report retry exhaustion: {combined}"
     );
     assert!(
         elapsed >= std::time::Duration::from_millis(150),
@@ -709,7 +709,7 @@ async fn head_first_voucher_405_fallback_to_post_and_stream_continues() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn missing_method_details_chainid_defaults_to_moderato() {
+async fn missing_method_details_chainid_is_rejected() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
         payee_mode: PayeeMode::Fixed,
@@ -731,28 +731,17 @@ async fn missing_method_details_chainid_defaults_to_moderato() {
 
     let output = run_session_request(&temp, &server.url("/missing-chain-id"));
     assert!(
-        output.status.success(),
-        "missing methodDetails.chainId should default to Moderato instead of failing: {}",
+        !output.status.success(),
+        "missing methodDetails.chainId should fail with schema error: {}",
         get_combined_output(&output)
+    );
+    assert!(
+        get_combined_output(&output).contains("missing chainId"),
+        "expected missing chainId failure"
     );
 
     let observed = server.snapshot();
-    assert_eq!(
-        observed.open_count, 1,
-        "request should still open a channel"
-    );
-    assert!(
-        observed
-            .credential_sources
-            .iter()
-            .any(|source| source.starts_with("did:pkh:eip155:42431:0x")),
-        "fallback chainId should be reflected in credential source DID: {:?}",
-        observed.credential_sources
-    );
-
-    let channels = load_channels(&temp);
-    assert_eq!(channels.len(), 1);
-    assert_eq!(channels[0].state, "active");
+    assert_eq!(observed.open_count, 0, "request should not open a channel");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

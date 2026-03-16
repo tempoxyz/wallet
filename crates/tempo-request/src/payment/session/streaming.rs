@@ -17,6 +17,7 @@ use super::{
     ChannelContext, ChannelState,
 };
 use tempo_common::{
+    cli::terminal::sanitize_for_terminal,
     error::{NetworkError, PaymentError, TempoError},
     payment::{parse_problem_details, SessionProblemType},
 };
@@ -125,7 +126,26 @@ fn warn_missing_payment_receipt(context: &str) {
 }
 
 fn warn_invalid_payment_receipt(context: &str, reason: &str) {
-    eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {reason}");
+    let safe_reason = sanitize_for_terminal(reason);
+    eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {safe_reason}");
+}
+
+fn stream_idle_timeout_error(timeout: Duration) -> TempoError {
+    PaymentError::SessionStreamIdleTimeout {
+        timeout_secs: timeout.as_secs().max(1),
+    }
+    .into()
+}
+
+fn stream_retry_exhausted_error(max_retries: u32) -> TempoError {
+    PaymentError::SessionVoucherRetryExhausted { max_retries }.into()
+}
+
+fn stream_incomplete_error(reason: &'static str) -> TempoError {
+    PaymentError::SessionStreamIncomplete {
+        reason: reason.to_string(),
+    }
+    .into()
 }
 
 fn next_voucher_stall_timeout(current: Duration, normal_timeout: Duration) -> Duration {
@@ -603,7 +623,7 @@ pub(super) async fn stream_sse_response(
                             "[stream stall — voucher not accepted after {max_voucher_retries} retries]"
                         );
                     }
-                    break;
+                    return Err(stream_retry_exhausted_error(max_voucher_retries));
                 }
                 TimeoutTransition::Retry(attempt) => {
                     if runtime.debug_enabled() {
@@ -629,7 +649,9 @@ pub(super) async fn stream_sse_response(
                             retry_coordinator.policy.normal_timeout.as_secs()
                         );
                     }
-                    break;
+                    return Err(stream_idle_timeout_error(
+                        retry_coordinator.policy.normal_timeout,
+                    ));
                 }
             },
         };
@@ -783,13 +805,17 @@ pub(super) async fn stream_sse_response(
                         if runtime.log_enabled() {
                             eprintln!();
                             eprintln!("Stream receipt:");
-                            eprintln!("  Channel: {}", receipt.channel_id);
-                            eprintln!("  Spent: {}", receipt.spent);
+                            let safe_channel = sanitize_for_terminal(&receipt.channel_id);
+                            let safe_spent = sanitize_for_terminal(&receipt.spent);
+                            eprintln!("  Channel: {safe_channel}");
+                            eprintln!("  Spent: {safe_spent}");
                             if let Some(units) = receipt.units {
-                                eprintln!("  Units: {units}");
+                                let safe_units = sanitize_for_terminal(&units.to_string());
+                                eprintln!("  Units: {safe_units}");
                             }
                             if let Some(ref tx) = receipt.tx_hash {
-                                eprintln!("  TX: {tx}");
+                                let safe_tx = sanitize_for_terminal(tx);
+                                eprintln!("  TX: {safe_tx}");
                             }
                         }
                         // Receipt signals stream completion
@@ -816,6 +842,12 @@ pub(super) async fn stream_sse_response(
                 warn_invalid_payment_receipt("SSE response trailer", &reason);
             }
         }
+    }
+
+    if response.status().is_success() && !stream_done && !saw_header_or_trailer_receipt {
+        return Err(stream_incomplete_error(
+            "stream ended without completion marker or payment receipt",
+        ));
     }
 
     if response.status().is_success() && !saw_header_or_trailer_receipt {
@@ -868,10 +900,12 @@ mod tests {
     };
 
     use axum::{
+        body::{Body, Bytes},
         http::StatusCode,
-        routing::{get, head},
+        routing::{get, head, post},
         Router,
     };
+    use futures::StreamExt;
 
     use crate::http::{HttpClient, HttpRequestPlan};
 
@@ -1466,6 +1500,170 @@ mod tests {
         assert_eq!(
             state.cumulative_amount, 10,
             "invalid receipt header should be ignored without mutating cumulative"
+        );
+    }
+
+    #[serial_test::serial]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_idle_timeout_returns_error() {
+        std::env::set_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10");
+        std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
+        std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
+
+        let app = Router::new().route(
+            "/stream",
+            get(|| async {
+                (
+                    StatusCode::OK,
+                    [("content-type", "text/event-stream")],
+                    Body::from_stream(futures::stream::pending::<Result<Bytes, std::io::Error>>()),
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(alloy::primitives::B256::from([0x68; 32]));
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+        std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
+
+        let err = result.expect_err("idle timeout should error");
+        assert!(
+            matches!(
+                err,
+                TempoError::Payment(PaymentError::SessionStreamIdleTimeout { .. })
+            ),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[serial_test::serial]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_voucher_retry_exhaustion_returns_error() {
+        std::env::set_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10");
+        std::env::set_var("TEMPO_SESSION_STALL_TIMEOUT_MS", "5");
+        std::env::set_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES", "0");
+
+        let channel_id = alloy::primitives::B256::from([0x69; 32]);
+        let need_voucher = format!(
+            "event: payment-need-voucher\ndata: {{\"channelId\":\"{channel_id:#x}\",\"requiredCumulative\":\"12\",\"acceptedCumulative\":\"10\",\"deposit\":\"100\"}}\n\n"
+        );
+
+        let app = Router::new()
+            .route(
+                "/stream",
+                get({
+                    let need_voucher = need_voucher.clone();
+                    move || {
+                        let need_voucher = need_voucher.clone();
+                        async move {
+                            let body_stream = futures::stream::once(async {
+                                Ok::<Bytes, std::io::Error>(Bytes::from(need_voucher))
+                            })
+                            .chain(futures::stream::pending::<Result<Bytes, std::io::Error>>());
+                            (
+                                StatusCode::OK,
+                                [("content-type", "text/event-stream")],
+                                Body::from_stream(body_stream),
+                            )
+                        }
+                    }
+                }),
+            )
+            .route("/stream", head(|| async { StatusCode::OK }))
+            .route("/stream", post(|| async { StatusCode::OK }));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(channel_id);
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+        std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
+        std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
+        std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
+
+        let err = result.expect_err("retry exhaustion should error");
+        assert!(
+            matches!(
+                err,
+                TempoError::Payment(PaymentError::SessionVoucherRetryExhausted { .. })
+            ),
+            "unexpected error: {err:#}"
         );
     }
 }

@@ -118,6 +118,12 @@ This mode requires no persistent state — each request is independently settled
 
 Session orchestration (flow, streaming, voucher) is implemented in `tempo-request/src/payment/session/`. Shared session infrastructure (persistence, channel queries, close operations, tx signing) lives in `tempo-common/src/payment/session/`.
 
+Session invariants are intentionally strict:
+
+1. Session challenge `methodDetails.chainId` is required; missing `chainId` is rejected.
+2. Paid SSE requests fail closed on stream timeout/retry exhaustion/incomplete termination.
+3. Persisted channel `cumulative_amount` is monotonic and must never decrease.
+
 `handle_session_request` is intentionally stage-driven with explicit boundaries:
 
 1. `challenge_stage` parses/validates the challenge and resolves normalized session identity.
@@ -168,6 +174,7 @@ Key selection is deterministic: passkey > first key with inline `key` > first ke
 - `ChannelRecord` stores channel state: channel ID, cumulative amount, deposit, payer/payee/token identity, and challenge echo data.
 - No fixed TTL is enforced; channels have no implicit expiry in local persistence.
 - Pending closes are tracked separately for grace-period finalization.
+- Monotonic channel accounting is enforced at storage update boundaries (`update_channel_cumulative_floor`).
 
 Close timing policy for payer-initiated close is currently contract-aligned:
 

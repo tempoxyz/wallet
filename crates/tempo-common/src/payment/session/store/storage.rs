@@ -355,6 +355,27 @@ fn update_channel_close_state_in_conn(
     Ok(())
 }
 
+fn update_channel_cumulative_floor_in_conn(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    accepted_cumulative: u128,
+) -> ChannelStoreResult<()> {
+    let accepted = accepted_cumulative.to_string();
+    conn.execute(
+        "UPDATE channels
+         SET cumulative_amount = CASE
+             WHEN LENGTH(cumulative_amount) > LENGTH(?1) THEN cumulative_amount
+             WHEN LENGTH(cumulative_amount) < LENGTH(?1) THEN ?1
+             WHEN cumulative_amount >= ?1 THEN cumulative_amount
+             ELSE ?1
+         END
+         WHERE LOWER(channel_id) = LOWER(?2)",
+        params![accepted, channel_id],
+    )
+    .map_err(|err| store_error("update channel cumulative floor", err))?;
+    Ok(())
+}
+
 pub fn save_channel(record: &ChannelRecord) -> ChannelStoreResult<()> {
     let conn = open_db()?;
     save_channel_in_conn(&conn, record)
@@ -477,6 +498,14 @@ pub fn update_channel_close_state(
 ) -> ChannelStoreResult<()> {
     let conn = open_db()?;
     update_channel_close_state_in_conn(&conn, channel_id, state, close_requested_at, grace_ready_at)
+}
+
+pub fn update_channel_cumulative_floor(
+    channel_id: &str,
+    accepted_cumulative: u128,
+) -> ChannelStoreResult<()> {
+    let conn = open_db()?;
+    update_channel_cumulative_floor_in_conn(&conn, channel_id, accepted_cumulative)
 }
 
 #[cfg(test)]
@@ -641,6 +670,26 @@ mod tests {
         .unwrap();
 
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn cumulative_floor_update_is_monotonic() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let channel_id = alloy::primitives::B256::from([0x32; 32]);
+        let record = sample_record(channel_id, 1, ChannelStatus::Active);
+        save_channel_in_conn(&conn, &record).unwrap();
+
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 50).unwrap();
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 12).unwrap();
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 9_999).unwrap();
+
+        let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("channel should load");
+        assert_eq!(loaded.cumulative_amount_u128(), 9_999);
     }
 
     #[test]

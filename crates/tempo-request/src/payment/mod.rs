@@ -3,6 +3,7 @@
 //! Routes HTTP 402 responses to the appropriate payment path,
 //! builds and signs transactions, and retries with payment credentials.
 
+pub(crate) mod challenge;
 mod charge;
 pub(crate) mod router;
 mod session;

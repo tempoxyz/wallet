@@ -1,11 +1,11 @@
-//! Domain model and helpers for session records.
+//! Domain model and helpers for persisted channel records.
 
 use alloy::primitives::{Address, B256};
 use serde::{Deserialize, Serialize};
 
 use crate::network::NetworkId;
 
-/// Error returned when decoding a session status from persisted storage.
+/// Error returned when decoding a channel status from persisted storage.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct InvalidChannelStatusError {
     value: String,
@@ -21,13 +21,13 @@ impl InvalidChannelStatusError {
 
 impl std::fmt::Display for InvalidChannelStatusError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "invalid session status '{}'", self.value)
+        write!(f, "invalid channel status '{}'", self.value)
     }
 }
 
 impl std::error::Error for InvalidChannelStatusError {}
 
-/// Session lifecycle state.
+/// Channel lifecycle state.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ChannelStatus {
@@ -63,7 +63,7 @@ impl ChannelStatus {
     }
 }
 
-/// A persisted payment channel session.
+/// A persisted payment channel record.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChannelRecord {
     #[serde(default = "default_version")]
@@ -171,7 +171,7 @@ impl ChannelRecord {
     /// Compute the display status and optional remaining seconds from channel state.
     ///
     /// Returns `(status, remaining_secs)`:
-    /// - Active sessions: `(ChannelStatus::Active, None)`
+    /// - Active channels: `(ChannelStatus::Active, None)`
     /// - Closing with time remaining: `(ChannelStatus::Closing, Some(secs))`
     /// - Closing with grace elapsed: `(ChannelStatus::Finalizable, Some(0))`
     #[must_use]
@@ -193,7 +193,7 @@ impl ChannelRecord {
     }
 }
 
-/// Compute a session key from the origin URL (extract `scheme://host[:port]`).
+/// Compute an origin lock key from the origin URL (extract `scheme://host[:port]`).
 ///
 /// Non-alphanumeric chars (except `-` and `.`) are replaced with `_`.
 #[must_use]
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn test_session_status_round_trip() {
+    fn test_channel_status_round_trip() {
         let variants = [
             ChannelStatus::Active,
             ChannelStatus::Closing,
@@ -378,12 +378,12 @@ mod tests {
     }
 
     #[test]
-    fn test_session_status_unknown_is_error() {
+    fn test_channel_status_unknown_is_error() {
         let err = ChannelStatus::try_from_db_str("garbage").unwrap_err();
-        assert_eq!(err.to_string(), "invalid session status 'garbage'");
+        assert_eq!(err.to_string(), "invalid channel status 'garbage'");
 
         let err = ChannelStatus::try_from_db_str("").unwrap_err();
-        assert_eq!(err.to_string(), "invalid session status ''");
+        assert_eq!(err.to_string(), "invalid channel status ''");
     }
 
     #[test]

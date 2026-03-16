@@ -4,7 +4,10 @@ use alloy::primitives::B256;
 
 use tempo_common::error::{PaymentError, TempoError};
 
-use tempo_common::session::{load_channel, now_secs, save_channel, ChannelRecord, ChannelStatus};
+use tempo_common::session::{
+    load_channel, now_secs, save_channel, update_channel_cumulative_floor, ChannelRecord,
+    ChannelStatus,
+};
 
 use super::{ChannelContext, ChannelState};
 
@@ -65,6 +68,12 @@ pub(super) fn persist_session(
         source: Box::new(source),
     })?;
 
+    update_channel_cumulative_floor(&format!("{:#x}", state.channel_id), state.cumulative_amount)
+        .map_err(|source| PaymentError::ChannelPersistenceSource {
+        operation: "update channel cumulative floor",
+        source: Box::new(source),
+    })?;
+
     if ctx.http.log_enabled() {
         let cumulative_display =
             tempo_common::cli::format::format_token_amount(state.cumulative_amount, ctx.network_id);
@@ -79,19 +88,11 @@ pub(super) fn persist_channel_cumulative_floor(
     accepted_cumulative: u128,
 ) -> Result<(), TempoError> {
     let channel_id_hex = format!("{channel_id:#x}");
-    let Some(mut record) =
-        load_channel(&channel_id_hex).map_err(|source| PaymentError::ChannelPersistenceSource {
-            operation: "load channel",
+    update_channel_cumulative_floor(&channel_id_hex, accepted_cumulative).map_err(|source| {
+        PaymentError::ChannelPersistenceSource {
+            operation: "update channel cumulative floor",
             source: Box::new(source),
-        })?
-    else {
-        return Ok(());
-    };
-
-    record.set_cumulative_amount(accepted_cumulative);
-    save_channel(&record).map_err(|source| PaymentError::ChannelPersistenceSource {
-        operation: "save channel",
-        source: Box::new(source),
+        }
     })?;
     Ok(())
 }

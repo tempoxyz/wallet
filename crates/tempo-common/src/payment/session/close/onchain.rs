@@ -173,7 +173,7 @@ pub(super) async fn close_on_chain(
     // Best-effort local cleanup is handled by callers, but mark state finalizable->finalized if present
     let _ = store::update_channel_close_state(
         &format!("{channel_id:#x}"),
-        ChannelStatus::Finalizable,
+        ChannelStatus::Finalized,
         on_chain.close_requested_at,
         now,
     );

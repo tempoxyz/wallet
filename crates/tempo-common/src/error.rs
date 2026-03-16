@@ -346,6 +346,12 @@ pub enum PaymentError {
         #[source]
         source: Box<TempoError>,
     },
+    #[error("session stream idle timeout after {timeout_secs}s")]
+    SessionStreamIdleTimeout { timeout_secs: u64 },
+    #[error("session voucher retries exhausted after {max_retries} attempts")]
+    SessionVoucherRetryExhausted { max_retries: u32 },
+    #[error("session stream ended before completion: {reason}")]
+    SessionStreamIncomplete { reason: String },
     #[error("{0}")]
     Mpp(#[from] mpp::MppError),
 }
@@ -671,6 +677,32 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Channel persistence error during session request reuse: Session request failed; session state preserved for on-chain dispute: Invalid HTTP method: BAD"
+        );
+    }
+
+    #[test]
+    fn test_session_stream_idle_timeout_display() {
+        let err = PaymentError::SessionStreamIdleTimeout { timeout_secs: 30 };
+        assert_eq!(err.to_string(), "session stream idle timeout after 30s");
+    }
+
+    #[test]
+    fn test_session_voucher_retry_exhausted_display() {
+        let err = PaymentError::SessionVoucherRetryExhausted { max_retries: 5 };
+        assert_eq!(
+            err.to_string(),
+            "session voucher retries exhausted after 5 attempts"
+        );
+    }
+
+    #[test]
+    fn test_session_stream_incomplete_display() {
+        let err = PaymentError::SessionStreamIncomplete {
+            reason: "missing completion marker".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "session stream ended before completion: missing completion marker"
         );
     }
 }

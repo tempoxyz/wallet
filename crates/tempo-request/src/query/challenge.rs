@@ -1,15 +1,16 @@
 //! Parsing and validation of 402 payment challenges.
 
-use mpp::protocol::methods::tempo::{session::TempoSessionExt, TempoChargeExt};
+use mpp::protocol::methods::tempo::TempoChargeExt;
 
-use crate::http::HttpResponse;
+use crate::{
+    http::HttpResponse,
+    payment::challenge::{decode_session_request, require_session_chain_id},
+};
 use tempo_common::{
     cli::{format::format_token_amount, terminal::sanitize_for_terminal},
     error::{PaymentError, TempoError},
     network::NetworkId,
 };
-
-const DEFAULT_SESSION_CHAIN_ID: u64 = 42_431;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportedPaymentMethod {
@@ -77,9 +78,12 @@ pub(crate) fn parse_payment_challenge(
     let is_session = challenge.intent.is_session();
 
     let (network, amount, currency) = if is_session {
-        let session = decode_session_request_with_default_chain_id(&challenge)?;
+        let session = decode_session_request(&challenge)?;
         (
-            require_chain(Some(session.chain_id().unwrap_or(DEFAULT_SESSION_CHAIN_ID)))?,
+            require_chain(Some(require_session_chain_id(
+                &session,
+                "session request methodDetails",
+            )?))?,
             session.amount,
             session.currency,
         )
@@ -115,42 +119,6 @@ fn require_chain(chain_id: Option<u64>) -> Result<NetworkId, TempoError> {
         PaymentError::ChallengeUnsupportedChainId {
             context: "payment request",
             chain_id: cid,
-        }
-        .into()
-    })
-}
-
-fn decode_session_request_with_default_chain_id(
-    challenge: &mpp::PaymentChallenge,
-) -> Result<mpp::SessionRequest, TempoError> {
-    let mut value = challenge
-        .request
-        .decode::<serde_json::Value>()
-        .map_err(|source| PaymentError::ChallengeParseSource {
-            context: "session request payload",
-            source: Box::new(source),
-        })?;
-
-    if value
-        .get("methodDetails")
-        .and_then(|details| details.get("chainId"))
-        .is_none()
-    {
-        if let Some(method_details) = value
-            .get_mut("methodDetails")
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            method_details.insert(
-                "chainId".to_string(),
-                serde_json::Value::from(DEFAULT_SESSION_CHAIN_ID),
-            );
-        }
-    }
-
-    serde_json::from_value(value).map_err(|source| {
-        PaymentError::ChallengeParse {
-            context: "session request from challenge",
-            reason: source.to_string(),
         }
         .into()
     })
@@ -237,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_payment_challenge_session_missing_chainid_defaults_to_moderato() {
+    fn test_parse_payment_challenge_session_missing_chainid_is_rejected() {
         let request = mpp::Base64UrlJson::from_value(&serde_json::json!({
             "amount": "1000",
             "currency": "0x20c0000000000000000000000000000000000000",
@@ -252,8 +220,13 @@ mod tests {
 
         let response =
             HttpResponse::for_test_with_headers(402, b"", &[("www-authenticate", &www_auth)]);
-        let parsed = parse_payment_challenge(&response).expect("session challenge should parse");
-
-        assert_eq!(parsed.network, NetworkId::TempoModerato);
+        let err = match parse_payment_challenge(&response) {
+            Ok(_) => panic!("expected session challenge without chainId to fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("missing chainId"),
+            "unexpected error: {err}"
+        );
     }
 }
