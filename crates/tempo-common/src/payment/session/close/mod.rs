@@ -69,7 +69,7 @@ pub async fn close_channel_from_record(
 
     // Try cooperative close via the server first
     let client = reqwest::Client::new();
-    match cooperative::try_server_close(
+    let coop_result = cooperative::try_server_close(
         record,
         &echo,
         &wallet.signer,
@@ -79,39 +79,39 @@ pub async fn close_channel_from_record(
         cumulative_amount,
         &client,
     )
-    .await
-    {
-        Ok(tx_url) => {
-            if let Some(a) = analytics {
-                a.track(
-                    events::COOP_CLOSE_SUCCESS,
-                    crate::analytics::CoopClosePayload {
-                        network: network_id.as_str().to_string(),
-                        channel_id: record.channel_id_hex(),
-                    },
-                );
-            }
-            let amount_display = Some(format_token_amount(
-                record.cumulative_amount_u128(),
-                network_id,
-            ));
-            return Ok(CloseOutcome::Closed {
-                tx_url,
-                amount_display,
-            });
+    .await;
+
+    if let Ok(tx_url) = coop_result {
+        if let Some(a) = analytics {
+            a.track(
+                events::COOP_CLOSE_SUCCESS,
+                crate::analytics::CoopClosePayload {
+                    network: network_id.as_str().to_string(),
+                    channel_id: record.channel_id_hex(),
+                },
+            );
         }
-        Err(coop_err) => {
-            if let Some(a) = analytics {
-                a.track(
-                    events::COOP_CLOSE_FAILURE,
-                    crate::analytics::CoopClosePayload {
-                        network: network_id.as_str().to_string(),
-                        channel_id: record.channel_id_hex(),
-                    },
-                );
-            }
-            tracing::info!("Cooperative close failed: {coop_err:#}");
+        let amount_display = Some(format_token_amount(
+            record.cumulative_amount_u128(),
+            network_id,
+        ));
+        return Ok(CloseOutcome::Closed {
+            tx_url,
+            amount_display,
+        });
+    }
+
+    if let Err(ref coop_err) = coop_result {
+        if let Some(a) = analytics {
+            a.track(
+                events::COOP_CLOSE_FAILURE,
+                crate::analytics::CoopClosePayload {
+                    network: network_id.as_str().to_string(),
+                    channel_id: record.channel_id_hex(),
+                },
+            );
         }
+        tracing::info!("Cooperative close failed: {coop_err:#}");
     }
 
     let fee_token: Address =
@@ -146,5 +146,79 @@ pub async fn close_channel_from_record(
             })
         }
         other @ CloseOutcome::Pending { .. } => Ok(other),
+    }
+}
+
+/// Close a channel from a persisted record using cooperative close only.
+///
+/// This mode intentionally does not fall back to on-chain close.
+///
+/// # Errors
+///
+/// Returns an error when cooperative close cannot be completed.
+pub async fn close_channel_from_record_cooperative(
+    record: &session_store::ChannelRecord,
+    analytics: Option<&Analytics>,
+    keys: &Keystore,
+) -> ChannelResult<CloseOutcome> {
+    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).map_err(|source| {
+        NetworkError::ResponseParse {
+            context: "persisted challenge echo",
+            source,
+        }
+    })?;
+
+    let network_id = record.network_id();
+    let wallet = keys.signer(network_id)?;
+
+    let channel_id: B256 = record.channel_id;
+    let escrow_contract: Address = record.escrow_contract;
+    let cumulative_amount: u128 = record.cumulative_amount_u128();
+
+    let client = reqwest::Client::new();
+    let tx_url = cooperative::try_server_close(
+        record,
+        &echo,
+        &wallet.signer,
+        channel_id,
+        escrow_contract,
+        record.chain_id,
+        cumulative_amount,
+        &client,
+    )
+    .await;
+
+    match tx_url {
+        Ok(tx_url) => {
+            if let Some(a) = analytics {
+                a.track(
+                    events::COOP_CLOSE_SUCCESS,
+                    crate::analytics::CoopClosePayload {
+                        network: network_id.as_str().to_string(),
+                        channel_id: record.channel_id_hex(),
+                    },
+                );
+            }
+            let amount_display = Some(format_token_amount(
+                record.cumulative_amount_u128(),
+                network_id,
+            ));
+            Ok(CloseOutcome::Closed {
+                tx_url,
+                amount_display,
+            })
+        }
+        Err(err) => {
+            if let Some(a) = analytics {
+                a.track(
+                    events::COOP_CLOSE_FAILURE,
+                    crate::analytics::CoopClosePayload {
+                        network: network_id.as_str().to_string(),
+                        channel_id: record.channel_id_hex(),
+                    },
+                );
+            }
+            Err(err)
+        }
     }
 }

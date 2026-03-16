@@ -5,7 +5,8 @@ use tempo_common::{
     cli::{context::Context, format::format_duration, output, output::OutputFormat},
     error::{ConfigError, InputError, PaymentError, TempoError},
     payment::session::{
-        close_channel_by_id, close_channel_from_record, close_discovered_channel,
+        close_channel_by_id, close_channel_from_record, close_channel_from_record_cooperative,
+        close_discovered_channel,
         find_all_channels_for_payer, CloseOutcome,
     },
 };
@@ -72,8 +73,13 @@ pub(super) async fn close_sessions(
     all: bool,
     orphaned: bool,
     finalize: bool,
+    cooperative: bool,
     dry_run: bool,
 ) -> Result<(), TempoError> {
+    if cooperative && (all || orphaned || finalize) {
+        return Err(InputError::InvalidSessionCloseCooperativeCombination.into());
+    }
+
     if dry_run {
         return dry_run_close(ctx, url.as_deref(), all, orphaned, finalize).await;
     }
@@ -84,15 +90,15 @@ pub(super) async fn close_sessions(
         return close_orphaned_channels(ctx).await;
     }
     if all {
-        return close_all_sessions(ctx).await;
+        return close_all_sessions(ctx, cooperative).await;
     }
 
     if let Some(ref target) = url {
         if target.starts_with("0x") {
             super::util::validate_channel_id(target)?;
-            return close_by_channel_id(ctx, target).await;
+            return close_by_channel_id(ctx, target, cooperative).await;
         }
-        return close_by_url(ctx, target).await;
+        return close_by_url(ctx, target, cooperative).await;
     }
 
     Err(InputError::MissingSessionCloseTarget.into())
@@ -185,8 +191,20 @@ async fn dry_run_close(
     Ok(())
 }
 
+async fn close_local_record(
+    record: &session_store::ChannelRecord,
+    ctx: &Context,
+    analytics: Option<&tempo_common::analytics::Analytics>,
+    cooperative: bool,
+) -> Result<CloseOutcome, TempoError> {
+    if cooperative {
+        return close_channel_from_record_cooperative(record, analytics, &ctx.keys).await;
+    }
+    close_channel_from_record(record, &ctx.config, analytics, &ctx.keys).await
+}
+
 /// Close all local sessions and on-chain orphaned channels.
-async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
+async fn close_all_sessions(ctx: &Context, cooperative: bool) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let analytics = ctx.analytics.as_ref();
     let mut summary = CloseSummary::new();
@@ -198,7 +216,7 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
         .filter(|s| s.network_id() == ctx.network)
         .collect();
     for session in &sessions {
-        let result = close_channel_from_record(session, &ctx.config, analytics, &ctx.keys).await;
+        let result = close_local_record(session, ctx, analytics, cooperative).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
             if let Err(e) = session_store::delete_channel(&session.channel_id_hex()) {
                 if show_output {
@@ -217,7 +235,9 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
     }
 
     // Phase 2: scan on-chain for orphaned channels
-    close_orphaned_into_summary(ctx, &all_sessions, &mut summary).await;
+    if !cooperative {
+        close_orphaned_into_summary(ctx, &all_sessions, &mut summary).await;
+    }
 
     summary.print(ctx.output_format, "No active sessions to close.", "closed")?;
     Ok(())
@@ -228,7 +248,11 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
 /// If a local session record exists for this channel, routes through
 /// `close_channel_from_record` which tries cooperative close first.
 /// Falls back to on-chain-only close when no local record is found.
-async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoError> {
+async fn close_by_channel_id(
+    ctx: &Context,
+    target: &str,
+    cooperative: bool,
+) -> Result<(), TempoError> {
     let channel_id = super::util::parse_channel_id(target)?;
 
     // Try local session record first — enables cooperative close
@@ -238,8 +262,7 @@ async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoErr
             let analytics = ctx.analytics.as_ref();
             let mut summary = CloseSummary::new();
 
-            let result =
-                close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+            let result = close_local_record(&record, ctx, analytics, cooperative).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
                 if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
                     if show_output {
@@ -259,6 +282,10 @@ async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoErr
         }
     }
 
+    if cooperative {
+        return Err(InputError::SessionCloseCooperativeRequiresLocalRecord.into());
+    }
+
     // No local record (orphaned channel) — on-chain close only
     let mut summary = CloseSummary::new();
     let result = close_channel_by_id(&ctx.config, target, ctx.network, None, &ctx.keys).await;
@@ -267,7 +294,7 @@ async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoErr
 }
 
 /// Close a session by URL (local session lookup).
-async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
+async fn close_by_url(ctx: &Context, target: &str, cooperative: bool) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let output_format = ctx.output_format;
     let analytics = ctx.analytics.as_ref();
@@ -281,8 +308,7 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
 
     if !sessions.is_empty() {
         for record in sessions {
-            let result =
-                close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+            let result = close_local_record(&record, ctx, analytics, cooperative).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
                 if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
                     if show_output {

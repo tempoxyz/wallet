@@ -157,6 +157,9 @@ pub(crate) enum SessionCommands {
         /// Finalize channels pending close (grace period elapsed)
         #[arg(long)]
         finalize: bool,
+        /// Use cooperative close only (no on-chain fallback)
+        #[arg(long)]
+        cooperative: bool,
         /// Show what would be closed without executing
         #[arg(long)]
         dry_run: bool,

@@ -85,6 +85,10 @@ pub enum InputError {
         "Specify a URL, channel ID (0x...), or use --all/--orphaned/--finalize to close sessions"
     )]
     MissingSessionCloseTarget,
+    #[error("--cooperative cannot be combined with --all, --orphaned, or --finalize")]
+    InvalidSessionCloseCooperativeCombination,
+    #[error("--cooperative requires a local session record for the target channel")]
+    SessionCloseCooperativeRequiresLocalRecord,
     #[error("Invalid channel ID format: expected 0x-prefixed bytes32 hex")]
     InvalidChannelIdFormat,
     #[error("channel ID must be 66 characters (0x + 64 hex digits), got {actual}")]

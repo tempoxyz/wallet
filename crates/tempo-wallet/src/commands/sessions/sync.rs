@@ -178,9 +178,9 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<(), TempoError
             results.push(SyncOriginResult {
                 channel_id: rec.channel_id_hex(),
                 recovered: false,
-                status: None,
+                status: Some(ChannelStatus::Active.as_str()),
                 remaining_secs: None,
-                message: Some("no pending close to recover".to_string()),
+                message: Some("session is active; no pending close to recover".to_string()),
             });
         }
     }
@@ -220,7 +220,15 @@ async fn sync_origin(ctx: &Context, origin_input: &str) -> Result<(), TempoError
                     response.remaining_secs.unwrap_or(0)
                 );
             } else {
-                eprintln!("No pending close to recover for {origin}");
+                if response.status == Some(ChannelStatus::Active.as_str()) {
+                    if let Some(channel_id) = response.results.first().map(|r| r.channel_id.as_str()) {
+                        eprintln!("Session is active for {origin} ({channel_id})");
+                    } else {
+                        eprintln!("Session is active for {origin}");
+                    }
+                } else {
+                    eprintln!("No pending close to recover for {origin}");
+                }
             }
         } else {
             eprintln!(

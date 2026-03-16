@@ -35,7 +35,8 @@ pub use channel::{
 
 // Re-export public API from `close`
 pub use close::{
-    close_channel_by_id, close_channel_from_record, close_discovered_channel, CloseOutcome,
+    close_channel_by_id, close_channel_from_record, close_channel_from_record_cooperative,
+    close_discovered_channel, CloseOutcome,
 };
 
 // Re-export public API from `tx`

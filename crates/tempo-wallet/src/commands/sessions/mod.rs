@@ -20,8 +20,11 @@ pub(crate) async fn run(ctx: &Context, command: SessionCommands) -> Result<(), T
             all,
             orphaned,
             finalize,
+            cooperative,
             dry_run,
-        } => close::close_sessions(ctx, url, all, orphaned, finalize, dry_run).await,
+        } => {
+            close::close_sessions(ctx, url, all, orphaned, finalize, cooperative, dry_run).await
+        }
         SessionCommands::Sync { origin } => sync::sync_sessions(ctx, origin.as_deref()).await,
     }
 }
