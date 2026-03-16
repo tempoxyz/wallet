@@ -144,7 +144,100 @@ fn parse_env_u64(name: &str) -> Option<u64> {
         .and_then(|value| value.parse::<u64>().ok())
 }
 
-fn voucher_retry_policy() -> (u32, Duration, Duration) {
+#[derive(Debug, Clone, Copy)]
+struct VoucherRetryPolicy {
+    max_voucher_retries: u32,
+    normal_timeout: Duration,
+    base_stall_timeout: Duration,
+}
+
+#[derive(Debug)]
+struct VoucherRetryCoordinator {
+    policy: VoucherRetryPolicy,
+    pending_voucher_auth: Option<String>,
+    pending_voucher_idempotency_key: Option<String>,
+    retry_count: u32,
+    current_stall_timeout: Duration,
+}
+
+#[derive(Debug, Clone)]
+struct VoucherRetryAttempt {
+    auth: String,
+    idempotency_key: String,
+    retry_count: u32,
+    max_voucher_retries: u32,
+}
+
+#[derive(Debug, Clone)]
+enum TimeoutTransition {
+    NoPendingVoucher,
+    Retry(VoucherRetryAttempt),
+    RetryExhausted { max_voucher_retries: u32 },
+}
+
+impl VoucherRetryCoordinator {
+    fn new(policy: VoucherRetryPolicy) -> Self {
+        Self {
+            policy,
+            pending_voucher_auth: None,
+            pending_voucher_idempotency_key: None,
+            retry_count: 0,
+            current_stall_timeout: policy.base_stall_timeout,
+        }
+    }
+
+    fn stream_read_timeout(&self) -> Duration {
+        if self.pending_voucher_auth.is_some() {
+            self.current_stall_timeout
+        } else {
+            self.policy.normal_timeout
+        }
+    }
+
+    fn clear_pending_voucher(&mut self) {
+        self.pending_voucher_auth = None;
+        self.pending_voucher_idempotency_key = None;
+        self.retry_count = 0;
+        self.current_stall_timeout = self.policy.base_stall_timeout;
+    }
+
+    fn begin_pending_voucher(&mut self, auth: String, idempotency_key: String) {
+        self.pending_voucher_auth = Some(auth);
+        self.pending_voucher_idempotency_key = Some(idempotency_key);
+        self.retry_count = 0;
+        self.current_stall_timeout = self.policy.base_stall_timeout;
+    }
+
+    fn on_stream_timeout(&mut self) -> TimeoutTransition {
+        let Some(auth) = self.pending_voucher_auth.clone() else {
+            return TimeoutTransition::NoPendingVoucher;
+        };
+
+        self.retry_count = self.retry_count.saturating_add(1);
+        if self.retry_count > self.policy.max_voucher_retries {
+            return TimeoutTransition::RetryExhausted {
+                max_voucher_retries: self.policy.max_voucher_retries,
+            };
+        }
+
+        let idempotency_key = self
+            .pending_voucher_idempotency_key
+            .clone()
+            .unwrap_or_default();
+        let attempt = VoucherRetryAttempt {
+            auth,
+            idempotency_key,
+            retry_count: self.retry_count,
+            max_voucher_retries: self.policy.max_voucher_retries,
+        };
+        self.current_stall_timeout =
+            next_voucher_stall_timeout(self.current_stall_timeout, self.policy.normal_timeout);
+
+        TimeoutTransition::Retry(attempt)
+    }
+}
+
+fn voucher_retry_policy() -> VoucherRetryPolicy {
     const DEFAULT_MAX_VOUCHER_RETRIES: u32 = 5;
     const DEFAULT_NORMAL_TIMEOUT_MS: u64 = 30_000;
     const DEFAULT_VOUCHER_STALL_TIMEOUT_MS: u64 = 3_000;
@@ -159,7 +252,11 @@ fn voucher_retry_policy() -> (u32, Duration, Duration) {
     let normal_timeout = Duration::from_millis(normal_timeout_ms.max(1));
     let base_stall_timeout = Duration::from_millis(stall_timeout_ms.max(1)).min(normal_timeout);
 
-    (max_voucher_retries, normal_timeout, base_stall_timeout)
+    VoucherRetryPolicy {
+        max_voucher_retries,
+        normal_timeout,
+        base_stall_timeout,
+    }
 }
 
 fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
@@ -477,18 +574,7 @@ pub(super) async fn stream_sse_response(
     let voucher_client = build_voucher_transport_client(ctx.reqwest_client);
     let (voucher_result_tx, mut voucher_result_rx) = mpsc::unbounded_channel::<VoucherTaskResult>();
 
-    // Track pending voucher for retry on stall. When we send a voucher but
-    // the server's notify is lost, we need to re-send to wake it up.
-    let mut pending_voucher_auth: Option<String> = None;
-    let mut pending_voucher_idempotency_key: Option<String> = None;
-    let mut voucher_retry_count: u32 = 0;
-
-    let (max_voucher_retries, normal_timeout, base_stall_timeout) = voucher_retry_policy();
-
-    // Short timeout after sending a voucher — if the server doesn't resume
-    // quickly, the notify was likely lost and we should re-post.
-    // Exponential backoff for re-posting the same voucher (caps at normal_timeout)
-    let mut current_stall_timeout = base_stall_timeout;
+    let mut retry_coordinator = VoucherRetryCoordinator::new(voucher_retry_policy());
 
     loop {
         while let Ok(task_result) = voucher_result_rx.try_recv() {
@@ -502,57 +588,50 @@ pub(super) async fn stream_sse_response(
             break;
         }
 
-        let timeout = if pending_voucher_auth.is_some() {
-            current_stall_timeout
-        } else {
-            normal_timeout
-        };
+        let timeout = retry_coordinator.stream_read_timeout();
 
         let chunk = match tokio::time::timeout(timeout, response.chunk()).await {
             Ok(Ok(Some(chunk))) => chunk,
             Ok(Ok(None)) => break, // stream ended
             Ok(Err(source)) => return Err(NetworkError::Reqwest(source).into()),
-            Err(_) => {
-                // Timeout — if we have a pending voucher, re-post it
-                if let Some(ref auth) = pending_voucher_auth {
-                    voucher_retry_count += 1;
-                    if voucher_retry_count > max_voucher_retries {
-                        if runtime.debug_enabled() {
-                            eprintln!(
-                                "[stream stall — voucher not accepted after {max_voucher_retries} retries]"
-                            );
-                        }
-                        break;
-                    }
+            Err(_) => match retry_coordinator.on_stream_timeout() {
+                TimeoutTransition::RetryExhausted {
+                    max_voucher_retries,
+                } => {
                     if runtime.debug_enabled() {
                         eprintln!(
-                            "[re-posting voucher (retry {voucher_retry_count}/{max_voucher_retries})]"
+                            "[stream stall — voucher not accepted after {max_voucher_retries} retries]"
                         );
                     }
-                    let idempotency_key = pending_voucher_idempotency_key
-                        .as_deref()
-                        .unwrap_or_default();
+                    break;
+                }
+                TimeoutTransition::Retry(attempt) => {
+                    if runtime.debug_enabled() {
+                        eprintln!(
+                            "[re-posting voucher (retry {}/{})]",
+                            attempt.retry_count, attempt.max_voucher_retries
+                        );
+                    }
                     post_voucher(
                         ctx,
                         &voucher_client,
-                        auth,
-                        idempotency_key,
+                        &attempt.auth,
+                        &attempt.idempotency_key,
                         state,
                         voucher_result_tx.clone(),
                     );
-                    // Backoff the stall timeout for the next retry, up to the normal timeout
-                    current_stall_timeout =
-                        next_voucher_stall_timeout(current_stall_timeout, normal_timeout);
                     continue;
                 }
-                if runtime.debug_enabled() {
-                    eprintln!(
-                        "[stream timeout — no data for {}s]",
-                        normal_timeout.as_secs()
-                    );
+                TimeoutTransition::NoPendingVoucher => {
+                    if runtime.debug_enabled() {
+                        eprintln!(
+                            "[stream timeout — no data for {}s]",
+                            retry_coordinator.policy.normal_timeout.as_secs()
+                        );
+                    }
+                    break;
                 }
-                break;
-            }
+            },
         };
         let chunk_str = String::from_utf8_lossy(&chunk);
         // Normalize \r\n to \n so SSE event boundary detection works with
@@ -578,10 +657,7 @@ pub(super) async fn stream_sse_response(
                 match event {
                     SseEvent::Message(data) => {
                         // Any message means the voucher was accepted
-                        pending_voucher_auth = None;
-                        pending_voucher_idempotency_key = None;
-                        voucher_retry_count = 0;
-                        current_stall_timeout = base_stall_timeout;
+                        retry_coordinator.clear_pending_voucher();
 
                         if data.trim() == "[DONE]" {
                             stream_done = true;
@@ -688,15 +764,11 @@ pub(super) async fn stream_sse_response(
                         state.cumulative_amount = next_cumulative.min(effective_deposit);
                         let _ = persist_session(ctx, state);
 
-                        // Track this voucher for retry if the server stalls
-                        pending_voucher_auth = Some(auth);
-                        pending_voucher_idempotency_key = Some(voucher_idempotency_key);
-                        voucher_retry_count = 0;
-                        current_stall_timeout = base_stall_timeout;
+                        // Track this voucher for retry if the server stalls.
+                        retry_coordinator.begin_pending_voucher(auth, voucher_idempotency_key);
                     }
                     SseEvent::PaymentReceipt(receipt) => {
-                        pending_voucher_auth = None;
-                        pending_voucher_idempotency_key = None;
+                        retry_coordinator.clear_pending_voucher();
                         saw_header_or_trailer_receipt = true;
                         match validate_session_receipt_fields(&receipt, state.channel_id) {
                             Ok(accepted_cumulative) => {
@@ -934,10 +1006,10 @@ mod tests {
         std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
         std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
 
-        let (retries, normal, stall) = voucher_retry_policy();
-        assert_eq!(retries, 5);
-        assert_eq!(normal, Duration::from_millis(30_000));
-        assert_eq!(stall, Duration::from_millis(3_000));
+        let policy = voucher_retry_policy();
+        assert_eq!(policy.max_voucher_retries, 5);
+        assert_eq!(policy.normal_timeout, Duration::from_millis(30_000));
+        assert_eq!(policy.base_stall_timeout, Duration::from_millis(3_000));
     }
 
     #[test]
@@ -947,11 +1019,11 @@ mod tests {
         std::env::set_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10");
         std::env::set_var("TEMPO_SESSION_STALL_TIMEOUT_MS", "999");
 
-        let (retries, normal, stall) = voucher_retry_policy();
-        assert_eq!(retries, 7);
-        assert_eq!(normal, Duration::from_millis(10));
+        let policy = voucher_retry_policy();
+        assert_eq!(policy.max_voucher_retries, 7);
+        assert_eq!(policy.normal_timeout, Duration::from_millis(10));
         assert_eq!(
-            stall,
+            policy.base_stall_timeout,
             Duration::from_millis(10),
             "stall timeout should be capped by normal timeout"
         );
@@ -959,6 +1031,81 @@ mod tests {
         std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
         std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
         std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
+    }
+
+    #[test]
+    fn voucher_retry_coordinator_timeout_progression_and_exhaustion() {
+        let policy = VoucherRetryPolicy {
+            max_voucher_retries: 2,
+            normal_timeout: Duration::from_millis(10),
+            base_stall_timeout: Duration::from_millis(2),
+        };
+        let mut coordinator = VoucherRetryCoordinator::new(policy);
+
+        assert_eq!(coordinator.stream_read_timeout(), Duration::from_millis(10));
+        assert!(matches!(
+            coordinator.on_stream_timeout(),
+            TimeoutTransition::NoPendingVoucher
+        ));
+
+        coordinator.begin_pending_voucher("auth-1".to_string(), "idem-1".to_string());
+        assert_eq!(coordinator.stream_read_timeout(), Duration::from_millis(2));
+
+        match coordinator.on_stream_timeout() {
+            TimeoutTransition::Retry(attempt) => {
+                assert_eq!(attempt.auth, "auth-1");
+                assert_eq!(attempt.idempotency_key, "idem-1");
+                assert_eq!(attempt.retry_count, 1);
+                assert_eq!(attempt.max_voucher_retries, 2);
+            }
+            other => panic!("expected retry transition, got {other:?}"),
+        }
+        assert_eq!(coordinator.stream_read_timeout(), Duration::from_millis(4));
+
+        match coordinator.on_stream_timeout() {
+            TimeoutTransition::Retry(attempt) => {
+                assert_eq!(attempt.retry_count, 2);
+            }
+            other => panic!("expected retry transition, got {other:?}"),
+        }
+        assert_eq!(
+            coordinator.stream_read_timeout(),
+            Duration::from_millis(8),
+            "stall timeout should continue exponential backoff"
+        );
+
+        assert!(matches!(
+            coordinator.on_stream_timeout(),
+            TimeoutTransition::RetryExhausted {
+                max_voucher_retries: 2
+            }
+        ));
+
+        coordinator.clear_pending_voucher();
+        assert_eq!(coordinator.stream_read_timeout(), Duration::from_millis(10));
+    }
+
+    #[test]
+    fn voucher_retry_coordinator_caps_stall_timeout_at_normal_timeout() {
+        let policy = VoucherRetryPolicy {
+            max_voucher_retries: 4,
+            normal_timeout: Duration::from_millis(10),
+            base_stall_timeout: Duration::from_millis(8),
+        };
+        let mut coordinator = VoucherRetryCoordinator::new(policy);
+        coordinator.begin_pending_voucher("auth-1".to_string(), "idem-1".to_string());
+
+        assert!(matches!(
+            coordinator.on_stream_timeout(),
+            TimeoutTransition::Retry(_)
+        ));
+        assert_eq!(coordinator.stream_read_timeout(), Duration::from_millis(10));
+
+        assert!(matches!(
+            coordinator.on_stream_timeout(),
+            TimeoutTransition::Retry(_)
+        ));
+        assert_eq!(coordinator.stream_read_timeout(), Duration::from_millis(10));
     }
 
     #[test]
