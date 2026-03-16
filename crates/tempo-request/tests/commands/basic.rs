@@ -12,11 +12,11 @@ async fn non_402_get_request() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "expected success");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("hello world"),
-        "stdout should contain body: {stdout}"
+    assert_success(&output, "non-402 GET request should succeed");
+    assert_stdout_contains(
+        &output,
+        "hello world",
+        "stdout should contain response body",
     );
 }
 
@@ -36,11 +36,11 @@ async fn non_402_post_with_json() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "expected success");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains(r#"{"result":"ok"}"#),
-        "stdout should contain JSON response: {stdout}"
+    assert_success(&output, "non-402 POST request should succeed");
+    assert_stdout_contains(
+        &output,
+        r#"{"result":"ok"}"#,
+        "stdout should contain JSON response",
     );
 }
 
@@ -77,7 +77,7 @@ async fn output_to_file() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "expected success");
+    assert_success(&output, "-o should write successful response to file");
     assert!(out_file.exists(), "output file should exist");
     let contents = std::fs::read_to_string(&out_file).unwrap();
     assert!(
@@ -205,7 +205,10 @@ async fn dry_run_no_payment() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "dry run should succeed");
+    assert_success(
+        &output,
+        "dry-run mode should succeed for non-payment response",
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

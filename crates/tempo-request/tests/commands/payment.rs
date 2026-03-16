@@ -22,15 +22,11 @@ async fn status_402_charge_flow() {
         .output()
         .unwrap();
 
-    let combined = get_combined_output(&output);
-    assert!(
-        output.status.success(),
-        "expected 402 → payment → 200 flow to succeed: {combined}"
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("charge accepted"),
-        "stdout should contain success body: {combined}"
+    assert_success(&output, "expected 402 → payment → 200 flow to succeed");
+    assert_stdout_contains(
+        &output,
+        "charge accepted",
+        "stdout should contain success body",
     );
 }
 
@@ -44,11 +40,7 @@ async fn status_402_charge_flow_default_mode_allows_missing_receipt() {
         .output()
         .unwrap();
 
-    let combined = get_combined_output(&output);
-    assert!(
-        output.status.success(),
-        "default mode should not fail on missing receipt: {combined}"
-    );
+    assert_success(&output, "default mode should not fail on missing receipt");
 }
 
 /// Payment narration is printed at -v when encountering a 402
@@ -61,7 +53,7 @@ async fn status_402_payment_narration_verbose() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "expected success");
+    assert_success(&output, "402 narration verbose flow should succeed");
     let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
     assert!(
         stderr.contains("payment required:"),
