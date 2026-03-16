@@ -120,6 +120,8 @@ pub enum InputError {
         #[source]
         source: std::io::Error,
     },
+    #[error("Invalid form field: {0}")]
+    InvalidFormField(String),
 }
 
 #[derive(Error, Debug)]

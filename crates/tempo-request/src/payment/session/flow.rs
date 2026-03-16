@@ -82,13 +82,11 @@ async fn send_session_request(
         }
     })?;
 
-    let mut data_request = ctx
+    let data_request = ctx
         .reqwest_client
         .request(ctx.http.method().clone(), ctx.url)
         .header("Authorization", &voucher_auth);
-    if let Some(body) = ctx.http.body() {
-        data_request = data_request.body(body.to_vec());
-    }
+    let data_request = crate::http::HttpClient::apply_body_from(data_request, ctx.http.body());
 
     let response = data_request.send().await.map_err(NetworkError::Reqwest)?;
 
