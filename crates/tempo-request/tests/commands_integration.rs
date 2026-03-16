@@ -2,5 +2,5 @@
 //!
 //! These run in normal `cargo test` — no network or funded wallet required.
 
-mod command_tests;
+mod commands;
 mod common;
