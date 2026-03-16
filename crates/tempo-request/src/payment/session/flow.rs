@@ -377,7 +377,7 @@ async fn run_non_streaming_top_up_recovery(
         if top_up_response.status_code < 400 {
             let _ = apply_response_receipt(&top_up_response, state, "topUp response")?;
             state.deposit = state.deposit.saturating_add(additional_deposit);
-            let _ = persist_session(ctx, state);
+            persist_session(ctx, state)?;
             return Ok(());
         }
 

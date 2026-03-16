@@ -68,12 +68,6 @@ pub(super) fn persist_session(
         source: Box::new(source),
     })?;
 
-    update_channel_cumulative_floor(&format!("{:#x}", state.channel_id), state.cumulative_amount)
-        .map_err(|source| PaymentError::ChannelPersistenceSource {
-        operation: "update channel cumulative floor",
-        source: Box::new(source),
-    })?;
-
     if ctx.http.log_enabled() {
         let cumulative_display =
             tempo_common::cli::format::format_token_amount(state.cumulative_amount, ctx.network_id);

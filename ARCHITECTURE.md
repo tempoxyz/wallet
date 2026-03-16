@@ -138,13 +138,13 @@ Session HTTP rejection mapping is centralized in `tempo-request/src/payment/sess
 2. Subsequent requests exchange off-chain vouchers — signed cumulative amounts — instead of on-chain transactions.
 3. SSE streaming is supported: per-token voucher top-ups are issued as streamed data arrives.
 4. Channel state persists across CLI invocations in a SQLite database (`tempo-common/src/payment/session/store/storage.rs`).
-5. Channels can be closed explicitly. Local rows track explicit lifecycle state (active, closing, finalizable). Orphaned channels and close readiness are derived from on-chain state when needed.
+5. Channels can be closed explicitly. Local rows track explicit lifecycle state (active, closing, finalizable, finalized). Orphaned channels and close readiness are derived from on-chain state when needed.
 
 Voucher transport behavior follows spec guidance for streaming compatibility:
 
 1. Voucher updates are attempted with `HEAD` first.
 2. Fallback to `POST` is used when `HEAD` is unsupported (`405`/`501`) or transport fails.
-3. Voucher/top-up submissions use a dedicated reqwest client (separate from stream response reading) to avoid head-of-line blocking and improve HTTP/2 multiplexing behavior.
+3. Voucher/top-up submissions use a dedicated reqwest client handle (separate from stream response reading) while preserving the same transport policy as the primary request client.
 
 Streaming voucher retries are managed by an explicit coordinator in `streaming.rs` that owns pending-voucher state, retry counters, and stall-timeout backoff progression. This keeps transport retry policy isolated from SSE parsing and protocol decision logic.
 

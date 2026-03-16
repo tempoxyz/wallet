@@ -233,12 +233,41 @@ fn save_channel_in_conn(
     let last_used_at = to_i64_checked(record.last_used_at, "last_used_at")?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO channels (
+        "INSERT INTO channels (
             channel_id, version, origin, request_url, chain_id,
             escrow_contract, token, payee, payer, authorized_signer,
             salt, deposit, cumulative_amount, challenge_echo,
             state, close_requested_at, grace_ready_at, created_at, last_used_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+        ON CONFLICT(channel_id) DO UPDATE SET
+            version = excluded.version,
+            origin = excluded.origin,
+            request_url = excluded.request_url,
+            chain_id = excluded.chain_id,
+            escrow_contract = excluded.escrow_contract,
+            token = excluded.token,
+            payee = excluded.payee,
+            payer = excluded.payer,
+            authorized_signer = excluded.authorized_signer,
+            salt = excluded.salt,
+            deposit = CASE
+                WHEN LENGTH(channels.deposit) > LENGTH(excluded.deposit) THEN channels.deposit
+                WHEN LENGTH(channels.deposit) < LENGTH(excluded.deposit) THEN excluded.deposit
+                WHEN channels.deposit >= excluded.deposit THEN channels.deposit
+                ELSE excluded.deposit
+            END,
+            cumulative_amount = CASE
+                WHEN LENGTH(channels.cumulative_amount) > LENGTH(excluded.cumulative_amount) THEN channels.cumulative_amount
+                WHEN LENGTH(channels.cumulative_amount) < LENGTH(excluded.cumulative_amount) THEN excluded.cumulative_amount
+                WHEN channels.cumulative_amount >= excluded.cumulative_amount THEN channels.cumulative_amount
+                ELSE excluded.cumulative_amount
+            END,
+            challenge_echo = excluded.challenge_echo,
+            state = excluded.state,
+            close_requested_at = excluded.close_requested_at,
+            grace_ready_at = excluded.grace_ready_at,
+            created_at = channels.created_at,
+            last_used_at = excluded.last_used_at",
         params![
             record.channel_id_hex(),
             record.version,
@@ -690,6 +719,30 @@ mod tests {
             .unwrap()
             .expect("channel should load");
         assert_eq!(loaded.cumulative_amount_u128(), 9_999);
+    }
+
+    #[test]
+    fn stale_save_does_not_regress_cumulative_after_floor_update() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let channel_id = alloy::primitives::B256::from([0x33; 32]);
+        let mut initial = sample_record(channel_id, 1, ChannelStatus::Active);
+        initial.cumulative_amount = 100;
+        save_channel_in_conn(&conn, &initial).unwrap();
+
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 150).unwrap();
+
+        let mut stale = initial;
+        stale.cumulative_amount = 120;
+        stale.last_used_at = 2;
+        save_channel_in_conn(&conn, &stale).unwrap();
+
+        let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("channel should load");
+        assert_eq!(loaded.cumulative_amount_u128(), 150);
     }
 
     #[test]

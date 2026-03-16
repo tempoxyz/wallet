@@ -103,10 +103,10 @@ async fn send_top_up(
         Some(receipt_header) => {
             match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
                 Ok(receipt) => {
-                    let _ = persist_channel_cumulative_floor(
+                    persist_channel_cumulative_floor(
                         state.channel_id,
                         receipt.accepted_cumulative,
-                    );
+                    )?;
                 }
                 Err(reason) => {
                     warn_invalid_payment_receipt("topUp response", &reason);
@@ -280,10 +280,9 @@ fn voucher_retry_policy() -> VoucherRetryPolicy {
 }
 
 fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
-    reqwest::Client::builder()
-        .http2_adaptive_window(true)
-        .build()
-        .unwrap_or_else(|_| base.clone())
+    // Keep voucher transport policy aligned with the primary request client
+    // so proxy/TLS/timeouts behave consistently across both paths.
+    base.clone()
 }
 
 fn parse_problem_accepted_cumulative(
@@ -407,10 +406,10 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
             Some(receipt_header) => {
                 match parse_validated_session_receipt_header(receipt_header, ctx.state.channel_id) {
                     Ok(receipt) => {
-                        let _ = persist_channel_cumulative_floor(
+                        persist_channel_cumulative_floor(
                             ctx.state.channel_id,
                             receipt.accepted_cumulative,
-                        );
+                        )?;
                     }
                     Err(reason) => {
                         warn_invalid_payment_receipt("voucher response", &reason);
@@ -433,7 +432,7 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
     if let Some(problem) = parse_problem_details(&body) {
         if problem.classify() == SessionProblemType::DeltaTooSmall {
             if let Some(accepted_cumulative) = parse_problem_accepted_cumulative(&problem) {
-                let _ = persist_channel_cumulative_floor(ctx.state.channel_id, accepted_cumulative);
+                persist_channel_cumulative_floor(ctx.state.channel_id, accepted_cumulative)?;
             }
             return Ok(());
         }
@@ -469,10 +468,10 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
                         ctx.state.channel_id,
                     ) {
                         Ok(receipt) => {
-                            let _ = persist_channel_cumulative_floor(
+                            persist_channel_cumulative_floor(
                                 ctx.state.channel_id,
                                 receipt.accepted_cumulative,
-                            );
+                            )?;
                         }
                         Err(reason) => {
                             warn_invalid_payment_receipt("voucher response", &reason);
@@ -562,7 +561,7 @@ pub(super) async fn stream_sse_response(
     let mut buffer = String::new();
     let mut token_count: u64 = 0;
     let mut stdout = std::io::stdout();
-    let mut saw_header_or_trailer_receipt = false;
+    let mut saw_response_receipt = false;
 
     let mut stream_done = false;
 
@@ -572,12 +571,12 @@ pub(super) async fn stream_sse_response(
             .get("payment-receipt")
             .and_then(|value| value.to_str().ok())
         {
-            saw_header_or_trailer_receipt = true;
+            saw_response_receipt = true;
             match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
                 Ok(receipt) => {
                     state.cumulative_amount =
                         state.cumulative_amount.max(receipt.accepted_cumulative);
-                    let _ = persist_session(ctx, state);
+                    persist_session(ctx, state)?;
                 }
                 Err(reason) => {
                     warn_invalid_payment_receipt("SSE response header", &reason);
@@ -784,19 +783,19 @@ pub(super) async fn stream_sse_response(
                         // server's expectation precisely.
                         // Enforce monotonicity: never decrease the cumulative amount.
                         state.cumulative_amount = next_cumulative.min(effective_deposit);
-                        let _ = persist_session(ctx, state);
+                        persist_session(ctx, state)?;
 
                         // Track this voucher for retry if the server stalls.
                         retry_coordinator.begin_pending_voucher(auth, voucher_idempotency_key);
                     }
                     SseEvent::PaymentReceipt(receipt) => {
                         retry_coordinator.clear_pending_voucher();
-                        saw_header_or_trailer_receipt = true;
+                        saw_response_receipt = true;
                         match validate_session_receipt_fields(&receipt, state.channel_id) {
                             Ok(accepted_cumulative) => {
                                 state.cumulative_amount =
                                     state.cumulative_amount.max(accepted_cumulative);
-                                let _ = persist_session(ctx, state);
+                                persist_session(ctx, state)?;
                             }
                             Err(reason) => {
                                 warn_invalid_payment_receipt("SSE payment-receipt event", &reason);
@@ -827,30 +826,13 @@ pub(super) async fn stream_sse_response(
         }
     }
 
-    if let Some(receipt_header) = response
-        .headers()
-        .get("payment-receipt")
-        .and_then(|value| value.to_str().ok())
-    {
-        saw_header_or_trailer_receipt = true;
-        match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
-            Ok(receipt) => {
-                state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
-                let _ = persist_session(ctx, state);
-            }
-            Err(reason) => {
-                warn_invalid_payment_receipt("SSE response trailer", &reason);
-            }
-        }
-    }
-
-    if response.status().is_success() && !stream_done && !saw_header_or_trailer_receipt {
+    if response.status().is_success() && !stream_done && !saw_response_receipt {
         return Err(stream_incomplete_error(
             "stream ended without completion marker or payment receipt",
         ));
     }
 
-    if response.status().is_success() && !saw_header_or_trailer_receipt {
+    if response.status().is_success() && !saw_response_receipt {
         warn_missing_payment_receipt("SSE response");
     }
 
