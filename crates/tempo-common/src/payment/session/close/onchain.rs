@@ -94,7 +94,7 @@ pub(super) async fn close_on_chain(
         let now = session_store::now_secs();
         let ready_at = now + grace_secs;
 
-        // Update local session state if present
+        // Update local channel state if present
         let _ = session_store::update_channel_close_state(
             &format!("{channel_id:#x}"),
             ChannelStatus::Closing,
@@ -117,7 +117,7 @@ pub(super) async fn close_on_chain(
         let remaining = ready_at - now;
 
         // Ensure pending close is persisted so `session list` can show the countdown
-        // Update local session state if present
+        // Update local channel state if present
         let _ = session_store::update_channel_close_state(
             &format!("{channel_id:#x}"),
             ChannelStatus::Closing,

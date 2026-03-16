@@ -168,7 +168,7 @@ impl ChannelRecord {
         true
     }
 
-    /// Compute the display status and optional remaining seconds from the session state.
+    /// Compute the display status and optional remaining seconds from channel state.
     ///
     /// Returns `(status, remaining_secs)`:
     /// - Active sessions: `(ChannelStatus::Active, None)`

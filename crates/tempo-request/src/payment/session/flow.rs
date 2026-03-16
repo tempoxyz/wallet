@@ -61,7 +61,7 @@ where
 fn session_reuse_preserved_error(source: TempoError) -> TempoError {
     PaymentError::ChannelPersistenceContextSource {
         operation: "session request reuse",
-        context: "Session request failed; session state preserved for on-chain dispute",
+        context: "Session request failed; channel state preserved for on-chain dispute",
         source: Box::new(source),
     }
     .into()

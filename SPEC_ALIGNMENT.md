@@ -38,7 +38,7 @@ storage use spec terminology (`channel`, `payee`, etc.).
 - [x] Task 13b — Observable voucher/topUp transport outcomes
 - [x] Task 14 — Test fixtures + existing test updates (baseline updates)
 - [x] Task 15 — Doc comments, ARCHITECTURE.md, deviation docs
-- [x] Task 15b — Receipt strictness policy (reference mode)
+- [x] Task 15b — Receipt policy (warning-only runtime)
 - [x] Task 15c — Dependency guarantees (`mpp` crate)
 - [x] Task 15d — Scope Boundary: Client vs Server MUSTs
 - [x] Task 16 — `make check`
@@ -420,7 +420,7 @@ Update internal log messages and error strings:
 | `"Session persisted"` log | `"Channel persisted"` | Debug log |
 | `"Reusing session"` log | `"Reusing channel"` | Debug log |
 | `"session state preserved"` error context | `"channel state preserved"` | Error message |
-| `"session list"` / `"session state"` comments | `"channel list"` / `"channel state"` | Code comments |
+| `"session state"` comments | `"channel state"` | Code comments |
 
 Keep all user-facing CLI text (`"sessions"`, `"No sessions."`, etc.).
 
@@ -950,7 +950,7 @@ Record the client behavior for payer-initiated close timing:
   or rely on the contract's `closeRequestedAt + CLOSE_GRACE_PERIOD`
   exactly. If relying on contract grace only, add an explicit
   intentional-deviation entry in the Task 15c compliance matrix.
-- Document default policy and any strict reference mode override.
+- Document the default warning-only runtime receipt policy.
 
 ### Document voucher transport guidance (§12.5)
 
