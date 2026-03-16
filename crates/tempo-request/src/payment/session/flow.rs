@@ -592,13 +592,122 @@ async fn send_session_request(
 /// 5. Send the real request with a voucher
 /// 6. Stream SSE events (or return buffered response)
 /// 7. Persist/update the session (do NOT close the channel)
-pub(crate) async fn handle_session_request(
+struct ChallengeStageOutput {
+    network_id: tempo_common::network::NetworkId,
+    chain_id: u64,
+    amount: u128,
+    escrow_contract: Address,
+    token: Address,
+    payee: Address,
+    fee_payer: bool,
+    suggested_channel_id: Option<B256>,
+    echo: mpp::ChallengeEcho,
+    origin: String,
+    session_key: String,
+    from: Address,
+    key_address: Address,
+    did: String,
+    payer_hex: String,
+    payee_hex: String,
+    token_hex: String,
+}
+
+enum ChallengeStageOutcome {
+    DryRun(PaymentResult),
+    Continue(Box<ChallengeStageOutput>),
+}
+
+struct DepositStageOutput {
+    provider: alloy::providers::RootProvider<alloy::network::Ethereum>,
+    deposit: u128,
+    clamped_deposit: Option<u128>,
+}
+
+struct ReuseStageMatch {
+    record: session::ChannelRecord,
+    on_chain_deposit: u128,
+    available_balance: u128,
+}
+
+enum ReuseStageOutcome {
+    Reused(PaymentResult),
+    NeedsOpen,
+}
+
+struct OpenStageOutput {
+    state: ChannelState,
+    salt_hex: String,
+    open_tx_hash: Option<String>,
+    open_response: HttpResponse,
+}
+
+fn build_channel_context<'a>(
+    signer: &'a Signer,
+    http: &'a crate::http::HttpClient,
+    url: &'a str,
+    rpc_url: &'a str,
+    challenge: &'a ChallengeStageOutput,
+    deposit: &'a DepositStageOutput,
+    salt: String,
+) -> ChannelContext<'a> {
+    ChannelContext {
+        signer,
+        payer: challenge.from,
+        echo: &challenge.echo,
+        did: &challenge.did,
+        http,
+        url,
+        rpc_url,
+        network_id: challenge.network_id,
+        origin: &challenge.origin,
+        top_up_deposit: deposit.deposit,
+        clamped_deposit: deposit.clamped_deposit,
+        fee_payer: challenge.fee_payer,
+        salt,
+        payee: challenge.payee,
+        token: challenge.token,
+        reqwest_client: http.client(),
+    }
+}
+
+fn build_ondemand_reuse_record(
+    challenge: &ChallengeStageOutput,
+    url: &str,
+    channel_id: B256,
+    on_chain: &session::OnChainChannel,
+) -> Result<session::ChannelRecord, TempoError> {
+    let now = session::now_secs();
+    let challenge_echo = serde_json::to_string(&challenge.echo)
+        .map_err(|err| session_store_error("serialize challenge echo", err))?;
+    Ok(session::ChannelRecord {
+        version: 1,
+        origin: challenge.origin.clone(),
+        request_url: url.to_string(),
+        chain_id: challenge.chain_id,
+        escrow_contract: challenge.escrow_contract,
+        token: challenge.token_hex.clone(),
+        payee: challenge.payee_hex.clone(),
+        payer: challenge.payer_hex.clone(),
+        authorized_signer: challenge.key_address,
+        salt: "0x00".to_string(),
+        channel_id,
+        deposit: on_chain.deposit,
+        cumulative_amount: on_chain.settled,
+        challenge_echo,
+        state: session::ChannelStatus::Active,
+        close_requested_at: 0,
+        grace_ready_at: 0,
+        created_at: now,
+        last_used_at: now,
+    })
+}
+
+async fn challenge_stage(
     http: &crate::http::HttpClient,
     url: &str,
-    resolved: ResolvedChallenge,
-    signer: Signer,
-    _keys: &Keystore,
-) -> Result<PaymentResult, TempoError> {
+    resolved: &ResolvedChallenge,
+    signer: &Signer,
+) -> Result<ChallengeStageOutcome, TempoError> {
     let challenge = &resolved.challenge;
     let network_id = resolved.network_id;
     let network_name = network_id.as_str();
@@ -611,9 +720,7 @@ pub(crate) async fn handle_session_request(
     }
 
     let session_req = decode_session_request_with_default_chain_id(challenge)?;
-
     let chain_id = session_req.chain_id().unwrap_or(DEFAULT_SESSION_CHAIN_ID);
-
     let amount = challenge_u128_parse(&session_req.amount, "session request amount")?;
 
     let escrow_str = session_req.escrow_contract().map_err(|_| {
@@ -626,7 +733,7 @@ pub(crate) async fn handle_session_request(
     if escrow_contract != expected_escrow {
         return Err(PaymentError::ChallengeUntrustedEscrow {
             context: "session challenge escrow contract",
-            provided: escrow_str.clone(),
+            provided: escrow_str,
             expected: expected_escrow.to_string(),
             network: network_name.to_string(),
         }
@@ -637,7 +744,6 @@ pub(crate) async fn handle_session_request(
         .currency
         .parse()
         .map_err(|source| challenge_address_parse("session challenge currency", source))?;
-
     let payee: Address = session_req
         .recipient
         .as_deref()
@@ -654,10 +760,8 @@ pub(crate) async fn handle_session_request(
         );
     }
 
-    // Dry-run: print session parameters and exit without signing or transacting
     if http.dry_run {
         let cost_display = format_token_amount(amount, network_id);
-
         println!("[DRY RUN] Session payment would be made:");
         println!("Protocol: MPP (https://mpp.dev)");
         println!("Method: {}", challenge.method);
@@ -672,56 +776,86 @@ pub(crate) async fn handle_session_request(
             "Currency: {}",
             address_link(resolved.network_id, &session_req.currency)
         );
-        if let Some(ref payee) = session_req.recipient {
-            println!("Recipient: {}", address_link(resolved.network_id, payee));
+        if let Some(ref payee_str) = session_req.recipient {
+            println!(
+                "Recipient: {}",
+                address_link(resolved.network_id, payee_str)
+            );
         }
-        if let Some(ref deposit) = session_req.suggested_deposit {
-            let deposit_val = challenge_u128_parse(deposit, "session request suggestedDeposit")?;
+        if let Some(ref suggested) = session_req.suggested_deposit {
+            let deposit_val = challenge_u128_parse(suggested, "session request suggestedDeposit")?;
             let deposit_display = format_token_amount(deposit_val, network_id);
             println!("Suggested deposit: {deposit_display}");
         }
 
-        return Ok(PaymentResult {
+        return Ok(ChallengeStageOutcome::DryRun(PaymentResult {
             tx_hash: None,
             channel_id: None,
             status_code: 200,
             response: None,
-        });
+        }));
     }
 
-    let key_address = signer.signer.address();
     let from = signer.from;
+    let key_address = signer.signer.address();
     let fee_payer = session_req.fee_payer();
     let suggested_channel_id = session_req
         .channel_id()
         .as_deref()
         .map(|value| challenge_channel_id_parse(value, "session request methodDetails.channelId"))
         .transpose()?;
-
-    // Always refresh the challenge echo from the current 402 response
     let echo = challenge.to_echo();
     let origin = extract_origin(url);
     let session_key = session::session_key(url);
     let payer_hex = format!("{from:#x}");
+    let payee_hex = format!("{payee:#x}");
+    let token_hex = format!("{token:#x}");
+    let did = format!("did:pkh:eip155:{chain_id}:{from:#x}");
 
-    // Determine deposit: use suggested_deposit or default to 1 token (10^decimals atomic units).
-    // Cap at 5 tokens to limit exposure to malicious servers.
-    // Also clamp to the wallet's available balance so we don't revert on insufficient funds.
-    let base_units: u128 = 10u128.saturating_pow(u32::from(network_id.token().decimals));
+    Ok(ChallengeStageOutcome::Continue(Box::new(
+        ChallengeStageOutput {
+            network_id,
+            chain_id,
+            amount,
+            escrow_contract,
+            token,
+            payee,
+            fee_payer,
+            suggested_channel_id,
+            echo,
+            origin,
+            session_key,
+            from,
+            key_address,
+            did,
+            payer_hex,
+            payee_hex,
+            token_hex,
+        },
+    )))
+}
+
+async fn deposit_stage(
+    resolved: &ResolvedChallenge,
+    challenge: &ChallengeStageOutput,
+) -> Result<DepositStageOutput, TempoError> {
+    let base_units: u128 = 10u128.saturating_pow(u32::from(challenge.network_id.token().decimals));
     let max_deposit: u128 = 5u128.saturating_mul(base_units);
+
+    let session_req = decode_session_request_with_default_chain_id(&resolved.challenge)?;
     let suggested_deposit = session_req
         .suggested_deposit
         .as_deref()
         .map(|value| challenge_u128_parse(value, "session request suggestedDeposit"))
         .transpose()?;
-    let mut deposit: u128 = suggested_deposit.unwrap_or(base_units).min(max_deposit);
-    let mut clamped_deposit: Option<u128> = None;
 
-    // Query on-chain token balance and clamp deposit to available funds.
-    // Use 50% of the balance to reserve the rest for gas fees (on Tempo,
-    // gas is paid in USDC via account abstraction).
+    let mut deposit = suggested_deposit.unwrap_or(base_units).min(max_deposit);
+    let mut clamped_deposit = None;
+
     let provider = alloy::providers::RootProvider::new_http(resolved.rpc_url.clone());
-    if let Ok(balance) = session::query_token_balance(&provider, token, from).await {
+    if let Ok(balance) =
+        session::query_token_balance(&provider, challenge.token, challenge.from).await
+    {
         let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
         let usable = balance_u128 / 2;
         if usable < deposit {
@@ -730,68 +864,56 @@ pub(crate) async fn handle_session_request(
         }
     }
 
-    let did = format!("did:pkh:eip155:{chain_id}:{from:#x}");
-    let payee_hex = format!("{payee:#x}");
-    let token_hex = format!("{token:#x}");
+    Ok(DepositStageOutput {
+        provider,
+        deposit,
+        clamped_deposit,
+    })
+}
 
-    // === Reuse check + open (under lock) ===
-    //
-    // Hold a blocking per-origin lock for the full paid request lifecycle.
-    // A channel permits only one active session at a time, so requests to
-    // the same origin are intentionally serialized until completion.
-    let _lock_guard = session::acquire_origin_lock(&session_key)
-        .map_err(|e| session_store_error("acquire session lock", e))?;
-
-    // Build reuse candidates in priority order:
-    // 1) server-suggested channelId (if present),
-    // 2) most-recent local reusable channel for this origin.
+async fn reuse_stage_discover(
+    url: &str,
+    challenge: &ChallengeStageOutput,
+    deposit: &DepositStageOutput,
+) -> Result<Option<ReuseStageMatch>, TempoError> {
     let mut reuse_candidates: Vec<session::ChannelRecord> = Vec::new();
-    if let Some(channel_id) = suggested_channel_id {
+
+    if let Some(channel_id) = challenge.suggested_channel_id {
         let channel_id_hex = format!("{channel_id:#x}");
         let loaded = session::load_channel(&channel_id_hex)
             .map_err(|err| session_store_error("load channel", err))?;
+
         if let Some(record) = loaded {
             reuse_candidates.push(record);
-        } else if let Some((on_chain, _available_balance)) =
-            validate_reusable_channel_on_chain(&provider, escrow_contract, channel_id, amount)
-                .await?
+        } else if let Some((on_chain, _)) = validate_reusable_channel_on_chain(
+            &deposit.provider,
+            challenge.escrow_contract,
+            channel_id,
+            challenge.amount,
+        )
+        .await?
         {
-            if is_on_chain_identity_match(&on_chain, from, payee, token, key_address) {
-                let now = session::now_secs();
-                let challenge_echo = serde_json::to_string(&echo)
-                    .map_err(|err| session_store_error("serialize challenge echo", err))?;
-                reuse_candidates.push(session::ChannelRecord {
-                    version: 1,
-                    origin: origin.clone(),
-                    request_url: url.to_string(),
-                    chain_id,
-                    escrow_contract,
-                    token: token_hex.clone(),
-                    payee: payee_hex.clone(),
-                    payer: payer_hex.clone(),
-                    authorized_signer: key_address,
-                    salt: "0x00".to_string(),
-                    channel_id,
-                    deposit: on_chain.deposit,
-                    cumulative_amount: on_chain.settled,
-                    challenge_echo,
-                    state: session::ChannelStatus::Active,
-                    close_requested_at: 0,
-                    grace_ready_at: 0,
-                    created_at: now,
-                    last_used_at: now,
-                });
+            if is_on_chain_identity_match(
+                &on_chain,
+                challenge.from,
+                challenge.payee,
+                challenge.token,
+                challenge.key_address,
+            ) {
+                reuse_candidates.push(build_ondemand_reuse_record(
+                    challenge, url, channel_id, &on_chain,
+                )?);
             }
         }
     }
 
     if let Some(record) = session::find_reusable_channel(
-        &origin,
-        &payer_hex,
-        escrow_contract,
-        &token_hex,
-        &payee_hex,
-        chain_id,
+        &challenge.origin,
+        &challenge.payer_hex,
+        challenge.escrow_contract,
+        &challenge.token_hex,
+        &challenge.payee_hex,
+        challenge.chain_id,
     )
     .map_err(|err| session_store_error("load session", err))?
     {
@@ -804,142 +926,156 @@ pub(crate) async fn handle_session_request(
         }
     }
 
-    let mut reusable_channel = None;
     for candidate in reuse_candidates {
         if !is_session_reusable(
             &candidate,
-            &payer_hex,
-            escrow_contract,
-            &token_hex,
-            &payee_hex,
-            chain_id,
-            key_address,
+            &challenge.payer_hex,
+            challenge.escrow_contract,
+            &challenge.token_hex,
+            &challenge.payee_hex,
+            challenge.chain_id,
+            challenge.key_address,
         ) {
             continue;
         }
 
         let Some((on_chain, available_balance)) = validate_reusable_channel_on_chain(
-            &provider,
-            escrow_contract,
+            &deposit.provider,
+            challenge.escrow_contract,
             candidate.channel_id,
-            amount,
+            challenge.amount,
         )
         .await?
         else {
             continue;
         };
 
-        if !is_on_chain_identity_match(&on_chain, from, payee, token, key_address) {
+        if !is_on_chain_identity_match(
+            &on_chain,
+            challenge.from,
+            challenge.payee,
+            challenge.token,
+            challenge.key_address,
+        ) {
             continue;
         }
 
-        reusable_channel = Some((candidate, on_chain.deposit, available_balance));
-        break;
+        return Ok(Some(ReuseStageMatch {
+            record: candidate,
+            on_chain_deposit: on_chain.deposit,
+            available_balance,
+        }));
     }
 
-    if let Some((record, on_chain_deposit, available_balance)) = reusable_channel {
-        if http.log_enabled() {
-            eprintln!("Reusing session {} for {}", record.channel_id_hex(), origin);
+    Ok(None)
+}
+
+async fn reuse_stage_execute(
+    http: &crate::http::HttpClient,
+    url: &str,
+    resolved: &ResolvedChallenge,
+    signer: &Signer,
+    challenge: &ChallengeStageOutput,
+    deposit: &DepositStageOutput,
+    reusable: ReuseStageMatch,
+) -> Result<ReuseStageOutcome, TempoError> {
+    if http.log_enabled() {
+        eprintln!(
+            "Reusing session {} for {}",
+            reusable.record.channel_id_hex(),
+            challenge.origin
+        );
+    }
+
+    let channel_id = reusable.record.channel_id;
+    let prev_cumulative = reusable.record.cumulative_amount_u128();
+    let mut state = ChannelState {
+        channel_id,
+        escrow_contract: challenge.escrow_contract,
+        chain_id: challenge.chain_id,
+        deposit: reusable.on_chain_deposit,
+        cumulative_amount: (prev_cumulative + challenge.amount).min(reusable.available_balance),
+    };
+
+    let ctx = build_channel_context(
+        signer,
+        http,
+        url,
+        resolved.rpc_url.as_str(),
+        challenge,
+        deposit,
+        reusable.record.salt.clone(),
+    );
+
+    match send_session_request(&ctx, &mut state).await {
+        Ok(result) => {
+            persist_session(&ctx, &state)?;
+            Ok(ReuseStageOutcome::Reused(result))
         }
-
-        let channel_id: B256 = record.channel_id;
-        let prev_cumulative: u128 = record.cumulative_amount_u128();
-
-        let mut state = ChannelState {
-            channel_id,
-            escrow_contract,
-            chain_id,
-            deposit: on_chain_deposit,
-            cumulative_amount: (prev_cumulative + amount).min(available_balance),
-        };
-
-        let ctx = ChannelContext {
-            signer: &signer,
-            payer: from,
-            echo: &echo,
-            did: &did,
-            http,
-            url,
-            rpc_url: resolved.rpc_url.as_str(),
-            network_id,
-            origin: &origin,
-            top_up_deposit: deposit,
-            clamped_deposit,
-            fee_payer,
-            salt: record.salt.clone(),
-            payee,
-            token,
-            reqwest_client: http.client(),
-        };
-
-        match send_session_request(&ctx, &mut state).await {
-            Ok(result) => {
-                persist_session(&ctx, &state)?;
-                return Ok(result);
-            }
-            Err(failure) => {
-                if failure.kind == SessionRequestFailureKind::ChannelInvalidated {
-                    let channel_id_hex = format!("{channel_id:#x}");
-                    let _ = session::delete_channel(&channel_id_hex);
-                    if http.log_enabled() {
-                        eprintln!(
-                            "Persisted channel {channel_id_hex} rejected by server; opening a new channel"
-                        );
-                    }
-                } else {
-                    // A signed voucher may already have been transmitted, so
-                    // persist the updated state and propagate the error instead
-                    // of silently opening a new channel (which would double-charge).
-                    let _ = persist_session(&ctx, &state);
-                    return Err(session_reuse_preserved_error(failure.into_tempo()));
+        Err(failure) => {
+            if failure.kind == SessionRequestFailureKind::ChannelInvalidated {
+                let channel_id_hex = format!("{channel_id:#x}");
+                let _ = session::delete_channel(&channel_id_hex);
+                if http.log_enabled() {
+                    eprintln!(
+                        "Persisted channel {channel_id_hex} rejected by server; opening a new channel"
+                    );
                 }
+                Ok(ReuseStageOutcome::NeedsOpen)
+            } else {
+                let _ = persist_session(&ctx, &state);
+                Err(session_reuse_preserved_error(failure.into_tempo()))
             }
         }
     }
+}
 
+async fn open_stage(
+    http: &crate::http::HttpClient,
+    url: &str,
+    resolved: &ResolvedChallenge,
+    signer: &Signer,
+    challenge: &ChallengeStageOutput,
+    deposit: &DepositStageOutput,
+) -> Result<OpenStageOutput, TempoError> {
     let salt = B256::random();
-    let authorized_signer = key_address;
     let channel_id = compute_channel_id(
-        from,
-        payee,
-        token,
+        challenge.from,
+        challenge.payee,
+        challenge.token,
         salt,
-        authorized_signer,
-        escrow_contract,
-        chain_id,
+        challenge.key_address,
+        challenge.escrow_contract,
+        challenge.chain_id,
     );
 
     if http.log_enabled() {
-        if let Some(clamped) = clamped_deposit {
+        if let Some(clamped) = deposit.clamped_deposit {
             eprintln!(
                 "Clamping deposit to 50% of wallet balance: {}",
-                format_token_amount(clamped, network_id)
+                format_token_amount(clamped, challenge.network_id)
             );
         }
-        let deposit_display = format_token_amount(deposit, network_id);
+        let deposit_display = format_token_amount(deposit.deposit, challenge.network_id);
         eprintln!("Opening channel {channel_id:#x} (deposit: {deposit_display})");
     }
 
     let open_calls = session::build_open_calls(
-        token,
-        escrow_contract,
-        deposit,
-        payee,
+        challenge.token,
+        challenge.escrow_contract,
+        deposit.deposit,
+        challenge.payee,
         salt,
-        authorized_signer,
+        challenge.key_address,
     );
 
-    // Deviation from draft-tempo-session-00 §8.3.1: use `amount`
-    // (instead of the typical `0`) to pre-authorize one service unit and
-    // avoid an immediate extra voucher round trip before delivery starts.
-    // Server-side verification still enforces cumulativeAmount >= settled.
-    let initial_cumulative = amount;
+    let initial_cumulative = challenge.amount;
     let voucher_sig = sign_voucher(
         &signer.signer,
         channel_id,
         initial_cumulative,
-        escrow_contract,
-        chain_id,
+        challenge.escrow_contract,
+        challenge.chain_id,
     )
     .await
     .map_err(|source| KeyError::SigningOperationSource {
@@ -949,29 +1085,28 @@ pub(crate) async fn handle_session_request(
 
     let payment = open::create_tempo_payment_from_calls(
         resolved.rpc_url.as_str(),
-        &signer,
+        signer,
         open_calls,
-        token,
-        chain_id,
-        fee_payer,
+        challenge.token,
+        challenge.chain_id,
+        challenge.fee_payer,
     )
     .await?;
 
-    // Send the raw transaction to the server for broadcast (and optional
-    // fee-payer co-signing). The server calls sendRawTransactionSync which
-    // waits for block inclusion, so no client-side confirm_open is needed.
     let open_tx = format!("0x{}", hex::encode(&payment.tx_bytes));
-
     let open_payload = build_open_payload(
         channel_id,
         open_tx,
-        authorized_signer,
+        challenge.key_address,
         initial_cumulative,
         &voucher_sig,
     );
 
-    let session_credential =
-        mpp::PaymentCredential::with_source(echo.clone(), did.clone(), open_payload);
+    let session_credential = mpp::PaymentCredential::with_source(
+        challenge.echo.clone(),
+        challenge.did.clone(),
+        open_payload,
+    );
     let auth_header = mpp::format_authorization(&session_credential).map_err(|source| {
         PaymentError::ChallengeFormatSource {
             context: "open credential",
@@ -979,73 +1114,106 @@ pub(crate) async fn handle_session_request(
         }
     })?;
 
-    let delays = [2000_u64, 3000, 5000];
     let open_idempotency_key = new_idempotency_key();
+    let delays = [2000_u64, 3000, 5000];
     let open_response =
         open::send_open_with_retry(http, url, &auth_header, &open_idempotency_key, &delays).await?;
 
     let mut state = ChannelState {
         channel_id,
-        escrow_contract,
-        chain_id,
-        deposit,
+        escrow_contract: challenge.escrow_contract,
+        chain_id: challenge.chain_id,
+        deposit: deposit.deposit,
         cumulative_amount: initial_cumulative,
     };
 
     let open_tx_hash = apply_response_receipt(&open_response, &mut state, "open response")?;
     if let Some(tx_ref) = open_tx_hash.as_deref() {
         if http.log_enabled() {
-            eprintln!("Channel open tx: {}", resolved.network_id.tx_url(tx_ref));
+            eprintln!("Channel open tx: {}", challenge.network_id.tx_url(tx_ref));
         }
     }
 
-    let ctx = ChannelContext {
-        signer: &signer,
-        payer: from,
-        echo: &echo,
-        did: &did,
+    Ok(OpenStageOutput {
+        state,
+        salt_hex: format!("{salt:#x}"),
+        open_tx_hash,
+        open_response,
+    })
+}
+
+async fn request_stage(
+    ctx: &ChannelContext<'_>,
+    state: &mut ChannelState,
+) -> Result<PaymentResult, TempoError> {
+    persist_session(ctx, state)?;
+    let result = send_session_request(ctx, state)
+        .await
+        .map_err(SessionRequestFailure::into_tempo)?;
+    persist_session(ctx, state)?;
+    Ok(result)
+}
+
+pub(crate) async fn handle_session_request(
+    http: &crate::http::HttpClient,
+    url: &str,
+    resolved: ResolvedChallenge,
+    signer: Signer,
+    _keys: &Keystore,
+) -> Result<PaymentResult, TempoError> {
+    let challenge = match challenge_stage(http, url, &resolved, &signer).await? {
+        ChallengeStageOutcome::DryRun(result) => return Ok(result),
+        ChallengeStageOutcome::Continue(data) => *data,
+    };
+
+    let deposit = deposit_stage(&resolved, &challenge).await?;
+
+    // Hold a blocking per-origin lock for the full paid request lifecycle.
+    // A channel permits only one active session at a time, so requests to
+    // the same origin are intentionally serialized until completion.
+    let _lock_guard = session::acquire_origin_lock(&challenge.session_key)
+        .map_err(|e| session_store_error("acquire session lock", e))?;
+
+    if let Some(reusable) = reuse_stage_discover(url, &challenge, &deposit).await? {
+        match reuse_stage_execute(
+            http, url, &resolved, &signer, &challenge, &deposit, reusable,
+        )
+        .await?
+        {
+            ReuseStageOutcome::Reused(result) => return Ok(result),
+            ReuseStageOutcome::NeedsOpen => {}
+        }
+    }
+
+    let mut opened = open_stage(http, url, &resolved, &signer, &challenge, &deposit).await?;
+    let ctx = build_channel_context(
+        &signer,
         http,
         url,
-        rpc_url: resolved.rpc_url.as_str(),
-        network_id,
-        origin: &origin,
-        top_up_deposit: deposit,
-        clamped_deposit,
-        fee_payer,
-        salt: format!("{salt:#x}"),
-        payee,
-        token,
-        reqwest_client: http.client(),
-    };
+        resolved.rpc_url.as_str(),
+        &challenge,
+        &deposit,
+        opened.salt_hex.clone(),
+    );
 
     // For non-SSE responses, the open response already contains the proxied
     // upstream result — use it directly instead of making a duplicate request.
-    // For SSE, fall through to send_session_request which returns a raw
-    // streaming response.
-    let is_sse = open_response
+    let is_sse = opened
+        .open_response
         .header("content-type")
         .is_some_and(|ct| ct.contains("text/event-stream"));
 
-    if !is_sse && open_response.status_code < 400 {
-        persist_session(&ctx, &state)?;
+    if !is_sse && opened.open_response.status_code < 400 {
+        persist_session(&ctx, &opened.state)?;
         return Ok(PaymentResult {
-            tx_hash: open_tx_hash,
-            channel_id: Some(format!("{channel_id:#x}")),
-            status_code: open_response.status_code,
-            response: Some(open_response),
+            tx_hash: opened.open_tx_hash,
+            channel_id: Some(format!("{:#x}", opened.state.channel_id)),
+            status_code: opened.open_response.status_code,
+            response: Some(opened.open_response),
         });
     }
 
-    // Persist the opened channel before proceeding with voucher requests.
-    persist_session(&ctx, &state)?;
-
-    let result = send_session_request(&ctx, &mut state)
-        .await
-        .map_err(SessionRequestFailure::into_tempo)?;
-
-    // Re-persist after streaming to update cumulative_amount.
-    persist_session(&ctx, &state)?;
-    Ok(result)
+    request_stage(&ctx, &mut opened.state).await
 }
 
 /// Check whether a persisted session record can be reused for a new request.
