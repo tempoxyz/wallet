@@ -16,9 +16,16 @@ use super::{
     ChannelContext, ChannelState,
 };
 use tempo_common::{
+    cli::terminal::sanitize_for_terminal,
     error::{NetworkError, PaymentError, TempoError},
     payment::{parse_problem_details, SessionProblemType},
 };
+
+fn rejected_reason_from_body(body: &str) -> String {
+    let raw_reason = tempo_common::payment::extract_json_error(body)
+        .unwrap_or_else(|| body.chars().take(500).collect::<String>());
+    sanitize_for_terminal(&raw_reason)
+}
 
 fn protocol_value_error(field: &'static str, value: &str) -> TempoError {
     PaymentError::PaymentRejected {
@@ -94,8 +101,7 @@ async fn send_top_up(
     let response = crate::http::HttpResponse::from_reqwest(response).await?;
     if response.status_code >= 400 {
         let body = response.body_string().unwrap_or_default();
-        let reason = tempo_common::payment::extract_json_error(&body)
-            .unwrap_or_else(|| body.chars().take(500).collect::<String>());
+        let reason = rejected_reason_from_body(&body);
         return Err(PaymentError::PaymentRejected {
             reason,
             status_code: response.status_code,
@@ -175,8 +181,7 @@ fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
 }
 
 fn voucher_problem_error(status_code: u16, body: &str) -> TempoError {
-    let reason = tempo_common::payment::extract_json_error(body)
-        .unwrap_or_else(|| body.chars().take(500).collect::<String>());
+    let reason = rejected_reason_from_body(body);
     PaymentError::PaymentRejected {
         reason,
         status_code,
@@ -892,6 +897,21 @@ mod tests {
     fn parse_protocol_u128_rejects_invalid_value() {
         let err = parse_protocol_u128("abc", "field").unwrap_err();
         assert!(err.to_string().contains("Malformed payment protocol field"));
+    }
+
+    #[test]
+    fn rejected_reason_from_body_sanitizes_control_sequences() {
+        let body = r#"{"error":"bad\u001b[31m\u0007value"}"#;
+        let reason = rejected_reason_from_body(body);
+        assert_eq!(reason, "bad[31mvalue");
+        assert!(!reason.chars().any(char::is_control));
+    }
+
+    #[test]
+    fn rejected_reason_from_body_truncates_plaintext_fallback() {
+        let body = "y".repeat(600);
+        let reason = rejected_reason_from_body(&body);
+        assert_eq!(reason.len(), 500);
     }
 
     #[test]

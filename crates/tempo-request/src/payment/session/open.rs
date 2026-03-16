@@ -26,6 +26,12 @@ fn should_retry_open_response(status_code: u16, body: &str) -> bool {
         .is_some_and(|problem| problem.classify() == SessionProblemType::ChannelNotFound)
 }
 
+fn rejected_reason_from_body(body: &str) -> String {
+    let raw_reason = tempo_common::payment::extract_json_error(body)
+        .unwrap_or_else(|| body.chars().take(500).collect::<String>());
+    sanitize_for_terminal(&raw_reason)
+}
+
 /// Result of building a Tempo payment from calls.
 pub(super) struct TempoPaymentResult {
     pub(super) tx_bytes: Vec<u8>,
@@ -72,8 +78,6 @@ pub(super) async fn send_open_with_retry(
     idempotency_key: &str,
     delays_ms: &[u64],
 ) -> Result<HttpResponse, TempoError> {
-    let truncate = |s: String| -> String { s.chars().take(500).collect() };
-
     let headers = vec![
         ("Authorization".to_string(), auth_header.to_string()),
         ("Idempotency-Key".to_string(), idempotency_key.to_string()),
@@ -98,9 +102,7 @@ pub(super) async fn send_open_with_retry(
                 }
                 let next_body = next.body_string().unwrap_or_default();
                 if !should_retry_open_response(next.status_code, &next_body) {
-                    let raw_reason = tempo_common::payment::extract_json_error(&next_body)
-                        .unwrap_or_else(|| truncate(next_body));
-                    let reason = sanitize_for_terminal(&raw_reason);
+                    let reason = rejected_reason_from_body(&next_body);
                     return Err(PaymentError::PaymentRejected {
                         reason,
                         status_code: next.status_code,
@@ -116,9 +118,7 @@ pub(super) async fn send_open_with_retry(
             }
             .into());
         }
-        let raw_reason =
-            tempo_common::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
-        let reason = sanitize_for_terminal(&raw_reason);
+        let reason = rejected_reason_from_body(&body);
         return Err(PaymentError::PaymentRejected {
             reason,
             status_code: 410,
@@ -127,9 +127,7 @@ pub(super) async fn send_open_with_retry(
     }
 
     let body = resp.body_string().unwrap_or_default();
-    let raw_reason =
-        tempo_common::payment::extract_json_error(&body).unwrap_or_else(|| truncate(body));
-    let reason = sanitize_for_terminal(&raw_reason);
+    let reason = rejected_reason_from_body(&body);
     Err(PaymentError::PaymentRejected {
         reason,
         status_code: resp.status_code,
@@ -139,7 +137,7 @@ pub(super) async fn send_open_with_retry(
 
 #[cfg(test)]
 mod tests {
-    use super::should_retry_open_response;
+    use super::{rejected_reason_from_body, should_retry_open_response};
 
     #[test]
     fn retries_only_for_channel_not_found_problem_type() {
@@ -157,5 +155,20 @@ mod tests {
     fn does_not_retry_when_status_is_not_410() {
         let body = r#"{"type":"https://paymentauth.org/problems/session/channel-not-found"}"#;
         assert!(!should_retry_open_response(402, body));
+    }
+
+    #[test]
+    fn rejected_reason_from_body_sanitizes_control_sequences() {
+        let body = r#"{"error":"bad\u001b[31m\u0007value"}"#;
+        let reason = rejected_reason_from_body(body);
+        assert_eq!(reason, "bad[31mvalue");
+        assert!(!reason.chars().any(char::is_control));
+    }
+
+    #[test]
+    fn rejected_reason_from_body_truncates_plaintext_fallback() {
+        let body = "x".repeat(600);
+        let reason = rejected_reason_from_body(&body);
+        assert_eq!(reason.len(), 500);
     }
 }

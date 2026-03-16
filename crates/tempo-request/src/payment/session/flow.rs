@@ -1077,8 +1077,8 @@ mod tests {
     use super::{
         apply_response_receipt, assess_on_chain_reusability, challenge_channel_id_parse,
         classify_session_failure, is_on_chain_identity_match, is_session_reusable,
-        normalize_hex_identifier, parse_positive_problem_amount, session_store_error,
-        validate_problem_channel_id, SessionRequestFailureKind,
+        normalize_hex_identifier, parse_positive_problem_amount, parse_rejected_reason,
+        session_store_error, validate_problem_channel_id, SessionRequestFailureKind,
     };
     use crate::http::HttpResponse;
     use alloy::primitives::{Address, B256};
@@ -1228,6 +1228,22 @@ mod tests {
             classify_session_failure(410, body),
             SessionRequestFailureKind::ChannelInvalidated
         );
+    }
+
+    #[test]
+    fn parse_rejected_reason_sanitizes_server_text() {
+        let err = parse_rejected_reason(402, r#"{"error":"bad\u001b[31m\u0007value"}"#);
+        match err {
+            TempoError::Payment(PaymentError::PaymentRejected {
+                reason,
+                status_code,
+            }) => {
+                assert_eq!(status_code, 402);
+                assert_eq!(reason, "bad[31mvalue");
+                assert!(!reason.chars().any(char::is_control));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
     }
 
     #[test]
