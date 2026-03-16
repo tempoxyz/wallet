@@ -9,6 +9,7 @@ use mpp::server::sse::{parse_event, SseEvent};
 use tokio::sync::mpsc;
 
 use super::{
+    error_map::payment_rejected_from_body,
     new_idempotency_key, open,
     persist::{persist_channel_cumulative_floor, persist_session},
     receipt::{parse_validated_session_receipt_header, validate_session_receipt_fields},
@@ -16,16 +17,9 @@ use super::{
     ChannelContext, ChannelState,
 };
 use tempo_common::{
-    cli::terminal::sanitize_for_terminal,
     error::{NetworkError, PaymentError, TempoError},
     payment::{parse_problem_details, SessionProblemType},
 };
-
-fn rejected_reason_from_body(body: &str) -> String {
-    let raw_reason = tempo_common::payment::extract_json_error(body)
-        .unwrap_or_else(|| body.chars().take(500).collect::<String>());
-    sanitize_for_terminal(&raw_reason)
-}
 
 fn protocol_value_error(field: &'static str, value: &str) -> TempoError {
     PaymentError::PaymentRejected {
@@ -101,12 +95,7 @@ async fn send_top_up(
     let response = crate::http::HttpResponse::from_reqwest(response).await?;
     if response.status_code >= 400 {
         let body = response.body_string().unwrap_or_default();
-        let reason = rejected_reason_from_body(&body);
-        return Err(PaymentError::PaymentRejected {
-            reason,
-            status_code: response.status_code,
-        }
-        .into());
+        return Err(payment_rejected_from_body(response.status_code, &body));
     }
 
     match response.header("payment-receipt") {
@@ -178,15 +167,6 @@ fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
         .http2_adaptive_window(true)
         .build()
         .unwrap_or_else(|_| base.clone())
-}
-
-fn voucher_problem_error(status_code: u16, body: &str) -> TempoError {
-    let reason = rejected_reason_from_body(body);
-    PaymentError::PaymentRejected {
-        reason,
-        status_code,
-    }
-    .into()
 }
 
 fn parse_problem_accepted_cumulative(
@@ -389,11 +369,11 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
 
             let retry_status = retry_response.status().as_u16();
             let retry_body = retry_response.text().await.unwrap_or_default();
-            return Err(voucher_problem_error(retry_status, &retry_body));
+            return Err(payment_rejected_from_body(retry_status, &retry_body));
         }
     }
 
-    Err(voucher_problem_error(status_code, &body))
+    Err(payment_rejected_from_body(status_code, &body))
 }
 
 /// Post a voucher to the server in a background task.
@@ -897,21 +877,6 @@ mod tests {
     fn parse_protocol_u128_rejects_invalid_value() {
         let err = parse_protocol_u128("abc", "field").unwrap_err();
         assert!(err.to_string().contains("Malformed payment protocol field"));
-    }
-
-    #[test]
-    fn rejected_reason_from_body_sanitizes_control_sequences() {
-        let body = r#"{"error":"bad\u001b[31m\u0007value"}"#;
-        let reason = rejected_reason_from_body(body);
-        assert_eq!(reason, "bad[31mvalue");
-        assert!(!reason.chars().any(char::is_control));
-    }
-
-    #[test]
-    fn rejected_reason_from_body_truncates_plaintext_fallback() {
-        let body = "y".repeat(600);
-        let reason = rejected_reason_from_body(&body);
-        assert_eq!(reason.len(), 500);
     }
 
     #[test]

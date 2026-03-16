@@ -5,6 +5,7 @@
 //! Session persistence, channel queries, and close operations
 //! remain in `tempo_common::payment::session`.
 
+mod error_map;
 mod flow;
 mod open;
 mod persist;

@@ -4,6 +4,7 @@ use alloy::primitives::{Address, B256};
 use mpp::protocol::methods::tempo::{compute_channel_id, session::TempoSessionExt, sign_voucher};
 
 use super::{
+    error_map::payment_rejected_from_body,
     extract_origin, new_idempotency_key, open,
     persist::persist_session,
     receipt::parse_validated_session_receipt_header,
@@ -16,10 +17,7 @@ use crate::{
     payment::types::{PaymentResult, ResolvedChallenge},
 };
 use tempo_common::{
-    cli::{
-        format::format_token_amount,
-        terminal::{address_link, sanitize_for_terminal},
-    },
+    cli::{format::format_token_amount, terminal::address_link},
     error::{KeyError, NetworkError, PaymentError, TempoError},
     keys::{Keystore, Signer},
     payment::{
@@ -274,17 +272,6 @@ fn parse_positive_problem_amount(value: &str, context: &'static str) -> Result<u
     Ok(amount)
 }
 
-fn parse_rejected_reason(status_code: u16, body: &str) -> TempoError {
-    let raw_reason = tempo_common::payment::extract_json_error(body)
-        .unwrap_or_else(|| body.chars().take(500).collect::<String>());
-    let reason = sanitize_for_terminal(&raw_reason);
-    PaymentError::PaymentRejected {
-        reason,
-        status_code,
-    }
-    .into()
-}
-
 fn validate_problem_channel_id(
     problem: &tempo_common::payment::ProblemDetails,
     expected: B256,
@@ -435,7 +422,10 @@ async fn run_non_streaming_top_up_recovery(
             continue;
         }
 
-        return Err(parse_rejected_reason(top_up_response.status_code, &body));
+        return Err(payment_rejected_from_body(
+            top_up_response.status_code,
+            &body,
+        ));
     }
 
     Err(PaymentError::PaymentRejected {
@@ -539,7 +529,7 @@ async fn send_session_request(
 
             let failure_kind = classify_session_failure(status.as_u16(), &body);
             return Err(SessionRequestFailure {
-                source: parse_rejected_reason(status.as_u16(), &body),
+                source: payment_rejected_from_body(status.as_u16(), &body),
                 kind: failure_kind,
             });
         }
@@ -1267,8 +1257,8 @@ mod tests {
     use super::{
         apply_response_receipt, assess_on_chain_reusability, challenge_channel_id_parse,
         classify_session_failure, is_on_chain_identity_match, is_session_reusable,
-        normalize_hex_identifier, parse_positive_problem_amount, parse_rejected_reason,
-        session_store_error, validate_problem_channel_id, SessionRequestFailureKind,
+        normalize_hex_identifier, parse_positive_problem_amount, session_store_error,
+        validate_problem_channel_id, SessionRequestFailureKind,
     };
     use crate::http::HttpResponse;
     use alloy::primitives::{Address, B256};
@@ -1418,22 +1408,6 @@ mod tests {
             classify_session_failure(410, body),
             SessionRequestFailureKind::ChannelInvalidated
         );
-    }
-
-    #[test]
-    fn parse_rejected_reason_sanitizes_server_text() {
-        let err = parse_rejected_reason(402, r#"{"error":"bad\u001b[31m\u0007value"}"#);
-        match err {
-            TempoError::Payment(PaymentError::PaymentRejected {
-                reason,
-                status_code,
-            }) => {
-                assert_eq!(status_code, 402);
-                assert_eq!(reason, "bad[31mvalue");
-                assert!(!reason.chars().any(char::is_control));
-            }
-            other => panic!("unexpected error variant: {other:?}"),
-        }
     }
 
     #[test]

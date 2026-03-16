@@ -6,9 +6,9 @@
 
 use alloy::primitives::Address;
 
+use super::error_map::payment_rejected_from_body;
 use crate::http::{HttpClient, HttpResponse};
 use tempo_common::{
-    cli::terminal::sanitize_for_terminal,
     error::{ConfigError, PaymentError, TempoError},
     keys::Signer,
     payment::{
@@ -24,12 +24,6 @@ fn should_retry_open_response(status_code: u16, body: &str) -> bool {
 
     parse_problem_details(body)
         .is_some_and(|problem| problem.classify() == SessionProblemType::ChannelNotFound)
-}
-
-fn rejected_reason_from_body(body: &str) -> String {
-    let raw_reason = tempo_common::payment::extract_json_error(body)
-        .unwrap_or_else(|| body.chars().take(500).collect::<String>());
-    sanitize_for_terminal(&raw_reason)
 }
 
 /// Result of building a Tempo payment from calls.
@@ -102,12 +96,7 @@ pub(super) async fn send_open_with_retry(
                 }
                 let next_body = next.body_string().unwrap_or_default();
                 if !should_retry_open_response(next.status_code, &next_body) {
-                    let reason = rejected_reason_from_body(&next_body);
-                    return Err(PaymentError::PaymentRejected {
-                        reason,
-                        status_code: next.status_code,
-                    }
-                    .into());
+                    return Err(payment_rejected_from_body(next.status_code, &next_body));
                 }
             }
             // Intentional operator-facing retry exhaustion message; this path has
@@ -118,26 +107,16 @@ pub(super) async fn send_open_with_retry(
             }
             .into());
         }
-        let reason = rejected_reason_from_body(&body);
-        return Err(PaymentError::PaymentRejected {
-            reason,
-            status_code: 410,
-        }
-        .into());
+        return Err(payment_rejected_from_body(410, &body));
     }
 
     let body = resp.body_string().unwrap_or_default();
-    let reason = rejected_reason_from_body(&body);
-    Err(PaymentError::PaymentRejected {
-        reason,
-        status_code: resp.status_code,
-    }
-    .into())
+    Err(payment_rejected_from_body(resp.status_code, &body))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{rejected_reason_from_body, should_retry_open_response};
+    use super::should_retry_open_response;
 
     #[test]
     fn retries_only_for_channel_not_found_problem_type() {
@@ -155,20 +134,5 @@ mod tests {
     fn does_not_retry_when_status_is_not_410() {
         let body = r#"{"type":"https://paymentauth.org/problems/session/channel-not-found"}"#;
         assert!(!should_retry_open_response(402, body));
-    }
-
-    #[test]
-    fn rejected_reason_from_body_sanitizes_control_sequences() {
-        let body = r#"{"error":"bad\u001b[31m\u0007value"}"#;
-        let reason = rejected_reason_from_body(body);
-        assert_eq!(reason, "bad[31mvalue");
-        assert!(!reason.chars().any(char::is_control));
-    }
-
-    #[test]
-    fn rejected_reason_from_body_truncates_plaintext_fallback() {
-        let body = "x".repeat(600);
-        let reason = rejected_reason_from_body(&body);
-        assert_eq!(reason.len(), 500);
     }
 }
