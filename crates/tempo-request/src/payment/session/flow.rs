@@ -91,6 +91,42 @@ fn challenge_u128_parse(value: &str, context: &'static str) -> Result<u128, Temp
     })
 }
 
+fn decode_session_request_with_default_chain_id(
+    challenge: &mpp::PaymentChallenge,
+) -> Result<mpp::SessionRequest, TempoError> {
+    let mut value = challenge
+        .request
+        .decode::<serde_json::Value>()
+        .map_err(|source| PaymentError::ChallengeParseSource {
+            context: "session request payload",
+            source: Box::new(source),
+        })?;
+
+    if value
+        .get("methodDetails")
+        .and_then(|details| details.get("chainId"))
+        .is_none()
+    {
+        if let Some(method_details) = value
+            .get_mut("methodDetails")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            method_details.insert(
+                "chainId".to_string(),
+                serde_json::Value::from(DEFAULT_SESSION_CHAIN_ID),
+            );
+        }
+    }
+
+    serde_json::from_value(value).map_err(|source| {
+        PaymentError::ChallengeParse {
+            context: "session request from challenge",
+            reason: source.to_string(),
+        }
+        .into()
+    })
+}
+
 fn normalize_hex_identifier(value: &str) -> String {
     if let Ok(address) = value.parse::<Address>() {
         return format!("{address:#x}");
@@ -263,8 +299,8 @@ async fn fetch_fresh_session_echo(
     ctx: &ChannelContext<'_>,
 ) -> Result<mpp::ChallengeEcho, TempoError> {
     let response = ctx
-        .http
-        .build_raw_request(ctx.url)
+        .reqwest_client
+        .head(ctx.url)
         .send()
         .await
         .map_err(NetworkError::Reqwest)?;
@@ -558,18 +594,14 @@ pub(crate) async fn handle_session_request(
     let network_id = resolved.network_id;
     let network_name = network_id.as_str();
 
-    challenge
-        .validate_for_session("tempo")
-        .map_err(|e| map_mpp_validation_error(e, challenge))?;
+    if let Err(error) = challenge.validate_for_session("tempo") {
+        let mapped = map_mpp_validation_error(error, challenge);
+        if !mapped.to_string().contains("missing chainId") {
+            return Err(mapped.into());
+        }
+    }
 
-    let session_req: mpp::SessionRequest =
-        challenge
-            .request
-            .decode()
-            .map_err(|source| PaymentError::ChallengeParseSource {
-                context: "session request from challenge",
-                source: Box::new(source),
-            })?;
+    let session_req = decode_session_request_with_default_chain_id(challenge)?;
 
     let chain_id = session_req.chain_id().unwrap_or(DEFAULT_SESSION_CHAIN_ID);
 

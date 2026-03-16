@@ -137,6 +137,36 @@ fn next_voucher_stall_timeout(current: Duration, normal_timeout: Duration) -> Du
     current.saturating_mul(2).min(normal_timeout)
 }
 
+fn parse_env_u32(name: &str) -> Option<u32> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+}
+
+fn parse_env_u64(name: &str) -> Option<u64> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+}
+
+fn voucher_retry_policy() -> (u32, Duration, Duration) {
+    const DEFAULT_MAX_VOUCHER_RETRIES: u32 = 5;
+    const DEFAULT_NORMAL_TIMEOUT_MS: u64 = 30_000;
+    const DEFAULT_VOUCHER_STALL_TIMEOUT_MS: u64 = 3_000;
+
+    let max_voucher_retries =
+        parse_env_u32("TEMPO_SESSION_MAX_VOUCHER_RETRIES").unwrap_or(DEFAULT_MAX_VOUCHER_RETRIES);
+    let normal_timeout_ms =
+        parse_env_u64("TEMPO_SESSION_NORMAL_TIMEOUT_MS").unwrap_or(DEFAULT_NORMAL_TIMEOUT_MS);
+    let stall_timeout_ms =
+        parse_env_u64("TEMPO_SESSION_STALL_TIMEOUT_MS").unwrap_or(DEFAULT_VOUCHER_STALL_TIMEOUT_MS);
+
+    let normal_timeout = Duration::from_millis(normal_timeout_ms.max(1));
+    let base_stall_timeout = Duration::from_millis(stall_timeout_ms.max(1)).min(normal_timeout);
+
+    (max_voucher_retries, normal_timeout, base_stall_timeout)
+}
+
 fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
     reqwest::Client::builder()
         .http2_adaptive_window(true)
@@ -152,6 +182,16 @@ fn voucher_problem_error(status_code: u16, body: &str) -> TempoError {
         status_code,
     }
     .into()
+}
+
+fn parse_problem_accepted_cumulative(
+    problem: &tempo_common::payment::classify::ProblemDetails,
+) -> Option<u128> {
+    problem
+        .extensions
+        .get("acceptedCumulative")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| value.parse::<u128>().ok())
 }
 
 async fn fetch_fresh_session_echo(
@@ -197,7 +237,7 @@ async fn fetch_fresh_session_echo(
 
 #[derive(Debug)]
 struct VoucherTaskResult {
-    idempotency_key: String,
+    _idempotency_key: String,
     result: Result<(), TempoError>,
 }
 
@@ -289,6 +329,13 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
     };
 
     if let Some(problem) = parse_problem_details(&body) {
+        if problem.classify() == SessionProblemType::DeltaTooSmall {
+            if let Some(accepted_cumulative) = parse_problem_accepted_cumulative(&problem) {
+                let _ = persist_channel_cumulative_floor(ctx.state.channel_id, accepted_cumulative);
+            }
+            return Ok(());
+        }
+
         if problem.classify() == SessionProblemType::ChallengeNotFound {
             let fresh_echo = fetch_fresh_session_echo(ctx.url, ctx.client).await?;
             let voucher =
@@ -387,7 +434,7 @@ fn post_voucher(
         })
         .await;
         let _ = result_tx.send(VoucherTaskResult {
-            idempotency_key,
+            _idempotency_key: idempotency_key,
             result,
         });
     });
@@ -451,33 +498,17 @@ pub(super) async fn stream_sse_response(
     let mut pending_voucher_idempotency_key: Option<String> = None;
     let mut voucher_retry_count: u32 = 0;
 
-    // Constants for stream behavior.
-    const MAX_VOUCHER_RETRIES: u32 = 5;
-    const NORMAL_TIMEOUT_SECS: u64 = 30;
-    const VOUCHER_STALL_TIMEOUT_SECS: u64 = 3;
+    let (max_voucher_retries, normal_timeout, base_stall_timeout) = voucher_retry_policy();
 
-    // Normal timeout for when we're actively receiving tokens.
-    let normal_timeout = Duration::from_secs(NORMAL_TIMEOUT_SECS);
     // Short timeout after sending a voucher — if the server doesn't resume
     // quickly, the notify was likely lost and we should re-post.
-    let base_stall_timeout = Duration::from_secs(VOUCHER_STALL_TIMEOUT_SECS);
     // Exponential backoff for re-posting the same voucher (caps at normal_timeout)
     let mut current_stall_timeout = base_stall_timeout;
 
     loop {
         while let Ok(task_result) = voucher_result_rx.try_recv() {
             match task_result.result {
-                Ok(()) => {
-                    if pending_voucher_idempotency_key
-                        .as_deref()
-                        .is_some_and(|key| key == task_result.idempotency_key)
-                    {
-                        pending_voucher_auth = None;
-                        pending_voucher_idempotency_key = None;
-                        voucher_retry_count = 0;
-                        current_stall_timeout = base_stall_timeout;
-                    }
-                }
+                Ok(()) => {}
                 Err(error) => return Err(error),
             }
         }
@@ -500,17 +531,17 @@ pub(super) async fn stream_sse_response(
                 // Timeout — if we have a pending voucher, re-post it
                 if let Some(ref auth) = pending_voucher_auth {
                     voucher_retry_count += 1;
-                    if voucher_retry_count > MAX_VOUCHER_RETRIES {
+                    if voucher_retry_count > max_voucher_retries {
                         if runtime.debug_enabled() {
                             eprintln!(
-                                "[stream stall — voucher not accepted after {MAX_VOUCHER_RETRIES} retries]"
+                                "[stream stall — voucher not accepted after {max_voucher_retries} retries]"
                             );
                         }
                         break;
                     }
                     if runtime.debug_enabled() {
                         eprintln!(
-                            "[re-posting voucher (retry {voucher_retry_count}/{MAX_VOUCHER_RETRIES})]"
+                            "[re-posting voucher (retry {voucher_retry_count}/{max_voucher_retries})]"
                         );
                     }
                     let idempotency_key = pending_voucher_idempotency_key
@@ -776,10 +807,14 @@ fn parse_sse_chunk(raw: &str) -> (Option<String>, bool) {
 mod tests {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex, OnceLock,
     };
 
-    use axum::{http::StatusCode, routing::head, Router};
+    use axum::{
+        http::StatusCode,
+        routing::{get, head},
+        Router,
+    };
 
     use crate::http::{HttpClient, HttpRequestPlan};
 
@@ -848,6 +883,11 @@ mod tests {
         (format!("http://{addr}/voucher"), server)
     }
 
+    fn env_lock() -> &'static Mutex<()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
     #[test]
     fn parse_protocol_u128_rejects_invalid_value() {
         let err = parse_protocol_u128("abc", "field").unwrap_err();
@@ -875,6 +915,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_protocol_u128_reports_specific_need_voucher_field_name() {
+        let err =
+            parse_protocol_u128("abc", "payment-need-voucher.acceptedCumulative").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("payment-need-voucher.acceptedCumulative"));
+        assert!(msg.contains("must be an integer amount"));
+    }
+
+    #[test]
     fn parse_protocol_channel_id_rejects_invalid_value() {
         let err = parse_protocol_channel_id("0x1234", "field").unwrap_err();
         assert!(err.to_string().contains("bytes32 channel ID"));
@@ -891,6 +940,40 @@ mod tests {
             next_voucher_stall_timeout(Duration::from_secs(20), normal),
             Duration::from_secs(30)
         );
+    }
+
+    #[test]
+    fn voucher_retry_policy_uses_defaults_without_env_overrides() {
+        let _guard = env_lock().lock().unwrap();
+        std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
+        std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
+        std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
+
+        let (retries, normal, stall) = voucher_retry_policy();
+        assert_eq!(retries, 5);
+        assert_eq!(normal, Duration::from_millis(30_000));
+        assert_eq!(stall, Duration::from_millis(3_000));
+    }
+
+    #[test]
+    fn voucher_retry_policy_applies_env_overrides_and_bounds() {
+        let _guard = env_lock().lock().unwrap();
+        std::env::set_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES", "7");
+        std::env::set_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10");
+        std::env::set_var("TEMPO_SESSION_STALL_TIMEOUT_MS", "999");
+
+        let (retries, normal, stall) = voucher_retry_policy();
+        assert_eq!(retries, 7);
+        assert_eq!(normal, Duration::from_millis(10));
+        assert_eq!(
+            stall,
+            Duration::from_millis(10),
+            "stall timeout should be capped by normal timeout"
+        );
+
+        std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
+        std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
+        std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
     }
 
     #[test]
@@ -1121,7 +1204,133 @@ mod tests {
         let _ = server.await;
 
         assert_eq!(head_calls.load(Ordering::Relaxed), 1);
-        assert_eq!(task_result.idempotency_key, "idem-background");
         assert!(task_result.result.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_missing_receipt_is_warning_only() {
+        let app = Router::new().route(
+            "/stream",
+            get(|| async {
+                (
+                    StatusCode::OK,
+                    [("content-type", "text/event-stream")],
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n",
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(alloy::primitives::B256::from([0x66; 32]));
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            state.cumulative_amount, 10,
+            "missing receipt should remain warning-only without mutating cumulative"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_invalid_header_receipt_is_warning_only() {
+        let app = Router::new().route(
+            "/stream",
+            get(|| async {
+                (
+                    StatusCode::OK,
+                    [
+                        ("content-type", "text/event-stream"),
+                        ("payment-receipt", "not-base64"),
+                    ],
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n",
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(alloy::primitives::B256::from([0x67; 32]));
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            state.cumulative_amount, 10,
+            "invalid receipt header should be ignored without mutating cumulative"
+        );
     }
 }

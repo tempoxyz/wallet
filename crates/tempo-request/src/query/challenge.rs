@@ -9,6 +9,8 @@ use tempo_common::{
     network::NetworkId,
 };
 
+const DEFAULT_SESSION_CHAIN_ID: u64 = 42_431;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportedPaymentMethod {
     Tempo,
@@ -74,25 +76,25 @@ pub(crate) fn parse_payment_challenge(
 
     let is_session = challenge.intent.is_session();
 
-    let (network, amount, currency) =
-        if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
-            (
-                require_chain(charge.chain_id())?,
-                charge.amount,
-                charge.currency,
-            )
-        } else if let Ok(session) = challenge.request.decode::<mpp::SessionRequest>() {
-            (
-                require_chain(session.chain_id())?,
-                session.amount,
-                session.currency,
-            )
-        } else {
-            return Err(PaymentError::ChallengeUnsupportedPayload {
-                context: "payment challenge payload",
-            }
-            .into());
-        };
+    let (network, amount, currency) = if is_session {
+        let session = decode_session_request_with_default_chain_id(&challenge)?;
+        (
+            require_chain(Some(session.chain_id().unwrap_or(DEFAULT_SESSION_CHAIN_ID)))?,
+            session.amount,
+            session.currency,
+        )
+    } else if let Ok(charge) = challenge.request.decode::<mpp::ChargeRequest>() {
+        (
+            require_chain(charge.chain_id())?,
+            charge.amount,
+            charge.currency,
+        )
+    } else {
+        return Err(PaymentError::ChallengeUnsupportedPayload {
+            context: "payment challenge payload",
+        }
+        .into());
+    };
 
     Ok(ParsedChallenge {
         is_session,
@@ -113,6 +115,42 @@ fn require_chain(chain_id: Option<u64>) -> Result<NetworkId, TempoError> {
         PaymentError::ChallengeUnsupportedChainId {
             context: "payment request",
             chain_id: cid,
+        }
+        .into()
+    })
+}
+
+fn decode_session_request_with_default_chain_id(
+    challenge: &mpp::PaymentChallenge,
+) -> Result<mpp::SessionRequest, TempoError> {
+    let mut value = challenge
+        .request
+        .decode::<serde_json::Value>()
+        .map_err(|source| PaymentError::ChallengeParseSource {
+            context: "session request payload",
+            source: Box::new(source),
+        })?;
+
+    if value
+        .get("methodDetails")
+        .and_then(|details| details.get("chainId"))
+        .is_none()
+    {
+        if let Some(method_details) = value
+            .get_mut("methodDetails")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            method_details.insert(
+                "chainId".to_string(),
+                serde_json::Value::from(DEFAULT_SESSION_CHAIN_ID),
+            );
+        }
+    }
+
+    serde_json::from_value(value).map_err(|source| {
+        PaymentError::ChallengeParse {
+            context: "session request from challenge",
+            reason: source.to_string(),
         }
         .into()
     })
@@ -196,5 +234,26 @@ mod tests {
         let result = parse_payment_challenge(&response);
         let err = result.err().expect("should be an error");
         assert!(err.to_string().contains("WWW-Authenticate"));
+    }
+
+    #[test]
+    fn test_parse_payment_challenge_session_missing_chainid_defaults_to_moderato() {
+        let request = mpp::Base64UrlJson::from_value(&serde_json::json!({
+            "amount": "1000",
+            "currency": "0x20c0000000000000000000000000000000000000",
+            "recipient": "0x1111111111111111111111111111111111111111",
+            "methodDetails": {
+                "escrowContract": "0x542831e3e4ace07559b7c8787395f4fb99f70787"
+            }
+        }))
+        .unwrap();
+        let challenge = mpp::PaymentChallenge::new("id", "realm", "tempo", "session", request);
+        let www_auth = mpp::format_www_authenticate(&challenge).unwrap();
+
+        let response =
+            HttpResponse::for_test_with_headers(402, b"", &[("www-authenticate", &www_auth)]);
+        let parsed = parse_payment_challenge(&response).expect("session challenge should parse");
+
+        assert_eq!(parsed.network, NetworkId::TempoModerato);
     }
 }
