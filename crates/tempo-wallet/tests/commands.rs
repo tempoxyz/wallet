@@ -3,9 +3,7 @@
 mod common;
 mod sessions;
 
-use common::{
-    test_command,
-};
+use common::test_command;
 use tempo_test::{
     assert_exit_code, get_combined_output, MockServicesServer, TestConfigBuilder,
     MODERATO_DIRECT_KEYS_TOML,

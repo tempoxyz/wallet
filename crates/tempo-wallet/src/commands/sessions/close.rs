@@ -281,7 +281,8 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
 
     if !sessions.is_empty() {
         for record in sessions {
-            let result = close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+            let result =
+                close_channel_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
                 if let Err(e) = session_store::delete_channel(&record.channel_id_hex()) {
                     if show_output {

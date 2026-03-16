@@ -145,8 +145,8 @@ async fn sessions_sync_origin_updates_all_matching_channels() {
     assert_eq!(first.close_requested_at, close_requested_at);
     assert_eq!(first.grace_ready_at, close_requested_at + 900);
 
-    let second =
-        read_close_state_for(&temp, SECOND_CHANNEL_ID).expect("second channel should remain present");
+    let second = read_close_state_for(&temp, SECOND_CHANNEL_ID)
+        .expect("second channel should remain present");
     assert_eq!(second.state, "closing");
     assert_eq!(second.close_requested_at, close_requested_at);
     assert_eq!(second.grace_ready_at, close_requested_at + 900);
