@@ -69,6 +69,15 @@ fn session_reuse_preserved_error(source: TempoError) -> TempoError {
     .into()
 }
 
+fn session_reuse_persist_failed_error(source: TempoError) -> TempoError {
+    PaymentError::ChannelPersistenceContextSource {
+        operation: "session request reuse",
+        context: "Failed to persist preserved channel state for on-chain dispute",
+        source: Box::new(source),
+    }
+    .into()
+}
+
 const fn challenge_missing_field(context: &'static str, field: &'static str) -> PaymentError {
     PaymentError::ChallengeMissingField { context, field }
 }
@@ -999,7 +1008,7 @@ async fn reuse_stage_execute(
                 }
                 Ok(ReuseStageOutcome::NeedsOpen)
             } else {
-                let _ = persist_session(&ctx, &state);
+                persist_session(&ctx, &state).map_err(session_reuse_persist_failed_error)?;
                 Err(session_reuse_preserved_error(failure.into_tempo()))
             }
         }
@@ -1223,8 +1232,9 @@ mod tests {
     use super::{
         apply_response_receipt, assess_on_chain_reusability, challenge_channel_id_parse,
         classify_session_failure, is_on_chain_identity_match, is_session_reusable,
-        normalize_hex_identifier, parse_positive_problem_amount, session_store_error,
-        validate_problem_channel_id, SessionRequestFailureKind,
+        normalize_hex_identifier, parse_positive_problem_amount,
+        session_reuse_persist_failed_error, session_store_error, validate_problem_channel_id,
+        SessionRequestFailureKind,
     };
     use crate::http::HttpResponse;
     use alloy::primitives::{Address, B256};
@@ -1278,6 +1288,18 @@ mod tests {
             }
             other => panic!("unexpected error variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn session_reuse_persist_failed_error_wraps_with_context() {
+        let source = TempoError::Payment(PaymentError::PaymentRejected {
+            reason: "boom".to_string(),
+            status_code: 500,
+        });
+        let err = session_reuse_persist_failed_error(source);
+        let msg = err.to_string();
+        assert!(msg.contains("Failed to persist preserved channel state for on-chain dispute"));
+        assert!(msg.contains("Payment rejected by server: boom"));
     }
 
     #[test]

@@ -288,11 +288,11 @@ fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
 fn parse_problem_accepted_cumulative(
     problem: &tempo_common::payment::ProblemDetails,
 ) -> Option<u128> {
-    problem
-        .extensions
-        .get("acceptedCumulative")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|value| value.parse::<u128>().ok())
+    match problem.extensions.get("acceptedCumulative") {
+        Some(serde_json::Value::String(value)) => value.parse::<u128>().ok(),
+        Some(serde_json::Value::Number(value)) => value.as_u64().map(u128::from),
+        _ => None,
+    }
 }
 
 async fn fetch_fresh_session_echo(
@@ -340,6 +340,15 @@ async fn fetch_fresh_session_echo(
 struct VoucherTaskResult {
     _idempotency_key: String,
     result: Result<(), TempoError>,
+}
+
+fn drain_voucher_results(
+    result_rx: &mut mpsc::UnboundedReceiver<VoucherTaskResult>,
+) -> Result<(), TempoError> {
+    while let Ok(task_result) = result_rx.try_recv() {
+        task_result.result?;
+    }
+    Ok(())
 }
 
 struct VoucherSubmitContext<'a> {
@@ -596,12 +605,7 @@ pub(super) async fn stream_sse_response(
     let mut retry_coordinator = VoucherRetryCoordinator::new(voucher_retry_policy());
 
     loop {
-        while let Ok(task_result) = voucher_result_rx.try_recv() {
-            match task_result.result {
-                Ok(()) => {}
-                Err(error) => return Err(error),
-            }
-        }
+        drain_voucher_results(&mut voucher_result_rx)?;
 
         if stream_done {
             break;
@@ -744,6 +748,17 @@ pub(super) async fn stream_sse_response(
                             state.deposit = state.deposit.max(effective_deposit);
                         }
 
+                        if effective_deposit < state.cumulative_amount {
+                            return Err(PaymentError::PaymentRejected {
+                                reason: format!(
+                                    "Malformed payment protocol field: payment-need-voucher.deposit below local cumulative floor (deposit={effective_deposit}, localCumulative={})",
+                                    state.cumulative_amount
+                                ),
+                                status_code: 502,
+                            }
+                            .into());
+                        }
+
                         let next_cumulative = state.cumulative_amount.max(accepted).max(required);
 
                         // Use the server's required amount, clamped to our known
@@ -758,7 +773,8 @@ pub(super) async fn stream_sse_response(
                         }
 
                         // Sign the voucher for the authorized amount (monotonic: never decrease)
-                        state.cumulative_amount = authorize_amount.max(state.cumulative_amount);
+                        let signing_cumulative = state.cumulative_amount.max(authorize_amount);
+                        state.cumulative_amount = signing_cumulative;
                         let voucher =
                             build_voucher_credential(ctx.signer, ctx.echo, ctx.did, state).await?;
                         let auth = mpp::format_authorization(&voucher).map_err(|source| {
@@ -782,7 +798,9 @@ pub(super) async fn stream_sse_response(
                         // (clamped to deposit) so cooperative close can match the
                         // server's expectation precisely.
                         // Enforce monotonicity: never decrease the cumulative amount.
-                        state.cumulative_amount = next_cumulative.min(effective_deposit);
+                        let persisted_cumulative =
+                            signing_cumulative.max(next_cumulative.min(effective_deposit));
+                        state.cumulative_amount = persisted_cumulative;
                         persist_session(ctx, state)?;
 
                         // Track this voucher for retry if the server stalls.
@@ -825,6 +843,11 @@ pub(super) async fn stream_sse_response(
             }
         }
     }
+
+    // Give voucher tasks one final chance to report completion/failure before
+    // returning from the stream loop.
+    tokio::task::yield_now().await;
+    drain_voucher_results(&mut voucher_result_rx)?;
 
     if response.status().is_success() && !stream_done && !saw_response_receipt {
         return Err(stream_incomplete_error(
@@ -1000,6 +1023,49 @@ mod tests {
     fn parse_protocol_channel_id_rejects_invalid_value() {
         let err = parse_protocol_channel_id("0x1234", "field").unwrap_err();
         assert!(err.to_string().contains("bytes32 channel ID"));
+    }
+
+    #[test]
+    fn parse_problem_accepted_cumulative_accepts_string_and_number() {
+        let mut as_string = tempo_common::payment::ProblemDetails {
+            problem_type: "https://example.com/problem".to_string(),
+            title: None,
+            status: Some(410),
+            detail: None,
+            required_top_up: None,
+            channel_id: None,
+            extensions: std::collections::BTreeMap::new(),
+        };
+        as_string.extensions.insert(
+            "acceptedCumulative".to_string(),
+            serde_json::Value::String("1234".to_string()),
+        );
+        assert_eq!(parse_problem_accepted_cumulative(&as_string), Some(1234));
+
+        let mut as_number = as_string;
+        as_number.extensions.insert(
+            "acceptedCumulative".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(5678_u64)),
+        );
+        assert_eq!(parse_problem_accepted_cumulative(&as_number), Some(5678));
+    }
+
+    #[test]
+    fn parse_problem_accepted_cumulative_rejects_non_numeric_values() {
+        let mut problem = tempo_common::payment::ProblemDetails {
+            problem_type: "https://example.com/problem".to_string(),
+            title: None,
+            status: Some(410),
+            detail: None,
+            required_top_up: None,
+            channel_id: None,
+            extensions: std::collections::BTreeMap::new(),
+        };
+        problem.extensions.insert(
+            "acceptedCumulative".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        assert_eq!(parse_problem_accepted_cumulative(&problem), None);
     }
 
     #[test]
@@ -1647,5 +1713,100 @@ mod tests {
             ),
             "unexpected error: {err:#}"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_rejects_deposit_below_local_cumulative_floor() {
+        let channel_id = alloy::primitives::B256::from([0x70; 32]);
+        let need_voucher = format!(
+            "event: payment-need-voucher\ndata: {{\"channelId\":\"{channel_id:#x}\",\"requiredCumulative\":\"5\",\"acceptedCumulative\":\"5\",\"deposit\":\"5\"}}\n\n"
+        );
+
+        let app = Router::new().route(
+            "/stream",
+            get({
+                let need_voucher = need_voucher.clone();
+                move || {
+                    let need_voucher = need_voucher.clone();
+                    async move {
+                        (
+                            StatusCode::OK,
+                            [("content-type", "text/event-stream")],
+                            Body::from_stream(futures::stream::once(async {
+                                Ok::<Bytes, std::io::Error>(Bytes::from(need_voucher))
+                            })),
+                        )
+                    }
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(channel_id);
+        assert_eq!(state.cumulative_amount, 10, "test precondition");
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        let err = result.expect_err("deposit below local floor should fail closed");
+        assert!(
+            err.to_string()
+                .contains("deposit below local cumulative floor"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn drain_voucher_results_surfaces_task_errors() {
+        let (result_tx, mut result_rx) = mpsc::unbounded_channel::<VoucherTaskResult>();
+        let send_result = result_tx.send(VoucherTaskResult {
+            _idempotency_key: "idem-err".to_string(),
+            result: Err(PaymentError::PaymentRejected {
+                reason: "voucher submit failed".to_string(),
+                status_code: 500,
+            }
+            .into()),
+        });
+        assert!(send_result.is_ok());
+
+        let err = drain_voucher_results(&mut result_rx).expect_err("should return task error");
+        assert!(err.to_string().contains("voucher submit failed"));
     }
 }
