@@ -4,7 +4,9 @@ use super::{
     args::GlobalArgs,
     context, exit_codes,
     output::{self, OutputFormat},
-    runtime, tracking,
+    runtime,
+    terminal::sanitize_for_terminal,
+    tracking,
 };
 use crate::{
     analytics::{events, KeystoreLoadDegradedPayload, SessionStoreDegradedPayload},
@@ -135,7 +137,9 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), TempoError>) {
             );
         }
         OutputFormat::Text => {
-            eprintln!("Error: {e:#}");
+            let rendered = format!("{e:#}");
+            let safe_error = sanitize_for_terminal(&rendered);
+            eprintln!("Error: {safe_error}");
         }
     }
     exit_codes::ExitCode::from(&e).exit();

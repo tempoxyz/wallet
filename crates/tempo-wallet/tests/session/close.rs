@@ -349,7 +349,7 @@ async fn sessions_close_all_closes_multiple_local_sessions() {
     insert_session_for_close(
         &temp,
         SECOND_CHANNEL_ID,
-        "https://close-two.example",
+        &close_server.base_url,
         &close_server.close_url(),
         7777,
     );
@@ -412,14 +412,14 @@ async fn sessions_close_origin_closes_all_matching_channels() {
 
     seed_session_for_close(
         &temp,
-        "https://close-origin.example",
+        &close_server.base_url,
         &close_server.close_url(),
         4242,
     );
     insert_session_for_close(
         &temp,
         SECOND_CHANNEL_ID,
-        "https://close-origin.example",
+        &close_server.base_url,
         &close_server.close_url(),
         7777,
     );
@@ -431,7 +431,7 @@ async fn sessions_close_origin_closes_all_matching_channels() {
             "tempo-moderato",
             "sessions",
             "close",
-            "https://close-origin.example",
+            &close_server.base_url,
         ])
         .output()
         .unwrap();

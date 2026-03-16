@@ -137,9 +137,10 @@ fn classify_session_failure(status_code: u16, body: &str) -> SessionRequestFailu
 
 fn challenge_channel_id_parse(value: &str, context: &'static str) -> Result<B256, TempoError> {
     value.parse::<B256>().map_err(|_| {
+        let safe_value = sanitize_for_terminal(value);
         PaymentError::ChallengeParse {
             context,
-            reason: format!("invalid channelId bytes32 value: {value}"),
+            reason: format!("invalid channelId bytes32 value: {safe_value}"),
         }
         .into()
     })
@@ -234,11 +235,12 @@ fn apply_response_receipt(
 }
 
 fn parse_positive_problem_amount(value: &str, context: &'static str) -> Result<u128, TempoError> {
+    let safe_value = sanitize_for_terminal(value);
     let amount = value
         .parse::<u128>()
         .map_err(|_| PaymentError::ChallengeParse {
             context,
-            reason: format!("must be a positive integer amount (got '{value}')"),
+            reason: format!("must be a positive integer amount (got '{safe_value}')"),
         })?;
     if amount == 0 {
         return Err(PaymentError::ChallengeSchema {
@@ -1418,6 +1420,14 @@ mod tests {
             challenge_channel_id_parse("0x1234", "ctx").is_err(),
             "short channel IDs must be rejected"
         );
+    }
+
+    #[test]
+    fn challenge_channel_id_parse_sanitizes_control_chars() {
+        let err = challenge_channel_id_parse("0x12\u{1b}[31m", "ctx").unwrap_err();
+        let msg = err.to_string();
+        assert!(!msg.chars().any(char::is_control));
+        assert!(msg.contains("0x12[31m"));
     }
 
     #[test]

@@ -23,9 +23,10 @@ use tempo_common::{
 };
 
 fn protocol_value_error(field: &'static str, value: &str) -> TempoError {
+    let safe_value = sanitize_for_terminal(value);
     PaymentError::PaymentRejected {
         reason: format!(
-            "Malformed payment protocol field: {field} must be an integer amount (got '{value}')"
+            "Malformed payment protocol field: {field} must be an integer amount (got '{safe_value}')"
         ),
         status_code: 502,
     }
@@ -44,9 +45,10 @@ fn parse_protocol_channel_id(
     field: &'static str,
 ) -> Result<alloy::primitives::B256, TempoError> {
     value.trim().parse::<alloy::primitives::B256>().map_err(|_| {
+        let safe_value = sanitize_for_terminal(value);
         PaymentError::PaymentRejected {
             reason: format!(
-                "Malformed payment protocol field: {field} must be a bytes32 channel ID (got '{value}')"
+                "Malformed payment protocol field: {field} must be a bytes32 channel ID (got '{safe_value}')"
             ),
             status_code: 502,
         }
@@ -1026,6 +1028,14 @@ mod tests {
     fn parse_protocol_u128_rejects_invalid_value() {
         let err = parse_protocol_u128("abc", "field").unwrap_err();
         assert!(err.to_string().contains("Malformed payment protocol field"));
+    }
+
+    #[test]
+    fn parse_protocol_u128_error_sanitizes_control_chars() {
+        let err = parse_protocol_u128("bad\u{1b}[31m", "field").unwrap_err();
+        let msg = err.to_string();
+        assert!(!msg.chars().any(char::is_control));
+        assert!(msg.contains("bad[31m"));
     }
 
     #[test]
