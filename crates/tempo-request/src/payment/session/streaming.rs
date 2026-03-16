@@ -133,6 +133,10 @@ fn warn_invalid_payment_receipt(context: &str, reason: &str) {
     eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {reason}");
 }
 
+fn next_voucher_stall_timeout(current: Duration, normal_timeout: Duration) -> Duration {
+    current.saturating_mul(2).min(normal_timeout)
+}
+
 fn build_voucher_transport_client(base: &reqwest::Client) -> reqwest::Client {
     reqwest::Client::builder()
         .http2_adaptive_window(true)
@@ -522,7 +526,7 @@ pub(super) async fn stream_sse_response(
                     );
                     // Backoff the stall timeout for the next retry, up to the normal timeout
                     current_stall_timeout =
-                        current_stall_timeout.saturating_mul(2).min(normal_timeout);
+                        next_voucher_stall_timeout(current_stall_timeout, normal_timeout);
                     continue;
                 }
                 if runtime.debug_enabled() {
@@ -865,9 +869,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_protocol_u128_rejects_empty_value() {
+        let err = parse_protocol_u128("   ", "requiredCumulative").unwrap_err();
+        assert!(err.to_string().contains("requiredCumulative"));
+    }
+
+    #[test]
     fn parse_protocol_channel_id_rejects_invalid_value() {
         let err = parse_protocol_channel_id("0x1234", "field").unwrap_err();
         assert!(err.to_string().contains("bytes32 channel ID"));
+    }
+
+    #[test]
+    fn next_voucher_stall_timeout_doubles_and_caps() {
+        let normal = Duration::from_secs(30);
+        assert_eq!(
+            next_voucher_stall_timeout(Duration::from_secs(3), normal),
+            Duration::from_secs(6)
+        );
+        assert_eq!(
+            next_voucher_stall_timeout(Duration::from_secs(20), normal),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]
@@ -976,6 +999,58 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(head_calls.load(Ordering::Relaxed), 1);
         assert_eq!(post_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn submit_voucher_update_head_success_does_not_fallback_to_post() {
+        let head_calls = Arc::new(AtomicUsize::new(0));
+        let post_calls = Arc::new(AtomicUsize::new(0));
+
+        let head_calls_clone = Arc::clone(&head_calls);
+        let post_calls_clone = Arc::clone(&post_calls);
+        let app = Router::new().route(
+            "/voucher",
+            head(move || {
+                let head_calls = Arc::clone(&head_calls_clone);
+                async move {
+                    head_calls.fetch_add(1, Ordering::Relaxed);
+                    StatusCode::OK
+                }
+            })
+            .post(move || {
+                let post_calls = Arc::clone(&post_calls_clone);
+                async move {
+                    post_calls.fetch_add(1, Ordering::Relaxed);
+                    StatusCode::OK
+                }
+            }),
+        );
+
+        let (url, server) = spawn_test_server(app).await;
+
+        let signer = test_signer();
+        let channel_id = alloy::primitives::B256::from([0x45; 32]);
+        let state = test_state(channel_id);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+        let result = submit_voucher_update(VoucherSubmitContext {
+            url: &url,
+            signer: &signer,
+            did: "did:pkh:eip155:4217:0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            debug_enabled: false,
+            client: &client,
+            state: &state,
+            auth: "Payment test",
+            idempotency_key: "idem-456",
+        })
+        .await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(result.is_ok());
+        assert_eq!(head_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(post_calls.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

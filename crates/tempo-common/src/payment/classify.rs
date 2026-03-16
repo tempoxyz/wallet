@@ -234,6 +234,30 @@ mod tests {
     }
 
     #[test]
+    fn test_session_problem_classification_for_invalidation_types() {
+        let not_found = parse_problem_details(
+            r#"{"type":"https://paymentauth.org/problems/session/channel-not-found"}"#,
+        )
+        .unwrap();
+        assert_eq!(not_found.classify(), SessionProblemType::ChannelNotFound);
+
+        let finalized = parse_problem_details(
+            r#"{"type":"https://paymentauth.org/problems/session/channel-finalized"}"#,
+        )
+        .unwrap();
+        assert_eq!(finalized.classify(), SessionProblemType::ChannelFinalized);
+
+        let challenge_not_found = parse_problem_details(
+            r#"{"type":"https://paymentauth.org/problems/session/challenge-not-found"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            challenge_not_found.classify(),
+            SessionProblemType::ChallengeNotFound
+        );
+    }
+
+    #[test]
     fn test_parse_problem_details_requires_type() {
         let body = r#"{"title":"oops"}"#;
         assert!(parse_problem_details(body).is_none());

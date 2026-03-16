@@ -1030,12 +1030,15 @@ fn is_session_reusable(
 #[cfg(test)]
 mod tests {
     use super::{
-        assess_on_chain_reusability, challenge_channel_id_parse, classify_session_failure,
-        is_on_chain_identity_match, is_session_reusable, normalize_hex_identifier,
-        parse_positive_problem_amount, session_store_error, validate_problem_channel_id,
-        SessionRequestFailureKind,
+        apply_response_receipt, assess_on_chain_reusability, challenge_channel_id_parse,
+        classify_session_failure, is_on_chain_identity_match, is_session_reusable,
+        normalize_hex_identifier, parse_positive_problem_amount, session_store_error,
+        validate_problem_channel_id, SessionRequestFailureKind,
     };
+    use crate::http::HttpResponse;
     use alloy::primitives::{Address, B256};
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use mpp::protocol::methods::tempo::SessionReceipt;
     use tempo_common::{
         error::{PaymentError, TempoError},
         payment::{
@@ -1067,6 +1070,11 @@ mod tests {
             created_at: now,
             last_used_at: now,
         }
+    }
+
+    fn encode_receipt_header(receipt: &SessionReceipt) -> String {
+        let json = serde_json::to_vec(receipt).unwrap();
+        URL_SAFE_NO_PAD.encode(json)
     }
 
     #[test]
@@ -1134,6 +1142,20 @@ mod tests {
             "0x0000000000000000000000000000000000000002",
             42431, // different chain
             Address::ZERO,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_different_authorized_signer() {
+        let record = make_record();
+        assert!(!is_session_reusable(
+            &record,
+            "0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+            Address::from([0x01; 20]),
         ));
     }
 
@@ -1256,5 +1278,81 @@ mod tests {
             Address::from([0x33; 20]),
             Address::from([0x44; 20])
         ));
+    }
+
+    #[test]
+    fn reuse_rejects_non_active_state() {
+        let mut record = make_record();
+        record.state = ChannelStatus::Closing;
+        assert!(!is_session_reusable(
+            &record,
+            "0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+            Address::ZERO,
+        ));
+    }
+
+    #[test]
+    fn apply_response_receipt_uses_monotonic_cumulative_floor() {
+        let channel_id = B256::from([0x66; 32]);
+        let receipt = SessionReceipt {
+            method: "tempo".to_string(),
+            intent: "session".to_string(),
+            status: "success".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            reference: format!("{channel_id:#x}"),
+            challenge_id: "challenge".to_string(),
+            channel_id: format!("{channel_id:#x}"),
+            accepted_cumulative: "10".to_string(),
+            spent: "10".to_string(),
+            units: Some(1),
+            tx_hash: None,
+        };
+        let header = encode_receipt_header(&receipt);
+        let response = HttpResponse::for_test_with_headers(
+            200,
+            b"ok",
+            &[("payment-receipt", header.as_str())],
+        );
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+        };
+        let tx = apply_response_receipt(&response, &mut state, "session response").unwrap();
+        assert_eq!(
+            state.cumulative_amount, 20,
+            "cumulative should not decrease"
+        );
+        assert!(tx.is_some(), "tx reference should be extracted");
+    }
+
+    #[test]
+    fn apply_response_receipt_missing_or_invalid_header_is_warning_only() {
+        let channel_id = B256::from([0x77; 32]);
+        let mut state_missing = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+        };
+        let missing = HttpResponse::for_test(200, b"ok");
+        let tx = apply_response_receipt(&missing, &mut state_missing, "session response").unwrap();
+        assert!(tx.is_none());
+        assert_eq!(state_missing.cumulative_amount, 20);
+
+        let mut state_invalid = state_missing;
+        let invalid =
+            HttpResponse::for_test_with_headers(200, b"ok", &[("payment-receipt", "not-base64")]);
+        let tx = apply_response_receipt(&invalid, &mut state_invalid, "session response").unwrap();
+        assert!(tx.is_none());
+        assert_eq!(state_invalid.cumulative_amount, 20);
     }
 }

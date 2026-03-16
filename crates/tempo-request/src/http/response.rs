@@ -92,6 +92,24 @@ impl HttpResponse {
             final_url: None,
         }
     }
+
+    /// Create a test response with the given status, body, and headers.
+    #[cfg(test)]
+    pub(crate) fn for_test_with_headers(
+        status: u16,
+        body: &[u8],
+        headers: &[(&str, &str)],
+    ) -> Self {
+        Self {
+            status_code: status,
+            headers: headers
+                .iter()
+                .map(|(name, value)| (normalize_header_name(name), (*value).to_string()))
+                .collect(),
+            body: body.to_vec(),
+            final_url: None,
+        }
+    }
 }
 
 #[cfg(test)]

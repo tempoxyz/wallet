@@ -21,6 +21,18 @@ use crate::{
 
 type ChannelResult<T> = Result<T, TempoError>;
 
+fn credential_source_from_payer(payer: &str, chain_id: u64) -> String {
+    if payer.starts_with("did:pkh:eip155:") {
+        return payer.to_string();
+    }
+
+    if let Ok(address) = payer.parse::<Address>() {
+        return format!("did:pkh:eip155:{chain_id}:{address:#x}");
+    }
+
+    format!("did:pkh:eip155:{chain_id}:{}", payer.trim())
+}
+
 /// Attempt a cooperative (server-side) close of a session without on-chain fallback.
 ///
 /// Used for best-effort cleanup when reusing a session fails — the result is
@@ -120,8 +132,8 @@ pub(super) async fn try_server_close(
         cumulative_amount: cumulative_amount.to_string(),
         signature: format!("0x{}", hex::encode(sig)),
     };
-    let credential =
-        mpp::PaymentCredential::with_source(echo.clone(), record.payer.clone(), payload);
+    let source = credential_source_from_payer(&record.payer, chain_id);
+    let credential = mpp::PaymentCredential::with_source(echo.clone(), source, payload);
     let auth = mpp::format_authorization(&credential).map_err(|source| {
         PaymentError::ChallengeFormatSource {
             context: "close credential",
@@ -170,6 +182,42 @@ mod tests {
     use axum::{routing::post, Router};
     use std::sync::{Arc, Mutex};
     use tokio::task::JoinHandle;
+
+    #[test]
+    fn credential_source_derives_did_from_raw_address() {
+        let source =
+            credential_source_from_payer("0x0000000000000000000000000000000000000003", 4217);
+        assert_eq!(
+            source,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003"
+        );
+    }
+
+    #[test]
+    fn credential_source_preserves_existing_did() {
+        let source = credential_source_from_payer(
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003",
+            4217,
+        );
+        assert_eq!(
+            source,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003"
+        );
+    }
+
+    #[test]
+    fn close_payload_uses_spec_field_names() {
+        let payload = SessionCredentialPayload::Close {
+            channel_id: "0xabc".to_string(),
+            cumulative_amount: "42".to_string(),
+            signature: "0xdeadbeef".to_string(),
+        };
+        let value = serde_json::to_value(payload).unwrap();
+        assert_eq!(value["action"], "close");
+        assert_eq!(value["channelId"], "0xabc");
+        assert_eq!(value["cumulativeAmount"], "42");
+        assert_eq!(value["signature"], "0xdeadbeef");
+    }
 
     async fn spawn_test_server() -> (String, Arc<Mutex<(usize, usize)>>, JoinHandle<()>) {
         let counters = Arc::new(Mutex::new((0usize, 0usize)));
@@ -228,7 +276,7 @@ mod tests {
                 .unwrap(),
             token: "0x0000000000000000000000000000000000000001".into(),
             payee: "0x0000000000000000000000000000000000000002".into(),
-            payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003".into(),
+            payer: "0x0000000000000000000000000000000000000003".into(),
             authorized_signer: "0x0000000000000000000000000000000000000003"
                 .parse()
                 .unwrap(),

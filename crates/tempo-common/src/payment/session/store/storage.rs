@@ -222,8 +222,10 @@ const fn is_malformed_channel_row_error(err: &rusqlite::Error) -> bool {
     )
 }
 
-pub fn save_channel(record: &ChannelRecord) -> ChannelStoreResult<()> {
-    let conn = open_db()?;
+fn save_channel_in_conn(
+    conn: &rusqlite::Connection,
+    record: &ChannelRecord,
+) -> ChannelStoreResult<()> {
     let chain_id = to_i64_checked(record.chain_id, "chain_id")?;
     let close_requested_at = to_i64_checked(record.close_requested_at, "close_requested_at")?;
     let grace_ready_at = to_i64_checked(record.grace_ready_at, "grace_ready_at")?;
@@ -263,8 +265,10 @@ pub fn save_channel(record: &ChannelRecord) -> ChannelStoreResult<()> {
     Ok(())
 }
 
-pub fn load_channel(channel_id: &str) -> ChannelStoreResult<Option<ChannelRecord>> {
-    let conn = open_db()?;
+fn load_channel_in_conn(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+) -> ChannelStoreResult<Option<ChannelRecord>> {
     let mut stmt = conn
         .prepare(
             "SELECT version, origin, request_url, chain_id,
@@ -286,6 +290,79 @@ pub fn load_channel(channel_id: &str) -> ChannelStoreResult<Option<ChannelRecord
         }
         Err(e) => Err(store_error("load channel", e)),
     }
+}
+
+fn find_reusable_channel_in_conn(
+    conn: &rusqlite::Connection,
+    origin: &str,
+    payer: &str,
+    escrow_contract: Address,
+    token: &str,
+    payee: &str,
+    chain_id: u64,
+) -> ChannelStoreResult<Option<ChannelRecord>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT version, origin, request_url, chain_id,
+                    escrow_contract, token, payee, payer, authorized_signer,
+                    salt, channel_id, deposit, cumulative_amount,
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+             FROM channels
+             WHERE origin = ?1 AND payer = ?2 AND escrow_contract = ?3
+               AND token = ?4 AND payee = ?5 AND chain_id = ?6
+               AND state = 'active'
+             ORDER BY last_used_at DESC LIMIT 1",
+        )
+        .map_err(|err| store_error("prepare reusable channel query", err))?;
+
+    let chain_id_i64 = to_i64_checked(chain_id, "chain_id")?;
+    let escrow_hex = format!("{escrow_contract:#x}");
+    let result = stmt.query_row(
+        params![origin, payer, escrow_hex, token, payee, chain_id_i64],
+        map_channel_row,
+    );
+
+    match result {
+        Ok(record) => Ok(Some(record)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(store_error("find reusable channel", e)),
+    }
+}
+
+fn delete_channel_in_conn(conn: &rusqlite::Connection, channel_id: &str) -> ChannelStoreResult<()> {
+    conn.execute(
+        "DELETE FROM channels WHERE LOWER(channel_id) = LOWER(?1)",
+        params![channel_id],
+    )
+    .map_err(|err| store_error("delete channel", err))?;
+    Ok(())
+}
+
+fn update_channel_close_state_in_conn(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    state: ChannelStatus,
+    close_requested_at: u64,
+    grace_ready_at: u64,
+) -> ChannelStoreResult<()> {
+    let close_requested_at = to_i64_checked(close_requested_at, "close_requested_at")?;
+    let grace_ready_at = to_i64_checked(grace_ready_at, "grace_ready_at")?;
+    conn.execute(
+        "UPDATE channels SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = LOWER(?4)",
+        params![state.as_str(), close_requested_at, grace_ready_at, channel_id],
+    )
+    .map_err(|err| store_error("update channel close state", err))?;
+    Ok(())
+}
+
+pub fn save_channel(record: &ChannelRecord) -> ChannelStoreResult<()> {
+    let conn = open_db()?;
+    save_channel_in_conn(&conn, record)
+}
+
+pub fn load_channel(channel_id: &str) -> ChannelStoreResult<Option<ChannelRecord>> {
+    let conn = open_db()?;
+    load_channel_in_conn(&conn, channel_id)
 }
 
 pub fn load_channel_by_origin(origin: &str) -> ChannelStoreResult<Option<ChannelRecord>> {
@@ -317,42 +394,20 @@ pub fn find_reusable_channel(
     chain_id: u64,
 ) -> ChannelStoreResult<Option<ChannelRecord>> {
     let conn = open_db()?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT version, origin, request_url, chain_id,
-                    escrow_contract, token, payee, payer, authorized_signer,
-                    salt, channel_id, deposit, cumulative_amount,
-                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-             FROM channels
-             WHERE origin = ?1 AND payer = ?2 AND escrow_contract = ?3
-               AND token = ?4 AND payee = ?5 AND chain_id = ?6
-               AND state = 'active'
-             ORDER BY last_used_at DESC LIMIT 1",
-        )
-        .map_err(|err| store_error("prepare reusable channel query", err))?;
-
-    let chain_id_i64 = to_i64_checked(chain_id, "chain_id")?;
-    let escrow_hex = format!("{escrow_contract:#x}");
-    let result = stmt.query_row(
-        params![origin, payer, escrow_hex, token, payee, chain_id_i64],
-        map_channel_row,
-    );
-
-    match result {
-        Ok(record) => Ok(Some(record)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(store_error("find reusable channel", e)),
-    }
+    find_reusable_channel_in_conn(
+        &conn,
+        origin,
+        payer,
+        escrow_contract,
+        token,
+        payee,
+        chain_id,
+    )
 }
 
 pub fn delete_channel(channel_id: &str) -> ChannelStoreResult<()> {
     let conn = open_db()?;
-    conn.execute(
-        "DELETE FROM channels WHERE LOWER(channel_id) = LOWER(?1)",
-        params![channel_id],
-    )
-    .map_err(|err| store_error("delete channel", err))?;
-    Ok(())
+    delete_channel_in_conn(&conn, channel_id)
 }
 
 pub fn list_channels() -> ChannelStoreResult<Vec<ChannelRecord>> {
@@ -404,12 +459,170 @@ pub fn update_channel_close_state(
     grace_ready_at: u64,
 ) -> ChannelStoreResult<()> {
     let conn = open_db()?;
-    let close_requested_at = to_i64_checked(close_requested_at, "close_requested_at")?;
-    let grace_ready_at = to_i64_checked(grace_ready_at, "grace_ready_at")?;
-    conn.execute(
-        "UPDATE channels SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = LOWER(?4)",
-        params![state.as_str(), close_requested_at, grace_ready_at, channel_id],
-    )
-    .map_err(|err| store_error("update channel close state", err))?;
-    Ok(())
+    update_channel_close_state_in_conn(&conn, channel_id, state, close_requested_at, grace_ready_at)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn sample_record(
+        channel_id: alloy::primitives::B256,
+        last_used_at: u64,
+        state: ChannelStatus,
+    ) -> ChannelRecord {
+        ChannelRecord {
+            version: 1,
+            origin: "https://api.example.com".to_string(),
+            request_url: "https://api.example.com/v1/chat".to_string(),
+            chain_id: 4217,
+            escrow_contract: "0x0000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000002".to_string(),
+            payee: "0x0000000000000000000000000000000000000003".to_string(),
+            payer: "0x0000000000000000000000000000000000000004".to_string(),
+            authorized_signer: "0x0000000000000000000000000000000000000005"
+                .parse()
+                .unwrap(),
+            salt: "0x01".to_string(),
+            channel_id,
+            deposit: 1_000,
+            cumulative_amount: 10,
+            challenge_echo: "{}".to_string(),
+            state,
+            close_requested_at: 0,
+            grace_ready_at: 0,
+            created_at: 1,
+            last_used_at,
+        }
+    }
+
+    #[test]
+    fn save_load_update_and_delete_round_trip_by_channel_id() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let channel_id = alloy::primitives::B256::from([0x11; 32]);
+        let mut record = sample_record(channel_id, 5, ChannelStatus::Active);
+        record.token = "0x00000000000000000000000000000000000000Aa".to_string();
+        record.payee = "0x00000000000000000000000000000000000000Bb".to_string();
+        save_channel_in_conn(&conn, &record).unwrap();
+
+        let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("channel should load");
+        assert_eq!(loaded.channel_id, channel_id);
+        assert_eq!(loaded.state, ChannelStatus::Active);
+        // token/payee are canonicalized on load while payer remains raw.
+        assert_eq!(loaded.token, "0x00000000000000000000000000000000000000aa");
+        assert_eq!(loaded.payee, "0x00000000000000000000000000000000000000bb");
+        assert_eq!(loaded.payer, "0x0000000000000000000000000000000000000004");
+
+        update_channel_close_state_in_conn(
+            &conn,
+            &format!("{channel_id:#x}"),
+            ChannelStatus::Closing,
+            42,
+            99,
+        )
+        .unwrap();
+        let updated = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("updated channel should load");
+        assert_eq!(updated.state, ChannelStatus::Closing);
+        assert_eq!(updated.close_requested_at, 42);
+        assert_eq!(updated.grace_ready_at, 99);
+
+        delete_channel_in_conn(&conn, &format!("{channel_id:#x}")).unwrap();
+        assert!(
+            load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+                .unwrap()
+                .is_none(),
+            "channel should be deleted"
+        );
+    }
+
+    #[test]
+    fn find_reusable_channel_prefers_most_recent_active_match() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let mut active_old = sample_record(
+            alloy::primitives::B256::from([0x21; 32]),
+            10,
+            ChannelStatus::Active,
+        );
+        active_old.token = "0x0000000000000000000000000000000000000002".to_string();
+        active_old.payee = "0x0000000000000000000000000000000000000003".to_string();
+
+        let mut active_new = sample_record(
+            alloy::primitives::B256::from([0x22; 32]),
+            20,
+            ChannelStatus::Active,
+        );
+        active_new.token = "0x0000000000000000000000000000000000000002".to_string();
+        active_new.payee = "0x0000000000000000000000000000000000000003".to_string();
+
+        let closing = sample_record(
+            alloy::primitives::B256::from([0x23; 32]),
+            30,
+            ChannelStatus::Closing,
+        );
+
+        save_channel_in_conn(&conn, &active_old).unwrap();
+        save_channel_in_conn(&conn, &active_new).unwrap();
+        save_channel_in_conn(&conn, &closing).unwrap();
+
+        let found = find_reusable_channel_in_conn(
+            &conn,
+            "https://api.example.com",
+            "0x0000000000000000000000000000000000000004",
+            "0x0000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
+            "0x0000000000000000000000000000000000000002",
+            "0x0000000000000000000000000000000000000003",
+            4217,
+        )
+        .unwrap()
+        .expect("should find reusable active channel");
+
+        assert_eq!(found.channel_id, alloy::primitives::B256::from([0x22; 32]));
+        assert_eq!(found.state, ChannelStatus::Active);
+    }
+
+    #[test]
+    fn find_reusable_channel_returns_none_on_identity_mismatch() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let mut record = sample_record(
+            alloy::primitives::B256::from([0x31; 32]),
+            1,
+            ChannelStatus::Active,
+        );
+        record.token = "0x0000000000000000000000000000000000000002".to_string();
+        record.payee = "0x0000000000000000000000000000000000000003".to_string();
+        save_channel_in_conn(&conn, &record).unwrap();
+
+        let found = find_reusable_channel_in_conn(
+            &conn,
+            "https://api.example.com",
+            "0x0000000000000000000000000000000000000004",
+            "0x0000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
+            "0x00000000000000000000000000000000000000ff",
+            "0x0000000000000000000000000000000000000003",
+            4217,
+        )
+        .unwrap();
+
+        assert!(found.is_none());
+    }
 }
