@@ -290,7 +290,7 @@ fn parse_problem_accepted_cumulative(
 ) -> Option<u128> {
     match problem.extensions.get("acceptedCumulative") {
         Some(serde_json::Value::String(value)) => value.parse::<u128>().ok(),
-        Some(serde_json::Value::Number(value)) => value.as_u64().map(u128::from),
+        Some(serde_json::Value::Number(value)) => value.to_string().parse::<u128>().ok(),
         _ => None,
     }
 }
@@ -344,11 +344,43 @@ struct VoucherTaskResult {
 
 fn drain_voucher_results(
     result_rx: &mut mpsc::UnboundedReceiver<VoucherTaskResult>,
+    in_flight_voucher_tasks: &mut usize,
 ) -> Result<(), TempoError> {
     while let Ok(task_result) = result_rx.try_recv() {
+        *in_flight_voucher_tasks = in_flight_voucher_tasks.saturating_sub(1);
         task_result.result?;
     }
     Ok(())
+}
+
+async fn wait_for_pending_voucher_results(
+    result_rx: &mut mpsc::UnboundedReceiver<VoucherTaskResult>,
+    in_flight_voucher_tasks: &mut usize,
+    max_wait: Duration,
+) -> Result<(), TempoError> {
+    if *in_flight_voucher_tasks == 0 {
+        return Ok(());
+    }
+
+    let wait_result = tokio::time::timeout(max_wait, async {
+        while *in_flight_voucher_tasks > 0 {
+            let Some(task_result) = result_rx.recv().await else {
+                *in_flight_voucher_tasks = 0;
+                break;
+            };
+            *in_flight_voucher_tasks = in_flight_voucher_tasks.saturating_sub(1);
+            task_result.result?;
+        }
+        Ok::<(), TempoError>(())
+    })
+    .await;
+
+    match wait_result {
+        Ok(result) => result,
+        Err(_) => Err(stream_incomplete_error(
+            "stream ended before voucher update tasks completed",
+        )),
+    }
 }
 
 struct VoucherSubmitContext<'a> {
@@ -601,11 +633,12 @@ pub(super) async fn stream_sse_response(
     // Use a dedicated transport client for voucher/top-up updates.
     let voucher_client = build_voucher_transport_client(ctx.reqwest_client);
     let (voucher_result_tx, mut voucher_result_rx) = mpsc::unbounded_channel::<VoucherTaskResult>();
+    let mut in_flight_voucher_tasks: usize = 0;
 
     let mut retry_coordinator = VoucherRetryCoordinator::new(voucher_retry_policy());
 
     loop {
-        drain_voucher_results(&mut voucher_result_rx)?;
+        drain_voucher_results(&mut voucher_result_rx, &mut in_flight_voucher_tasks)?;
 
         if stream_done {
             break;
@@ -643,6 +676,7 @@ pub(super) async fn stream_sse_response(
                         state,
                         voucher_result_tx.clone(),
                     );
+                    in_flight_voucher_tasks = in_flight_voucher_tasks.saturating_add(1);
                     continue;
                 }
                 TimeoutTransition::NoPendingVoucher => {
@@ -793,6 +827,7 @@ pub(super) async fn stream_sse_response(
                             state,
                             voucher_result_tx.clone(),
                         );
+                        in_flight_voucher_tasks = in_flight_voucher_tasks.saturating_add(1);
 
                         // For our persisted record, keep the exact required amount
                         // (clamped to deposit) so cooperative close can match the
@@ -844,10 +879,13 @@ pub(super) async fn stream_sse_response(
         }
     }
 
-    // Give voucher tasks one final chance to report completion/failure before
-    // returning from the stream loop.
-    tokio::task::yield_now().await;
-    drain_voucher_results(&mut voucher_result_rx)?;
+    drain_voucher_results(&mut voucher_result_rx, &mut in_flight_voucher_tasks)?;
+    wait_for_pending_voucher_results(
+        &mut voucher_result_rx,
+        &mut in_flight_voucher_tasks,
+        retry_coordinator.policy.normal_timeout,
+    )
+    .await?;
 
     if response.status().is_success() && !stream_done && !saw_response_receipt {
         return Err(stream_incomplete_error(
@@ -1042,12 +1080,21 @@ mod tests {
         );
         assert_eq!(parse_problem_accepted_cumulative(&as_string), Some(1234));
 
-        let mut as_number = as_string;
-        as_number.extensions.insert(
-            "acceptedCumulative".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(5678_u64)),
-        );
+        let mut as_number = as_string.clone();
+        as_number
+            .extensions
+            .insert("acceptedCumulative".to_string(), serde_json::json!(5678));
         assert_eq!(parse_problem_accepted_cumulative(&as_number), Some(5678));
+
+        let mut as_u64_max_number = as_string;
+        as_u64_max_number.extensions.insert(
+            "acceptedCumulative".to_string(),
+            serde_json::json!(u64::MAX),
+        );
+        assert_eq!(
+            parse_problem_accepted_cumulative(&as_u64_max_number),
+            Some(u64::MAX as u128)
+        );
     }
 
     #[test]
@@ -1796,6 +1843,7 @@ mod tests {
     #[test]
     fn drain_voucher_results_surfaces_task_errors() {
         let (result_tx, mut result_rx) = mpsc::unbounded_channel::<VoucherTaskResult>();
+        let mut in_flight_voucher_tasks = 1;
         let send_result = result_tx.send(VoucherTaskResult {
             _idempotency_key: "idem-err".to_string(),
             result: Err(PaymentError::PaymentRejected {
@@ -1806,7 +1854,100 @@ mod tests {
         });
         assert!(send_result.is_ok());
 
-        let err = drain_voucher_results(&mut result_rx).expect_err("should return task error");
+        let err = drain_voucher_results(&mut result_rx, &mut in_flight_voucher_tasks)
+            .expect_err("should return task error");
         assert!(err.to_string().contains("voucher submit failed"));
+        assert_eq!(in_flight_voucher_tasks, 0);
+    }
+
+    #[serial_test::serial]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_fails_when_pending_voucher_task_never_completes() {
+        std::env::set_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10");
+        std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
+        std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
+
+        let channel_id = alloy::primitives::B256::from([0x71; 32]);
+        let need_voucher = format!(
+            "event: payment-need-voucher\ndata: {{\"channelId\":\"{channel_id:#x}\",\"requiredCumulative\":\"12\",\"acceptedCumulative\":\"10\",\"deposit\":\"100\"}}\n\n"
+        );
+        let done = "data: [DONE]\n\n".to_string();
+
+        let app = Router::new().route(
+            "/stream",
+            get({
+                let need_voucher = need_voucher.clone();
+                let done = done.clone();
+                move || {
+                    let need_voucher = need_voucher.clone();
+                    let done = done.clone();
+                    async move {
+                        let body_stream = futures::stream::iter(vec![
+                            Ok::<Bytes, std::io::Error>(Bytes::from(need_voucher)),
+                            Ok::<Bytes, std::io::Error>(Bytes::from(done)),
+                        ]);
+                        (
+                            StatusCode::OK,
+                            [("content-type", "text/event-stream")],
+                            Body::from_stream(body_stream),
+                        )
+                    }
+                }
+            })
+            .head(|| async move { std::future::pending::<StatusCode>().await }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(channel_id);
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+        std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
+
+        let err = result.expect_err("should fail when voucher task does not complete");
+        assert!(
+            matches!(
+                err,
+                TempoError::Payment(PaymentError::SessionStreamIncomplete { .. })
+            ),
+            "unexpected error: {err:#}"
+        );
     }
 }
