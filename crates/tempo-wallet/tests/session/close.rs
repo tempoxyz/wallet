@@ -457,6 +457,159 @@ async fn sessions_close_origin_closes_all_matching_channels() {
     assert_eq!(observed.authorized_count, 2);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sessions_close_all_dry_run_and_execute_select_same_channel_set() {
+    let rpc = CloseRpcServer::start(RpcCloseConfig {
+        close_requested_at: 0,
+        finalized: false,
+        grace_period: 900,
+        orphaned_log_channel_id: Some(ORPHANED_CHANNEL_ID),
+    })
+    .await;
+    let close_server = CooperativeCloseServer::start().await;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    seed_session_for_close(
+        &temp,
+        &close_server.base_url,
+        &close_server.close_url(),
+        4242,
+    );
+    insert_session_for_close(
+        &temp,
+        SECOND_CHANNEL_ID,
+        "https://close-two.example",
+        &close_server.close_url(),
+        7777,
+    );
+
+    let dry_run = test_command(&temp)
+        .args([
+            "-j",
+            "-n",
+            "tempo-moderato",
+            "sessions",
+            "close",
+            "--all",
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        dry_run.status.success(),
+        "close --all --dry-run should succeed: {}",
+        get_combined_output(&dry_run)
+    );
+    let dry_run_json: serde_json::Value =
+        serde_json::from_slice(&dry_run.stdout).expect("dry-run json should parse");
+    let dry_run_ids: std::collections::BTreeSet<String> = dry_run_json["targets"]
+        .as_array()
+        .expect("dry-run targets should be an array")
+        .iter()
+        .filter_map(|target| target["channel_id"].as_str().map(ToString::to_string))
+        .collect();
+
+    let execute = test_command(&temp)
+        .args(["-j", "-n", "tempo-moderato", "sessions", "close", "--all"])
+        .output()
+        .unwrap();
+    assert!(
+        execute.status.success(),
+        "close --all execute should succeed: {}",
+        get_combined_output(&execute)
+    );
+    let execute_json: serde_json::Value =
+        serde_json::from_slice(&execute.stdout).expect("execute json should parse");
+    let execute_ids: std::collections::BTreeSet<String> = execute_json["results"]
+        .as_array()
+        .expect("execute results should be an array")
+        .iter()
+        .filter_map(|result| result["channel_id"].as_str().map(ToString::to_string))
+        .collect();
+
+    assert_eq!(
+        dry_run_ids, execute_ids,
+        "dry-run and execute should target the same channel IDs"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sessions_close_finalize_avoids_duplicate_attempt_for_local_plus_orphaned_same_channel() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let close_requested_at = now.saturating_sub(1_000);
+    let rpc = CloseRpcServer::start(RpcCloseConfig {
+        close_requested_at,
+        finalized: false,
+        grace_period: 900,
+        orphaned_log_channel_id: Some(SEEDED_CHANNEL_ID),
+    })
+    .await;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    seed_session_for_close(
+        &temp,
+        "https://close.example",
+        "http://127.0.0.1:1/unreachable",
+        777,
+    );
+
+    // Make the local row finalizable so it overlaps with the same channel that
+    // is also discovered as orphaned on-chain.
+    let db_path = temp.path().join(".tempo/wallet/channels.db");
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    conn.execute(
+        "UPDATE channels
+         SET state = 'closing',
+             close_requested_at = ?1,
+             grace_ready_at = ?2
+         WHERE channel_id = ?3",
+        rusqlite::params![
+            close_requested_at,
+            close_requested_at + 900,
+            SEEDED_CHANNEL_ID,
+        ],
+    )
+    .unwrap();
+
+    let output = test_command(&temp)
+        .args([
+            "-j",
+            "-n",
+            "tempo-moderato",
+            "sessions",
+            "close",
+            "--finalize",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "close --finalize should succeed: {}",
+        get_combined_output(&output)
+    );
+
+    let observed = rpc.snapshot();
+    assert_eq!(
+        observed.send_raw_count, 1,
+        "finalize should attempt a shared channel only once across local + orphaned sets"
+    );
+}
+
 #[test]
 fn sessions_close_dry_run_without_target_requires_target_mode() {
     let temp = TestConfigBuilder::new().build();
