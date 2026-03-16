@@ -608,14 +608,21 @@ async fn sse_initial_header_receipt_persists_before_delayed_receipt_event() {
         get_combined_output(&first_output)
     );
 
-    let mut delayed_stream = spawn_session_request(&temp, &server.url("/stream-delayed-receipt"));
+    let mut delayed_stream = spawn_session_request_with_env(
+        &temp,
+        &server.url("/stream-delayed-receipt"),
+        &[
+            ("TEMPO_SESSION_STALL_TIMEOUT_MS", "5000"),
+            ("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10000"),
+        ],
+    );
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(
         delayed_stream.try_wait().unwrap().is_none(),
         "delayed stream should still be in-flight before SSE payment-receipt event arrives"
     );
     assert!(
-        wait_for_channel_cumulative(&temp, 2_100_000, std::time::Duration::from_millis(500)),
+        wait_for_channel_cumulative(&temp, 2_100_000, std::time::Duration::from_millis(900)),
         "initial SSE payment-receipt header acceptedCumulative should persist before delayed receipt event"
     );
 

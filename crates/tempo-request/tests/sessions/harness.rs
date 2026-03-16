@@ -646,7 +646,10 @@ data: {receipt_json}\n\n\
                         Ok::<Bytes, std::convert::Infallible>(Bytes::from(first_chunk))
                     })
                     .chain(stream::once(async move {
-                        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+                        // Keep this delay comfortably above scheduler jitter so
+                        // tests can assert the header receipt persistence window
+                        // before the SSE receipt event advances cumulative state.
+                        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
                         Ok::<Bytes, std::convert::Infallible>(Bytes::from(receipt_chunk))
                     }));
                     return Response::builder()
@@ -836,10 +839,6 @@ pub(crate) fn run_session_request_with_env(
         ])
         .output()
         .unwrap()
-}
-
-pub(crate) fn spawn_session_request(temp: &tempfile::TempDir, url: &str) -> std::process::Child {
-    spawn_session_request_with_env(temp, url, &[])
 }
 
 pub(crate) fn spawn_session_request_with_env(
