@@ -1,15 +1,6 @@
 //! CLI argument definitions and parsing.
 
-use clap::{Parser, Subcommand, ValueEnum};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub(crate) enum SessionStateArg {
-    Active,
-    Closing,
-    Finalizable,
-    Orphaned,
-    All,
-}
+use clap::{Parser, Subcommand};
 
 /// Long version string including git commit, build date, and profile.
 const LONG_VERSION: &str = concat!(
@@ -138,11 +129,14 @@ Examples:
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SessionCommands {
-    /// List active payment sessions
+    /// List payment sessions
     List {
-        /// Filter by state (comma-separated or repeatable). Defaults to 'active'. Use 'all' for every state.
-        #[arg(long = "state", value_enum, value_delimiter = ',')]
-        state: Vec<SessionStateArg>,
+        /// Include on-chain orphaned discovery and persist discovered channels locally
+        #[arg(long)]
+        orphaned: bool,
+        /// Include local sessions and on-chain orphaned discovery in one view
+        #[arg(long)]
+        all: bool,
     },
     /// Close a payment session and remove it locally
     Close {
@@ -157,6 +151,9 @@ pub(crate) enum SessionCommands {
         /// Finalize channels pending close (grace period elapsed)
         #[arg(long)]
         finalize: bool,
+        /// Use cooperative close only (no on-chain fallback)
+        #[arg(long)]
+        cooperative: bool,
         /// Show what would be closed without executing
         #[arg(long)]
         dry_run: bool,

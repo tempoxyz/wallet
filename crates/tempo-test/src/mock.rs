@@ -249,6 +249,65 @@ impl MockServer {
         }
     }
 
+    /// Start a deferred payment mock and delay paid responses by `success_delay_ms`.
+    ///
+    /// This is useful for deterministic overlap in concurrency tests.
+    pub async fn start_payment_deferred_with_delay(
+        success_body: &str,
+        success_delay_ms: u64,
+    ) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+
+        let (watch_tx, watch_rx) = tokio::sync::watch::channel(String::new());
+        let watch_tx = std::sync::Arc::new(watch_tx);
+        let owned_body = success_body.to_string();
+
+        let app = Router::new().route(
+            "/{*path}",
+            any(move |headers: axum::http::HeaderMap| {
+                let rx = watch_rx.clone();
+                let b = owned_body.clone();
+                async move {
+                    if headers.get("authorization").is_some() {
+                        if success_delay_ms > 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(success_delay_ms))
+                                .await;
+                        }
+                        (StatusCode::OK, b).into_response()
+                    } else {
+                        let h = rx.borrow().clone();
+                        let mut response =
+                            (StatusCode::PAYMENT_REQUIRED, "Payment Required").into_response();
+                        response.headers_mut().insert(
+                            axum::http::HeaderName::from_static("www-authenticate"),
+                            axum::http::HeaderValue::from_str(&h).unwrap(),
+                        );
+                        response
+                    }
+                }
+            }),
+        );
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        Self {
+            base_url,
+            shutdown_tx: Some(shutdown_tx),
+            _handle: handle,
+            www_auth_tx: Some(watch_tx),
+        }
+    }
+
     /// Start a deferred payment mock that also returns a Payment-Receipt header.
     pub async fn start_payment_deferred_with_receipt(
         success_body: &str,

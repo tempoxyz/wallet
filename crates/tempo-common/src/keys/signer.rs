@@ -34,6 +34,7 @@ pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoE
 ///
 /// Bundles the private key signer, the resolved `TempoSigningMode`
 /// (direct or keychain), and the effective `from` address.
+#[derive(Clone)]
 pub struct Signer {
     pub signer: PrivateKeySigner,
     pub signing_mode: TempoSigningMode,

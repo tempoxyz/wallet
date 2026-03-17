@@ -1,58 +1,61 @@
 //! Session persistence helper for request-time session flows.
 
+use alloy::primitives::B256;
+
 use tempo_common::error::{PaymentError, TempoError};
 
-use tempo_common::payment::session::{
-    load_session, now_secs, save_session, session_key, SessionRecord, SessionStatus,
+use tempo_common::session::{
+    load_channel, now_secs, save_channel, update_channel_cumulative_floor, ChannelRecord,
+    ChannelStatus,
 };
 
-use super::{SessionContext, SessionState};
+use super::{ChannelContext, ChannelState};
 
 /// Persist or update the session record to disk.
 pub(super) fn persist_session(
-    ctx: &SessionContext<'_>,
-    state: &SessionState,
+    ctx: &ChannelContext<'_>,
+    state: &ChannelState,
 ) -> Result<(), TempoError> {
     let now = now_secs();
 
     let echo_json = serde_json::to_string(ctx.echo).map_err(|source| {
-        PaymentError::SessionPersistenceSource {
+        PaymentError::ChannelPersistenceSource {
             operation: "serialize challenge echo",
             source: Box::new(source),
         }
     })?;
 
-    let session_key = session_key(ctx.url);
-    let existing = load_session(&session_key)
-        .map_err(|source| PaymentError::SessionPersistenceSource {
-            operation: "load session",
+    let existing = load_channel(&format!("{:#x}", state.channel_id)).map_err(|source| {
+        PaymentError::ChannelPersistenceSource {
+            operation: "load channel",
             source: Box::new(source),
-        })?
-        .filter(|r| r.channel_id == state.channel_id);
+        }
+    })?;
 
     let record = if let Some(mut rec) = existing {
         // Update existing record
         rec.set_cumulative_amount(state.cumulative_amount);
+        rec.deposit = state.deposit;
         rec.challenge_echo = echo_json;
         rec.touch();
         rec
     } else {
-        SessionRecord {
+        ChannelRecord {
             version: 1,
             origin: ctx.origin.to_string(),
             request_url: ctx.url.to_string(),
             chain_id: state.chain_id,
             escrow_contract: state.escrow_contract,
-            currency: format!("{:#x}", ctx.currency),
-            recipient: format!("{:#x}", ctx.recipient),
-            payer: ctx.did.to_string(),
-            authorized_signer: ctx.signer.address(),
+            token: format!("{:#x}", ctx.token),
+            payee: format!("{:#x}", ctx.payee),
+            payer: format!("{:#x}", ctx.payer),
+            authorized_signer: ctx.signer.signer.address(),
             salt: ctx.salt.clone(),
             channel_id: state.channel_id,
-            deposit: ctx.deposit,
+            deposit: state.deposit,
             cumulative_amount: state.cumulative_amount,
             challenge_echo: echo_json,
-            state: SessionStatus::Active,
+            state: ChannelStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             created_at: now,
@@ -60,16 +63,30 @@ pub(super) fn persist_session(
         }
     };
 
-    save_session(&record).map_err(|source| PaymentError::SessionPersistenceSource {
-        operation: "save session",
+    save_channel(&record).map_err(|source| PaymentError::ChannelPersistenceSource {
+        operation: "save channel",
         source: Box::new(source),
     })?;
 
     if ctx.http.log_enabled() {
         let cumulative_display =
             tempo_common::cli::format::format_token_amount(state.cumulative_amount, ctx.network_id);
-        eprintln!("Session persisted (cumulative: {cumulative_display})");
+        eprintln!("Channel persisted (cumulative: {cumulative_display})");
     }
 
+    Ok(())
+}
+
+pub(super) fn persist_channel_cumulative_floor(
+    channel_id: B256,
+    accepted_cumulative: u128,
+) -> Result<(), TempoError> {
+    let channel_id_hex = format!("{channel_id:#x}");
+    update_channel_cumulative_floor(&channel_id_hex, accepted_cumulative).map_err(|source| {
+        PaymentError::ChannelPersistenceSource {
+            operation: "update channel cumulative floor",
+            source: Box::new(source),
+        }
+    })?;
     Ok(())
 }

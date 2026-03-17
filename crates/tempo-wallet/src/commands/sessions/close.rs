@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
-use super::{session_store, SessionStatus};
+use super::{session, ChannelStatus};
 use tempo_common::{
     cli::{context::Context, format::format_duration, output, output::OutputFormat},
     error::{ConfigError, InputError, PaymentError, TempoError},
     payment::session::{
-        close_channel_by_id, close_discovered_channel, close_session_from_record,
-        find_all_channels_for_payer, CloseOutcome,
+        close_channel_by_id, close_channel_from_record, close_channel_from_record_cooperative,
+        close_discovered_channel, find_all_channels_for_payer, CloseOutcome,
     },
 };
 
@@ -28,6 +28,36 @@ struct CloseResult {
     remaining_secs: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseSelection<'a> {
+    Finalize,
+    Orphaned,
+    All,
+    Target(&'a str),
+    Missing,
+}
+
+const fn determine_close_selection(
+    target: Option<&str>,
+    all: bool,
+    orphaned: bool,
+    finalize: bool,
+) -> CloseSelection<'_> {
+    if finalize {
+        return CloseSelection::Finalize;
+    }
+    if orphaned {
+        return CloseSelection::Orphaned;
+    }
+    if all {
+        return CloseSelection::All;
+    }
+    if let Some(target) = target {
+        return CloseSelection::Target(target);
+    }
+    CloseSelection::Missing
 }
 
 impl CloseResult {
@@ -72,39 +102,50 @@ pub(super) async fn close_sessions(
     all: bool,
     orphaned: bool,
     finalize: bool,
+    cooperative: bool,
     dry_run: bool,
 ) -> Result<(), TempoError> {
+    if cooperative && (all || orphaned || finalize) {
+        return Err(InputError::InvalidSessionCloseCooperativeCombination.into());
+    }
+
+    if dry_run && url.is_none() && !all && !orphaned && !finalize {
+        return Err(InputError::MissingSessionCloseTarget.into());
+    }
+
+    if !ctx.keys.has_wallet() {
+        return Err(ConfigError::Missing(
+            "No wallet configured. Log in with 'tempo wallet login'.".to_string(),
+        )
+        .into());
+    }
+
+    // CLI flag semantics: `--cooperative` means cooperative-only (no fallback).
+    let cooperative_only = cooperative;
+
+    let selection = determine_close_selection(url.as_deref(), all, orphaned, finalize);
+
     if dry_run {
-        return dry_run_close(ctx, url.as_deref(), all, orphaned, finalize).await;
-    }
-    if finalize {
-        return finalize_closed_channels(ctx).await;
-    }
-    if orphaned {
-        return close_orphaned_channels(ctx).await;
-    }
-    if all {
-        return close_all_sessions(ctx).await;
+        return dry_run_close(ctx, selection).await;
     }
 
-    if let Some(ref target) = url {
-        if target.starts_with("0x") {
-            super::util::validate_channel_id(target)?;
-            return close_by_channel_id(ctx, target).await;
+    match selection {
+        CloseSelection::Finalize => finalize_closed_channels(ctx).await,
+        CloseSelection::Orphaned => close_orphaned_channels(ctx).await,
+        CloseSelection::All => close_all_sessions(ctx, cooperative_only).await,
+        CloseSelection::Target(target) => {
+            if target.starts_with("0x") {
+                super::util::validate_channel_id(target)?;
+                close_by_channel_id(ctx, target, cooperative_only).await
+            } else {
+                close_by_url(ctx, target, cooperative_only).await
+            }
         }
-        return close_by_url(ctx, target).await;
+        CloseSelection::Missing => Err(InputError::MissingSessionCloseTarget.into()),
     }
-
-    Err(InputError::MissingSessionCloseTarget.into())
 }
 
-async fn dry_run_close(
-    ctx: &Context,
-    url: Option<&str>,
-    all: bool,
-    orphaned: bool,
-    finalize: bool,
-) -> Result<(), TempoError> {
+async fn dry_run_close(ctx: &Context, selection: CloseSelection<'_>) -> Result<(), TempoError> {
     #[derive(serde::Serialize)]
     struct DryRunResponse {
         targets: Vec<DryRunTarget>,
@@ -120,43 +161,147 @@ async fn dry_run_close(
     }
 
     let mut targets = Vec::new();
+    let all_sessions = session::list_channels()?;
+    let local_sessions: Vec<_> = all_sessions
+        .iter()
+        .filter(|s| s.network_id() == ctx.network)
+        .collect();
+    let now = session::now_secs();
 
-    if all || (!orphaned && !finalize && url.is_none()) {
-        let sessions = session_store::list_sessions()?;
-        for s in &sessions {
-            if s.network_id() == ctx.network {
+    match selection {
+        CloseSelection::All => {
+            for s in &local_sessions {
                 targets.push(DryRunTarget {
                     channel_id: s.channel_id_hex(),
                     origin: Some(s.origin.clone()),
                     state: Some(format!("{:?}", s.state)),
                 });
             }
-        }
-    }
 
-    if let Some(target) = url {
-        if super::util::is_channel_id(target) {
-            targets.push(DryRunTarget {
-                channel_id: target.to_string(),
-                origin: None,
-                state: None,
-            });
-        } else {
-            let key = session_store::session_key(target);
-            if let Some(rec) = session_store::load_session(&key)? {
-                targets.push(DryRunTarget {
-                    channel_id: rec.channel_id_hex(),
-                    origin: Some(rec.origin.clone()),
-                    state: Some(format!("{:?}", rec.state)),
-                });
-            } else {
-                targets.push(DryRunTarget {
-                    channel_id: String::new(),
-                    origin: Some(target.to_string()),
-                    state: Some("not found".to_string()),
-                });
+            let local_ids: HashSet<_> = local_sessions.iter().map(|s| s.channel_id).collect();
+            if let Some(wallet_addr) = ctx.keys.wallet_address_parsed() {
+                let channels =
+                    find_all_channels_for_payer(&ctx.config, wallet_addr, ctx.network).await;
+                for ch in &channels {
+                    if local_ids.contains(&ch.channel_id) {
+                        continue;
+                    }
+                    let grace = super::util::resolve_grace_period(
+                        &ctx.config,
+                        ctx.network,
+                        ch.escrow_contract,
+                    )
+                    .await;
+                    let state =
+                        super::util::status_from_close_timing(ch.close_requested_at, grace, now);
+
+                    targets.push(DryRunTarget {
+                        channel_id: format!("{:#x}", ch.channel_id),
+                        origin: None,
+                        state: Some(format!("{state:?}")),
+                    });
+                }
             }
         }
+        CloseSelection::Finalize => {
+            for s in &local_sessions {
+                let (status, _) = s.status_at(now);
+                if matches!(status, ChannelStatus::Finalizable) {
+                    targets.push(DryRunTarget {
+                        channel_id: s.channel_id_hex(),
+                        origin: Some(s.origin.clone()),
+                        state: Some("Finalizable".to_string()),
+                    });
+                }
+            }
+
+            let local_ids: HashSet<_> = local_sessions.iter().map(|s| s.channel_id).collect();
+            if let Some(wallet_addr) = ctx.keys.wallet_address_parsed() {
+                let channels =
+                    find_all_channels_for_payer(&ctx.config, wallet_addr, ctx.network).await;
+                for ch in &channels {
+                    if local_ids.contains(&ch.channel_id) {
+                        continue;
+                    }
+                    if ch.close_requested_at == 0 {
+                        continue;
+                    }
+                    let grace = super::util::resolve_grace_period(
+                        &ctx.config,
+                        ctx.network,
+                        ch.escrow_contract,
+                    )
+                    .await;
+                    let ready_at = ch.close_requested_at.saturating_add(grace);
+                    if ready_at > now {
+                        continue;
+                    }
+
+                    targets.push(DryRunTarget {
+                        channel_id: format!("{:#x}", ch.channel_id),
+                        origin: None,
+                        state: Some("Finalizable".to_string()),
+                    });
+                }
+            }
+        }
+        CloseSelection::Orphaned => {
+            let local_ids: HashSet<_> = local_sessions.iter().map(|s| s.channel_id).collect();
+            if let Some(wallet_addr) = ctx.keys.wallet_address_parsed() {
+                let channels =
+                    find_all_channels_for_payer(&ctx.config, wallet_addr, ctx.network).await;
+                for ch in &channels {
+                    if local_ids.contains(&ch.channel_id) {
+                        continue;
+                    }
+                    let grace = super::util::resolve_grace_period(
+                        &ctx.config,
+                        ctx.network,
+                        ch.escrow_contract,
+                    )
+                    .await;
+                    let state =
+                        super::util::status_from_close_timing(ch.close_requested_at, grace, now);
+
+                    targets.push(DryRunTarget {
+                        channel_id: format!("{:#x}", ch.channel_id),
+                        origin: None,
+                        state: Some(format!("{state:?}")),
+                    });
+                }
+            }
+        }
+        CloseSelection::Target(target) => {
+            if super::util::is_channel_id(target) {
+                targets.push(DryRunTarget {
+                    channel_id: target.to_string(),
+                    origin: None,
+                    state: None,
+                });
+            } else {
+                let origin = super::util::normalize_origin(target);
+                let records: Vec<_> = session::load_channels_by_origin(&origin)?
+                    .into_iter()
+                    .filter(|record| record.network_id() == ctx.network)
+                    .collect();
+                if records.is_empty() {
+                    targets.push(DryRunTarget {
+                        channel_id: String::new(),
+                        origin: Some(target.to_string()),
+                        state: Some("not found".to_string()),
+                    });
+                } else {
+                    for rec in records {
+                        targets.push(DryRunTarget {
+                            channel_id: rec.channel_id_hex(),
+                            origin: Some(rec.origin.clone()),
+                            state: Some(format!("{:?}", rec.state)),
+                        });
+                    }
+                }
+            }
+        }
+        CloseSelection::Missing => {}
     }
 
     let response = DryRunResponse { targets };
@@ -179,23 +324,35 @@ async fn dry_run_close(
     Ok(())
 }
 
+async fn close_local_record(
+    record: &session::ChannelRecord,
+    ctx: &Context,
+    analytics: Option<&tempo_common::analytics::Analytics>,
+    cooperative_only: bool,
+) -> Result<CloseOutcome, TempoError> {
+    if cooperative_only {
+        return close_channel_from_record_cooperative(record, analytics, &ctx.keys).await;
+    }
+    // Default mode: cooperative-first, with on-chain fallback if cooperative close fails.
+    close_channel_from_record(record, &ctx.config, analytics, &ctx.keys).await
+}
+
 /// Close all local sessions and on-chain orphaned channels.
-async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
+async fn close_all_sessions(ctx: &Context, cooperative_only: bool) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let analytics = ctx.analytics.as_ref();
     let mut summary = CloseSummary::new();
 
     // Phase 1: close local sessions (scoped to current network)
-    let all_sessions = session_store::list_sessions()?;
+    let all_sessions = session::list_channels()?;
     let sessions: Vec<_> = all_sessions
         .iter()
         .filter(|s| s.network_id() == ctx.network)
         .collect();
     for session in &sessions {
-        let key = session_store::session_key(&session.origin);
-        let result = close_session_from_record(session, &ctx.config, analytics, &ctx.keys).await;
+        let result = close_local_record(session, ctx, analytics, cooperative_only).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            if let Err(e) = session_store::delete_session(&key) {
+            if let Err(e) = session::delete_channel(&session.channel_id_hex()) {
                 if show_output {
                     eprintln!("  Failed to remove local session: {e}");
                 }
@@ -212,7 +369,9 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
     }
 
     // Phase 2: scan on-chain for orphaned channels
-    close_orphaned_into_summary(ctx, &all_sessions, &mut summary).await;
+    if !cooperative_only {
+        close_orphaned_into_summary(ctx, &all_sessions, &mut summary).await;
+    }
 
     summary.print(ctx.output_format, "No active sessions to close.", "closed")?;
     Ok(())
@@ -221,23 +380,25 @@ async fn close_all_sessions(ctx: &Context) -> Result<(), TempoError> {
 /// Close a single channel by its on-chain ID (0x...).
 ///
 /// If a local session record exists for this channel, routes through
-/// `close_session_from_record` which tries cooperative close first.
+/// `close_channel_from_record` which tries cooperative close first.
 /// Falls back to on-chain-only close when no local record is found.
-async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoError> {
+async fn close_by_channel_id(
+    ctx: &Context,
+    target: &str,
+    cooperative_only: bool,
+) -> Result<(), TempoError> {
     let channel_id = super::util::parse_channel_id(target)?;
 
     // Try local session record first — enables cooperative close
-    if let Ok(Some(record)) = session_store::load_session_by_channel_id(channel_id) {
+    if let Ok(Some(record)) = session::load_channel(&format!("{channel_id:#x}")) {
         if record.network_id() == ctx.network {
             let show_output = ctx.verbosity.show_output;
             let analytics = ctx.analytics.as_ref();
-            let key = session_store::session_key(&record.origin);
             let mut summary = CloseSummary::new();
 
-            let result =
-                close_session_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
+            let result = close_local_record(&record, ctx, analytics, cooperative_only).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-                if let Err(e) = session_store::delete_session(&key) {
+                if let Err(e) = session::delete_channel(&record.channel_id_hex()) {
                     if show_output {
                         eprintln!("  Failed to remove local session: {e}");
                     }
@@ -255,40 +416,54 @@ async fn close_by_channel_id(ctx: &Context, target: &str) -> Result<(), TempoErr
         }
     }
 
+    if cooperative_only {
+        return Err(InputError::SessionCloseCooperativeRequiresLocalRecord.into());
+    }
+
     // No local record (orphaned channel) — on-chain close only
     let mut summary = CloseSummary::new();
     let result = close_channel_by_id(&ctx.config, target, ctx.network, None, &ctx.keys).await;
-    summary.record_finalize_outcome(result, target, true);
+    let show_output = ctx.verbosity.show_output && !ctx.output_format.is_structured();
+    summary.record_finalize_outcome(result, target, show_output);
     summary.print(ctx.output_format, "No channel to close.", "closed")
 }
 
 /// Close a session by URL (local session lookup).
-async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
+async fn close_by_url(
+    ctx: &Context,
+    target: &str,
+    cooperative_only: bool,
+) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
     let output_format = ctx.output_format;
     let analytics = ctx.analytics.as_ref();
 
-    let key = session_store::session_key(target);
-    let session = session_store::load_session(&key)?;
+    let origin = super::util::normalize_origin(target);
+    let sessions: Vec<_> = session::load_channels_by_origin(&origin)?
+        .into_iter()
+        .filter(|record| record.network_id() == ctx.network)
+        .collect();
     let mut summary = CloseSummary::new();
 
-    if let Some(record) = session {
-        let result = close_session_from_record(&record, &ctx.config, analytics, &ctx.keys).await;
-        if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            if let Err(e) = session_store::delete_session(&key) {
-                if show_output {
-                    eprintln!("  Failed to remove local session: {e}");
+    if !sessions.is_empty() {
+        for record in sessions {
+            let result = close_local_record(&record, ctx, analytics, cooperative_only).await;
+            if matches!(result, Ok(CloseOutcome::Closed { .. })) {
+                if let Err(e) = session::delete_channel(&record.channel_id_hex()) {
+                    if show_output {
+                        eprintln!("  Failed to remove local session: {e}");
+                    }
                 }
             }
+            let channel_id = record.channel_id_hex();
+            summary.record_outcome(
+                result,
+                Some(&record.origin),
+                &record.origin,
+                &channel_id,
+                show_output,
+            );
         }
-        let channel_id = record.channel_id_hex();
-        summary.record_outcome(
-            result,
-            Some(&record.origin),
-            &record.origin,
-            &channel_id,
-            show_output,
-        );
     } else {
         let emitted_text = output::run_text_only(output_format, || {
             println!("No active session for {target}");
@@ -312,7 +487,7 @@ async fn close_by_url(ctx: &Context, target: &str) -> Result<(), TempoError> {
 /// Shared by `close_all_sessions` (Phase 2) and `close_orphaned_channels`.
 async fn close_orphaned_into_summary(
     ctx: &Context,
-    local_sessions: &[session_store::SessionRecord],
+    local_sessions: &[session::ChannelRecord],
     summary: &mut CloseSummary,
 ) {
     let show_output = ctx.verbosity.show_output;
@@ -337,7 +512,7 @@ async fn close_orphaned_into_summary(
         let channel_id_hex = format!("{:#x}", ch.channel_id);
         let result = close_discovered_channel(ch, &ctx.config, &ctx.keys).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
-            let _ = session_store::delete_session_by_channel_id(ch.channel_id);
+            let _ = session::delete_channel(&format!("{:#x}", ch.channel_id));
         }
         summary.record_outcome(result, None, &channel_id_hex, &channel_id_hex, show_output);
     }
@@ -352,7 +527,7 @@ async fn close_orphaned_channels(ctx: &Context) -> Result<(), TempoError> {
         .into());
     }
 
-    let local_sessions = session_store::list_sessions()?;
+    let local_sessions = session::list_channels()?;
     let mut summary = CloseSummary::new();
 
     close_orphaned_into_summary(ctx, &local_sessions, &mut summary).await;
@@ -364,8 +539,9 @@ async fn close_orphaned_channels(ctx: &Context) -> Result<(), TempoError> {
 /// Finalize channels that have had `requestClose()` submitted and whose grace period has elapsed.
 async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
     let show_output = ctx.verbosity.show_output;
-    let now = session_store::now_secs();
+    let now = session::now_secs();
     let mut summary = CloseSummary::new();
+    let mut attempted = HashSet::new();
 
     // Load wallet signer once (all channels share the same network)
     let wallet = match ctx.keys.signer(ctx.network) {
@@ -380,13 +556,14 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
     };
 
     // 1) Local sessions ready to finalize
-    for s in session_store::list_sessions()? {
+    for s in session::list_channels()? {
         if s.network_id() != ctx.network {
             continue;
         }
-        if !(s.state == SessionStatus::Closing && now >= s.grace_ready_at) {
+        if !(s.state == ChannelStatus::Closing && now >= s.grace_ready_at) {
             continue;
         }
+        attempted.insert(s.channel_id);
         let channel_id = s.channel_id_hex();
         let Some(ref wallet) = wallet else {
             summary.record_failed(CloseResult::failed(
@@ -411,9 +588,13 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
     if let Some(wallet_addr) = ctx.keys.wallet_address_parsed() {
         let channels = find_all_channels_for_payer(&ctx.config, wallet_addr, ctx.network).await;
         for ch in &channels {
+            if attempted.contains(&ch.channel_id) {
+                continue;
+            }
             if ch.close_requested_at == 0 {
                 continue;
             }
+            attempted.insert(ch.channel_id);
             let channel_id_hex = format!("{:#x}", ch.channel_id);
             let Some(ref wallet) = wallet else {
                 summary.record_failed(CloseResult::failed(
@@ -600,7 +781,7 @@ impl CloseSummary {
 fn maybe_delete_session_by_channel_id(channel_id: &str) {
     match super::util::parse_channel_id(channel_id) {
         Ok(parsed) => {
-            let _ = session_store::delete_session_by_channel_id(parsed);
+            let _ = session::delete_channel(&format!("{parsed:#x}"));
         }
         Err(err) => {
             tracing::warn!(
@@ -616,6 +797,30 @@ fn maybe_delete_session_by_channel_id(channel_id: &str) {
 mod tests {
     use super::*;
     use tempo_common::cli::output::OutputFormat;
+
+    #[test]
+    fn test_determine_close_selection_precedence() {
+        assert_eq!(
+            determine_close_selection(Some("https://x"), true, true, true),
+            CloseSelection::Finalize
+        );
+        assert_eq!(
+            determine_close_selection(Some("https://x"), true, true, false),
+            CloseSelection::Orphaned
+        );
+        assert_eq!(
+            determine_close_selection(Some("https://x"), true, false, false),
+            CloseSelection::All
+        );
+        assert_eq!(
+            determine_close_selection(Some("https://x"), false, false, false),
+            CloseSelection::Target("https://x")
+        );
+        assert_eq!(
+            determine_close_selection(None, false, false, false),
+            CloseSelection::Missing
+        );
+    }
 
     #[test]
     fn test_close_summary_empty_text() {

@@ -3,7 +3,8 @@
 use serde_json::Value;
 
 mod common;
-use common::{assert_exit_code, test_command, MockServer, TestConfigBuilder};
+use common::test_command;
+use tempo_test::{assert_exit_code, MockServer, TestConfigBuilder};
 
 fn run_both(
     temp: &tempfile::TempDir,

@@ -13,52 +13,24 @@ use mpp::{
 
 use mpp::protocol::core::extract_tx_hash;
 
-use super::super::store as session_store;
+use super::super::store;
 use crate::{
-    cli::format::format_token_amount,
+    cli::{format::format_token_amount, terminal::sanitize_for_terminal},
     error::{KeyError, NetworkError, PaymentError, TempoError},
 };
 
-type SessionResult<T> = Result<T, TempoError>;
+type ChannelResult<T> = Result<T, TempoError>;
 
-/// Attempt a cooperative (server-side) close of a session without on-chain fallback.
-///
-/// Used for best-effort cleanup when reusing a session fails — the result is
-/// typically discarded because the caller will open a new channel regardless.
-#[allow(dead_code)]
-async fn try_cooperative_close_from_record(
-    record: &session_store::SessionRecord,
-    keys: &crate::keys::Keystore,
-) -> SessionResult<()> {
-    let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).map_err(|source| {
-        NetworkError::ResponseParse {
-            context: "persisted challenge echo",
-            source,
-        }
-    })?;
+fn credential_source_from_payer(payer: &str, chain_id: u64) -> String {
+    if payer.starts_with("did:pkh:eip155:") {
+        return payer.to_string();
+    }
 
-    let network_id = record.network_id();
-    let wallet = keys.signer(network_id)?;
+    if let Ok(address) = payer.parse::<Address>() {
+        return format!("did:pkh:eip155:{chain_id}:{address:#x}");
+    }
 
-    let channel_id: B256 = record.channel_id;
-
-    let escrow_contract: Address = record.escrow_contract;
-
-    let cumulative_amount: u128 = record.cumulative_amount_u128();
-
-    let client = reqwest::Client::new();
-    try_server_close(
-        record,
-        &echo,
-        &wallet.signer,
-        channel_id,
-        escrow_contract,
-        record.chain_id,
-        cumulative_amount,
-        &client,
-    )
-    .await
-    .map(|_| ())
+    format!("did:pkh:eip155:{chain_id}:{}", payer.trim())
 }
 
 /// Try cooperative close via the server.
@@ -66,7 +38,7 @@ async fn try_cooperative_close_from_record(
 /// Returns the settlement transaction URL on success (if available).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn try_server_close(
-    record: &session_store::SessionRecord,
+    record: &store::ChannelRecord,
     echo: &ChallengeEcho,
     signer: &alloy::signers::local::PrivateKeySigner,
     channel_id: B256,
@@ -74,7 +46,7 @@ pub(super) async fn try_server_close(
     chain_id: u64,
     cumulative_amount: u128,
     client: &reqwest::Client,
-) -> SessionResult<Option<String>> {
+) -> ChannelResult<Option<String>> {
     let close_url = if record.request_url.is_empty() {
         &record.origin
     } else {
@@ -120,8 +92,8 @@ pub(super) async fn try_server_close(
         cumulative_amount: cumulative_amount.to_string(),
         signature: format!("0x{}", hex::encode(sig)),
     };
-    let credential =
-        mpp::PaymentCredential::with_source(echo.clone(), record.payer.clone(), payload);
+    let source = credential_source_from_payer(&record.payer, chain_id);
+    let credential = mpp::PaymentCredential::with_source(echo.clone(), source, payload);
     let auth = mpp::format_authorization(&credential).map_err(|source| {
         PaymentError::ChallengeFormatSource {
             context: "close credential",
@@ -142,8 +114,9 @@ pub(super) async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        let reason = crate::payment::classify::extract_json_error(&body)
+        let raw_reason = crate::payment::extract_json_error(&body)
             .unwrap_or_else(|| body.chars().take(200).collect());
+        let reason = sanitize_for_terminal(&raw_reason);
         return Err(PaymentError::PaymentRejected {
             reason,
             status_code: status.as_u16(),
@@ -170,6 +143,42 @@ mod tests {
     use axum::{routing::post, Router};
     use std::sync::{Arc, Mutex};
     use tokio::task::JoinHandle;
+
+    #[test]
+    fn credential_source_derives_did_from_raw_address() {
+        let source =
+            credential_source_from_payer("0x0000000000000000000000000000000000000003", 4217);
+        assert_eq!(
+            source,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003"
+        );
+    }
+
+    #[test]
+    fn credential_source_preserves_existing_did() {
+        let source = credential_source_from_payer(
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003",
+            4217,
+        );
+        assert_eq!(
+            source,
+            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003"
+        );
+    }
+
+    #[test]
+    fn close_payload_uses_spec_field_names() {
+        let payload = SessionCredentialPayload::Close {
+            channel_id: "0xabc".to_string(),
+            cumulative_amount: "42".to_string(),
+            signature: "0xdeadbeef".to_string(),
+        };
+        let value = serde_json::to_value(payload).unwrap();
+        assert_eq!(value["action"], "close");
+        assert_eq!(value["channelId"], "0xabc");
+        assert_eq!(value["cumulativeAmount"], "42");
+        assert_eq!(value["signature"], "0xdeadbeef");
+    }
 
     async fn spawn_test_server() -> (String, Arc<Mutex<(usize, usize)>>, JoinHandle<()>) {
         let counters = Arc::new(Mutex::new((0usize, 0usize)));
@@ -218,7 +227,7 @@ mod tests {
         let (base, counters, _handle) = spawn_test_server().await;
 
         // Minimal synthetic record
-        let record = session_store::SessionRecord {
+        let record = store::ChannelRecord {
             version: 1,
             origin: base.clone(),
             request_url: base.clone(),
@@ -226,9 +235,9 @@ mod tests {
             escrow_contract: "0x0000000000000000000000000000000000000001"
                 .parse()
                 .unwrap(),
-            currency: "0x0000000000000000000000000000000000000001".into(),
-            recipient: "0x0000000000000000000000000000000000000002".into(),
-            payer: "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003".into(),
+            token: "0x0000000000000000000000000000000000000001".into(),
+            payee: "0x0000000000000000000000000000000000000002".into(),
+            payer: "0x0000000000000000000000000000000000000003".into(),
             authorized_signer: "0x0000000000000000000000000000000000000003"
                 .parse()
                 .unwrap(),
@@ -249,7 +258,7 @@ mod tests {
                 opaque: None,
             })
             .unwrap(),
-            state: session_store::SessionStatus::Active,
+            state: store::ChannelStatus::Active,
             close_requested_at: 0,
             grace_ready_at: 0,
             created_at: 0,

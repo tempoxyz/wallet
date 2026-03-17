@@ -1,4 +1,4 @@
-//! `SQLite` CRUD operations for session persistence.
+//! `SQLite` CRUD operations for channel persistence.
 
 use std::{
     error::Error,
@@ -7,20 +7,20 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::Address;
 use rusqlite::{params, types::Type};
 
 use crate::error::{PaymentError, TempoError};
 
-use super::model::{session_key, SessionRecord, SessionStatus};
+use super::model::{ChannelRecord, ChannelStatus};
 
-type SessionStoreResult<T> = std::result::Result<T, TempoError>;
+type ChannelStoreResult<T> = std::result::Result<T, TempoError>;
 
 fn store_error<E>(operation: &'static str, source: E) -> TempoError
 where
     E: Error + Send + Sync + 'static,
 {
-    PaymentError::SessionPersistenceSource {
+    PaymentError::ChannelPersistenceSource {
         operation,
         source: Box::new(source),
     }
@@ -29,7 +29,7 @@ where
 
 fn integer_conversion_error(field: &'static str, value: u64) -> TempoError {
     store_error(
-        "serialize session integer field",
+        "serialize channel integer field",
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("{field} value {value} exceeds i64::MAX"),
@@ -37,12 +37,12 @@ fn integer_conversion_error(field: &'static str, value: u64) -> TempoError {
     )
 }
 
-fn to_i64_checked(value: u64, field: &'static str) -> SessionStoreResult<i64> {
+fn to_i64_checked(value: u64, field: &'static str) -> ChannelStoreResult<i64> {
     i64::try_from(value).map_err(|_| integer_conversion_error(field, value))
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SessionStoreDiagnostics {
+pub struct ChannelStoreDiagnostics {
     pub malformed_load_drops: u64,
     pub malformed_list_drops: u64,
 }
@@ -50,32 +50,30 @@ pub struct SessionStoreDiagnostics {
 static MALFORMED_LOAD_DROPS: AtomicU64 = AtomicU64::new(0);
 static MALFORMED_LIST_DROPS: AtomicU64 = AtomicU64::new(0);
 
-/// Get the tempo-wallet data directory (`$TEMPO_HOME/wallet` or `~/.tempo/wallet`).
-fn wallet_dir() -> SessionStoreResult<PathBuf> {
+fn wallet_dir() -> ChannelStoreResult<PathBuf> {
     Ok(crate::tempo_home()?.join("wallet"))
 }
 
-/// Ensure the wallet directory exists and return it.
-pub(super) fn ensure_wallet_dir() -> SessionStoreResult<PathBuf> {
+pub(super) fn ensure_wallet_dir() -> ChannelStoreResult<PathBuf> {
     let dir = wallet_dir()?;
-    fs::create_dir_all(&dir).map_err(|err| store_error("ensure session wallet dir", err))?;
+    fs::create_dir_all(&dir).map_err(|err| store_error("ensure channel wallet dir", err))?;
     Ok(dir)
 }
 
-fn open_db() -> SessionStoreResult<rusqlite::Connection> {
+fn open_db() -> ChannelStoreResult<rusqlite::Connection> {
     let dir = ensure_wallet_dir()?;
-    let db_path = dir.join("sessions.db");
+    let db_path = dir.join("channels.db");
     open_db_at(&db_path)
 }
 
-fn open_db_at(path: &Path) -> SessionStoreResult<rusqlite::Connection> {
+fn open_db_at(path: &Path) -> ChannelStoreResult<rusqlite::Connection> {
     let conn = rusqlite::Connection::open(path)
-        .map_err(|err| store_error("open sessions database", err))?;
+        .map_err(|err| store_error("open channels database", err))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|err| store_error("set sessions database permissions", err))?;
+            .map_err(|err| store_error("set channels database permissions", err))?;
     }
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
@@ -83,112 +81,35 @@ fn open_db_at(path: &Path) -> SessionStoreResult<rusqlite::Connection> {
          PRAGMA busy_timeout = 5000;
          PRAGMA foreign_keys = ON;",
     )
-    .map_err(|err| store_error("configure sessions database pragmas", err))?;
-    init_schema(&conn)?;
-    Ok(conn)
-}
-
-fn init_schema(conn: &rusqlite::Connection) -> SessionStoreResult<()> {
-    // If the table exists but has a different column set (e.g. legacy
-    // `network_name`), drop it. Sessions are ephemeral local state;
-    // open channels remain safe on-chain regardless of local records.
-    if table_needs_reset(conn) {
-        conn.execute_batch("DROP TABLE IF EXISTS sessions;")
-            .map_err(|err| store_error("drop outdated sessions table", err))?;
-    }
+    .map_err(|err| store_error("configure channels database pragmas", err))?;
 
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS sessions (
-            key               TEXT PRIMARY KEY,
-            version           INTEGER NOT NULL DEFAULT 1,
-            origin            TEXT NOT NULL UNIQUE,
-            request_url       TEXT NOT NULL DEFAULT '',
-            chain_id          INTEGER NOT NULL,
-            escrow_contract   TEXT NOT NULL,
-            currency          TEXT NOT NULL,
-            recipient         TEXT NOT NULL,
-            payer             TEXT NOT NULL,
-            authorized_signer TEXT NOT NULL,
-            salt              TEXT NOT NULL,
-            channel_id        TEXT NOT NULL,
-            deposit           TEXT NOT NULL,
-            cumulative_amount TEXT NOT NULL,
-            challenge_echo    TEXT NOT NULL,
-            state             TEXT NOT NULL DEFAULT 'active',
+        "CREATE TABLE IF NOT EXISTS channels (
+            channel_id         TEXT PRIMARY KEY,
+            version            INTEGER NOT NULL DEFAULT 1,
+            origin             TEXT NOT NULL,
+            request_url        TEXT NOT NULL DEFAULT '',
+            chain_id           INTEGER NOT NULL,
+            escrow_contract    TEXT NOT NULL,
+            token              TEXT NOT NULL,
+            payee              TEXT NOT NULL,
+            payer              TEXT NOT NULL,
+            authorized_signer  TEXT NOT NULL,
+            salt               TEXT NOT NULL,
+            deposit            TEXT NOT NULL,
+            cumulative_amount  TEXT NOT NULL,
+            challenge_echo     TEXT NOT NULL,
+            state              TEXT NOT NULL DEFAULT 'active',
             close_requested_at INTEGER NOT NULL DEFAULT 0,
             grace_ready_at     INTEGER NOT NULL DEFAULT 0,
-            created_at        INTEGER NOT NULL,
-            last_used_at      INTEGER NOT NULL
-        );",
+            created_at         INTEGER NOT NULL,
+            last_used_at       INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_channels_origin ON channels(origin);",
     )
-    .map_err(|err| store_error("create sessions schema", err))?;
+    .map_err(|err| store_error("create channels schema", err))?;
 
-    Ok(())
-}
-
-/// Expected column count for the sessions table.
-const EXPECTED_COLUMN_COUNT: usize = 20;
-
-/// Check whether an existing `sessions` table has a mismatched schema.
-fn table_needs_reset(conn: &rusqlite::Connection) -> bool {
-    let col_count: usize = conn
-        .prepare("PRAGMA table_info(sessions)")
-        .and_then(|mut stmt| stmt.query_map([], |_| Ok(())).map(|rows| rows.count()))
-        .unwrap_or(0);
-
-    // 0 means the table doesn't exist yet — no reset needed.
-    col_count > 0 && col_count != EXPECTED_COLUMN_COUNT
-}
-
-// ---------------------------------------------------------------------------
-// Internal _conn helpers (also used by tests)
-// ---------------------------------------------------------------------------
-
-fn save_session_conn(
-    conn: &rusqlite::Connection,
-    record: &SessionRecord,
-) -> SessionStoreResult<()> {
-    let key = session_key(&record.origin);
-    let chain_id = to_i64_checked(record.chain_id, "chain_id")?;
-    let close_requested_at = to_i64_checked(record.close_requested_at, "close_requested_at")?;
-    let grace_ready_at = to_i64_checked(record.grace_ready_at, "grace_ready_at")?;
-    let created_at = to_i64_checked(record.created_at, "created_at")?;
-    let last_used_at = to_i64_checked(record.last_used_at, "last_used_at")?;
-    let escrow_contract = format!("{:#x}", record.escrow_contract);
-    let authorized_signer = format!("{:#x}", record.authorized_signer);
-    let channel_id = record.channel_id_hex();
-    conn.execute(
-        "INSERT OR REPLACE INTO sessions (
-            key, version, origin, request_url, chain_id,
-            escrow_contract, currency, recipient, payer, authorized_signer,
-            salt, channel_id, deposit, cumulative_amount,
-            challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
-        params![
-            key,
-            record.version,
-            record.origin,
-            record.request_url,
-            chain_id,
-            escrow_contract,
-            record.currency,
-            record.recipient,
-            record.payer,
-            authorized_signer,
-            record.salt,
-            channel_id,
-            record.deposit.to_string(),
-            record.cumulative_amount.to_string(),
-            record.challenge_echo,
-            record.state.as_str(),
-            close_requested_at,
-            grace_ready_at,
-            created_at,
-            last_used_at,
-        ],
-    )
-    .map_err(|err| store_error("save session", err))?;
-    Ok(())
+    Ok(conn)
 }
 
 fn decode_u64_column(
@@ -245,46 +166,29 @@ fn decode_address_column(
     })
 }
 
-fn decode_b256_column(
-    row: &rusqlite::Row<'_>,
-    index: usize,
-    column: &'static str,
-) -> rusqlite::Result<B256> {
-    let raw = row.get::<_, String>(index)?;
-    raw.parse::<B256>().map_err(|err| {
-        rusqlite::Error::FromSqlConversionFailure(
-            index,
-            Type::Text,
-            Box::new(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("invalid {column} value '{raw}': {err}"),
-            )),
-        )
-    })
-}
-
-fn decode_session_state(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<SessionStatus> {
+fn decode_channel_status(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<ChannelStatus> {
     let state_value = row.get::<_, String>(index)?;
-    SessionStatus::try_from_db_str(&state_value)
+    ChannelStatus::try_from_db_str(&state_value)
         .map_err(|err| rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(err)))
 }
 
-/// Map a row (with the standard SELECT column order) to a `SessionRecord`.
-fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
-    let state = decode_session_state(row, 14)?;
+fn map_channel_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChannelRecord> {
+    let state = decode_channel_status(row, 14)?;
 
-    let mut record = SessionRecord {
+    let mut record = ChannelRecord {
         version: row.get::<_, u32>(0)?,
         origin: row.get(1)?,
         request_url: row.get(2)?,
         chain_id: decode_u64_column(row, 3, "chain_id")?,
         escrow_contract: decode_address_column(row, 4, "escrow_contract")?,
-        currency: row.get(5)?,
-        recipient: row.get(6)?,
+        token: row.get(5)?,
+        payee: row.get(6)?,
         payer: row.get(7)?,
         authorized_signer: decode_address_column(row, 8, "authorized_signer")?,
         salt: row.get(9)?,
-        channel_id: decode_b256_column(row, 10, "channel_id")?,
+        channel_id: row.get::<_, String>(10)?.parse().map_err(|source| {
+            rusqlite::Error::FromSqlConversionFailure(10, Type::Text, Box::new(source))
+        })?,
         deposit: decode_u128_column(row, 11, "deposit")?,
         cumulative_amount: decode_u128_column(row, 12, "cumulative_amount")?,
         challenge_echo: row.get(13)?,
@@ -301,7 +205,7 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
             Type::Text,
             Box::new(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "invalid session currency or recipient address",
+                "invalid channel token or payee address",
             )),
         ));
     }
@@ -309,40 +213,7 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
     Ok(record)
 }
 
-fn load_session_conn(
-    conn: &rusqlite::Connection,
-    key: &str,
-) -> SessionStoreResult<Option<SessionRecord>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT version, origin, request_url, chain_id,
-                    escrow_contract, currency, recipient, payer, authorized_signer,
-                    salt, channel_id, deposit, cumulative_amount,
-                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-             FROM sessions WHERE key = ?1",
-        )
-        .map_err(|err| store_error("prepare session load query", err))?;
-
-    let result = stmt.query_row(params![key], map_session_row);
-
-    match result {
-        Ok(record) => Ok(Some(record)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) if is_malformed_session_row_error(&e) => {
-            MALFORMED_LOAD_DROPS.fetch_add(1, Ordering::Relaxed);
-            tracing::warn!(
-                key,
-                error = %e,
-                "Skipping malformed session row while loading session"
-            );
-            delete_session_conn(conn, key)?;
-            Ok(None)
-        }
-        Err(e) => Err(store_error("load session", e)),
-    }
-}
-
-const fn is_malformed_session_row_error(err: &rusqlite::Error) -> bool {
+const fn is_malformed_channel_row_error(err: &rusqlite::Error) -> bool {
     matches!(
         err,
         rusqlite::Error::FromSqlConversionFailure(_, _, _)
@@ -351,546 +222,558 @@ const fn is_malformed_session_row_error(err: &rusqlite::Error) -> bool {
     )
 }
 
-fn delete_session_conn(conn: &rusqlite::Connection, key: &str) -> SessionStoreResult<()> {
-    conn.execute("DELETE FROM sessions WHERE key = ?1", params![key])
-        .map_err(|err| store_error("delete session", err))?;
+fn save_channel_in_conn(
+    conn: &rusqlite::Connection,
+    record: &ChannelRecord,
+) -> ChannelStoreResult<()> {
+    let chain_id = to_i64_checked(record.chain_id, "chain_id")?;
+    let close_requested_at = to_i64_checked(record.close_requested_at, "close_requested_at")?;
+    let grace_ready_at = to_i64_checked(record.grace_ready_at, "grace_ready_at")?;
+    let created_at = to_i64_checked(record.created_at, "created_at")?;
+    let last_used_at = to_i64_checked(record.last_used_at, "last_used_at")?;
+
+    conn.execute(
+        "INSERT INTO channels (
+            channel_id, version, origin, request_url, chain_id,
+            escrow_contract, token, payee, payer, authorized_signer,
+            salt, deposit, cumulative_amount, challenge_echo,
+            state, close_requested_at, grace_ready_at, created_at, last_used_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+        ON CONFLICT(channel_id) DO UPDATE SET
+            version = excluded.version,
+            origin = excluded.origin,
+            request_url = excluded.request_url,
+            chain_id = excluded.chain_id,
+            escrow_contract = excluded.escrow_contract,
+            token = excluded.token,
+            payee = excluded.payee,
+            payer = excluded.payer,
+            authorized_signer = excluded.authorized_signer,
+            salt = excluded.salt,
+            deposit = CASE
+                WHEN LENGTH(channels.deposit) > LENGTH(excluded.deposit) THEN channels.deposit
+                WHEN LENGTH(channels.deposit) < LENGTH(excluded.deposit) THEN excluded.deposit
+                WHEN channels.deposit >= excluded.deposit THEN channels.deposit
+                ELSE excluded.deposit
+            END,
+            cumulative_amount = CASE
+                WHEN LENGTH(channels.cumulative_amount) > LENGTH(excluded.cumulative_amount) THEN channels.cumulative_amount
+                WHEN LENGTH(channels.cumulative_amount) < LENGTH(excluded.cumulative_amount) THEN excluded.cumulative_amount
+                WHEN channels.cumulative_amount >= excluded.cumulative_amount THEN channels.cumulative_amount
+                ELSE excluded.cumulative_amount
+            END,
+            challenge_echo = excluded.challenge_echo,
+            state = excluded.state,
+            close_requested_at = excluded.close_requested_at,
+            grace_ready_at = excluded.grace_ready_at,
+            created_at = channels.created_at,
+            last_used_at = excluded.last_used_at",
+        params![
+            record.channel_id_hex(),
+            record.version,
+            record.origin,
+            record.request_url,
+            chain_id,
+            format!("{:#x}", record.escrow_contract),
+            record.token,
+            record.payee,
+            record.payer,
+            format!("{:#x}", record.authorized_signer),
+            record.salt,
+            record.deposit.to_string(),
+            record.cumulative_amount.to_string(),
+            record.challenge_echo,
+            record.state.as_str(),
+            close_requested_at,
+            grace_ready_at,
+            created_at,
+            last_used_at,
+        ],
+    )
+    .map_err(|err| store_error("save channel", err))?;
     Ok(())
 }
 
-fn load_session_by_channel_id_conn(
+fn load_channel_in_conn(
     conn: &rusqlite::Connection,
-    channel_id: B256,
-) -> SessionStoreResult<Option<SessionRecord>> {
-    let channel_id = format!("{channel_id:#x}");
+    channel_id: &str,
+) -> ChannelStoreResult<Option<ChannelRecord>> {
     let mut stmt = conn
         .prepare(
             "SELECT version, origin, request_url, chain_id,
-                    escrow_contract, currency, recipient, payer, authorized_signer,
+                    escrow_contract, token, payee, payer, authorized_signer,
                     salt, channel_id, deposit, cumulative_amount,
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-             FROM sessions WHERE LOWER(channel_id) = ?1",
+             FROM channels WHERE LOWER(channel_id) = LOWER(?1)",
         )
-        .map_err(|err| store_error("prepare session load by channel id query", err))?;
+        .map_err(|err| store_error("prepare channel load query", err))?;
 
-    let result = stmt.query_row(params![channel_id], map_session_row);
+    let result = stmt.query_row(params![channel_id], map_channel_row);
+    match result {
+        Ok(record) => Ok(Some(record)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) if is_malformed_channel_row_error(&e) => {
+            MALFORMED_LOAD_DROPS.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(channel_id, error = %e, "Skipping malformed channel row while loading");
+            Ok(None)
+        }
+        Err(e) => Err(store_error("load channel", e)),
+    }
+}
+
+fn find_reusable_channel_in_conn(
+    conn: &rusqlite::Connection,
+    origin: &str,
+    payer: &str,
+    escrow_contract: Address,
+    token: &str,
+    payee: &str,
+    chain_id: u64,
+) -> ChannelStoreResult<Option<ChannelRecord>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT version, origin, request_url, chain_id,
+                    escrow_contract, token, payee, payer, authorized_signer,
+                    salt, channel_id, deposit, cumulative_amount,
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+             FROM channels
+             WHERE origin = ?1 AND payer = ?2 AND escrow_contract = ?3
+               AND token = ?4 AND payee = ?5 AND chain_id = ?6
+               AND state = 'active'
+             ORDER BY last_used_at DESC LIMIT 1",
+        )
+        .map_err(|err| store_error("prepare reusable channel query", err))?;
+
+    let chain_id_i64 = to_i64_checked(chain_id, "chain_id")?;
+    let escrow_hex = format!("{escrow_contract:#x}");
+    let result = stmt.query_row(
+        params![origin, payer, escrow_hex, token, payee, chain_id_i64],
+        map_channel_row,
+    );
 
     match result {
         Ok(record) => Ok(Some(record)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) if is_malformed_session_row_error(&e) => {
-            MALFORMED_LOAD_DROPS.fetch_add(1, Ordering::Relaxed);
-            tracing::warn!(
-                %channel_id,
-                error = %e,
-                "Skipping malformed session row while loading by channel ID"
-            );
-            Ok(None)
-        }
-        Err(e) => Err(store_error("load session by channel id", e)),
+        Err(e) => Err(store_error("find reusable channel", e)),
     }
 }
 
-fn delete_session_by_channel_id_conn(
-    conn: &rusqlite::Connection,
-    channel_id: B256,
-) -> SessionStoreResult<()> {
-    let channel_id = format!("{channel_id:#x}");
+fn delete_channel_in_conn(conn: &rusqlite::Connection, channel_id: &str) -> ChannelStoreResult<()> {
     conn.execute(
-        "DELETE FROM sessions WHERE LOWER(channel_id) = ?1",
+        "DELETE FROM channels WHERE LOWER(channel_id) = LOWER(?1)",
         params![channel_id],
     )
-    .map_err(|err| store_error("delete session by channel id", err))?;
+    .map_err(|err| store_error("delete channel", err))?;
     Ok(())
 }
 
-fn list_sessions_conn(conn: &rusqlite::Connection) -> SessionStoreResult<Vec<SessionRecord>> {
+fn update_channel_close_state_in_conn(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    state: ChannelStatus,
+    close_requested_at: u64,
+    grace_ready_at: u64,
+) -> ChannelStoreResult<()> {
+    let close_requested_at = to_i64_checked(close_requested_at, "close_requested_at")?;
+    let grace_ready_at = to_i64_checked(grace_ready_at, "grace_ready_at")?;
+    conn.execute(
+        "UPDATE channels SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = LOWER(?4)",
+        params![state.as_str(), close_requested_at, grace_ready_at, channel_id],
+    )
+    .map_err(|err| store_error("update channel close state", err))?;
+    Ok(())
+}
+
+fn update_channel_cumulative_floor_in_conn(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    accepted_cumulative: u128,
+) -> ChannelStoreResult<()> {
+    let accepted = accepted_cumulative.to_string();
+    conn.execute(
+        "UPDATE channels
+         SET cumulative_amount = CASE
+             WHEN LENGTH(cumulative_amount) > LENGTH(?1) THEN cumulative_amount
+             WHEN LENGTH(cumulative_amount) < LENGTH(?1) THEN ?1
+             WHEN cumulative_amount >= ?1 THEN cumulative_amount
+             ELSE ?1
+         END
+         WHERE LOWER(channel_id) = LOWER(?2)",
+        params![accepted, channel_id],
+    )
+    .map_err(|err| store_error("update channel cumulative floor", err))?;
+    Ok(())
+}
+
+pub fn save_channel(record: &ChannelRecord) -> ChannelStoreResult<()> {
+    let conn = open_db()?;
+    save_channel_in_conn(&conn, record)
+}
+
+pub fn load_channel(channel_id: &str) -> ChannelStoreResult<Option<ChannelRecord>> {
+    let conn = open_db()?;
+    load_channel_in_conn(&conn, channel_id)
+}
+
+pub fn load_channels_by_origin(origin: &str) -> ChannelStoreResult<Vec<ChannelRecord>> {
+    let conn = open_db()?;
     let mut stmt = conn
         .prepare(
             "SELECT version, origin, request_url, chain_id,
-                    escrow_contract, currency, recipient, payer, authorized_signer,
+                    escrow_contract, token, payee, payer, authorized_signer,
                     salt, channel_id, deposit, cumulative_amount,
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-             FROM sessions ORDER BY last_used_at DESC",
+             FROM channels WHERE origin = ?1 ORDER BY last_used_at DESC",
         )
-        .map_err(|err| store_error("prepare sessions list query", err))?;
+        .map_err(|err| store_error("prepare channels load by origin query", err))?;
 
     let rows = stmt
-        .query_map([], map_session_row)
-        .map_err(|err| store_error("list sessions", err))?;
+        .query_map(params![origin], map_channel_row)
+        .map_err(|err| store_error("load channels by origin", err))?;
 
-    let mut sessions = Vec::new();
+    let mut channels = Vec::new();
     let mut dropped_rows = 0usize;
     for row in rows {
         match row {
-            Ok(session) => sessions.push(session),
+            Ok(channel) => channels.push(channel),
             Err(err) => {
                 dropped_rows += 1;
-                tracing::warn!("Skipping malformed session row while listing sessions: {err}");
+                tracing::warn!(
+                    "Skipping malformed channel row while loading channels by origin: {err}"
+                );
             }
         }
     }
 
     if dropped_rows > 0 {
         MALFORMED_LIST_DROPS.fetch_add(dropped_rows as u64, Ordering::Relaxed);
-        tracing::warn!(
-            dropped_rows,
-            returned_rows = sessions.len(),
-            "Dropped malformed session rows while listing sessions"
-        );
     }
 
-    Ok(sessions)
+    Ok(channels)
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/// Load a session record by key. Returns `None` if not found.
-///
-/// # Errors
-///
-/// Returns an error when the backing database cannot be opened/read or SQL fails.
-pub fn load_session(key: &str) -> SessionStoreResult<Option<SessionRecord>> {
+pub fn find_reusable_channel(
+    origin: &str,
+    payer: &str,
+    escrow_contract: Address,
+    token: &str,
+    payee: &str,
+    chain_id: u64,
+) -> ChannelStoreResult<Option<ChannelRecord>> {
     let conn = open_db()?;
-    load_session_conn(&conn, key)
+    find_reusable_channel_in_conn(
+        &conn,
+        origin,
+        payer,
+        escrow_contract,
+        token,
+        payee,
+        chain_id,
+    )
 }
 
-/// Save a session record to the database.
-///
-/// # Errors
-///
-/// Returns an error when the database cannot be opened, integer fields exceed
-/// storage bounds, or the insert/update operation fails.
-pub fn save_session(record: &SessionRecord) -> SessionStoreResult<()> {
+pub fn delete_channel(channel_id: &str) -> ChannelStoreResult<()> {
     let conn = open_db()?;
-    save_session_conn(&conn, record)
+    delete_channel_in_conn(&conn, channel_id)
 }
 
-/// Delete a session record by key.
-///
-/// # Errors
-///
-/// Returns an error when the database cannot be opened or deletion fails.
-pub fn delete_session(key: &str) -> SessionStoreResult<()> {
+pub fn list_channels() -> ChannelStoreResult<Vec<ChannelRecord>> {
     let conn = open_db()?;
-    delete_session_conn(&conn, key)
+    let mut stmt = conn
+        .prepare(
+            "SELECT version, origin, request_url, chain_id,
+                    escrow_contract, token, payee, payer, authorized_signer,
+                    salt, channel_id, deposit, cumulative_amount,
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+             FROM channels ORDER BY last_used_at DESC",
+        )
+        .map_err(|err| store_error("prepare channels list query", err))?;
+
+    let rows = stmt
+        .query_map([], map_channel_row)
+        .map_err(|err| store_error("list channels", err))?;
+
+    let mut channels = Vec::new();
+    let mut dropped_rows = 0usize;
+    for row in rows {
+        match row {
+            Ok(channel) => channels.push(channel),
+            Err(err) => {
+                dropped_rows += 1;
+                tracing::warn!("Skipping malformed channel row while listing channels: {err}");
+            }
+        }
+    }
+
+    if dropped_rows > 0 {
+        MALFORMED_LIST_DROPS.fetch_add(dropped_rows as u64, Ordering::Relaxed);
+    }
+
+    Ok(channels)
 }
 
-/// Load a session record by channel ID. Returns `None` if not found.
-///
-/// # Errors
-///
-/// Returns an error when the database cannot be opened or SQL fails.
-pub fn load_session_by_channel_id(channel_id: B256) -> SessionStoreResult<Option<SessionRecord>> {
-    let conn = open_db()?;
-    load_session_by_channel_id_conn(&conn, channel_id)
-}
-
-/// Delete a session record by channel ID.
-///
-/// # Errors
-///
-/// Returns an error when the database cannot be opened or deletion fails.
-pub fn delete_session_by_channel_id(channel_id: B256) -> SessionStoreResult<()> {
-    let conn = open_db()?;
-    delete_session_by_channel_id_conn(&conn, channel_id)
-}
-
-/// List all session records, ordered by `last_used_at` descending.
-///
-/// # Errors
-///
-/// Returns an error when the database cannot be opened or listing fails.
-pub fn list_sessions() -> SessionStoreResult<Vec<SessionRecord>> {
-    let conn = open_db()?;
-    list_sessions_conn(&conn)
-}
-
-/// Drain and return aggregated malformed-row diagnostics from session persistence.
-pub fn take_store_diagnostics() -> SessionStoreDiagnostics {
-    SessionStoreDiagnostics {
+pub fn take_channel_store_diagnostics() -> ChannelStoreDiagnostics {
+    ChannelStoreDiagnostics {
         malformed_load_drops: MALFORMED_LOAD_DROPS.swap(0, Ordering::Relaxed),
         malformed_list_drops: MALFORMED_LIST_DROPS.swap(0, Ordering::Relaxed),
     }
 }
 
-/// Update close state fields by channel ID for a local session (no-op if not found).
-///
-/// # Errors
-///
-/// Returns an error when the database cannot be opened, timestamp values
-/// exceed storage bounds, or the update fails.
-pub fn update_session_close_state_by_channel_id(
-    channel_id: B256,
-    state: SessionStatus,
+pub fn update_channel_close_state(
+    channel_id: &str,
+    state: ChannelStatus,
     close_requested_at: u64,
     grace_ready_at: u64,
-) -> SessionStoreResult<()> {
+) -> ChannelStoreResult<()> {
     let conn = open_db()?;
-    let close_requested_at = to_i64_checked(close_requested_at, "close_requested_at")?;
-    let grace_ready_at = to_i64_checked(grace_ready_at, "grace_ready_at")?;
-    let channel_id = format!("{channel_id:#x}");
-    conn.execute(
-        "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
-        params![state.as_str(), close_requested_at, grace_ready_at, channel_id],
-    )
-    .map_err(|err| store_error("update session close state", err))?;
-    Ok(())
+    update_channel_close_state_in_conn(&conn, channel_id, state, close_requested_at, grace_ready_at)
+}
+
+pub fn update_channel_cumulative_floor(
+    channel_id: &str,
+    accepted_cumulative: u128,
+) -> ChannelStoreResult<()> {
+    let conn = open_db()?;
+    update_channel_cumulative_floor_in_conn(&conn, channel_id, accepted_cumulative)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{super::model::now_secs, *};
+    use super::*;
+    use tempfile::tempdir;
 
-    fn test_record(origin: &str, salt: &str) -> SessionRecord {
-        let now = now_secs();
-        SessionRecord {
+    fn sample_record(
+        channel_id: alloy::primitives::B256,
+        last_used_at: u64,
+        state: ChannelStatus,
+    ) -> ChannelRecord {
+        ChannelRecord {
             version: 1,
-            origin: origin.into(),
-            request_url: format!("{origin}/api/v1"),
+            origin: "https://api.example.com".to_string(),
+            request_url: "https://api.example.com/v1/chat".to_string(),
             chain_id: 4217,
-            escrow_contract: Address::ZERO,
-            currency: "0x0000000000000000000000000000000000000001".into(),
-            recipient: "0x0000000000000000000000000000000000000002".into(),
-            payer: "0x00".into(),
-            authorized_signer: Address::ZERO,
-            salt: salt.into(),
-            channel_id: B256::ZERO,
-            deposit: 1_000_000,
-            cumulative_amount: 0,
-            challenge_echo: "echo".into(),
-            state: SessionStatus::Active,
+            escrow_contract: "0x0000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000002".to_string(),
+            payee: "0x0000000000000000000000000000000000000003".to_string(),
+            payer: "0x0000000000000000000000000000000000000004".to_string(),
+            authorized_signer: "0x0000000000000000000000000000000000000005"
+                .parse()
+                .unwrap(),
+            salt: "0x01".to_string(),
+            channel_id,
+            deposit: 1_000,
+            cumulative_amount: 10,
+            challenge_echo: "{}".to_string(),
+            state,
             close_requested_at: 0,
             grace_ready_at: 0,
-            created_at: now,
-            last_used_at: now,
+            created_at: 1,
+            last_used_at,
         }
     }
 
-    fn test_db() -> (tempfile::TempDir, rusqlite::Connection) {
-        let tmp = tempfile::tempdir().unwrap();
-        let db_path = tmp.path().join("sessions.db");
+    #[test]
+    fn save_load_update_and_delete_round_trip_by_channel_id() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
         let conn = open_db_at(&db_path).unwrap();
-        (tmp, conn)
-    }
 
-    #[test]
-    fn test_save_and_load_session() {
-        let (_tmp, conn) = test_db();
-        let record = test_record("https://example.com", "salt_1");
-        save_session_conn(&conn, &record).unwrap();
+        let channel_id = alloy::primitives::B256::from([0x11; 32]);
+        let mut record = sample_record(channel_id, 5, ChannelStatus::Active);
+        record.token = "0x00000000000000000000000000000000000000Aa".to_string();
+        record.payee = "0x00000000000000000000000000000000000000Bb".to_string();
+        save_channel_in_conn(&conn, &record).unwrap();
 
-        let key = session_key("https://example.com");
-        let loaded = load_session_conn(&conn, &key).unwrap().unwrap();
-        assert_eq!(loaded.origin, "https://example.com");
-        assert_eq!(loaded.salt, "salt_1");
-        assert_eq!(loaded.chain_id, 4217);
-        assert_eq!(loaded.deposit, 1_000_000);
-        assert_eq!(loaded.network_id().as_str(), "tempo");
-    }
+        let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("channel should load");
+        assert_eq!(loaded.channel_id, channel_id);
+        assert_eq!(loaded.state, ChannelStatus::Active);
+        // token/payee are canonicalized on load while payer remains raw.
+        assert_eq!(loaded.token, "0x00000000000000000000000000000000000000aa");
+        assert_eq!(loaded.payee, "0x00000000000000000000000000000000000000bb");
+        assert_eq!(loaded.payer, "0x0000000000000000000000000000000000000004");
 
-    #[test]
-    fn test_load_session_rejects_invalid_state() {
-        let (_tmp, conn) = test_db();
-        let mut record = test_record("https://example.com", "salt_state");
-        record.state = SessionStatus::Finalized;
-        save_session_conn(&conn, &record).unwrap();
-
-        let key = session_key("https://example.com");
-        conn.execute(
-            "UPDATE sessions SET state = ?1 WHERE key = ?2",
-            params!["corrupt-state", key],
+        update_channel_close_state_in_conn(
+            &conn,
+            &format!("{channel_id:#x}"),
+            ChannelStatus::Closing,
+            42,
+            99,
         )
         .unwrap();
+        let updated = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("updated channel should load");
+        assert_eq!(updated.state, ChannelStatus::Closing);
+        assert_eq!(updated.close_requested_at, 42);
+        assert_eq!(updated.grace_ready_at, 99);
 
-        let loaded = load_session_conn(&conn, &key).unwrap();
-        assert!(loaded.is_none(), "malformed row should be dropped");
-
-        let row_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sessions WHERE key = ?1",
-                params![key],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(row_count, 0, "malformed row should be removed from store");
-    }
-
-    #[test]
-    fn test_load_session_rejects_negative_timestamps() {
-        let (_tmp, conn) = test_db();
-        let record = test_record("https://example.com", "salt_negative");
-        save_session_conn(&conn, &record).unwrap();
-
-        let key = session_key("https://example.com");
-        conn.execute(
-            "UPDATE sessions SET last_used_at = -1 WHERE key = ?1",
-            params![key],
-        )
-        .unwrap();
-
-        let loaded = load_session_conn(&conn, &key).unwrap();
-        assert!(loaded.is_none(), "malformed row should be dropped");
-
-        let row_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sessions WHERE key = ?1",
-                params![key],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(row_count, 0, "malformed row should be removed from store");
-    }
-
-    #[test]
-    fn test_save_session_overwrites_same_origin() {
-        let (_tmp, conn) = test_db();
-        let r1 = test_record("https://example.com", "salt_1");
-        save_session_conn(&conn, &r1).unwrap();
-
-        let r2 = test_record("https://example.com", "salt_2");
-        save_session_conn(&conn, &r2).unwrap();
-
-        let key = session_key("https://example.com");
-        let loaded = load_session_conn(&conn, &key).unwrap().unwrap();
-        assert_eq!(loaded.salt, "salt_2");
-
-        let all = list_sessions_conn(&conn).unwrap();
-        assert_eq!(all.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_session() {
-        let (_tmp, conn) = test_db();
-        let record = test_record("https://example.com", "salt_1");
-        save_session_conn(&conn, &record).unwrap();
-
-        let key = session_key("https://example.com");
-        delete_session_conn(&conn, &key).unwrap();
-
-        let loaded = load_session_conn(&conn, &key).unwrap();
-        assert!(loaded.is_none());
-    }
-
-    #[test]
-    fn test_list_sessions_ordered() {
-        let (_tmp, conn) = test_db();
-
-        let mut r1 = test_record("https://a.example.com", "salt_a");
-        r1.last_used_at = 1000;
-        save_session_conn(&conn, &r1).unwrap();
-
-        let mut r2 = test_record("https://b.example.com", "salt_b");
-        r2.last_used_at = 2000;
-        save_session_conn(&conn, &r2).unwrap();
-
-        let mut r3 = test_record("https://c.example.com", "salt_c");
-        r3.last_used_at = 3000;
-        save_session_conn(&conn, &r3).unwrap();
-
-        let all = list_sessions_conn(&conn).unwrap();
-        assert_eq!(all.len(), 3);
-        // Ordered by last_used_at DESC
-        assert_eq!(all[0].origin, "https://c.example.com");
-        assert_eq!(all[1].origin, "https://b.example.com");
-        assert_eq!(all[2].origin, "https://a.example.com");
-    }
-
-    #[test]
-    fn test_list_sessions_skips_malformed_rows() {
-        let (_tmp, conn) = test_db();
-
-        let mut r1 = test_record("https://good.example.com", "salt_good");
-        r1.last_used_at = 2000;
-        save_session_conn(&conn, &r1).unwrap();
-
-        let mut r2 = test_record("https://bad.example.com", "salt_bad");
-        r2.last_used_at = 1000;
-        save_session_conn(&conn, &r2).unwrap();
-
-        let bad_key = session_key("https://bad.example.com");
-        conn.execute(
-            "UPDATE sessions SET deposit = 'not-a-number' WHERE key = ?1",
-            params![bad_key],
-        )
-        .unwrap();
-
-        let all = list_sessions_conn(&conn).unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].origin, "https://good.example.com");
-    }
-
-    #[test]
-    fn test_delete_session_by_channel_id_case_insensitive() {
-        let (_tmp, conn) = test_db();
-        let mut record = test_record("https://example.com", "salt_1");
-        record.channel_id = "0x0000000000000000000000000000000000000000000000000000000000abc123"
-            .parse()
-            .unwrap();
-        save_session_conn(&conn, &record).unwrap();
-
-        // Delete with different casing
-        let channel_id: B256 = "0x0000000000000000000000000000000000000000000000000000000000ABC123"
-            .parse()
-            .unwrap();
-        delete_session_by_channel_id_conn(&conn, channel_id).unwrap();
-
-        let all = list_sessions_conn(&conn).unwrap();
+        delete_channel_in_conn(&conn, &format!("{channel_id:#x}")).unwrap();
         assert!(
-            all.is_empty(),
-            "session should be deleted regardless of case"
-        );
-    }
-
-    #[test]
-    fn test_update_session_close_state_by_channel_id() {
-        let (_tmp, conn) = test_db();
-        let mut record = test_record("https://example.com", "salt");
-        record.channel_id = "0x0000000000000000000000000000000000000000000000000000000000abc123"
-            .parse()
-            .unwrap();
-        save_session_conn(&conn, &record).unwrap();
-
-        // Replicate the SQL from update_session_close_state_by_channel_id
-        let channel_id = format!(
-            "{:#x}",
-            "0x0000000000000000000000000000000000000000000000000000000000ABC123"
-                .parse::<B256>()
+            load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
                 .unwrap()
+                .is_none(),
+            "channel should be deleted"
         );
-        conn.execute(
-            "UPDATE sessions SET state = ?1, close_requested_at = ?2, grace_ready_at = ?3 WHERE LOWER(channel_id) = ?4",
-            params![SessionStatus::Closing.as_str(), 1000i64, 2000i64, channel_id],
+    }
+
+    #[test]
+    fn find_reusable_channel_prefers_most_recent_active_match() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let mut active_old = sample_record(
+            alloy::primitives::B256::from([0x21; 32]),
+            10,
+            ChannelStatus::Active,
+        );
+        active_old.token = "0x0000000000000000000000000000000000000002".to_string();
+        active_old.payee = "0x0000000000000000000000000000000000000003".to_string();
+
+        let mut active_new = sample_record(
+            alloy::primitives::B256::from([0x22; 32]),
+            20,
+            ChannelStatus::Active,
+        );
+        active_new.token = "0x0000000000000000000000000000000000000002".to_string();
+        active_new.payee = "0x0000000000000000000000000000000000000003".to_string();
+
+        let closing = sample_record(
+            alloy::primitives::B256::from([0x23; 32]),
+            30,
+            ChannelStatus::Closing,
+        );
+
+        save_channel_in_conn(&conn, &active_old).unwrap();
+        save_channel_in_conn(&conn, &active_new).unwrap();
+        save_channel_in_conn(&conn, &closing).unwrap();
+
+        let found = find_reusable_channel_in_conn(
+            &conn,
+            "https://api.example.com",
+            "0x0000000000000000000000000000000000000004",
+            "0x0000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
+            "0x0000000000000000000000000000000000000002",
+            "0x0000000000000000000000000000000000000003",
+            4217,
+        )
+        .unwrap()
+        .expect("should find reusable active channel");
+
+        assert_eq!(found.channel_id, alloy::primitives::B256::from([0x22; 32]));
+        assert_eq!(found.state, ChannelStatus::Active);
+    }
+
+    #[test]
+    fn find_reusable_channel_returns_none_on_identity_mismatch() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let mut record = sample_record(
+            alloy::primitives::B256::from([0x31; 32]),
+            1,
+            ChannelStatus::Active,
+        );
+        record.token = "0x0000000000000000000000000000000000000002".to_string();
+        record.payee = "0x0000000000000000000000000000000000000003".to_string();
+        save_channel_in_conn(&conn, &record).unwrap();
+
+        let found = find_reusable_channel_in_conn(
+            &conn,
+            "https://api.example.com",
+            "0x0000000000000000000000000000000000000004",
+            "0x0000000000000000000000000000000000000001"
+                .parse()
+                .unwrap(),
+            "0x00000000000000000000000000000000000000ff",
+            "0x0000000000000000000000000000000000000003",
+            4217,
         )
         .unwrap();
 
-        let key = session_key("https://example.com");
-        let loaded = load_session_conn(&conn, &key).unwrap().unwrap();
-        assert_eq!(loaded.state, SessionStatus::Closing);
-        assert_eq!(loaded.close_requested_at, 1000);
-        assert_eq!(loaded.grace_ready_at, 2000);
+        assert!(found.is_none());
     }
 
     #[test]
-    fn test_table_needs_reset_detects_legacy_schema() {
-        let tmp = tempfile::tempdir().unwrap();
-        let db_path = tmp.path().join("sessions.db");
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+    fn cumulative_floor_update_is_monotonic() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
 
-        // Create old 21-column schema with network_name and tick_cost
-        conn.execute_batch(
-            "CREATE TABLE sessions (
-                key               TEXT PRIMARY KEY,
-                version           INTEGER NOT NULL DEFAULT 1,
-                origin            TEXT NOT NULL UNIQUE,
-                request_url       TEXT NOT NULL DEFAULT '',
-                network_name      TEXT NOT NULL,
-                chain_id          INTEGER NOT NULL,
-                escrow_contract   TEXT NOT NULL,
-                currency          TEXT NOT NULL,
-                recipient         TEXT NOT NULL,
-                payer             TEXT NOT NULL,
-                authorized_signer TEXT NOT NULL,
-                salt              TEXT NOT NULL,
-                channel_id        TEXT NOT NULL,
-                deposit           TEXT NOT NULL,
-                tick_cost         TEXT NOT NULL,
-                cumulative_amount TEXT NOT NULL,
-                challenge_echo    TEXT NOT NULL,
-                state             TEXT NOT NULL DEFAULT 'active',
-                close_requested_at INTEGER NOT NULL DEFAULT 0,
-                grace_ready_at     INTEGER NOT NULL DEFAULT 0,
-                created_at        INTEGER NOT NULL,
-                last_used_at      INTEGER NOT NULL
-            );",
-        )
-        .unwrap();
+        let channel_id = alloy::primitives::B256::from([0x32; 32]);
+        let record = sample_record(channel_id, 1, ChannelStatus::Active);
+        save_channel_in_conn(&conn, &record).unwrap();
 
-        assert!(
-            table_needs_reset(&conn),
-            "21-column legacy schema should trigger reset"
-        );
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 50).unwrap();
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 12).unwrap();
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 9_999).unwrap();
 
-        // init_schema should drop and recreate
-        init_schema(&conn).unwrap();
-
-        assert!(
-            !table_needs_reset(&conn),
-            "schema should match after init_schema recreates table"
-        );
-
-        // Verify new schema has expected column count
-        let col_count: usize = conn
-            .prepare("PRAGMA table_info(sessions)")
-            .and_then(|mut stmt| stmt.query_map([], |_| Ok(())).map(|rows| rows.count()))
-            .unwrap();
-        assert_eq!(col_count, EXPECTED_COLUMN_COUNT);
+        let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("channel should load");
+        assert_eq!(loaded.cumulative_amount_u128(), 9_999);
     }
 
     #[test]
-    fn test_table_needs_reset_false_when_schema_matches() {
-        let (_tmp, conn) = test_db();
-        assert!(
-            !table_needs_reset(&conn),
-            "current schema should not trigger reset"
-        );
+    fn stale_save_does_not_regress_cumulative_after_floor_update() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let channel_id = alloy::primitives::B256::from([0x33; 32]);
+        let mut initial = sample_record(channel_id, 1, ChannelStatus::Active);
+        initial.cumulative_amount = 100;
+        save_channel_in_conn(&conn, &initial).unwrap();
+
+        update_channel_cumulative_floor_in_conn(&conn, &format!("{channel_id:#x}"), 150).unwrap();
+
+        let mut stale = initial;
+        stale.cumulative_amount = 120;
+        stale.last_used_at = 2;
+        save_channel_in_conn(&conn, &stale).unwrap();
+
+        let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("channel should load");
+        assert_eq!(loaded.cumulative_amount_u128(), 150);
     }
 
     #[test]
-    fn test_concurrent_writers_see_session_after_lock_release() {
-        let (_tmp, conn) = test_db();
+    fn load_channels_by_origin_returns_all_matching_records_ordered() {
+        let temp = tempdir().unwrap();
+        std::env::set_var("TEMPO_HOME", temp.path());
 
-        // Writer 1: acquires lock, saves session, releases lock
-        let r1 = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
-        save_session_conn(&conn, &r1).unwrap();
-
-        // Writer 2: acquires lock after writer 1, should see writer 1's session
-        let key = session_key("https://openrouter.mpp.tempo.xyz");
-        let loaded = load_session_conn(&conn, &key).unwrap();
-        assert!(
-            loaded.is_some(),
-            "second writer must see session saved by first writer"
+        let first = sample_record(
+            alloy::primitives::B256::from([0x41; 32]),
+            10,
+            ChannelStatus::Active,
         );
-    }
+        let second = sample_record(
+            alloy::primitives::B256::from([0x42; 32]),
+            20,
+            ChannelStatus::Closing,
+        );
 
-    /// Demonstrates that without external locking, concurrent load-then-save
-    /// loses increments. Two writers each load cumulative_amount=100, add
-    /// their own tick, and save — the last writer wins, losing the other's
-    /// increment. This confirms the file lock in `flow.rs` is required.
-    #[test]
-    fn test_concurrent_load_modify_save_without_lock_loses_increment() {
-        let (_tmp, conn) = test_db();
+        save_channel(&first).unwrap();
+        save_channel(&second).unwrap();
+        let rows = load_channels_by_origin("https://api.example.com").unwrap();
 
-        let mut r = test_record("https://openrouter.mpp.tempo.xyz", "salt_1");
-        r.cumulative_amount = 100;
-        save_session_conn(&conn, &r).unwrap();
-
-        let key = session_key("https://openrouter.mpp.tempo.xyz");
-
-        // Both "workers" load the same snapshot (cumulative_amount = 100)
-        let snap_a = load_session_conn(&conn, &key).unwrap().unwrap();
-        let snap_b = load_session_conn(&conn, &key).unwrap().unwrap();
-
-        // Worker A adds 50, worker B adds 80 — both from stale base
-        let mut rec_a = snap_a;
-        rec_a.cumulative_amount += 50; // 150
-        save_session_conn(&conn, &rec_a).unwrap();
-
-        let mut rec_b = snap_b;
-        rec_b.cumulative_amount += 80; // 180 (from stale 100, not 150)
-        save_session_conn(&conn, &rec_b).unwrap();
-
-        let final_rec = load_session_conn(&conn, &key).unwrap().unwrap();
-        // Without locking the correct result would be 100 + 50 + 80 = 230.
-        // The last writer wins so we get 180 — worker A's 50 is lost.
+        assert_eq!(rows.len(), 2);
         assert_eq!(
-            final_rec.cumulative_amount, 180,
-            "last-writer-wins: worker A's increment is lost without locking"
+            rows[0].channel_id,
+            alloy::primitives::B256::from([0x42; 32]),
+            "most recently used channel should appear first"
         );
-        assert_ne!(
-            final_rec.cumulative_amount, 230,
-            "without locking the combined increment is NOT preserved"
+        assert_eq!(
+            rows[1].channel_id,
+            alloy::primitives::B256::from([0x41; 32])
         );
     }
 }

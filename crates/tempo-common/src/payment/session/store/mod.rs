@@ -1,13 +1,11 @@
-//! Session storage: model, persistence, and locking.
+//! Channel storage: model and persistence.
 
-mod lock;
 mod model;
 mod storage;
 
-pub use lock::{acquire_origin_lock, SessionLock};
-pub use model::{now_secs, session_key, SessionRecord, SessionStatus};
+pub use model::{now_secs, session_key, ChannelRecord, ChannelStatus};
 pub use storage::{
-    delete_session, delete_session_by_channel_id, list_sessions, load_session,
-    load_session_by_channel_id, save_session, take_store_diagnostics,
-    update_session_close_state_by_channel_id, SessionStoreDiagnostics,
+    delete_channel, find_reusable_channel, list_channels, load_channel, load_channels_by_origin,
+    save_channel, take_channel_store_diagnostics, update_channel_close_state,
+    update_channel_cumulative_floor, ChannelStoreDiagnostics,
 };

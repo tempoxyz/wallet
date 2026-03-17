@@ -6,7 +6,12 @@ use qrcode::render::unicode;
 
 use crate::wallet::{query_all_balances, TokenBalance};
 use tempo_common::{
-    cli::{context::Context, output, output::OutputFormat, terminal::address_link},
+    cli::{
+        context::Context,
+        output,
+        output::OutputFormat,
+        terminal::{address_link, sanitize_for_terminal},
+    },
     error::{NetworkError, TempoError},
 };
 
@@ -232,7 +237,8 @@ fn render_relay_status(source_chain: &str, status: &DepositStatus) {
             eprintln!("  Bridge delayed, still processing...");
         }
         other => {
-            eprintln!("  Bridge status: {other}");
+            let safe_status = sanitize_for_terminal(other);
+            eprintln!("  Bridge status: {safe_status}");
         }
     }
 }

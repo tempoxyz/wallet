@@ -9,11 +9,10 @@ use crate::mock::{MockRpcServer, MockServer};
 
 // ── Wallet constants ────────────────────────────────────────────────────
 
-/// Hardhat account #0 private key (secp256k1).
-pub const HARDHAT_PRIVATE_KEY: &str =
+pub const MODERATO_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-/// Standard keys.toml for Moderato charge tests (Hardhat #0, Direct signing mode).
+/// Standard keys.toml for Moderato charge tests.
 pub const MODERATO_DIRECT_KEYS_TOML: &str = r#"
 [[keys]]
 wallet_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -35,7 +34,7 @@ provisioned = true
 // ── Payment challenge constants ─────────────────────────────────────────
 
 /// Base64url-no-padding of canonical JSON for a Moderato charge challenge
-/// (1 USDC to Hardhat #1, chain 42431).
+/// (1 USDC to address, chain 42431).
 pub const MODERATO_CHARGE_CHALLENGE: &str = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
 
 /// Build a WWW-Authenticate header for a Moderato charge challenge.
@@ -136,32 +135,31 @@ pub fn setup_config_only(temp: &TempDir, rpc_base_url: &str) {
 
 // ── Session seeder ──────────────────────────────────────────────────────
 
-/// Seed a local session record directly into the sessions database for tests.
+/// Seed a local session record directly into the channels database for tests.
 ///
 /// # Panics
 ///
 /// Panics when opening or mutating the `SQLite` session database fails.
 pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
-    let db_path = temp_dir.path().join(".tempo/wallet/sessions.db");
+    let db_path = temp_dir.path().join(".tempo/wallet/channels.db");
     if let Some(parent) = db_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let conn = Connection::open(&db_path).expect("open sessions.db");
+    let conn = Connection::open(&db_path).expect("open channels.db");
     conn.execute_batch(
         "PRAGMA user_version=1;\n
-         CREATE TABLE IF NOT EXISTS sessions (
-            key               TEXT PRIMARY KEY,
+         CREATE TABLE IF NOT EXISTS channels (
+            channel_id        TEXT PRIMARY KEY,
             version           INTEGER NOT NULL DEFAULT 1,
-            origin            TEXT NOT NULL UNIQUE,
+            origin            TEXT NOT NULL,
             request_url       TEXT NOT NULL DEFAULT '',
             chain_id          INTEGER NOT NULL,
             escrow_contract   TEXT NOT NULL,
-            currency          TEXT NOT NULL,
-            recipient         TEXT NOT NULL,
+            token             TEXT NOT NULL,
+            payee             TEXT NOT NULL,
             payer             TEXT NOT NULL,
             authorized_signer TEXT NOT NULL,
             salt              TEXT NOT NULL,
-            channel_id        TEXT NOT NULL,
             deposit           TEXT NOT NULL,
             cumulative_amount TEXT NOT NULL,
             challenge_echo    TEXT NOT NULL,
@@ -170,9 +168,10 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             grace_ready_at     INTEGER NOT NULL DEFAULT 0,
             created_at        INTEGER NOT NULL,
             last_used_at      INTEGER NOT NULL
-        );",
+        );
+        CREATE INDEX IF NOT EXISTS idx_channels_origin ON channels(origin);",
     )
-    .expect("create sessions schema");
+    .expect("create channels schema");
 
     let now = i64::try_from(
         std::time::SystemTime::now()
@@ -181,40 +180,26 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             .as_secs(),
     )
     .expect("system time seconds should fit in i64");
-    let key = if origin.starts_with("https://example.com") {
-        "https___example.com".to_string()
-    } else {
-        origin
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect()
-    };
+    let channel_id = "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
     conn.execute(
-        "INSERT OR REPLACE INTO sessions (
-            key, version, origin, request_url, chain_id,
-            escrow_contract, currency, recipient, payer, authorized_signer,
-            salt, channel_id, deposit, cumulative_amount,
+        "INSERT OR REPLACE INTO channels (
+            channel_id, version, origin, request_url, chain_id,
+            escrow_contract, token, payee, payer, authorized_signer,
+            salt, deposit, cumulative_amount,
             challenge_echo, state, close_requested_at,
             grace_ready_at, created_at, last_used_at
         ) VALUES (?1, 1, ?2, ?3, 4217, ?4, ?5, ?6, ?7, ?8, ?9,
-                  ?10, ?11, ?12, ?13, 'active', 0, 0, ?14, ?15)",
+                  ?10, ?11, ?12, 'active', 0, 0, ?13, ?14)",
         rusqlite::params![
-            key,
+            channel_id,
             origin,
             origin,
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000001",
             "0x0000000000000000000000000000000000000002",
-            "did:pkh:eip155:4217:0x0000000000000000000000000000000000000003",
+            "0x0000000000000000000000000000000000000003",
             "0x0000000000000000000000000000000000000003",
             "0x00",
-            "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
             "1000000",
             "0",
             "{}",
@@ -222,7 +207,7 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             now,
         ],
     )
-    .expect("insert session record");
+    .expect("insert channel record");
 }
 
 /// Corrupt the deposit field for a seeded local session row.
@@ -231,10 +216,10 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
 ///
 /// Panics when opening or mutating the `SQLite` session database fails.
 pub fn corrupt_local_session_deposit(temp_dir: &TempDir, origin: &str, value: &str) {
-    let db_path = temp_dir.path().join(".tempo/wallet/sessions.db");
-    let conn = Connection::open(&db_path).expect("open sessions.db");
+    let db_path = temp_dir.path().join(".tempo/wallet/channels.db");
+    let conn = Connection::open(&db_path).expect("open channels.db");
     conn.execute(
-        "UPDATE sessions SET deposit = ?1 WHERE origin = ?2",
+        "UPDATE channels SET deposit = ?1 WHERE origin = ?2",
         rusqlite::params![value, origin],
     )
     .expect("update malformed session row");

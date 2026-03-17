@@ -195,6 +195,7 @@ When multiple services match a user request, choose in this order:
 - `tempo wallet -t whoami` checks wallet readiness, address, and balance.
 - `tempo wallet -t services --search <query>` finds providers.
 - `tempo wallet -t services <SERVICE_ID>` shows service URL, methods, paths, pricing.
+- `tempo wallet sessions close ...` uses deterministic target precedence: `--finalize` > `--orphaned` > `--all` > explicit target.
 - `tempo request -t --dry-run ...` previews cost without paying.
 - `tempo request -t ...` executes request and handles payment automatically.
 - `tempo wallet fund` adds funds to your wallet.

@@ -10,6 +10,8 @@ pub mod network;
 pub mod payment;
 pub mod security;
 
+pub use payment::session;
+
 use std::path::PathBuf;
 
 use crate::error::{ConfigError, TempoError};

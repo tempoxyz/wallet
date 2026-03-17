@@ -9,8 +9,8 @@ use tempo_primitives::transaction::Call;
 use super::{
     super::{
         channel::{get_channel_on_chain, read_grace_period, IEscrow},
-        store as session_store,
-        store::SessionStatus,
+        store,
+        store::ChannelStatus,
         tx::submit_tempo_tx,
         DEFAULT_GRACE_PERIOD_SECS,
     },
@@ -23,7 +23,30 @@ use crate::{
     network::NetworkId,
 };
 
-type SessionResult<T> = Result<T, TempoError>;
+type ChannelResult<T> = Result<T, TempoError>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseStep {
+    RequestClose,
+    Pending { remaining_secs: u64, ready_at: u64 },
+    Withdraw,
+}
+
+fn determine_close_step(close_requested_at: u64, grace_period: u64, now: u64) -> CloseStep {
+    if close_requested_at == 0 {
+        return CloseStep::RequestClose;
+    }
+
+    let ready_at = close_requested_at.saturating_add(grace_period);
+    if now < ready_at {
+        return CloseStep::Pending {
+            remaining_secs: ready_at - now,
+            ready_at,
+        };
+    }
+
+    CloseStep::Withdraw
+}
 
 /// Submit `requestClose()` or `withdraw()` directly on-chain as a Tempo type-0x76 transaction.
 ///
@@ -38,6 +61,11 @@ type SessionResult<T> = Result<T, TempoError>;
 /// - If 0: submits `requestClose()` and returns `Pending`
 /// - If non-zero and grace period elapsed: submits `withdraw()` and returns `Closed`
 /// - If non-zero but grace period not elapsed: returns `Pending`
+///
+/// Close timing policy: this client enforces the on-chain grace period exactly
+/// (`closeRequestedAt + gracePeriod`) and does not add an extra fixed cushion.
+/// This is an intentional interoperability-first choice; strict reference-mode
+/// behavior can add tighter policy checks at the CLI layer.
 pub(super) async fn close_on_chain(
     config: &Config,
     wallet: &Signer,
@@ -45,7 +73,7 @@ pub(super) async fn close_on_chain(
     escrow_contract: Address,
     chain_id: u64,
     fee_token: Address,
-) -> SessionResult<CloseOutcome> {
+) -> ChannelResult<CloseOutcome> {
     let network_id = NetworkId::require_chain_id(chain_id)?;
     let rpc_url = config.rpc_url(network_id);
     let provider = alloy::providers::RootProvider::new_http(rpc_url.clone());
@@ -62,67 +90,64 @@ pub(super) async fn close_on_chain(
 
     let from = wallet.from;
 
-    // If closeRequestedAt is 0, we need to call requestClose() first
-    if on_chain.close_requested_at == 0 {
-        let request_close_data = Bytes::from(
-            IEscrow::requestCloseCall {
-                channelId: channel_id,
-            }
-            .abi_encode(),
-        );
-
-        let calls = vec![Call {
-            to: TxKind::Call(escrow_contract),
-            value: U256::ZERO,
-            input: request_close_data,
-        }];
-
-        let tx_hash =
-            submit_tempo_tx(&tempo_provider, wallet, chain_id, fee_token, from, calls).await?;
-
-        let tx_url = network_id.tx_url(&tx_hash);
-        tracing::info!("requestClose TX: {}", tx_url);
-
-        let grace_secs = read_grace_period(&provider, escrow_contract)
-            .await
-            .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
-        let now = session_store::now_secs();
-        let ready_at = now + grace_secs;
-
-        // Update local session state if present
-        let _ = session_store::update_session_close_state_by_channel_id(
-            channel_id,
-            SessionStatus::Closing,
-            now,
-            ready_at,
-        );
-
-        return Ok(CloseOutcome::Pending {
-            remaining_secs: grace_secs,
-        });
-    }
-
-    // closeRequestedAt is non-zero — check if grace period has elapsed
     let grace_period = read_grace_period(&provider, escrow_contract)
         .await
         .unwrap_or(DEFAULT_GRACE_PERIOD_SECS);
-    let now = session_store::now_secs();
-    let ready_at = on_chain.close_requested_at + grace_period;
-    if now < ready_at {
-        let remaining = ready_at - now;
+    let now = store::now_secs();
 
-        // Ensure pending close is persisted so `session list` can show the countdown
-        // Update local session state if present
-        let _ = session_store::update_session_close_state_by_channel_id(
-            channel_id,
-            SessionStatus::Closing,
-            on_chain.close_requested_at,
+    match determine_close_step(on_chain.close_requested_at, grace_period, now) {
+        // If closeRequestedAt is 0, we need to call requestClose() first
+        CloseStep::RequestClose => {
+            let request_close_data = Bytes::from(
+                IEscrow::requestCloseCall {
+                    channelId: channel_id,
+                }
+                .abi_encode(),
+            );
+
+            let calls = vec![Call {
+                to: TxKind::Call(escrow_contract),
+                value: U256::ZERO,
+                input: request_close_data,
+            }];
+
+            let tx_hash =
+                submit_tempo_tx(&tempo_provider, wallet, chain_id, fee_token, from, calls).await?;
+
+            let tx_url = network_id.tx_url(&tx_hash);
+            tracing::info!("requestClose TX: {}", tx_url);
+
+            let ready_at = now + grace_period;
+
+            // Update local channel state if present
+            let _ = store::update_channel_close_state(
+                &format!("{channel_id:#x}"),
+                ChannelStatus::Closing,
+                now,
+                ready_at,
+            );
+
+            return Ok(CloseOutcome::Pending {
+                remaining_secs: grace_period,
+            });
+        }
+        // closeRequestedAt is non-zero and grace has not elapsed.
+        CloseStep::Pending {
+            remaining_secs,
             ready_at,
-        );
+        } => {
+            // Ensure pending close is persisted so `session list` can show the countdown
+            // Update local channel state if present
+            let _ = store::update_channel_close_state(
+                &format!("{channel_id:#x}"),
+                ChannelStatus::Closing,
+                on_chain.close_requested_at,
+                ready_at,
+            );
 
-        return Ok(CloseOutcome::Pending {
-            remaining_secs: remaining,
-        });
+            return Ok(CloseOutcome::Pending { remaining_secs });
+        }
+        CloseStep::Withdraw => {}
     }
 
     // Grace period elapsed — submit withdraw() to reclaim deposit
@@ -146,9 +171,9 @@ pub(super) async fn close_on_chain(
     tracing::info!("withdraw TX: {}", tx_url);
 
     // Best-effort local cleanup is handled by callers, but mark state finalizable->finalized if present
-    let _ = session_store::update_session_close_state_by_channel_id(
-        channel_id,
-        SessionStatus::Finalizable,
+    let _ = store::update_channel_close_state(
+        &format!("{channel_id:#x}"),
+        ChannelStatus::Finalized,
         on_chain.close_requested_at,
         now,
     );
@@ -173,7 +198,7 @@ pub async fn close_discovered_channel(
     channel: &super::super::channel::DiscoveredChannel,
     config: &Config,
     keys: &Keystore,
-) -> SessionResult<CloseOutcome> {
+) -> ChannelResult<CloseOutcome> {
     let network_id = channel.network;
     let wallet = keys.signer(network_id)?;
 
@@ -183,7 +208,7 @@ pub async fn close_discovered_channel(
         channel.channel_id,
         channel.escrow_contract,
         network_id.chain_id(),
-        channel.currency,
+        channel.token,
     )
     .await
 }
@@ -204,7 +229,7 @@ pub async fn close_channel_by_id(
     network: NetworkId,
     wallet_override: Option<&Signer>,
     keys: &Keystore,
-) -> SessionResult<CloseOutcome> {
+) -> ChannelResult<CloseOutcome> {
     let channel_id: B256 =
         channel_id_hex
             .parse()
@@ -238,7 +263,34 @@ pub async fn close_channel_by_id(
         channel_id,
         escrow,
         network.chain_id(),
-        on_chain.currency,
+        on_chain.token,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{determine_close_step, CloseStep};
+
+    #[test]
+    fn determine_close_step_requests_close_when_not_started() {
+        assert_eq!(determine_close_step(0, 900, 1_000), CloseStep::RequestClose);
+    }
+
+    #[test]
+    fn determine_close_step_returns_pending_with_remaining_seconds() {
+        assert_eq!(
+            determine_close_step(1_000, 900, 1_200),
+            CloseStep::Pending {
+                remaining_secs: 700,
+                ready_at: 1_900,
+            }
+        );
+    }
+
+    #[test]
+    fn determine_close_step_returns_withdraw_when_grace_elapsed() {
+        assert_eq!(determine_close_step(1_000, 900, 1_900), CloseStep::Withdraw);
+        assert_eq!(determine_close_step(1_000, 900, 2_000), CloseStep::Withdraw);
+    }
 }

@@ -13,7 +13,7 @@ use serde::Serialize;
 use tempo_primitives::transaction::Call;
 
 use tempo_common::{
-    cli::{context::Context as CliContext, output},
+    cli::{context::Context, output},
     error::{InputError, NetworkError, TempoError},
     payment::session::submit_tempo_tx,
 };
@@ -161,7 +161,7 @@ struct TransferResponse {
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn run(
-    ctx: &CliContext,
+    ctx: &Context,
     amount: String,
     token_input: String,
     to: String,

@@ -61,7 +61,7 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
     let keys = join_all(key_info_tasks).await;
 
     let response = KeysResponse::new(keys);
-    let sessions = session::list_sessions().unwrap_or_default();
+    let sessions = session::list_channels().unwrap_or_default();
 
     output::emit_by_format(ctx.output_format, &response, || {
         render_keys(&response, keystore, &sessions);
@@ -75,7 +75,7 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
 // Text rendering
 // ---------------------------------------------------------------------------
 
-fn render_keys(response: &KeysResponse, keystore: &Keystore, sessions: &[session::SessionRecord]) {
+fn render_keys(response: &KeysResponse, keystore: &Keystore, sessions: &[session::ChannelRecord]) {
     if response.keys.is_empty() {
         println!("No keys configured.");
         return;

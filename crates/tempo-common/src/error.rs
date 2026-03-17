@@ -85,6 +85,10 @@ pub enum InputError {
         "Specify a URL, channel ID (0x...), or use --all/--orphaned/--finalize to close sessions"
     )]
     MissingSessionCloseTarget,
+    #[error("--cooperative cannot be combined with --all, --orphaned, or --finalize")]
+    InvalidSessionCloseCooperativeCombination,
+    #[error("--cooperative requires a local session record for the target channel")]
+    SessionCloseCooperativeRequiresLocalRecord,
     #[error("Invalid channel ID format: expected 0x-prefixed bytes32 hex")]
     InvalidChannelIdFormat,
     #[error("channel ID must be 66 characters (0x + 64 hex digits), got {actual}")]
@@ -324,24 +328,30 @@ pub enum PaymentError {
     MissingHeader(String),
     #[error("Challenge expired: {0}")]
     ChallengeExpired(String),
-    #[error("Session persistence error during {operation}: {reason}")]
-    SessionPersistence {
+    #[error("Channel persistence error during {operation}: {reason}")]
+    ChannelPersistence {
         operation: &'static str,
         reason: String,
     },
-    #[error("Session persistence error during {operation}: {source}")]
-    SessionPersistenceSource {
+    #[error("Channel persistence error during {operation}: {source}")]
+    ChannelPersistenceSource {
         operation: &'static str,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
-    #[error("Session persistence error during {operation}: {context}: {source:#}")]
-    SessionPersistenceContextSource {
+    #[error("Channel persistence error during {operation}: {context}: {source:#}")]
+    ChannelPersistenceContextSource {
         operation: &'static str,
         context: &'static str,
         #[source]
         source: Box<TempoError>,
     },
+    #[error("session stream idle timeout after {timeout_secs}s")]
+    SessionStreamIdleTimeout { timeout_secs: u64 },
+    #[error("session voucher retries exhausted after {max_retries} attempts")]
+    SessionVoucherRetryExhausted { max_retries: u32 },
+    #[error("session stream ended before completion: {reason}")]
+    SessionStreamIncomplete { reason: String },
     #[error("{0}")]
     Mpp(#[from] mpp::MppError),
 }
@@ -580,13 +590,13 @@ mod tests {
 
     #[test]
     fn test_session_persistence_display() {
-        let err = PaymentError::SessionPersistence {
+        let err = PaymentError::ChannelPersistence {
             operation: "load session",
             reason: "database locked".to_string(),
         };
         assert_eq!(
             err.to_string(),
-            "Session persistence error during load session: database locked"
+            "Channel persistence error during load session: database locked"
         );
     }
 
@@ -644,21 +654,21 @@ mod tests {
 
     #[test]
     fn test_session_persistence_source_display() {
-        let err = PaymentError::SessionPersistenceSource {
+        let err = PaymentError::ChannelPersistenceSource {
             operation: "save session",
             source: Box::new(std::io::Error::other("database locked")),
         };
 
         assert_eq!(
             err.to_string(),
-            "Session persistence error during save session: database locked"
+            "Channel persistence error during save session: database locked"
         );
     }
 
     #[test]
     fn test_session_persistence_context_source_display() {
         let source: TempoError = InputError::InvalidMethod("BAD".to_string()).into();
-        let err = PaymentError::SessionPersistenceContextSource {
+        let err = PaymentError::ChannelPersistenceContextSource {
             operation: "session request reuse",
             context: "Session request failed; session state preserved for on-chain dispute",
             source: Box::new(source),
@@ -666,7 +676,33 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "Session persistence error during session request reuse: Session request failed; session state preserved for on-chain dispute: Invalid HTTP method: BAD"
+            "Channel persistence error during session request reuse: Session request failed; session state preserved for on-chain dispute: Invalid HTTP method: BAD"
+        );
+    }
+
+    #[test]
+    fn test_session_stream_idle_timeout_display() {
+        let err = PaymentError::SessionStreamIdleTimeout { timeout_secs: 30 };
+        assert_eq!(err.to_string(), "session stream idle timeout after 30s");
+    }
+
+    #[test]
+    fn test_session_voucher_retry_exhausted_display() {
+        let err = PaymentError::SessionVoucherRetryExhausted { max_retries: 5 };
+        assert_eq!(
+            err.to_string(),
+            "session voucher retries exhausted after 5 attempts"
+        );
+    }
+
+    #[test]
+    fn test_session_stream_incomplete_display() {
+        let err = PaymentError::SessionStreamIncomplete {
+            reason: "missing completion marker".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "session stream ended before completion: missing completion marker"
         );
     }
 }

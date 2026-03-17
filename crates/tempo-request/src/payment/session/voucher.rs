@@ -7,7 +7,7 @@ use mpp::{
     ChallengeEcho,
 };
 
-use super::SessionState;
+use super::ChannelState;
 use tempo_common::error::{KeyError, TempoError};
 
 /// Build a `SessionCredentialPayload::Open` with the given transaction bytes.
@@ -30,13 +30,13 @@ pub(super) fn build_open_payload(
 
 /// Build a voucher credential for an existing session.
 pub(super) async fn build_voucher_credential(
-    signer: &alloy::signers::local::PrivateKeySigner,
+    signer: &tempo_common::keys::Signer,
     echo: &ChallengeEcho,
     did: &str,
-    state: &SessionState,
+    state: &ChannelState,
 ) -> Result<mpp::PaymentCredential, TempoError> {
     let sig = sign_voucher(
-        signer,
+        &signer.signer,
         state.channel_id,
         state.cumulative_amount,
         state.escrow_contract,
@@ -59,4 +59,18 @@ pub(super) async fn build_voucher_credential(
         did.to_string(),
         payload,
     ))
+}
+
+/// Build a `SessionCredentialPayload::TopUp` from a signed top-up transaction.
+pub(super) fn build_top_up_payload(
+    channel_id: B256,
+    transaction: String,
+    additional_deposit: u128,
+) -> SessionCredentialPayload {
+    SessionCredentialPayload::TopUp {
+        payload_type: "transaction".to_string(),
+        channel_id: format!("{channel_id:#x}"),
+        transaction,
+        additional_deposit: additional_deposit.to_string(),
+    }
 }

@@ -1,5 +1,7 @@
 //! HTTP response formatting and display helpers.
 
+use tempo_common::cli::terminal::sanitize_for_terminal;
+
 /// Format an HTTP status code + reason for error messages.
 pub(crate) fn format_http_error(status: u16) -> String {
     format!("{} {}", status, http_status_text(status))
@@ -27,7 +29,9 @@ const fn http_status_text(code: u16) -> &'static str {
 pub(crate) fn print_headers(status: u16, headers: &[(String, String)]) {
     println!("HTTP {status}");
     for (name, value) in headers {
-        println!("{name}: {value}");
+        let safe_name = sanitize_for_terminal(name);
+        let safe_value = sanitize_for_terminal(value);
+        println!("{safe_name}: {safe_value}");
     }
     println!();
 }

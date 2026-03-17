@@ -4,7 +4,9 @@ use super::{
     args::GlobalArgs,
     context, exit_codes,
     output::{self, OutputFormat},
-    runtime, tracking,
+    runtime,
+    terminal::sanitize_for_terminal,
+    tracking,
 };
 use crate::{
     analytics::{events, KeystoreLoadDegradedPayload, SessionStoreDegradedPayload},
@@ -58,7 +60,7 @@ where
     let (cmd_name, result) = handler(ctx).await;
     let duration = start.elapsed();
 
-    let session_store_diagnostics = session::take_store_diagnostics();
+    let session_store_diagnostics = session::take_channel_store_diagnostics();
     let keystore_diagnostics = keys::take_keystore_load_summary();
     if let Some(ref a) = analytics {
         if session_store_diagnostics.malformed_load_drops > 0
@@ -135,7 +137,9 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), TempoError>) {
             );
         }
         OutputFormat::Text => {
-            eprintln!("Error: {e:#}");
+            let rendered = format!("{e:#}");
+            let safe_error = sanitize_for_terminal(&rendered);
+            eprintln!("Error: {safe_error}");
         }
     }
     exit_codes::ExitCode::from(&e).exit();

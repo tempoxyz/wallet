@@ -12,6 +12,8 @@ Wallet identity and custody extension for the Tempo CLI. Manages authentication,
 | `tempo wallet keys` | List keys with balance and spending limit details |
 | `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
 | `tempo wallet sessions list` | List payment sessions |
+| `tempo wallet sessions close` | Close by origin or channel ID, or batch close/finalize/orphaned |
+| `tempo wallet sessions sync` | Reconcile local sessions against on-chain state |
 | `tempo wallet services` | Browse the MPP service directory |
 | `tempo wallet mpp-sign` | Sign an MPP payment challenge |
 

@@ -8,7 +8,7 @@ use std::{
 use alloy::primitives::{utils::format_units, U256};
 
 use tempo_common::{
-    config::Config, keys::KeyEntry, network::NetworkId, payment::session::SessionRecord,
+    config::Config, keys::KeyEntry, network::NetworkId, payment::session::ChannelRecord,
 };
 
 use super::{
@@ -40,17 +40,17 @@ pub(crate) async fn build_key_info(
     } else {
         None
     };
-    let (symbol, currency, spending_limit) = match key_token_info {
+    let (symbol, token, spending_limit) = match key_token_info {
         Some((sym, cur, sl)) => (Some(sym), Some(cur), Some(sl)),
         None => (None, None, None),
     };
 
     let (wallet_addr, balance) = entry.wallet_address_hex().map_or((None, None), |wallet| {
         let cache_key = (wallet.clone(), entry.chain_id);
-        let bal = currency.as_ref().and_then(|cur| {
+        let bal = token.as_ref().and_then(|cur| {
             balance_cache
                 .get(&cache_key)
-                .and_then(|all| all.iter().find(|tb| tb.currency == *cur))
+                .and_then(|all| all.iter().find(|tb| tb.token == *cur))
                 .map(|tb| tb.balance.clone())
         });
         (Some(wallet), bal)
@@ -67,7 +67,7 @@ pub(crate) async fn build_key_info(
         wallet_address: wallet_addr,
         wallet_type: Some(wt.to_string()),
         symbol,
-        currency,
+        token,
         balance,
         spending_limit,
         expires_at,
@@ -154,7 +154,7 @@ pub(crate) fn balance_breakdown(
     available_str: &str,
     sym: &str,
     chain_id: Option<u64>,
-    sessions: &[SessionRecord],
+    sessions: &[ChannelRecord],
 ) -> Option<BalanceBreakdown> {
     let (locked_raw, locked_str, session_count, decimals) =
         compute_locked(sym, chain_id, sessions)?;
@@ -178,7 +178,7 @@ pub(crate) fn balance_breakdown(
 fn compute_locked(
     sym: &str,
     chain_id: Option<u64>,
-    sessions: &[SessionRecord],
+    sessions: &[ChannelRecord],
 ) -> Option<(u128, String, usize, usize)> {
     if sessions.is_empty() {
         return None;

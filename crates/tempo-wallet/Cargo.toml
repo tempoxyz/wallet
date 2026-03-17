@@ -42,6 +42,8 @@ zeroize.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true
+axum.workspace = true
+rusqlite.workspace = true
 serde_json.workspace = true
 serial_test.workspace = true
 tempfile.workspace = true

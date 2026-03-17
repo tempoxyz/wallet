@@ -2,3 +2,5 @@
 
 pub mod classify;
 pub mod session;
+
+pub use classify::*;

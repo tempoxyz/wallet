@@ -107,7 +107,7 @@ impl<'a> PaymentAnalytics<'a> {
     pub(crate) fn track_success(
         &self,
         tx_hash: Option<String>,
-        session_id: Option<String>,
+        channel_id: Option<String>,
         url: &str,
         method: &str,
         status_code: u16,
@@ -121,7 +121,7 @@ impl<'a> PaymentAnalytics<'a> {
                 currency: self.currency.to_string(),
                 intent: self.intent.to_string(),
                 tx_hash,
-                session_id,
+                channel_id,
             },
         );
         track_query_success(self.ctx, url, method, status_code);

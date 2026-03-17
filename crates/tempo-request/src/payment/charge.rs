@@ -12,8 +12,11 @@ use tempo_common::{
     keys::Signer,
 };
 
-use super::types::{PaymentResult, ResolvedChallenge};
-use tempo_common::payment::classify::{classify_payment_error, map_mpp_validation_error};
+use super::{
+    lock::{acquire_origin_lock, origin_lock_key},
+    types::{PaymentResult, ResolvedChallenge},
+};
+use tempo_common::payment::{classify_payment_error, map_mpp_validation_error};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").
 ///
@@ -30,6 +33,21 @@ pub(super) async fn handle_charge_request(
     challenge
         .validate_for_charge("tempo")
         .map_err(|e| map_mpp_validation_error(e, challenge))?;
+
+    if http.dry_run {
+        eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
+        return Ok(PaymentResult {
+            tx_hash: None,
+            channel_id: None,
+            status_code: 200,
+            response: None,
+        });
+    }
+
+    // Serialize charge submissions per origin before building/submitting payment
+    // credentials to avoid duplicate expiring-nonce tx races under overlap.
+    let lock_key = origin_lock_key(url);
+    let _charge_lock = acquire_origin_lock(&lock_key)?;
 
     let provider =
         mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str())
@@ -51,16 +69,6 @@ pub(super) async fn handle_charge_request(
         }
     })?;
 
-    if http.dry_run {
-        eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
-        return Ok(PaymentResult {
-            tx_hash: None,
-            session_id: None,
-            status_code: 200,
-            response: None,
-        });
-    }
-
     let headers = vec![("Authorization".to_string(), auth_header)];
     let resp = http.execute(url, &headers).await?;
 
@@ -68,14 +76,25 @@ pub(super) async fn handle_charge_request(
         return Err(parse_payment_rejection(&resp).into());
     }
 
-    let tx_hash = resp.header("payment-receipt").and_then(|h| {
-        mpp::protocol::core::extract_tx_hash(h)
-            .or_else(|| mpp::parse_receipt(h).ok().map(|r| r.reference))
-    });
+    let tx_hash = match resp.header("payment-receipt") {
+        Some(header) => {
+            if let Err(source) = mpp::parse_receipt(header) {
+                eprintln!(
+                    "Warning: ignoring invalid Payment-Receipt on paid charge response: {source}"
+                );
+            }
+            mpp::protocol::core::extract_tx_hash(header)
+                .or_else(|| mpp::parse_receipt(header).ok().map(|r| r.reference))
+        }
+        None => {
+            eprintln!("Warning: missing Payment-Receipt on successful paid charge response");
+            None
+        }
+    };
 
     Ok(PaymentResult {
         tx_hash,
-        session_id: None,
+        channel_id: None,
         status_code: resp.status_code,
         response: Some(resp),
     })
@@ -84,7 +103,7 @@ pub(super) async fn handle_charge_request(
 /// Parse a non-200 response after payment submission into a descriptive error.
 fn parse_payment_rejection(response: &HttpResponse) -> PaymentError {
     let raw_reason = if let Ok(body) = response.body_string() {
-        if let Some(msg) = tempo_common::payment::classify::extract_json_error(&body) {
+        if let Some(msg) = tempo_common::payment::extract_json_error(&body) {
             msg
         } else if serde_json::from_str::<serde_json::Value>(&body).is_ok() {
             // Valid JSON but no known error field

@@ -55,7 +55,7 @@ tempo request https://fal.mpp.tempo.xyz/fal-ai/flux/schnell \
 | `tempo wallet services` | Browse the MPP service directory |
 | `tempo wallet services <ID>` | Show detailed info for a service |
 | `tempo wallet sessions list` | List sessions (active/orphaned/closing) |
-| `tempo wallet sessions close [--all\|<URL>]` | Close sessions or channels |
+| `tempo wallet sessions close [<URL\|CHANNEL_ID>] [--all\|--orphaned\|--finalize\|--cooperative\|--dry-run]` | Close local and/or orphaned channels with finalize/cooperative controls |
 | `tempo wallet mpp-sign` | Sign an MPP challenge and output the Authorization header |
 | `tempo request <URL>` | Make an HTTP request with automatic MPP payment |
 | `tempo request --dry-run <URL>` | Preview cost without paying |
@@ -85,7 +85,7 @@ All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
 |------|------|-------------|
 | Config | `~/.tempo/config.toml` | RPC overrides, telemetry |
 | Keys | `~/.tempo/wallet/keys.toml` | Wallet keys (mode 0600) |
-| Sessions | `~/.tempo/wallet/sessions.db` | Payment session state |
+| Channels | `~/.tempo/wallet/channels.db` | Persisted channel state used for session reuse and close flows |
 
 ## Telemetry
 
