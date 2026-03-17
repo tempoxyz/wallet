@@ -12,8 +12,7 @@ use alloy::{
 };
 use tempo_primitives::transaction::Call;
 
-use mpp::client::tempo::signing::keychain;
-use mpp::client::tempo::{charge::tx_builder, signing};
+use mpp::client::tempo::{charge::tx_builder, signing, signing::keychain};
 
 use crate::{
     error::{KeyError, NetworkError, TempoError},
@@ -52,9 +51,6 @@ const EXPIRING_NONCE_KEY: U256 = U256::MAX;
 /// Validity window (in seconds) for expiring nonce transactions.
 const VALID_BEFORE_SECS: u64 = 25;
 
-/// Marker used by provider errors when an authorization key is already present on-chain.
-const KEY_ALREADY_EXISTS_MARKER: &str = "KeyAlreadyExists";
-
 /// Compute the expiring nonce validity window.
 fn expiring_valid_before() -> u64 {
     std::time::SystemTime::now()
@@ -64,12 +60,8 @@ fn expiring_valid_before() -> u64 {
         + VALID_BEFORE_SECS
 }
 
-fn is_key_already_exists_error(err: &impl std::fmt::Display) -> bool {
-    err.to_string().contains(KEY_ALREADY_EXISTS_MARKER)
-}
-
 /// On-chain key status from the keychain precompile.
-enum KeyStatus {
+pub enum KeyStatus {
     /// Key is active and provisioned on-chain.
     Active,
     /// Key has never been provisioned (expiry == 0).
@@ -81,7 +73,7 @@ enum KeyStatus {
 }
 
 /// Query the on-chain key status via the keychain precompile.
-async fn query_key_status(
+pub async fn query_key_status(
     provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
     wallet: Address,
     key: Address,
@@ -156,28 +148,6 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
 
     let gas_limit = match gas_result {
         Ok(gas) => gas,
-        Err(e) if key_auth.is_some() && is_key_already_exists_error(&e) => {
-            // Key is already on-chain but we included auth — retry without it.
-            key_auth = None;
-            tx_builder::estimate_gas(
-                provider,
-                from,
-                chain_id,
-                nonce,
-                effective_fee_token,
-                &calls,
-                MAX_FEE_PER_GAS,
-                MAX_PRIORITY_FEE_PER_GAS,
-                None,
-                EXPIRING_NONCE_KEY,
-                valid_before,
-            )
-            .await
-            .map_err(|source| KeyError::SigningOperationSource {
-                operation: "estimate gas (retry without key authorization)",
-                source: Box::new(source),
-            })?
-        }
         Err(e) if wallet.has_stored_key_authorization() => {
             // Gas estimation failed and we have a stored authorization.
             // Check on-chain whether the key is registered; only retry with
@@ -376,14 +346,6 @@ mod tests {
         assert_eq!(MAX_FEE_PER_GAS, 41_000_000_000); // 41 gwei
         assert_eq!(MAX_PRIORITY_FEE_PER_GAS, 1_000_000_000); // 1 gwei
         assert_eq!(EXPIRING_NONCE_KEY, U256::MAX);
-    }
-
-    #[test]
-    fn test_key_already_exists_detector() {
-        assert!(is_key_already_exists_error(
-            &"rpc failure: KeyAlreadyExists"
-        ));
-        assert!(!is_key_already_exists_error(&"rpc failure: nonce too low"));
     }
 
     #[test]

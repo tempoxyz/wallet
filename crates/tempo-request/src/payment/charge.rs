@@ -3,7 +3,6 @@
 //! This module handles the MPP protocol (<https://mpp.dev>) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
-use mpp::client::tempo::signing::keychain;
 use mpp::client::PaymentProvider;
 
 use crate::http::{HttpClient, HttpResponse};
@@ -11,6 +10,7 @@ use tempo_common::{
     cli::terminal::sanitize_for_terminal,
     error::{ConfigError, PaymentError, TempoError},
     keys::Signer,
+    payment::session::KeyStatus,
 };
 
 use super::{
@@ -72,16 +72,14 @@ pub(super) async fn handle_charge_request(
                 })?;
                 let rpc_provider =
                     alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
-                let kc = keychain::IAccountKeychain::new(keychain::KEYCHAIN_ADDRESS, &rpc_provider);
-                let is_missing = match kc.getKey(signer.from, signer.signer.address()).call().await
-                {
-                    Ok(info) => info.expiry == 0,
-                    // RPC failure or revoked/expired — don't auto-provision,
-                    // surface the original error.
-                    Err(_) => false,
-                };
+                let status = tempo_common::payment::session::query_key_status(
+                    &rpc_provider,
+                    signer.from,
+                    signer.signer.address(),
+                )
+                .await;
 
-                if is_missing {
+                if matches!(status, KeyStatus::Missing) {
                     let provisioning_signer = signer.with_key_authorization().unwrap();
                     let retry_provider = mpp::client::TempoProvider::new(
                         provisioning_signer.signer.clone(),
