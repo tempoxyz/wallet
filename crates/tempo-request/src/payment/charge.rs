@@ -8,7 +8,7 @@ use mpp::client::PaymentProvider;
 use crate::http::{HttpClient, HttpResponse};
 use tempo_common::{
     cli::terminal::sanitize_for_terminal,
-    error::{ConfigError, PaymentError, TempoError},
+    error::{ConfigError, KeyError, PaymentError, TempoError},
     keys::Signer,
     payment::session::KeyStatus,
 };
@@ -64,6 +64,10 @@ pub(super) async fn handle_charge_request(
             Err(e) if signer.has_stored_key_authorization() => {
                 // Payment failed — check on-chain if the key is definitively missing.
                 // Only retry with key_authorization if the key is missing on-chain.
+                //
+                // NOTE: Parallel retry logic exists in tempo-common session/tx.rs
+                // (resolve_and_sign_tx_with_fee_payer). Changes here should be
+                // mirrored there.
                 let rpc_url: url::Url = resolved.rpc_url.as_str().parse().map_err(|source| {
                     ConfigError::InvalidUrl {
                         context: "RPC",
@@ -80,7 +84,13 @@ pub(super) async fn handle_charge_request(
                 .await;
 
                 if matches!(status, KeyStatus::Missing) {
-                    let provisioning_signer = signer.with_key_authorization().unwrap();
+                    let provisioning_signer = signer.with_key_authorization().ok_or_else(|| {
+                        KeyError::SigningOperation {
+                            operation: "key provisioning",
+                            reason: "stored key authorization could not be applied to signing mode"
+                                .to_string(),
+                        }
+                    })?;
                     let retry_provider = mpp::client::TempoProvider::new(
                         provisioning_signer.signer.clone(),
                         resolved.rpc_url.as_str(),

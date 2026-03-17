@@ -61,6 +61,7 @@ fn expiring_valid_before() -> u64 {
 }
 
 /// On-chain key status from the keychain precompile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyStatus {
     /// Key is active and provisioned on-chain.
     Active,
@@ -68,6 +69,8 @@ pub enum KeyStatus {
     Missing,
     /// Key exists but has been revoked.
     Revoked,
+    /// Key exists but has expired (expiry < now).
+    Expired,
     /// RPC call failed — status unknown.
     Unknown,
 }
@@ -82,8 +85,21 @@ pub async fn query_key_status(
     match kc.getKey(wallet, key).call().await {
         Ok(info) if info.expiry == 0 => KeyStatus::Missing,
         Ok(info) if info.isRevoked => KeyStatus::Revoked,
-        Ok(_) => KeyStatus::Active,
-        Err(_) => KeyStatus::Unknown,
+        Ok(info) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            if info.expiry < now {
+                KeyStatus::Expired
+            } else {
+                KeyStatus::Active
+            }
+        }
+        Err(e) => {
+            tracing::debug!("RPC error querying key status for {key:#x}: {e}");
+            KeyStatus::Unknown
+        }
     }
 }
 
@@ -152,9 +168,18 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
             // Gas estimation failed and we have a stored authorization.
             // Check on-chain whether the key is registered; only retry with
             // key_authorization if the key is definitively missing.
+            //
+            // NOTE: Parallel retry logic exists in tempo-request charge.rs
+            // (handle_charge_request). Changes here should be mirrored there.
             match query_key_status(provider, from, wallet.signer.address()).await {
                 KeyStatus::Missing => {
-                    provisioning_signer = wallet.with_key_authorization().unwrap();
+                    provisioning_signer = wallet.with_key_authorization().ok_or_else(|| {
+                        KeyError::SigningOperation {
+                            operation: "key provisioning",
+                            reason: "stored key authorization could not be applied to signing mode"
+                                .to_string(),
+                        }
+                    })?;
                     effective_wallet = &provisioning_signer;
                     key_auth = effective_wallet.signing_mode.key_authorization();
                     tx_builder::estimate_gas(
@@ -176,8 +201,8 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
                         source: Box::new(source),
                     })?
                 }
-                // Key is active, revoked, or status unknown — surface the
-                // original error instead of retrying with auth.
+                // Key is active, revoked, expired, or status unknown — surface
+                // the original error instead of retrying with auth.
                 _ => {
                     return Err(KeyError::SigningOperationSource {
                         operation: "estimate gas",

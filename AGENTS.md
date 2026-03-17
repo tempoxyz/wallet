@@ -298,7 +298,6 @@ struct Config {
 - `key_authorization` — RLP-encoded on-chain authorization proof for this key
 - `expiry` — Unix timestamp for key authorization expiry
 - `limits` — Array of `{ currency: "0x...", limit: "..." }`
-- `provisioned` — Whether this key has been provisioned on-chain
 
 **Key Selection:** Deterministic: passkey > first key with `key` > first key (lexicographically). The old `active` field was removed.
 
