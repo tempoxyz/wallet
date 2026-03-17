@@ -50,9 +50,9 @@ pub(crate) enum Commands {
     #[command(after_help = "\
 Examples:
   tempo wallet transfer 1.00 0x20c0...b50 0x70997...9C8
-  tempo wallet transfer all 0x20c0...b50 0x70997...9C8 --dry-run")]
+  tempo wallet transfer 50 0x20c0...b50 0x70997...9C8 --dry-run")]
     Transfer {
-        /// Amount in human units ("1.00", "50", "all")
+        /// Amount in human units ("1.00", "50")
         amount: String,
         /// Token contract address (0x...)
         token: String,
