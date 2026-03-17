@@ -30,6 +30,12 @@ TEMPO="$USER_BIN/tempo"
 # 1) Ensure CLI exists (agent-safe: install user-local, no sudo)
 [ -x "$TEMPO" ] || (mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh)
 
+# 1b) Reload shell so tempo is on PATH
+#     bash:  source ~/.bashrc
+#     zsh:   source ~/.zshrc
+#     fish:  source ~/.config/fish/config.fish
+#     — or simply open a new terminal window/tab
+
 # 2) Update extensions to latest (avoids version skew)
 "$TEMPO" update wallet
 "$TEMPO" update mpp
