@@ -974,7 +974,7 @@ mod tests {
             realm: "test".to_string(),
             method: mpp::protocol::core::MethodName::from("tempo"),
             intent: mpp::protocol::core::IntentName::from("session"),
-            request: "e30".to_string(),
+            request: mpp::Base64UrlJson::from_raw("e30"),
             expires: None,
             digest: None,
             opaque: None,
