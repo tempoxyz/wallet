@@ -24,24 +24,24 @@ Run commands directly and only trigger recovery when a command fails due to miss
 
 - If `tempo` is missing, install with `curl -fsSL https://tempo.xyz/install | bash`, then retry.
 - If wallet auth is missing, run `tempo wallet login`, wait for user completion, then retry.
-- For first-call confidence, optionally run `tempo wallet -t whoami` and continue when `ready` is `true`.
+- For first-call confidence, optionally run `tempo wallet whoami` and continue when `ready` is `true`.
 
 ## Agent Usage
 
-Use `-t` for TOON output — compact and token-efficient. Output defaults to JSON automatically when stdout is piped (non-TTY), but `-t` saves more tokens.
+TOON output is auto-enabled in agent environments (detected via `AGENT`, `CLAUDE_CODE`, `CODEX`, `AMP_THREAD_ID`, `CURSOR_TRACE_ID` env vars). No need to pass `-t` explicitly.
 
 ```bash
 # Check wallet readiness before making requests
-tempo wallet -t whoami
+tempo wallet whoami
 
 # List keys with balances and spending limits
-tempo wallet -t keys
+tempo wallet keys
 
 # Preview funding without executing
-tempo wallet -t fund --dry-run
+tempo wallet fund --dry-run
 
 # Discover command schema programmatically
-tempo wallet -t --describe
+tempo wallet --describe
 ```
 
 ### Preflight Check
@@ -49,7 +49,7 @@ tempo wallet -t --describe
 Before making paid requests with `tempo request`, verify the wallet is ready:
 
 ```bash
-tempo wallet -t whoami
+tempo wallet whoami
 ```
 
 Check these fields in the response:
@@ -140,11 +140,11 @@ These options are available on all commands:
 |--------|-------------|
 | `-v` | Verbose output (`-vv` debug, `-vvv` trace) |
 | `-s, --silent` | Suppress non-essential stderr output |
-| `-t, --toon-output` | TOON output — compact, token-efficient (recommended for agents) |
+| `-t, --toon-output` | TOON output — compact, token-efficient (auto-enabled in agent environments) |
 | `-j, --json-output` | JSON output |
 | `--describe` | Emit command schema as JSON (hidden) |
 
-**Auto-detection:** When stdout is not a TTY (piped), output defaults to JSON automatically. Set `TEMPO_NO_AUTO_JSON=1` to disable.
+**Auto-detection:** TOON is auto-enabled in agent environments. When stdout is not a TTY (piped), output defaults to JSON. Set `TEMPO_NO_AUTO_JSON=1` to disable.
 
 ## Error Recovery
 

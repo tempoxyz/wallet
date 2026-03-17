@@ -22,7 +22,7 @@ Follow these steps in order:
 ### 1. Check wallet readiness
 
 ```bash
-tempo wallet -t whoami
+tempo wallet whoami
 ```
 
 Check `ready` is `true` and `balance` is sufficient. If `ready` is `false`, run `tempo wallet login` and retry.
@@ -33,16 +33,16 @@ Check `ready` is `true` and `balance` is sufficient. If `ready` is `false`, run 
 
 ```bash
 # List all available services
-tempo wallet -t services
+tempo wallet services
 
 # Search by category
-tempo wallet -t services --search ai
+tempo wallet services --search ai
 
 # Search by name, description, or tags
-tempo wallet -t services --search <QUERY>
+tempo wallet services --search <QUERY>
 
 # Show full details for a service (endpoints, pricing, docs)
-tempo wallet -t services <SERVICE_ID>
+tempo wallet services <SERVICE_ID>
 ```
 
 Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). Run `tempo wallet services <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
@@ -50,7 +50,7 @@ Each service is accessed via its MPP service URL (shown in the `Service URL` col
 ### 3. Make the request
 
 ```bash
-tempo request -t -X POST \
+tempo request -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 ```
@@ -59,8 +59,8 @@ Payment is automatic: sends request, gets 402 challenge, signs payment, retries 
 
 ## Important Rules
 
-- **Always discover before guessing.** Service URLs include provider-specific paths. Run `tempo wallet -t services` and `tempo wallet -t services <id>` first.
-- **Use `-t` for all agent calls.** TOON output is compact and token-efficient.
+- **Always discover before guessing.** Service URLs include provider-specific paths. Run `tempo wallet services` and `tempo wallet services <id>` first.
+- **TOON output is auto-enabled** in agent environments — no need to pass `-t` explicitly.
 - **Use `--dry-run` before expensive operations.** Preview cost without paying.
 - **Check balance before large operations.** Some calls can be expensive.
 
@@ -72,20 +72,20 @@ Run requests directly and only trigger recovery when a command fails due to miss
 
 - If `tempo` is missing, install with `curl -fsSL https://tempo.xyz/install | bash`, then retry.
 - If wallet auth is missing, run `tempo wallet login`, wait for user completion, then retry.
-- For first-call confidence, optionally run `tempo wallet -t whoami` and continue when `ready` is `true`.
+- For first-call confidence, optionally run `tempo wallet whoami` and continue when `ready` is `true`.
 
 ## Agent Usage
 
-Use `-t` for TOON output — compact and token-efficient. Output defaults to JSON automatically when stdout is piped (non-TTY), but `-t` saves more tokens.
+TOON output is auto-enabled in agent environments (detected via `AGENT`, `CLAUDE_CODE`, `CODEX`, `AMP_THREAD_ID`, `CURSOR_TRACE_ID` env vars). No need to pass `-t` explicitly.
 
 ```bash
 # Preview cost without paying
-tempo request -t --dry-run -X POST \
+tempo request --dry-run -X POST \
   --json '{"your":"payload"}' \
   <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Discover command schema programmatically
-tempo request -t --describe
+tempo request --describe
 ```
 
 ## Global Options
@@ -94,11 +94,11 @@ tempo request -t --describe
 |--------|-------------|
 | `-v` | Verbose output — shows payment flow details (intent, network, amount) (`-vv` debug, `-vvv` trace) |
 | `-s, --silent` | Suppress non-essential stderr output |
-| `-t, --toon-output` | TOON output — compact, token-efficient (recommended for agents) |
+| `-t, --toon-output` | TOON output — compact, token-efficient (auto-enabled in agent environments) |
 | `-j, --json-output` | JSON output |
 | `--describe` | Emit command schema as JSON (hidden) |
 
-**Auto-detection:** When stdout is not a TTY (piped), output defaults to JSON automatically. Set `TEMPO_NO_AUTO_JSON=1` to disable.
+**Auto-detection:** TOON is auto-enabled in agent environments. When stdout is not a TTY (piped), output defaults to JSON. Set `TEMPO_NO_AUTO_JSON=1` to disable.
 
 ## Request Options
 
