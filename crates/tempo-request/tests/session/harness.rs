@@ -377,15 +377,16 @@ fn encode_active_channel_return_data() -> String {
     let token = MODERATO_TOKEN.parse().unwrap();
     let authorized_signer = payer;
 
+    // New ABI order: (finalized, closeRequestedAt, payer, payee, token, authorizedSigner, deposit, settled)
     let mut encoded = Vec::with_capacity(32 * 8);
+    encoded.extend(encode_bool_word(false));
+    encoded.extend(encode_u64_word(0));
     encoded.extend(encode_address_word(payer));
     encoded.extend(encode_address_word(payee));
     encoded.extend(encode_address_word(token));
     encoded.extend(encode_address_word(authorized_signer));
     encoded.extend(encode_u128_word(10_000_000));
     encoded.extend(encode_u128_word(0));
-    encoded.extend(encode_u64_word(0));
-    encoded.extend(encode_bool_word(false));
 
     format!("0x{}", hex::encode(encoded))
 }
@@ -398,16 +399,16 @@ fn encode_missing_channel_return_data() -> String {
     let token = MODERATO_TOKEN.parse().unwrap();
     let authorized_signer = payer;
 
+    // New ABI order: (finalized, closeRequestedAt, payer, payee, token, authorizedSigner, deposit, settled)
     let mut encoded = Vec::with_capacity(32 * 8);
+    encoded.extend(encode_bool_word(false));
+    encoded.extend(encode_u64_word(0));
     encoded.extend(encode_address_word(payer));
     encoded.extend(encode_address_word(payee));
     encoded.extend(encode_address_word(token));
     encoded.extend(encode_address_word(authorized_signer));
-
     encoded.extend(encode_u128_word(0));
     encoded.extend(encode_u128_word(0));
-    encoded.extend(encode_u64_word(0));
-    encoded.extend(encode_bool_word(false));
 
     format!("0x{}", hex::encode(encoded))
 }
