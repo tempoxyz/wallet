@@ -131,7 +131,7 @@ Execution rules:
 - Read endpoint details from `tempo wallet -t services <SERVICE_ID>` and copy method/path exactly.
 - Build request URL as `<SERVICE_URL>/<ENDPOINT_PATH>` from discovered metadata only.
 - Prefer `--dry-run` first when endpoint cost is unclear.
-- Before first call to a new service, check the endpoint's `docs` URL (shown in service details) or fetch the service's `llms.txt` for request/response schemas. Field names vary across services (e.g., `query` vs `objective` vs `prompt`) and using the wrong schema returns HTTP 422.
+- **Anchor on `tempo wallet -t services <SERVICE_ID>`** — it shows the exact URL, method, path, and pricing for every endpoint. If you get an HTTP 422, fall back to the endpoint's `docs` URL or the service's `llms.txt` for exact field names.
 - For multi-service workflows (e.g., researching a topic across search + enrichment + social), fire independent requests in parallel to save time.
 
 Request templates:
@@ -182,7 +182,7 @@ When multiple services match a user request, choose in this order:
 | `ready=false` or `No wallet configured` | Wallet not logged in | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
 | "legacy V1 keychain signature is no longer accepted, use V2" | Outdated `tempo` launcher or extensions | Reinstall tempo: `curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then update extensions: `tempo update wallet && tempo update mpp && tempo update request`. Log out and back in: `tempo wallet logout --yes && tempo wallet login`. |
 | "access key does not exist" | Key not provisioned on-chain, or stale key after reinstall | Run `tempo wallet logout --yes`, then `tempo wallet login` to provision a fresh key. |
-| HTTP 422 on first request to a service | Wrong request schema — field names vary across services | Check the endpoint's `docs` URL from `tempo wallet -t services <SERVICE_ID>`, or fetch the service's `llms.txt` for exact field names and types. |
+| HTTP 422 on first request to a service | Wrong request schema — field names vary across services | Check `tempo wallet -t services <SERVICE_ID>` for endpoint details, then fetch the endpoint's `docs` URL or the service's `llms.txt` for exact field names and types. |
 | `$HOME` expansion fails ("no such file or directory") | Some agent shells don't expand `$HOME` | Use the full absolute path instead (e.g., `/Users/<user>/.local/bin/tempo`). |
 | Balance is 0 or insufficient funds | Wallet needs funding | Run `tempo wallet fund` or direct user to the wallet dashboard deposit link shown in `tempo wallet -t whoami`. |
 | Insufficient funds or spending limit exceeded | Balance too low or limit hit | Report clearly and stop; ask user to fund or adjust limits before retrying. |
