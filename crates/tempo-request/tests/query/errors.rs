@@ -74,9 +74,9 @@ async fn status_402_malformed_www_authenticate() {
         "malformed WWW-Authenticate should exit with E_PAYMENT",
     );
     let combined = get_combined_output(&output);
-    // Should error about missing Payment protocol or WWW-Authenticate
+    // Should error about unsupported/missing payment method
     assert!(
-        combined.contains("WWW-Authenticate") || combined.contains("Payment"),
+        combined.contains("payment method") || combined.contains("Payment"),
         "should mention invalid challenge: {combined}"
     );
 }
