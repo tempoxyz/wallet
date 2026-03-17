@@ -244,7 +244,7 @@ mod tests {
             "currency": "0x20c0000000000000000000000000000000000000",
             "recipient": "0x1111111111111111111111111111111111111111",
             "methodDetails": {
-                "escrowContract": "0x542831e3e4ace07559b7c8787395f4fb99f70787"
+                "escrowContract": tempo_common::network::TEMPO_MODERATO_ESCROW.to_string()
             }
         }))
         .unwrap();
@@ -298,7 +298,7 @@ mod tests {
                 "recipient": "0x1111111111111111111111111111111111111111",
                 "methodDetails": {
                     "chainId": 4217,
-                    "escrowContract": "0x542831e3e4ace07559b7c8787395f4fb99f70787"
+                    "escrowContract": tempo_common::network::TEMPO_MODERATO_ESCROW.to_string()
                 }
             }),
         );

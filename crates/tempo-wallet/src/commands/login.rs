@@ -308,8 +308,6 @@ fn save_keys(
 
     let entry = keys.upsert_by_wallet_address_and_chain(wallet_address, chain_id);
 
-    let keep_provisioned = entry.key_address_matches(access_key_address) && entry.provisioned;
-
     if let Some(ref v) = validated {
         entry.key_type = v.key_type;
         entry.expiry = Some(v.expiry);
@@ -321,7 +319,6 @@ fn save_keys(
     entry.set_key_address(Some(access_key_address));
     entry.key = Some(access_key_hex);
     entry.key_authorization = key_auth_hex;
-    entry.provisioned = keep_provisioned;
 
     keys.save()
 }

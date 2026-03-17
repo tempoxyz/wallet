@@ -55,12 +55,46 @@ pub(super) async fn handle_charge_request(
                 provider: "tempo payment provider",
                 source: Box::new(source),
             })?
-            .with_signing_mode(signer.signing_mode);
+            .with_signing_mode(signer.signing_mode.clone());
 
-    let credential = provider
-        .pay(challenge)
-        .await
-        .map_err(|e| classify_payment_error(e, &resolved.network_id))?;
+    let credential = match provider.pay(challenge).await {
+        Ok(cred) => cred,
+        Err(e) if signer.has_stored_key_authorization() => {
+            let rpc_url: url::Url =
+                resolved
+                    .rpc_url
+                    .as_str()
+                    .parse()
+                    .map_err(|source| ConfigError::InvalidUrl {
+                        context: "RPC",
+                        source,
+                    })?;
+            let rpc_provider =
+                alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
+
+            match tempo_common::payment::session::prepare_provisioning_retry(&signer, &rpc_provider)
+                .await?
+            {
+                Some(provisioning_signer) => {
+                    let retry_provider = mpp::client::TempoProvider::new(
+                        provisioning_signer.signer.clone(),
+                        resolved.rpc_url.as_str(),
+                    )
+                    .map_err(|source| ConfigError::ProviderInitSource {
+                        provider: "tempo payment provider (provisioning retry)",
+                        source: Box::new(source),
+                    })?
+                    .with_signing_mode(provisioning_signer.signing_mode);
+                    retry_provider
+                        .pay(challenge)
+                        .await
+                        .map_err(|e| classify_payment_error(e, &resolved.network_id))?
+                }
+                None => return Err(classify_payment_error(e, &resolved.network_id)),
+            }
+        }
+        Err(e) => return Err(classify_payment_error(e, &resolved.network_id)),
+    };
 
     let auth_header = mpp::format_authorization(&credential).map_err(|source| {
         PaymentError::ChallengeFormatSource {

@@ -261,14 +261,6 @@ pub(crate) async fn run(
     )
     .await?;
 
-    // Mark provisioned if this was the first tx
-    if !ctx.keys.is_provisioned(ctx.network) {
-        if let Some(wallet_address) = ctx.keys.wallet_address_parsed() {
-            ctx.keys
-                .mark_provisioned_address(ctx.network, wallet_address);
-        }
-    }
-
     let tx_url = ctx.network.tx_url(&tx_hash);
 
     let response = TransferResponse {

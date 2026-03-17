@@ -7,8 +7,6 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use alloy::primitives::Address;
-
 use crate::error::TempoError;
 
 use super::{KeyEntry, Keystore};
@@ -160,35 +158,6 @@ impl Keystore {
         }
         Ok(())
     }
-
-    /// Mark a network key as provisioned for a parsed wallet address.
-    pub fn mark_provisioned_address(
-        &self,
-        network: crate::network::NetworkId,
-        wallet_address: Address,
-    ) {
-        if self.ephemeral {
-            return;
-        }
-        let chain_id = network.chain_id();
-        let Ok(mut keys) = Self::load_from_disk() else {
-            return;
-        };
-        let Some(entry) = keys
-            .keys
-            .iter_mut()
-            .find(|k| k.chain_id == chain_id && k.wallet_address_matches(wallet_address))
-        else {
-            return;
-        };
-        if entry.provisioned {
-            return;
-        }
-        entry.provisioned = true;
-        if let Err(e) = keys.save() {
-            tracing::warn!("failed to persist provisioned flag: {e}");
-        }
-    }
 }
 
 /// Drain and return aggregated diagnostics about degraded keystore loads.
@@ -307,7 +276,6 @@ mod tests {
             key: Some(Zeroizing::new("0xaccesskey".to_string())),
             key_authorization: Some("pending123".to_string()),
             chain_id: 4217,
-            provisioned: true,
             ..Default::default()
         };
         keys.keys.push(key_entry);
@@ -321,8 +289,6 @@ mod tests {
             loaded.wallet_address(),
             "0x1111111111111111111111111111111111111111"
         );
-        assert!(loaded.is_provisioned(crate::network::NetworkId::Tempo));
-        assert!(!loaded.is_provisioned(crate::network::NetworkId::TempoModerato));
     }
 
     #[test]

@@ -965,6 +965,7 @@ mod tests {
             from: signer.address(),
             signer,
             signing_mode: mpp::client::tempo::signing::TempoSigningMode::Direct,
+            stored_key_authorization: None,
         }
     }
 

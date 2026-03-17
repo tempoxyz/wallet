@@ -172,14 +172,6 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
             status_code,
             response,
         }) => {
-            if let Some(wallet_address) = ctx.keys.wallet_address_parsed() {
-                ctx.keys
-                    .mark_provisioned_address(challenge_network, wallet_address);
-            } else {
-                tracing::warn!(
-                    "skipping provisioned persistence: active wallet address is invalid"
-                );
-            }
             pay_analytics.track_success(tx_hash, channel_id, &target_url, &method_str, status_code);
             if let Some(resp) = response {
                 // Display receipt summary for charge responses

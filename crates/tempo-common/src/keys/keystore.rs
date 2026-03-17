@@ -165,12 +165,6 @@ impl Keystore {
         self.primary_key().and_then(KeyEntry::wallet_address_hex)
     }
 
-    /// Check if a network's key is provisioned on-chain.
-    #[must_use]
-    pub fn is_provisioned(&self, network: NetworkId) -> bool {
-        self.key_for_network(network).is_some_and(|k| k.provisioned)
-    }
-
     /// Find the key for a given network.
     ///
     /// Matches on `chain_id`, then falls back to direct EOA keys
@@ -321,20 +315,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_provisioned() {
-        let mut keys = Keystore::default();
-        keys.keys.push(KeyEntry {
-            wallet_type: WalletType::Local,
-            wallet_address: "0xtest".to_string(),
-            chain_id: 4217,
-            provisioned: true,
-            ..Default::default()
-        });
-        assert!(keys.is_provisioned(NetworkId::Tempo));
-        assert!(!keys.is_provisioned(NetworkId::TempoModerato));
-    }
-
-    #[test]
     fn test_serialization_with_key() {
         let mut keys = Keystore::default();
         let key_entry = KeyEntry {
@@ -343,7 +323,6 @@ mod tests {
             key: Some(Zeroizing::new("0xaccesskey".to_string())),
             key_authorization: Some("auth123".to_string()),
             chain_id: 4217,
-            provisioned: true,
             ..Default::default()
         };
         keys.keys.push(key_entry);
@@ -367,7 +346,6 @@ chain_id = 4217
 key_address = "0xsigner"
 key = "0xaccesskey"
 key_authorization = "auth123"
-provisioned = true
 "#;
         let keys: Keystore = toml::from_str(toml_str).unwrap();
         assert_eq!(
@@ -375,7 +353,6 @@ provisioned = true
             "0x1111111111111111111111111111111111111111"
         );
         assert!(keys.has_wallet());
-        assert!(keys.is_provisioned(NetworkId::Tempo));
     }
 
     #[test]
@@ -417,18 +394,14 @@ wallet_address = "0xtest"
 wallet_address = "0xAAA"
 chain_id = 4217
 key_address = "0xsigner1"
-provisioned = true
 
 [[keys]]
 wallet_address = "0xBBB"
 chain_id = 42431
 key_address = "0xsigner2"
-provisioned = true
 "#;
         let keys: Keystore = toml::from_str(toml_str).unwrap();
         assert_eq!(keys.wallet_address(), "0xAAA");
-        assert!(keys.is_provisioned(NetworkId::Tempo));
-        assert!(keys.is_provisioned(NetworkId::TempoModerato));
     }
 
     #[test]
@@ -508,7 +481,6 @@ provisioned = true
         entry.wallet_type = WalletType::Passkey;
         entry.key_address = Some("0xsigner1".to_string());
         entry.key = Some(Zeroizing::new("0xaccesskey1".to_string()));
-        entry.provisioned = true;
 
         assert_eq!(keys.keys.len(), 1);
         assert_eq!(keys.wallet_address(), format!("{wallet:#x}"));
@@ -526,18 +498,15 @@ provisioned = true
             chain_id: 4217,
             key_address: Some("0xsigner1".to_string()),
             key: Some(Zeroizing::new("0xaccesskey1".to_string())),
-            provisioned: true,
             ..Default::default()
         });
 
         let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
         entry.key_address = Some("0xsigner2".to_string());
         entry.key = Some(Zeroizing::new("0xaccesskey2".to_string()));
-        entry.provisioned = false;
 
         assert_eq!(keys.keys.len(), 1);
         let key_entry = keys.primary_key().unwrap();
-        assert!(!key_entry.provisioned);
         assert_eq!(key_entry.key_address, Some("0xsigner2".to_string()));
     }
 
@@ -547,7 +516,6 @@ provisioned = true
         keys.keys.push(KeyEntry {
             wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
             chain_id: 4217,
-            provisioned: false,
             ..Default::default()
         });
         let wallet: Address = "0x1111111111111111111111111111111111111111"
@@ -555,10 +523,10 @@ provisioned = true
             .unwrap();
 
         let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
-        entry.provisioned = true;
+        entry.key_address = Some("0xnewsigner".to_string());
 
         assert_eq!(keys.keys.len(), 1);
-        assert!(keys.keys[0].provisioned);
+        assert_eq!(keys.keys[0].key_address.as_deref(), Some("0xnewsigner"));
     }
 
     #[test]
@@ -627,9 +595,8 @@ provisioned = true
             ..Default::default()
         });
         assert!(keys.key_for_network(NetworkId::Tempo).is_some());
-        // Passkey provisioned on Tempo must NOT match TempoModerato
+        // Passkey on Tempo must NOT match TempoModerato
         assert!(keys.key_for_network(NetworkId::TempoModerato).is_none());
-        assert!(!keys.is_provisioned(NetworkId::TempoModerato));
     }
 
     #[test]
@@ -851,37 +818,6 @@ expiry = 0
     }
 
     #[test]
-    fn test_provisioned_defaults_to_false() {
-        let toml_str = r#"
-[[keys]]
-wallet_address = "0xtest"
-chain_id = 4217
-"#;
-        let keys: Keystore = toml::from_str(toml_str).unwrap();
-        assert!(!keys.primary_key().unwrap().provisioned);
-        assert!(!keys.is_provisioned(NetworkId::Tempo));
-    }
-
-    #[test]
-    fn test_provisioned_per_network_isolation() {
-        let mut keys = Keystore::default();
-        keys.keys.push(KeyEntry {
-            wallet_address: "0xAAA".to_string(),
-            chain_id: 4217,
-            provisioned: true,
-            ..Default::default()
-        });
-        keys.keys.push(KeyEntry {
-            wallet_address: "0xBBB".to_string(),
-            chain_id: 42431,
-            provisioned: false,
-            ..Default::default()
-        });
-        assert!(keys.is_provisioned(NetworkId::Tempo));
-        assert!(!keys.is_provisioned(NetworkId::TempoModerato));
-    }
-
-    #[test]
     fn test_limits_round_trip() {
         let toml_str = r#"
 [[keys]]
@@ -956,8 +892,8 @@ wallet_address = "0xtest"
             ..Default::default()
         });
         let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
-        entry.provisioned = true;
+        entry.chain_id = 9999;
         assert_eq!(keys.keys.len(), 1);
-        assert!(keys.keys[0].provisioned);
+        assert_eq!(keys.keys[0].chain_id, 9999);
     }
 }
