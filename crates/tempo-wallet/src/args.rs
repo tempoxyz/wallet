@@ -100,6 +100,10 @@ Examples:
         search: Option<String>,
     },
 
+    /// Collect debug info for support
+    #[command(display_order = 10)]
+    Debug,
+
     /// Generate shell completions script
     #[command(hide = true)]
     Completions {
