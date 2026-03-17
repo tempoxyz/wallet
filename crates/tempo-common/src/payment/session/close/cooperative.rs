@@ -252,7 +252,7 @@ mod tests {
                 realm: "test".into(),
                 method: mpp::protocol::core::MethodName::from("tempo"),
                 intent: mpp::protocol::core::IntentName::from("session"),
-                request: "e30".into(), // base64url of {}
+                request: mpp::Base64UrlJson::from_raw("e30"), // base64url of {}
                 expires: None,
                 digest: None,
                 opaque: None,
