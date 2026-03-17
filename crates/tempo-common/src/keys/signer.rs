@@ -224,6 +224,74 @@ mod tests {
         assert!(!signer.has_stored_key_authorization());
     }
 
+    /// Regression test for the provisioned-flag desync bug.
+    ///
+    /// Previously, when keys.toml had `provisioned = true` but the key wasn't
+    /// actually registered on-chain, the signer dropped the key_authorization
+    /// entirely — making auto-provisioning impossible without manually editing
+    /// keys.toml to set `provisioned = false`.
+    ///
+    /// The fix: always start optimistically without auth in signing_mode, but
+    /// keep valid auth in `stored_key_authorization` for on-demand retry via
+    /// `with_key_authorization()`.
+    #[test]
+    fn test_signer_keychain_preserves_valid_auth_for_retry() {
+        // Create a valid key authorization via the authorization::sign helper.
+        // This simulates the state after `tempo wallet login` creates a key
+        // authorization for a freshly provisioned access key.
+        let wallet_signer = parse_private_key_signer(
+            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+        )
+        .unwrap();
+        let access_signer = parse_private_key_signer(TEST_PRIVATE_KEY).unwrap();
+        let auth = authorization::sign(&wallet_signer, &access_signer, 4217).unwrap();
+
+        let mut keys = Keystore::default();
+        keys.keys.push(KeyEntry {
+            wallet_address: format!("{:#x}", wallet_signer.address()),
+            key_address: Some(TEST_ADDRESS.to_string()),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            key_authorization: Some(auth.hex),
+            chain_id: 4217,
+            ..Default::default()
+        });
+
+        let signer = keys.signer(NetworkId::Tempo).unwrap();
+
+        // signing_mode starts WITHOUT key_authorization (optimistic path)
+        match &signer.signing_mode {
+            TempoSigningMode::Keychain {
+                key_authorization, ..
+            } => {
+                assert!(
+                    key_authorization.is_none(),
+                    "signing_mode should start without key_authorization (optimistic)"
+                );
+            }
+            TempoSigningMode::Direct => panic!("expected Keychain mode"),
+        }
+
+        // The valid auth MUST be stored for retry — this is the fix.
+        // On the old code with `provisioned = true`, the auth was dropped
+        // entirely and there was no stored_key_authorization mechanism.
+        assert!(
+            signer.has_stored_key_authorization(),
+            "valid key_authorization must be stored for provisioning retries"
+        );
+
+        // Retry path: with_key_authorization() attaches the auth
+        let provisioning_signer = signer
+            .with_key_authorization()
+            .expect("should produce a provisioning signer");
+        assert!(
+            provisioning_signer
+                .signing_mode
+                .key_authorization()
+                .is_some(),
+            "retry signer must include key_authorization for on-chain provisioning"
+        );
+    }
+
     #[test]
     fn test_signer_direct_has_no_stored_auth() {
         let keys = Keystore::from_private_key(TEST_PRIVATE_KEY).unwrap();
