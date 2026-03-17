@@ -6,6 +6,7 @@
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
+use tempo_primitives::transaction::SignedKeyAuthorization;
 
 use crate::{
     error::{ConfigError, KeyError, TempoError},
@@ -34,11 +35,55 @@ pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoE
 ///
 /// Bundles the private key signer, the resolved `TempoSigningMode`
 /// (direct or keychain), and the effective `from` address.
+///
+/// The `signing_mode` always starts without `key_authorization` (optimistic:
+/// assume the key is already provisioned on-chain). The stored authorization
+/// is kept in `stored_key_authorization` so callers can retry with
+/// [`with_key_authorization`](Signer::with_key_authorization) if the key
+/// turns out not to be provisioned.
 #[derive(Clone)]
 pub struct Signer {
     pub signer: PrivateKeySigner,
     pub signing_mode: TempoSigningMode,
     pub from: Address,
+    /// Key authorization kept aside for on-demand provisioning retries.
+    /// Always `None` for direct EOA signers.
+    pub stored_key_authorization: Option<Box<SignedKeyAuthorization>>,
+}
+
+impl Signer {
+    /// Returns a copy of this signer whose `signing_mode` includes the stored
+    /// key authorization, so the next transaction atomically provisions the key.
+    ///
+    /// Returns `None` when there is no stored authorization (direct EOA signer
+    /// or no authorization was configured).
+    #[must_use]
+    pub fn with_key_authorization(&self) -> Option<Self> {
+        let auth = self.stored_key_authorization.clone()?;
+        let signing_mode = match &self.signing_mode {
+            TempoSigningMode::Keychain {
+                wallet, version, ..
+            } => TempoSigningMode::Keychain {
+                wallet: *wallet,
+                key_authorization: Some(auth),
+                version: *version,
+            },
+            TempoSigningMode::Direct => return None,
+        };
+        Some(Self {
+            signer: self.signer.clone(),
+            signing_mode,
+            from: self.from,
+            stored_key_authorization: None,
+        })
+    }
+
+    /// Whether this signer has a stored key authorization available for
+    /// provisioning retries.
+    #[must_use]
+    pub fn has_stored_key_authorization(&self) -> bool {
+        self.stored_key_authorization.is_some()
+    }
 }
 
 impl Keystore {
@@ -76,25 +121,27 @@ impl Keystore {
             })
         })?;
 
-        let signing_mode = if wallet_address == signer.address() {
-            TempoSigningMode::Direct
+        let (signing_mode, stored_key_authorization) = if wallet_address == signer.address() {
+            (TempoSigningMode::Direct, None)
         } else {
+            // Decode the local key authorization but always start optimistically
+            // without it (assume key is already provisioned on-chain).
+            // The authorization is stored separately so callers can retry with
+            // `with_key_authorization()` if the key turns out not to be provisioned.
             let local_auth = key_entry
                 .key_authorization
                 .as_deref()
-                .and_then(authorization::decode);
+                .and_then(authorization::decode)
+                .map(Box::new);
 
-            let key_authorization = if self.is_provisioned(network) {
-                None
-            } else {
-                local_auth.map(Box::new)
-            };
-
-            TempoSigningMode::Keychain {
-                wallet: wallet_address,
-                key_authorization,
-                version: KeychainVersion::V2,
-            }
+            (
+                TempoSigningMode::Keychain {
+                    wallet: wallet_address,
+                    key_authorization: None,
+                    version: KeychainVersion::V2,
+                },
+                local_auth,
+            )
         };
 
         let from = signing_mode.from_address(signer.address());
@@ -103,6 +150,7 @@ impl Keystore {
             signer,
             signing_mode,
             from,
+            stored_key_authorization,
         })
     }
 }
@@ -151,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signer_keychain_provisioned_omits_auth() {
+    fn test_signer_keychain_always_omits_auth_from_signing_mode() {
         let mut keys = Keystore::default();
         keys.keys.push(KeyEntry {
             wallet_address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_string(),
@@ -159,11 +207,12 @@ mod tests {
             key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
             key_authorization: Some("deadbeef".to_string()),
             chain_id: 4217,
-            provisioned: true,
+            provisioned: false,
             ..Default::default()
         });
         let signer = keys.signer(NetworkId::Tempo).unwrap();
-        match signer.signing_mode {
+        // signing_mode always starts without key_authorization (optimistic)
+        match &signer.signing_mode {
             TempoSigningMode::Keychain {
                 key_authorization, ..
             } => {
@@ -171,6 +220,17 @@ mod tests {
             }
             TempoSigningMode::Direct => panic!("expected Keychain mode"),
         }
+        // The auth is not available via with_key_authorization because
+        // "deadbeef" doesn't decode to a valid SignedKeyAuthorization.
+        assert!(!signer.has_stored_key_authorization());
+    }
+
+    #[test]
+    fn test_signer_direct_has_no_stored_auth() {
+        let keys = Keystore::from_private_key(TEST_PRIVATE_KEY).unwrap();
+        let signer = keys.signer(NetworkId::Tempo).unwrap();
+        assert!(!signer.has_stored_key_authorization());
+        assert!(signer.with_key_authorization().is_none());
     }
 
     #[test]

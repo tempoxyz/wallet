@@ -12,6 +12,7 @@ use alloy::{
 };
 use tempo_primitives::transaction::Call;
 
+use mpp::client::tempo::signing::keychain;
 use mpp::client::tempo::{charge::tx_builder, signing};
 
 use crate::{
@@ -67,6 +68,33 @@ fn is_key_already_exists_error(err: &impl std::fmt::Display) -> bool {
     err.to_string().contains(KEY_ALREADY_EXISTS_MARKER)
 }
 
+/// On-chain key status from the keychain precompile.
+enum KeyStatus {
+    /// Key is active and provisioned on-chain.
+    Active,
+    /// Key has never been provisioned (expiry == 0).
+    Missing,
+    /// Key exists but has been revoked.
+    Revoked,
+    /// RPC call failed — status unknown.
+    Unknown,
+}
+
+/// Query the on-chain key status via the keychain precompile.
+async fn query_key_status(
+    provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
+    wallet: Address,
+    key: Address,
+) -> KeyStatus {
+    let kc = keychain::IAccountKeychain::new(keychain::KEYCHAIN_ADDRESS, provider);
+    match kc.getKey(wallet, key).call().await {
+        Ok(info) if info.expiry == 0 => KeyStatus::Missing,
+        Ok(info) if info.isRevoked => KeyStatus::Revoked,
+        Ok(_) => KeyStatus::Active,
+        Err(_) => KeyStatus::Unknown,
+    }
+}
+
 /// Estimate gas, build and sign a Tempo type-0x76 transaction.
 ///
 /// Uses expiring nonces (nonceKey=MAX, nonce=0) and static gas fees
@@ -105,7 +133,11 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     let valid_before = Some(expiring_valid_before());
     let effective_fee_token = if fee_payer { Address::ZERO } else { fee_token };
 
+    // Optimistic: assume key is already provisioned (no key_authorization).
     let mut key_auth = wallet.signing_mode.key_authorization();
+    let mut effective_wallet = wallet;
+    // Hold the provisioning-retry signer if we need to rebuild.
+    let provisioning_signer;
 
     let gas_result = tx_builder::estimate_gas(
         provider,
@@ -122,12 +154,10 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     )
     .await;
 
-    // If gas estimation fails with KeyAlreadyExists, the key is already
-    // provisioned on-chain but the local `provisioned` flag is stale.
-    // Retry without key_authorization.
     let gas_limit = match gas_result {
         Ok(gas) => gas,
         Err(e) if key_auth.is_some() && is_key_already_exists_error(&e) => {
+            // Key is already on-chain but we included auth — retry without it.
             key_auth = None;
             tx_builder::estimate_gas(
                 provider,
@@ -147,6 +177,45 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
                 operation: "estimate gas (retry without key authorization)",
                 source: Box::new(source),
             })?
+        }
+        Err(e) if wallet.has_stored_key_authorization() => {
+            // Gas estimation failed and we have a stored authorization.
+            // Check on-chain whether the key is registered; only retry with
+            // key_authorization if the key is definitively missing.
+            match query_key_status(provider, from, wallet.signer.address()).await {
+                KeyStatus::Missing => {
+                    provisioning_signer = wallet.with_key_authorization().unwrap();
+                    effective_wallet = &provisioning_signer;
+                    key_auth = effective_wallet.signing_mode.key_authorization();
+                    tx_builder::estimate_gas(
+                        provider,
+                        from,
+                        chain_id,
+                        nonce,
+                        effective_fee_token,
+                        &calls,
+                        MAX_FEE_PER_GAS,
+                        MAX_PRIORITY_FEE_PER_GAS,
+                        key_auth,
+                        EXPIRING_NONCE_KEY,
+                        valid_before,
+                    )
+                    .await
+                    .map_err(|source| KeyError::SigningOperationSource {
+                        operation: "estimate gas (retry with key provisioning)",
+                        source: Box::new(source),
+                    })?
+                }
+                // Key is active, revoked, or status unknown — surface the
+                // original error instead of retrying with auth.
+                _ => {
+                    return Err(KeyError::SigningOperationSource {
+                        operation: "estimate gas",
+                        source: Box::new(e),
+                    }
+                    .into());
+                }
+            }
         }
         Err(e) => {
             return Err(KeyError::SigningOperationSource {
@@ -172,12 +241,16 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     });
 
     Ok(
-        signing::sign_and_encode_async(tx, &wallet.signer, &wallet.signing_mode)
-            .await
-            .map_err(|source| KeyError::SigningOperationSource {
-                operation: "sign and encode transaction",
-                source: Box::new(source),
-            })?,
+        signing::sign_and_encode_async(
+            tx,
+            &effective_wallet.signer,
+            &effective_wallet.signing_mode,
+        )
+        .await
+        .map_err(|source| KeyError::SigningOperationSource {
+            operation: "sign and encode transaction",
+            source: Box::new(source),
+        })?,
     )
 }
 

@@ -3,6 +3,7 @@
 //! This module handles the MPP protocol (<https://mpp.dev>) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
 
+use mpp::client::tempo::signing::keychain;
 use mpp::client::PaymentProvider;
 
 use crate::http::{HttpClient, HttpResponse};
@@ -55,12 +56,52 @@ pub(super) async fn handle_charge_request(
                 provider: "tempo payment provider",
                 source: Box::new(source),
             })?
-            .with_signing_mode(signer.signing_mode);
+            .with_signing_mode(signer.signing_mode.clone());
 
-    let credential = provider
-        .pay(challenge)
-        .await
-        .map_err(|e| classify_payment_error(e, &resolved.network_id))?;
+    let credential =
+        match provider.pay(challenge).await {
+            Ok(cred) => cred,
+            Err(e) if signer.has_stored_key_authorization() => {
+                // Payment failed — check on-chain if the key is definitively missing.
+                // Only retry with key_authorization if the key hasn't been provisioned.
+                let rpc_url: url::Url = resolved.rpc_url.as_str().parse().map_err(|source| {
+                    ConfigError::InvalidUrl {
+                        context: "RPC",
+                        source,
+                    }
+                })?;
+                let rpc_provider =
+                    alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
+                let kc = keychain::IAccountKeychain::new(keychain::KEYCHAIN_ADDRESS, &rpc_provider);
+                let is_missing = match kc.getKey(signer.from, signer.signer.address()).call().await
+                {
+                    Ok(info) => info.expiry == 0,
+                    // RPC failure or revoked/expired — don't auto-provision,
+                    // surface the original error.
+                    Err(_) => false,
+                };
+
+                if is_missing {
+                    let provisioning_signer = signer.with_key_authorization().unwrap();
+                    let retry_provider = mpp::client::TempoProvider::new(
+                        provisioning_signer.signer.clone(),
+                        resolved.rpc_url.as_str(),
+                    )
+                    .map_err(|source| ConfigError::ProviderInitSource {
+                        provider: "tempo payment provider (provisioning retry)",
+                        source: Box::new(source),
+                    })?
+                    .with_signing_mode(provisioning_signer.signing_mode);
+                    retry_provider
+                        .pay(challenge)
+                        .await
+                        .map_err(|e| classify_payment_error(e, &resolved.network_id))?
+                } else {
+                    return Err(classify_payment_error(e, &resolved.network_id));
+                }
+            }
+            Err(e) => return Err(classify_payment_error(e, &resolved.network_id)),
+        };
 
     let auth_header = mpp::format_authorization(&credential).map_err(|source| {
         PaymentError::ChallengeFormatSource {
