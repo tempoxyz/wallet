@@ -150,12 +150,12 @@ jobs:
               --output "artifacts/${pkg}-manifest.json"
             )
 
-            if [ -f "crates/${pkg}/SKILL.md" ]; then
-              SKILL_SHA256=$(sha256sum "crates/${pkg}/SKILL.md" | cut -d' ' -f1)
+            if [ "$pkg" = "tempo-request" ] && [ -f "SKILL.md" ]; then
+              SKILL_SHA256=$(sha256sum "SKILL.md" | cut -d' ' -f1)
               SIGN_ARGS+=(
                 --skill "${URL_PREFIX}/v${VERSION}/SKILL.md"
                 --skill-sha256 "$SKILL_SHA256"
-                --skill-file "crates/${pkg}/SKILL.md"
+                --skill-file "SKILL.md"
               )
             fi
 
@@ -190,10 +190,10 @@ jobs:
             aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${PREFIX}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
             aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${PREFIX}/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
 
-            # SKILL.md (latest + versioned, if exists)
-            if [ -f "crates/${pkg}/SKILL.md" ]; then
-              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${PREFIX}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-              aws s3 cp "crates/${pkg}/SKILL.md" "s3://tempo-cli/${PREFIX}/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+            # SKILL.md (latest + versioned, only for tempo-request)
+            if [ "$pkg" = "tempo-request" ] && [ -f "SKILL.md" ]; then
+              aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+              aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
             fi
 
             # VERSION
