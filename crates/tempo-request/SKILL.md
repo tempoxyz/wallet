@@ -45,7 +45,7 @@ tempo wallet -t services --search <QUERY>
 tempo wallet -t services <SERVICE_ID>
 ```
 
-Each service is accessed via its MPP service URL (shown in the `Service URL` column of `tempo wallet services`). Run `tempo wallet services <id>` to see every endpoint with its HTTP method, path, pricing, and documentation links.
+**Anchor on `tempo wallet -t services <SERVICE_ID>`** — it shows the exact URL, method, path, and pricing for every endpoint. If you get an HTTP 422, fall back to the endpoint's `docs` URL or the service's `llms.txt` for exact field names.
 
 ### 3. Make the request
 
