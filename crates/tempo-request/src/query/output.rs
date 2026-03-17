@@ -415,6 +415,21 @@ mod tests {
     fn no_output_flags_means_no_file() {
         // Disable auto-JSON so the test works in non-TTY CI environments
         std::env::set_var("TEMPO_NO_AUTO_JSON", "1");
+        // Disable agent-detection so the test works inside LLM agent hosts
+        let saved: Vec<_> = [
+            "AGENT",
+            "CLAUDE_CODE",
+            "CODEX",
+            "AMP_THREAD_ID",
+            "CURSOR_TRACE_ID",
+        ]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok().map(|v| (*k, v)))
+        .collect();
+        for (k, _) in &saved {
+            std::env::remove_var(k);
+        }
+
         let (c, q) = parse(&["https://example.com/path/file.txt"]);
         let url = Url::parse(&q.url).unwrap();
 
@@ -425,6 +440,9 @@ mod tests {
             &url,
         );
         std::env::remove_var("TEMPO_NO_AUTO_JSON");
+        for (k, v) in &saved {
+            std::env::set_var(k, v);
+        }
         assert!(opts.output_file.is_none());
         assert!(!opts.include_headers);
         assert_eq!(opts.output_format, OutputFormat::Text);
