@@ -85,6 +85,22 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Wait for GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${PACKAGE}@${VERSION}"
+          for i in $(seq 1 40); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Release ${TAG} found"
+              exit 0
+            fi
+            echo "Waiting for release ${TAG}... (attempt ${i}/40)"
+            sleep 15
+          done
+          echo "Release ${TAG} was not created in time" >&2
+          exit 1
+
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
