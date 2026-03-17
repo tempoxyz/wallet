@@ -32,7 +32,6 @@ TEMPO="$USER_BIN/tempo"
 
 # 2) Update extensions to latest (avoids version skew)
 "$TEMPO" update wallet
-"$TEMPO" update mpp
 "$TEMPO" update request
 
 # 3) Validate install
@@ -180,7 +179,7 @@ When multiple services match a user request, choose in this order:
 | `tempo: command not found` | CLI not installed | Run `mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then retry using `"$HOME/.local/bin/tempo" ...`. |
 | Install fails due to permissions/path | Path not writable or not resolved | Resolve `USER_BIN="${TEMPO_BIN_DIR:-$HOME/.local/bin}"; TEMPO="$USER_BIN/tempo"`, then `mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh`, then retry using `"$TEMPO" ...`. |
 | `ready=false` or `No wallet configured` | Wallet not logged in | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
-| "legacy V1 keychain signature is no longer accepted, use V2" | Outdated `tempo` launcher or extensions | Reinstall tempo: `curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then update extensions: `tempo update wallet && tempo update mpp && tempo update request`. Log out and back in: `tempo wallet logout --yes && tempo wallet login`. |
+| "legacy V1 keychain signature is no longer accepted, use V2" | Outdated `tempo` launcher or extensions | Reinstall tempo: `curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then update extensions: `tempo update wallet && tempo update request`. Log out and back in: `tempo wallet logout --yes && tempo wallet login`. |
 | "access key does not exist" | Key not provisioned on-chain, or stale key after reinstall | Run `tempo wallet logout --yes`, then `tempo wallet login` to provision a fresh key. |
 | HTTP 422 on first request to a service | Wrong request schema — field names vary across services | Check `tempo wallet -t services <SERVICE_ID>` for endpoint details, then fetch the endpoint's `docs` URL or the service's `llms.txt` for exact field names and types. |
 | `$HOME` expansion fails ("no such file or directory") | Some agent shells don't expand `$HOME` | Use the full absolute path instead (e.g., `/Users/<user>/.local/bin/tempo`). |
@@ -199,7 +198,7 @@ When multiple services match a user request, choose in this order:
 - `tempo request -t --dry-run ...` previews cost without paying.
 - `tempo request -t ...` executes request and handles payment automatically.
 - `tempo wallet fund` adds funds to your wallet.
-- `tempo update wallet` / `tempo update mpp` / `tempo update request` updates extensions.
+- `tempo update wallet` / `tempo update request` updates extensions.
 
 ## Support
 
