@@ -24,7 +24,7 @@ const PATH_USD_TOKEN: Address = address!("20c00000000000000000000000000000000000
 /// USDC token address (mainnet).
 pub const USDCE_TOKEN: Address = address!("20c000000000000000000000b9537d11c60e8b50");
 /// Escrow contract address (mainnet).
-const TEMPO_ESCROW: Address = address!("0901aed692c755b870f9605e56baa66c35beff69");
+const TEMPO_ESCROW: Address = address!("33b901018174ddabe4841042ab76ba85d4e24f25");
 /// Escrow contract address (moderato testnet).
 const TEMPO_MODERATO_ESCROW: Address = address!("542831e3e4ace07559b7c8787395f4fb99f70787");
 
