@@ -681,7 +681,7 @@ async fn stale_lock_file_does_not_block_reuse() {
     let lock_path = temp
         .path()
         .join(".tempo/wallet")
-        .join(format!("{}.lock", session_key(&origin)));
+        .join(format!("{}.lock", payment_origin_lock_key(&origin)));
     std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
     std::fs::write(&lock_path, b"stale-lock-file").unwrap();
 

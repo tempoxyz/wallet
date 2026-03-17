@@ -6448,7 +6448,6 @@ dependencies = [
  "clap",
  "colored",
  "dirs",
- "fs2",
  "futures",
  "getrandom 0.2.17",
  "hex",
