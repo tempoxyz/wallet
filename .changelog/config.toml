@@ -1,0 +1,15 @@
+# How to bump packages that depend on changed packages
+# "patch" | "minor" | "none"
+dependent_bump = "patch"
+
+# Packages to ignore (internal-only, not released)
+ignore = ["tempo-common", "tempo-sign", "tempo-test"]
+
+[changelog]
+# "per-crate" - CHANGELOG.md in each package
+# "root" - Single CHANGELOG.md at workspace root
+format = "root"
+
+# AI-assisted changelog generation
+[ai]
+command = "amp -p"

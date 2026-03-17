@@ -1,0 +1,68 @@
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: tempoxyz/changelogs/check@master
+
+  generate:
+    if: >-
+      github.event.action == 'labeled' &&
+      startsWith(github.event.label.name, 'changelog:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Check for existing changelog
+        id: existing
+        run: |
+          if git diff origin/${{ github.base_ref }}...HEAD --name-only | grep -q '^\.changelog/.*\.md$'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install changelogs
+        if: steps.existing.outputs.found == 'false'
+        run: curl -sSL https://changelogs.sh | sh
+
+      - name: Generate changelog
+        if: steps.existing.outputs.found == 'false'
+        env:
+          AMP_API_KEY: ${{ secrets.AMP_API_KEY }}
+        run: |
+          changelogs add --ai "amp -p" --ref "origin/${{ github.base_ref }}"
+
+      - name: Commit changelog
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .changelog/
+          git commit -m "chore: add changelog"
+          git push
+
+      - name: Remove label
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit ${{ github.event.number }} --remove-label "${{ github.event.label.name }}"
