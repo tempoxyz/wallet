@@ -96,15 +96,17 @@ pub struct GlobalArgs {
 impl GlobalArgs {
     /// Resolve the effective output format from CLI flags.
     ///
-    /// When neither `--json-output` nor `--toon-output` is explicitly set and
-    /// stdout is not a terminal, defaults to JSON for machine-friendly output.
+    /// When neither `--json-output` nor `--toon-output` is explicitly set:
+    /// - If running inside an LLM agent (detected via env vars), defaults to TOON.
+    /// - Otherwise, if stdout is not a terminal, defaults to JSON.
+    ///
     /// Set `TEMPO_NO_AUTO_JSON=1` to disable auto-detection.
     #[must_use]
     pub fn resolve_output_format(&self) -> OutputFormat {
         use std::io::IsTerminal;
         if self.json_output {
             OutputFormat::Json
-        } else if self.toon_output {
+        } else if self.toon_output || is_agent_environment() {
             OutputFormat::Toon
         } else if should_auto_json() && !std::io::stdout().is_terminal() {
             OutputFormat::Json
@@ -180,7 +182,7 @@ impl GlobalArgs {
         use std::io::IsTerminal;
         if args.iter().any(|a| a == "-j" || a == "--json-output") {
             OutputFormat::Json
-        } else if args.iter().any(|a| a == "-t" || a == "--toon-output") {
+        } else if args.iter().any(|a| a == "-t" || a == "--toon-output") || is_agent_environment() {
             OutputFormat::Toon
         } else if should_auto_json() && !std::io::stdout().is_terminal() {
             OutputFormat::Json
@@ -257,6 +259,20 @@ pub fn parse_cli<T: clap::Parser + clap::CommandFactory>() -> T {
 /// Whether auto-JSON detection is enabled (disabled by `TEMPO_NO_AUTO_JSON=1`).
 fn should_auto_json() -> bool {
     std::env::var("TEMPO_NO_AUTO_JSON").is_err()
+}
+
+/// Environment variables that LLM agent hosts set.
+const AGENT_ENV_VARS: &[&str] = &[
+    "AGENT",           // Generic agent flag
+    "CLAUDE_CODE",     // Claude Code
+    "CODEX",           // OpenAI Codex CLI
+    "AMP_THREAD_ID",   // Amp
+    "CURSOR_TRACE_ID", // Cursor
+];
+
+/// Returns `true` when the process is running inside an LLM coding agent.
+fn is_agent_environment() -> bool {
+    AGENT_ENV_VARS.iter().any(|v| std::env::var(v).is_ok())
 }
 
 /// Recursively describe a clap `Command` as a JSON value.
