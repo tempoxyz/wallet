@@ -28,6 +28,21 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - uses: tempoxyz/changelogs@aae9b474ba053648354bea3f9b8670cac4c78ba1 # changelogs@0.6.2
+        id: changelogs
         with:
           conventional-commit: true
           github-token: ${{ secrets.GH_PAT }}
+
+      - name: Update Cargo.lock on release PR
+        if: steps.changelogs.outputs.pullRequestNumber != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          git fetch origin changelog-release/main
+          git checkout changelog-release/main
+          cargo update --workspace
+          if ! git diff --quiet Cargo.lock; then
+            git add Cargo.lock
+            git commit -m "chore: update Cargo.lock"
+            git push origin changelog-release/main
+          fi
