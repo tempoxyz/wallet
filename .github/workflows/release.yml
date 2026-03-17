@@ -9,200 +9,25 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
-  version:
-    name: Read version
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Configure git auth
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-      - name: Extract version from Cargo.toml
-        id: version
-        run: |
-          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tempo-wallet") | .version')
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-  build:
-    name: Build ${{ matrix.package }} (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          # tempo-wallet builds
-          - package: tempo-wallet
-            binary: tempo-wallet
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: tempo-wallet-linux-amd64
-          - package: tempo-wallet
-            binary: tempo-wallet
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            asset: tempo-wallet-linux-arm64
-          - package: tempo-wallet
-            binary: tempo-wallet
-            os: macos-latest
-            target: x86_64-apple-darwin
-            asset: tempo-wallet-darwin-amd64
-          - package: tempo-wallet
-            binary: tempo-wallet
-            os: macos-latest
-            target: aarch64-apple-darwin
-            asset: tempo-wallet-darwin-arm64
-          # tempo-request builds
-          - package: tempo-request
-            binary: tempo-request
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: tempo-request-linux-amd64
-          - package: tempo-request
-            binary: tempo-request
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            asset: tempo-request-linux-arm64
-          - package: tempo-request
-            binary: tempo-request
-            os: macos-latest
-            target: x86_64-apple-darwin
-            asset: tempo-request-darwin-amd64
-          - package: tempo-request
-            binary: tempo-request
-            os: macos-latest
-            target: aarch64-apple-darwin
-            asset: tempo-request-darwin-arm64
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-      - name: Configure git auth
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
-      - run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
-      - run: mv target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.asset }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
-
   release:
-    name: Release
-    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
         with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          TAG="v${RELEASE_VERSION}"
-          gh release create "$TAG" --title "$TAG" --generate-notes 2>/dev/null || true
-          gh release upload "$TAG" artifacts/* --clobber
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
 
       - name: Configure git auth
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-      - name: Build release signer
-        run: cargo build --release -p tempo-sign
 
-      - name: Sign release binaries
-        env:
-          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
-          VERSION="${RELEASE_VERSION}"
-
-          declare -A PKG_DESC=(
-            [tempo-wallet]="Manage your Tempo Wallet"
-            [tempo-request]="Make an HTTP request"
-          )
-
-          for pkg in tempo-wallet tempo-request; do
-            mkdir -p "artifacts-${pkg}"
-            cp artifacts/${pkg}-* "artifacts-${pkg}/"
-
-            URL_PREFIX="https://cli.tempo.xyz/extensions/${pkg}"
-
-            SIGN_ARGS=(
-              --key-file /tmp/release.key
-              --artifacts-dir "artifacts-${pkg}"
-              --version "$VERSION"
-              --base-url "$URL_PREFIX"
-              --description "${PKG_DESC[$pkg]}"
-              --output "artifacts/${pkg}-manifest.json"
-            )
-
-            if [ "$pkg" = "tempo-request" ] && [ -f "SKILL.md" ]; then
-              SKILL_SHA256=$(sha256sum "SKILL.md" | cut -d' ' -f1)
-              SIGN_ARGS+=(
-                --skill "${URL_PREFIX}/v${VERSION}/SKILL.md"
-                --skill-sha256 "$SKILL_SHA256"
-                --skill-file "SKILL.md"
-              )
-            fi
-
-            ./target/release/tempo-sign sign "${SIGN_ARGS[@]}"
-          done
-
-          rm /tmp/release.key
-
-      - name: Upload to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          aws configure set default.s3.multipart_threshold 200MB
-
-          VERSION="v${RELEASE_VERSION}"
-
-          for pkg in tempo-wallet tempo-request; do
-            PREFIX="extensions/${pkg}"
-
-            # Binaries (latest + versioned)
-            for f in artifacts/${pkg}-linux-* artifacts/${pkg}-darwin-*; do
-              [ -f "$f" ] || continue
-              BASENAME=$(basename "$f")
-              aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
-              aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${VERSION}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
-            done
-
-            # Signed manifest (latest + versioned)
-            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${PREFIX}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
-            aws s3 cp "artifacts/${pkg}-manifest.json" "s3://tempo-cli/${PREFIX}/${VERSION}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
-
-            # SKILL.md (latest + versioned, only for tempo-request)
-            if [ "$pkg" = "tempo-request" ] && [ -f "SKILL.md" ]; then
-              aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-              aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/${VERSION}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-            fi
-
-            # VERSION
-            echo "${RELEASE_VERSION}" | aws s3 cp - "s3://tempo-cli/${PREFIX}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
-          done
-
-          # Root SKILL.md
-          if [ -f "SKILL.md" ]; then
-            aws s3 cp "SKILL.md" "s3://tempo-cli/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-          fi
-
-          echo "Released ${VERSION}"
+      - uses: tempoxyz/changelogs@changelogs@0.6.2 # aae9b474
+        with:
+          conventional-commit: true
+          github-token: ${{ secrets.GH_PAT }}

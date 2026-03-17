@@ -1,0 +1,187 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "tempo-wallet@*"
+      - "tempo-request@*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
+jobs:
+  parse-tag:
+    name: Parse tag
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.parse.outputs.package }}
+      version: ${{ steps.parse.outputs.version }}
+    steps:
+      - name: Parse package and version from tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          PACKAGE="${TAG%%@*}"
+          VERSION="${TAG#*@}"
+          echo "package=${PACKAGE}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Tag: ${TAG}, Package: ${PACKAGE}, Version: ${VERSION}"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: [parse-tag]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: linux-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: darwin-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: darwin-arm64
+    env:
+      PACKAGE: ${{ needs.parse-tag.outputs.package }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Configure git auth
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} -p ${{ env.PACKAGE }}
+      - run: strip target/${{ matrix.target }}/release/${{ env.PACKAGE }}
+      - run: mv target/${{ matrix.target }}/release/${{ env.PACKAGE }} ${{ env.PACKAGE }}-${{ matrix.suffix }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.PACKAGE }}-${{ matrix.suffix }}
+          path: ${{ env.PACKAGE }}-${{ matrix.suffix }}
+
+  publish:
+    name: Publish
+    needs: [parse-tag, build]
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE: ${{ needs.parse-tag.outputs.package }}
+      VERSION: ${{ needs.parse-tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Wait for GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${PACKAGE}@${VERSION}"
+          for i in $(seq 1 40); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Release ${TAG} found"
+              exit 0
+            fi
+            echo "Waiting for release ${TAG}... (attempt ${i}/40)"
+            sleep 15
+          done
+          echo "Release ${TAG} was not created in time" >&2
+          exit 1
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${PACKAGE}@${VERSION}"
+          gh release upload "$TAG" artifacts/* --clobber
+
+      - name: Configure git auth
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+      - name: Build release signer
+        run: cargo build --release -p tempo-sign
+
+      - name: Sign release binaries
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
+
+          URL_PREFIX="https://cli.tempo.xyz/extensions/${PACKAGE}"
+
+          declare -A PKG_DESC=(
+            [tempo-wallet]="Manage your Tempo Wallet"
+            [tempo-request]="Make an HTTP request"
+          )
+
+          SIGN_ARGS=(
+            --key-file /tmp/release.key
+            --artifacts-dir artifacts
+            --version "$VERSION"
+            --base-url "$URL_PREFIX"
+            --description "${PKG_DESC[$PACKAGE]}"
+            --output "artifacts/${PACKAGE}-manifest.json"
+          )
+
+          if [ "$PACKAGE" = "tempo-request" ] && [ -f "SKILL.md" ]; then
+            SKILL_SHA256=$(sha256sum "SKILL.md" | cut -d' ' -f1)
+            SIGN_ARGS+=(
+              --skill "${URL_PREFIX}/v${VERSION}/SKILL.md"
+              --skill-sha256 "$SKILL_SHA256"
+              --skill-file "SKILL.md"
+            )
+          fi
+
+          ./target/release/tempo-sign sign "${SIGN_ARGS[@]}"
+          rm /tmp/release.key
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          aws configure set default.s3.multipart_threshold 200MB
+
+          PREFIX="extensions/${PACKAGE}"
+          VTAG="v${VERSION}"
+
+          # Binaries (latest + versioned)
+          for f in artifacts/${PACKAGE}-linux-* artifacts/${PACKAGE}-darwin-*; do
+            [ -f "$f" ] || continue
+            BASENAME=$(basename "$f")
+            aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${VTAG}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+          done
+
+          # Signed manifest (latest + versioned)
+          aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+          aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/${VTAG}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+
+          # SKILL.md (latest + versioned, only for tempo-request)
+          if [ "$PACKAGE" = "tempo-request" ] && [ -f "SKILL.md" ]; then
+            aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+            aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/${VTAG}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          fi
+
+          # VERSION
+          echo "${VERSION}" | aws s3 cp - "s3://tempo-cli/${PREFIX}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+
+          # Root SKILL.md
+          if [ "$PACKAGE" = "tempo-request" ] && [ -f "SKILL.md" ]; then
+            aws s3 cp "SKILL.md" "s3://tempo-cli/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
+          fi
+
+          echo "Released ${PACKAGE}@${VERSION}"
