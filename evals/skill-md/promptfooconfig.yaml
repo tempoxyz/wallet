@@ -1,0 +1,134 @@
+description: "Tempo SKILL.md agent evaluation — does the skill correctly guide agents through setup and usage?"
+
+prompts:
+  - |
+    You are an AI coding agent. The user has asked you to set up and use Tempo.
+    Here is the skill file you should follow:
+
+    ---
+    {{skill_md}}
+    ---
+
+    User request: {{user_request}}
+
+    Respond with the exact commands you would run, in order. Be precise.
+
+providers:
+  - id: openai:gpt-4.1-mini
+    label: GPT-4.1-mini
+
+tests:
+  # Setup scenarios
+  - description: "Basic setup — agent should install, login, verify"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Set up tempo for me"
+    assert:
+      - type: icontains
+        value: "curl -fsSL https://tempo.xyz/install"
+      - type: icontains
+        value: "wallet login"
+      - type: icontains
+        value: "wallet whoami"
+      - type: not-icontains
+        value: "sudo"
+
+  - description: "Setup — agent should NOT use sudo"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Install tempo on my machine"
+    assert:
+      - type: not-icontains
+        value: "sudo"
+      - type: icontains
+        value: "curl"
+
+  - description: "Setup — agent should mention passkey/browser wait"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Set up tempo"
+    assert:
+      - type: llm-rubric
+        value: "The response should mention that the login step requires user interaction (browser or passkey) and the agent should wait for the user to complete it."
+        threshold: 0.7
+
+  # Usage scenarios
+  - description: "Service discovery — agent should search before requesting"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Use tempo to search the web for latest AI news"
+    assert:
+      - type: icontains
+        value: "tempo wallet services --search"
+      - type: icontains
+        value: "tempo request"
+      - type: not-icontains
+        value: "curl "
+        # agent should use tempo request, not raw curl
+
+  - description: "Agent should NOT guess endpoint URLs"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Use tempo to generate an image of a sunset"
+    assert:
+      - type: icontains
+        value: "tempo wallet services"
+      - type: llm-rubric
+        value: "The response should discover services first using 'tempo wallet services --search' before making any request. It should NOT hardcode or guess any API endpoint URLs."
+        threshold: 0.8
+
+  - description: "Dry run for expensive requests"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Use tempo to generate a high-quality video"
+    assert:
+      - type: llm-rubric
+        value: "The response should use --dry-run to preview cost before making the actual request, since video generation could be expensive."
+        threshold: 0.6
+
+  # Error handling
+  - description: "Command not found — agent should know the fix"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "I ran 'tempo wallet whoami' and got 'tempo: command not found'"
+    assert:
+      - type: icontains
+        value: "curl -fsSL https://tempo.xyz/install"
+      - type: llm-rubric
+        value: "The response should suggest installing tempo and using the full path to the binary."
+        threshold: 0.7
+
+  - description: "Not logged in — agent should know the fix"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "tempo wallet whoami says ready=false"
+    assert:
+      - type: icontains
+        value: "wallet login"
+
+  # Anti-patterns — things the agent should NOT do
+  - description: "Agent should NOT fetch the SKILL.md URL at runtime"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Use tempo to look up a company"
+    assert:
+      - type: not-icontains
+        value: "wallet.tempo.xyz/SKILL.md"
+      - type: not-icontains
+        value: "fetch"
+        # should not try to fetch the skill URL
+      - type: icontains
+        value: "tempo wallet services"
+
+  - description: "Agent should NOT use npx agentcash"
+    vars:
+      skill_md: file://../../SKILL.md
+      user_request: "Set up tempo and use it to search the web"
+    assert:
+      - type: not-icontains
+        value: "npx agentcash"
+      - type: not-icontains
+        value: "agentcash"
+
+commandLineOptions:
+  maxConcurrency: 1
