@@ -12,7 +12,10 @@ use tempo_common::{
     keys::Signer,
 };
 
-use super::types::{PaymentResult, ResolvedChallenge};
+use super::{
+    lock::{acquire_origin_lock, origin_lock_key},
+    types::{PaymentResult, ResolvedChallenge},
+};
 use tempo_common::payment::{classify_payment_error, map_mpp_validation_error};
 
 /// Handle an MPP charge payment flow (402 with intent="charge").
@@ -30,6 +33,21 @@ pub(super) async fn handle_charge_request(
     challenge
         .validate_for_charge("tempo")
         .map_err(|e| map_mpp_validation_error(e, challenge))?;
+
+    if http.dry_run {
+        eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
+        return Ok(PaymentResult {
+            tx_hash: None,
+            channel_id: None,
+            status_code: 200,
+            response: None,
+        });
+    }
+
+    // Serialize charge submissions per origin before building/submitting payment
+    // credentials to avoid duplicate expiring-nonce tx races under overlap.
+    let lock_key = origin_lock_key(url);
+    let _charge_lock = acquire_origin_lock(&lock_key)?;
 
     let provider =
         mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str())
@@ -50,16 +68,6 @@ pub(super) async fn handle_charge_request(
             source: Box::new(source),
         }
     })?;
-
-    if http.dry_run {
-        eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
-        return Ok(PaymentResult {
-            tx_hash: None,
-            channel_id: None,
-            status_code: 200,
-            response: None,
-        });
-    }
 
     let headers = vec![("Authorization".to_string(), auth_header)];
     let resp = http.execute(url, &headers).await?;

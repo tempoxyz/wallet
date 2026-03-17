@@ -6521,6 +6521,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "clap",
+ "fs2",
  "futures",
  "getrandom 0.2.17",
  "hex",

@@ -5,6 +5,7 @@
 
 pub(crate) mod challenge;
 mod charge;
+mod lock;
 pub(crate) mod router;
 mod session;
 pub(crate) mod types;

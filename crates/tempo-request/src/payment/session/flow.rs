@@ -16,6 +16,7 @@ use crate::{
     http::HttpResponse,
     payment::{
         challenge::{decode_session_request, require_session_chain_id},
+        lock::{acquire_origin_lock, origin_lock_key},
         types::{PaymentResult, ResolvedChallenge},
     },
 };
@@ -817,7 +818,7 @@ async fn challenge_stage(
         .transpose()?;
     let echo = challenge.to_echo();
     let origin = extract_origin(url);
-    let session_key = session::session_key(url);
+    let session_key = origin_lock_key(url);
     let payer_hex = format!("{from:#x}");
     let payee_hex = format!("{payee:#x}");
     let token_hex = format!("{token:#x}");
@@ -1206,7 +1207,7 @@ pub(crate) async fn handle_session_request(
     // Hold a blocking per-origin lock for the full paid request lifecycle.
     // A channel permits only one active session at a time, so requests to
     // the same origin are intentionally serialized until completion.
-    let _lock_guard = session::acquire_origin_lock(&challenge.session_key)
+    let _lock_guard = acquire_origin_lock(&challenge.session_key)
         .map_err(|e| session_store_error("acquire session lock", e))?;
 
     if let Some(reusable) = reuse_stage_discover(url, &challenge, &deposit).await? {
