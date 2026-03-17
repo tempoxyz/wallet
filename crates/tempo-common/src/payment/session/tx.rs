@@ -83,6 +83,8 @@ pub async fn query_key_status(
 ) -> KeyStatus {
     let kc = keychain::IAccountKeychain::new(keychain::KEYCHAIN_ADDRESS, provider);
     match kc.getKey(wallet, key).call().await {
+        // expiry == 0 means the key slot was never written, i.e. never provisioned.
+        // Checked before isRevoked because a never-provisioned key cannot be revoked.
         Ok(info) if info.expiry == 0 => KeyStatus::Missing,
         Ok(info) if info.isRevoked => KeyStatus::Revoked,
         Ok(info) => {
@@ -101,6 +103,36 @@ pub async fn query_key_status(
             KeyStatus::Unknown
         }
     }
+}
+
+/// Check on-chain key status and prepare a provisioning-retry signer if the
+/// key is definitively missing.
+///
+/// Returns `Ok(Some(signer))` when the key has never been provisioned and a
+/// retry with `key_authorization` should be attempted.
+/// Returns `Ok(None)` when no retry is warranted (no stored authorization,
+/// or key is active / revoked / expired / status unknown).
+pub async fn prepare_provisioning_retry(
+    signer: &Signer,
+    provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
+) -> Result<Option<Signer>, TempoError> {
+    if !signer.has_stored_key_authorization() {
+        return Ok(None);
+    }
+
+    if query_key_status(provider, signer.from, signer.signer.address()).await != KeyStatus::Missing
+    {
+        return Ok(None);
+    }
+
+    let provisioning_signer =
+        signer
+            .with_key_authorization()
+            .ok_or_else(|| KeyError::SigningOperation {
+                operation: "key provisioning",
+                reason: "stored key authorization could not be applied to signing mode".to_string(),
+            })?;
+    Ok(Some(provisioning_signer))
 }
 
 /// Estimate gas, build and sign a Tempo type-0x76 transaction.
@@ -165,21 +197,9 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     let gas_limit = match gas_result {
         Ok(gas) => gas,
         Err(e) if wallet.has_stored_key_authorization() => {
-            // Gas estimation failed and we have a stored authorization.
-            // Check on-chain whether the key is registered; only retry with
-            // key_authorization if the key is definitively missing.
-            //
-            // NOTE: Parallel retry logic exists in tempo-request charge.rs
-            // (handle_charge_request). Changes here should be mirrored there.
-            match query_key_status(provider, from, wallet.signer.address()).await {
-                KeyStatus::Missing => {
-                    provisioning_signer = wallet.with_key_authorization().ok_or_else(|| {
-                        KeyError::SigningOperation {
-                            operation: "key provisioning",
-                            reason: "stored key authorization could not be applied to signing mode"
-                                .to_string(),
-                        }
-                    })?;
+            match prepare_provisioning_retry(wallet, provider).await? {
+                Some(retry_signer) => {
+                    provisioning_signer = retry_signer;
                     effective_wallet = &provisioning_signer;
                     key_auth = effective_wallet.signing_mode.key_authorization();
                     tx_builder::estimate_gas(
@@ -201,9 +221,7 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
                         source: Box::new(source),
                     })?
                 }
-                // Key is active, revoked, expired, or status unknown — surface
-                // the original error instead of retrying with auth.
-                _ => {
+                None => {
                     return Err(KeyError::SigningOperationSource {
                         operation: "estimate gas",
                         source: Box::new(e),
