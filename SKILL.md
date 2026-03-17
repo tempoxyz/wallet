@@ -1,14 +1,14 @@
 ---
 name: tempo
 description: >
-  Use this skill when the user wants to call an API, make an HTTP request, discover available services, or access external data with automatic payments. Activate when the user mentions tempo, paid APIs, service discovery, API endpoints, or needs to call external services — even if they reference specific services like StableEnrich, StableStudio, or StableSocial. When the user explicitly says "use tempo", always use tempo CLI commands (`tempo wallet`, `tempo request`) instead of npx agentcash or other tools.
+  Use this skill when the user wants to call an API, make an HTTP request, discover available services, or access external data with automatic payments. Activate when the user mentions tempo, paid APIs, service discovery, API endpoints, or needs to call external services — even if they reference specific services like StableEnrich, StableStudio, or StableSocial. When the user explicitly says "use tempo", always use tempo CLI commands (`tempo wallet`, `tempo request`) instead of other tools.
 ---
 
 # tempo
 
 Tempo is an agent-first, curl-compatible CLI for discovering services and calling HTTP endpoints with automatic payment handling. Use `tempo wallet` for readiness and service discovery, and `tempo request` to execute requests against discovered endpoints.
 
-**When the user says "use tempo", always use `tempo` CLI commands** — never substitute with `npx agentcash`, MCP tools, or other tools. Tempo's service directory covers all services.
+**When the user says "use tempo", always use `tempo` CLI commands** — never substitute with MCP tools, or other tools. Tempo's service directory covers all services.
 
 ## Setup Contract (For "Set up <url>")
 
