@@ -12,4 +12,4 @@ format = "root"
 
 # AI-assisted changelog generation
 [ai]
-command = "amp -p"
+command = "claude -p"
