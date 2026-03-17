@@ -22,7 +22,7 @@ use tempo_common::keys::parse_private_key_signer;
 use crate::common::test_command;
 use tempo_test::MODERATO_PRIVATE_KEY;
 
-pub(crate) const MODERATO_ESCROW: &str = "0x542831e3e4ace07559b7c8787395f4fb99f70787";
+use tempo_common::network::TEMPO_MODERATO_ESCROW;
 pub(crate) const MODERATO_TOKEN: &str = "0x20c0000000000000000000000000000000000000";
 pub(crate) const PAYEE_A: &str = "0x1111111111111111111111111111111111111111";
 pub(crate) const PAYEE_B: &str = "0x2222222222222222222222222222222222222222";
@@ -472,7 +472,7 @@ async fn session_handler(
             "recipient"
         };
         let mut method_details = serde_json::json!({
-            "escrowContract": MODERATO_ESCROW,
+            "escrowContract": TEMPO_MODERATO_ESCROW.to_string(),
         });
         if !path.contains("missing-chain-id") {
             method_details["chainId"] = serde_json::json!(42431);

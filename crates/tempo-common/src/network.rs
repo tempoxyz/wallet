@@ -26,7 +26,7 @@ pub const USDCE_TOKEN: Address = address!("20c000000000000000000000b9537d11c60e8
 /// Escrow contract address (mainnet).
 const TEMPO_ESCROW: Address = address!("33b901018174ddabe4841042ab76ba85d4e24f25");
 /// Escrow contract address (moderato testnet).
-const TEMPO_MODERATO_ESCROW: Address = address!("542831e3e4ace07559b7c8787395f4fb99f70787");
+pub const TEMPO_MODERATO_ESCROW: Address = address!("e1c4d3dce17bc111181ddf716f75bae49e61a336");
 
 /// Token configuration for Tempo mainnet (USDC).
 const TEMPO_TOKEN: TokenConfig = TokenConfig {
