@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-      - uses: tempoxyz/changelogs/check@master
+      - uses: tempoxyz/changelogs/check@changelogs@0.6.2 # aae9b474
 
   generate:
     if: >-
@@ -43,7 +43,7 @@ jobs:
 
       - name: Install changelogs
         if: steps.existing.outputs.found == 'false'
-        run: curl -sSL https://changelogs.sh | sh
+        run: curl -sSL https://changelogs.sh | sh -s -- changelogs@0.6.2
 
       - name: Generate changelog
         if: steps.existing.outputs.found == 'false'
