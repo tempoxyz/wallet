@@ -79,6 +79,15 @@ fn session_reuse_persist_failed_error(source: TempoError) -> TempoError {
     .into()
 }
 
+fn session_reuse_cleanup_failed_error(source: TempoError) -> TempoError {
+    PaymentError::ChannelPersistenceContextSource {
+        operation: "session request reuse",
+        context: "Failed to remove invalidated channel before reopening",
+        source: Box::new(source),
+    }
+    .into()
+}
+
 const fn challenge_missing_field(context: &'static str, field: &'static str) -> PaymentError {
     PaymentError::ChallengeMissingField { context, field }
 }
@@ -1045,7 +1054,8 @@ async fn reuse_stage_execute(
 
                 if invalidation_confirmed {
                     let channel_id_hex = format!("{channel_id:#x}");
-                    let _ = session::delete_channel(&channel_id_hex);
+                    session::delete_channel(&channel_id_hex)
+                        .map_err(session_reuse_cleanup_failed_error)?;
                     if http.log_enabled() {
                         eprintln!(
                             "Persisted channel {channel_id_hex} rejected by server and confirmed on-chain; opening a new channel"

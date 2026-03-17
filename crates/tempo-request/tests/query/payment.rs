@@ -2,6 +2,18 @@
 
 use super::*;
 
+fn run_two_concurrent_charge_requests(
+    temp: &tempfile::TempDir,
+    url: &str,
+) -> (std::process::Output, std::process::Output) {
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| test_command(temp).args(["-v", url]).output().unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        let second = scope.spawn(|| test_command(temp).args(["-v", url]).output().unwrap());
+        (first.join().unwrap(), second.join().unwrap())
+    })
+}
+
 // ==================== 402 Charge Payment Flow ====================
 
 /// Test the full 402 → payment → 200 charge flow with mock servers.
@@ -28,6 +40,48 @@ async fn status_402_charge_flow() {
         "charge accepted",
         "stdout should contain success body",
     );
+}
+
+/// Concurrent same-origin charge requests serialize correctly and avoid nonce replay failures.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_402_charge_flow_concurrent_same_origin_no_nonce_replay() {
+    let rpc = MockRpcServer::start(42431).await;
+    let server = MockServer::start_payment_deferred_with_delay("charge accepted", 250).await;
+    let www_auth = charge_www_authenticate_with_realm("test-charge-concurrent", &server.base_url);
+    server.set_www_authenticate(&www_auth);
+
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(tempo_test::MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    let request_url = server.url("/api");
+    let (first_output, second_output) = run_two_concurrent_charge_requests(&temp, &request_url);
+
+    assert_success(
+        &first_output,
+        "first concurrent charge request should succeed",
+    );
+    assert_success(
+        &second_output,
+        "second concurrent charge request should succeed",
+    );
+
+    let first_combined = get_combined_output(&first_output).to_lowercase();
+    let second_combined = get_combined_output(&second_output).to_lowercase();
+    for combined in [first_combined, second_combined] {
+        assert!(
+            !combined.contains("already known"),
+            "concurrent charge run should not surface nonce replay signature 'already known': {combined}"
+        );
+        assert!(
+            !combined.contains("expiring nonce"),
+            "concurrent charge run should not surface expiring nonce replay signatures: {combined}"
+        );
+    }
 }
 
 /// Missing receipts remain warning-only in default mode.

@@ -37,8 +37,10 @@ fn wallet_dir() -> Result<PathBuf, TempoError> {
 }
 
 pub(super) fn origin_lock_key(url_or_origin: &str) -> String {
-    let normalized = url::Url::parse(url_or_origin)
-        .map_or_else(|_| url_or_origin.to_string(), |u| u.origin().ascii_serialization());
+    let normalized = url::Url::parse(url_or_origin).map_or_else(
+        |_| url_or_origin.to_string(),
+        |u| u.origin().ascii_serialization(),
+    );
     let safe: String = normalized
         .chars()
         .map(|c| {
@@ -61,7 +63,8 @@ fn acquire_lock_in_dir(key: &str, dir: &Path) -> Result<OriginLock, TempoError> 
         .write(true)
         .open(path)
         .map_err(|source| lock_error("open charge lock file", source))?;
-    fs2::FileExt::lock_exclusive(&file).map_err(|source| lock_error("acquire charge lock", source))?;
+    fs2::FileExt::lock_exclusive(&file)
+        .map_err(|source| lock_error("acquire charge lock", source))?;
     Ok(OriginLock { file })
 }
 

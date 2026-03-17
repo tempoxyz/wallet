@@ -514,6 +514,93 @@ async fn run_invalidating_problem_unconfirmed_case(problem_type: &'static str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn channel_not_found_problem_with_delete_failure_fails_closed_without_reopen() {
+    let rpc = SessionRpcServer::start_with_config(SessionRpcConfig {
+        channel_mode: SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold: 3 },
+    })
+    .await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: false,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: None,
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: Some(
+            "https://paymentauth.org/problems/session/channel-not-found",
+        ),
+        insufficient_balance_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/resource"));
+    assert!(
+        first_output.status.success(),
+        "first request should succeed: {}",
+        get_combined_output(&first_output)
+    );
+    let channels_after_first = load_channels(&temp);
+    assert_eq!(channels_after_first.len(), 1);
+    let first_channel_id = channels_after_first[0].channel_id.clone();
+
+    let db_path = temp.path().join(".tempo/wallet/channels.db");
+    let db_lock = rusqlite::Connection::open(&db_path).unwrap();
+    db_lock
+        .busy_timeout(std::time::Duration::from_millis(0))
+        .unwrap();
+    db_lock.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+    let second_output = std::thread::scope(|scope| {
+        let handle = scope.spawn(|| run_session_request(&temp, &server.url("/resource")));
+
+        // Hold the write lock past the store busy_timeout so delete_channel fails.
+        std::thread::sleep(std::time::Duration::from_millis(6_200));
+        db_lock.execute_batch("ROLLBACK;").unwrap();
+
+        handle.join().unwrap()
+    });
+
+    assert!(
+        !second_output.status.success(),
+        "delete failure on confirmed invalidation should fail closed: {}",
+        get_combined_output(&second_output)
+    );
+    let stderr = String::from_utf8_lossy(&second_output.stderr);
+    assert!(
+        stderr.contains("Failed to remove invalidated channel before reopening")
+            || stderr.contains("delete channel"),
+        "error should explain invalidated-channel cleanup failure: {stderr}"
+    );
+
+    let observed = server.snapshot();
+    assert_eq!(
+        observed.open_count, 1,
+        "cleanup failure must not reopen or replace the channel"
+    );
+    assert_eq!(
+        observed.voucher_count, 1,
+        "reuse path should still attempt a single voucher before failing"
+    );
+
+    let channels_after_second = load_channels(&temp);
+    assert_eq!(
+        channels_after_second.len(),
+        1,
+        "cleanup failure should preserve exactly one local channel row"
+    );
+    assert_eq!(
+        channels_after_second[0].channel_id, first_channel_id,
+        "cleanup failure must keep the original channel persisted for audit/dispute"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn channel_not_found_problem_triggers_reopen() {
     run_invalidating_problem_reopen_case(
         "https://paymentauth.org/problems/session/channel-not-found",

@@ -5,8 +5,10 @@ pub(crate) use crate::common::test_command;
 pub(crate) use tempo_test::{get_combined_output, setup_config_only, MODERATO_PRIVATE_KEY};
 
 pub(crate) fn payment_origin_lock_key(url_or_origin: &str) -> String {
-    let normalized = url::Url::parse(url_or_origin)
-        .map_or_else(|_| url_or_origin.to_string(), |u| u.origin().ascii_serialization());
+    let normalized = url::Url::parse(url_or_origin).map_or_else(
+        |_| url_or_origin.to_string(),
+        |u| u.origin().ascii_serialization(),
+    );
     let safe: String = normalized
         .chars()
         .map(|c| {
