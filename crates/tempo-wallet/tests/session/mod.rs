@@ -325,15 +325,16 @@ fn encode_get_channel_return_data(close_requested_at: u64, finalized: bool) -> S
     let token: alloy::primitives::Address = MODERATO_TOKEN.parse().unwrap();
     let authorized_signer: alloy::primitives::Address = SEEDED_PAYER.parse().unwrap();
 
+    // New ABI order: (finalized, closeRequestedAt, payer, payee, token, authorizedSigner, deposit, settled)
     let mut encoded = Vec::with_capacity(32 * 8);
+    encoded.extend(encode_bool_word(finalized));
+    encoded.extend(encode_u64_word(close_requested_at));
     encoded.extend(encode_address_word(payer));
     encoded.extend(encode_address_word(payee));
     encoded.extend(encode_address_word(token));
     encoded.extend(encode_address_word(authorized_signer));
     encoded.extend(encode_u128_word(10_000_000));
     encoded.extend(encode_u128_word(0));
-    encoded.extend(encode_u64_word(close_requested_at));
-    encoded.extend(encode_bool_word(finalized));
     format!("0x{}", hex::encode(encoded))
 }
 
