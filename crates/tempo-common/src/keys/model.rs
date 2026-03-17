@@ -73,9 +73,6 @@ pub struct KeyEntry {
     /// Token spending limits for this key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<StoredTokenLimit>,
-    /// Whether this key has been provisioned on-chain.
-    #[serde(default)]
-    pub provisioned: bool,
 }
 
 /// TOML persistence shape for a key entry.
@@ -99,8 +96,6 @@ pub(super) struct StoredKeyEntry {
     pub expiry: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<StoredTokenLimit>,
-    #[serde(default)]
-    pub provisioned: bool,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -121,7 +116,6 @@ impl From<KeyEntry> for StoredKeyEntry {
             key_authorization: value.key_authorization,
             expiry: value.expiry,
             limits: value.limits,
-            provisioned: value.provisioned,
         }
     }
 }
@@ -138,7 +132,6 @@ impl From<StoredKeyEntry> for KeyEntry {
             key_authorization: value.key_authorization,
             expiry: value.expiry,
             limits: value.limits,
-            provisioned: value.provisioned,
         }
     }
 }
@@ -155,7 +148,6 @@ impl std::fmt::Debug for KeyEntry {
             .field("key_authorization", &self.key_authorization)
             .field("expiry", &self.expiry)
             .field("limits", &self.limits)
-            .field("provisioned", &self.provisioned)
             .finish()
     }
 }
@@ -294,7 +286,6 @@ mod tests {
                     .unwrap(),
                 limit: "1000".to_string(),
             }],
-            provisioned: true,
         };
 
         let toml_str = toml::to_string(&entry).unwrap();
@@ -309,7 +300,6 @@ mod tests {
         assert_eq!(deserialized.key_authorization, entry.key_authorization);
         assert_eq!(deserialized.expiry, entry.expiry);
         assert_eq!(deserialized.limits, entry.limits);
-        assert_eq!(deserialized.provisioned, entry.provisioned);
     }
 
     #[test]
@@ -324,7 +314,6 @@ mod tests {
             key_authorization: None,
             expiry: None,
             limits: vec![],
-            provisioned: false,
         };
 
         let toml_str = toml::to_string(&entry).unwrap();

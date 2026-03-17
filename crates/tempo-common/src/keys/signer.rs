@@ -207,7 +207,6 @@ mod tests {
             key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
             key_authorization: Some("deadbeef".to_string()),
             chain_id: 4217,
-            provisioned: false,
             ..Default::default()
         });
         let signer = keys.signer(NetworkId::Tempo).unwrap();

@@ -132,11 +132,10 @@ async fn build_response(
     response.key = Some(key_info);
     response.key_expiry = key_expiry_timestamp(key_entry);
 
-    // Readiness requires: key present, wallet connected, and either
-    // already provisioned or has a key_authorization (will auto-provision on first use).
+    // Readiness requires: key present, wallet connected, and has a signing key or key_authorization.
     response.ready = response.ready
         && response.wallet.is_some()
-        && (key_entry.provisioned || key_entry.key_authorization.is_some());
+        && (key_entry.has_inline_key() || key_entry.key_authorization.is_some());
 
     response
 }

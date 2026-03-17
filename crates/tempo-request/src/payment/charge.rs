@@ -63,7 +63,7 @@ pub(super) async fn handle_charge_request(
             Ok(cred) => cred,
             Err(e) if signer.has_stored_key_authorization() => {
                 // Payment failed — check on-chain if the key is definitively missing.
-                // Only retry with key_authorization if the key hasn't been provisioned.
+                // Only retry with key_authorization if the key is missing on-chain.
                 let rpc_url: url::Url = resolved.rpc_url.as_str().parse().map_err(|source| {
                     ConfigError::InvalidUrl {
                         context: "RPC",
