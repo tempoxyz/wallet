@@ -93,9 +93,6 @@ async fn render(ctx: &Context, info: &DebugInfo) -> Result<(), TempoError> {
             writeln!(w, "  wallet        : not logged in")?;
         }
 
-        writeln!(w)?;
-        writeln!(w, "Copy the above and share it with Tempo support.")?;
-
         Ok(())
     })?;
 
@@ -103,9 +100,15 @@ async fn render(ctx: &Context, info: &DebugInfo) -> Result<(), TempoError> {
     if !ctx.output_format.is_structured() && info.logged_in {
         let w = &mut std::io::stdout();
         writeln!(w)?;
-        writeln!(w, "whoami")?;
-        writeln!(w, "======")?;
+        writeln!(w, "wallet and access key")?;
+        writeln!(w, "=====================")?;
         whoami::show_whoami(ctx, None, None).await?;
+    }
+
+    if !ctx.output_format.is_structured() {
+        let w = &mut std::io::stdout();
+        writeln!(w)?;
+        writeln!(w, "Copy the above and share it with Tempo support.")?;
     }
 
     Ok(())
