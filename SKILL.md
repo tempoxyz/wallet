@@ -1,9 +1,9 @@
 ---
 name: tempo
 description: |
-  Install and set up Tempo — an agent-first CLI for discovering services and calling HTTP APIs with built-in payments. One command to install, one to log in, then discover and use any service.
+ Install and set up Tempo — an agent-first CLI for discovering services and calling HTTP APIs with built-in payments. One command to install, one to log in, then discover and use any service.
 
-  TRIGGERS: set up tempo, install tempo, use tempo, call API, paid API, HTTP request, service discovery, "use tempo to"
+ TRIGGERS: set up tempo, install tempo, use tempo, call API, paid API, HTTP request, service discovery, "use tempo to"
 ---
 
 # Tempo
@@ -22,7 +22,7 @@ curl -fsSL https://tempo.xyz/install | TEMPO_BIN_DIR="$HOME/.local/bin" bash
 "$HOME/.local/bin/tempo" wallet login
 
 # 3. Verify
-"$HOME/.local/bin/tempo" wallet -t whoami
+"$HOME/.local/bin/tempo" wallet whoami
 ```
 
 Setup is done when `whoami` returns `ready=true`.
@@ -36,37 +36,36 @@ Setup is done when `whoami` returns `ready=true`.
 
 ```bash
 # Find services
-tempo wallet -t services --search <query>
+tempo wallet services --search <query>
 
 # Inspect a service (shows URL, methods, paths, pricing)
-tempo wallet -t services <SERVICE_ID>
+tempo wallet services <SERVICE_ID>
 
 # Make a request (handles payment automatically)
-tempo request -t -X POST --json '{"input":"..."}' <SERVICE_URL>/<ENDPOINT_PATH>
+tempo request -X POST --json '{"input":"..."}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Preview cost before paying
-tempo request -t --dry-run -X POST --json '{"input":"..."}' <SERVICE_URL>/<ENDPOINT_PATH>
+tempo request --dry-run -X POST --json '{"input":"..."}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # Check balance
-tempo wallet -t whoami
+tempo wallet whoami
 ```
 
 **Rules:**
-- Always discover endpoints with `tempo wallet -t services` before making requests — never guess URLs.
-- Use `-t` flag for compact agent-friendly output.
+- Always discover endpoints with `tempo wallet services` before making requests — never guess URLs.
 - Use `--dry-run` before expensive requests.
 - `tempo request` is curl-compatible (method flags, headers, data, redirects, timeouts).
-- If you get HTTP 422, check `tempo wallet -t services <SERVICE_ID>` for exact field names.
+- If you get HTTP 422, check `tempo wallet services <SERVICE_ID>` for exact field names.
 
 ## Common Issues
 
 | Issue | Fix |
 |---|---|
 | `tempo: command not found` | Run the install command from step 1, then use full path `"$HOME/.local/bin/tempo"`. |
-| `ready=false` | Run `tempo wallet login`, wait for user, then `tempo wallet -t whoami`. |
+| `ready=false` | Run `tempo wallet login`, wait for user, then `tempo wallet whoami`. |
 | Balance is 0 | Run `tempo wallet fund`. |
 | "legacy V1 keychain" error | Reinstall: `curl -fsSL https://tempo.xyz/install \| bash`, then `tempo wallet logout --yes && tempo wallet login`. |
-| Service not found | Broaden search: `tempo wallet -t services --search <broader_query>`. |
+| Service not found | Broaden search: `tempo wallet services --search <broader_query>`. |
 
 ## Support
 
