@@ -17,7 +17,7 @@ use crate::{
 };
 use tempo_common::{
     cli::context::Context,
-    error::{NetworkError, PaymentError, TempoError},
+    error::{NetworkError, TempoError},
     security::redact_url,
 };
 
@@ -97,33 +97,6 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
         .to_string();
 
     let challenge = challenge::parse_payment_challenge(&response)?;
-
-    // Validate that the challenge realm matches the effective URL origin.
-    // Prevents a malicious endpoint from relaying a challenge from a different
-    // paid API to steal the victim's payment credential.
-    let origin = url::Url::parse(&effective_url)
-        .ok()
-        .and_then(|u| {
-            let host = u.host_str()?.to_string();
-            match u.port() {
-                Some(port) => Some(format!("{host}:{port}")),
-                None => Some(host),
-            }
-        })
-        .unwrap_or_default();
-    let realm = challenge
-        .challenge
-        .realm
-        .strip_prefix("https://")
-        .or_else(|| challenge.challenge.realm.strip_prefix("http://"))
-        .unwrap_or(&challenge.challenge.realm);
-    if realm != origin {
-        return Err(PaymentError::ChallengeSchema {
-            context: "payment challenge realm",
-            reason: format!("challenge realm '{realm}' does not match request host '{origin}'"),
-        }
-        .into());
-    }
 
     if prepared.http.log_enabled() {
         eprintln!(

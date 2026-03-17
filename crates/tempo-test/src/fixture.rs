@@ -38,7 +38,7 @@ pub const MODERATO_CHARGE_CHALLENGE: &str = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmV
 
 /// Build a WWW-Authenticate header for a Moderato charge challenge.
 ///
-/// `realm` should be the FQDN (host\[:port\]) of the server under test.
+/// `realm` is included in the challenge as an opaque identifier per the spec.
 /// If a full URL is passed (e.g. `"http://127.0.0.1:PORT"`), the scheme
 /// is stripped automatically.
 #[must_use]

@@ -485,7 +485,9 @@ pub fn list_channels() -> ChannelStoreResult<Vec<ChannelRecord>> {
                     escrow_contract, token, payee, payer, authorized_signer,
                     salt, channel_id, deposit, cumulative_amount,
                     challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
-             FROM channels ORDER BY last_used_at DESC",
+             FROM channels
+             WHERE origin <> 'http://127.0.0.1'
+             ORDER BY last_used_at DESC",
         )
         .map_err(|err| store_error("prepare channels list query", err))?;
 

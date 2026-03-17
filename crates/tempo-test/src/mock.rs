@@ -15,7 +15,7 @@ pub struct MockServer {
     pub base_url: String,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     _handle: tokio::task::JoinHandle<()>,
-    /// Deferred www-authenticate header (set after server binds so realm can match origin).
+    /// Deferred www-authenticate header (set after server binds).
     www_auth_tx: Option<std::sync::Arc<tokio::sync::watch::Sender<String>>>,
 }
 
@@ -198,8 +198,7 @@ impl MockServer {
 
     /// Start a payment mock where the WWW-Authenticate header is set after binding.
     ///
-    /// Call [`Self::set_www_authenticate`] after construction to provide the header
-    /// (e.g. with a realm matching this server's origin).
+    /// Call [`Self::set_www_authenticate`] after construction to provide the header.
     pub async fn start_payment_deferred(success_body: &str) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
