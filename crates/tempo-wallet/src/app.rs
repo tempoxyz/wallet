@@ -29,9 +29,12 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                 Commands::Completions { shell } => completions::run(&ctx, shell),
                 Commands::Fund {
                     address,
+                    chain,
+                    token,
+                    list_chains,
                     no_wait,
                     dry_run,
-                } => fund::run(&ctx, address, no_wait, dry_run).await,
+                } => fund::run(&ctx, address, chain, token, list_chains, no_wait, dry_run).await,
                 Commands::Whoami => whoami::run(&ctx).await,
                 Commands::Keys => keys::run(&ctx).await,
                 Commands::Sessions { command } => {

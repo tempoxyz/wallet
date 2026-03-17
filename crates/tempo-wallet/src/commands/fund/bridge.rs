@@ -18,7 +18,8 @@ use tempo_common::{
 use super::{
     has_balance_changed,
     relay::{
-        create_deposit_address, poll_deposit_status, source_chains, DepositStatus, SourceChain,
+        create_deposit_address, find_chain, poll_deposit_status, source_chains, DepositStatus,
+        SourceChain, Vm,
     },
     render_balance_diff, FundResponse, POLL_INTERVAL_SECS,
 };
@@ -29,17 +30,107 @@ const DEFAULT_SOURCE_CHAIN_ID: u64 = 8453;
 /// Timeout for polling bridge deposit status (seconds).
 const BRIDGE_POLL_TIMEOUT_SECS: u64 = 600;
 
-pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> Result<(), TempoError> {
+/// Print available source chains and their tokens.
+pub(super) fn list_chains(ctx: &Context) -> Result<(), TempoError> {
+    if ctx.output_format == OutputFormat::Text {
+        eprintln!("Available source chains:\n");
+        for chain in source_chains() {
+            let vm_label = match chain.vm {
+                Vm::Evm => "EVM",
+                Vm::Svm => "SVM",
+            };
+            eprintln!("  {} ({vm_label})", chain.name);
+            for token in chain.tokens {
+                let marker = if token.default { " (default)" } else { "" };
+                eprintln!("    - {}{marker}", token.symbol);
+            }
+        }
+        eprintln!();
+        eprintln!("Usage: tempo wallet fund --chain <name> --token <symbol>");
+    } else {
+        #[derive(serde::Serialize)]
+        struct ChainInfo {
+            name: &'static str,
+            chain_id: u64,
+            vm: &'static str,
+            tokens: Vec<TokenInfo>,
+        }
+        #[derive(serde::Serialize)]
+        struct TokenInfo {
+            symbol: &'static str,
+            address: &'static str,
+            default: bool,
+        }
+        let chains: Vec<ChainInfo> = source_chains()
+            .iter()
+            .map(|c| ChainInfo {
+                name: c.name,
+                chain_id: c.chain_id,
+                vm: match c.vm {
+                    Vm::Evm => "evm",
+                    Vm::Svm => "svm",
+                },
+                tokens: c
+                    .tokens
+                    .iter()
+                    .map(|t| TokenInfo {
+                        symbol: t.symbol,
+                        address: t.address,
+                        default: t.default,
+                    })
+                    .collect(),
+            })
+            .collect();
+        output::emit_structured_if_selected(ctx.output_format, &chains)?;
+    }
+    Ok(())
+}
+
+/// Resolve the source chain from an optional `--chain` name.
+fn resolve_source_chain(chain_name: Option<&str>) -> Result<&'static SourceChain, TempoError> {
+    match chain_name {
+        Some(name) => find_chain(name).ok_or_else(|| {
+            let available: Vec<&str> = source_chains().iter().map(|c| c.name).collect();
+            TempoError::Config(tempo_common::error::ConfigError::Missing(format!(
+                "Unknown source chain '{name}'. Available: {}",
+                available.join(", ")
+            )))
+        }),
+        None => Ok(source_chains()
+            .iter()
+            .find(|c| c.chain_id == DEFAULT_SOURCE_CHAIN_ID)
+            .expect("Default source chain (Base) missing from source_chains config")),
+    }
+}
+
+pub(super) async fn run(
+    ctx: &Context,
+    address: &str,
+    chain_name: Option<&str>,
+    token_symbol: Option<&str>,
+    wait: bool,
+) -> Result<(), TempoError> {
     let balances_before = query_all_balances(&ctx.config, ctx.network, address).await;
 
-    // Use Base as default source chain
-    let source_chain = source_chains()
-        .iter()
-        .find(|c| c.chain_id == DEFAULT_SOURCE_CHAIN_ID)
-        .expect("Default source chain (Base) missing from source_chains config");
+    let source_chain = resolve_source_chain(chain_name)?;
+
+    let token = match token_symbol {
+        Some(sym) => source_chain.find_token(sym).ok_or_else(|| {
+            let available: Vec<&str> = source_chain.tokens.iter().map(|t| t.symbol).collect();
+            TempoError::Config(tempo_common::error::ConfigError::Missing(format!(
+                "Token '{sym}' not available on {}. Available: {}",
+                source_chain.name,
+                available.join(", ")
+            )))
+        })?,
+        None => source_chain.default_token(),
+    };
 
     if ctx.output_format == OutputFormat::Text {
-        eprintln!("Generating deposit address on {}...", source_chain.name);
+        eprintln!(
+            "Generating deposit address on {} ({})...",
+            source_chain.name, token.symbol
+        );
     }
 
     let client = reqwest::Client::builder()
@@ -47,15 +138,27 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> Result<(), 
         .user_agent(format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(NetworkError::Reqwest)?;
-    let deposit =
-        create_deposit_address(&client, source_chain, address, ctx.network.chain_id()).await?;
+    let deposit = create_deposit_address(
+        &client,
+        source_chain,
+        token.address,
+        address,
+        ctx.network.chain_id(),
+    )
+    .await?;
 
     if ctx.output_format == OutputFormat::Text {
-        let qr_uri = format!("ethereum:{}", deposit.deposit_address);
+        let qr_uri = match source_chain.vm {
+            Vm::Evm => format!("ethereum:{}", deposit.deposit_address),
+            Vm::Svm => format!("solana:{}", deposit.deposit_address),
+        };
         render_qr_code(&qr_uri);
         eprintln!();
         let deposit_link = address_link(ctx.network, &deposit.deposit_address);
-        eprintln!("Send USDC on {} to: {}", source_chain.name, deposit_link);
+        eprintln!(
+            "Send {} on {} to: {}",
+            token.symbol, source_chain.name, deposit_link
+        );
         eprintln!("Funds will be bridged automatically to your Tempo wallet.");
         eprintln!();
     }
@@ -68,6 +171,7 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> Result<(), 
             success: false,
             deposit_address: Some(deposit.deposit_address),
             source_chain: Some(source_chain.name.to_string()),
+            source_token: Some(token.symbol.to_string()),
             bridge_status: None,
             balances_before: Some(balances_before),
             balances_after: None,
@@ -106,6 +210,7 @@ pub(super) async fn run(ctx: &Context, address: &str, wait: bool) -> Result<(), 
         success,
         deposit_address: Some(deposit.deposit_address),
         source_chain: Some(source_chain.name.to_string()),
+        source_token: Some(token.symbol.to_string()),
         bridge_status: final_status,
         balances_before: Some(balances_before),
         balances_after: Some(balances_after),

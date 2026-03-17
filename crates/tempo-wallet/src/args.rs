@@ -71,6 +71,15 @@ Examples:
         /// Wallet address to fund (defaults to current wallet)
         #[arg(long)]
         address: Option<String>,
+        /// Source chain to bridge from (e.g. base, ethereum, solana, arbitrum, optimism)
+        #[arg(long)]
+        chain: Option<String>,
+        /// Token to send on the source chain (e.g. USDC, ETH, SOL)
+        #[arg(long)]
+        token: Option<String>,
+        /// List available source chains and tokens
+        #[arg(long)]
+        list_chains: bool,
         /// Skip waiting for balance confirmation
         #[arg(long)]
         no_wait: bool,

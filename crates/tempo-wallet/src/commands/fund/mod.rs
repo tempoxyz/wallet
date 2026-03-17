@@ -41,6 +41,8 @@ struct FundResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     source_chain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    source_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bridge_status: Option<DepositStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     balances_before: Option<Vec<TokenBalance>>,
@@ -55,9 +57,16 @@ struct FundResponse {
 pub(crate) async fn run(
     ctx: &Context,
     address: Option<String>,
+    chain: Option<String>,
+    token: Option<String>,
+    list_chains: bool,
     no_wait: bool,
     dry_run: bool,
 ) -> Result<(), TempoError> {
+    if list_chains {
+        return bridge::list_chains(ctx);
+    }
+
     let method = match ctx.network {
         NetworkId::TempoModerato => "faucet",
         NetworkId::Tempo => "bridge",
@@ -65,7 +74,7 @@ pub(crate) async fn run(
     if !dry_run {
         track_fund_start(ctx, method);
     }
-    let result = run_inner(ctx, address, no_wait, dry_run).await;
+    let result = run_inner(ctx, address, chain, token, no_wait, dry_run).await;
     if !dry_run {
         track_fund_result(ctx, method, &result);
     }
@@ -75,28 +84,52 @@ pub(crate) async fn run(
 async fn run_inner(
     ctx: &Context,
     address: Option<String>,
+    chain: Option<String>,
+    token: Option<String>,
     no_wait: bool,
     dry_run: bool,
 ) -> Result<(), TempoError> {
     let wallet_address = resolve_address(address, &ctx.keys)?;
 
     if dry_run {
-        return dry_run_fund(ctx, &wallet_address);
+        return dry_run_fund(ctx, &wallet_address, chain.as_deref(), token.as_deref());
     }
 
     let wait = !no_wait;
     match ctx.network {
         NetworkId::TempoModerato => faucet::run(ctx, &wallet_address, wait).await,
-        NetworkId::Tempo => bridge::run(ctx, &wallet_address, wait).await,
+        NetworkId::Tempo => {
+            bridge::run(
+                ctx,
+                &wallet_address,
+                chain.as_deref(),
+                token.as_deref(),
+                wait,
+            )
+            .await
+        }
     }
 }
 
-fn dry_run_fund(ctx: &Context, wallet_address: &str) -> Result<(), TempoError> {
+fn dry_run_fund(
+    ctx: &Context,
+    wallet_address: &str,
+    chain_name: Option<&str>,
+    token_symbol: Option<&str>,
+) -> Result<(), TempoError> {
     use tempo_common::cli::output;
 
     let action = match ctx.network {
         NetworkId::TempoModerato => "faucet",
         NetworkId::Tempo => "bridge",
+    };
+
+    let (source_chain_name, source_token_name) = if action == "bridge" {
+        let chain_label = chain_name.unwrap_or("Base");
+        let token_label = token_symbol.unwrap_or("USDC");
+        (Some(chain_label.to_string()), Some(token_label.to_string()))
+    } else {
+        (None, None)
     };
 
     let response = FundResponse {
@@ -105,19 +138,20 @@ fn dry_run_fund(ctx: &Context, wallet_address: &str) -> Result<(), TempoError> {
         action,
         success: false,
         deposit_address: None,
-        source_chain: if action == "bridge" {
-            Some("Base".to_string())
-        } else {
-            None
-        },
+        source_chain: source_chain_name.clone(),
+        source_token: source_token_name.clone(),
         bridge_status: None,
         balances_before: None,
         balances_after: None,
     };
 
     output::emit_by_format(ctx.output_format, &response, || {
+        let detail = match (&source_chain_name, &source_token_name) {
+            (Some(chain), Some(token)) => format!(" from {chain} ({token})"),
+            _ => String::new(),
+        };
         eprintln!(
-            "[DRY RUN] Would fund {} on {} via {action}",
+            "[DRY RUN] Would fund {} on {} via {action}{detail}",
             wallet_address,
             ctx.network.as_str()
         );
