@@ -1186,6 +1186,31 @@ async fn open_stage(
     let open_idempotency_key = new_idempotency_key();
     let delays = [2000_u64, 3000, 5000];
 
+    let state = ChannelState {
+        channel_id,
+        escrow_contract: challenge.escrow_contract,
+        chain_id: challenge.chain_id,
+        deposit: deposit.deposit,
+        cumulative_amount: initial_cumulative,
+    };
+    let salt_hex = format!("{salt:#x}");
+
+    // Helper: persist channel state on error so on-chain funds aren't orphaned.
+    // The tx may have been broadcast by the server even if the response was an error.
+    let persist_on_error = |e: TempoError| -> TempoError {
+        let ctx = build_channel_context(
+            signer,
+            http,
+            url,
+            resolved.rpc_url.as_str(),
+            challenge,
+            deposit,
+            salt_hex.clone(),
+        );
+        let _ = persist_session(&ctx, &state);
+        e
+    };
+
     let open_response = match build_and_send_open(
         http,
         url,
@@ -1225,19 +1250,12 @@ async fn open_stage(
                 &delays,
             )
             .await
-            .map_err(|_| original)?
+            .map_err(|_| persist_on_error(original))?
         }
-        Err(e) => return Err(e),
+        Err(e) => return Err(persist_on_error(e)),
     };
 
-    let mut state = ChannelState {
-        channel_id,
-        escrow_contract: challenge.escrow_contract,
-        chain_id: challenge.chain_id,
-        deposit: deposit.deposit,
-        cumulative_amount: initial_cumulative,
-    };
-
+    let mut state = state;
     let open_tx_hash = apply_response_receipt(&open_response, &mut state, "open response")?;
     if let Some(tx_ref) = open_tx_hash.as_deref() {
         if http.log_enabled() {
@@ -1247,7 +1265,7 @@ async fn open_stage(
 
     Ok(OpenExecutionPlan {
         state,
-        salt_hex: format!("{salt:#x}"),
+        salt_hex,
         open_tx_hash,
         open_response,
     })
