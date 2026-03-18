@@ -94,22 +94,6 @@ pub fn parse_problem_details(body: &str) -> Option<ProblemDetails> {
     Some(problem)
 }
 
-/// Extract the first meaningful error string from a JSON response body.
-///
-/// Checks `error`, `message`, and `detail` fields in order.
-pub fn extract_json_error(body: &str) -> Option<String> {
-    if let Some(problem) = parse_problem_details(body) {
-        return Some(problem.message());
-    }
-
-    let json: serde_json::Value = serde_json::from_str(body).ok()?;
-    json.get("error")
-        .or_else(|| json.get("message"))
-        .or_else(|| json.get("detail"))
-        .and_then(|v| v.as_str())
-        .map(String::from)
-}
-
 /// Map mpp validation errors to tempo-wallet error types.
 #[must_use]
 pub fn map_mpp_validation_error(
@@ -421,69 +405,6 @@ mod tests {
             }
             other => panic!("Expected HttpStatus with parsed code, got: {other}"),
         }
-    }
-
-    // --- extract_json_error tests ---
-
-    #[test]
-    fn test_extract_json_error_error_field() {
-        let body = r#"{"error": "something went wrong"}"#;
-        assert_eq!(
-            extract_json_error(body),
-            Some("something went wrong".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_json_error_problem_details_preferred() {
-        let body = r#"{"type":"https://paymentauth.org/problems/session/insufficient-balance","detail":"need top-up","message":"fallback"}"#;
-        assert_eq!(
-            extract_json_error(body),
-            Some(
-                "https://paymentauth.org/problems/session/insufficient-balance: need top-up"
-                    .to_string()
-            )
-        );
-    }
-
-    #[test]
-    fn test_extract_json_error_message_field() {
-        let body = r#"{"message": "bad request"}"#;
-        assert_eq!(extract_json_error(body), Some("bad request".to_string()));
-    }
-
-    #[test]
-    fn test_extract_json_error_detail_field() {
-        let body = r#"{"detail": "not found"}"#;
-        assert_eq!(extract_json_error(body), Some("not found".to_string()));
-    }
-
-    #[test]
-    fn test_extract_json_error_error_takes_precedence() {
-        let body = r#"{"error": "the error", "message": "the message"}"#;
-        assert_eq!(extract_json_error(body), Some("the error".to_string()));
-    }
-
-    #[test]
-    fn test_extract_json_error_no_known_fields() {
-        let body = r#"{"status": 500, "code": "INTERNAL"}"#;
-        assert_eq!(extract_json_error(body), None);
-    }
-
-    #[test]
-    fn test_extract_json_error_invalid_json() {
-        assert_eq!(extract_json_error("not json at all"), None);
-    }
-
-    #[test]
-    fn test_extract_json_error_empty_string() {
-        assert_eq!(extract_json_error(""), None);
-    }
-
-    #[test]
-    fn test_extract_json_error_non_string_field() {
-        let body = r#"{"error": 42}"#;
-        assert_eq!(extract_json_error(body), None);
     }
 
     // --- map_mpp_validation_error tests ---

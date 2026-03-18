@@ -114,8 +114,11 @@ pub(super) async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        let raw_reason = crate::payment::extract_json_error(&body)
-            .unwrap_or_else(|| body.chars().take(200).collect());
+        let raw_reason: String = if body.trim().is_empty() {
+            format!("HTTP {}", status.as_u16())
+        } else {
+            body.chars().take(500).collect()
+        };
         let reason = sanitize_for_terminal(&raw_reason);
         return Err(PaymentError::PaymentRejected {
             reason,
