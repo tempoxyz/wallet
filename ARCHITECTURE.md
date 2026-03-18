@@ -62,7 +62,7 @@ tempo-wallet/src/
     keys.rs            — key listing with balance and spending limit queries
     sign.rs            — sign MPP payment challenges
     completions.rs     — shell completions
-    fund/              — fund subcommands (faucet, bridge, relay)
+    fund/              — fund command (browser-based flow)
     sessions/          — session management (list, close, sync, render)
     services/          — service directory (client, model, render)
 ```
