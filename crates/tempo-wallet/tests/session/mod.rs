@@ -42,8 +42,6 @@ struct CooperativeObservations {
     close_channel_id: Option<String>,
     close_channel_ids: Vec<String>,
     close_cumulative_amount: Option<String>,
-    /// Per-channel cumulative amounts keyed by channel ID.
-    close_cumulative_amounts: std::collections::HashMap<String, String>,
     close_signature: Option<String>,
     credential_source: Option<String>,
 }
@@ -146,10 +144,7 @@ async fn cooperative_close_handler(
     } = payload
     {
         observations.close_channel_id = Some(channel_id.clone());
-        observations.close_channel_ids.push(channel_id.clone());
-        observations
-            .close_cumulative_amounts
-            .insert(channel_id, cumulative_amount.clone());
+        observations.close_channel_ids.push(channel_id);
         observations.close_cumulative_amount = Some(cumulative_amount);
         observations.close_signature = Some(signature);
     }
