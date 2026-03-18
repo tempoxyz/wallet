@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Patch Changes
+
+- Improve open-source readiness across docs and metadata: fix contributor setup instructions, replace dead example links, add a security policy document, and refresh the root README structure.
+- Remove embedded routing/rate-limit tokens from built-in Tempo default RPC and wallet auth URLs, using token-free base endpoints instead.
+
 ## 0.1.4 (2026-03-18)
 
 ### Patch Changes
@@ -45,4 +52,3 @@
 ### Patch Changes
 
 - Simplified optimistic key provisioning by removing the `query_key_status` and `prepare_provisioning_retry` functions, instead retrying directly with `with_key_authorization()` on any error. Added support for merged `WWW-Authenticate` challenges (RFC 9110 §11.6.1) by splitting and selecting the first supported payment method. Fixed `list_channels` to exclude localhost origins and removed the realm-vs-origin validation check.
-
