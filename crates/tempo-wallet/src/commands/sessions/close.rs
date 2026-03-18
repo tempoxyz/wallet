@@ -349,6 +349,9 @@ async fn close_all_sessions(ctx: &Context, cooperative_only: bool) -> Result<(),
         .iter()
         .filter(|s| s.network_id() == ctx.network)
         .collect();
+    if show_output && !sessions.is_empty() {
+        eprintln!("Closing {} local session(s)…", sessions.len());
+    }
     for session in &sessions {
         let result = close_local_record(session, ctx, analytics, cooperative_only).await;
         if matches!(result, Ok(CloseOutcome::Closed { .. })) {
@@ -446,6 +449,9 @@ async fn close_by_url(
     let mut summary = CloseSummary::new();
 
     if !sessions.is_empty() {
+        if show_output && sessions.len() > 1 {
+            eprintln!("Closing {} session(s) for {origin}…", sessions.len());
+        }
         for record in sessions {
             let result = close_local_record(&record, ctx, analytics, cooperative_only).await;
             if matches!(result, Ok(CloseOutcome::Closed { .. })) {
@@ -505,7 +511,7 @@ async fn close_orphaned_into_summary(
         .collect();
 
     if show_output && !orphaned.is_empty() {
-        eprintln!("Found {} orphaned channel(s)", orphaned.len());
+        eprintln!("Closing {} orphaned channel(s)…", orphaned.len());
     }
 
     for ch in &orphaned {
@@ -556,13 +562,15 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
     };
 
     // 1) Local sessions ready to finalize
-    for s in session::list_channels()? {
-        if s.network_id() != ctx.network {
-            continue;
-        }
-        if !(s.state == ChannelStatus::Closing && now >= s.grace_ready_at) {
-            continue;
-        }
+    let local_finalizable: Vec<_> = session::list_channels()?
+        .into_iter()
+        .filter(|s| s.network_id() == ctx.network)
+        .filter(|s| s.state == ChannelStatus::Closing && now >= s.grace_ready_at)
+        .collect();
+    if show_output && !local_finalizable.is_empty() {
+        eprintln!("Finalizing {} local session(s)…", local_finalizable.len());
+    }
+    for s in &local_finalizable {
         attempted.insert(s.channel_id);
         let channel_id = s.channel_id_hex();
         let Some(ref wallet) = wallet else {
@@ -586,6 +594,9 @@ async fn finalize_closed_channels(ctx: &Context) -> Result<(), TempoError> {
 
     // 2) Orphaned channels ready to finalize
     if let Some(wallet_addr) = ctx.keys.wallet_address_parsed() {
+        if show_output {
+            eprintln!("Scanning for orphaned channels…");
+        }
         let channels = find_all_channels_for_payer(&ctx.config, wallet_addr, ctx.network).await;
         for ch in &channels {
             if attempted.contains(&ch.channel_id) {
