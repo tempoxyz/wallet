@@ -1,0 +1,38 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Configuration (contains private keys)
+config.toml
+keys.toml
+
+# Build artifacts
+*.tar.gz
+
+# Eval (promptfoo output and old run artifacts)
+eval/runs/
+eval/output/
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+
+# Node
+node_modules/
+package-lock.json
+.ai/
+!.ai/skills/
+.env
+.env.*
+!.env.example

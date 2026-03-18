@@ -1,0 +1,11 @@
+# Packages to ignore (internal-only, no tags or releases)
+ignore = ["tempo-sign", "tempo-test"]
+
+[changelog]
+# "per-crate" - CHANGELOG.md in each package
+# "root" - Single CHANGELOG.md at workspace root (implies unified versioning)
+format = "root"
+
+# AI-assisted changelog generation
+[ai]
+command = "claude -p --append-system-prompt 'CRITICAL: Your response must start with --- on the very first line. Output ONLY the raw markdown changelog with YAML frontmatter. No preamble, no explanation, no code fences, no commentary before or after. The first three characters of your response must be ---.'"

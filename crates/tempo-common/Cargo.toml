@@ -1,0 +1,46 @@
+[package]
+name = "tempo-common"
+version.workspace = true
+edition = "2021"
+description = "Shared library for Tempo CLI extensions"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tempoxyz/wallet"
+publish = false
+readme = "../../README.md"
+keywords = ["http", "cli", "payments", "mpp"]
+categories = ["command-line-utilities"]
+
+[lints]
+workspace = true
+
+[dependencies]
+alloy.workspace = true
+clap.workspace = true
+colored.workspace = true
+dirs.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+hostname.workspace = true
+mpp.workspace = true
+posthog-rs.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tempo-primitives.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+toon-format.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+serial_test.workspace = true

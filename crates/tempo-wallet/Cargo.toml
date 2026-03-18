@@ -1,0 +1,50 @@
+[package]
+name = "tempo-wallet"
+version.workspace = true
+edition = "2021"
+description = "Manage your Tempo Wallet"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tempoxyz/wallet"
+publish = false
+readme = "../../README.md"
+keywords = ["wallet", "cli", "payments", "mpp"]
+categories = ["command-line-utilities"]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "tempo-wallet"
+path = "src/main.rs"
+
+[dependencies]
+tempo-common = { path = "../tempo-common" }
+tempo-primitives.workspace = true
+alloy.workspace = true
+base64.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+colored.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+mpp.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+webbrowser.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+axum.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+serial_test.workspace = true
+tempfile.workspace = true
+tempo-test.workspace = true
+toon-format.workspace = true

@@ -1,0 +1,108 @@
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: tempoxyz/changelogs/check@04ccca87f4785039ced6da0fff27ba29c0dd9f5c # changelogs@0.6.3 + unified PR title + install from source
+
+  generate:
+    if: >-
+      github.event.action == 'labeled' &&
+      startsWith(github.event.label.name, 'changelog:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Configure git credentials for private dependencies
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Check for existing changelog
+        id: existing
+        run: |
+          if git diff origin/${{ github.base_ref }}...HEAD --name-only | grep -q '^\.changelog/.*\.md$'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install changelogs
+        if: steps.existing.outputs.found == 'false'
+        run: curl -sSL https://changelogs.sh | sh -s -- changelogs@0.6.2
+
+      - name: Install claude
+        if: steps.existing.outputs.found == 'false'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Extract bump level from label
+        if: steps.existing.outputs.found == 'false'
+        id: bump
+        run: echo "level=${LABEL#changelog:}" >> "$GITHUB_OUTPUT"
+        env:
+          LABEL: ${{ github.event.label.name }}
+
+      - name: Generate changelog
+        if: steps.existing.outputs.found == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BUMP_LEVEL: ${{ steps.bump.outputs.level }}
+        run: |
+          cat > /tmp/changelog-instructions.md << 'PROMPT'
+          Generate a changelog entry for this git diff.
+
+          Available packages: {packages}
+
+          Respond with ONLY a markdown file in this exact format (no explanation, no code fences):
+
+          ---
+          <package-name>: BUMP_LEVEL
+          ---
+
+          Brief description of changes.
+
+          Rules:
+          - Replace <package-name> with actual package names from the list above
+          - Include ONLY packages that had actual code changes in the frontmatter
+          - Use "BUMP_LEVEL" as the bump level for all packages. Do not use a higher bump level.
+          - Keep the summary concise (1-3 sentences)
+          - Do NOT wrap the output in code fences
+
+          Git diff:
+          {diff}
+          PROMPT
+          sed -i "s/BUMP_LEVEL/$BUMP_LEVEL/g" /tmp/changelog-instructions.md
+          changelogs add --ai "claude -p" --ref "origin/${{ github.base_ref }}" \
+            --instructions "$(cat /tmp/changelog-instructions.md)"
+
+      - name: Commit changelog
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .changelog/
+          git commit -m "chore: add changelog"
+          git push
+
+      - name: Remove label
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit ${{ github.event.number }} --remove-label "${{ github.event.label.name }}"
