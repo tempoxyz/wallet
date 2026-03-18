@@ -15,6 +15,16 @@ install: release
 	cp target/release/tempo-wallet $(HOME)/.tempo/bin/tempo-wallet
 	cp target/release/tempo-request $(HOME)/.tempo/bin/tempo-request
 	chmod +x $(HOME)/.tempo/bin/tempo-wallet $(HOME)/.tempo/bin/tempo-request
+	@# Also update ~/.local/bin if the tempo launcher lives there
+	@if [ -f $(HOME)/.local/bin/tempo-request ]; then \
+		cp target/release/tempo-wallet $(HOME)/.local/bin/tempo-wallet; \
+		cp target/release/tempo-request $(HOME)/.local/bin/tempo-request; \
+		chmod +x $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-request; \
+	fi
+	@echo ""
+	@echo "Installed:"
+	@$(HOME)/.tempo/bin/tempo-wallet --version
+	@$(HOME)/.tempo/bin/tempo-request --version
 
 uninstall:
 	rm -f $(HOME)/.tempo/bin/tempo-wallet $(HOME)/.tempo/bin/tempo-request

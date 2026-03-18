@@ -60,6 +60,9 @@ pub(super) async fn handle_charge_request(
     let credential = match provider.pay(challenge).await {
         Ok(cred) => cred,
         Err(original) if signer.has_stored_key_authorization() => {
+            if http.log_enabled() {
+                eprintln!("Key not provisioned on-chain, retrying with authorization...");
+            }
             let provisioning_signer =
                 signer
                     .with_key_authorization()
@@ -91,7 +94,13 @@ pub(super) async fn handle_charge_request(
     // retry with provisioning. The server validates the transaction on-chain, and
     // it may fail when the access key isn't provisioned even though signing
     // succeeded locally (the optimistic path omits key_authorization).
-    let resp = if matches!(resp.status_code, 401..=403) && signer.has_stored_key_authorization() {
+    let resp = if resp.status_code >= 400 && signer.has_stored_key_authorization() {
+        if http.log_enabled() {
+            eprintln!(
+                "Server rejected payment (HTTP {}), retrying with key authorization...",
+                resp.status_code
+            );
+        }
         let provisioning_signer =
             signer
                 .with_key_authorization()
