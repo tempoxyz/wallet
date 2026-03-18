@@ -4,9 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-// Protection-bypass token is a public API key for unauthenticated access.
-pub(super) const SERVICES_API_URL: &str =
-    "https://mpp.sh/api/services?x-vercel-protection-bypass=iGDnLnmF0nK6LWloAotUbTo3urEsaIkB";
+pub(super) const SERVICES_API_URL: &str = "https://mpp.sh/api/services";
 
 #[derive(Deserialize)]
 pub(super) struct ServiceRegistry {
