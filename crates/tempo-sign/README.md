@@ -13,7 +13,7 @@ tempo-sign sign \
   --key-file release.key \
   --artifacts-dir artifacts \
   --version "0.1.0" \
-  --base-url https://cli.tempo.xyz/extensions/tempo-wallet \
+  --base-url https://cdn.example.com/extensions/tempo-wallet \
   --output manifest.json
 
 # Print the public key

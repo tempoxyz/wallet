@@ -20,8 +20,8 @@ Thanks for your interest in contributing! This guide covers everything you need 
 - [Rust](https://rustup.rs/) (edition 2021)
 
 ```bash
-git clone https://github.com/tempoxyz/presto.git
-cd presto
+git clone git@github.com:tempoxyz/wallet.git
+cd wallet
 make build
 make test
 ```
