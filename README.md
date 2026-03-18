@@ -1,10 +1,11 @@
 # Tempo CLI Wallet Extensions
 
-Wallet and request extensions for the Tempo CLI.
+This repository provides the **wallet extension binaries** for the [Tempo CLI](https://github.com/tempoxyz/tempo). The main `tempo` launcher (at `tempoxyz/tempo`) discovers, installs, and manages these extensions automatically — you don't need to build this repo unless you're contributing.
 
-- `tempo-wallet` — wallet identity and custody (login, keys, sessions, services, signing)
-- `tempo-request` — HTTP client with built-in [MPP](https://mpp.dev) payments
-- `tempo-sign` — release manifest signing tool for extension distribution
+- **`tempo-wallet`** — Wallet identity and custody: login, key management, sessions, services, signing
+- **`tempo-request`** — HTTP client with built-in [MPP](https://mpp.dev) payment: make API requests without API keys
+
+Both extensions are built on the [Machine Payments Protocol](https://mpp.dev), an open protocol for HTTP-native machine-to-machine payments on the [Tempo](https://tempo.xyz) blockchain.
 
 ## Install
 
