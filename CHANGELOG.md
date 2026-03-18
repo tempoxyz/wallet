@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.2 (2026-03-18)
+
+### Patch Changes
+
+- Persist channel state when channel open fails to prevent orphaned on-chain funds.
+- When the open transaction is sent to the server but the server returns an error, the channel may already exist on-chain. Previously the channel state was lost, making the deposited funds unrecoverable. Now the channel record is persisted before returning the error, so future runs can discover and close it.
+- Fix session deposit and key-auth retry error handling.
+- Preserve original error when key-authorization retry also fails, instead of showing misleading retry errors (e.g. `KeyAlreadyExists`).
+- Ensure session deposit covers at least the per-request cost, preventing channels from opening with insufficient funds.
+- Fail early before opening a channel if wallet balance is too low to cover the request cost.
+
+## 0.1.2 (2026-03-18)
+
 ## 0.1.1 (2026-03-18)
 
 ### Patch Changes
