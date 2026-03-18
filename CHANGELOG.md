@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5 (2026-03-18)
+
+### Patch Changes
+
+- Remove hardcoded credentials and tokens from default RPC URLs, auth URLs, and services API URL. Unhide the `--network` CLI flag and update its help text. Improve changelog generation by embedding full format instructions in the AI prompt.
+- Adds an `accepted_cumulative` field to `ChannelRecord` to track the server-confirmed accepted amount separately from the payer-signed ceiling (`cumulative_amount`). Cooperative close now uses the accepted amount instead of the signing ceiling to avoid overcharging the payer, with a DB migration and monotonic update logic throughout the storage and request layers.
+- Fix cooperative session close by selecting the correct WWW-Authenticate challenge when the proxy returns multiple headers (charge and session intents). Parse problem+json error details from close failures to surface actionable messages instead of generic errors.
+- Improve close command progress output: add status messages when closing local sessions, sessions by URL, and orphaned channels, and refactor `finalize_closed_channels` to use iterator filtering with a count message before finalizing.
+
 ## Unreleased
 
 ### Patch Changes
