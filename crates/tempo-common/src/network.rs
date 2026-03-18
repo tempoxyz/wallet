@@ -122,22 +122,17 @@ impl NetworkId {
     #[must_use]
     pub const fn default_rpc_url(&self) -> &'static str {
         match self {
-            // Basic-auth credentials are public rate-limit tokens, not secrets.
-            Self::Tempo => "https://beautiful-tesla:great-benz@rpc.mainnet.tempo.xyz",
+            Self::Tempo => "https://rpc.mainnet.tempo.xyz",
             Self::TempoModerato => "https://rpc.moderato.tempo.xyz",
         }
     }
 
     /// Get the auth server URL for browser-based wallet authentication.
-    ///
-    /// The `auth=` parameter is a public routing token, not a secret.
     #[must_use]
     pub const fn auth_url(&self) -> &'static str {
         match self {
-            Self::Tempo => "https://wallet.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish",
-            Self::TempoModerato => {
-                "https://wallet.moderato.tempo.xyz/cli-auth?auth=eng:acard-melody-fashion-finish"
-            }
+            Self::Tempo => "https://wallet.tempo.xyz/cli-auth",
+            Self::TempoModerato => "https://wallet.moderato.tempo.xyz/cli-auth",
         }
     }
 
