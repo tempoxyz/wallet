@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.3 (2026-03-18)
+
+### Patch Changes
+
+- Fix charge payment failing with "access key does not exist" when the signing key is not yet provisioned on-chain. The server-side rejection retry only triggered on HTTP 401-403, but the server returns other status codes for keychain errors.
+
+## 0.1.3 (2026-03-18)
+
+### Patch Changes
+
+- Fix charge payment failing with "access key does not exist" when the signing key is not yet provisioned on-chain. The server-side rejection retry only triggered on HTTP 401-403, but the server returns other status codes for keychain errors.
+
 ## 0.1.2 (2026-03-18)
 
 ### Patch Changes
