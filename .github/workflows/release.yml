@@ -27,11 +27,11 @@ jobs:
       - name: Configure git auth
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: tempoxyz/changelogs@aae9b474ba053648354bea3f9b8670cac4c78ba1 # changelogs@0.6.2
+      - uses: tempoxyz/changelogs@433ce44f6e3ec148a2e1fa5789f22c0db21ac6da # changelogs@0.6.2 + multiline fix
         id: changelogs
         with:
           conventional-commit: true
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ github.token }}
 
       - name: Update Cargo.lock on release PR
         if: steps.changelogs.outputs.pullRequestNumber != ''
