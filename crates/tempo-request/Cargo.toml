@@ -1,6 +1,6 @@
 [package]
 name = "tempo-request"
-version.workspace = true
+version = "0.1.5"
 edition = "2021"
 description = "Make an HTTP request"
 license = "MIT OR Apache-2.0"
