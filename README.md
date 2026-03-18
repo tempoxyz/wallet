@@ -48,6 +48,12 @@ curl -fsSL https://tempo.xyz/install | bash
 
 This installs the `tempo` launcher, which automatically manages wallet extensions.
 
+## Skill
+
+```bash
+npx skills@latest add tempoxyz/wallet --global --skill tempo
+```
+
 ## Quick Start
 
 ```bash
