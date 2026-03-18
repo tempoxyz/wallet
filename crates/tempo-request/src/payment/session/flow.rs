@@ -1228,6 +1228,9 @@ async fn open_stage(
     {
         Ok(resp) => resp,
         Err(original) if signer.has_stored_key_authorization() => {
+            if http.log_enabled() {
+                eprintln!("Key not provisioned on-chain, retrying with authorization...");
+            }
             let provisioning_signer =
                 signer
                     .with_key_authorization()
@@ -1236,6 +1239,7 @@ async fn open_stage(
                         reason: "stored key authorization could not be applied to signing mode"
                             .to_string(),
                     })?;
+            let retry_idempotency_key = new_idempotency_key();
             build_and_send_open(
                 http,
                 url,
@@ -1246,7 +1250,7 @@ async fn open_stage(
                 channel_id,
                 initial_cumulative,
                 &voucher_sig,
-                &open_idempotency_key,
+                &retry_idempotency_key,
                 &delays,
             )
             .await

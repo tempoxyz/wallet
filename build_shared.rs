@@ -37,10 +37,9 @@ fn main() {
             .unwrap_or_else(|| "unknown".to_string())
     });
 
-    // Build profile: prefer CI-provided env, then Cargo's PROFILE
-    let profile = std::env::var("TEMPO_BUILD_PROFILE")
-        .or_else(|_| std::env::var("PROFILE"))
-        .unwrap_or_else(|_| "unknown".to_string());
+    // Build profile: prefer CI-provided env, otherwise "local" for dev builds
+    let profile =
+        std::env::var("TEMPO_BUILD_PROFILE").unwrap_or_else(|_| "local".to_string());
 
     println!("cargo:rustc-env=TEMPO_GIT_SHA={git_sha}");
     println!("cargo:rustc-env=TEMPO_BUILD_DATE={build_date}");
