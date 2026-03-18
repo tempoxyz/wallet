@@ -447,7 +447,7 @@ async fn run_invalidating_problem_reopen_case(problem_type: &'static str) {
     let (temp, observed, second_output, first_channel_id) = run_invalidating_problem_case(
         problem_type,
         SessionRpcConfig {
-            channel_mode: SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold: 3 },
+            channel_mode: SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold: 1 },
         },
     )
     .await;
@@ -516,7 +516,7 @@ async fn run_invalidating_problem_unconfirmed_case(problem_type: &'static str) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn channel_not_found_problem_with_delete_failure_fails_closed_without_reopen() {
     let rpc = SessionRpcServer::start_with_config(SessionRpcConfig {
-        channel_mode: SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold: 3 },
+        channel_mode: SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold: 1 },
     })
     .await;
     let server = SessionServer::start(SessionServerConfig {

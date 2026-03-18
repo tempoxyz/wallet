@@ -59,7 +59,7 @@ pub(super) async fn handle_charge_request(
 
     let credential = match provider.pay(challenge).await {
         Ok(cred) => cred,
-        Err(_) if signer.has_stored_key_authorization() => {
+        Err(original) if signer.has_stored_key_authorization() => {
             let provisioning_signer =
                 signer
                     .with_key_authorization()
@@ -80,7 +80,7 @@ pub(super) async fn handle_charge_request(
             retry_provider
                 .pay(challenge)
                 .await
-                .map_err(|e| classify_payment_error(e, &resolved.network_id))?
+                .map_err(|_| classify_payment_error(original, &resolved.network_id))?
         }
         Err(e) => return Err(classify_payment_error(e, &resolved.network_id)),
     };

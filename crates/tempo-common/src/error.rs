@@ -346,6 +346,8 @@ pub enum PaymentError {
         #[source]
         source: Box<TempoError>,
     },
+    #[error("Deposit too low for request: deposit is {deposit} but request costs {amount}")]
+    DepositInsufficient { deposit: String, amount: String },
     #[error("session stream idle timeout after {timeout_secs}s")]
     SessionStreamIdleTimeout { timeout_secs: u64 },
     #[error("session voucher retries exhausted after {max_retries} attempts")]
