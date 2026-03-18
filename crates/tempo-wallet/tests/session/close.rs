@@ -610,6 +610,83 @@ async fn sessions_close_finalize_avoids_duplicate_attempt_for_local_plus_orphane
     );
 }
 
+/// When the payer has signed vouchers up to `cumulative_amount` but the server
+/// only accepted a lower amount, cooperative close should send the *accepted*
+/// (spent) amount — not the full authorized ceiling.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sessions_close_cooperative_uses_accepted_amount_not_signing_ceiling() {
+    let rpc = CloseRpcServer::start(RpcCloseConfig {
+        close_requested_at: 0,
+        finalized: false,
+        grace_period: 900,
+        orphaned_log_channel_id: None,
+    })
+    .await;
+    let close_server = CooperativeCloseServer::start().await;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    // Seed a session where cumulative_amount (the payer-signed ceiling) is
+    // 10000, but the server only accepted/spent 3000. The close voucher
+    // should use 3000, not 10000.
+    let signing_ceiling: u128 = 10_000;
+    let actual_spent: u128 = 3_000;
+    seed_session_for_close(
+        &temp,
+        &close_server.base_url,
+        &close_server.close_url(),
+        signing_ceiling,
+    );
+
+    // Write the server-confirmed accepted amount separately from the
+    // signing ceiling so the close uses the correct (lower) value.
+    let db_path = temp.path().join(".tempo/wallet/channels.db");
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    conn.execute(
+        "UPDATE channels SET accepted_cumulative = ?1 WHERE channel_id = ?2",
+        rusqlite::params![actual_spent.to_string(), SEEDED_CHANNEL_ID],
+    )
+    .unwrap();
+
+    let output = test_command(&temp)
+        .args([
+            "-j",
+            "-n",
+            "tempo-moderato",
+            "sessions",
+            "close",
+            &close_server.base_url,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "close should succeed: {}",
+        get_combined_output(&output)
+    );
+
+    let observed = close_server.snapshot();
+    assert_eq!(
+        observed.authorized_count, 1,
+        "should submit exactly one close credential"
+    );
+
+    // The close voucher should use the accepted (spent) amount, not the
+    // signing ceiling, to avoid overcharging the payer.
+    assert_eq!(
+        observed.close_cumulative_amount.as_deref(),
+        Some("3000"),
+        "close voucher should use accepted (spent) amount, not the signing ceiling; \
+         got {:?}",
+        observed.close_cumulative_amount,
+    );
+}
+
 #[test]
 fn sessions_close_dry_run_without_target_requires_target_mode() {
     let temp = TestConfigBuilder::new().build();

@@ -129,6 +129,7 @@ fn persist_discovered_channel(
         channel_id: ch.channel_id,
         deposit: ch.deposit,
         cumulative_amount: ch.settled,
+        accepted_cumulative: ch.settled,
         challenge_echo: "{}".to_string(),
         state,
         close_requested_at: ch.close_requested_at,
@@ -166,6 +167,7 @@ mod tests {
                 .unwrap(),
             deposit: 1_000_000,
             cumulative_amount: 2_000,
+            accepted_cumulative: 0,
             challenge_echo: "{}".into(),
             state,
             close_requested_at: if state == ChannelStatus::Closing {

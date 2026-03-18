@@ -261,6 +261,7 @@ fn apply_response_receipt(
     match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
         Ok(receipt) => {
             state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
+            state.accepted_cumulative = state.accepted_cumulative.max(receipt.accepted_cumulative);
             Ok(receipt.tx_reference)
         }
         Err(reason) => {
@@ -712,6 +713,7 @@ fn build_ondemand_reuse_record(
         channel_id,
         deposit: on_chain.deposit,
         cumulative_amount: on_chain.settled,
+        accepted_cumulative: on_chain.settled,
         challenge_echo,
         state: session::ChannelStatus::Active,
         close_requested_at: 0,
@@ -1018,6 +1020,7 @@ async fn reuse_stage_execute(
         chain_id: challenge.chain_id,
         deposit: reusable.on_chain_deposit,
         cumulative_amount: (prev_cumulative + challenge.amount).min(reusable.available_balance),
+        accepted_cumulative: reusable.record.accepted_cumulative,
     };
 
     let ctx = build_channel_context(
@@ -1192,6 +1195,7 @@ async fn open_stage(
         chain_id: challenge.chain_id,
         deposit: deposit.deposit,
         cumulative_amount: initial_cumulative,
+        accepted_cumulative: 0,
     };
     let salt_hex = format!("{salt:#x}");
 
@@ -1420,6 +1424,7 @@ mod tests {
             channel_id: alloy::primitives::B256::ZERO,
             deposit: 1_000_000,
             cumulative_amount: 500,
+            accepted_cumulative: 0,
             challenge_echo: "echo".into(),
             state: ChannelStatus::Active,
             close_requested_at: 0,
@@ -1736,6 +1741,7 @@ mod tests {
             chain_id: 4217,
             deposit: 100,
             cumulative_amount: 20,
+            accepted_cumulative: 0,
         };
         let tx = apply_response_receipt(&response, &mut state, "session response").unwrap();
         assert_eq!(
@@ -1754,6 +1760,7 @@ mod tests {
             chain_id: 4217,
             deposit: 100,
             cumulative_amount: 20,
+            accepted_cumulative: 0,
         };
         let missing = HttpResponse::for_test(200, b"ok");
         let tx = apply_response_receipt(&missing, &mut state_missing, "session response").unwrap();
