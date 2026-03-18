@@ -25,5 +25,4 @@ jobs:
           AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
           aws s3 cp "SKILL.md" "s3://tempo-cli/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-          aws s3 cp "SKILL.md" "s3://tempo-cli/extensions/tempo-request/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
           echo "✓ Uploaded SKILL.md"
