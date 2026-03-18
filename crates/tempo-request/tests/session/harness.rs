@@ -307,25 +307,35 @@ fn session_rpc_response(
         "eth_gasPrice" => json!("0x4a817c800"),
         "eth_getBalance" => json!("0xde0b6b3a7640000"),
         "eth_call" => {
-            let mut guard = observations.lock().unwrap();
-            guard.eth_call_count += 1;
-            let mode = match config.channel_mode {
-                SessionRpcChannelMode::Active => SessionRpcChannelMode::Active,
-                SessionRpcChannelMode::Missing => SessionRpcChannelMode::Missing,
-                SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold } => {
-                    if guard.eth_call_count > threshold {
-                        SessionRpcChannelMode::Missing
-                    } else {
-                        SessionRpcChannelMode::Active
-                    }
-                }
-            };
+            // balanceOf(address) selector = 0x70a08231
+            let calldata = req["params"][0]["data"]
+                .as_str()
+                .or_else(|| req["params"][0]["input"].as_str())
+                .unwrap_or("");
 
-            match mode {
-                SessionRpcChannelMode::Active => json!(encode_active_channel_return_data()),
-                SessionRpcChannelMode::Missing => json!(encode_missing_channel_return_data()),
-                SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { .. } => {
-                    unreachable!("mode should be normalized before matching")
+            if calldata.starts_with("0x70a08231") {
+                json!(format!("0x{:064x}", 10_000_000_u128)) // 10 tokens
+            } else {
+                let mut guard = observations.lock().unwrap();
+                guard.eth_call_count += 1;
+                let mode = match config.channel_mode {
+                    SessionRpcChannelMode::Active => SessionRpcChannelMode::Active,
+                    SessionRpcChannelMode::Missing => SessionRpcChannelMode::Missing,
+                    SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { threshold } => {
+                        if guard.eth_call_count > threshold {
+                            SessionRpcChannelMode::Missing
+                        } else {
+                            SessionRpcChannelMode::Active
+                        }
+                    }
+                };
+
+                match mode {
+                    SessionRpcChannelMode::Active => json!(encode_active_channel_return_data()),
+                    SessionRpcChannelMode::Missing => json!(encode_missing_channel_return_data()),
+                    SessionRpcChannelMode::ActiveThenMissingAfterEthCalls { .. } => {
+                        unreachable!("mode should be normalized before matching")
+                    }
                 }
             }
         }

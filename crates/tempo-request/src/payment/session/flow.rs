@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::{utils::parse_units, Address, B256};
 use mpp::protocol::methods::tempo::{compute_channel_id, session::TempoSessionExt, sign_voucher};
 
 use super::{
@@ -861,12 +861,14 @@ async fn deposit_stage(
     resolved: &ResolvedChallenge,
     challenge: &ResolvedSessionChallenge,
 ) -> Result<DepositStageOutput, TempoError> {
-    let base_units: u128 = 10u128.saturating_pow(u32::from(challenge.network_id.token().decimals));
-    let max_deposit: u128 = 5u128.saturating_mul(base_units);
+    let decimals = challenge.network_id.token().decimals;
+    let default_deposit: u128 = parse_units("1", decimals).unwrap().get_absolute().to();
+    let max_deposit: u128 = parse_units("5", decimals).unwrap().get_absolute().to();
 
     let mut deposit = challenge
         .suggested_deposit
-        .unwrap_or(base_units)
+        .unwrap_or(default_deposit)
+        .max(challenge.amount)
         .min(max_deposit);
     let mut clamped_deposit = None;
 
@@ -1200,7 +1202,7 @@ async fn open_stage(
     .await
     {
         Ok(resp) => resp,
-        Err(_) if signer.has_stored_key_authorization() => {
+        Err(original) if signer.has_stored_key_authorization() => {
             let provisioning_signer =
                 signer
                     .with_key_authorization()
@@ -1222,7 +1224,8 @@ async fn open_stage(
                 &open_idempotency_key,
                 &delays,
             )
-            .await?
+            .await
+            .map_err(|_| original)?
         }
         Err(e) => return Err(e),
     };
@@ -1291,6 +1294,14 @@ pub(crate) async fn handle_session_request(
             ReuseStageOutcome::Reused(result) => return Ok(result.payment),
             ReuseStageOutcome::NeedsOpen => {}
         }
+    }
+
+    if deposit.deposit < challenge.amount {
+        return Err(PaymentError::DepositInsufficient {
+            deposit: format_token_amount(deposit.deposit, challenge.network_id),
+            amount: format_token_amount(challenge.amount, challenge.network_id),
+        }
+        .into());
     }
 
     let mut opened = open_stage(http, url, &resolved, &signer, &challenge, &deposit).await?;

@@ -121,7 +121,7 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
 
     let gas_limit = match gas_result {
         Ok(gas) => gas,
-        Err(_) if wallet.has_stored_key_authorization() => {
+        Err(original) if wallet.has_stored_key_authorization() => {
             provisioning_signer =
                 wallet
                     .with_key_authorization()
@@ -146,9 +146,9 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
                 valid_before,
             )
             .await
-            .map_err(|source| KeyError::SigningOperationSource {
-                operation: "estimate gas (retry with key provisioning)",
-                source: Box::new(source),
+            .map_err(|_| KeyError::SigningOperationSource {
+                operation: "estimate gas",
+                source: Box::new(original),
             })?
         }
         Err(e) => {
@@ -208,7 +208,7 @@ pub async fn submit_tempo_tx(
 
     match provider.send_raw_transaction(&tx_bytes).await {
         Ok(pending) => Ok(format!("{:#x}", pending.tx_hash())),
-        Err(_) if wallet.has_stored_key_authorization() => {
+        Err(original) if wallet.has_stored_key_authorization() => {
             let provisioning_signer =
                 wallet
                     .with_key_authorization()
@@ -229,9 +229,9 @@ pub async fn submit_tempo_tx(
             let pending = provider
                 .send_raw_transaction(&retry_bytes)
                 .await
-                .map_err(|source| NetworkError::RpcSource {
+                .map_err(|_| NetworkError::RpcSource {
                     operation: "broadcast transaction",
-                    source: Box::new(source),
+                    source: Box::new(original),
                 })?;
             Ok(format!("{:#x}", pending.tx_hash()))
         }
