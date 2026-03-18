@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-      - uses: tempoxyz/changelogs/check@5150415710e3876a57bfef237c3349c9a98608b6 # changelogs@0.6.2 + root unified versioning + unified tags
+      - uses: tempoxyz/changelogs/check@810f56d0b08bc0ffb04287c7749cd4c91d255f38 # changelogs@0.6.2 + stricter version matching
 
   generate:
     if: >-
