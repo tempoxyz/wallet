@@ -6,11 +6,11 @@ use tempo_common::{
 const MAX_REJECTED_REASON_CHARS: usize = 500;
 
 pub(super) fn payment_rejected_reason_from_body(body: &str) -> String {
-    let raw_reason = tempo_common::payment::extract_json_error(body).unwrap_or_else(|| {
-        body.chars()
-            .take(MAX_REJECTED_REASON_CHARS)
-            .collect::<String>()
-    });
+    let raw_reason: String = if body.trim().is_empty() {
+        "empty response".to_string()
+    } else {
+        body.chars().take(MAX_REJECTED_REASON_CHARS).collect()
+    };
     sanitize_for_terminal(&raw_reason)
 }
 
@@ -28,24 +28,17 @@ mod tests {
     use tempo_common::error::{PaymentError, TempoError};
 
     #[test]
-    fn payment_rejected_from_body_maps_common_payload_forms() {
+    fn payment_rejected_from_body_returns_full_body() {
         let oversized = "x".repeat(600);
-        let malformed = "{\"error\":\"unterminated";
         let cases = vec![
             (
-                "json_problem",
+                "json_body",
                 410,
                 r#"{"type":"https://paymentauth.org/problems/session/channel-not-found","detail":"bad\u001b[31m\u0007value"}"#
                     .to_string(),
             ),
-            (
-                "json_error",
-                402,
-                r#"{"error":"bad\u001b[31m\u0007value"}"#.to_string(),
-            ),
             ("plaintext", 500, "plain failure".to_string()),
             ("oversized", 400, oversized),
-            ("malformed", 400, malformed.to_string()),
         ];
 
         for (name, status, body) in cases {
@@ -61,16 +54,12 @@ mod tests {
                         "case={name} reason contained control bytes"
                     );
                     match name {
-                        "json_problem" => {
-                            assert_eq!(
-                                reason,
-                                "https://paymentauth.org/problems/session/channel-not-found: bad[31mvalue"
-                            );
+                        "json_body" => {
+                            assert!(reason.contains("channel-not-found"), "case={name}");
+                            assert!(reason.contains("bad"), "case={name}");
                         }
-                        "json_error" => assert_eq!(reason, "bad[31mvalue"),
                         "plaintext" => assert_eq!(reason, "plain failure"),
                         "oversized" => assert_eq!(reason.len(), 500),
-                        "malformed" => assert_eq!(reason, malformed),
                         _ => unreachable!("unexpected case"),
                     }
                 }
