@@ -17,6 +17,7 @@ use super::super::store;
 use crate::{
     cli::{format::format_token_amount, terminal::sanitize_for_terminal},
     error::{KeyError, NetworkError, PaymentError, TempoError},
+    payment::classify::parse_problem_details,
 };
 
 type ChannelResult<T> = Result<T, TempoError>;
@@ -56,9 +57,11 @@ pub(super) async fn try_server_close(
     let fresh_echo = match client.post(close_url).send().await {
         Ok(resp) if resp.status().as_u16() == 402 => resp
             .headers()
-            .get("www-authenticate")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|wa| mpp::parse_www_authenticate(wa).ok())
+            .get_all("www-authenticate")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .filter_map(|wa| mpp::parse_www_authenticate(wa).ok())
+            .find(|ch| ch.intent.is_session())
             .map(|ch| ch.to_echo()),
         _ => None,
     };
@@ -114,7 +117,9 @@ pub(super) async fn try_server_close(
             .text()
             .await
             .unwrap_or_else(|_| String::from("<no body>"));
-        let raw_reason: String = if body.trim().is_empty() {
+        let raw_reason: String = if let Some(problem) = parse_problem_details(&body) {
+            problem.message()
+        } else if body.trim().is_empty() {
             format!("HTTP {}", status.as_u16())
         } else {
             body.chars().take(500).collect()
