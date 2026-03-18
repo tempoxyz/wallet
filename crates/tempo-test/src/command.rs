@@ -33,6 +33,10 @@ pub fn make_test_command(binary_path: std::path::PathBuf, temp_dir: &TempDir) ->
     // Disable auto-JSON detection (tests capture stdout, which is not a TTY)
     cmd.env("TEMPO_NO_AUTO_JSON", "1");
 
+    // Ensure analytics-dependent tests can exercise event emission even when
+    // the developer environment does not provide a PostHog key.
+    cmd.env("POSTHOG_API_KEY", "test-posthog-key");
+
     // Clear agent env vars so tests don't auto-select TOON when run inside
     // an LLM agent host (Amp, Claude Code, Codex, Cursor, etc.)
     cmd.env_remove("AGENT");

@@ -18,7 +18,15 @@ use crate::{config::Config, keys::Keystore, network::NetworkId};
 // PostHog client
 // ---------------------------------------------------------------------------
 
-const POSTHOG_API_KEY: &str = "phc_aNlTw2xAUQKd9zTovXeYheEUpQpEhplehCK5r1e31HR";
+const POSTHOG_API_KEY_ENV: &str = "POSTHOG_API_KEY";
+const POSTHOG_API_KEY_COMPILED: Option<&str> = option_env!("POSTHOG_API_KEY");
+
+fn posthog_api_key() -> Option<String> {
+    std::env::var(POSTHOG_API_KEY_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| POSTHOG_API_KEY_COMPILED.map(ToString::to_string))
+}
 
 fn build_event(
     event_name: &str,
@@ -141,7 +149,8 @@ impl Analytics {
             return None;
         }
 
-        let client = posthog_rs::client(POSTHOG_API_KEY).await;
+        let api_key = posthog_api_key()?;
+        let client = posthog_rs::client(api_key.as_str()).await;
         let distinct_id = keys.wallet_address_hex().unwrap_or_else(anonymous_id);
 
         let analytics = Self {

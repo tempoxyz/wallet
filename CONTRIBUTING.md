@@ -214,6 +214,7 @@ Keep documentation in sync with the CLI. After changing flags, commands, or beha
 | `TEMPO_RPC_URL` | Override RPC endpoint |
 | `TEMPO_AUTH_URL` | Override auth server URL |
 | `TEMPO_SERVICES_URL` | Override service directory API URL |
+| `POSTHOG_API_KEY` | PostHog key used to enable telemetry (can be injected at build time in CI or set at runtime) |
 | `TEMPO_NO_TELEMETRY` | Disable telemetry |
 | `RUST_LOG` | Override tracing filter (e.g., `debug`, `info`) |
 | `NO_COLOR` | Disable colored output (also disabled when stdout is not a terminal) |

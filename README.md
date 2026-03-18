@@ -49,6 +49,7 @@ All runtime data is stored under `$TEMPO_HOME` (defaults to `~/.tempo`):
 ## Telemetry
 
 Anonymous usage analytics (PostHog) are enabled by default. Request bodies, API keys, and wallet private keys are not collected.
+Telemetry events are only sent when `POSTHOG_API_KEY` is set (either at build time in CI or as a runtime environment variable).
 
 Disable telemetry:
 
