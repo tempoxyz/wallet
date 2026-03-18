@@ -853,6 +853,8 @@ pub(super) async fn stream_sse_response(
                             Ok(accepted_cumulative) => {
                                 state.cumulative_amount =
                                     state.cumulative_amount.max(accepted_cumulative);
+                                state.accepted_cumulative =
+                                    state.accepted_cumulative.max(accepted_cumulative);
                                 persist_session(ctx, state)?;
                             }
                             Err(reason) => {

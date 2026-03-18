@@ -110,9 +110,13 @@ fn open_db_at(path: &Path) -> ChannelStoreResult<rusqlite::Connection> {
     .map_err(|err| store_error("create channels schema", err))?;
 
     // Migration: add accepted_cumulative column for existing databases.
-    let _ = conn.execute_batch(
+    match conn.execute_batch(
         "ALTER TABLE channels ADD COLUMN accepted_cumulative TEXT NOT NULL DEFAULT '0';",
-    );
+    ) {
+        Ok(()) => {}
+        Err(e) if e.to_string().contains("duplicate column name") => {}
+        Err(e) => return Err(store_error("migrate channels schema", e)),
+    }
 
     Ok(conn)
 }
