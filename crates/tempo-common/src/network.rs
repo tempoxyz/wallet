@@ -192,10 +192,13 @@ impl FromStr for NetworkId {
 
 fn parse_network_name(value: &str) -> Option<NetworkId> {
     let normalized = value.trim();
-    if normalized.eq_ignore_ascii_case(TEMPO) {
+    if normalized.eq_ignore_ascii_case(TEMPO) || normalized.eq_ignore_ascii_case("mainnet") {
         return Some(NetworkId::Tempo);
     }
-    if normalized.eq_ignore_ascii_case(TEMPO_MODERATO) {
+    if normalized.eq_ignore_ascii_case(TEMPO_MODERATO)
+        || normalized.eq_ignore_ascii_case("testnet")
+        || normalized.eq_ignore_ascii_case("moderato")
+    {
         return Some(NetworkId::TempoModerato);
     }
     None
