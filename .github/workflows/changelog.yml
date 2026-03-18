@@ -38,7 +38,10 @@ jobs:
       - name: Check for existing changelog
         id: existing
         run: |
+          # Check both git diff and on-disk files (handles race where label is applied before changelog commit is pushed)
           if git diff origin/${{ github.base_ref }}...HEAD --name-only | grep -q '^\.changelog/.*\.md$'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          elif ls .changelog/*.md 2>/dev/null | grep -qv README.md; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
