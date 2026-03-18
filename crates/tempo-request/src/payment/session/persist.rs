@@ -35,6 +35,7 @@ pub(super) fn persist_session(
     let record = if let Some(mut rec) = existing {
         // Update existing record
         rec.set_cumulative_amount(state.cumulative_amount);
+        rec.set_accepted_cumulative(state.accepted_cumulative);
         rec.deposit = state.deposit;
         rec.challenge_echo = echo_json;
         rec.touch();
@@ -54,6 +55,7 @@ pub(super) fn persist_session(
             channel_id: state.channel_id,
             deposit: state.deposit,
             cumulative_amount: state.cumulative_amount,
+            accepted_cumulative: state.accepted_cumulative,
             challenge_echo: echo_json,
             state: ChannelStatus::Active,
             close_requested_at: 0,

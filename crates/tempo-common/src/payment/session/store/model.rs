@@ -81,6 +81,10 @@ pub struct ChannelRecord {
     pub channel_id: B256,
     pub deposit: u128,
     pub cumulative_amount: u128,
+    /// Server-confirmed accepted cumulative amount. Used for cooperative close
+    /// to avoid overcharging. Defaults to `cumulative_amount` when unknown.
+    #[serde(default)]
+    pub accepted_cumulative: u128,
     pub challenge_echo: String,
     /// Explicit lifecycle state.
     #[serde(default = "default_state")]
@@ -136,9 +140,25 @@ impl ChannelRecord {
         format!("{channel_id:#x}", channel_id = self.channel_id)
     }
 
+    /// The server-confirmed accepted amount, for use in cooperative close.
+    /// Falls back to `cumulative_amount` when the accepted amount is unknown (zero).
+    #[must_use]
+    pub const fn accepted_cumulative_u128(&self) -> u128 {
+        if self.accepted_cumulative > 0 {
+            self.accepted_cumulative
+        } else {
+            self.cumulative_amount
+        }
+    }
+
     /// Update the cumulative amount (monotonic: never decreases).
     pub fn set_cumulative_amount(&mut self, amount: u128) {
         self.cumulative_amount = amount.max(self.cumulative_amount);
+    }
+
+    /// Update the accepted cumulative amount (monotonic: never decreases).
+    pub fn set_accepted_cumulative(&mut self, amount: u128) {
+        self.accepted_cumulative = amount.max(self.accepted_cumulative);
     }
 
     /// Update `last_used_at` timestamp.
@@ -233,6 +253,7 @@ mod tests {
             channel_id: B256::ZERO,
             deposit: 1_000_000,
             cumulative_amount: 0,
+            accepted_cumulative: 0,
             challenge_echo: "echo".into(),
             state: ChannelStatus::Active,
             close_requested_at: 0,

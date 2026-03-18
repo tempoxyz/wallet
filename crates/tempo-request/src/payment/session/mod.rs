@@ -27,6 +27,7 @@ pub(super) struct ChannelState {
     pub(super) chain_id: u64,
     pub(super) deposit: u128,
     pub(super) cumulative_amount: u128,
+    pub(super) accepted_cumulative: u128,
 }
 
 /// Shared context for session operations (streaming, closing).

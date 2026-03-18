@@ -87,7 +87,7 @@ impl From<&session::ChannelRecord> for ChannelView {
     fn from(session: &session::ChannelRecord) -> Self {
         let t = session.network_id().token();
 
-        let spent_u = session.cumulative_amount_u128();
+        let spent_u = session.accepted_cumulative_u128();
         let limit_u = session.deposit_u128();
         let remaining_u = limit_u.saturating_sub(spent_u);
 

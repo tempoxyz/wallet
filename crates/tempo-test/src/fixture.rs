@@ -161,6 +161,7 @@ pub fn seed_local_session(temp_dir: &TempDir, origin: &str) {
             salt              TEXT NOT NULL,
             deposit           TEXT NOT NULL,
             cumulative_amount TEXT NOT NULL,
+            accepted_cumulative TEXT NOT NULL DEFAULT '0',
             challenge_echo    TEXT NOT NULL,
             state             TEXT NOT NULL DEFAULT 'active',
             close_requested_at INTEGER NOT NULL DEFAULT 0,

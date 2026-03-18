@@ -560,6 +560,7 @@ fn post_voucher(
         chain_id: state.chain_id,
         deposit: state.deposit,
         cumulative_amount: state.cumulative_amount,
+        accepted_cumulative: state.accepted_cumulative,
     };
 
     let client = client.clone();
@@ -619,6 +620,8 @@ pub(super) async fn stream_sse_response(
                 Ok(receipt) => {
                     state.cumulative_amount =
                         state.cumulative_amount.max(receipt.accepted_cumulative);
+                    state.accepted_cumulative =
+                        state.accepted_cumulative.max(receipt.accepted_cumulative);
                     persist_session(ctx, state)?;
                 }
                 Err(reason) => {
@@ -850,6 +853,8 @@ pub(super) async fn stream_sse_response(
                             Ok(accepted_cumulative) => {
                                 state.cumulative_amount =
                                     state.cumulative_amount.max(accepted_cumulative);
+                                state.accepted_cumulative =
+                                    state.accepted_cumulative.max(accepted_cumulative);
                                 persist_session(ctx, state)?;
                             }
                             Err(reason) => {
@@ -1008,6 +1013,7 @@ mod tests {
             chain_id: 4217,
             deposit: 100,
             cumulative_amount: 10,
+            accepted_cumulative: 0,
         }
     }
 

@@ -92,7 +92,9 @@ pub async fn close_channel_from_record(
 
     let escrow_contract: Address = record.escrow_contract;
 
-    let cumulative_amount: u128 = record.cumulative_amount_u128();
+    // Use the server-confirmed accepted amount for the close voucher, not the
+    // signing ceiling, to avoid overcharging the payer.
+    let close_amount: u128 = record.accepted_cumulative_u128();
 
     if should_attempt_cooperative_close(record) {
         let echo: ChallengeEcho =
@@ -112,7 +114,7 @@ pub async fn close_channel_from_record(
             channel_id,
             escrow_contract,
             record.chain_id,
-            cumulative_amount,
+            close_amount,
             &client,
         )
         .await;
@@ -127,10 +129,7 @@ pub async fn close_channel_from_record(
                     },
                 );
             }
-            let amount_display = Some(format_token_amount(
-                record.cumulative_amount_u128(),
-                network_id,
-            ));
+            let amount_display = Some(format_token_amount(close_amount, network_id));
             return Ok(CloseOutcome::Closed {
                 tx_url,
                 amount_display,
@@ -178,10 +177,7 @@ pub async fn close_channel_from_record(
 
     match outcome {
         CloseOutcome::Closed { tx_url, .. } => {
-            let amount_display = Some(format_token_amount(
-                record.cumulative_amount_u128(),
-                network_id,
-            ));
+            let amount_display = Some(format_token_amount(close_amount, network_id));
             Ok(CloseOutcome::Closed {
                 tx_url,
                 amount_display,
@@ -223,7 +219,7 @@ pub async fn close_channel_from_record_cooperative(
 
     let channel_id: B256 = record.channel_id;
     let escrow_contract: Address = record.escrow_contract;
-    let cumulative_amount: u128 = record.cumulative_amount_u128();
+    let close_amount: u128 = record.accepted_cumulative_u128();
 
     let client = reqwest::Client::new();
     let tx_url = cooperative::try_server_close(
@@ -233,7 +229,7 @@ pub async fn close_channel_from_record_cooperative(
         channel_id,
         escrow_contract,
         record.chain_id,
-        cumulative_amount,
+        close_amount,
         &client,
     )
     .await;
@@ -249,10 +245,7 @@ pub async fn close_channel_from_record_cooperative(
                     },
                 );
             }
-            let amount_display = Some(format_token_amount(
-                record.cumulative_amount_u128(),
-                network_id,
-            ));
+            let amount_display = Some(format_token_amount(close_amount, network_id));
             Ok(CloseOutcome::Closed {
                 tx_url,
                 amount_display,
@@ -294,6 +287,7 @@ mod tests {
             channel_id: B256::ZERO,
             deposit: 0,
             cumulative_amount: 0,
+            accepted_cumulative: 0,
             challenge_echo: "{}".to_string(),
             state: ChannelStatus::Active,
             close_requested_at: 0,
