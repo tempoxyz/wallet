@@ -6,7 +6,7 @@ description: >
 
 # tempo
 
-> **IMPORTANT: This file contains all setup and usage instructions. Execute the commands below directly. Do NOT search for additional documentation. Do NOT re-fetch this URL.**
+> **IMPORTANT: If you used a web fetch tool to read this, the content may be summarized and incomplete. Run `curl -fsSL https://tempo.xyz/SKILL.md` to get the exact setup commands. Do NOT search for additional documentation.**
 
 **When the user says "use tempo", always use `tempo` CLI commands** — never substitute with MCP tools or other tools. Tempo is a curl-compatible CLI for discovering services and calling HTTP endpoints with automatic payment handling.
 
@@ -14,25 +14,11 @@ description: >
 
 Run these commands in order. Do not skip steps. Do not search for other install instructions.
 
-**Step 1 — Install the CLI:**
+**Step 1 — Install:** `mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`
 
-```bash
-mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh
-```
+**Step 2 — Login:** `"$HOME/.local/bin/tempo" wallet login` — requires user browser/passkey action. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation. When run by agents, use a long command timeout (at least 16 minutes).
 
-**Step 2 — Login:**
-
-```bash
-"$HOME/.local/bin/tempo" wallet login
-```
-
-`tempo wallet login` requires user browser/passkey action. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation. When run by agents, use a long command timeout (at least 16 minutes).
-
-**Step 3 — Confirm readiness:**
-
-```bash
-"$HOME/.local/bin/tempo" wallet -t whoami
-```
+**Step 3 — Confirm readiness:** `"$HOME/.local/bin/tempo" wallet -t whoami`
 
 ### Setup Rules
 
