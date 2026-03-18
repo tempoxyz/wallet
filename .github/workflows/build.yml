@@ -170,18 +170,12 @@ jobs:
           aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
           aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/${VTAG}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
 
-          # SKILL.md (latest + versioned, only for tempo-request)
+          # SKILL.md (versioned snapshot, only for tempo-request)
           if [ "$PACKAGE" = "tempo-request" ] && [ -f "SKILL.md" ]; then
-            aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
             aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/${VTAG}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
           fi
 
           # VERSION
           echo "${VERSION}" | aws s3 cp - "s3://tempo-cli/${PREFIX}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
-
-          # Root SKILL.md
-          if [ "$PACKAGE" = "tempo-request" ] && [ -f "SKILL.md" ]; then
-            aws s3 cp "SKILL.md" "s3://tempo-cli/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
-          fi
 
           echo "Released ${PACKAGE}@${VERSION}"
