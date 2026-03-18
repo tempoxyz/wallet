@@ -2,6 +2,9 @@
 members = ["crates/*"]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.4"
+
 [workspace.lints]
 [workspace.lints.clippy]
 dbg-macro = "warn"

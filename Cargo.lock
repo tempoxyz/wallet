@@ -6503,7 +6503,7 @@ dependencies = [
 
 [[package]]
 name = "tempo-common"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "alloy",
  "axum",
@@ -6607,7 +6607,7 @@ dependencies = [
 
 [[package]]
 name = "tempo-sign"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -6619,7 +6619,7 @@ dependencies = [
 
 [[package]]
 name = "tempo-test"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "assert_cmd",
  "axum",

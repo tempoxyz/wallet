@@ -1,6 +1,6 @@
 [package]
 name = "tempo-common"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Shared library for Tempo CLI extensions"
 license = "MIT OR Apache-2.0"

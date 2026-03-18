@@ -1,6 +1,6 @@
 [package]
 name = "tempo-wallet"
-version = "0.1.4"
+version.workspace = true
 edition = "2021"
 description = "Manage your Tempo Wallet"
 license = "MIT OR Apache-2.0"

@@ -1,17 +1,9 @@
-# How to bump packages that depend on changed packages
-# "patch" | "minor" | "none"
-dependent_bump = "patch"
-
-# Packages that must always share the same version
-[[fixed]]
-members = ["tempo-wallet", "tempo-request"]
-
-# Packages to ignore (internal-only, not released)
-ignore = ["tempo-common", "tempo-sign", "tempo-test"]
+# Packages to ignore (internal-only, no tags or releases)
+ignore = ["tempo-sign", "tempo-test"]
 
 [changelog]
 # "per-crate" - CHANGELOG.md in each package
-# "root" - Single CHANGELOG.md at workspace root
+# "root" - Single CHANGELOG.md at workspace root (implies unified versioning)
 format = "root"
 
 # AI-assisted changelog generation
