@@ -116,15 +116,15 @@ tempo-request -v -X POST --json '{"model":"openai/gpt-4o-mini","messages":[{"rol
 When creating pull requests:
 
 1. **Always include the PR link** in your response after creating a PR
-2. Format as a clickable link: `[#123](https://github.com/tempoxyz/tempo/pull/1)`
+2. Format as a clickable link: `[#123](https://github.com/tempoxyz/wallet/pull/123)`
 3. When creating multiple PRs, provide a summary table with all links
 
 Example summary format:
 ```
 | PR | Title | Link |
 |----|-------|------|
-| 1 | feat: add feature X | [#1](https://github.com/tempoxyz/tempo/pull/1) |
-| 2 | fix: resolve issue Y | [#2](https://github.com/tempoxyz/tempo/pull/2) |
+| 1 | feat: add feature X | [#123](https://github.com/tempoxyz/wallet/pull/123) |
+| 2 | fix: resolve issue Y | [#124](https://github.com/tempoxyz/wallet/pull/124) |
 ```
 
 ## Code Style Guidelines
