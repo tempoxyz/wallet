@@ -171,7 +171,7 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
     // Always attempt browser open, even in machine output modes.
     // Some agents run login with non-text output (`-t`/JSON) and still need
     // the browser flow to start.
-    try_open_browser(&url_str);
+    super::auth::try_open_browser(&url_str);
 
     if ctx.output_format == OutputFormat::Text {
         show_login_prompt(&code);
@@ -214,13 +214,6 @@ fn show_login_prompt(code: &str) {
     eprintln!("Verification code: {}", display_code.bold());
     eprintln!();
     eprintln!("Waiting for authentication...");
-}
-
-fn try_open_browser(url: &str) {
-    if let Err(e) = webbrowser::open(url) {
-        eprintln!("Failed to open browser: {e}");
-        eprintln!("Use the Auth URL above to continue.");
-    }
 }
 
 struct AuthCallback {

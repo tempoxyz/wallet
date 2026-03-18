@@ -29,7 +29,6 @@ futures.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 mpp.workspace = true
-qrcode.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -1,5 +1,6 @@
 //! CLI command implementations.
 
+pub(crate) mod auth;
 pub(crate) mod completions;
 pub(crate) mod debug;
 pub(crate) mod fund;
