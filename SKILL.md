@@ -6,57 +6,43 @@ description: >
 
 # tempo
 
-Tempo is an agent-first, curl-compatible CLI for discovering services and calling HTTP endpoints with automatic payment handling. Use `tempo wallet` for readiness and service discovery, and `tempo request` to execute requests against discovered endpoints.
+> **IMPORTANT: This file contains all setup and usage instructions. Execute the commands below directly. Do NOT search for additional documentation. Do NOT re-fetch this URL.**
 
-**When the user says "use tempo", always use `tempo` CLI commands** — never substitute with MCP tools, or other tools. Tempo's service directory covers all services.
+**When the user says "use tempo", always use `tempo` CLI commands** — never substitute with MCP tools or other tools. Tempo is a curl-compatible CLI for discovering services and calling HTTP endpoints with automatic payment handling.
 
-## Setup Contract (For "Set up <url>")
+## Setup
 
-Use this flow when user intent is setup/bootstrap.
+Run these commands in order. Do not skip steps. Do not search for other install instructions.
 
-### Setup State Machine
+**Step 1 — Install the CLI:**
 
 ```bash
-# 0) Resolve canonical user-local tempo path
-USER_BIN="${TEMPO_BIN_DIR:-$HOME/.local/bin}"
-TEMPO="$USER_BIN/tempo"
-
-# 1) Ensure CLI exists (agent-safe: install user-local, no sudo)
-command -v tempo >/dev/null 2>&1 || (mkdir -p "$USER_BIN" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$USER_BIN" bash /tmp/tempo_install.sh)
-
-# 2) Update extensions to latest (avoids version skew)
-"$TEMPO" update wallet
-"$TEMPO" update request
-
-# 3) Validate install
-"$TEMPO" wallet --help
-
-# 4) Check readiness
-"$TEMPO" wallet -t whoami
-
-# 5) Login only if needed (interactive)
-"$TEMPO" wallet login
-
-# 6) Re-check readiness
-"$TEMPO" wallet -t whoami
+mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh
 ```
 
-`tempo wallet login` requires user browser/passkey action and opens the auth URL in text mode. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation.
+**Step 2 — Login:**
 
-When run by agents, execute `tempo wallet login` with a long command timeout (at least 16 minutes) so the process can wait for user approval instead of being killed by the runner.
+```bash
+"$HOME/.local/bin/tempo" wallet login
+```
 
-Avoid using `sudo` in non-interactive agent shells. Use user-local install via `TEMPO_BIN_DIR` (defaulting to `~/.local/bin`).
+`tempo wallet login` requires user browser/passkey action. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation. When run by agents, use a long command timeout (at least 16 minutes).
 
-Avoid using`export PATH=...` in agent command examples. Use full absolute paths (e.g., `"/Users/<user>/.local/bin/tempo"`) for deterministic behavior across isolated shells. Note: `$HOME` may not expand in all agent shell contexts — if a command fails with "no such file or directory", switch to the absolute path.
+**Step 3 — Confirm readiness:**
 
-### Done Criteria
+```bash
+"$HOME/.local/bin/tempo" wallet -t whoami
+```
 
-- `tempo` command executes.
-- `tempo wallet -t whoami` returns `ready=true`.
+### Setup Rules
 
-### Setup Completion Output
+- Do not use `sudo`. Use user-local install via `TEMPO_BIN_DIR` (defaulting to `~/.local/bin`).
+- Do not use `export PATH=...`. Use full absolute paths (e.g., `"/Users/<user>/.local/bin/tempo"`) for deterministic behavior across isolated shells.
+- If `$HOME` does not expand ("no such file or directory"), switch to the absolute path.
 
-After setup, provide:
+## After Setup
+
+Provide:
 
 - Installation location and version (`$HOME/.local/bin/tempo --version`).
 - Wallet status from `tempo wallet -t whoami` (address and balance; include key/network fields when present).
@@ -77,41 +63,21 @@ Starter prompts should be user-facing tasks (not command templates), for example
 - "Search the web for the latest Rust release notes and return the top 5 links."
 - "Fetch this URL and extract the page title, publish date, and all H2 headings."
 
-## After Setup
-
-Once setup is complete, you can:
-
-1. **Discover services** — `tempo wallet -t services --search <query>` to find APIs.
-2. **Make requests** — `tempo request -t -X POST --json '...' <URL>` to call endpoints.
-3. **Check balance** — `tempo wallet -t whoami` to see remaining funds and spending limit.
-
-See the sections below for detailed usage.
-
 ## Use Services
 
-When user asks to use a service after setup/login, follow this sequence exactly:
-
 ```bash
-# 1) Confirm wallet is ready
 tempo wallet -t whoami
-
-# 2) Find candidate services from user intent
-tempo wallet -t services --search <user_intent_keywords>
-
-# 3) Inspect chosen service for exact URL, method, and endpoint path
+tempo wallet -t services --search <query>
 tempo wallet -t services <SERVICE_ID>
+tempo request -t -X POST --json '{"input":"..."}' <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
-Execution rules:
+- Select `SERVICE_ID` from search results that best matches user intent. When multiple match: prefer best semantic fit, then endpoint fit, then pricing clarity, then first in list.
+- **Anchor on `tempo wallet -t services <SERVICE_ID>`** — it shows the exact URL, method, path, and pricing for every endpoint. Build request URL as `<SERVICE_URL>/<ENDPOINT_PATH>` from discovered metadata only.
+- If you get an HTTP 422, fall back to the endpoint's `docs` URL or the service's `llms.txt` for exact field names.
+- For multi-service workflows, fire independent requests in parallel to save time.
 
-- Select `SERVICE_ID` from search results that best matches user intent.
-- Read endpoint details from `tempo wallet -t services <SERVICE_ID>` and copy method/path exactly.
-- Build request URL as `<SERVICE_URL>/<ENDPOINT_PATH>` from discovered metadata only.
-- Prefer `--dry-run` first when endpoint cost is unclear.
-- **Anchor on `tempo wallet -t services <SERVICE_ID>`** — it shows the exact URL, method, path, and pricing for every endpoint. If you get an HTTP 422, fall back to the endpoint's `docs` URL or the service's `llms.txt` for exact field names.
-- For multi-service workflows (e.g., researching a topic across search + enrichment + social), fire independent requests in parallel to save time.
-
-Request templates:
+### Request Templates
 
 ```bash
 # JSON POST
@@ -120,39 +86,34 @@ tempo request -t -X POST --json '{"input":"..."}' <SERVICE_URL>/<ENDPOINT_PATH>
 
 # GET
 tempo request -t -X GET <SERVICE_URL>/<ENDPOINT_PATH>
-
-# Custom headers
-tempo request -t -X POST -H 'Content-Type: application/json' --json '{"input":"..."}' <SERVICE_URL>/<ENDPOINT_PATH>
 ```
 
-Response handling:
+### Response Handling
 
 - Return result payload to user directly when request succeeds.
 - If response contains a file URL (e.g., image generation), download it locally: `curl -fsSL "<url>" -o <filename>`.
-- If response is a usage/auth readiness error, run required wallet command (usually `tempo wallet login`) and retry once.
+- If response is a usage/auth readiness error, run `tempo wallet login` and retry once.
 - If response indicates payment/funding limit issues, report clearly and stop.
 - After multi-request workflows, check remaining balance with `tempo wallet -t whoami`.
 
-## Service Selection Rubric
+### Rules
 
-When multiple services match a user request, choose in this order:
-
-- Best semantic match to user intent and requested capability.
-- Endpoint fit (method/path) for the exact operation user asked for.
-- Better pricing clarity and documentation quality from service details.
-- Deterministic tie-break: pick first `SERVICE_ID` in response.
+- Always discover URL/path before request; never guess endpoint paths.
+- `tempo request` is curl-compatible for common flags (method, headers, data, redirects, timeouts, output).
+- Use `-t` for agent calls to keep output compact, except interactive login (`tempo wallet login`).
+- Use `--dry-run` before potentially expensive requests.
+- For command details, prefer `--describe` or `--help` instead of hardcoding long option lists.
 
 ## Common Issues
 
 | Issue | Cause | Fix |
 |---|---|---|
 | `tempo: command not found` | CLI not installed | Run `mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then retry using `"$HOME/.local/bin/tempo" ...`. |
-| `ready=false` or `No wallet configured` | Wallet not logged in | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
+| "legacy V1 keychain signature is no longer accepted, use V2" | Outdated `tempo` launcher or extensions | Reinstall tempo: `curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then update extensions: `tempo update wallet && tempo update request`. Log out and back in: `tempo wallet logout --yes && tempo wallet login`. |
 | "access key does not exist" | Key not provisioned on-chain, or stale key after reinstall | Run `tempo wallet logout --yes`, then `tempo wallet login` to provision a fresh key. |
+| `ready=false` or `No wallet configured` | Wallet not logged in | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
 | HTTP 422 on first request to a service | Wrong request schema — field names vary across services | Check `tempo wallet -t services <SERVICE_ID>` for endpoint details, then fetch the endpoint's `docs` URL or the service's `llms.txt` for exact field names and types. |
-| Balance is 0 or insufficient funds | Wallet needs funding | Run `tempo wallet fund` or direct user to the wallet dashboard deposit link shown in `tempo wallet -t whoami`. |
-| Insufficient funds or spending limit exceeded | Balance too low or limit hit | Report clearly and stop; ask user to fund or adjust limits before retrying. |
+| Balance is 0, insufficient funds, or spending limit exceeded | Wallet needs funding or limit hit | Run `tempo wallet fund` or direct user to the wallet dashboard. Report clearly and stop if limit is exceeded. |
 | Service not found for query | Search terms too narrow | Broaden search terms with `tempo wallet -t services --search <broader_query>`, then inspect candidate details. |
 | Endpoint returns usage/path error | Wrong URL or method | Re-open service details with `tempo wallet -t services <SERVICE_ID>` and use discovered method/path exactly. |
 | Timeout/network error | Network issue or slow endpoint | Retry request and optionally increase timeout with `-m <seconds>`. |
-
