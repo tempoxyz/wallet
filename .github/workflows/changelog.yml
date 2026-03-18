@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-      - uses: tempoxyz/changelogs/check@aae9b474ba053648354bea3f9b8670cac4c78ba1 # changelogs@0.6.2
+      - uses: tempoxyz/changelogs/check@433ce44f6e3ec148a2e1fa5789f22c0db21ac6da # changelogs@0.6.2 + multiline fix
 
   generate:
     if: >-
@@ -52,12 +52,20 @@ jobs:
         if: steps.existing.outputs.found == 'false'
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Extract bump level from label
+        if: steps.existing.outputs.found == 'false'
+        id: bump
+        run: echo "level=${LABEL#changelog:}" >> "$GITHUB_OUTPUT"
+        env:
+          LABEL: ${{ github.event.label.name }}
+
       - name: Generate changelog
         if: steps.existing.outputs.found == 'false'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          changelogs add --ai "claude -p" --ref "origin/${{ github.base_ref }}"
+          changelogs add --ai "claude -p" --ref "origin/${{ github.base_ref }}" \
+            --instructions "Use '${{ steps.bump.outputs.level }}' as the bump level for all changed packages. Do not use a higher bump level."
 
       - name: Commit changelog
         if: steps.existing.outputs.found == 'false'
