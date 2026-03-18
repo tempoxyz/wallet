@@ -71,12 +71,6 @@ Examples:
         /// Wallet address to fund (defaults to current wallet)
         #[arg(long)]
         address: Option<String>,
-        /// Skip waiting for balance confirmation
-        #[arg(long)]
-        no_wait: bool,
-        /// Show what would happen without executing
-        #[arg(long)]
-        dry_run: bool,
     },
     /// Manage payment sessions
     #[command(display_order = 8, name = "sessions")]

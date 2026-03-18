@@ -139,7 +139,7 @@ crates/
 │   │   ├── wallet/              # Wallet account types, on-chain queries, rendering
 │   │   └── commands/            # Command implementations
 │   │       ├── login.rs, logout.rs, whoami.rs, keys.rs, sign.rs, completions.rs
-│   │       ├── fund/            # Fund wallet (faucet, bridge, relay)
+│   │       ├── fund/            # Fund wallet (browser-based flow)
 │   │       ├── sessions/        # Session management (list, close, sync)
 │   │       └── services/        # Service directory (client, model, render)
 │   └── tests/                   # Integration tests (assert_cmd)

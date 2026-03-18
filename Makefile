@@ -11,13 +11,13 @@ release:
 	cargo build --release
 
 install: release
-	mkdir -p $(HOME)/.local/bin
-	cp target/release/tempo-wallet $(HOME)/.local/bin/tempo-wallet
-	cp target/release/tempo-request $(HOME)/.local/bin/tempo-request
-	chmod +x $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-request
+	mkdir -p $(HOME)/.tempo/bin
+	cp target/release/tempo-wallet $(HOME)/.tempo/bin/tempo-wallet
+	cp target/release/tempo-request $(HOME)/.tempo/bin/tempo-request
+	chmod +x $(HOME)/.tempo/bin/tempo-wallet $(HOME)/.tempo/bin/tempo-request
 
 uninstall:
-	rm -f $(HOME)/.local/bin/tempo-wallet $(HOME)/.local/bin/tempo-request
+	rm -f $(HOME)/.tempo/bin/tempo-wallet $(HOME)/.tempo/bin/tempo-request
 
 clean:
 	cargo clean

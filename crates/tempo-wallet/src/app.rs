@@ -27,11 +27,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                 Commands::Login => login::run(&ctx).await,
                 Commands::Logout { yes } => logout::run(&ctx, yes),
                 Commands::Completions { shell } => completions::run(&ctx, shell),
-                Commands::Fund {
-                    address,
-                    no_wait,
-                    dry_run,
-                } => fund::run(&ctx, address, no_wait, dry_run).await,
+                Commands::Fund { address } => fund::run(&ctx, address).await,
                 Commands::Whoami => whoami::run(&ctx).await,
                 Commands::Keys => keys::run(&ctx).await,
                 Commands::Sessions { command } => {
