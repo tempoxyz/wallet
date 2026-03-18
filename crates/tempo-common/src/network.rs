@@ -144,7 +144,7 @@ impl NetworkId {
     /// Get the block explorer base URL for this network.
     const fn explorer_base_url(self) -> &'static str {
         match self {
-            Self::Tempo => "https://explore.mainnet.tempo.xyz",
+            Self::Tempo => "https://explore.tempo.xyz",
             Self::TempoModerato => "https://explore.moderato.tempo.xyz",
         }
     }
@@ -228,11 +228,11 @@ mod tests {
     fn test_tempo_urls() {
         assert_eq!(
             NetworkId::Tempo.tx_url("0xabc123"),
-            "https://explore.mainnet.tempo.xyz/receipt/0xabc123"
+            "https://explore.tempo.xyz/receipt/0xabc123"
         );
         assert_eq!(
             NetworkId::Tempo.address_url("0x742d35Cc"),
-            "https://explore.mainnet.tempo.xyz/address/0x742d35Cc"
+            "https://explore.tempo.xyz/address/0x742d35Cc"
         );
     }
 
