@@ -27,7 +27,7 @@ jobs:
       - name: Configure git auth
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: tempoxyz/changelogs@433ce44f6e3ec148a2e1fa5789f22c0db21ac6da # changelogs@0.6.2 + multiline fix
+      - uses: tempoxyz/changelogs@810f56d0b08bc0ffb04287c7749cd4c91d255f38 # changelogs@0.6.2 + stricter version matching
         id: changelogs
         with:
           conventional-commit: true

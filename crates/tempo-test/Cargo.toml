@@ -1,6 +1,6 @@
 [package]
 name = "tempo-test"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Shared test utilities for Tempo CLI integration tests"
 publish = false
