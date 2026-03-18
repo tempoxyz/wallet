@@ -1,5 +1,5 @@
 ---
-tempo-wallet: minor
+tempo-wallet: patch
 tempo-common: patch
 ---
 
