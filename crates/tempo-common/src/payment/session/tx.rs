@@ -12,7 +12,7 @@ use alloy::{
 };
 use tempo_primitives::transaction::Call;
 
-use mpp::client::tempo::{charge::tx_builder, signing, signing::keychain};
+use mpp::client::tempo::{charge::tx_builder, signing};
 
 use crate::{
     error::{KeyError, NetworkError, TempoError},
@@ -58,81 +58,6 @@ fn expiring_valid_before() -> u64 {
         .unwrap_or_default()
         .as_secs()
         + VALID_BEFORE_SECS
-}
-
-/// On-chain key status from the keychain precompile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyStatus {
-    /// Key is active and provisioned on-chain.
-    Active,
-    /// Key has never been provisioned (expiry == 0).
-    Missing,
-    /// Key exists but has been revoked.
-    Revoked,
-    /// Key exists but has expired (expiry < now).
-    Expired,
-    /// RPC call failed — status unknown.
-    Unknown,
-}
-
-/// Query the on-chain key status via the keychain precompile.
-pub async fn query_key_status(
-    provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
-    wallet: Address,
-    key: Address,
-) -> KeyStatus {
-    let kc = keychain::IAccountKeychain::new(keychain::KEYCHAIN_ADDRESS, provider);
-    match kc.getKey(wallet, key).call().await {
-        // expiry == 0 means the key slot was never written, i.e. never provisioned.
-        // Checked before isRevoked because a never-provisioned key cannot be revoked.
-        Ok(info) if info.expiry == 0 => KeyStatus::Missing,
-        Ok(info) if info.isRevoked => KeyStatus::Revoked,
-        Ok(info) => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            if info.expiry < now {
-                KeyStatus::Expired
-            } else {
-                KeyStatus::Active
-            }
-        }
-        Err(e) => {
-            tracing::debug!("RPC error querying key status for {key:#x}: {e}");
-            KeyStatus::Unknown
-        }
-    }
-}
-
-/// Check on-chain key status and prepare a provisioning-retry signer if the
-/// key is definitively missing.
-///
-/// Returns `Ok(Some(signer))` when the key has never been provisioned and a
-/// retry with `key_authorization` should be attempted.
-/// Returns `Ok(None)` when no retry is warranted (no stored authorization,
-/// or key is active / revoked / expired / status unknown).
-pub async fn prepare_provisioning_retry(
-    signer: &Signer,
-    provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
-) -> Result<Option<Signer>, TempoError> {
-    if !signer.has_stored_key_authorization() {
-        return Ok(None);
-    }
-
-    if query_key_status(provider, signer.from, signer.signer.address()).await != KeyStatus::Missing
-    {
-        return Ok(None);
-    }
-
-    let provisioning_signer =
-        signer
-            .with_key_authorization()
-            .ok_or_else(|| KeyError::SigningOperation {
-                operation: "key provisioning",
-                reason: "stored key authorization could not be applied to signing mode".to_string(),
-            })?;
-    Ok(Some(provisioning_signer))
 }
 
 /// Estimate gas, build and sign a Tempo type-0x76 transaction.
@@ -196,39 +121,35 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
 
     let gas_limit = match gas_result {
         Ok(gas) => gas,
-        Err(e) if wallet.has_stored_key_authorization() => {
-            match prepare_provisioning_retry(wallet, provider).await? {
-                Some(retry_signer) => {
-                    provisioning_signer = retry_signer;
-                    effective_wallet = &provisioning_signer;
-                    key_auth = effective_wallet.signing_mode.key_authorization();
-                    tx_builder::estimate_gas(
-                        provider,
-                        from,
-                        chain_id,
-                        nonce,
-                        effective_fee_token,
-                        &calls,
-                        MAX_FEE_PER_GAS,
-                        MAX_PRIORITY_FEE_PER_GAS,
-                        key_auth,
-                        EXPIRING_NONCE_KEY,
-                        valid_before,
-                    )
-                    .await
-                    .map_err(|source| KeyError::SigningOperationSource {
-                        operation: "estimate gas (retry with key provisioning)",
-                        source: Box::new(source),
-                    })?
-                }
-                None => {
-                    return Err(KeyError::SigningOperationSource {
-                        operation: "estimate gas",
-                        source: Box::new(e),
-                    }
-                    .into());
-                }
-            }
+        Err(_) if wallet.has_stored_key_authorization() => {
+            provisioning_signer =
+                wallet
+                    .with_key_authorization()
+                    .ok_or_else(|| KeyError::SigningOperation {
+                        operation: "key provisioning",
+                        reason: "stored key authorization could not be applied to signing mode"
+                            .to_string(),
+                    })?;
+            effective_wallet = &provisioning_signer;
+            key_auth = effective_wallet.signing_mode.key_authorization();
+            tx_builder::estimate_gas(
+                provider,
+                from,
+                chain_id,
+                nonce,
+                effective_fee_token,
+                &calls,
+                MAX_FEE_PER_GAS,
+                MAX_PRIORITY_FEE_PER_GAS,
+                key_auth,
+                EXPIRING_NONCE_KEY,
+                valid_before,
+            )
+            .await
+            .map_err(|source| KeyError::SigningOperationSource {
+                operation: "estimate gas (retry with key provisioning)",
+                source: Box::new(source),
+            })?
         }
         Err(e) => {
             return Err(KeyError::SigningOperationSource {
@@ -282,17 +203,44 @@ pub async fn submit_tempo_tx(
     from: Address,
     calls: Vec<tempo_primitives::transaction::Call>,
 ) -> ChannelResult<String> {
-    let tx_bytes = resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls).await?;
+    let tx_bytes =
+        resolve_and_sign_tx(provider, wallet, chain_id, fee_token, from, calls.clone()).await?;
 
-    let pending = provider
-        .send_raw_transaction(&tx_bytes)
-        .await
-        .map_err(|source| NetworkError::RpcSource {
+    match provider.send_raw_transaction(&tx_bytes).await {
+        Ok(pending) => Ok(format!("{:#x}", pending.tx_hash())),
+        Err(_) if wallet.has_stored_key_authorization() => {
+            let provisioning_signer =
+                wallet
+                    .with_key_authorization()
+                    .ok_or_else(|| KeyError::SigningOperation {
+                        operation: "key provisioning",
+                        reason: "stored key authorization could not be applied to signing mode"
+                            .to_string(),
+                    })?;
+            let retry_bytes = resolve_and_sign_tx(
+                provider,
+                &provisioning_signer,
+                chain_id,
+                fee_token,
+                from,
+                calls,
+            )
+            .await?;
+            let pending = provider
+                .send_raw_transaction(&retry_bytes)
+                .await
+                .map_err(|source| NetworkError::RpcSource {
+                    operation: "broadcast transaction",
+                    source: Box::new(source),
+                })?;
+            Ok(format!("{:#x}", pending.tx_hash()))
+        }
+        Err(source) => Err(NetworkError::RpcSource {
             operation: "broadcast transaction",
             source: Box::new(source),
-        })?;
-
-    Ok(format!("{:#x}", pending.tx_hash()))
+        }
+        .into()),
+    }
 }
 
 // ==================== Transaction Construction ====================

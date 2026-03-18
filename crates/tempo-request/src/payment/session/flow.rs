@@ -1076,6 +1076,58 @@ async fn reuse_stage_execute(
     }
 }
 
+/// Build the open tx, format the credential, and send to the server.
+///
+/// Extracted so `open_stage` can retry with a provisioning signer when the
+/// server rejects the optimistic (no key_authorization) transaction.
+#[allow(clippy::too_many_arguments)]
+async fn build_and_send_open(
+    http: &crate::http::HttpClient,
+    url: &str,
+    resolved: &ResolvedChallenge,
+    signer: &Signer,
+    challenge: &ResolvedSessionChallenge,
+    open_calls: Vec<tempo_primitives::transaction::Call>,
+    channel_id: B256,
+    initial_cumulative: u128,
+    voucher_sig: &[u8],
+    idempotency_key: &str,
+    delays: &[u64],
+) -> Result<crate::http::HttpResponse, TempoError> {
+    let payment = open::create_tempo_payment_from_calls(
+        resolved.rpc_url.as_str(),
+        signer,
+        open_calls,
+        challenge.token,
+        challenge.chain_id,
+        challenge.fee_payer,
+    )
+    .await?;
+
+    let open_tx = format!("0x{}", hex::encode(&payment.tx_bytes));
+    let open_payload = build_open_payload(
+        channel_id,
+        open_tx,
+        challenge.key_address,
+        initial_cumulative,
+        voucher_sig,
+    );
+
+    let session_credential = mpp::PaymentCredential::with_source(
+        challenge.echo.clone(),
+        challenge.did.clone(),
+        open_payload,
+    );
+    let auth_header = mpp::format_authorization(&session_credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "open credential",
+            source: Box::new(source),
+        }
+    })?;
+
+    open::send_open_with_retry(http, url, &auth_header, idempotency_key, delays).await
+}
+
 async fn open_stage(
     http: &crate::http::HttpClient,
     url: &str,
@@ -1129,41 +1181,51 @@ async fn open_stage(
         source: Box::new(source),
     })?;
 
-    let payment = open::create_tempo_payment_from_calls(
-        resolved.rpc_url.as_str(),
-        signer,
-        open_calls,
-        challenge.token,
-        challenge.chain_id,
-        challenge.fee_payer,
-    )
-    .await?;
-
-    let open_tx = format!("0x{}", hex::encode(&payment.tx_bytes));
-    let open_payload = build_open_payload(
-        channel_id,
-        open_tx,
-        challenge.key_address,
-        initial_cumulative,
-        &voucher_sig,
-    );
-
-    let session_credential = mpp::PaymentCredential::with_source(
-        challenge.echo.clone(),
-        challenge.did.clone(),
-        open_payload,
-    );
-    let auth_header = mpp::format_authorization(&session_credential).map_err(|source| {
-        PaymentError::ChallengeFormatSource {
-            context: "open credential",
-            source: Box::new(source),
-        }
-    })?;
-
     let open_idempotency_key = new_idempotency_key();
     let delays = [2000_u64, 3000, 5000];
-    let open_response =
-        open::send_open_with_retry(http, url, &auth_header, &open_idempotency_key, &delays).await?;
+
+    let open_response = match build_and_send_open(
+        http,
+        url,
+        resolved,
+        signer,
+        challenge,
+        open_calls.clone(),
+        channel_id,
+        initial_cumulative,
+        &voucher_sig,
+        &open_idempotency_key,
+        &delays,
+    )
+    .await
+    {
+        Ok(resp) => resp,
+        Err(_) if signer.has_stored_key_authorization() => {
+            let provisioning_signer =
+                signer
+                    .with_key_authorization()
+                    .ok_or_else(|| KeyError::SigningOperation {
+                        operation: "key provisioning",
+                        reason: "stored key authorization could not be applied to signing mode"
+                            .to_string(),
+                    })?;
+            build_and_send_open(
+                http,
+                url,
+                resolved,
+                &provisioning_signer,
+                challenge,
+                open_calls,
+                channel_id,
+                initial_cumulative,
+                &voucher_sig,
+                &open_idempotency_key,
+                &delays,
+            )
+            .await?
+        }
+        Err(e) => return Err(e),
+    };
 
     let mut state = ChannelState {
         channel_id,

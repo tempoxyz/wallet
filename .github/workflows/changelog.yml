@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-      - uses: tempoxyz/changelogs/check@changelogs@0.6.2 # aae9b474
+      - uses: tempoxyz/changelogs/check@aae9b474ba053648354bea3f9b8670cac4c78ba1 # changelogs@0.6.2
 
   generate:
     if: >-
@@ -31,6 +31,9 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
           token: ${{ secrets.GH_PAT }}
+
+      - name: Configure git credentials for private dependencies
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - name: Check for existing changelog
         id: existing
@@ -45,12 +48,16 @@ jobs:
         if: steps.existing.outputs.found == 'false'
         run: curl -sSL https://changelogs.sh | sh -s -- changelogs@0.6.2
 
+      - name: Install claude
+        if: steps.existing.outputs.found == 'false'
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: Generate changelog
         if: steps.existing.outputs.found == 'false'
         env:
-          AMP_API_KEY: ${{ secrets.AMP_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          changelogs add --ai "amp -p" --ref "origin/${{ github.base_ref }}"
+          changelogs add --ai "claude -p" --ref "origin/${{ github.base_ref }}"
 
       - name: Commit changelog
         if: steps.existing.outputs.found == 'false'

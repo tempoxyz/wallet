@@ -8,7 +8,7 @@ use mpp::client::PaymentProvider;
 use crate::http::{HttpClient, HttpResponse};
 use tempo_common::{
     cli::terminal::sanitize_for_terminal,
-    error::{ConfigError, PaymentError, TempoError},
+    error::{ConfigError, KeyError, PaymentError, TempoError},
     keys::Signer,
 };
 
@@ -59,52 +59,64 @@ pub(super) async fn handle_charge_request(
 
     let credential = match provider.pay(challenge).await {
         Ok(cred) => cred,
-        Err(e) if signer.has_stored_key_authorization() => {
-            let rpc_url: url::Url =
-                resolved
-                    .rpc_url
-                    .as_str()
-                    .parse()
-                    .map_err(|source| ConfigError::InvalidUrl {
-                        context: "RPC",
-                        source,
+        Err(_) if signer.has_stored_key_authorization() => {
+            let provisioning_signer =
+                signer
+                    .with_key_authorization()
+                    .ok_or_else(|| KeyError::SigningOperation {
+                        operation: "key provisioning",
+                        reason: "stored key authorization could not be applied to signing mode"
+                            .to_string(),
                     })?;
-            let rpc_provider =
-                alloy::providers::RootProvider::<mpp::client::TempoNetwork>::new_http(rpc_url);
-
-            match tempo_common::payment::session::prepare_provisioning_retry(&signer, &rpc_provider)
-                .await?
-            {
-                Some(provisioning_signer) => {
-                    let retry_provider = mpp::client::TempoProvider::new(
-                        provisioning_signer.signer.clone(),
-                        resolved.rpc_url.as_str(),
-                    )
-                    .map_err(|source| ConfigError::ProviderInitSource {
-                        provider: "tempo payment provider (provisioning retry)",
-                        source: Box::new(source),
-                    })?
-                    .with_signing_mode(provisioning_signer.signing_mode);
-                    retry_provider
-                        .pay(challenge)
-                        .await
-                        .map_err(|e| classify_payment_error(e, &resolved.network_id))?
-                }
-                None => return Err(classify_payment_error(e, &resolved.network_id)),
-            }
+            let retry_provider = mpp::client::TempoProvider::new(
+                provisioning_signer.signer.clone(),
+                resolved.rpc_url.as_str(),
+            )
+            .map_err(|source| ConfigError::ProviderInitSource {
+                provider: "tempo payment provider (provisioning retry)",
+                source: Box::new(source),
+            })?
+            .with_signing_mode(provisioning_signer.signing_mode);
+            retry_provider
+                .pay(challenge)
+                .await
+                .map_err(|e| classify_payment_error(e, &resolved.network_id))?
         }
         Err(e) => return Err(classify_payment_error(e, &resolved.network_id)),
     };
 
-    let auth_header = mpp::format_authorization(&credential).map_err(|source| {
-        PaymentError::ChallengeFormatSource {
-            context: "Authorization header",
-            source: Box::new(source),
-        }
-    })?;
+    let resp = submit_credential(http, url, &credential).await?;
 
-    let headers = vec![("Authorization".to_string(), auth_header)];
-    let resp = http.execute(url, &headers).await?;
+    // If the server rejects the payment and we have a stored key authorization,
+    // retry with provisioning. The server validates the transaction on-chain, and
+    // it may fail when the access key isn't provisioned even though signing
+    // succeeded locally (the optimistic path omits key_authorization).
+    let resp = if matches!(resp.status_code, 401..=403) && signer.has_stored_key_authorization() {
+        let provisioning_signer =
+            signer
+                .with_key_authorization()
+                .ok_or_else(|| KeyError::SigningOperation {
+                    operation: "key provisioning",
+                    reason: "stored key authorization could not be applied to signing mode"
+                        .to_string(),
+                })?;
+        let retry_provider = mpp::client::TempoProvider::new(
+            provisioning_signer.signer.clone(),
+            resolved.rpc_url.as_str(),
+        )
+        .map_err(|source| ConfigError::ProviderInitSource {
+            provider: "tempo payment provider (provisioning retry)",
+            source: Box::new(source),
+        })?
+        .with_signing_mode(provisioning_signer.signing_mode);
+        let retry_credential = retry_provider
+            .pay(challenge)
+            .await
+            .map_err(|e| classify_payment_error(e, &resolved.network_id))?;
+        submit_credential(http, url, &retry_credential).await?
+    } else {
+        resp
+    };
 
     if resp.status_code >= 400 {
         return Err(parse_payment_rejection(&resp).into());
@@ -132,6 +144,22 @@ pub(super) async fn handle_charge_request(
         status_code: resp.status_code,
         response: Some(resp),
     })
+}
+
+/// Format the credential as an Authorization header and submit to the server.
+async fn submit_credential(
+    http: &HttpClient,
+    url: &str,
+    credential: &mpp::protocol::core::PaymentCredential,
+) -> Result<HttpResponse, TempoError> {
+    let auth_header = mpp::format_authorization(credential).map_err(|source| {
+        PaymentError::ChallengeFormatSource {
+            context: "Authorization header",
+            source: Box::new(source),
+        }
+    })?;
+    let headers = vec![("Authorization".to_string(), auth_header)];
+    http.execute(url, &headers).await
 }
 
 /// Parse a non-200 response after payment submission into a descriptive error.
