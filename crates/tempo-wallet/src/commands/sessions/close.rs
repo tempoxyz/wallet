@@ -678,6 +678,7 @@ impl CloseSummary {
         channel_id: &str,
         show_output: bool,
     ) {
+        let label = if label.is_empty() { channel_id } else { label };
         match result {
             Ok(CloseOutcome::Closed {
                 tx_url,
