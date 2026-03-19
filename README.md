@@ -59,16 +59,37 @@ tempo wallet whoami
 
 # Fund your wallet
 tempo wallet fund
+```
 
-# Preview a request without paying (dry run)
-tempo request --dry-run -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+### One-Shot Payment (Charge)
 
-# Make a paid API request
+Every request is independently settled on-chain. No sessions, no state.
+
+```bash
+# Preview the cost (dry run)
+tempo request --dry-run \
+  https://aviationstack.mpp.tempo.xyz/v1/flights?flight_iata=AA100
+
+# Make the request
+tempo request \
+  https://aviationstack.mpp.tempo.xyz/v1/flights?flight_iata=AA100
+```
+
+### Session Payment (Channel)
+
+A session opens an on-chain channel once, then exchanges off-chain vouchers for subsequent requests — ideal for streaming and repeated calls.
+
+```bash
+# Make a session-based request (channel opens automatically)
 tempo request -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions
+
+# List active sessions
+tempo wallet sessions list
+
+# Close the session and settle on-chain
+tempo wallet sessions close https://openrouter.mpp.tempo.xyz
 ```
 
 ## Contributing
