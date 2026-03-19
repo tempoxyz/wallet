@@ -276,3 +276,105 @@ Boundary tests live in `crates/tempo-request/tests/mpp_boundary.rs`.
 This repository is a client/reference wallet implementation. It enforces client-side requirements from the session spec and intentionally does not implement server-only operational MUSTs.
 
 Server-side concerns explicitly out of scope include voucher rate limiting/anti-DoS policy, challenge-to-voucher audit trail persistence, receipt issuance guarantees, and per-session server accounting durability semantics.
+
+## Extension Framework
+
+This repo produces **extension binaries** (`tempo-wallet`, `tempo-request`) that are managed by the `tempo` launcher in the main [tempo](https://github.com/tempoxyz/tempo) repo (`tempo/crates/ext/`). The launcher provides install, update, remove, and auto-update lifecycle management. `tempo-sign` is a build-time tool used in CI to produce signed release manifests — it is never distributed to end users.
+
+### How Extensions Are Discovered
+
+When a user runs `tempo wallet ...`, the launcher:
+
+1. Looks for `tempo-wallet` next to its own binary (exe_dir).
+2. Falls back to `$TEMPO_HOME/bin` or `~/.local/bin`.
+3. Searches `PATH`.
+4. If not found, attempts **auto-install** from the default manifest URL.
+
+### Release Lifecycle
+
+Releases are triggered by pushing a git tag matching `tempo-wallet@<version>` or `tempo-request@<version>`:
+
+1. **Build** (`.github/workflows/build.yml`) — Cross-compiles release binaries for four targets: `linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`. Artifacts are uploaded to the GitHub Release.
+
+2. **Sign** — The `publish` job builds `tempo-sign` from source, then signs every binary in the artifacts directory. `tempo-sign` produces a **release manifest** (`manifest.json`) containing:
+   - `version` — semver version string
+   - `description` — short extension description
+   - `binaries` — per-platform map of `{ url, sha256, signature }`
+   - `skill` / `skill_sha256` / `skill_signature` — optional agent skill file metadata
+
+3. **Upload** — Signed binaries and the manifest are uploaded to Cloudflare R2 at `s3://tempo-cli/extensions/<package>/`:
+   - Latest: `extensions/tempo-wallet/manifest.json`, `extensions/tempo-wallet/tempo-wallet-darwin-arm64`
+   - Versioned: `extensions/tempo-wallet/v0.1.5/manifest.json`, `extensions/tempo-wallet/v0.1.5/tempo-wallet-darwin-arm64`
+   - A `VERSION` file is written containing the latest version string.
+
+Binaries are served via `https://cli.tempo.xyz/extensions/<package>/...`.
+
+### Binary Signing and Verification
+
+Signing uses [minisign](https://jedisct1.github.io/minisign/) (Ed25519-based):
+
+- **Signing** (`tempo-sign`) — Each binary is signed with a minisign secret key stored as a CI secret (`RELEASE_SIGNING_KEY`). The trusted comment includes `file:<platform-binary-name>` and `version:<version>` tab-separated tokens.
+
+- **Verification** (`tempo/crates/ext/src/installer/verify.rs`) — On install, the launcher:
+  1. Downloads the binary and computes its SHA-256 digest.
+  2. Compares the digest against the manifest's `sha256` field.
+  3. Verifies the minisign signature using the hardcoded public key.
+  4. Checks that the signature's trusted comment contains the expected `file:` and `version:` tokens — this prevents cross-extension substitution and version replay attacks.
+
+The hardcoded public key lives in the launcher source: `RWTtoEUPuapAfh06rC7BZLjm1hG40/lsVAA/2afN88FZ8/Fdk97LzJDf`.
+
+Both the manifest URL base and public key can be overridden via `TEMPO_EXT_BASE_URL` and `TEMPO_EXT_PUBLIC_KEY` for testing.
+
+### Auto-Update
+
+When the launcher dispatches to an already-installed extension, it checks for updates at most once every **6 hours** (controlled by the registry's `checked_at` timestamp):
+
+1. Fetches `manifest.json` from the default URL.
+2. If the manifest version is strictly newer (semver comparison), downloads, verifies, and replaces the binary.
+3. On failure, the existing binary is always used — auto-update never blocks execution.
+4. Auto-update is disabled when `TEMPO_HOME` is set (managed/test environments).
+
+Version pinning (`tempo add wallet 1.0.0`) disables auto-install but still checks and notifies the user when a newer version is available.
+
+### Agent Skill Distribution
+
+Extensions can optionally bundle an agent skill file (`SKILL.md`) for coding assistants. During install:
+
+1. The skill file URL, SHA-256, and signature are read from the release manifest.
+2. The file is downloaded, checksum-verified, and signature-verified (same minisign flow as binaries, with a `skill:<package>` trusted comment).
+3. The skill is installed into every detected coding assistant's `skills/tempo-<extension>/SKILL.md` directory (Claude Code, Amp, Cursor, Copilot, Windsurf, etc.).
+
+Currently only `tempo-request` ships a skill file (the `SKILL.md` at the repo root).
+
+### Extension Registry
+
+The launcher persists extension state in `$TEMPO_HOME/extensions.json` (or `~/Library/Application Support/tempo/extensions.json` on macOS):
+
+```json
+{
+  "extensions": {
+    "wallet": {
+      "checked_at": 1710864000,
+      "installed_version": "0.1.5",
+      "pinned": false,
+      "description": "Manage your Tempo Wallet"
+    }
+  }
+}
+```
+
+The registry is **not file-locked** — concurrent `tempo` invocations use last-writer-wins, which is acceptable since the data is limited to timestamps and version strings.
+
+### Manifest URL Convention
+
+The default manifest URL follows the pattern:
+
+```
+https://cli.tempo.xyz/extensions/tempo-<extension>/manifest.json
+```
+
+For a specific version:
+
+```
+https://cli.tempo.xyz/extensions/tempo-<extension>/v<version>/manifest.json
+```
