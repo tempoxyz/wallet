@@ -15,8 +15,6 @@
 
 # Tempo Wallet
 
-[![CI status](https://github.com/tempoxyz/wallet/actions/workflows/ci.yml/badge.svg)](https://github.com/tempoxyz/wallet/actions/workflows/ci.yml)
-
 **Command-line wallet and HTTP client for the [Tempo](https://tempo.xyz) blockchain, with built-in [Machine Payments Protocol](https://mpp.dev) support.**
 
 **[Install](https://wallet.tempo.xyz)**
