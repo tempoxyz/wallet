@@ -66,7 +66,9 @@ tempo request -X POST \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions
 
 # Preview a request without paying (dry run)
-tempo request --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions
+tempo request --dry-run -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions
 ```
 
 ## Contributing
