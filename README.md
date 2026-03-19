@@ -1,11 +1,36 @@
-# Tempo CLI Wallet Extensions
+# Tempo Wallet
 
-This repository provides the **wallet extension binaries** for the [Tempo CLI](https://github.com/tempoxyz/tempo). The main `tempo` launcher (at `tempoxyz/tempo`) discovers, installs, and manages these extensions automatically — you don't need to build this repo unless you're contributing.
+[![CI status](https://github.com/tempoxyz/wallet/actions/workflows/ci.yml/badge.svg)](https://github.com/tempoxyz/wallet/actions/workflows/ci.yml)
 
-- **`tempo-wallet`** — Wallet identity and custody: login, key management, sessions, services, signing
-- **`tempo-request`** — HTTP client with built-in [MPP](https://mpp.dev) payment: make API requests without API keys
+**Command-line wallet and HTTP client for the [Tempo](https://tempo.xyz) blockchain, with built-in [Machine Payments Protocol](https://mpp.dev) support.**
 
-Both extensions are built on the [Machine Payments Protocol](https://mpp.dev), an open protocol for HTTP-native machine-to-machine payments on the [Tempo](https://tempo.xyz) blockchain.
+**[Install](https://wallet.tempo.xyz)**
+| [Docs](https://docs.tempo.xyz)
+| [MPP Spec](https://mpp.dev)
+| [Architecture](ARCHITECTURE.md)
+
+## What is Tempo Wallet?
+
+Tempo Wallet is a CLI that lets you create a wallet, manage keys, and make HTTP requests that pay automatically — no API keys required. It uses the [Machine Payments Protocol (MPP)](https://mpp.dev) to handle `402 Payment Required` challenges natively, turning any paid API into a simple HTTP call.
+
+The wallet supports two authentication modes:
+
+- **Passkey (WebAuthn)** — Browser-based login via [wallet.tempo.xyz](https://wallet.tempo.xyz). Your passkey creates a smart wallet on Tempo; the CLI receives an authorized session key. No seed phrases, no private key management.
+- **Local key** — A locally generated secp256k1 private key for headless or automated environments.
+
+### How the OAuth Flow Works
+
+1. Run `tempo wallet login` — the CLI opens your browser to [wallet.tempo.xyz](https://wallet.tempo.xyz).
+2. Authenticate with your passkey (Touch ID, Face ID, or hardware key).
+3. The browser authorizes a session key for the CLI and redirects back.
+4. The CLI stores the authorized key locally. All subsequent signing happens locally — no browser needed.
+
+## Goals
+
+1. **Zero-config payments**: `tempo request <url>` handles the full 402 flow — challenge, sign, pay, retry — in a single command.
+2. **Secure by default**: Passkey login means no seed phrases. Local keys are stored with mode `0600`. Private keys never leave the machine.
+3. **Composable**: Both `tempo-wallet` and `tempo-request` are standalone binaries that the [`tempo` CLI](https://github.com/tempoxyz/tempo) discovers as extensions. Use them independently or together.
+4. **Streaming-native**: Session-based payments support SSE streaming with per-token voucher top-ups — pay only for what you consume.
 
 ## Install
 
@@ -13,59 +38,70 @@ Both extensions are built on the [Machine Payments Protocol](https://mpp.dev), a
 curl -fsSL https://tempo.xyz/install | bash
 ```
 
+This installs the `tempo` launcher, which automatically manages wallet extensions.
+
 ## Quick Start
 
 ```bash
-# Connect your wallet
+# Log in with your passkey (opens browser)
 tempo wallet login
 
-# Preview a paid request without sending payment
-tempo request --dry-run -X POST \
+# Check your wallet
+tempo wallet whoami
+
+# Fund your wallet
+tempo wallet fund
+
+# Make a paid API request
+tempo request -X POST \
   --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
   https://openrouter.mpp.tempo.xyz/v1/chat/completions
+
+# Preview a request without paying (dry run)
+tempo request --dry-run https://openrouter.mpp.tempo.xyz/v1/chat/completions
 ```
 
-## Workspace Overview
+## Workspace
 
 | Crate | Binary | Purpose |
 |-------|--------|---------|
-| `tempo-common` | — | Shared config, keys, network, payment, and CLI runtime |
-| `tempo-wallet` | `tempo-wallet` | Wallet login, funding, services, sessions, and signing |
-| `tempo-request` | `tempo-request` | HTTP client with automatic `402 Payment Required` handling |
-| `tempo-sign` | `tempo-sign` | Release artifact manifest signing |
+| [`tempo-common`](crates/tempo-common/) | — | Shared library: config, keys, networking, payment, CLI runtime |
+| [`tempo-wallet`](crates/tempo-wallet/) | `tempo-wallet` | Wallet login, identity, funding, sessions, services, signing |
+| [`tempo-request`](crates/tempo-request/) | `tempo-request` | HTTP client with automatic `402 Payment Required` handling |
+| [`tempo-sign`](crates/tempo-sign/) | `tempo-sign` | Release artifact manifest signing |
 
-Architecture details: [ARCHITECTURE.md](ARCHITECTURE.md)
+See [ARCHITECTURE.md](ARCHITECTURE.md) for crate layering, payment flows, and design decisions.
 
-## Data And Configuration
+## Configuration
 
-All runtime data is stored under `$TEMPO_HOME` (defaults to `~/.tempo`):
+All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
 
-| File | Path | Description |
-|------|------|-------------|
-| Config | `~/.tempo/config.toml` | RPC overrides and telemetry settings |
-| Keys | `~/.tempo/wallet/keys.toml` | Wallet keys (mode 0600) |
-| Channels | `~/.tempo/wallet/channels.db` | Persisted payment channel state |
-
-## Telemetry
-
-Anonymous usage analytics (PostHog) are enabled by default. Request bodies, API keys, and wallet private keys are not collected.
-Telemetry events are only sent when `POSTHOG_API_KEY` is set (either at build time in CI or as a runtime environment variable).
-
-Disable telemetry:
-
-```bash
-export TEMPO_NO_TELEMETRY=1
 ```
+~/.tempo/
+├── config.toml              # RPC overrides, telemetry settings
+└── wallet/
+    ├── keys.toml             # Wallet keys (mode 0600)
+    └── channels.db           # Payment channel state (SQLite)
+```
+
+| Environment Variable | Description |
+|---------------------|-------------|
+| `TEMPO_HOME` | Override data directory (default: `~/.tempo`) |
+| `TEMPO_RPC_URL` | Override RPC endpoint |
+| `TEMPO_PRIVATE_KEY` | Ephemeral private key for payment (bypasses login) |
+| `TEMPO_NO_TELEMETRY` | Disable anonymous telemetry |
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.
 
 ```bash
-make build
-make test
-make check
+make build    # Build debug binaries
+make test     # Run all tests
+make check    # Format, clippy, test, docs
 ```
+
+The Minimum Supported Rust Version (MSRV) is specified in [`Cargo.toml`](Cargo.toml).
 
 ## Security
 
