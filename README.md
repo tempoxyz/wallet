@@ -1,11 +1,44 @@
-# Tempo CLI Wallet Extensions
+<br>
+<br>
 
-This repository provides the **wallet extension binaries** for the [Tempo CLI](https://github.com/tempoxyz/tempo). The main `tempo` launcher (at `tempoxyz/tempo`) discovers, installs, and manages these extensions automatically — you don't need to build this repo unless you're contributing.
+<p align="center">
+  <a href="https://tempo.xyz">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tempoxyz/.github/refs/heads/main/assets/combomark-dark.svg">
+      <img alt="tempo combomark" src="https://raw.githubusercontent.com/tempoxyz/.github/refs/heads/main/assets/combomark-bright.svg" width="auto" height="120">
+    </picture>
+  </a>
+</p>
 
-- **`tempo-wallet`** — Wallet identity and custody: login, key management, sessions, services, signing
-- **`tempo-request`** — HTTP client with built-in [MPP](https://mpp.dev) payment: make API requests without API keys
+<br>
+<br>
 
-Both extensions are built on the [Machine Payments Protocol](https://mpp.dev), an open protocol for HTTP-native machine-to-machine payments on the [Tempo](https://tempo.xyz) blockchain.
+# Tempo Wallet
+
+**Command-line wallet and HTTP client for the [Tempo](https://tempo.xyz) blockchain, with built-in [Machine Payments Protocol](https://mpp.dev) support.**
+
+**[Website](https://wallet.tempo.xyz)**
+| [Docs](https://docs.tempo.xyz/cli)
+| [MPP Spec](https://mpp.dev)
+| [Architecture](ARCHITECTURE.md)
+
+## What is Tempo Wallet?
+
+Tempo Wallet is a CLI that lets you create a wallet, manage keys, and make HTTP requests that pay automatically — no API keys required. It uses the [Machine Payments Protocol (MPP)](https://mpp.dev) to handle `402 Payment Required` challenges natively, turning any paid API into a simple HTTP call.
+
+### How Login Works
+
+1. Run `tempo wallet login` — the CLI opens your browser to [wallet.tempo.xyz](https://wallet.tempo.xyz).
+2. Authenticate with your passkey (Touch ID, Face ID, or hardware key).
+3. The browser authorizes a session key for the CLI and redirects back.
+4. The CLI stores the authorized key locally. All subsequent signing happens locally — no browser needed.
+
+## Goals
+
+1. **Zero-config payments**: `tempo request <url>` handles the full 402 flow — challenge, sign, pay, retry — in a single command.
+2. **Secure by default**: Passkey login with scoped session keys — time-limited, spending-capped, and chain-bound. Your passkey never leaves the browser; the CLI only holds a restricted access key.
+3. **Composable**: Both `tempo-wallet` and `tempo-request` are standalone binaries that the [`tempo` CLI](https://github.com/tempoxyz/tempo) discovers as extensions. Use them independently or together.
+4. **Streaming-native**: Session-based payments support SSE streaming with per-token voucher top-ups — pay only for what you consume.
 
 ## Install
 
@@ -13,48 +46,50 @@ Both extensions are built on the [Machine Payments Protocol](https://mpp.dev), a
 curl -fsSL https://tempo.xyz/install | bash
 ```
 
+This installs the `tempo` launcher, which automatically manages wallet extensions.
+
 ## Quick Start
 
 ```bash
-# Connect your wallet
+# Log in with your passkey (opens browser)
 tempo wallet login
 
-# Preview a paid request without sending payment
-tempo request --dry-run -X POST \
-  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
-  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+# Check your wallet
+tempo wallet whoami
+
+# Fund your wallet
+tempo wallet fund
 ```
 
-## Workspace Overview
+### One-Shot Payment (Charge)
 
-| Crate | Binary | Purpose |
-|-------|--------|---------|
-| `tempo-common` | — | Shared config, keys, network, payment, and CLI runtime |
-| `tempo-wallet` | `tempo-wallet` | Wallet login, funding, services, sessions, and signing |
-| `tempo-request` | `tempo-request` | HTTP client with automatic `402 Payment Required` handling |
-| `tempo-sign` | `tempo-sign` | Release artifact manifest signing |
-
-Architecture details: [ARCHITECTURE.md](ARCHITECTURE.md)
-
-## Data And Configuration
-
-All runtime data is stored under `$TEMPO_HOME` (defaults to `~/.tempo`):
-
-| File | Path | Description |
-|------|------|-------------|
-| Config | `~/.tempo/config.toml` | RPC overrides and telemetry settings |
-| Keys | `~/.tempo/wallet/keys.toml` | Wallet keys (mode 0600) |
-| Channels | `~/.tempo/wallet/channels.db` | Persisted payment channel state |
-
-## Telemetry
-
-Anonymous usage analytics (PostHog) are enabled by default. Request bodies, API keys, and wallet private keys are not collected.
-Telemetry events are only sent when `POSTHOG_API_KEY` is set (either at build time in CI or as a runtime environment variable).
-
-Disable telemetry:
+Every request is independently settled on-chain. No sessions, no state.
 
 ```bash
-export TEMPO_NO_TELEMETRY=1
+# Preview the cost (dry run)
+tempo request --dry-run \
+  https://aviationstack.mpp.tempo.xyz/v1/flights?flight_iata=AA100
+
+# Make the request
+tempo request \
+  https://aviationstack.mpp.tempo.xyz/v1/flights?flight_iata=AA100
+```
+
+### Session Payment (Channel)
+
+A session opens an on-chain channel once, then exchanges off-chain vouchers for subsequent requests — ideal for streaming and repeated calls.
+
+```bash
+# Make a session-based request (channel opens automatically)
+tempo request -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello!"}]}' \
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+
+# List active sessions
+tempo wallet sessions list
+
+# Close the session and settle on-chain
+tempo wallet sessions close https://openrouter.mpp.tempo.xyz
 ```
 
 ## Contributing
@@ -62,10 +97,12 @@ export TEMPO_NO_TELEMETRY=1
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.
 
 ```bash
-make build
-make test
-make check
+make build    # Build debug binaries
+make test     # Run all tests
+make check    # Format, clippy, test, docs
 ```
+
+The Minimum Supported Rust Version (MSRV) is specified in [`Cargo.toml`](Cargo.toml).
 
 ## Security
 
