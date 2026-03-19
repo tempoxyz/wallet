@@ -17,7 +17,7 @@
 
 **Command-line wallet and HTTP client for the [Tempo](https://tempo.xyz) blockchain, with built-in [Machine Payments Protocol](https://mpp.dev) support.**
 
-**[Install](https://wallet.tempo.xyz)**
+**[Website](https://wallet.tempo.xyz)**
 | [Docs](https://docs.tempo.xyz/cli)
 | [MPP Spec](https://mpp.dev)
 | [Architecture](ARCHITECTURE.md)
