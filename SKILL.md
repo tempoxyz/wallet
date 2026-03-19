@@ -14,23 +14,22 @@ description: >
 
 Run these commands in order. Do not skip steps. Do not search for other install instructions.
 
-**Step 1 — Install:** `mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`
+**Step 1 — Install:** `curl -fsSL https://tempo.xyz/install | bash`
 
-**Step 2 — Login:** `"$HOME/.local/bin/tempo" wallet login` — requires user browser/passkey action. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation. When run by agents, use a long command timeout (at least 16 minutes).
+**Step 2 — Login:** `"$HOME/.tempo/bin/tempo" wallet login` — requires user browser/passkey action. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation. When run by agents, use a long command timeout (at least 16 minutes).
 
-**Step 3 — Confirm readiness:** `"$HOME/.local/bin/tempo" wallet -t whoami`
+**Step 3 — Confirm readiness:** `"$HOME/.tempo/bin/tempo" wallet -t whoami`
 
 ### Setup Rules
 
-- Do not use `sudo`. Use user-local install via `TEMPO_BIN_DIR` (defaulting to `~/.local/bin`).
-- Do not use `export PATH=...`. Use full absolute paths (e.g., `"/Users/<user>/.local/bin/tempo"`) for deterministic behavior across isolated shells.
+- Do not use `export PATH=...`. Use full absolute paths (e.g., `"/Users/<user>/.tempo/bin/tempo"`) for deterministic behavior across isolated shells.
 - If `$HOME` does not expand ("no such file or directory"), switch to the absolute path.
 
 ## After Setup
 
 Provide:
 
-- Installation location and version (`$HOME/.local/bin/tempo --version`).
+- Installation location and version (`$HOME/.tempo/bin/tempo --version`).
 - Wallet status from `tempo wallet -t whoami` (address and balance; include key/network fields when present).
 - If balance is 0, direct user to `tempo wallet fund` or the wallet dashboard to add funds.
 - 2-3 simple starter prompts tailored to currently available services.
@@ -94,8 +93,8 @@ tempo request -t -X GET <SERVICE_URL>/<ENDPOINT_PATH>
 
 | Issue | Cause | Fix |
 |---|---|---|
-| `tempo: command not found` | CLI not installed | Run `mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then retry using `"$HOME/.local/bin/tempo" ...`. |
-| "legacy V1 keychain signature is no longer accepted, use V2" | Outdated `tempo` launcher or extensions | Reinstall tempo: `curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh`, then update extensions: `tempo update wallet && tempo update request`. Log out and back in: `tempo wallet logout --yes && tempo wallet login`. |
+| `tempo: command not found` | CLI not installed | Run `curl -fsSL https://tempo.xyz/install \| bash`, then retry using `"$HOME/.tempo/bin/tempo" ...`. |
+| "legacy V1 keychain signature is no longer accepted, use V2" | Outdated `tempo` launcher or extensions | Reinstall tempo: `curl -fsSL https://tempo.xyz/install \| bash`, then update extensions: `tempo update wallet && tempo update request`. Log out and back in: `tempo wallet logout --yes && tempo wallet login`. |
 | "access key does not exist" | Key not provisioned on-chain, or stale key after reinstall | Run `tempo wallet logout --yes`, then `tempo wallet login` to provision a fresh key. |
 | `ready=false` or `No wallet configured` | Wallet not logged in | Run `tempo wallet login`, wait for user completion, then rerun `tempo wallet -t whoami`. |
 | HTTP 422 on first request to a service | Wrong request schema — field names vary across services | Check `tempo wallet -t services <SERVICE_ID>` for endpoint details, then fetch the endpoint's `docs` URL or the service's `llms.txt` for exact field names and types. |

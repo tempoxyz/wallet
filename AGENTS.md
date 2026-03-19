@@ -91,7 +91,7 @@ make release            # Build optimized release binary
 make test               # Run all tests (uses mocks, no network required)
 make check              # Run fmt check, clippy, tests, and doc
 make fix                # Auto-fix formatting and clippy warnings
-make install            # Install CLI binaries to ~/.local/bin
+make install            # Install CLI binaries to ~/.tempo/bin
 make uninstall          # Uninstall CLI binaries
 make run ARGS="<url>"   # Run tempo-wallet with arguments
 ```

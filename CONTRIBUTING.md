@@ -68,7 +68,7 @@ make test               # Run all tests (uses mocks, no network required)
 make check              # fmt + clippy + test + doc
 make fix                # Auto-fix formatting and clippy warnings
 make coverage           # Generate code coverage (requires cargo-llvm-cov)
-make install            # Install binaries to ~/.local/bin
+make install            # Install binaries to ~/.tempo/bin
 make uninstall          # Uninstall binaries
 make run ARGS="<url>"   # Run tempo-wallet with arguments
 make clean              # cargo clean
