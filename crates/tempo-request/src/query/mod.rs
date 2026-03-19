@@ -96,6 +96,18 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
         .unwrap_or(&target_url)
         .to_string();
 
+    // x402 protocol: detected via PAYMENT-REQUIRED header (v2) or x402Version in body (v1)
+    if crate::payment::x402::is_x402_response(&response) {
+        return crate::payment::x402::run(
+            ctx,
+            &prepared.http,
+            &response,
+            &effective_url,
+            &output_opts,
+        )
+        .await;
+    }
+
     let challenge = challenge::parse_payment_challenge(&response)?;
 
     if prepared.http.log_enabled() {

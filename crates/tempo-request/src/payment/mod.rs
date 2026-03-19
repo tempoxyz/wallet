@@ -9,3 +9,4 @@ mod lock;
 pub(crate) mod router;
 mod session;
 pub(crate) mod types;
+pub(crate) mod x402;
