@@ -286,7 +286,7 @@ This repo produces **extension binaries** (`tempo-wallet`, `tempo-request`) that
 When a user runs `tempo wallet ...`, the launcher:
 
 1. Looks for `tempo-wallet` next to its own binary (exe_dir).
-2. Falls back to `$TEMPO_HOME/bin` or `~/.local/bin`.
+2. Falls back to `$TEMPO_HOME/bin` or `~/.tempo/bin`.
 3. Searches `PATH`.
 4. If not found, attempts **auto-install** from the default manifest URL.
 
