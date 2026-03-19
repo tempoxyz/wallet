@@ -36,7 +36,7 @@ Tempo Wallet is a CLI that lets you create a wallet, manage keys, and make HTTP 
 ## Goals
 
 1. **Zero-config payments**: `tempo request <url>` handles the full 402 flow — challenge, sign, pay, retry — in a single command.
-2. **Secure by default**: Passkey login means no seed phrases. Private keys never leave the machine.
+2. **Secure by default**: Passkey login with scoped session keys — time-limited, spending-capped, and chain-bound. Your passkey never leaves the browser; the CLI only holds a restricted access key.
 3. **Composable**: Both `tempo-wallet` and `tempo-request` are standalone binaries that the [`tempo` CLI](https://github.com/tempoxyz/tempo) discovers as extensions. Use them independently or together.
 4. **Streaming-native**: Session-based payments support SSE streaming with per-token voucher top-ups — pay only for what you consume.
 
