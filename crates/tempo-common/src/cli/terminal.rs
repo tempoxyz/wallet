@@ -139,16 +139,36 @@ pub fn print_field_raw(label: &str, value: &str) {
 mod tests {
     use super::*;
 
+    /// Extract the visible display text from a hyperlink result.
+    ///
+    /// If the result contains OSC 8 framing (`\x1b]8;;url\x07text\x1b]8;;\x07`),
+    /// returns just the inner text portion. Otherwise returns the whole string.
+    fn extract_display_text(s: &str) -> &str {
+        // Find the end of the opening OSC 8 sequence (first BEL after `\x1b]8;;`)
+        if let Some(start) = s.find("\x1b]8;;") {
+            let after_open = &s[start + 4..]; // skip `\x1b]8;`
+            if let Some(bel_pos) = after_open.find('\x07') {
+                let text_start = start + 4 + bel_pos + 1;
+                // Find the closing OSC 8 sequence
+                if let Some(close_pos) = s[text_start..].find("\x1b]8;;") {
+                    return &s[text_start..text_start + close_pos];
+                }
+            }
+        }
+        s
+    }
+
     #[test]
     fn test_hyperlink_sanitizes_escape_sequences_in_text() {
         let malicious_text = "0xabc\x1b[31mPHISHING\x1b[0m";
         let url = "https://explorer.tempo.xyz/tx/0xabc";
 
         let result = hyperlink(malicious_text, url);
+        let display = extract_display_text(&result);
 
         assert!(
-            !result.contains('\x1b'),
-            "hyperlink() must strip escape sequences from text, got: {result:?}"
+            !display.contains('\x1b'),
+            "hyperlink() must strip escape sequences from text, got display: {display:?}"
         );
     }
 
@@ -158,10 +178,11 @@ mod tests {
         let url = "https://explorer.tempo.xyz/tx/0xabc";
 
         let result = hyperlink(malicious_text, url);
+        let display = extract_display_text(&result);
 
         assert!(
-            !result.contains('\x07') && !result.contains('\x1b'),
-            "hyperlink() must strip BEL/ESC from text to prevent OSC 8 breakout, got: {result:?}"
+            !display.contains('\x07') && !display.contains('\x1b'),
+            "hyperlink() must strip BEL/ESC from text to prevent OSC 8 breakout, got display: {display:?}"
         );
     }
 
