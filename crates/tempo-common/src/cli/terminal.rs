@@ -144,11 +144,12 @@ mod tests {
     /// If the result contains OSC 8 framing (`\x1b]8;;url\x07text\x1b]8;;\x07`),
     /// returns just the inner text portion. Otherwise returns the whole string.
     fn extract_display_text(s: &str) -> &str {
+        let osc8_open = "\x1b]8;;";
         // Find the end of the opening OSC 8 sequence (first BEL after `\x1b]8;;`)
-        if let Some(start) = s.find("\x1b]8;;") {
-            let after_open = &s[start + 4..]; // skip `\x1b]8;`
+        if let Some(start) = s.find(osc8_open) {
+            let after_open = &s[start + osc8_open.len()..];
             if let Some(bel_pos) = after_open.find('\x07') {
-                let text_start = start + 4 + bel_pos + 1;
+                let text_start = start + osc8_open.len() + bel_pos + 1;
                 // Find the closing OSC 8 sequence
                 if let Some(close_pos) = s[text_start..].find("\x1b]8;;") {
                     return &s[text_start..text_start + close_pos];
