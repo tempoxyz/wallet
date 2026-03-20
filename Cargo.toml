@@ -36,7 +36,7 @@ fs2 = "0.4"
 futures = "0.3"
 getrandom = "0.2"
 hex = "0.4"
-minisign = "0.8"
+minisign = "0.9"
 hostname = "0.4"
 mpp = { git = "https://github.com/tempoxyz/mpp-rs.git", branch = "main", features = ["tempo", "evm", "utils", "client", "server"] }
 posthog-rs = "0.4.3"
