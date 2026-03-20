@@ -242,6 +242,25 @@ mod tests {
     }
 
     #[test]
+    fn test_session_problem_classification_amount_exceeds_deposit() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/amount-exceeds-deposit","status":402,"detail":"voucher amount exceeds deposit"}"#;
+        let problem = parse_problem_details(body).unwrap();
+        assert_eq!(problem.classify(), SessionProblemType::AmountExceedsDeposit);
+    }
+
+    #[test]
+    fn test_amount_exceeds_deposit_without_required_top_up() {
+        let body = r#"{"type":"https://paymentauth.org/problems/session/amount-exceeds-deposit","status":402,"detail":"need more deposit","channelId":"0xabc"}"#;
+        let problem = parse_problem_details(body).unwrap();
+        assert_eq!(problem.classify(), SessionProblemType::AmountExceedsDeposit);
+        assert!(
+            problem.required_top_up.is_none(),
+            "server may omit requiredTopUp for amount-exceeds-deposit"
+        );
+        assert_eq!(problem.channel_id.as_deref(), Some("0xabc"));
+    }
+
+    #[test]
     fn test_parse_problem_details_requires_type() {
         let body = r#"{"title":"oops"}"#;
         assert!(parse_problem_details(body).is_none());

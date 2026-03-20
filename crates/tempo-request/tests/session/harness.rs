@@ -59,6 +59,7 @@ pub(crate) struct SessionObservations {
     pub(crate) voucher_payload_keys: Vec<Vec<String>>,
     pub(crate) invalidating_problem_count: usize,
     pub(crate) insufficient_balance_problem_count: usize,
+    pub(crate) amount_exceeds_deposit_problem_count: usize,
     pub(crate) idempotent_replay_problem_count: usize,
     pub(crate) missing_idempotency_key_count: usize,
     pub(crate) open_idempotency_keys: Vec<String>,
@@ -93,6 +94,7 @@ pub(crate) struct SessionServerConfig {
     pub(crate) sse_reported_deposit: Option<u128>,
     pub(crate) invalidating_problem_type_once: Option<&'static str>,
     pub(crate) insufficient_balance_once: bool,
+    pub(crate) amount_exceeds_deposit_once: bool,
     pub(crate) error_after_payment_once_status: Option<u16>,
     pub(crate) response_delay_ms: u64,
 }
@@ -196,6 +198,7 @@ impl SessionServer {
             voucher_payload_keys: guard.voucher_payload_keys.clone(),
             invalidating_problem_count: guard.invalidating_problem_count,
             insufficient_balance_problem_count: guard.insufficient_balance_problem_count,
+            amount_exceeds_deposit_problem_count: guard.amount_exceeds_deposit_problem_count,
             idempotent_replay_problem_count: guard.idempotent_replay_problem_count,
             missing_idempotency_key_count: guard.missing_idempotency_key_count,
             open_idempotency_keys: guard.open_idempotency_keys.clone(),
@@ -811,6 +814,26 @@ data: {{\"channelId\":\"{channel_id}\",\"requiredCumulative\":\"{required_cumula
                         "detail": "need top up",
                         "channelId": channel_id,
                         "requiredTopUp": "500000",
+                    })
+                    .to_string();
+                    return Response::builder()
+                        .status(StatusCode::PAYMENT_REQUIRED)
+                        .header("content-type", "application/problem+json")
+                        .body(Body::from(body))
+                        .unwrap();
+                }
+            }
+
+            if state.config.amount_exceeds_deposit_once {
+                let mut observations = state.observations.lock().unwrap();
+                if observations.amount_exceeds_deposit_problem_count == 0 {
+                    observations.amount_exceeds_deposit_problem_count += 1;
+                    let body = json!({
+                        "type": "https://paymentauth.org/problems/session/amount-exceeds-deposit",
+                        "title": "Amount exceeds deposit",
+                        "status": 402,
+                        "detail": "voucher amount exceeds on-chain deposit",
+                        "channelId": channel_id,
                     })
                     .to_string();
                     return Response::builder()

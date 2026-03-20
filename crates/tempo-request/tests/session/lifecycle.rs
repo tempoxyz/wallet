@@ -15,6 +15,7 @@ async fn opens_channel_persists_state_and_reuses_authorized_session() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -101,6 +102,7 @@ async fn varying_challenge_amount_reuses_same_channel_identity() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -160,6 +162,7 @@ async fn payee_mismatch_forces_new_open() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -222,6 +225,7 @@ async fn non_active_state_forces_new_open() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -283,6 +287,7 @@ async fn open_receipt_persists_and_sets_next_reuse_baseline() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -342,6 +347,7 @@ async fn sse_voucher_flow_falls_back_to_post_and_persists_receipt() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -411,6 +417,7 @@ async fn run_invalidating_problem_case(
         sse_reported_deposit: None,
         invalidating_problem_type_once: Some(problem_type),
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -531,6 +538,7 @@ async fn channel_not_found_problem_with_delete_failure_fails_closed_without_reop
             "https://paymentauth.org/problems/session/channel-not-found",
         ),
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -645,6 +653,7 @@ async fn insufficient_balance_problem_runs_structured_top_up_recovery() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: true,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -707,6 +716,7 @@ async fn concurrent_same_origin_requests_do_not_double_open() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 250,
     })
@@ -752,6 +762,7 @@ async fn stale_lock_file_does_not_block_reuse() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -809,6 +820,7 @@ async fn concurrent_writers_preserve_single_row_and_progress_cumulative() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 250,
     })

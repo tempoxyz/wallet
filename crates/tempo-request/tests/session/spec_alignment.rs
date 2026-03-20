@@ -15,6 +15,7 @@ async fn top_up_challenge_not_found_refreshes_via_head_and_retries() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: true,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -74,6 +75,7 @@ async fn voucher_head_success_does_not_fallback_to_post() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -128,6 +130,7 @@ async fn failure_response_payment_receipt_is_not_treated_as_success() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: Some(500),
         response_delay_ms: 0,
     })
@@ -171,6 +174,7 @@ async fn endpoint_switch_reuses_channel_and_targets_current_path_for_updates() {
         sse_reported_deposit: Some(1_000_000),
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -227,6 +231,7 @@ async fn new_session_while_prior_stream_active_recovers_without_state_corruption
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -302,6 +307,7 @@ async fn fee_payer_variants_cover_open_and_top_up_flows() {
         sse_reported_deposit: Some(500_000),
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -357,5 +363,60 @@ async fn fee_payer_variants_cover_open_and_top_up_flows() {
     assert!(
         after_false.top_up_count > before_false.top_up_count,
         "feePayer=false path should perform top-up flow"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn amount_exceeds_deposit_triggers_top_up_recovery_without_required_top_up() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: false,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: None,
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: true,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/resource"));
+    assert!(
+        first_output.status.success(),
+        "first request should seed reusable channel state: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output = run_session_request(&temp, &server.url("/resource"));
+    assert!(
+        second_output.status.success(),
+        "amount-exceeds-deposit without requiredTopUp should recover via computed top-up: {}",
+        get_combined_output(&second_output)
+    );
+
+    let observed = server.snapshot();
+    assert_eq!(
+        observed.amount_exceeds_deposit_problem_count, 1,
+        "amount-exceeds-deposit problem should fire exactly once"
+    );
+    assert_eq!(
+        observed.top_up_count, 1,
+        "client should submit one top-up credential"
+    );
+    assert_eq!(
+        observed.voucher_count, 2,
+        "client should retry voucher after successful top-up"
+    );
+    assert_eq!(
+        observed.open_count, 1,
+        "top-up recovery should reuse the same channel"
     );
 }
