@@ -31,7 +31,7 @@ pub struct GlobalArgs {
     pub private_key: Option<String>,
 
     /// Network to use (e.g. "testnet")
-    #[arg(short = 'n', long, value_name = "NETWORK", global = true)]
+    #[arg(short = 'n', long, value_name = "NETWORK", global = true, help_heading = "Network")]
     pub network: Option<String>,
 
     /// Override RPC URL (applies to all commands)
