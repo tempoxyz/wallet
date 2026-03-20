@@ -36,10 +36,23 @@ func cfError(_ status: OSStatus) -> String {
 func generateKey(tag: String) -> Data {
     let tagData = Data(tag.utf8)
 
+    // Check if a key with this tag already exists
+    let existsQuery: [String: Any] = [
+        kSecClass as String: kSecClassKey,
+        kSecAttrApplicationTag as String: tagData,
+        kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+        kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+        kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
+        kSecReturnRef as String: false,
+    ]
+    if SecItemCopyMatching(existsQuery as CFDictionary, nil) == errSecSuccess {
+        fail("SE key '\(tag)' already exists. Delete it first with: tempo-se delete --tag \(tag)")
+    }
+
     guard let access = SecAccessControlCreateWithFlags(
         kCFAllocatorDefault,
         kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-        .privateKeyUsage,
+        [.privateKeyUsage, .biometryCurrentSet],
         nil
     ) else {
         fail("Failed to create access control")

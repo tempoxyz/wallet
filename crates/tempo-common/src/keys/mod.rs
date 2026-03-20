@@ -11,4 +11,4 @@ pub use io::{take_keystore_load_summary, KeystoreLoadSummary};
 pub use keystore::Keystore;
 use model::StoredTokenLimit;
 pub use model::{KeyEntry, KeyType, WalletType};
-pub use signer::{parse_private_key_signer, Signer};
+pub use signer::{parse_private_key_signer, Signer, WalletSigner};

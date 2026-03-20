@@ -1,14 +1,20 @@
 //! Voucher credential construction for session payments.
 
-use alloy::primitives::{Address, B256};
+use alloy::{
+    primitives::{Address, B256},
+    sol_types::{eip712_domain, SolStruct},
+};
 
 use mpp::{
-    protocol::methods::tempo::{session::SessionCredentialPayload, sign_voucher},
+    protocol::methods::tempo::{
+        session::SessionCredentialPayload,
+        voucher::{Voucher, DOMAIN_NAME, DOMAIN_VERSION},
+    },
     ChallengeEcho,
 };
 
 use super::ChannelState;
-use tempo_common::error::{KeyError, TempoError};
+use tempo_common::error::TempoError;
 
 /// Build a `SessionCredentialPayload::Open` with the given transaction bytes.
 pub(super) fn build_open_payload(
@@ -28,6 +34,26 @@ pub(super) fn build_open_payload(
     }
 }
 
+/// Compute the EIP-712 signing hash for a voucher.
+pub(crate) fn voucher_signing_hash(
+    channel_id: B256,
+    cumulative_amount: u128,
+    escrow_contract: Address,
+    chain_id: u64,
+) -> B256 {
+    let domain = eip712_domain! {
+        name: DOMAIN_NAME,
+        version: DOMAIN_VERSION,
+        chain_id: chain_id,
+        verifying_contract: escrow_contract,
+    };
+    let voucher = Voucher {
+        channelId: channel_id,
+        cumulativeAmount: cumulative_amount,
+    };
+    voucher.eip712_signing_hash(&domain)
+}
+
 /// Build a voucher credential for an existing session.
 pub(super) async fn build_voucher_credential(
     signer: &tempo_common::keys::Signer,
@@ -35,18 +61,13 @@ pub(super) async fn build_voucher_credential(
     did: &str,
     state: &ChannelState,
 ) -> Result<mpp::PaymentCredential, TempoError> {
-    let sig = sign_voucher(
-        &signer.signer,
+    let hash = voucher_signing_hash(
         state.channel_id,
         state.cumulative_amount,
         state.escrow_contract,
         state.chain_id,
-    )
-    .await
-    .map_err(|source| KeyError::SigningOperationSource {
-        operation: "sign voucher",
-        source: Box::new(source),
-    })?;
+    );
+    let sig = signer.sign_voucher_hash(hash)?;
 
     let payload = SessionCredentialPayload::Voucher {
         channel_id: format!("{:#x}", state.channel_id),

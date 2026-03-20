@@ -12,6 +12,9 @@ use tempo_common::{
 use super::whoami::show_whoami;
 
 /// Generate a new Secure Enclave key and register it with the wallet.
+///
+/// The SE key's derived address becomes the wallet address (direct P-256 signer).
+/// No browser login is required — the SE key IS the wallet.
 pub(crate) async fn generate(ctx: &Context, label: Option<String>) -> Result<(), TempoError> {
     if !cfg!(target_os = "macos") {
         return Err(KeyError::SecureEnclave(
@@ -20,12 +23,19 @@ pub(crate) async fn generate(ctx: &Context, label: Option<String>) -> Result<(),
         .into());
     }
 
-    // Derive a label from wallet address if not provided
-    let wallet_address = ctx.keys.wallet_address_parsed().ok_or_else(|| {
-        KeyError::SecureEnclave("No wallet configured. Run `tempo wallet login` first.".to_string())
-    })?;
+    let label = label.unwrap_or_else(|| "default".to_string());
 
-    let label = label.unwrap_or_else(|| format!("{wallet_address:#x}"));
+    // Refuse to overwrite an existing SE key — funds would be lost.
+    if ctx
+        .keys
+        .iter()
+        .any(|k| k.se_label.as_deref() == Some(&label))
+    {
+        return Err(KeyError::SecureEnclave(format!(
+            "SE key '{label}' already exists. Delete it first with: tempo wallet se delete"
+        ))
+        .into());
+    }
 
     eprintln!("Generating Secure Enclave key...");
 
@@ -35,7 +45,7 @@ pub(crate) async fn generate(ctx: &Context, label: Option<String>) -> Result<(),
     eprintln!("  Public key: 0x{}", &pubkey_hex[..16]);
     eprintln!("  Label: {}", label.bold());
 
-    // Derive the key address from the uncompressed P-256 public key.
+    // Derive the address from the uncompressed P-256 public key.
     // EVM address = keccak256(pubkey_bytes[1..])[12..] (skip the 04 prefix)
     let pubkey_bytes = hex::decode(&pubkey_hex)
         .map_err(|_| KeyError::SecureEnclave("invalid public key hex from SE".to_string()))?;
@@ -47,22 +57,23 @@ pub(crate) async fn generate(ctx: &Context, label: Option<String>) -> Result<(),
     let key_address = alloy::primitives::keccak256(&pubkey_bytes[1..]);
     let key_address = Address::from_slice(&key_address[12..]);
 
-    // Save to keystore
+    // The SE key address IS the wallet address (direct P-256 signer).
+    let chain_id = ctx.network.chain_id();
     let mut keys = ctx.keys.clone();
-    let entry = keys.upsert_by_wallet_address_and_chain(wallet_address, ctx.network.chain_id());
+    let entry = keys.upsert_by_wallet_address_and_chain(key_address, chain_id);
     entry.wallet_type = WalletType::Local;
     entry.key_type = KeyType::SecureEnclave;
+    entry.set_wallet_address(key_address);
     entry.set_key_address(Some(key_address));
     entry.se_label = Some(label.clone());
-    // SE keys don't have an inline private key
     entry.key = None;
     keys.save()?;
 
     eprintln!("\n{}", "Secure Enclave key registered!".green());
-    eprintln!("  Key address: {key_address:#x}");
+    eprintln!("  Wallet address: {key_address:#x}");
     eprintln!();
-    eprintln!("Note: this key must be authorized on-chain before it can sign transactions.");
     eprintln!("The key's private key never leaves the Secure Enclave hardware.");
+    eprintln!("Fund this address to start making payments.");
 
     let keys = ctx.keys.reload()?;
     show_whoami(ctx, Some(&keys), None).await

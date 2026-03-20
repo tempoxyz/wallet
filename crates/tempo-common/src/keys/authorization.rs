@@ -109,7 +109,7 @@ pub fn validate(
     }))
 }
 
-/// Sign a key authorization for a key using the wallet EOA.
+/// Sign a key authorization for a secp256k1 access key using the wallet EOA.
 ///
 /// Returns the validated auth containing hex, expiry, and token limits.
 /// Uses $100 USDC limit and 30-day expiry.
@@ -121,6 +121,29 @@ pub fn validate(
 pub fn sign(
     wallet_signer: &PrivateKeySigner,
     access_signer: &PrivateKeySigner,
+    chain_id: u64,
+) -> Result<ValidatedKeyAuth, TempoError> {
+    sign_for_key(
+        wallet_signer,
+        access_signer.address(),
+        SignatureType::Secp256k1,
+        chain_id,
+    )
+}
+
+/// Sign a key authorization for an access key of any type using the wallet EOA.
+///
+/// The wallet signer (secp256k1) signs an authorization granting `key_id` the
+/// right to act on behalf of the wallet, with the given `key_type`.
+///
+/// # Errors
+///
+/// Returns an error when the chain ID is unsupported or the authorization
+/// signature operation fails.
+pub fn sign_for_key(
+    wallet_signer: &PrivateKeySigner,
+    key_id: Address,
+    key_type: SignatureType,
     chain_id: u64,
 ) -> Result<ValidatedKeyAuth, TempoError> {
     let now = SystemTime::now()
@@ -144,10 +167,15 @@ pub fn sign(
             limit: limit.to_string(),
         })
         .collect();
+    let stored_key_type = match key_type {
+        SignatureType::Secp256k1 => KeyType::Secp256k1,
+        SignatureType::P256 => KeyType::P256,
+        SignatureType::WebAuthn => KeyType::WebAuthn,
+    };
     let auth = KeyAuthorization {
         chain_id,
-        key_type: SignatureType::Secp256k1,
-        key_id: access_signer.address(),
+        key_type,
+        key_id,
         expiry: Some(expiry_secs),
         limits: Some(token_limits),
     };
@@ -166,7 +194,7 @@ pub fn sign(
         hex: format!("0x{}", hex::encode(&buf)),
         expiry: expiry_secs,
         chain_id,
-        key_type: KeyType::Secp256k1,
+        key_type: stored_key_type,
         limits: stored_limits,
     })
 }

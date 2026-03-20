@@ -58,13 +58,20 @@ pub(super) async fn handle_charge_request(
     let lock_key = origin_lock_key(url);
     let _charge_lock = acquire_origin_lock(&lock_key)?;
 
-    let provider =
-        mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str())
-            .map_err(|source| ConfigError::ProviderInitSource {
-                provider: "tempo payment provider",
-                source: Box::new(source),
-            })?
-            .with_signing_mode(signer.signing_mode.clone());
+    let pk_signer =
+        signer
+            .signer
+            .as_private_key_signer()
+            .ok_or_else(|| KeyError::SigningOperation {
+                operation: "payment",
+                reason: "Secure Enclave signer not yet supported for payment".to_string(),
+            })?;
+    let provider = mpp::client::TempoProvider::new(pk_signer.clone(), resolved.rpc_url.as_str())
+        .map_err(|source| ConfigError::ProviderInitSource {
+            provider: "tempo payment provider",
+            source: Box::new(source),
+        })?
+        .with_signing_mode(signer.signing_mode.clone());
 
     let credential = match provider.pay(challenge).await {
         Ok(cred) => cred,
@@ -80,15 +87,20 @@ pub(super) async fn handle_charge_request(
                         reason: "stored key authorization could not be applied to signing mode"
                             .to_string(),
                     })?;
-            let retry_provider = mpp::client::TempoProvider::new(
-                provisioning_signer.signer.clone(),
-                resolved.rpc_url.as_str(),
-            )
-            .map_err(|source| ConfigError::ProviderInitSource {
-                provider: "tempo payment provider (provisioning retry)",
-                source: Box::new(source),
-            })?
-            .with_signing_mode(provisioning_signer.signing_mode);
+            let retry_pk = provisioning_signer
+                .signer
+                .as_private_key_signer()
+                .ok_or_else(|| KeyError::SigningOperation {
+                    operation: "key provisioning",
+                    reason: "Secure Enclave signer not yet supported for payment".to_string(),
+                })?;
+            let retry_provider =
+                mpp::client::TempoProvider::new(retry_pk.clone(), resolved.rpc_url.as_str())
+                    .map_err(|source| ConfigError::ProviderInitSource {
+                        provider: "tempo payment provider (provisioning retry)",
+                        source: Box::new(source),
+                    })?
+                    .with_signing_mode(provisioning_signer.signing_mode);
             retry_provider
                 .pay(challenge)
                 .await
@@ -122,15 +134,20 @@ pub(super) async fn handle_charge_request(
                         reason: "stored key authorization could not be applied to signing mode"
                             .to_string(),
                     })?;
-            let retry_provider = mpp::client::TempoProvider::new(
-                provisioning_signer.signer.clone(),
-                resolved.rpc_url.as_str(),
-            )
-            .map_err(|source| ConfigError::ProviderInitSource {
-                provider: "tempo payment provider (provisioning retry)",
-                source: Box::new(source),
-            })?
-            .with_signing_mode(provisioning_signer.signing_mode);
+            let retry_pk = provisioning_signer
+                .signer
+                .as_private_key_signer()
+                .ok_or_else(|| KeyError::SigningOperation {
+                    operation: "key provisioning",
+                    reason: "Secure Enclave signer not yet supported for payment".to_string(),
+                })?;
+            let retry_provider =
+                mpp::client::TempoProvider::new(retry_pk.clone(), resolved.rpc_url.as_str())
+                    .map_err(|source| ConfigError::ProviderInitSource {
+                        provider: "tempo payment provider (provisioning retry)",
+                        source: Box::new(source),
+                    })?
+                    .with_signing_mode(provisioning_signer.signing_mode);
             let original_resp_rejection = parse_payment_rejection(&resp);
             let retry_credential = retry_provider
                 .pay(challenge)
