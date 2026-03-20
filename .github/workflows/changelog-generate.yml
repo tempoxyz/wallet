@@ -1,0 +1,108 @@
+name: Changelog Generate
+
+# pull_request_target runs in the context of the base branch, giving access
+# to secrets even for fork PRs. This is safe here because the workflow
+# definition comes from the base branch (can't be modified by the fork) and
+# we never execute code from the PR — we only read the diff.
+on:
+  pull_request_target:
+    types: [labeled]
+
+concurrency: ${{ github.workflow }}-${{ github.event.number }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    if: startsWith(github.event.label.name, 'changelog:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Fetch base branch for diff comparison
+        run: |
+          git remote add base https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
+          git fetch base ${{ github.base_ref }}
+
+      - name: Configure git credentials for private dependencies
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Check for existing changelog
+        id: existing
+        run: |
+          if git diff base/${{ github.base_ref }}...HEAD --name-only | grep -q '^\.changelog/.*\.md$'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install changelogs
+        if: steps.existing.outputs.found == 'false'
+        run: curl -sSL https://changelogs.sh | sh -s -- changelogs@0.6.2
+
+      - name: Install claude
+        if: steps.existing.outputs.found == 'false'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Extract bump level from label
+        if: steps.existing.outputs.found == 'false'
+        id: bump
+        run: echo "level=${LABEL#changelog:}" >> "$GITHUB_OUTPUT"
+        env:
+          LABEL: ${{ github.event.label.name }}
+
+      - name: Generate changelog
+        if: steps.existing.outputs.found == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BUMP_LEVEL: ${{ steps.bump.outputs.level }}
+        run: |
+          cat > /tmp/changelog-instructions.md << 'PROMPT'
+          Generate a changelog entry for this git diff.
+
+          Available packages: {packages}
+
+          Respond with ONLY a markdown file in this exact format (no explanation, no code fences):
+
+          ---
+          <package-name>: BUMP_LEVEL
+          ---
+
+          Brief description of changes.
+
+          Rules:
+          - Replace <package-name> with actual package names from the list above
+          - Include ONLY packages that had actual code changes in the frontmatter
+          - Use "BUMP_LEVEL" as the bump level for all packages. Do not use a higher bump level.
+          - Keep the summary concise (1-3 sentences)
+          - Do NOT wrap the output in code fences
+
+          Git diff:
+          {diff}
+          PROMPT
+          sed -i "s/BUMP_LEVEL/$BUMP_LEVEL/g" /tmp/changelog-instructions.md
+          changelogs add --ai "claude -p" --ref "base/${{ github.base_ref }}" \
+            --instructions "$(cat /tmp/changelog-instructions.md)"
+
+      - name: Commit and push changelog
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b ${{ github.event.pull_request.head.ref }}
+          git add .changelog/
+          git commit -m "chore: add changelog"
+          git push origin ${{ github.event.pull_request.head.ref }}
+
+      - name: Remove label
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit ${{ github.event.number }} --remove-label "${{ github.event.label.name }}"
