@@ -66,10 +66,23 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }} -p ${{ env.PACKAGE }}
       - run: strip target/${{ matrix.target }}/release/${{ env.PACKAGE }}
       - run: mv target/${{ matrix.target }}/release/${{ env.PACKAGE }} ${{ env.PACKAGE }}-${{ matrix.suffix }}
+
+      - name: Build tempo-se (macOS only)
+        if: startsWith(matrix.os, 'macos') && env.PACKAGE == 'tempo-wallet'
+        run: |
+          ARCH=${{ matrix.target == 'aarch64-apple-darwin' && 'arm64' || 'x86_64' }}
+          swift build -c release --package-path tools/tempo-se --arch "$ARCH"
+          cp tools/tempo-se/.build/release/tempo-se tempo-se-${{ matrix.suffix }}
+
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.PACKAGE }}-${{ matrix.suffix }}
           path: ${{ env.PACKAGE }}-${{ matrix.suffix }}
+      - uses: actions/upload-artifact@v7
+        if: startsWith(matrix.os, 'macos') && env.PACKAGE == 'tempo-wallet'
+        with:
+          name: tempo-se-${{ matrix.suffix }}
+          path: tempo-se-${{ matrix.suffix }}
 
   publish:
     name: Publish
@@ -106,7 +119,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${PACKAGE}@${VERSION}"
-          gh release upload "$TAG" artifacts/* --clobber
+          gh release upload "$TAG" artifacts/${PACKAGE}-* --clobber
+          # Upload tempo-se companion binaries if present
+          for f in artifacts/tempo-se-*; do
+            [ -f "$f" ] && gh release upload "$TAG" "$f" --clobber || true
+          done
 
       - name: Configure git auth
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
@@ -160,6 +177,14 @@ jobs:
 
           # Binaries (latest + versioned)
           for f in artifacts/${PACKAGE}-linux-* artifacts/${PACKAGE}-darwin-*; do
+            [ -f "$f" ] || continue
+            BASENAME=$(basename "$f")
+            aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${VTAG}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+          done
+
+          # tempo-se companion binary (macOS only, tempo-wallet only)
+          for f in artifacts/tempo-se-darwin-*; do
             [ -f "$f" ] || continue
             BASENAME=$(basename "$f")
             aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
