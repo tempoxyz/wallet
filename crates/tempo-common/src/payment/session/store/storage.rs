@@ -118,6 +118,15 @@ fn open_db_at(path: &Path) -> ChannelStoreResult<rusqlite::Connection> {
         Err(e) => return Err(store_error("migrate channels schema", e)),
     }
 
+    // Migration: add server_spent column for existing databases.
+    match conn
+        .execute_batch("ALTER TABLE channels ADD COLUMN server_spent TEXT NOT NULL DEFAULT '0';")
+    {
+        Ok(()) => {}
+        Err(e) if e.to_string().contains("duplicate column name") => {}
+        Err(e) => return Err(store_error("migrate channels schema (server_spent)", e)),
+    }
+
     Ok(conn)
 }
 
@@ -207,6 +216,7 @@ fn map_channel_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChannelRecord> {
         grace_ready_at: decode_u64_column(row, 17, "grace_ready_at")?,
         created_at: decode_u64_column(row, 18, "created_at")?,
         last_used_at: decode_u64_column(row, 19, "last_used_at")?,
+        server_spent: decode_u128_column(row, 20, "server_spent")?,
     };
 
     if !record.normalize_persisted_identity() {
@@ -247,8 +257,9 @@ fn save_channel_in_conn(
             channel_id, version, origin, request_url, chain_id,
             escrow_contract, token, payee, payer, authorized_signer,
             salt, deposit, cumulative_amount, accepted_cumulative, challenge_echo,
-            state, close_requested_at, grace_ready_at, created_at, last_used_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+            state, close_requested_at, grace_ready_at, created_at, last_used_at,
+            server_spent
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
         ON CONFLICT(channel_id) DO UPDATE SET
             version = excluded.version,
             origin = excluded.origin,
@@ -283,7 +294,8 @@ fn save_channel_in_conn(
             close_requested_at = excluded.close_requested_at,
             grace_ready_at = excluded.grace_ready_at,
             created_at = channels.created_at,
-            last_used_at = excluded.last_used_at",
+            last_used_at = excluded.last_used_at,
+            server_spent = excluded.server_spent",
         params![
             record.channel_id_hex(),
             record.version,
@@ -305,6 +317,7 @@ fn save_channel_in_conn(
             grace_ready_at,
             created_at,
             last_used_at,
+            record.server_spent.to_string(),
         ],
     )
     .map_err(|err| store_error("save channel", err))?;
@@ -320,7 +333,8 @@ fn load_channel_in_conn(
             "SELECT version, origin, request_url, chain_id,
                     escrow_contract, token, payee, payer, authorized_signer,
                     salt, channel_id, deposit, cumulative_amount, accepted_cumulative,
-                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at,
+                    server_spent
              FROM channels WHERE LOWER(channel_id) = LOWER(?1)",
         )
         .map_err(|err| store_error("prepare channel load query", err))?;
@@ -352,7 +366,8 @@ fn find_reusable_channel_in_conn(
             "SELECT version, origin, request_url, chain_id,
                     escrow_contract, token, payee, payer, authorized_signer,
                     salt, channel_id, deposit, cumulative_amount, accepted_cumulative,
-                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at,
+                    server_spent
              FROM channels
              WHERE origin = ?1 AND payer = ?2 AND escrow_contract = ?3
                AND token = ?4 AND payee = ?5 AND chain_id = ?6
@@ -445,7 +460,8 @@ pub fn load_channels_by_origin(origin: &str) -> ChannelStoreResult<Vec<ChannelRe
             "SELECT version, origin, request_url, chain_id,
                     escrow_contract, token, payee, payer, authorized_signer,
                     salt, channel_id, deposit, cumulative_amount, accepted_cumulative,
-                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at,
+                    server_spent
              FROM channels WHERE origin = ?1 ORDER BY last_used_at DESC",
         )
         .map_err(|err| store_error("prepare channels load by origin query", err))?;
@@ -507,7 +523,8 @@ pub fn list_channels() -> ChannelStoreResult<Vec<ChannelRecord>> {
             "SELECT version, origin, request_url, chain_id,
                     escrow_contract, token, payee, payer, authorized_signer,
                     salt, channel_id, deposit, cumulative_amount, accepted_cumulative,
-                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at
+                    challenge_echo, state, close_requested_at, grace_ready_at, created_at, last_used_at,
+                    server_spent
              FROM channels
              WHERE origin <> 'http://127.0.0.1'
              ORDER BY last_used_at DESC",
@@ -591,6 +608,7 @@ mod tests {
             deposit: 1_000,
             cumulative_amount: 10,
             accepted_cumulative: 0,
+            server_spent: 0,
             challenge_echo: "{}".to_string(),
             state,
             close_requested_at: 0,
@@ -610,6 +628,7 @@ mod tests {
         let mut record = sample_record(channel_id, 5, ChannelStatus::Active);
         record.token = "0x00000000000000000000000000000000000000Aa".to_string();
         record.payee = "0x00000000000000000000000000000000000000Bb".to_string();
+        record.server_spent = 37;
         save_channel_in_conn(&conn, &record).unwrap();
 
         let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
@@ -621,6 +640,7 @@ mod tests {
         assert_eq!(loaded.token, "0x00000000000000000000000000000000000000aa");
         assert_eq!(loaded.payee, "0x00000000000000000000000000000000000000bb");
         assert_eq!(loaded.payer, "0x0000000000000000000000000000000000000004");
+        assert_eq!(loaded.server_spent, 37);
 
         update_channel_close_state_in_conn(
             &conn,

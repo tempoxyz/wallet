@@ -258,6 +258,9 @@ fn apply_response_receipt(
         Ok(receipt) => {
             state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
             state.accepted_cumulative = state.accepted_cumulative.max(receipt.accepted_cumulative);
+            if let Some(spent) = receipt.server_spent {
+                state.server_spent = spent;
+            }
             Ok(receipt.tx_reference)
         }
         Err(reason) => {
@@ -723,6 +726,7 @@ fn build_ondemand_reuse_record(
         deposit: on_chain.deposit,
         cumulative_amount: on_chain.settled,
         accepted_cumulative: on_chain.settled,
+        server_spent: 0,
         challenge_echo,
         state: session::ChannelStatus::Active,
         close_requested_at: 0,
@@ -1034,6 +1038,7 @@ async fn reuse_stage_execute(
         deposit: reusable.on_chain_deposit,
         cumulative_amount: prev_cumulative + challenge.amount,
         accepted_cumulative: reusable.record.accepted_cumulative,
+        server_spent: reusable.record.server_spent,
     };
 
     let ctx = build_channel_context(
@@ -1209,6 +1214,7 @@ async fn open_stage(
         deposit: deposit.deposit,
         cumulative_amount: initial_cumulative,
         accepted_cumulative: 0,
+        server_spent: 0,
     };
     let salt_hex = format!("{salt:#x}");
 
@@ -1438,6 +1444,7 @@ mod tests {
             deposit: 1_000_000,
             cumulative_amount: 500,
             accepted_cumulative: 0,
+            server_spent: 0,
             challenge_echo: "echo".into(),
             state: ChannelStatus::Active,
             close_requested_at: 0,
@@ -1755,12 +1762,14 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 0,
+            server_spent: 0,
         };
         let tx = apply_response_receipt(&response, &mut state, "session response").unwrap();
         assert_eq!(
             state.cumulative_amount, 20,
             "cumulative should not decrease"
         );
+        assert_eq!(state.server_spent, 10, "server spent should be captured");
         assert!(tx.is_some(), "tx reference should be extracted");
     }
 
@@ -1774,6 +1783,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 0,
+            server_spent: 0,
         };
         let missing = HttpResponse::for_test(200, b"ok");
         let tx = apply_response_receipt(&missing, &mut state_missing, "session response").unwrap();

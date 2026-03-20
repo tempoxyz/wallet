@@ -36,6 +36,9 @@ pub(super) fn persist_session(
         // Update existing record
         rec.set_cumulative_amount(state.cumulative_amount);
         rec.set_accepted_cumulative(state.accepted_cumulative);
+        if state.server_spent > 0 {
+            rec.set_server_spent(state.server_spent);
+        }
         rec.deposit = state.deposit;
         rec.challenge_echo = echo_json;
         rec.touch();
@@ -56,6 +59,7 @@ pub(super) fn persist_session(
             deposit: state.deposit,
             cumulative_amount: state.cumulative_amount,
             accepted_cumulative: state.accepted_cumulative,
+            server_spent: state.server_spent,
             challenge_echo: echo_json,
             state: ChannelStatus::Active,
             close_requested_at: 0,

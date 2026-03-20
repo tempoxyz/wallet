@@ -256,6 +256,7 @@ mod tests {
             deposit: 1000,
             cumulative_amount: 2,
             accepted_cumulative: 0,
+            server_spent: 0,
             challenge_echo: serde_json::to_string(&mpp::ChallengeEcho {
                 id: "abc".into(),
                 realm: "test".into(),
