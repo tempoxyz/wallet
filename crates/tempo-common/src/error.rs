@@ -151,6 +151,8 @@ pub enum KeyError {
     InvalidAddress(String),
     #[error("Login expired. Use `tempo wallet login` to try again.")]
     LoginExpired,
+    #[error("Secure Enclave error: {0}")]
+    SecureEnclave(String),
 }
 
 #[derive(Error, Debug)]

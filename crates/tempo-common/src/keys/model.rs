@@ -31,6 +31,13 @@ pub enum KeyType {
     Secp256k1,
     P256,
     WebAuthn,
+    /// P-256 key backed by Apple Secure Enclave (non-exportable).
+    ///
+    /// On-chain this behaves identically to `P256` — the SE is a storage/signing
+    /// backend, not a distinct curve. A future refactor may split this into
+    /// `key_type = P256` + `key_backend = SecureEnclave`.
+    #[serde(rename = "secure_enclave")]
+    SecureEnclave,
 }
 
 /// Token spending limit stored in keys.toml.

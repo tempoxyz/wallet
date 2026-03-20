@@ -4,6 +4,7 @@ pub mod authorization;
 mod io;
 mod keystore;
 mod model;
+pub mod secure_enclave;
 mod signer;
 
 pub use io::{take_keystore_load_summary, KeystoreLoadSummary};
