@@ -166,7 +166,8 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
     let url_str = auth_url.to_string();
 
     // Always print a manual fallback URL, even in machine output modes.
-    eprintln!("Auth URL: {url_str}");
+    eprintln!(" Auth URL:\n");
+    eprintln!(" {}\n", url_str.bold().underline());
 
     // Always attempt browser open, even in machine output modes.
     // Some agents run login with non-text output (`-t`/JSON) and still need
@@ -206,14 +207,9 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
 
 /// Display the verification code and wait prompt for authentication.
 fn show_login_prompt(code: &str) {
-    let display_code = if code.len() == 8 {
-        format!("{}-{}", &code[..4], &code[4..])
-    } else {
-        code.to_string()
-    };
-    eprintln!("Verification code: {}", display_code.bold());
-    eprintln!();
-    eprintln!("Waiting for authentication...");
+    eprintln!(" Verification code:\n");
+    eprintln!(" {}\n", code.bold());
+    eprintln!(" Waiting for authentication...");
 }
 
 struct AuthCallback {
