@@ -287,6 +287,27 @@ impl HttpClient {
         self.verbosity.debug_enabled()
     }
 
+    /// Execute an HTTP request and return the raw `reqwest::Response`.
+    ///
+    /// Unlike [`execute()`](Self::execute), this does **not** buffer the
+    /// response body. The caller is responsible for consuming the body.
+    /// No retry logic is applied — this is used by the session open flow
+    /// where the response may be an SSE stream that must not be buffered.
+    pub(crate) async fn execute_raw(
+        &self,
+        url: &str,
+        extra_headers: &[(String, String)],
+    ) -> HttpResult<reqwest::Response> {
+        let mut req = self.client.request(self.plan.method.clone(), url);
+        for (name, value) in extra_headers {
+            req = req.header(name.as_str(), value.as_str());
+        }
+        req = Self::apply_body(req, &self.plan.body);
+        req.send()
+            .await
+            .map_err(|e| NetworkError::Reqwest(e).into())
+    }
+
     /// Execute an HTTP request with retry logic.
     ///
     /// Extra headers (e.g., Authorization) are added per-request, not baked

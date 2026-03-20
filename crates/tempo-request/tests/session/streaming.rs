@@ -1156,21 +1156,17 @@ async fn pending_voucher_update_timeout_fails_stream_request() {
     let first_output = run_session_request(&temp, &server.url("/stream"));
     assert!(first_output.status.success());
 
+    // When the stream completes normally ([DONE]), stale voucher tasks
+    // are not awaited — blocking on them would delay exit unnecessarily.
     let second_output = run_session_request_with_env(
         &temp,
         &server.url("/stream-head-hang"),
         &[("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10")],
     );
     assert!(
-        !second_output.status.success(),
-        "stream should fail when voucher update task never completes: {}",
+        second_output.status.success(),
+        "stream should succeed despite pending voucher task: {}",
         get_combined_output(&second_output)
-    );
-
-    let combined = get_combined_output(&second_output);
-    assert!(
-        combined.contains("stream ended before voucher update tasks completed"),
-        "expected pending-voucher completion timeout error: {combined}"
     );
 
     let observed = server.snapshot();

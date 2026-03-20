@@ -259,6 +259,39 @@ fn apply_response_receipt(
     }
 }
 
+/// Variant of `apply_response_receipt` that reads headers from a raw
+/// `reqwest::Response` without consuming the body.
+fn apply_response_receipt_from_headers(
+    response: &reqwest::Response,
+    state: &mut ChannelState,
+    context: &str,
+) -> Result<Option<String>, TempoError> {
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let Some(receipt_header) = response
+        .headers()
+        .get("payment-receipt")
+        .and_then(|v| v.to_str().ok())
+    else {
+        warn_missing_payment_receipt(context);
+        return Ok(None);
+    };
+
+    match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
+        Ok(receipt) => {
+            state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
+            state.accepted_cumulative = state.accepted_cumulative.max(receipt.accepted_cumulative);
+            Ok(receipt.tx_reference)
+        }
+        Err(reason) => {
+            warn_invalid_payment_receipt(context, &reason);
+            Ok(None)
+        }
+    }
+}
+
 fn parse_positive_problem_amount(value: &str, context: &'static str) -> Result<u128, TempoError> {
     let safe_value = sanitize_for_terminal(value);
     let amount = value
@@ -651,11 +684,18 @@ enum ReuseStageOutcome {
     NeedsOpen,
 }
 
+/// The open response is either a buffered body (non-SSE) or a raw streaming
+/// response (SSE) that must be consumed incrementally.
+enum OpenResponse {
+    Buffered(HttpResponse),
+    Streaming(reqwest::Response),
+}
+
 struct OpenExecutionPlan {
     state: ChannelState,
     salt_hex: String,
     open_tx_hash: Option<String>,
-    open_response: HttpResponse,
+    open_response: OpenResponse,
 }
 
 struct PaidRequestResult {
@@ -1105,7 +1145,7 @@ async fn build_and_send_open(
     voucher_sig: &[u8],
     idempotency_key: &str,
     delays: &[u64],
-) -> Result<crate::http::HttpResponse, TempoError> {
+) -> Result<reqwest::Response, TempoError> {
     let payment = open::create_tempo_payment_from_calls(
         resolved.rpc_url.as_str(),
         signer,
@@ -1271,7 +1311,38 @@ async fn open_stage(
         Err(e) => return Err(persist_on_error(&state, e)),
     };
 
-    let open_tx_hash = apply_response_receipt(&open_response, &mut state, "open response")
+    // Detect SSE before consuming the body. For SSE streams we must pass
+    // the raw response through so `stream_sse_response` can read chunks
+    // incrementally. Non-SSE responses are buffered as before.
+    let is_sse = open_response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.contains("text/event-stream"));
+
+    if is_sse {
+        // Extract receipt from headers before passing the response through.
+        let open_tx_hash = apply_response_receipt_from_headers(
+            &open_response,
+            &mut state,
+            "open response",
+        )
+        .map_err(|e| persist_on_error(&state, e))?;
+        if let Some(tx_ref) = open_tx_hash.as_deref() {
+            if http.log_enabled() {
+                eprintln!("Channel open tx: {}", challenge.network_id.tx_url(tx_ref));
+            }
+        }
+        return Ok(OpenExecutionPlan {
+            state,
+            salt_hex,
+            open_tx_hash,
+            open_response: OpenResponse::Streaming(open_response),
+        });
+    }
+
+    let buffered = HttpResponse::from_reqwest(open_response).await?;
+    let open_tx_hash = apply_response_receipt(&buffered, &mut state, "open response")
         .map_err(|e| persist_on_error(&state, e))?;
     if let Some(tx_ref) = open_tx_hash.as_deref() {
         if http.log_enabled() {
@@ -1283,7 +1354,7 @@ async fn open_stage(
         state,
         salt_hex,
         open_tx_hash,
-        open_response,
+        open_response: OpenResponse::Buffered(buffered),
     })
 }
 
@@ -1349,26 +1420,36 @@ pub(crate) async fn handle_session_request(
         opened.salt_hex.clone(),
     );
 
-    // For non-SSE responses, the open response already contains the proxied
-    // upstream result — use it directly instead of making a duplicate request.
-    let is_sse = opened
-        .open_response
-        .header("content-type")
-        .is_some_and(|ct| ct.contains("text/event-stream"));
-
-    if !is_sse && opened.open_response.status_code < 400 {
-        persist_session(&ctx, &opened.state)?;
-        return Ok(PaymentResult {
-            tx_hash: opened.open_tx_hash,
-            channel_id: Some(format!("{:#x}", opened.state.channel_id)),
-            status_code: opened.open_response.status_code,
-            response: Some(opened.open_response),
-        });
+    match opened.open_response {
+        // SSE stream: pipe the raw response directly to the streaming handler
+        // so tokens are printed incrementally instead of buffering the entire body.
+        OpenResponse::Streaming(raw_response) => {
+            persist_session(&ctx, &opened.state)?;
+            streaming::stream_sse_response(&ctx, &mut opened.state, raw_response).await?;
+            persist_session(&ctx, &opened.state)?;
+            Ok(PaymentResult {
+                tx_hash: opened.open_tx_hash,
+                channel_id: Some(format!("{:#x}", opened.state.channel_id)),
+                status_code: 200,
+                response: None,
+            })
+        }
+        // Non-SSE: the open response already contains the proxied upstream
+        // result — use it directly instead of making a duplicate request.
+        OpenResponse::Buffered(buffered) if buffered.status_code < 400 => {
+            persist_session(&ctx, &opened.state)?;
+            Ok(PaymentResult {
+                tx_hash: opened.open_tx_hash,
+                channel_id: Some(format!("{:#x}", opened.state.channel_id)),
+                status_code: buffered.status_code,
+                response: Some(buffered),
+            })
+        }
+        // Buffered error response: fall through to a separate paid request.
+        OpenResponse::Buffered(_) => request_stage(&ctx, &mut opened.state)
+            .await
+            .map(|result| result.payment),
     }
-
-    request_stage(&ctx, &mut opened.state)
-        .await
-        .map(|result| result.payment)
 }
 
 /// Check whether a persisted session record can be reused for a new request.

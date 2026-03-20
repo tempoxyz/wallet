@@ -7,7 +7,7 @@
 use alloy::primitives::Address;
 
 use super::error_map::payment_rejected_from_body;
-use crate::http::{HttpClient, HttpResponse};
+use crate::http::HttpClient;
 use tempo_common::{
     error::{ConfigError, PaymentError, TempoError},
     keys::Signer,
@@ -65,38 +65,44 @@ pub(super) async fn create_tempo_payment_from_calls(
 }
 
 /// Send the Open credential to the server and retry on HTTP 410 while the node indexes.
+///
+/// Returns the raw `reqwest::Response` on success so that the caller can
+/// detect SSE (`text/event-stream`) responses before buffering the body.
 pub(super) async fn send_open_with_retry(
     http: &HttpClient,
     url: &str,
     auth_header: &str,
     idempotency_key: &str,
     delays_ms: &[u64],
-) -> Result<HttpResponse, TempoError> {
+) -> Result<reqwest::Response, TempoError> {
     let headers = vec![
         ("Authorization".to_string(), auth_header.to_string()),
         ("Idempotency-Key".to_string(), idempotency_key.to_string()),
     ];
-    let resp = http.execute(url, &headers).await?;
 
-    if resp.status_code < 400 {
+    let resp = http.execute_raw(url, &headers).await?;
+
+    if resp.status().as_u16() < 400 {
         return Ok(resp);
     }
 
-    if resp.status_code == 410 {
-        let body = resp.body_string().unwrap_or_default();
-        if should_retry_open_response(resp.status_code, &body) {
+    if resp.status().as_u16() == 410 {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        if should_retry_open_response(status, &body) {
             if http.log_enabled() {
                 eprintln!("Server hasn't indexed channel yet, retrying...");
             }
             for delay in delays_ms {
                 tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
-                let next = http.execute(url, &headers).await?;
-                if next.status_code < 400 {
+                let next = http.execute_raw(url, &headers).await?;
+                if next.status().as_u16() < 400 {
                     return Ok(next);
                 }
-                let next_body = next.body_string().unwrap_or_default();
-                if !should_retry_open_response(next.status_code, &next_body) {
-                    return Err(payment_rejected_from_body(next.status_code, &next_body));
+                let next_status = next.status().as_u16();
+                let next_body = next.text().await.unwrap_or_default();
+                if !should_retry_open_response(next_status, &next_body) {
+                    return Err(payment_rejected_from_body(next_status, &next_body));
                 }
             }
             // Intentional operator-facing retry exhaustion message; this path has
@@ -110,8 +116,9 @@ pub(super) async fn send_open_with_retry(
         return Err(payment_rejected_from_body(410, &body));
     }
 
-    let body = resp.body_string().unwrap_or_default();
-    Err(payment_rejected_from_body(resp.status_code, &body))
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    Err(payment_rejected_from_body(status, &body))
 }
 
 #[cfg(test)]

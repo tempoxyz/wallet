@@ -421,7 +421,7 @@ struct VoucherSubmitContext<'a> {
 }
 
 const fn should_fallback_to_post(status_code: u16) -> bool {
-    matches!(status_code, 405 | 501)
+    matches!(status_code, 404 | 405 | 501)
 }
 
 async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), TempoError> {
@@ -496,6 +496,9 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
     }
 
     let status_code = response.status().as_u16();
+    if ctx.debug_enabled {
+        eprintln!("[voucher update rejected: HTTP {status_code}]");
+    }
     let body = match tokio::time::timeout(Duration::from_secs(2), response.text()).await {
         Ok(Ok(text)) => text,
         _ => String::new(),
@@ -941,12 +944,18 @@ pub(super) async fn stream_sse_response(
     }
 
     drain_voucher_results(&mut voucher_result_rx, &mut in_flight_voucher_tasks)?;
-    wait_for_pending_voucher_results(
-        &mut voucher_result_rx,
-        &mut in_flight_voucher_tasks,
-        retry_coordinator.policy.normal_timeout,
-    )
-    .await?;
+    // Only block for pending voucher results if the stream ended without a
+    // completion marker — those tasks may carry error information we need.
+    // When the stream completed normally (stream_done), any remaining voucher
+    // tasks are stale and blocking on them delays exit unnecessarily.
+    if !stream_done {
+        wait_for_pending_voucher_results(
+            &mut voucher_result_rx,
+            &mut in_flight_voucher_tasks,
+            retry_coordinator.policy.normal_timeout,
+        )
+        .await?;
+    }
 
     if response.status().is_success() && !stream_done && !saw_response_receipt {
         return Err(stream_incomplete_error(
@@ -1124,6 +1133,7 @@ mod tests {
 
     #[test]
     fn should_fallback_to_post_only_for_expected_statuses() {
+        assert!(should_fallback_to_post(404));
         assert!(should_fallback_to_post(405));
         assert!(should_fallback_to_post(501));
         assert!(!should_fallback_to_post(400));
@@ -2131,7 +2141,7 @@ mod tests {
 
     #[serial_test::serial]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_sse_response_fails_when_pending_voucher_task_never_completes() {
+    async fn stream_sse_response_succeeds_even_when_pending_voucher_task_never_completes() {
         std::env::set_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10");
         std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
         std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
@@ -2210,13 +2220,12 @@ mod tests {
         let _ = server.await;
         std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
 
-        let err = result.expect_err("should fail when voucher task does not complete");
+        // When the stream completes normally ([DONE]), stale voucher tasks
+        // are not awaited — blocking on them would delay exit unnecessarily.
         assert!(
-            matches!(
-                err,
-                TempoError::Payment(PaymentError::SessionStreamIncomplete { .. })
-            ),
-            "unexpected error: {err:#}"
+            result.is_ok(),
+            "stream should succeed despite pending voucher task: {:#}",
+            result.unwrap_err()
         );
     }
 }

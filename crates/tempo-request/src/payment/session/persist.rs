@@ -74,7 +74,7 @@ pub(super) fn persist_session(
         source: Box::new(source),
     })?;
 
-    if ctx.http.log_enabled() {
+    if ctx.http.debug_enabled() {
         let cumulative_display =
             tempo_common::cli::format::format_token_amount(state.cumulative_amount, ctx.network_id);
         eprintln!("Channel persisted (cumulative: {cumulative_display})");
