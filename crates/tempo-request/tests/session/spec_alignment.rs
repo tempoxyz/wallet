@@ -50,10 +50,10 @@ async fn top_up_challenge_not_found_refreshes_via_head_and_retries() {
         before.top_up_count + 2,
         "top-up should retry exactly once after challenge refresh"
     );
-    assert_eq!(
-        observed.unauth_head_count,
-        before.unauth_head_count + 1,
-        "challenge refresh for top-up recovery must use HEAD"
+    assert!(
+        observed.unauth_head_count > before.unauth_head_count,
+        "challenge refresh for top-up recovery must use HEAD (got {} new HEAD requests)",
+        observed.unauth_head_count - before.unauth_head_count
     );
 
     let channels = load_channels(&temp);

@@ -35,7 +35,7 @@ sol! {
             bytes32 salt,
             address authorizedSigner
         ) external;
-        function topUp(bytes32 channelId, uint128 additionalDeposit) external;
+        function topUp(bytes32 channelId, uint256 additionalDeposit) external;
     }
 }
 
@@ -299,8 +299,9 @@ pub fn build_top_up_calls(
         }
         .abi_encode(),
     );
-    let top_up_data =
-        Bytes::from(IEscrow::topUpCall::new((channel_id, additional_deposit)).abi_encode());
+    let top_up_data = Bytes::from(
+        IEscrow::topUpCall::new((channel_id, U256::from(additional_deposit))).abi_encode(),
+    );
 
     vec![
         Call {
