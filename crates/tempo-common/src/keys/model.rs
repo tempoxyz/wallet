@@ -77,6 +77,11 @@ pub struct KeyEntry {
     /// Key expiry as unix timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expiry: Option<u64>,
+    /// Secure Enclave keychain label (macOS only).
+    /// When set, the private key is non-exportable and managed by the SE.
+    /// The `key` field is not used for SE keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub se_label: Option<String>,
     /// Token spending limits for this key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<StoredTokenLimit>,
@@ -101,6 +106,11 @@ pub(super) struct StoredKeyEntry {
     pub key_authorization: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expiry: Option<u64>,
+    /// Secure Enclave keychain label (macOS only).
+    /// When set, the private key is non-exportable and managed by the SE.
+    /// The `key` field is not used for SE keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub se_label: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<StoredTokenLimit>,
 }
@@ -122,6 +132,7 @@ impl From<KeyEntry> for StoredKeyEntry {
             key: value.key,
             key_authorization: value.key_authorization,
             expiry: value.expiry,
+            se_label: value.se_label,
             limits: value.limits,
         }
     }
@@ -138,6 +149,7 @@ impl From<StoredKeyEntry> for KeyEntry {
             key: value.key,
             key_authorization: value.key_authorization,
             expiry: value.expiry,
+            se_label: value.se_label,
             limits: value.limits,
         }
     }
@@ -154,6 +166,7 @@ impl std::fmt::Debug for KeyEntry {
             .field("key", &self.key.as_ref().map(|_| "<redacted>"))
             .field("key_authorization", &self.key_authorization)
             .field("expiry", &self.expiry)
+            .field("se_label", &self.se_label)
             .field("limits", &self.limits)
             .finish()
     }
@@ -226,6 +239,18 @@ impl KeyEntry {
         self.key.as_ref().is_some_and(|key| !key.is_empty())
     }
 
+    /// Whether this entry uses a Secure Enclave key.
+    #[must_use]
+    pub fn is_secure_enclave(&self) -> bool {
+        self.key_type == KeyType::SecureEnclave && self.se_label.is_some()
+    }
+
+    /// Whether this entry has a usable signing key (inline or SE-backed).
+    #[must_use]
+    pub fn has_signing_capability(&self) -> bool {
+        self.has_inline_key() || self.is_secure_enclave()
+    }
+
     /// Whether this entry represents a direct EOA signer (wallet == signer key).
     #[must_use]
     pub fn is_direct_eoa_key(&self) -> bool {
@@ -293,6 +318,7 @@ mod tests {
                     .unwrap(),
                 limit: "1000".to_string(),
             }],
+            se_label: None,
         };
 
         let toml_str = toml::to_string(&entry).unwrap();
@@ -321,6 +347,7 @@ mod tests {
             key_authorization: None,
             expiry: None,
             limits: vec![],
+            se_label: None,
         };
 
         let toml_str = toml::to_string(&entry).unwrap();

@@ -9,6 +9,6 @@ mod signer;
 
 pub use io::{take_keystore_load_summary, KeystoreLoadSummary};
 pub use keystore::Keystore;
-pub use model::{KeyEntry, WalletType};
-use model::{KeyType, StoredTokenLimit};
+use model::StoredTokenLimit;
+pub use model::{KeyEntry, KeyType, WalletType};
 pub use signer::{parse_private_key_signer, Signer};

@@ -91,7 +91,7 @@ impl Keystore {
 
     /// Get the primary key entry.
     ///
-    /// Deterministic selection: passkey > first key with a signing key > first entry.
+    /// Deterministic selection: passkey > SE key > first key with a signing key > first entry.
     #[must_use]
     pub fn primary_key(&self) -> Option<&KeyEntry> {
         if let Some(entry) = self
@@ -99,6 +99,9 @@ impl Keystore {
             .iter()
             .find(|k| k.wallet_type == WalletType::Passkey)
         {
+            return Some(entry);
+        }
+        if let Some(entry) = self.keys.iter().find(|entry| entry.is_secure_enclave()) {
             return Some(entry);
         }
         if let Some(entry) = self.keys.iter().find(|entry| entry.has_inline_key()) {
@@ -110,11 +113,12 @@ impl Keystore {
     /// Check if a wallet is configured.
     ///
     /// Returns `true` when the primary key has a wallet address AND
-    /// an inline `key`.
+    /// a usable signing key (inline or SE-backed).
     #[must_use]
     pub fn has_wallet(&self) -> bool {
-        self.primary_key()
-            .is_some_and(|entry| entry.wallet_address_parsed().is_some() && entry.has_inline_key())
+        self.primary_key().is_some_and(|entry| {
+            entry.wallet_address_parsed().is_some() && entry.has_signing_capability()
+        })
     }
 
     /// Check if a wallet is connected with a key for the given network.
@@ -217,6 +221,23 @@ impl Keystore {
         if self.keys.len() == before {
             return Err(ConfigError::Missing(format!(
                 "No passkey wallet found for '{wallet_address:#x}'."
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
+    /// Delete all entries with the given Secure Enclave label.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no entries match.
+    pub fn delete_se_label(&mut self, label: &str) -> Result<(), TempoError> {
+        let before = self.keys.len();
+        self.keys.retain(|k| k.se_label.as_deref() != Some(label));
+        if self.keys.len() == before {
+            return Err(ConfigError::Missing(format!(
+                "No Secure Enclave key found with label '{label}'."
             ))
             .into());
         }
