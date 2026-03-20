@@ -35,7 +35,7 @@ sol! {
             bytes32 salt,
             address authorizedSigner
         ) external;
-        function topUp(bytes32 channelId, uint128 additionalDeposit) external;
+        function topUp(bytes32 channelId, uint256 additionalDeposit) external;
     }
 }
 
@@ -299,8 +299,9 @@ pub fn build_top_up_calls(
         }
         .abi_encode(),
     );
-    let top_up_data =
-        Bytes::from(IEscrow::topUpCall::new((channel_id, additional_deposit)).abi_encode());
+    let top_up_data = Bytes::from(
+        IEscrow::topUpCall::new((channel_id, U256::from(additional_deposit))).abi_encode(),
+    );
 
     vec![
         Call {
@@ -348,5 +349,40 @@ mod tests {
             42,
         );
         assert_eq!(calls.len(), 2);
+    }
+
+    #[test]
+    fn test_build_top_up_calls_selector() {
+        let calls = build_top_up_calls(
+            Address::from([0x11; 20]),
+            Address::from([0x22; 20]),
+            B256::from([0x33; 32]),
+            42,
+        );
+        // topUp(bytes32,uint256) selector = 0xb67644b9
+        let top_up_input = calls[1].input.as_ref();
+        assert_eq!(&top_up_input[..4], &[0xb6, 0x76, 0x44, 0xb9]);
+    }
+
+    #[test]
+    fn test_build_open_calls_selector() {
+        let calls = build_open_calls(
+            Address::from([0x11; 20]),
+            Address::from([0x22; 20]),
+            42,
+            Address::from([0x33; 20]),
+            B256::from([0x44; 32]),
+            Address::from([0x55; 20]),
+        );
+        assert_eq!(calls.len(), 2);
+        // approve(address,uint256) selector = 0x095ea7b3
+        let approve_input = calls[0].input.as_ref();
+        assert_eq!(&approve_input[..4], &[0x09, 0x5e, 0xa7, 0xb3]);
+        // open(address,address,uint128,bytes32,address) selector
+        let open_input = calls[1].input.as_ref();
+        assert!(
+            open_input.len() > 4,
+            "open call should have ABI-encoded data"
+        );
     }
 }

@@ -15,6 +15,7 @@ async fn dry_run_session_challenge_has_no_tx_no_db_write_and_shows_cost() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -94,6 +95,7 @@ async fn error_after_payment_preserves_state_and_surfaces_dispute_message() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: Some(500),
         response_delay_ms: 0,
     })
@@ -158,6 +160,7 @@ async fn sse_voucher_clamps_when_required_cumulative_exceeds_deposit() {
         sse_reported_deposit: Some(1_000_000),
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -216,6 +219,7 @@ async fn payment_receipt_event_terminates_stream_without_processing_trailing_eve
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -283,6 +287,7 @@ async fn stalled_voucher_resume_retries_with_backoff_up_to_configured_max() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -353,6 +358,7 @@ async fn required_cumulative_above_deposit_sends_topup_and_resumes_voucher_flow(
         sse_reported_deposit: Some(500_000),
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -414,6 +420,7 @@ async fn challenge_request_requires_wire_recipient_field_without_local_rename_le
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -455,6 +462,7 @@ async fn open_and_voucher_credentials_keep_spec_field_names() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: true,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -517,6 +525,7 @@ async fn credential_source_is_did_pkh_eip155_chainid_address() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: true,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -556,6 +565,7 @@ async fn missing_receipt_on_successful_paid_response_is_warning_only() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -593,6 +603,7 @@ async fn sse_initial_header_receipt_persists_before_delayed_receipt_event() {
         sse_reported_deposit: Some(3_000_000),
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -654,6 +665,7 @@ async fn head_first_voucher_405_fallback_to_post_and_stream_continues() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -721,6 +733,7 @@ async fn missing_method_details_chainid_is_rejected() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -757,6 +770,7 @@ async fn malformed_required_cumulative_fails_stream_path_deterministically() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -814,6 +828,7 @@ async fn empty_required_cumulative_fails_stream_path_deterministically() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -870,6 +885,7 @@ async fn voucher_idempotency_replay_same_or_lower_cumulative_is_successful() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -924,6 +940,7 @@ async fn paid_requests_include_idempotency_key_and_retry_path_stays_stable() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -980,6 +997,7 @@ async fn voucher_idempotency_replay_numeric_accepted_cumulative_is_successful() 
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })
@@ -1026,6 +1044,7 @@ async fn pending_voucher_update_timeout_fails_stream_request() {
         sse_reported_deposit: None,
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
         error_after_payment_once_status: None,
         response_delay_ms: 0,
     })

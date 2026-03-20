@@ -207,19 +207,15 @@ async fn validate_reusable_channel_on_chain(
         return Ok(None);
     };
 
-    let Some(available_balance) = assess_on_chain_reusability(&on_chain, amount) else {
+    if assess_on_chain_reusability(&on_chain, amount).is_none() {
         return Ok(None);
     };
 
-    Ok(Some(ChannelOnChainAvailability {
-        on_chain,
-        available_balance,
-    }))
+    Ok(Some(ChannelOnChainAvailability { on_chain }))
 }
 
 struct ChannelOnChainAvailability {
     on_chain: session::OnChainChannel,
-    available_balance: u128,
 }
 
 fn is_on_chain_identity_match(
@@ -410,7 +406,9 @@ async fn run_non_streaming_top_up_recovery(
     }
 
     let additional_deposit = required_top_up.max(ctx.top_up_deposit);
-    let mut echo = ctx.echo.clone();
+    let mut echo = fetch_fresh_session_echo(ctx)
+        .await
+        .unwrap_or_else(|_| ctx.echo.clone());
     let top_up_idempotency_key = new_idempotency_key();
 
     for retry in 0..=1 {
@@ -426,6 +424,14 @@ async fn run_non_streaming_top_up_recovery(
             let _ = apply_response_receipt(&top_up_response, state, "topUp response")?;
             state.deposit = state.deposit.saturating_add(additional_deposit);
             persist_session(ctx, state)?;
+            if ctx.http.log_enabled() {
+                eprintln!(
+                    "Topped up channel {:#x} (+{}, new deposit: {})",
+                    state.channel_id,
+                    format_token_amount(additional_deposit, ctx.network_id),
+                    format_token_amount(state.deposit, ctx.network_id),
+                );
+            }
             return Ok(());
         }
 
@@ -504,7 +510,12 @@ async fn send_session_request(
 
             if !attempted_non_stream_top_up && status.as_u16() == 402 {
                 if let Some(problem) = parse_problem_details(&body) {
-                    if problem.classify() == SessionProblemType::InsufficientBalance {
+                    let problem_type = problem.classify();
+                    if matches!(
+                        problem_type,
+                        SessionProblemType::InsufficientBalance
+                            | SessionProblemType::AmountExceedsDeposit
+                    ) {
                         validate_problem_channel_id(&problem, state.channel_id).map_err(
                             |source| SessionRequestFailure {
                                 source,
@@ -512,34 +523,33 @@ async fn send_session_request(
                             },
                         )?;
 
-                        let required_top_up_value =
-                            problem.required_top_up.as_deref().ok_or_else(|| {
-                                SessionRequestFailure {
-                                    source: PaymentError::ChallengeMissingField {
-                                        context: "session insufficient-balance requiredTopUp",
-                                        field: "requiredTopUp",
-                                    }
-                                    .into(),
-                                    kind: SessionRequestFailureKind::Other,
-                                }
-                            })?;
-                        let required_top_up = parse_positive_problem_amount(
-                            required_top_up_value,
-                            "session insufficient-balance requiredTopUp",
-                        )
-                        .map_err(|source| SessionRequestFailure {
-                            source,
-                            kind: SessionRequestFailureKind::Other,
-                        })?;
+                        // Use server-provided requiredTopUp if available,
+                        // otherwise compute from cumulative vs deposit.
+                        let required_top_up =
+                            if let Some(value) = problem.required_top_up.as_deref() {
+                                parse_positive_problem_amount(value, "session top-up requiredTopUp")
+                                    .map_err(|source| SessionRequestFailure {
+                                        source,
+                                        kind: SessionRequestFailureKind::Other,
+                                    })?
+                            } else {
+                                state.cumulative_amount.saturating_sub(state.deposit).max(1)
+                            };
 
-                        run_non_streaming_top_up_recovery(ctx, state, required_top_up)
-                            .await
-                            .map_err(|source| SessionRequestFailure {
-                                source,
-                                kind: SessionRequestFailureKind::Other,
-                            })?;
-                        attempted_non_stream_top_up = true;
-                        continue;
+                        match run_non_streaming_top_up_recovery(ctx, state, required_top_up).await {
+                            Ok(()) => {
+                                attempted_non_stream_top_up = true;
+                                continue;
+                            }
+                            Err(source) => {
+                                // Top-up tx failed (e.g. channel closed on-chain).
+                                // Signal invalidation so the caller can re-open.
+                                return Err(SessionRequestFailure {
+                                    source,
+                                    kind: SessionRequestFailureKind::ChannelInvalidated,
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -642,7 +652,6 @@ struct DepositStageOutput {
 struct ChannelReuseCandidate {
     record: session::ChannelRecord,
     on_chain_deposit: u128,
-    available_balance: u128,
 }
 
 enum ReuseStageOutcome {
@@ -867,8 +876,13 @@ async fn deposit_stage(
     let default_deposit: u128 = parse_units("1", decimals).unwrap().get_absolute().to();
     let max_deposit: u128 = parse_units("5", decimals).unwrap().get_absolute().to();
 
-    let mut deposit = challenge
-        .suggested_deposit
+    let env_deposit = std::env::var("TEMPO_SESSION_DEPOSIT")
+        .ok()
+        .and_then(|v| parse_units(&v, decimals).ok())
+        .map(|u| u.get_absolute().to::<u128>());
+
+    let mut deposit = env_deposit
+        .or(challenge.suggested_deposit)
         .unwrap_or(default_deposit)
         .max(challenge.amount)
         .min(max_deposit);
@@ -988,7 +1002,6 @@ async fn reuse_stage_discover(
         return Ok(Some(ChannelReuseCandidate {
             record: candidate,
             on_chain_deposit: on_chain_availability.on_chain.deposit,
-            available_balance: on_chain_availability.available_balance,
         }));
     }
 
@@ -1019,7 +1032,7 @@ async fn reuse_stage_execute(
         escrow_contract: challenge.escrow_contract,
         chain_id: challenge.chain_id,
         deposit: reusable.on_chain_deposit,
-        cumulative_amount: (prev_cumulative + challenge.amount).min(reusable.available_balance),
+        cumulative_amount: prev_cumulative + challenge.amount,
         accepted_cumulative: reusable.record.accepted_cumulative,
     };
 
