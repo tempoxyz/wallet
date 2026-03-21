@@ -48,6 +48,13 @@ curl -fsSL https://tempo.xyz/install | bash
 
 This installs the `tempo` launcher, which automatically manages wallet extensions.
 
+If you want the extension binaries directly via npm:
+
+```bash
+npm install --global @tempoxyz/tempo-wallet@latest
+npm install --global @tempoxyz/tempo-request@latest
+```
+
 ### Install Skill
 
 ```bash

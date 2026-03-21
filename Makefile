@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install uninstall run coverage
+.PHONY: build release clean check test fix install uninstall run coverage npm-dev npm-check
 
 build:
 	cargo build
@@ -48,3 +48,9 @@ fix:
 # Install once: `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
 coverage:
 	cargo llvm-cov --all-features --workspace --fail-under-lines 85 --lcov --output-path lcov.info
+
+npm-dev:
+	cd npm && DRY_RUN=1 RELEASE_VERSION=0.0.0-dev node scripts/dev.mjs
+
+npm-check:
+	cd npm && DRY_RUN=1 RELEASE_VERSION=0.0.0-check node scripts/check.mjs

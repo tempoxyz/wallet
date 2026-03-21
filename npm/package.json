@@ -1,0 +1,14 @@
+{
+  "name": "tempoxyz-npm",
+  "private": true,
+  "description": "npm packaging for Tempo CLI binaries",
+  "type": "module",
+  "scripts": {
+    "dev": "DRY_RUN=1 RELEASE_VERSION=0.0.0-dev node scripts/dev.mjs",
+    "check": "DRY_RUN=1 RELEASE_VERSION=0.0.0-check node scripts/check.mjs",
+    "clean": "bash scripts/clean.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

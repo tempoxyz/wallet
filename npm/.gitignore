@@ -1,0 +1,7 @@
+# Generated npm packages
+tempo-request/
+tempo-request-*/
+tempo-wallet/
+tempo-wallet-*/
+
+node_modules/
