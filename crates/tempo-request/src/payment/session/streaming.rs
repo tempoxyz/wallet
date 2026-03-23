@@ -12,11 +12,10 @@ use super::{
     error_map::payment_rejected_from_body,
     new_idempotency_key, open,
     persist::{persist_channel_cumulative_floor, persist_session},
-    receipt::{parse_validated_session_receipt_header, validate_session_receipt_fields},
-    receipt_policy::{
-        apply_receipt_amounts, apply_receipt_amounts_strict, invalid_payment_receipt_error,
-        missing_payment_receipt_error, protocol_spent_error, warn_invalid_payment_receipt,
-        warn_missing_payment_receipt,
+    receipt::{
+        apply_receipt_amounts_strict, invalid_payment_receipt_error, missing_payment_receipt_error,
+        parse_validated_session_receipt_header, protocol_spent_error,
+        validate_session_receipt_fields,
     },
     voucher::{build_top_up_payload, build_voucher_credential},
     ChannelContext, ChannelState,
@@ -128,51 +127,29 @@ async fn send_top_up(
         Some(receipt_header) => {
             match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
                 Ok(receipt) => {
-                    if state.strict_receipts {
-                        if let Some(reason) = receipt.spent_parse_error {
-                            let error = protocol_spent_error(reason);
-                            preserve_state_for_top_up_receipt_failure(
-                                ctx,
-                                state,
-                                additional_deposit,
-                            );
-                            return Err(error);
-                        }
-                        apply_receipt_amounts_strict(
-                            state,
-                            receipt.accepted_cumulative,
-                            receipt.server_spent,
-                        )?;
-                        persist_session(ctx, state)?;
-                    } else {
-                        apply_receipt_amounts(
-                            state,
-                            receipt.accepted_cumulative,
-                            receipt.server_spent,
-                        );
-                        persist_channel_cumulative_floor(
-                            state.channel_id,
-                            receipt.accepted_cumulative,
-                        )?;
-                    }
-                }
-                Err(reason) => {
-                    if state.strict_receipts {
-                        let error = invalid_payment_receipt_error("topUp response", &reason);
+                    if let Some(reason) = receipt.spent_parse_error {
+                        let error = protocol_spent_error(reason);
                         preserve_state_for_top_up_receipt_failure(ctx, state, additional_deposit);
                         return Err(error);
                     }
-                    warn_invalid_payment_receipt("topUp response", &reason);
+                    apply_receipt_amounts_strict(
+                        state,
+                        receipt.accepted_cumulative,
+                        receipt.server_spent,
+                    )?;
+                    persist_session(ctx, state)?;
+                }
+                Err(reason) => {
+                    let error = invalid_payment_receipt_error("topUp response", &reason);
+                    preserve_state_for_top_up_receipt_failure(ctx, state, additional_deposit);
+                    return Err(error);
                 }
             }
         }
         None => {
-            if state.strict_receipts {
-                let error = missing_payment_receipt_error("topUp response");
-                preserve_state_for_top_up_receipt_failure(ctx, state, additional_deposit);
-                return Err(error);
-            }
-            warn_missing_payment_receipt("topUp response");
+            let error = missing_payment_receipt_error("topUp response");
+            preserve_state_for_top_up_receipt_failure(ctx, state, additional_deposit);
+            return Err(error);
         }
     }
 
@@ -496,19 +473,34 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
             Some(receipt_header) => {
                 match parse_validated_session_receipt_header(receipt_header, ctx.state.channel_id) {
                     Ok(receipt) => {
+                        if let Some(reason) = receipt.spent_parse_error {
+                            return Err(protocol_spent_error(reason));
+                        }
+                        let mut validated_state = ChannelState {
+                            channel_id: ctx.state.channel_id,
+                            escrow_contract: ctx.state.escrow_contract,
+                            chain_id: ctx.state.chain_id,
+                            deposit: ctx.state.deposit,
+                            cumulative_amount: ctx.state.cumulative_amount,
+                            accepted_cumulative: ctx.state.accepted_cumulative,
+                            server_spent: ctx.state.server_spent,
+                        };
+                        apply_receipt_amounts_strict(
+                            &mut validated_state,
+                            receipt.accepted_cumulative,
+                            receipt.server_spent,
+                        )?;
                         persist_channel_cumulative_floor(
                             ctx.state.channel_id,
                             receipt.accepted_cumulative,
                         )?;
                     }
                     Err(reason) => {
-                        warn_invalid_payment_receipt("voucher response", &reason);
+                        return Err(invalid_payment_receipt_error("voucher response", &reason))
                     }
                 }
             }
-            None => {
-                warn_missing_payment_receipt("voucher response");
-            }
+            None => return Err(missing_payment_receipt_error("voucher response")),
         }
         return Ok(());
     }
@@ -558,17 +550,34 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
                         ctx.state.channel_id,
                     ) {
                         Ok(receipt) => {
+                            if let Some(reason) = receipt.spent_parse_error {
+                                return Err(protocol_spent_error(reason));
+                            }
+                            let mut validated_state = ChannelState {
+                                channel_id: ctx.state.channel_id,
+                                escrow_contract: ctx.state.escrow_contract,
+                                chain_id: ctx.state.chain_id,
+                                deposit: ctx.state.deposit,
+                                cumulative_amount: ctx.state.cumulative_amount,
+                                accepted_cumulative: ctx.state.accepted_cumulative,
+                                server_spent: ctx.state.server_spent,
+                            };
+                            apply_receipt_amounts_strict(
+                                &mut validated_state,
+                                receipt.accepted_cumulative,
+                                receipt.server_spent,
+                            )?;
                             persist_channel_cumulative_floor(
                                 ctx.state.channel_id,
                                 receipt.accepted_cumulative,
                             )?;
                         }
                         Err(reason) => {
-                            warn_invalid_payment_receipt("voucher response", &reason);
+                            return Err(invalid_payment_receipt_error("voucher response", &reason));
                         }
                     }
                 } else {
-                    warn_missing_payment_receipt("voucher response");
+                    return Err(missing_payment_receipt_error("voucher response"));
                 }
                 return Ok(());
             }
@@ -609,7 +618,6 @@ fn post_voucher(
         cumulative_amount: state.cumulative_amount,
         accepted_cumulative: state.accepted_cumulative,
         server_spent: state.server_spent,
-        strict_receipts: state.strict_receipts,
     };
 
     let client = client.clone();
@@ -667,32 +675,21 @@ pub(super) async fn stream_sse_response(
             saw_response_receipt = true;
             match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
                 Ok(receipt) => {
-                    if state.strict_receipts {
-                        if let Some(reason) = receipt.spent_parse_error {
-                            return Err(protocol_spent_error(reason));
-                        }
-                        apply_receipt_amounts_strict(
-                            state,
-                            receipt.accepted_cumulative,
-                            receipt.server_spent,
-                        )?;
-                    } else {
-                        apply_receipt_amounts(
-                            state,
-                            receipt.accepted_cumulative,
-                            receipt.server_spent,
-                        );
+                    if let Some(reason) = receipt.spent_parse_error {
+                        return Err(protocol_spent_error(reason));
                     }
+                    apply_receipt_amounts_strict(
+                        state,
+                        receipt.accepted_cumulative,
+                        receipt.server_spent,
+                    )?;
                     persist_session(ctx, state)?;
                 }
                 Err(reason) => {
-                    if state.strict_receipts {
-                        return Err(invalid_payment_receipt_error(
-                            "SSE response header",
-                            &reason,
-                        ));
-                    }
-                    warn_invalid_payment_receipt("SSE response header", &reason);
+                    return Err(invalid_payment_receipt_error(
+                        "SSE response header",
+                        &reason,
+                    ))
                 }
             }
         }
@@ -920,34 +917,22 @@ pub(super) async fn stream_sse_response(
                             Ok(accepted_cumulative) => {
                                 let spent = match receipt.spent.trim().parse::<u128>() {
                                     Ok(value) => Some(value),
-                                    Err(_) if state.strict_receipts => {
+                                    Err(_) => {
                                         return Err(protocol_spent_error(format!(
                                             "must be an integer amount (got '{}')",
                                             sanitize_for_terminal(&receipt.spent)
                                         )));
                                     }
-                                    Err(_) => None,
                                 };
 
-                                if state.strict_receipts {
-                                    apply_receipt_amounts_strict(
-                                        state,
-                                        accepted_cumulative,
-                                        spent,
-                                    )?;
-                                } else {
-                                    apply_receipt_amounts(state, accepted_cumulative, spent);
-                                }
+                                apply_receipt_amounts_strict(state, accepted_cumulative, spent)?;
                                 persist_session(ctx, state)?;
                             }
                             Err(reason) => {
-                                if state.strict_receipts {
-                                    return Err(invalid_payment_receipt_error(
-                                        "SSE payment-receipt event",
-                                        &reason,
-                                    ));
-                                }
-                                warn_invalid_payment_receipt("SSE payment-receipt event", &reason);
+                                return Err(invalid_payment_receipt_error(
+                                    "SSE payment-receipt event",
+                                    &reason,
+                                ));
                             }
                         }
                         if runtime.log_enabled() {
@@ -990,10 +975,7 @@ pub(super) async fn stream_sse_response(
     }
 
     if response.status().is_success() && !saw_response_receipt {
-        if state.strict_receipts {
-            return Err(missing_payment_receipt_error("SSE response"));
-        }
-        warn_missing_payment_receipt("SSE response");
+        return Err(missing_payment_receipt_error("SSE response"));
     }
 
     writeln!(stdout)?;
@@ -1108,7 +1090,6 @@ mod tests {
             cumulative_amount: 10,
             accepted_cumulative: 0,
             server_spent: 0,
-            strict_receipts: true,
         }
     }
 
@@ -1430,6 +1411,8 @@ mod tests {
     async fn submit_voucher_update_falls_back_to_post_when_head_not_supported() {
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
+        let channel_id = alloy::primitives::B256::from([0x44; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
 
         let head_calls_clone = Arc::clone(&head_calls);
         let post_calls_clone = Arc::clone(&post_calls);
@@ -1444,9 +1427,10 @@ mod tests {
             })
             .post(move || {
                 let post_calls = Arc::clone(&post_calls_clone);
+                let receipt_header = receipt_header.clone();
                 async move {
                     post_calls.fetch_add(1, Ordering::Relaxed);
-                    StatusCode::OK
+                    (StatusCode::OK, [("payment-receipt", receipt_header)])
                 }
             }),
         );
@@ -1454,7 +1438,6 @@ mod tests {
         let (url, server) = spawn_test_server(app).await;
 
         let signer = test_signer();
-        let channel_id = alloy::primitives::B256::from([0x44; 32]);
         let state = test_state(channel_id);
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
@@ -1482,6 +1465,8 @@ mod tests {
     async fn submit_voucher_update_head_success_does_not_fallback_to_post() {
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
+        let channel_id = alloy::primitives::B256::from([0x45; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
 
         let head_calls_clone = Arc::clone(&head_calls);
         let post_calls_clone = Arc::clone(&post_calls);
@@ -1489,9 +1474,10 @@ mod tests {
             "/voucher",
             head(move || {
                 let head_calls = Arc::clone(&head_calls_clone);
+                let receipt_header = receipt_header.clone();
                 async move {
                     head_calls.fetch_add(1, Ordering::Relaxed);
-                    StatusCode::OK
+                    (StatusCode::OK, [("payment-receipt", receipt_header)])
                 }
             })
             .post(move || {
@@ -1506,7 +1492,6 @@ mod tests {
         let (url, server) = spawn_test_server(app).await;
 
         let signer = test_signer();
-        let channel_id = alloy::primitives::B256::from([0x45; 32]);
         let state = test_state(channel_id);
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
@@ -1600,137 +1585,6 @@ mod tests {
 
         assert_eq!(head_calls.load(Ordering::Relaxed), 1);
         assert!(task_result.result.is_err());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_sse_response_missing_receipt_is_warning_only_for_legacy_sessions() {
-        let app = Router::new().route(
-            "/stream",
-            get(|| async {
-                (
-                    StatusCode::OK,
-                    [("content-type", "text/event-stream")],
-                    "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n",
-                )
-            }),
-        );
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let url = format!("http://{addr}/stream");
-
-        let signer = test_signer();
-        let echo = test_echo();
-        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
-        let http = test_http_client();
-        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
-        let mut state = test_state(alloy::primitives::B256::from([0x66; 32]));
-        state.strict_receipts = false;
-
-        let ctx = ChannelContext {
-            signer: &signer,
-            payer: signer.from,
-            echo: &echo,
-            did: &did,
-            http: &http,
-            url: &url,
-            rpc_url: "http://127.0.0.1:8545",
-            network_id: tempo_common::network::NetworkId::Tempo,
-            origin: "http://127.0.0.1",
-            top_up_deposit: 100,
-            clamped_deposit: None,
-            fee_payer: false,
-            salt: "0x00".to_string(),
-            payee: "0x0000000000000000000000000000000000000002"
-                .parse()
-                .unwrap(),
-            token: "0x0000000000000000000000000000000000000003"
-                .parse()
-                .unwrap(),
-            reqwest_client: &reqwest_client,
-        };
-
-        let response = reqwest_client.get(&url).send().await.unwrap();
-        let result = stream_sse_response(&ctx, &mut state, response).await;
-
-        server.abort();
-        let _ = server.await;
-
-        assert!(result.is_ok());
-        assert_eq!(
-            state.cumulative_amount, 10,
-            "missing receipt should remain warning-only without mutating cumulative"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_sse_response_invalid_header_receipt_is_warning_only_for_legacy_sessions() {
-        let app = Router::new().route(
-            "/stream",
-            get(|| async {
-                (
-                    StatusCode::OK,
-                    [
-                        ("content-type", "text/event-stream"),
-                        ("payment-receipt", "not-base64"),
-                    ],
-                    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n",
-                )
-            }),
-        );
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let url = format!("http://{addr}/stream");
-
-        let signer = test_signer();
-        let echo = test_echo();
-        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
-        let http = test_http_client();
-        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
-        let mut state = test_state(alloy::primitives::B256::from([0x67; 32]));
-        state.strict_receipts = false;
-
-        let ctx = ChannelContext {
-            signer: &signer,
-            payer: signer.from,
-            echo: &echo,
-            did: &did,
-            http: &http,
-            url: &url,
-            rpc_url: "http://127.0.0.1:8545",
-            network_id: tempo_common::network::NetworkId::Tempo,
-            origin: "http://127.0.0.1",
-            top_up_deposit: 100,
-            clamped_deposit: None,
-            fee_payer: false,
-            salt: "0x00".to_string(),
-            payee: "0x0000000000000000000000000000000000000002"
-                .parse()
-                .unwrap(),
-            token: "0x0000000000000000000000000000000000000003"
-                .parse()
-                .unwrap(),
-            reqwest_client: &reqwest_client,
-        };
-
-        let response = reqwest_client.get(&url).send().await.unwrap();
-        let result = stream_sse_response(&ctx, &mut state, response).await;
-
-        server.abort();
-        let _ = server.await;
-
-        assert!(result.is_ok());
-        assert_eq!(
-            state.cumulative_amount, 10,
-            "invalid receipt header should be ignored without mutating cumulative"
-        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2094,6 +1948,7 @@ mod tests {
         std::env::set_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES", "0");
 
         let channel_id = alloy::primitives::B256::from([0x69; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
         let need_voucher = format!(
             "event: payment-need-voucher\ndata: {{\"channelId\":\"{channel_id:#x}\",\"requiredCumulative\":\"12\",\"acceptedCumulative\":\"10\",\"deposit\":\"100\"}}\n\n"
         );
@@ -2119,8 +1974,26 @@ mod tests {
                     }
                 }),
             )
-            .route("/stream", head(|| async { StatusCode::OK }))
-            .route("/stream", post(|| async { StatusCode::OK }));
+            .route(
+                "/stream",
+                head({
+                    let receipt_header = receipt_header.clone();
+                    move || {
+                        let receipt_header = receipt_header.clone();
+                        async move { (StatusCode::OK, [("payment-receipt", receipt_header)]) }
+                    }
+                }),
+            )
+            .route(
+                "/stream",
+                post({
+                    let receipt_header = receipt_header.clone();
+                    move || {
+                        let receipt_header = receipt_header.clone();
+                        async move { (StatusCode::OK, [("payment-receipt", receipt_header)]) }
+                    }
+                }),
+            );
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

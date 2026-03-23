@@ -638,10 +638,12 @@ async fn session_handler(
                     StatusCode::OK
                 };
                 observations.voucher_head_statuses.push(status.as_u16());
-                return Response::builder()
-                    .status(status)
-                    .body(Body::empty())
-                    .unwrap();
+                let mut builder = Response::builder().status(status);
+                if status.is_success() && !path.contains("missing-receipt") {
+                    let receipt = build_session_receipt(&channel_id, cumulative);
+                    builder = builder.header("payment-receipt", receipt);
+                }
+                return builder.body(Body::empty()).unwrap();
             }
 
             if method == reqwest::Method::POST {

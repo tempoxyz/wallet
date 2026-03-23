@@ -10,7 +10,6 @@ mod flow;
 mod open;
 mod persist;
 mod receipt;
-mod receipt_policy;
 mod streaming;
 mod voucher;
 
@@ -32,9 +31,6 @@ pub(super) struct ChannelState {
     /// Server-reported actual spend from `Payment-Receipt`. Used at close to
     /// avoid overcharging when the server reconciles below the voucher ceiling.
     pub(super) server_spent: u128,
-    /// Strict receipt enforcement is enabled for newly created sessions.
-    /// Legacy persisted sessions remain permissive for backwards compatibility.
-    pub(super) strict_receipts: bool,
 }
 
 /// Shared context for session operations (streaming, closing).

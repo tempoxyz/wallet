@@ -7,11 +7,9 @@ use super::{
     error_map::payment_rejected_from_body,
     extract_origin, new_idempotency_key, open,
     persist::persist_session,
-    receipt::parse_validated_session_receipt_header,
-    receipt_policy::{
-        apply_receipt_amounts, apply_receipt_amounts_strict, invalid_payment_receipt_error,
-        missing_payment_receipt_error, protocol_spent_error, warn_invalid_payment_receipt,
-        warn_missing_payment_receipt,
+    receipt::{
+        apply_receipt_amounts_strict, invalid_payment_receipt_error, missing_payment_receipt_error,
+        parse_validated_session_receipt_header, protocol_spent_error,
     },
     streaming,
     voucher::{build_open_payload, build_top_up_payload, build_voucher_credential},
@@ -246,36 +244,18 @@ fn apply_response_receipt(
     }
 
     let Some(receipt_header) = response.header("payment-receipt") else {
-        if state.strict_receipts {
-            return Err(missing_payment_receipt_error(context));
-        }
-        warn_missing_payment_receipt(context);
-        return Ok(None);
+        return Err(missing_payment_receipt_error(context));
     };
 
     match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
         Ok(receipt) => {
-            if state.strict_receipts {
-                if let Some(reason) = receipt.spent_parse_error {
-                    return Err(protocol_spent_error(reason));
-                }
-                apply_receipt_amounts_strict(
-                    state,
-                    receipt.accepted_cumulative,
-                    receipt.server_spent,
-                )?;
-            } else {
-                apply_receipt_amounts(state, receipt.accepted_cumulative, receipt.server_spent);
+            if let Some(reason) = receipt.spent_parse_error {
+                return Err(protocol_spent_error(reason));
             }
+            apply_receipt_amounts_strict(state, receipt.accepted_cumulative, receipt.server_spent)?;
             Ok(receipt.tx_reference)
         }
-        Err(reason) => {
-            if state.strict_receipts {
-                return Err(invalid_payment_receipt_error(context, &reason));
-            }
-            warn_invalid_payment_receipt(context, &reason);
-            Ok(None)
-        }
+        Err(reason) => Err(invalid_payment_receipt_error(context, &reason)),
     }
 }
 
@@ -1048,7 +1028,6 @@ async fn reuse_stage_execute(
         cumulative_amount: prev_cumulative + challenge.amount,
         accepted_cumulative: reusable.record.accepted_cumulative,
         server_spent: reusable.record.server_spent,
-        strict_receipts: reusable.record.version >= 2,
     };
 
     let ctx = build_channel_context(
@@ -1225,7 +1204,6 @@ async fn open_stage(
         cumulative_amount: initial_cumulative,
         accepted_cumulative: 0,
         server_spent: 0,
-        strict_receipts: true,
     };
     let salt_hex = format!("{salt:#x}");
 
@@ -1774,7 +1752,6 @@ mod tests {
             cumulative_amount: 20,
             accepted_cumulative: 0,
             server_spent: 0,
-            strict_receipts: true,
         };
         let tx = apply_response_receipt(&response, &mut state, "session response").unwrap();
         assert_eq!(
@@ -1786,33 +1763,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_response_receipt_missing_or_invalid_header_is_warning_only_for_legacy_sessions() {
-        let channel_id = B256::from([0x77; 32]);
-        let mut state_missing = super::ChannelState {
-            channel_id,
-            escrow_contract: Address::ZERO,
-            chain_id: 4217,
-            deposit: 100,
-            cumulative_amount: 20,
-            accepted_cumulative: 0,
-            server_spent: 0,
-            strict_receipts: false,
-        };
-        let missing = HttpResponse::for_test(200, b"ok");
-        let tx = apply_response_receipt(&missing, &mut state_missing, "session response").unwrap();
-        assert!(tx.is_none());
-        assert_eq!(state_missing.cumulative_amount, 20);
-
-        let mut state_invalid = state_missing;
-        let invalid =
-            HttpResponse::for_test_with_headers(200, b"ok", &[("payment-receipt", "not-base64")]);
-        let tx = apply_response_receipt(&invalid, &mut state_invalid, "session response").unwrap();
-        assert!(tx.is_none());
-        assert_eq!(state_invalid.cumulative_amount, 20);
-    }
-
-    #[test]
-    fn apply_response_receipt_requires_valid_header_for_strict_sessions() {
+    fn apply_response_receipt_requires_valid_header() {
         let channel_id = B256::from([0x78; 32]);
         let mut state_missing = super::ChannelState {
             channel_id,
@@ -1822,7 +1773,6 @@ mod tests {
             cumulative_amount: 20,
             accepted_cumulative: 0,
             server_spent: 0,
-            strict_receipts: true,
         };
 
         let missing = HttpResponse::for_test(200, b"ok");
@@ -1875,7 +1825,6 @@ mod tests {
             cumulative_amount: 20,
             accepted_cumulative: 20,
             server_spent: 10,
-            strict_receipts: true,
         };
 
         let result = apply_response_receipt(&response, &mut state, "session response");
