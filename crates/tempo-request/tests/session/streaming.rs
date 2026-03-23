@@ -553,7 +553,7 @@ async fn credential_source_is_did_pkh_eip155_chainid_address() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn missing_receipt_on_successful_paid_response_is_warning_only() {
+async fn missing_receipt_on_successful_paid_response_is_error_for_strict_sessions() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
         payee_mode: PayeeMode::Fixed,
@@ -577,16 +577,16 @@ async fn missing_receipt_on_successful_paid_response_is_warning_only() {
     let first_output = run_session_request(&temp, &server.url("/resource"));
     assert!(first_output.status.success());
 
-    let second_output = run_session_request(&temp, &server.url("/resource"));
+    let second_output = run_session_request(&temp, &server.url("/resource-missing-receipt"));
     assert!(
-        second_output.status.success(),
-        "missing receipt on paid voucher response should not fail request: {}",
+        !second_output.status.success(),
+        "missing receipt on paid voucher response should fail in strict mode: {}",
         get_combined_output(&second_output)
     );
     let combined = get_combined_output(&second_output);
     assert!(
-        combined.contains("Warning: missing Payment-Receipt on successful paid session response"),
-        "client should emit warning-only message when paid response lacks receipt: {combined}"
+        combined.contains("Missing required Payment-Receipt on successful paid session response"),
+        "client should fail with required-receipt error when paid response lacks receipt: {combined}"
     );
 }
 

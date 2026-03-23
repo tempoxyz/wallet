@@ -240,6 +240,25 @@ fn warn_invalid_payment_receipt(context: &str, reason: &str) {
     eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {safe_reason}");
 }
 
+fn missing_payment_receipt_error(context: &str) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!("Missing required Payment-Receipt on successful paid {context}"),
+        status_code: 502,
+    }
+    .into()
+}
+
+fn invalid_payment_receipt_error(context: &str, reason: &str) -> TempoError {
+    let safe_reason = sanitize_for_terminal(reason);
+    PaymentError::PaymentRejected {
+        reason: format!(
+            "Invalid required Payment-Receipt on successful paid {context}: {safe_reason}"
+        ),
+        status_code: 502,
+    }
+    .into()
+}
+
 fn protocol_spent_error(reason: String) -> TempoError {
     PaymentError::PaymentRejected {
         reason: format!("Malformed payment protocol field: payment-receipt.spent {reason}"),
@@ -253,7 +272,7 @@ fn apply_receipt_amounts(state: &mut ChannelState, accepted_cumulative: u128, sp
     state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
 
     if let Some(spent) = spent {
-        if spent > 0 {
+        if spent > 0 && spent <= accepted_cumulative {
             state.server_spent = spent;
         }
     }
@@ -295,6 +314,9 @@ fn apply_response_receipt(
     }
 
     let Some(receipt_header) = response.header("payment-receipt") else {
+        if state.strict_receipts {
+            return Err(missing_payment_receipt_error(context));
+        }
         warn_missing_payment_receipt(context);
         return Ok(None);
     };
@@ -316,6 +338,9 @@ fn apply_response_receipt(
             Ok(receipt.tx_reference)
         }
         Err(reason) => {
+            if state.strict_receipts {
+                return Err(invalid_payment_receipt_error(context, &reason));
+            }
             warn_invalid_payment_receipt(context, &reason);
             Ok(None)
         }
@@ -1829,7 +1854,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_response_receipt_missing_or_invalid_header_is_warning_only() {
+    fn apply_response_receipt_missing_or_invalid_header_is_warning_only_for_legacy_sessions() {
         let channel_id = B256::from([0x77; 32]);
         let mut state_missing = super::ChannelState {
             channel_id,
@@ -1839,7 +1864,7 @@ mod tests {
             cumulative_amount: 20,
             accepted_cumulative: 0,
             server_spent: 0,
-            strict_receipts: true,
+            strict_receipts: false,
         };
         let missing = HttpResponse::for_test(200, b"ok");
         let tx = apply_response_receipt(&missing, &mut state_missing, "session response").unwrap();
@@ -1852,5 +1877,38 @@ mod tests {
         let tx = apply_response_receipt(&invalid, &mut state_invalid, "session response").unwrap();
         assert!(tx.is_none());
         assert_eq!(state_invalid.cumulative_amount, 20);
+    }
+
+    #[test]
+    fn apply_response_receipt_requires_valid_header_for_strict_sessions() {
+        let channel_id = B256::from([0x78; 32]);
+        let mut state_missing = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 0,
+            server_spent: 0,
+            strict_receipts: true,
+        };
+
+        let missing = HttpResponse::for_test(200, b"ok");
+        let err =
+            apply_response_receipt(&missing, &mut state_missing, "session response").unwrap_err();
+        assert!(
+            err.to_string().contains("Missing required Payment-Receipt"),
+            "expected strict mode to reject missing receipt, got: {err}"
+        );
+
+        let mut state_invalid = state_missing;
+        let invalid =
+            HttpResponse::for_test_with_headers(200, b"ok", &[("payment-receipt", "not-base64")]);
+        let err =
+            apply_response_receipt(&invalid, &mut state_invalid, "session response").unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid required Payment-Receipt"),
+            "expected strict mode to reject malformed receipt, got: {err}"
+        );
     }
 }

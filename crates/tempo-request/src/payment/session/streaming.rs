@@ -52,7 +52,7 @@ fn apply_receipt_amounts(state: &mut ChannelState, accepted_cumulative: u128, sp
     state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
     state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
     if let Some(spent) = spent {
-        if spent > 0 {
+        if spent > 0 && spent <= accepted_cumulative {
             state.server_spent = spent;
         }
     }
@@ -174,6 +174,25 @@ fn warn_missing_payment_receipt(context: &str) {
 fn warn_invalid_payment_receipt(context: &str, reason: &str) {
     let safe_reason = sanitize_for_terminal(reason);
     eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {safe_reason}");
+}
+
+fn missing_payment_receipt_error(context: &str) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!("Missing required Payment-Receipt on successful paid {context}"),
+        status_code: 502,
+    }
+    .into()
+}
+
+fn invalid_payment_receipt_error(context: &str, reason: &str) -> TempoError {
+    let safe_reason = sanitize_for_terminal(reason);
+    PaymentError::PaymentRejected {
+        reason: format!(
+            "Invalid required Payment-Receipt on successful paid {context}: {safe_reason}"
+        ),
+        status_code: 502,
+    }
+    .into()
 }
 
 fn stream_idle_timeout_error(timeout: Duration) -> TempoError {
@@ -683,6 +702,12 @@ pub(super) async fn stream_sse_response(
                     persist_session(ctx, state)?;
                 }
                 Err(reason) => {
+                    if state.strict_receipts {
+                        return Err(invalid_payment_receipt_error(
+                            "SSE response header",
+                            &reason,
+                        ));
+                    }
                     warn_invalid_payment_receipt("SSE response header", &reason);
                 }
             }
@@ -975,6 +1000,9 @@ pub(super) async fn stream_sse_response(
     }
 
     if response.status().is_success() && !saw_response_receipt {
+        if state.strict_receipts {
+            return Err(missing_payment_receipt_error("SSE response"));
+        }
         warn_missing_payment_receipt("SSE response");
     }
 
@@ -1585,7 +1613,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_sse_response_missing_receipt_is_warning_only() {
+    async fn stream_sse_response_missing_receipt_is_warning_only_for_legacy_sessions() {
         let app = Router::new().route(
             "/stream",
             get(|| async {
@@ -1610,6 +1638,7 @@ mod tests {
         let http = test_http_client();
         let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
         let mut state = test_state(alloy::primitives::B256::from([0x66; 32]));
+        state.strict_receipts = false;
 
         let ctx = ChannelContext {
             signer: &signer,
@@ -1648,7 +1677,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_sse_response_invalid_header_receipt_is_warning_only() {
+    async fn stream_sse_response_invalid_header_receipt_is_warning_only_for_legacy_sessions() {
         let app = Router::new().route(
             "/stream",
             get(|| async {
@@ -1676,6 +1705,7 @@ mod tests {
         let http = test_http_client();
         let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
         let mut state = test_state(alloy::primitives::B256::from([0x67; 32]));
+        state.strict_receipts = false;
 
         let ctx = ChannelContext {
             signer: &signer,
@@ -1711,6 +1741,66 @@ mod tests {
             state.cumulative_amount, 10,
             "invalid receipt header should be ignored without mutating cumulative"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_requires_receipt_for_strict_sessions() {
+        let app = Router::new().route(
+            "/stream",
+            get(|| async {
+                (
+                    StatusCode::OK,
+                    [("content-type", "text/event-stream")],
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n",
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(alloy::primitives::B256::from([0x69; 32]));
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        let err = result.expect_err("strict sessions should require payment receipts");
+        assert!(err.to_string().contains("Missing required Payment-Receipt"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

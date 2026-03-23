@@ -669,10 +669,14 @@ async fn session_handler(
                         .body(Body::from(body))
                         .unwrap();
                 }
-                return Response::builder()
-                    .status(StatusCode::OK)
-                    .body(Body::from("voucher-update-ok"))
-                    .unwrap();
+
+                let mut builder = Response::builder().status(StatusCode::OK);
+                if !path.contains("missing-receipt") {
+                    let receipt = build_session_receipt(&channel_id, cumulative);
+                    builder = builder.header("payment-receipt", receipt);
+                }
+
+                return builder.body(Body::from("voucher-update-ok")).unwrap();
             }
 
             if state.config.sse_voucher_flow {
@@ -866,10 +870,12 @@ data: {{\"channelId\":\"{channel_id}\",\"requiredCumulative\":\"{required_cumula
                 }
             }
 
-            Response::builder()
-                .status(StatusCode::OK)
-                .body(Body::from("voucher-ok"))
-                .unwrap()
+            let mut builder = Response::builder().status(StatusCode::OK);
+            if !path.contains("missing-receipt") {
+                let receipt = build_session_receipt(&channel_id, cumulative);
+                builder = builder.header("payment-receipt", receipt);
+            }
+            builder.body(Body::from("voucher-ok")).unwrap()
         }
         SessionCredentialPayload::TopUp { channel_id, .. } => {
             let mut observations = state.observations.lock().unwrap();
@@ -904,8 +910,19 @@ data: {{\"channelId\":\"{channel_id}\",\"requiredCumulative\":\"{required_cumula
                     .body(Body::from(body))
                     .unwrap();
             }
+            let receipt_accepted = observations
+                .voucher_cumulative
+                .last()
+                .copied()
+                .unwrap_or(SESSION_AMOUNT);
+            drop(observations);
+
             Response::builder()
                 .status(StatusCode::OK)
+                .header(
+                    "payment-receipt",
+                    build_session_receipt(&channel_id, receipt_accepted),
+                )
                 .body(Body::from("topup-ok"))
                 .unwrap()
         }
