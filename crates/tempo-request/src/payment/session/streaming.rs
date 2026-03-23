@@ -3,7 +3,12 @@
 //! Handles Server-Sent Events (SSE) response streams with mid-stream
 //! voucher top-ups and retry logic for lost server notifications.
 
-use std::{io::Write, time::Duration};
+use std::{
+    collections::HashSet,
+    io::Write,
+    sync::{LazyLock, Mutex},
+    time::Duration,
+};
 
 use mpp::server::sse::{parse_event, SseEvent};
 use tokio::sync::mpsc;
@@ -35,6 +40,13 @@ fn protocol_value_error(field: &'static str, value: &str) -> TempoError {
         status_code: 502,
     }
     .into()
+}
+
+fn ensure_debug_log_boundary(token_line_open: &mut bool) {
+    if *token_line_open {
+        eprintln!();
+        *token_line_open = false;
+    }
 }
 
 fn parse_protocol_u128(value: &str, field: &'static str) -> Result<u128, TempoError> {
@@ -420,47 +432,91 @@ struct VoucherSubmitContext<'a> {
     idempotency_key: &'a str,
 }
 
+static HEAD_UNSUPPORTED_ORIGINS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn voucher_origin_key(url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?;
+    let port = parsed.port_or_known_default()?;
+    Some(format!("{}://{}:{}", parsed.scheme(), host, port))
+}
+
+fn is_head_known_unsupported(url: &str) -> bool {
+    let Some(origin_key) = voucher_origin_key(url) else {
+        return false;
+    };
+    let guard = HEAD_UNSUPPORTED_ORIGINS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.contains(&origin_key)
+}
+
+fn remember_head_unsupported(url: &str) {
+    let Some(origin_key) = voucher_origin_key(url) else {
+        return;
+    };
+    let mut guard = HEAD_UNSUPPORTED_ORIGINS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.insert(origin_key);
+}
+
+#[cfg(test)]
+fn clear_head_unsupported_cache() {
+    let mut guard = HEAD_UNSUPPORTED_ORIGINS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.clear();
+}
+
+async fn post_voucher_update(
+    ctx: &VoucherSubmitContext<'_>,
+) -> Result<reqwest::Response, TempoError> {
+    Ok(ctx
+        .client
+        .post(ctx.url)
+        .header("Authorization", ctx.auth)
+        .header("Idempotency-Key", ctx.idempotency_key)
+        .send()
+        .await
+        .map_err(NetworkError::Reqwest)?)
+}
+
 const fn should_fallback_to_post(status_code: u16) -> bool {
     matches!(status_code, 404 | 405 | 501)
 }
 
 async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), TempoError> {
-    let head_response = ctx
-        .client
-        .head(ctx.url)
-        .header("Authorization", ctx.auth)
-        .header("Idempotency-Key", ctx.idempotency_key)
-        .send()
-        .await;
+    let response = if is_head_known_unsupported(ctx.url) {
+        post_voucher_update(&ctx).await?
+    } else {
+        let head_response = ctx
+            .client
+            .head(ctx.url)
+            .header("Authorization", ctx.auth)
+            .header("Idempotency-Key", ctx.idempotency_key)
+            .send()
+            .await;
 
-    let response = match head_response {
-        Ok(resp) if should_fallback_to_post(resp.status().as_u16()) => {
-            if ctx.debug_enabled {
-                eprintln!(
-                    "[voucher HEAD unsupported ({}) — falling back to POST]",
-                    resp.status()
-                );
+        match head_response {
+            Ok(resp) if should_fallback_to_post(resp.status().as_u16()) => {
+                remember_head_unsupported(ctx.url);
+                if ctx.debug_enabled {
+                    eprintln!(
+                        "[voucher HEAD unsupported ({}) — falling back to POST]",
+                        resp.status()
+                    );
+                }
+                post_voucher_update(&ctx).await?
             }
-            ctx.client
-                .post(ctx.url)
-                .header("Authorization", ctx.auth)
-                .header("Idempotency-Key", ctx.idempotency_key)
-                .send()
-                .await
-                .map_err(NetworkError::Reqwest)?
-        }
-        Ok(resp) => resp,
-        Err(_) => {
-            if ctx.debug_enabled {
-                eprintln!("[voucher HEAD transport failure — falling back to POST]");
+            Ok(resp) => resp,
+            Err(_) => {
+                if ctx.debug_enabled {
+                    eprintln!("[voucher HEAD transport failure — falling back to POST]");
+                }
+                post_voucher_update(&ctx).await?
             }
-            ctx.client
-                .post(ctx.url)
-                .header("Authorization", ctx.auth)
-                .header("Idempotency-Key", ctx.idempotency_key)
-                .send()
-                .await
-                .map_err(NetworkError::Reqwest)?
         }
     };
 
@@ -654,6 +710,7 @@ pub(super) async fn stream_sse_response(
     let mut token_count: u64 = 0;
     let mut stdout = std::io::stdout();
     let mut saw_response_receipt = false;
+    let mut token_line_open = false;
 
     let mut stream_done = false;
 
@@ -715,6 +772,7 @@ pub(super) async fn stream_sse_response(
                     max_voucher_retries,
                 } => {
                     if runtime.debug_enabled() {
+                        ensure_debug_log_boundary(&mut token_line_open);
                         eprintln!(
                             "[stream stall — voucher not accepted after {max_voucher_retries} retries]"
                         );
@@ -723,6 +781,7 @@ pub(super) async fn stream_sse_response(
                 }
                 TimeoutTransition::Retry(attempt) => {
                     if runtime.debug_enabled() {
+                        ensure_debug_log_boundary(&mut token_line_open);
                         eprintln!(
                             "[re-posting voucher (retry {}/{})]",
                             attempt.retry_count, attempt.max_voucher_retries
@@ -741,6 +800,7 @@ pub(super) async fn stream_sse_response(
                 }
                 TimeoutTransition::NoPendingVoucher => {
                     if runtime.debug_enabled() {
+                        ensure_debug_log_boundary(&mut token_line_open);
                         eprintln!(
                             "[stream timeout — no data for {}s]",
                             retry_coordinator.policy.normal_timeout.as_secs()
@@ -787,6 +847,7 @@ pub(super) async fn stream_sse_response(
                             token_count += 1;
                             write!(stdout, "{content}")?;
                             stdout.flush()?;
+                            token_line_open = true;
                         }
                         if finished {
                             stream_done = true;
@@ -826,6 +887,7 @@ pub(super) async fn stream_sse_response(
                             let additional_deposit =
                                 (required - on_chain_deposit).max(ctx.top_up_deposit);
                             if runtime.debug_enabled() {
+                                ensure_debug_log_boundary(&mut token_line_open);
                                 eprintln!(
                                     "[channel top-up: required={required} deposit={on_chain_deposit} additional={additional_deposit}]"
                                 );
@@ -859,12 +921,6 @@ pub(super) async fn stream_sse_response(
                         // channel deposit to prevent a malicious server from
                         // coercing an overly large voucher.
                         let authorize_amount = next_cumulative.min(effective_deposit);
-
-                        if runtime.debug_enabled() {
-                            eprintln!(
-                                "[voucher top-up: required={required} authorizing={authorize_amount}]"
-                            );
-                        }
 
                         // Sign the voucher for the authorized amount (monotonic: never decrease)
                         let signing_cumulative = state.cumulative_amount.max(authorize_amount);
@@ -927,6 +983,7 @@ pub(super) async fn stream_sse_response(
                             }
                         }
                         if runtime.log_enabled() {
+                            ensure_debug_log_boundary(&mut token_line_open);
                             eprintln!();
                             eprintln!("Stream receipt:");
                             let safe_channel = sanitize_for_terminal(&receipt.channel_id);
@@ -977,6 +1034,7 @@ pub(super) async fn stream_sse_response(
             // a payment-receipt. We already persist voucher cumulative updates
             // and fail closed when stream progress is incomplete.
             if runtime.debug_enabled() {
+                ensure_debug_log_boundary(&mut token_line_open);
                 eprintln!("[SSE stream completed without payment-receipt]");
             }
         } else {
@@ -1416,6 +1474,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_voucher_update_falls_back_to_post_when_head_not_supported() {
+        clear_head_unsupported_cache();
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
         let channel_id = alloy::primitives::B256::from([0x44; 32]);
@@ -1470,6 +1529,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_voucher_update_head_success_does_not_fallback_to_post() {
+        clear_head_unsupported_cache();
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
         let channel_id = alloy::primitives::B256::from([0x45; 32]);
@@ -1520,6 +1580,74 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(head_calls.load(Ordering::Relaxed), 1);
         assert_eq!(post_calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn submit_voucher_update_caches_head_unsupported_per_origin() {
+        clear_head_unsupported_cache();
+        let head_calls = Arc::new(AtomicUsize::new(0));
+        let post_calls = Arc::new(AtomicUsize::new(0));
+        let channel_id = alloy::primitives::B256::from([0x46; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
+
+        let head_calls_clone = Arc::clone(&head_calls);
+        let post_calls_clone = Arc::clone(&post_calls);
+        let app = Router::new().route(
+            "/voucher",
+            head(move || {
+                let head_calls = Arc::clone(&head_calls_clone);
+                async move {
+                    head_calls.fetch_add(1, Ordering::Relaxed);
+                    StatusCode::NOT_FOUND
+                }
+            })
+            .post(move || {
+                let post_calls = Arc::clone(&post_calls_clone);
+                let receipt_header = receipt_header.clone();
+                async move {
+                    post_calls.fetch_add(1, Ordering::Relaxed);
+                    (StatusCode::OK, [("payment-receipt", receipt_header)])
+                }
+            }),
+        );
+
+        let (url, server) = spawn_test_server(app).await;
+
+        let signer = test_signer();
+        let state = test_state(channel_id);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+        let first = submit_voucher_update(VoucherSubmitContext {
+            url: &url,
+            signer: &signer,
+            did: "did:pkh:eip155:4217:0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            debug_enabled: false,
+            client: &client,
+            state: &state,
+            auth: "Payment test",
+            idempotency_key: "idem-cache-1",
+        })
+        .await;
+
+        let second = submit_voucher_update(VoucherSubmitContext {
+            url: &url,
+            signer: &signer,
+            did: "did:pkh:eip155:4217:0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            debug_enabled: false,
+            client: &client,
+            state: &state,
+            auth: "Payment test",
+            idempotency_key: "idem-cache-2",
+        })
+        .await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert_eq!(head_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(post_calls.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
