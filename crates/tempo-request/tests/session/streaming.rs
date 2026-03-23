@@ -591,6 +591,54 @@ async fn missing_receipt_on_successful_paid_response_is_error_for_strict_session
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_topup_receipt_is_error_for_strict_stream_sessions() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: true,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: Some(2_500_000),
+        sse_required_cumulative: Some(3_800_000),
+        sse_reported_deposit: Some(2_000_000),
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/stream"));
+    assert!(
+        first_output.status.success(),
+        "first stream should establish reusable strict session: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output = run_session_request(&temp, &server.url("/stream-missing-receipt"));
+    assert!(
+        !second_output.status.success(),
+        "strict stream top-up should fail when top-up response omits receipt: {}",
+        get_combined_output(&second_output)
+    );
+    let combined = get_combined_output(&second_output);
+    assert!(
+        combined.contains("Missing required Payment-Receipt on successful paid topUp response"),
+        "strict top-up path should emit required-receipt error: {combined}"
+    );
+
+    let observed = server.snapshot();
+    assert!(
+        observed.top_up_count >= 1,
+        "test precondition: stream flow should execute top-up before failing"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sse_initial_header_receipt_persists_before_delayed_receipt_event() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {

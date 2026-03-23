@@ -917,14 +917,14 @@ data: {{\"channelId\":\"{channel_id}\",\"requiredCumulative\":\"{required_cumula
                 .unwrap_or(SESSION_AMOUNT);
             drop(observations);
 
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(
+            let mut builder = Response::builder().status(StatusCode::OK);
+            if !path.contains("missing-receipt") {
+                builder = builder.header(
                     "payment-receipt",
                     build_session_receipt(&channel_id, receipt_accepted),
-                )
-                .body(Body::from("topup-ok"))
-                .unwrap()
+                );
+            }
+            builder.body(Body::from("topup-ok")).unwrap()
         }
         other => Response::builder()
             .status(StatusCode::BAD_REQUEST)

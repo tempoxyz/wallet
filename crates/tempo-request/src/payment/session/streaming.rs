@@ -103,7 +103,7 @@ fn parse_protocol_channel_id(
 async fn send_top_up(
     ctx: &ChannelContext<'_>,
     client: &reqwest::Client,
-    state: &ChannelState,
+    state: &mut ChannelState,
     additional_deposit: u128,
     idempotency_key: &str,
 ) -> Result<(), TempoError> {
@@ -149,17 +149,40 @@ async fn send_top_up(
         Some(receipt_header) => {
             match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
                 Ok(receipt) => {
-                    persist_channel_cumulative_floor(
-                        state.channel_id,
-                        receipt.accepted_cumulative,
-                    )?;
+                    if state.strict_receipts {
+                        if let Some(reason) = receipt.spent_parse_error {
+                            return Err(protocol_spent_error(reason));
+                        }
+                        apply_receipt_amounts_strict(
+                            state,
+                            receipt.accepted_cumulative,
+                            receipt.server_spent,
+                        )?;
+                        persist_session(ctx, state)?;
+                    } else {
+                        apply_receipt_amounts(
+                            state,
+                            receipt.accepted_cumulative,
+                            receipt.server_spent,
+                        );
+                        persist_channel_cumulative_floor(
+                            state.channel_id,
+                            receipt.accepted_cumulative,
+                        )?;
+                    }
                 }
                 Err(reason) => {
+                    if state.strict_receipts {
+                        return Err(invalid_payment_receipt_error("topUp response", &reason));
+                    }
                     warn_invalid_payment_receipt("topUp response", &reason);
                 }
             }
         }
         None => {
+            if state.strict_receipts {
+                return Err(missing_payment_receipt_error("topUp response"));
+            }
             warn_missing_payment_receipt("topUp response");
         }
     }
@@ -957,6 +980,12 @@ pub(super) async fn stream_sse_response(
                                 persist_session(ctx, state)?;
                             }
                             Err(reason) => {
+                                if state.strict_receipts {
+                                    return Err(invalid_payment_receipt_error(
+                                        "SSE payment-receipt event",
+                                        &reason,
+                                    ));
+                                }
                                 warn_invalid_payment_receipt("SSE payment-receipt event", &reason);
                             }
                         }
@@ -1801,6 +1830,80 @@ mod tests {
 
         let err = result.expect_err("strict sessions should require payment receipts");
         assert!(err.to_string().contains("Missing required Payment-Receipt"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_requires_valid_receipt_event_for_strict_sessions() {
+        let expected_channel = alloy::primitives::B256::from([0x6A; 32]);
+        let wrong_channel = alloy::primitives::B256::from([0x6B; 32]);
+        let receipt_event = format!(
+            "event: payment-receipt\ndata: {{\"method\":\"tempo\",\"intent\":\"session\",\"status\":\"success\",\"timestamp\":\"2026-03-15T00:00:01Z\",\"reference\":\"0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"challengeId\":\"session-it\",\"channelId\":\"{wrong_channel:#x}\",\"acceptedCumulative\":\"12\",\"spent\":\"7\",\"units\":1,\"txHash\":\"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}}\n\n"
+        );
+
+        let app = Router::new().route(
+            "/stream",
+            get({
+                let receipt_event = receipt_event.clone();
+                move || {
+                    let receipt_event = receipt_event.clone();
+                    async move {
+                        (
+                            StatusCode::OK,
+                            [("content-type", "text/event-stream")],
+                            Body::from_stream(futures::stream::once(async {
+                                Ok::<Bytes, std::io::Error>(Bytes::from(receipt_event))
+                            })),
+                        )
+                    }
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(expected_channel);
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        let err = result.expect_err("strict sessions should reject invalid receipt events");
+        assert!(err.to_string().contains("Invalid required Payment-Receipt"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
