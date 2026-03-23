@@ -418,7 +418,7 @@ async fn poll_device_code(
 
 fn generate_pkce_pair() -> Result<(String, String), TempoError> {
     let mut bytes = [0u8; 32];
-    getrandom::getrandom(&mut bytes).map_err(|source| KeyError::SigningOperationSource {
+    getrandom::fill(&mut bytes).map_err(|source| KeyError::SigningOperationSource {
         operation: "generate PKCE verifier",
         source: Box::new(source),
     })?;
