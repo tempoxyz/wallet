@@ -117,7 +117,7 @@ fn anonymous_id() -> String {
 fn generate_session_id() -> String {
     let mut bytes = [0u8; 16];
     // Best-effort: fall back to zeros if randomness is unavailable
-    let _ = getrandom::getrandom(&mut bytes);
+    let _ = getrandom::fill(&mut bytes);
     format!(
         "{}-{}-{}-{}-{}",
         hex::encode(&bytes[0..4]),
