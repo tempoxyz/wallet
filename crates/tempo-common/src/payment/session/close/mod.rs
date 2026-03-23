@@ -92,9 +92,9 @@ pub async fn close_channel_from_record(
 
     let escrow_contract: Address = record.escrow_contract;
 
-    // Use the server-confirmed accepted amount for the close voucher, not the
-    // signing ceiling, to avoid overcharging the payer.
-    let close_amount: u128 = record.accepted_cumulative_u128();
+    // Prefer the server-reported actual spend for the close voucher to avoid
+    // overcharging. Falls back to accepted_cumulative when spend is unknown.
+    let close_amount: u128 = record.close_amount();
 
     if should_attempt_cooperative_close(record) {
         let echo: ChallengeEcho =
@@ -219,7 +219,7 @@ pub async fn close_channel_from_record_cooperative(
 
     let channel_id: B256 = record.channel_id;
     let escrow_contract: Address = record.escrow_contract;
-    let close_amount: u128 = record.accepted_cumulative_u128();
+    let close_amount: u128 = record.close_amount();
 
     let client = reqwest::Client::new();
     let tx_url = cooperative::try_server_close(
@@ -288,6 +288,7 @@ mod tests {
             deposit: 0,
             cumulative_amount: 0,
             accepted_cumulative: 0,
+            server_spent: 0,
             challenge_echo: "{}".to_string(),
             state: ChannelStatus::Active,
             close_requested_at: 0,

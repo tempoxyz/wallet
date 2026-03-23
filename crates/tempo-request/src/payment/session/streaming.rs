@@ -561,6 +561,7 @@ fn post_voucher(
         deposit: state.deposit,
         cumulative_amount: state.cumulative_amount,
         accepted_cumulative: state.accepted_cumulative,
+        server_spent: state.server_spent,
     };
 
     let client = client.clone();
@@ -622,6 +623,9 @@ pub(super) async fn stream_sse_response(
                         state.cumulative_amount.max(receipt.accepted_cumulative);
                     state.accepted_cumulative =
                         state.accepted_cumulative.max(receipt.accepted_cumulative);
+                    if let Some(spent) = receipt.server_spent {
+                        state.server_spent = spent;
+                    }
                     persist_session(ctx, state)?;
                 }
                 Err(reason) => {
@@ -855,6 +859,11 @@ pub(super) async fn stream_sse_response(
                                     state.cumulative_amount.max(accepted_cumulative);
                                 state.accepted_cumulative =
                                     state.accepted_cumulative.max(accepted_cumulative);
+                                if let Ok(spent) = receipt.spent.trim().parse::<u128>() {
+                                    if spent > 0 {
+                                        state.server_spent = spent;
+                                    }
+                                }
                                 persist_session(ctx, state)?;
                             }
                             Err(reason) => {
@@ -944,6 +953,7 @@ fn parse_sse_chunk(raw: &str) -> (Option<String>, bool) {
 
 #[cfg(test)]
 mod tests {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
@@ -1014,7 +1024,29 @@ mod tests {
             deposit: 100,
             cumulative_amount: 10,
             accepted_cumulative: 0,
+            server_spent: 0,
         }
+    }
+
+    fn encode_session_receipt_header(
+        channel_id: alloy::primitives::B256,
+        accepted_cumulative: u128,
+        spent: u128,
+    ) -> String {
+        let receipt = mpp::protocol::methods::tempo::SessionReceipt {
+            method: "tempo".to_string(),
+            intent: "session".to_string(),
+            status: "success".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            reference: format!("{channel_id:#x}"),
+            challenge_id: "challenge-123".to_string(),
+            channel_id: format!("{channel_id:#x}"),
+            accepted_cumulative: accepted_cumulative.to_string(),
+            spent: spent.to_string(),
+            units: Some(1),
+            tx_hash: Some(format!("{:#x}", alloy::primitives::B256::from([0x11; 32]))),
+        };
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&receipt).unwrap())
     }
 
     async fn spawn_test_server(app: Router) -> (String, tokio::task::JoinHandle<()>) {
@@ -1613,6 +1645,80 @@ mod tests {
             state.cumulative_amount, 10,
             "invalid receipt header should be ignored without mutating cumulative"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_header_receipt_updates_server_spent() {
+        let channel_id = alloy::primitives::B256::from([0x68; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
+
+        let app = Router::new().route(
+            "/stream",
+            get({
+                let receipt_header = receipt_header.clone();
+                move || {
+                    let receipt_header = receipt_header.clone();
+                    async move {
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "text/event-stream")
+                            .header("payment-receipt", receipt_header)
+                            .body(Body::from(
+                                "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}] }\n\n",
+                            ))
+                            .unwrap()
+                    }
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(channel_id);
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(result.is_ok());
+        assert_eq!(state.accepted_cumulative, 12);
+        assert_eq!(state.cumulative_amount, 12);
+        assert_eq!(state.server_spent, 7);
     }
 
     #[serial_test::serial]

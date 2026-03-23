@@ -28,6 +28,9 @@ pub(super) struct ChannelState {
     pub(super) deposit: u128,
     pub(super) cumulative_amount: u128,
     pub(super) accepted_cumulative: u128,
+    /// Server-reported actual spend from `Payment-Receipt`. Used at close to
+    /// avoid overcharging when the server reconciles below the voucher ceiling.
+    pub(super) server_spent: u128,
 }
 
 /// Shared context for session operations (streaming, closing).

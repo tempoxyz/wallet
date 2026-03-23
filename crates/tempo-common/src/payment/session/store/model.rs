@@ -81,10 +81,15 @@ pub struct ChannelRecord {
     pub channel_id: B256,
     pub deposit: u128,
     pub cumulative_amount: u128,
-    /// Server-confirmed accepted cumulative amount. Used for cooperative close
-    /// to avoid overcharging. Defaults to `cumulative_amount` when unknown.
+    /// Server-confirmed accepted cumulative amount. Reflects the highest voucher
+    /// the server has accepted. Defaults to `cumulative_amount` when unknown.
     #[serde(default)]
     pub accepted_cumulative: u128,
+    /// Server-reported actual spend. Read from the `spent` field of the
+    /// `Payment-Receipt` header. Used for cooperative close to avoid
+    /// overcharging. Defaults to 0 when the server has not reported spend.
+    #[serde(default)]
+    pub server_spent: u128,
     pub challenge_echo: String,
     /// Explicit lifecycle state.
     #[serde(default = "default_state")]
@@ -140,7 +145,7 @@ impl ChannelRecord {
         format!("{channel_id:#x}", channel_id = self.channel_id)
     }
 
-    /// The server-confirmed accepted amount, for use in cooperative close.
+    /// The server-confirmed accepted amount.
     /// Falls back to `cumulative_amount` when the accepted amount is unknown (zero).
     #[must_use]
     pub const fn accepted_cumulative_u128(&self) -> u128 {
@@ -148,6 +153,17 @@ impl ChannelRecord {
             self.accepted_cumulative
         } else {
             self.cumulative_amount
+        }
+    }
+
+    /// The amount to use for cooperative close. Prefers the server-reported
+    /// actual spend over the accepted voucher ceiling to avoid overcharging.
+    #[must_use]
+    pub const fn close_amount(&self) -> u128 {
+        if self.server_spent > 0 {
+            self.server_spent
+        } else {
+            self.accepted_cumulative_u128()
         }
     }
 
@@ -159,6 +175,13 @@ impl ChannelRecord {
     /// Update the accepted cumulative amount (monotonic: never decreases).
     pub fn set_accepted_cumulative(&mut self, amount: u128) {
         self.accepted_cumulative = amount.max(self.accepted_cumulative);
+    }
+
+    /// Update the server-reported spend. Always takes the latest value from
+    /// the server (not monotonic — spend can be reconciled to a lower amount
+    /// when a reservation is committed at actual cost).
+    pub fn set_server_spent(&mut self, amount: u128) {
+        self.server_spent = amount;
     }
 
     /// Update `last_used_at` timestamp.
@@ -254,6 +277,7 @@ mod tests {
             deposit: 1_000_000,
             cumulative_amount: 0,
             accepted_cumulative: 0,
+            server_spent: 0,
             challenge_echo: "echo".into(),
             state: ChannelStatus::Active,
             close_requested_at: 0,
@@ -355,6 +379,27 @@ mod tests {
         assert_eq!(record.cumulative_amount, 50);
         record.set_cumulative_amount(100);
         assert_eq!(record.cumulative_amount, 100);
+    }
+
+    #[test]
+    fn test_close_amount_prefers_server_spent() {
+        let mut record = test_record("https://example.com", "salt");
+        record.cumulative_amount = 100;
+        record.accepted_cumulative = 80;
+        record.server_spent = 55;
+        assert_eq!(record.close_amount(), 55);
+    }
+
+    #[test]
+    fn test_close_amount_falls_back_when_server_spent_missing() {
+        let mut record = test_record("https://example.com", "salt");
+        record.cumulative_amount = 100;
+        record.accepted_cumulative = 80;
+        record.server_spent = 0;
+        assert_eq!(record.close_amount(), 80);
+
+        record.accepted_cumulative = 0;
+        assert_eq!(record.close_amount(), 100);
     }
 
     #[test]
