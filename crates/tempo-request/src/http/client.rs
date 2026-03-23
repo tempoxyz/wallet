@@ -342,7 +342,7 @@ impl HttpClient {
                             if jitter > 0 {
                                 // Best-effort random jitter to avoid synchronized retries.
                                 let mut bytes = [0u8; 8];
-                                let rand = if getrandom::getrandom(&mut bytes).is_ok() {
+                                let rand = if getrandom::fill(&mut bytes).is_ok() {
                                     u64::from_le_bytes(bytes) % jitter
                                 } else {
                                     // Deterministic fallback when entropy is unavailable.
