@@ -4,16 +4,56 @@
 //! resolves a network's key entry into a ready-to-use [`Signer`]
 //! (private key signer + signing mode + effective `from` address).
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy::{
+    primitives::{Address, B256},
+    signers::local::PrivateKeySigner,
+};
 use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
-use tempo_primitives::transaction::SignedKeyAuthorization;
+use tempo_primitives::transaction::{
+    KeychainSignature, PrimitiveSignature, SignedKeyAuthorization, TempoSignature,
+};
 
 use crate::{
     error::{ConfigError, KeyError, TempoError},
     network::NetworkId,
 };
 
-use super::{authorization, Keystore};
+use super::{authorization, secure_enclave, Keystore};
+
+/// A wallet signer — either a local secp256k1 private key or a Secure Enclave
+/// P-256 key (non-exportable, signing delegated to the SE shim).
+#[derive(Clone)]
+pub enum WalletSigner {
+    /// Standard secp256k1 private key signer.
+    PrivateKey(PrivateKeySigner),
+    /// Apple Secure Enclave P-256 key (macOS only).
+    SecureEnclave {
+        label: String,
+        address: Address,
+        pub_key_x: B256,
+        pub_key_y: B256,
+    },
+}
+
+impl WalletSigner {
+    /// Returns the on-chain address of this signer.
+    #[must_use]
+    pub fn address(&self) -> Address {
+        match self {
+            Self::PrivateKey(signer) => signer.address(),
+            Self::SecureEnclave { address, .. } => *address,
+        }
+    }
+
+    /// Returns the inner `PrivateKeySigner` if this is a `PrivateKey` variant.
+    #[must_use]
+    pub fn as_private_key_signer(&self) -> Option<&PrivateKeySigner> {
+        match self {
+            Self::PrivateKey(signer) => Some(signer),
+            Self::SecureEnclave { .. } => None,
+        }
+    }
+}
 
 /// Parse a private key hex string into a `PrivateKeySigner`.
 ///
@@ -43,7 +83,7 @@ pub fn parse_private_key_signer(pk_str: &str) -> Result<PrivateKeySigner, TempoE
 /// turns out not to be provisioned.
 #[derive(Clone)]
 pub struct Signer {
-    pub signer: PrivateKeySigner,
+    pub signer: WalletSigner,
     pub signing_mode: TempoSigningMode,
     pub from: Address,
     /// Key authorization kept aside for on-demand provisioning retries.
@@ -84,6 +124,104 @@ impl Signer {
     pub fn has_stored_key_authorization(&self) -> bool {
         self.stored_key_authorization.is_some()
     }
+
+    /// Sign a Tempo transaction sig_hash and return a [`TempoSignature`].
+    ///
+    /// For secp256k1 keys, uses the standard `sign_and_encode_async` path.
+    /// For SE P-256 keys, constructs a `PrimitiveSignature::P256` directly.
+    /// Both key types respect the signing mode (Direct vs Keychain V2).
+    pub fn sign_tempo_hash(&self, sig_hash: B256) -> Result<TempoSignature, TempoError> {
+        match &self.signer {
+            WalletSigner::PrivateKey(pk) => {
+                use alloy::signers::SignerSync;
+                let hash_to_sign = effective_signing_hash(sig_hash, &self.signing_mode);
+                let inner = pk.sign_hash_sync(&hash_to_sign).map_err(|source| {
+                    KeyError::SigningOperationSource {
+                        operation: "sign transaction",
+                        source: Box::new(source),
+                    }
+                })?;
+                Ok(build_secp256k1_tempo_signature(inner, &self.signing_mode))
+            }
+            WalletSigner::SecureEnclave {
+                label,
+                pub_key_x,
+                pub_key_y,
+                ..
+            } => {
+                let hash_to_sign = effective_signing_hash(sig_hash, &self.signing_mode);
+                let primitive =
+                    secure_enclave::sign_hash(label, &hash_to_sign, *pub_key_x, *pub_key_y)?;
+                match &self.signing_mode {
+                    TempoSigningMode::Direct => Ok(TempoSignature::Primitive(primitive)),
+                    TempoSigningMode::Keychain { wallet, .. } => Ok(TempoSignature::Keychain(
+                        KeychainSignature::new(*wallet, primitive),
+                    )),
+                }
+            }
+        }
+    }
+
+    /// Sign a voucher hash and return the raw signature bytes.
+    ///
+    /// For secp256k1 keys, returns the 65-byte (r, s, v) signature.
+    /// For SE P-256 keys, returns the 130-byte P-256 signature (type prefix + r + s + pubkey + pre_hash).
+    pub fn sign_voucher_hash(&self, hash: B256) -> Result<Vec<u8>, TempoError> {
+        match &self.signer {
+            WalletSigner::PrivateKey(pk) => {
+                use alloy::signers::SignerSync;
+                let sig = pk.sign_hash_sync(&hash).map_err(|source| {
+                    KeyError::SigningOperationSource {
+                        operation: "sign voucher",
+                        source: Box::new(source),
+                    }
+                })?;
+                Ok(sig.as_bytes().to_vec())
+            }
+            WalletSigner::SecureEnclave {
+                label,
+                pub_key_x,
+                pub_key_y,
+                ..
+            } => {
+                let primitive = secure_enclave::sign_hash(label, &hash, *pub_key_x, *pub_key_y)?;
+                Ok(primitive.to_bytes().to_vec())
+            }
+        }
+    }
+}
+
+/// Compute the hash that the signer should sign, given the tx sig_hash and mode.
+fn effective_signing_hash(sig_hash: B256, mode: &TempoSigningMode) -> B256 {
+    match mode {
+        TempoSigningMode::Direct => sig_hash,
+        TempoSigningMode::Keychain {
+            wallet, version, ..
+        } => match version {
+            KeychainVersion::V1 => sig_hash,
+            KeychainVersion::V2 => KeychainSignature::signing_hash(sig_hash, *wallet),
+        },
+    }
+}
+
+/// Build a [`TempoSignature`] from a secp256k1 inner signature and signing mode.
+fn build_secp256k1_tempo_signature(
+    inner: alloy::signers::Signature,
+    mode: &TempoSigningMode,
+) -> TempoSignature {
+    match mode {
+        TempoSigningMode::Direct => TempoSignature::Primitive(PrimitiveSignature::Secp256k1(inner)),
+        TempoSigningMode::Keychain {
+            wallet, version, ..
+        } => {
+            let primitive = PrimitiveSignature::Secp256k1(inner);
+            let keychain_sig = match version {
+                KeychainVersion::V1 => KeychainSignature::new_v1(*wallet, primitive),
+                KeychainVersion::V2 => KeychainSignature::new(*wallet, primitive),
+            };
+            TempoSignature::Keychain(keychain_sig)
+        }
+    }
 }
 
 impl Keystore {
@@ -105,15 +243,6 @@ impl Keystore {
             )))
         })?;
 
-        let pk = key_entry
-            .key
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                TempoError::from(ConfigError::Missing("No key configured.".to_string()))
-            })?;
-        let signer = parse_private_key_signer(pk)?;
-
         let wallet_address: Address = key_entry.wallet_address_parsed().ok_or_else(|| {
             TempoError::from(ConfigError::InvalidAddress {
                 context: "wallet",
@@ -121,7 +250,49 @@ impl Keystore {
             })
         })?;
 
-        let (signing_mode, stored_key_authorization) = if wallet_address == signer.address() {
+        let wallet_signer = if key_entry.is_secure_enclave() {
+            let label = key_entry.se_label.as_deref().ok_or_else(|| {
+                TempoError::from(KeyError::SecureEnclave(
+                    "SE key entry missing label".to_string(),
+                ))
+            })?;
+
+            let pubkey_hex = secure_enclave::pubkey(label)?;
+            let pubkey_bytes = hex::decode(&pubkey_hex).map_err(|_| {
+                KeyError::SecureEnclave("invalid public key hex from SE".to_string())
+            })?;
+            if pubkey_bytes.len() != 65 || pubkey_bytes[0] != 0x04 {
+                return Err(KeyError::SecureEnclave(
+                    "unexpected public key format from SE".to_string(),
+                )
+                .into());
+            }
+
+            let pub_key_x = B256::from_slice(&pubkey_bytes[1..33]);
+            let pub_key_y = B256::from_slice(&pubkey_bytes[33..65]);
+            let hash = alloy::primitives::keccak256(&pubkey_bytes[1..]);
+            let address = Address::from_slice(&hash[12..]);
+
+            WalletSigner::SecureEnclave {
+                label: label.to_string(),
+                address,
+                pub_key_x,
+                pub_key_y,
+            }
+        } else {
+            let pk = key_entry
+                .key
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    TempoError::from(ConfigError::Missing("No key configured.".to_string()))
+                })?;
+            WalletSigner::PrivateKey(parse_private_key_signer(pk)?)
+        };
+
+        let signer_address = wallet_signer.address();
+
+        let (signing_mode, stored_key_authorization) = if wallet_address == signer_address {
             (TempoSigningMode::Direct, None)
         } else {
             // Decode the local key authorization but always start optimistically
@@ -144,10 +315,10 @@ impl Keystore {
             )
         };
 
-        let from = signing_mode.from_address(signer.address());
+        let from = signing_mode.from_address(wallet_signer.address());
 
         Ok(Signer {
-            signer,
+            signer: wallet_signer,
             signing_mode,
             from,
             stored_key_authorization,
@@ -171,7 +342,10 @@ mod tests {
         let keys = Keystore::from_private_key(TEST_PRIVATE_KEY).unwrap();
         let signer = keys.signer(NetworkId::Tempo).unwrap();
         assert!(matches!(signer.signing_mode, TempoSigningMode::Direct));
-        assert_eq!(signer.from, signer.signer.address());
+        assert_eq!(
+            signer.from,
+            signer.signer.as_private_key_signer().unwrap().address()
+        );
     }
 
     #[test]

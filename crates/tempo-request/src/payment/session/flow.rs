@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use alloy::primitives::{utils::parse_units, Address, B256};
-use mpp::protocol::methods::tempo::{compute_channel_id, session::TempoSessionExt, sign_voucher};
+use mpp::protocol::methods::tempo::{compute_channel_id, session::TempoSessionExt};
 
 use super::{
     error_map::payment_rejected_from_body,
@@ -1186,18 +1186,13 @@ async fn open_stage(
     );
 
     let initial_cumulative = challenge.amount;
-    let voucher_sig = sign_voucher(
-        &signer.signer,
+    let voucher_hash = super::voucher::voucher_signing_hash(
         channel_id,
         initial_cumulative,
         challenge.escrow_contract,
         challenge.chain_id,
-    )
-    .await
-    .map_err(|source| KeyError::SigningOperationSource {
-        operation: "sign initial voucher",
-        source: Box::new(source),
-    })?;
+    );
+    let voucher_sig = signer.sign_voucher_hash(voucher_hash)?;
 
     let open_idempotency_key = new_idempotency_key();
     let delays = [2000_u64, 3000, 5000];

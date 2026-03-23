@@ -966,9 +966,10 @@ mod tests {
 
     fn test_signer() -> tempo_common::keys::Signer {
         let signer = tempo_common::keys::parse_private_key_signer(TEST_PRIVATE_KEY).unwrap();
+        let from = signer.address();
         tempo_common::keys::Signer {
-            from: signer.address(),
-            signer,
+            from,
+            signer: tempo_common::keys::WalletSigner::PrivateKey(signer),
             signing_mode: mpp::client::tempo::signing::TempoSigningMode::Direct,
             stored_key_authorization: None,
         }

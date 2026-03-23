@@ -110,7 +110,7 @@ pub async fn close_channel_from_record(
         let coop_result = cooperative::try_server_close(
             record,
             &echo,
-            &wallet.signer,
+            &wallet,
             channel_id,
             escrow_contract,
             record.chain_id,
@@ -225,7 +225,7 @@ pub async fn close_channel_from_record_cooperative(
     let tx_url = cooperative::try_server_close(
         record,
         &echo,
-        &wallet.signer,
+        &wallet,
         channel_id,
         escrow_contract,
         record.chain_id,

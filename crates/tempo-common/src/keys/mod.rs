@@ -4,10 +4,11 @@ pub mod authorization;
 mod io;
 mod keystore;
 mod model;
+pub mod secure_enclave;
 mod signer;
 
 pub use io::{take_keystore_load_summary, KeystoreLoadSummary};
 pub use keystore::Keystore;
-pub use model::{KeyEntry, WalletType};
-use model::{KeyType, StoredTokenLimit};
-pub use signer::{parse_private_key_signer, Signer};
+use model::StoredTokenLimit;
+pub use model::{KeyEntry, KeyType, WalletType};
+pub use signer::{parse_private_key_signer, Signer, WalletSigner};

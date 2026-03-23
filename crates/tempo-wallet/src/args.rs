@@ -45,6 +45,12 @@ pub(crate) enum Commands {
     /// List keys and their spending limits
     #[command(display_order = 4, name = "keys")]
     Keys,
+    /// Manage Secure Enclave keys (macOS)
+    #[command(display_order = 6, name = "se")]
+    Se {
+        #[command(subcommand)]
+        command: SeCommands,
+    },
     /// Transfer tokens to an address
     #[command(display_order = 5, arg_required_else_help = true)]
     #[command(after_help = "\
@@ -104,6 +110,33 @@ Examples:
         /// The shell to generate completions for
         #[arg(value_enum)]
         shell: Option<clap_complete::Shell>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum SeCommands {
+    /// Generate a new Secure Enclave key
+    Generate {
+        /// Key label (defaults to wallet address)
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// List Secure Enclave keys
+    List,
+    /// Show public key for an SE key
+    Pubkey {
+        /// Key label
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// Delete a Secure Enclave key
+    Delete {
+        /// Key label
+        #[arg(long)]
+        label: Option<String>,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
     },
 }
 

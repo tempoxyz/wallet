@@ -1,9 +1,9 @@
 //! Application entry point: build context, dispatch command, flush analytics.
 
 use crate::{
-    args::{Cli, Commands, ServicesCommands, SessionCommands},
+    args::{Cli, Commands, SeCommands, ServicesCommands, SessionCommands},
     commands::{
-        completions, debug, fund, keys, login, logout, services, sessions, transfer, whoami,
+        completions, debug, fund, keys, login, logout, se, services, sessions, transfer, whoami,
     },
 };
 use tempo_common::error::TempoError;
@@ -40,6 +40,12 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                     )
                     .await
                 }
+                Commands::Se { command } => match command {
+                    SeCommands::Generate { label } => se::generate(&ctx, label).await,
+                    SeCommands::List => se::list(&ctx),
+                    SeCommands::Pubkey { label } => se::pubkey(&ctx, label),
+                    SeCommands::Delete { label, yes } => se::delete(&ctx, label, yes),
+                },
                 Commands::Transfer {
                     amount,
                     token,
@@ -71,6 +77,12 @@ const fn command_name(command: &Commands) -> &'static str {
             Some(SessionCommands::List { .. }) | None => "sessions list",
             Some(SessionCommands::Close { .. }) => "sessions close",
             Some(SessionCommands::Sync { .. }) => "sessions sync",
+        },
+        Commands::Se { command } => match command {
+            SeCommands::Generate { .. } => "se generate",
+            SeCommands::List => "se list",
+            SeCommands::Pubkey { .. } => "se pubkey",
+            SeCommands::Delete { .. } => "se delete",
         },
         Commands::Transfer { .. } => "transfer",
         Commands::Debug => "debug",

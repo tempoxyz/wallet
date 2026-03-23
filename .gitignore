@@ -18,6 +18,11 @@ keys.toml
 # Build artifacts
 *.tar.gz
 
+# Swift / Xcode
+.build/
+xcuserdata/
+DerivedData/
+
 # Eval (promptfoo output and old run artifacts)
 eval/runs/
 eval/output/

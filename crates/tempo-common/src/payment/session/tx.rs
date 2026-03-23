@@ -12,11 +12,11 @@ use alloy::{
 };
 use tempo_primitives::transaction::Call;
 
-use mpp::client::tempo::{charge::tx_builder, signing};
+use mpp::client::tempo::charge::tx_builder;
 
 use crate::{
     error::{KeyError, NetworkError, TempoError},
-    keys::Signer,
+    keys::{Signer, WalletSigner},
 };
 
 type ChannelResult<T> = Result<T, TempoError>;
@@ -104,18 +104,18 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     // Hold the provisioning-retry signer if we need to rebuild.
     let provisioning_signer;
 
-    let gas_result = tx_builder::estimate_gas(
+    let is_se = matches!(wallet.signer, WalletSigner::SecureEnclave { .. });
+
+    let gas_result = estimate_gas_with_key_type(
         provider,
         from,
         chain_id,
         nonce,
         effective_fee_token,
         &calls,
-        MAX_FEE_PER_GAS,
-        MAX_PRIORITY_FEE_PER_GAS,
         key_auth,
-        EXPIRING_NONCE_KEY,
         valid_before,
+        is_se,
     )
     .await;
 
@@ -132,32 +132,21 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
                     })?;
             effective_wallet = &provisioning_signer;
             key_auth = effective_wallet.signing_mode.key_authorization();
-            tx_builder::estimate_gas(
+            estimate_gas_with_key_type(
                 provider,
                 from,
                 chain_id,
                 nonce,
                 effective_fee_token,
                 &calls,
-                MAX_FEE_PER_GAS,
-                MAX_PRIORITY_FEE_PER_GAS,
                 key_auth,
-                EXPIRING_NONCE_KEY,
                 valid_before,
+                is_se,
             )
             .await
-            .map_err(|_| KeyError::SigningOperationSource {
-                operation: "estimate gas",
-                source: Box::new(original),
-            })?
+            .map_err(|_| original)?
         }
-        Err(e) => {
-            return Err(KeyError::SigningOperationSource {
-                operation: "estimate gas",
-                source: Box::new(e),
-            }
-            .into())
-        }
+        Err(e) => return Err(e),
     };
 
     let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
@@ -174,18 +163,12 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
         key_authorization: key_auth.cloned(),
     });
 
-    Ok(
-        signing::sign_and_encode_async(
-            tx,
-            &effective_wallet.signer,
-            &effective_wallet.signing_mode,
-        )
-        .await
-        .map_err(|source| KeyError::SigningOperationSource {
-            operation: "sign and encode transaction",
-            source: Box::new(source),
-        })?,
-    )
+    let sig_hash = tx.signature_hash();
+    let signature = effective_wallet.sign_tempo_hash(sig_hash)?;
+    let signed_tx = tx.into_signed(signature);
+
+    use alloy::eips::Encodable2718;
+    Ok(signed_tx.encoded_2718())
 }
 
 /// Submit a Tempo type-0x76 transaction and return the tx hash.
@@ -241,6 +224,61 @@ pub async fn submit_tempo_tx(
         }
         .into()),
     }
+}
+
+/// Gas estimation that includes `keyType` for P-256 signers.
+///
+/// The Tempo node needs a `keyType` hint in `eth_estimateGas` to correctly
+/// account for P-256 precompile gas costs.
+#[allow(clippy::too_many_arguments)]
+async fn estimate_gas_with_key_type(
+    provider: &alloy::providers::RootProvider<mpp::client::TempoNetwork>,
+    from: Address,
+    chain_id: u64,
+    nonce: u64,
+    fee_token: Address,
+    calls: &[Call],
+    key_authorization: Option<&tempo_primitives::transaction::SignedKeyAuthorization>,
+    valid_before: Option<u64>,
+    is_p256: bool,
+) -> ChannelResult<u64> {
+    let mut req = tx_builder::build_estimate_gas_request(
+        from,
+        chain_id,
+        nonce,
+        fee_token,
+        calls,
+        MAX_FEE_PER_GAS,
+        MAX_PRIORITY_FEE_PER_GAS,
+        key_authorization,
+        EXPIRING_NONCE_KEY,
+        valid_before,
+    )
+    .map_err(|source| KeyError::SigningOperationSource {
+        operation: "build gas estimate request",
+        source: Box::new(source),
+    })?;
+
+    if is_p256 {
+        req["keyType"] = serde_json::json!("p256");
+    }
+
+    let gas_hex: String = provider
+        .raw_request("eth_estimateGas".into(), [req])
+        .await
+        .map_err(|e| KeyError::SigningOperationSource {
+            operation: "estimate gas",
+            source: Box::new(mpp::error::MppError::Http(format!(
+                "gas estimation failed: {e}"
+            ))),
+        })?;
+    let gas = u64::from_str_radix(gas_hex.trim_start_matches("0x"), 16).map_err(|e| {
+        KeyError::SigningOperation {
+            operation: "parse gas estimate",
+            reason: format!("invalid gas hex '{gas_hex}': {e}"),
+        }
+    })?;
+    Ok(gas.saturating_add(5_000))
 }
 
 // ==================== Transaction Construction ====================

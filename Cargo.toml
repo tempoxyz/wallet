@@ -58,6 +58,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 urlencoding = "2.1"
 webbrowser = "1"
+which = "7"
 zeroize = { version = "1", features = ["serde"] }
 
 # dev-dependencies

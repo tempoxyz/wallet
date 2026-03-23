@@ -5,9 +5,13 @@
 
 use alloy::primitives::{Address, B256};
 
+use alloy::sol_types::{eip712_domain, SolStruct};
 use mpp::{
     parse_receipt,
-    protocol::methods::tempo::{session::SessionCredentialPayload, sign_voucher},
+    protocol::methods::tempo::{
+        session::SessionCredentialPayload,
+        voucher::{Voucher, DOMAIN_NAME, DOMAIN_VERSION},
+    },
     ChallengeEcho,
 };
 
@@ -16,7 +20,7 @@ use mpp::protocol::core::extract_tx_hash;
 use super::super::store;
 use crate::{
     cli::{format::format_token_amount, terminal::sanitize_for_terminal},
-    error::{KeyError, NetworkError, PaymentError, TempoError},
+    error::{NetworkError, PaymentError, TempoError},
     payment::classify::parse_problem_details,
 };
 
@@ -41,7 +45,7 @@ fn credential_source_from_payer(payer: &str, chain_id: u64) -> String {
 pub(super) async fn try_server_close(
     record: &store::ChannelRecord,
     echo: &ChallengeEcho,
-    signer: &alloy::signers::local::PrivateKeySigner,
+    signer: &crate::keys::Signer,
     channel_id: B256,
     escrow_contract: Address,
     chain_id: u64,
@@ -78,18 +82,18 @@ pub(super) async fn try_server_close(
         url = close_url,
         "coop close"
     );
-    let sig = sign_voucher(
-        signer,
-        channel_id,
-        cumulative_amount,
-        escrow_contract,
-        chain_id,
-    )
-    .await
-    .map_err(|source| KeyError::SigningOperationSource {
-        operation: "sign close voucher",
-        source: Box::new(source),
-    })?;
+    let domain = eip712_domain! {
+        name: DOMAIN_NAME,
+        version: DOMAIN_VERSION,
+        chain_id: chain_id,
+        verifying_contract: escrow_contract,
+    };
+    let voucher = Voucher {
+        channelId: channel_id,
+        cumulativeAmount: cumulative_amount,
+    };
+    let hash = voucher.eip712_signing_hash(&domain);
+    let sig = signer.sign_voucher_hash(hash)?;
     let payload = SessionCredentialPayload::Close {
         channel_id: format!("{channel_id:#x}"),
         cumulative_amount: cumulative_amount.to_string(),
@@ -275,12 +279,19 @@ mod tests {
         };
 
         let echo: ChallengeEcho = serde_json::from_str(&record.challenge_echo).unwrap();
-        let signer = alloy::signers::local::PrivateKeySigner::from_bytes(
+        let pk_signer = alloy::signers::local::PrivateKeySigner::from_bytes(
             &"0x0707070707070707070707070707070707070707070707070707070707070707"
                 .parse()
                 .unwrap(),
         )
         .unwrap();
+        let from = pk_signer.address();
+        let signer = crate::keys::Signer {
+            signer: crate::keys::WalletSigner::PrivateKey(pk_signer),
+            signing_mode: mpp::client::tempo::signing::TempoSigningMode::Direct,
+            from,
+            stored_key_authorization: None,
+        };
         let channel_id: B256 = "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
             .parse()
             .unwrap();
