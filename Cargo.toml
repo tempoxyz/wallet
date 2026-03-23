@@ -61,7 +61,7 @@ webbrowser = "1"
 zeroize = { version = "1", features = ["serde"] }
 
 # dev-dependencies
-assert_cmd = "2.1"
+assert_cmd = "2.2"
 tempo-test = { path = "crates/tempo-test" }
 axum = "0.8"
 predicates = "3.1"
