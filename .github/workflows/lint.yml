@@ -72,7 +72,7 @@ jobs:
         with:
           language: rust
           path: "."
-          post-comment: true
+          post-comment: false
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   typos:
@@ -102,7 +102,17 @@ jobs:
         with:
           tool: cargo-deny
       - name: Configure git auth
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TOKEN="$GH_PAT"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="$GITHUB_TOKEN"
+          fi
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
       - name: Run cargo deny
         run: cargo deny check
 
