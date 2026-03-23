@@ -1,0 +1,79 @@
+name: Workflow Validation
+
+permissions: {}
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          version=1.7.8
+          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz" -o /tmp/actionlint.tgz
+          tar -xzf /tmp/actionlint.tgz -C /tmp
+          sudo mv /tmp/actionlint /usr/local/bin/actionlint
+      - name: Run actionlint
+        run: actionlint -color
+
+  workflow-policy:
+    name: workflow policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Enforce workflow security and fork-safety invariants
+        run: |
+          set -euo pipefail
+
+          echo "Checking for mutable action refs..."
+          if rg -n "uses:\s+[^#\n]+@(main|master)$" .github/workflows; then
+            echo "::error::Found mutable action ref (@main/@master). Pin to a commit SHA."
+            exit 1
+          fi
+
+          echo "Checking changelog fork behavior..."
+          rg -n "if: github.event.pull_request.head.repo.full_name != github.repository" .github/workflows/changelog.yml >/dev/null
+          rg -n "if: github.event.pull_request.head.repo.full_name == github.repository" .github/workflows/changelog.yml >/dev/null
+
+          echo "Checking tempo-lints fork-safe mode..."
+          rg -n "post-comment:\s+false" .github/workflows/lint.yml >/dev/null
+
+          echo "Checking pr-audit pinning and trust gate..."
+          if rg -n "tempoxyz/gh-actions/.github/workflows/pr-audit.yml@main" .github/workflows/pr-audit.yml; then
+            echo "::error::pr-audit reusable workflow must be pinned to a commit SHA."
+            exit 1
+          fi
+          rg -n "contains\(fromJson\('\[\"OWNER\",\"MEMBER\",\"COLLABORATOR\"\]'\), github.event.comment.author_association\)" .github/workflows/pr-audit.yml >/dev/null
+
+          echo "Checking pull_request_target hardening..."
+          rg -n "pull_request_target:" .github/workflows/changelog-generate.yml >/dev/null
+          rg -n "if: steps.source.outputs.same_repo == 'true'" .github/workflows/changelog-generate.yml >/dev/null
+          rg -n "^\s*git push origin \"HEAD:" .github/workflows/changelog-generate.yml >/dev/null
+          if rg -n "git checkout -b \$\{\{ github.event.pull_request.head.ref \}\}" .github/workflows/changelog-generate.yml; then
+            echo "::error::Unsafe branch checkout pattern detected in changelog generation workflow."
+            exit 1
+          fi
+
+          echo "Workflow policy checks passed."
