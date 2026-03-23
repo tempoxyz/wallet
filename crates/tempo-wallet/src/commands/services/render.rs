@@ -27,19 +27,7 @@ struct ServiceListItem<'a> {
     description: Option<&'a str>,
     categories: Vec<&'a str>,
     tags: Vec<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    docs: Option<&'a ServiceDocs>,
-    endpoints: Vec<EndpointListItem<'a>>,
-}
-
-#[derive(Serialize)]
-struct EndpointListItem<'a> {
-    method: &'a str,
-    path: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    docs: Option<&'a str>,
+    endpoint_count: usize,
 }
 
 // ── Detail serialization structs ─────────────────────────────────────
@@ -116,17 +104,7 @@ pub(super) fn render_service_list(
                 .map(std::string::String::as_str)
                 .collect(),
             tags: s.tags.iter().map(std::string::String::as_str).collect(),
-            docs: s.docs.as_ref(),
-            endpoints: s
-                .endpoints
-                .iter()
-                .map(|ep| EndpointListItem {
-                    method: ep.method_kind().as_str(),
-                    path: &ep.path,
-                    description: ep.description.as_deref(),
-                    docs: ep.docs.as_deref(),
-                })
-                .collect(),
+            endpoint_count: s.endpoints.len(),
         })
         .collect();
 
@@ -313,5 +291,98 @@ fn render_detail(s: &Service) {
                 println!("         docs: {}", sanitize_for_terminal(docs_url));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::commands::services::model::{Endpoint, PaymentMethod, Provider};
+
+    fn sample_service() -> Service {
+        Service {
+            id: "weather-pro".to_string(),
+            name: "Weather Pro".to_string(),
+            url: "https://api.weather.example".to_string(),
+            service_url: Some("https://mpp.weather.example".to_string()),
+            description: Some("Premium weather data".to_string()),
+            icon: None,
+            categories: vec!["weather".to_string(), "data".to_string()],
+            integration: None,
+            tags: vec!["forecast".to_string(), "radar".to_string()],
+            status: None,
+            docs: Some(ServiceDocs {
+                homepage: Some("https://docs.weather.example".to_string()),
+                llms_txt: None,
+                openapi: Some("https://docs.weather.example/openapi.json".to_string()),
+                api_reference: None,
+            }),
+            methods: HashMap::<String, PaymentMethod>::new(),
+            realm: None,
+            endpoints: vec![
+                Endpoint {
+                    method: "GET".to_string(),
+                    path: "/v1/forecast".to_string(),
+                    description: Some("Forecast endpoint".to_string()),
+                    payment: None,
+                    docs: Some("https://docs.weather.example/forecast".to_string()),
+                },
+                Endpoint {
+                    method: "POST".to_string(),
+                    path: "/v1/alerts".to_string(),
+                    description: Some("Create alert".to_string()),
+                    payment: None,
+                    docs: None,
+                },
+            ],
+            provider: Some(Provider {
+                name: Some("Weather Inc".to_string()),
+                url: None,
+                icon: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn service_list_item_schema_is_summary_only() {
+        let service = sample_service();
+
+        let item = ServiceListItem {
+            id: &service.id,
+            name: &service.name,
+            url: Some(&service.url),
+            service_url: service.service_url.as_deref(),
+            description: service.description.as_deref(),
+            categories: service
+                .categories
+                .iter()
+                .map(std::string::String::as_str)
+                .collect(),
+            tags: service
+                .tags
+                .iter()
+                .map(std::string::String::as_str)
+                .collect(),
+            endpoint_count: service.endpoints.len(),
+        };
+
+        let value = serde_json::to_value(item).expect("list item should serialize");
+        let object = value
+            .as_object()
+            .expect("serialized list item should be an object");
+
+        assert!(object.contains_key("id"));
+        assert!(object.contains_key("name"));
+        assert!(object.contains_key("url"));
+        assert!(object.contains_key("service_url"));
+        assert!(object.contains_key("description"));
+        assert!(object.contains_key("categories"));
+        assert!(object.contains_key("tags"));
+        assert_eq!(object.get("endpoint_count"), Some(&serde_json::json!(2)));
+
+        assert!(object.get("docs").is_none());
+        assert!(object.get("endpoints").is_none());
     }
 }
