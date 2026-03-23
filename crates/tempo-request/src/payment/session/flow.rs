@@ -265,6 +265,7 @@ fn apply_response_receipt_from_headers(
     response: &reqwest::Response,
     state: &mut ChannelState,
     context: &str,
+    require_header: bool,
 ) -> Result<Option<String>, TempoError> {
     if !response.status().is_success() {
         return Ok(None);
@@ -275,7 +276,10 @@ fn apply_response_receipt_from_headers(
         .get("payment-receipt")
         .and_then(|v| v.to_str().ok())
     else {
-        return Err(missing_payment_receipt_error(context));
+        if require_header {
+            return Err(missing_payment_receipt_error(context));
+        }
+        return Ok(None);
     };
 
     match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
@@ -1323,9 +1327,10 @@ async fn open_stage(
 
     if is_sse {
         let status_code = open_response.status().as_u16();
-        // Extract receipt from headers before passing the response through.
+        // Compatibility: some providers send the required receipt only as an
+        // SSE `payment-receipt` event rather than an initial HTTP header.
         let open_tx_hash =
-            apply_response_receipt_from_headers(&open_response, &mut state, "open response")
+            apply_response_receipt_from_headers(&open_response, &mut state, "open response", false)
                 .map_err(|e| persist_on_error(&state, e))?;
         if let Some(tx_ref) = open_tx_hash.as_deref() {
             if http.log_enabled() {
@@ -1923,7 +1928,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn apply_response_receipt_from_headers_requires_valid_header() {
+    async fn apply_response_receipt_from_headers_allows_missing_header_when_optional() {
         let channel_id = B256::from([0x7A; 32]);
         let app = axum::Router::new().route(
             "/missing",
@@ -1952,8 +1957,49 @@ mod tests {
             server_spent: 10,
         };
 
-        let err = apply_response_receipt_from_headers(&response, &mut state, "open response")
-            .expect_err("strict mode should reject missing receipt");
+        let tx_ref =
+            apply_response_receipt_from_headers(&response, &mut state, "open response", false)
+                .expect("optional mode should allow missing receipt header");
+        assert!(tx_ref.is_none());
+        assert_eq!(state.accepted_cumulative, 20);
+        assert_eq!(state.server_spent, 10);
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn apply_response_receipt_from_headers_requires_header_when_strict() {
+        let channel_id = B256::from([0x7C; 32]);
+        let app = axum::Router::new().route(
+            "/missing-strict",
+            axum::routing::get(|| async { (axum::http::StatusCode::OK, "ok") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("http://{addr}/missing-strict"))
+            .send()
+            .await
+            .unwrap();
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 20,
+            server_spent: 10,
+        };
+
+        let err = apply_response_receipt_from_headers(&response, &mut state, "open response", true)
+            .expect_err("strict mode should reject missing receipt header");
         assert!(err.to_string().contains("Missing required Payment-Receipt"));
 
         server.abort();
@@ -2014,7 +2060,7 @@ mod tests {
             server_spent: 10,
         };
 
-        let err = apply_response_receipt_from_headers(&response, &mut state, "open response")
+        let err = apply_response_receipt_from_headers(&response, &mut state, "open response", true)
             .expect_err("strict mode should reject invalid spent");
         assert!(err.to_string().contains("payment-receipt.spent"));
 
