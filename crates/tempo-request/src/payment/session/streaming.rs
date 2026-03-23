@@ -13,6 +13,11 @@ use super::{
     new_idempotency_key, open,
     persist::{persist_channel_cumulative_floor, persist_session},
     receipt::{parse_validated_session_receipt_header, validate_session_receipt_fields},
+    receipt_policy::{
+        apply_receipt_amounts, apply_receipt_amounts_strict, invalid_payment_receipt_error,
+        missing_payment_receipt_error, protocol_spent_error, warn_invalid_payment_receipt,
+        warn_missing_payment_receipt,
+    },
     voucher::{build_top_up_payload, build_voucher_credential},
     ChannelContext, ChannelState,
 };
@@ -40,48 +45,22 @@ fn parse_protocol_u128(value: &str, field: &'static str) -> Result<u128, TempoEr
         .map_err(|_| protocol_value_error(field, value))
 }
 
-fn protocol_spent_error(reason: String) -> TempoError {
-    PaymentError::PaymentRejected {
-        reason: format!("Malformed payment protocol field: payment-receipt.spent {reason}"),
-        status_code: 502,
-    }
-    .into()
-}
-
-fn apply_receipt_amounts(state: &mut ChannelState, accepted_cumulative: u128, spent: Option<u128>) {
-    state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
-    state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
-    if let Some(spent) = spent {
-        if spent > 0 && spent <= accepted_cumulative {
-            state.server_spent = spent;
-        }
-    }
-}
-
-fn apply_receipt_amounts_strict(
+fn preserve_state_for_top_up_receipt_failure(
+    ctx: &ChannelContext<'_>,
     state: &mut ChannelState,
-    accepted_cumulative: u128,
-    spent: Option<u128>,
-) -> Result<(), TempoError> {
-    let spent = spent.ok_or_else(|| protocol_spent_error("is missing".to_string()))?;
-
-    if spent > accepted_cumulative {
-        return Err(protocol_spent_error(format!(
-            "must be <= acceptedCumulative (spent={spent}, acceptedCumulative={accepted_cumulative})"
-        )));
+    additional_deposit: u128,
+) {
+    // The top-up request already returned a successful paid response. Persist a
+    // conservative deposit floor so strict receipt failures do not lose track
+    // of potentially funded on-chain state.
+    state.deposit = state.deposit.saturating_add(additional_deposit);
+    if let Err(source) = persist_session(ctx, state) {
+        tracing::warn!(
+            error = %source,
+            channel_id = %format!("{:#x}", state.channel_id),
+            "Failed to preserve session state after strict top-up receipt failure"
+        );
     }
-
-    if spent < state.server_spent {
-        return Err(protocol_spent_error(format!(
-            "must be monotonically non-decreasing (previous={}, got={spent})",
-            state.server_spent
-        )));
-    }
-
-    state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
-    state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
-    state.server_spent = spent;
-    Ok(())
 }
 
 fn parse_protocol_channel_id(
@@ -151,7 +130,13 @@ async fn send_top_up(
                 Ok(receipt) => {
                     if state.strict_receipts {
                         if let Some(reason) = receipt.spent_parse_error {
-                            return Err(protocol_spent_error(reason));
+                            let error = protocol_spent_error(reason);
+                            preserve_state_for_top_up_receipt_failure(
+                                ctx,
+                                state,
+                                additional_deposit,
+                            );
+                            return Err(error);
                         }
                         apply_receipt_amounts_strict(
                             state,
@@ -173,7 +158,9 @@ async fn send_top_up(
                 }
                 Err(reason) => {
                     if state.strict_receipts {
-                        return Err(invalid_payment_receipt_error("topUp response", &reason));
+                        let error = invalid_payment_receipt_error("topUp response", &reason);
+                        preserve_state_for_top_up_receipt_failure(ctx, state, additional_deposit);
+                        return Err(error);
                     }
                     warn_invalid_payment_receipt("topUp response", &reason);
                 }
@@ -181,41 +168,15 @@ async fn send_top_up(
         }
         None => {
             if state.strict_receipts {
-                return Err(missing_payment_receipt_error("topUp response"));
+                let error = missing_payment_receipt_error("topUp response");
+                preserve_state_for_top_up_receipt_failure(ctx, state, additional_deposit);
+                return Err(error);
             }
             warn_missing_payment_receipt("topUp response");
         }
     }
 
     Ok(())
-}
-
-fn warn_missing_payment_receipt(context: &str) {
-    eprintln!("Warning: missing Payment-Receipt on successful paid {context}");
-}
-
-fn warn_invalid_payment_receipt(context: &str, reason: &str) {
-    let safe_reason = sanitize_for_terminal(reason);
-    eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {safe_reason}");
-}
-
-fn missing_payment_receipt_error(context: &str) -> TempoError {
-    PaymentError::PaymentRejected {
-        reason: format!("Missing required Payment-Receipt on successful paid {context}"),
-        status_code: 502,
-    }
-    .into()
-}
-
-fn invalid_payment_receipt_error(context: &str, reason: &str) -> TempoError {
-    let safe_reason = sanitize_for_terminal(reason);
-    PaymentError::PaymentRejected {
-        reason: format!(
-            "Invalid required Payment-Receipt on successful paid {context}: {safe_reason}"
-        ),
-        status_code: 502,
-    }
-    .into()
 }
 
 fn stream_idle_timeout_error(timeout: Duration) -> TempoError {
@@ -1977,6 +1938,79 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(state.accepted_cumulative, 12);
         assert_eq!(state.cumulative_amount, 12);
+        assert_eq!(state.server_spent, 7);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_header_receipt_allows_reconciled_lower_spent() {
+        let channel_id = alloy::primitives::B256::from([0x70; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
+
+        let app = Router::new().route(
+            "/stream",
+            get({
+                let receipt_header = receipt_header.clone();
+                move || {
+                    let receipt_header = receipt_header.clone();
+                    async move {
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "text/event-stream")
+                            .header("payment-receipt", receipt_header)
+                            .body(Body::from(
+                                "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}] }\n\n",
+                            ))
+                            .unwrap()
+                    }
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(channel_id);
+        state.server_spent = 10;
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(result.is_ok());
         assert_eq!(state.server_spent, 7);
     }
 

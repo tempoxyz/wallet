@@ -585,13 +585,15 @@ async fn session_handler(
             }
 
             let mut builder = Response::builder().status(StatusCode::OK);
-            if let Some(accepted) = state.config.open_receipt_accepted {
-                let receipt = build_session_receipt(&channel_id, accepted);
-                builder = builder.header("payment-receipt", receipt);
-            } else {
-                let accepted = cumulative_amount.parse::<u128>().unwrap_or(SESSION_AMOUNT);
-                let receipt = build_session_receipt(&channel_id, accepted);
-                builder = builder.header("payment-receipt", receipt);
+            if !path.contains("open-missing-receipt") {
+                if let Some(accepted) = state.config.open_receipt_accepted {
+                    let receipt = build_session_receipt(&channel_id, accepted);
+                    builder = builder.header("payment-receipt", receipt);
+                } else {
+                    let accepted = cumulative_amount.parse::<u128>().unwrap_or(SESSION_AMOUNT);
+                    let receipt = build_session_receipt(&channel_id, accepted);
+                    builder = builder.header("payment-receipt", receipt);
+                }
             }
             builder.body(Body::from("open-ok")).unwrap()
         }

@@ -591,6 +591,47 @@ async fn missing_receipt_on_successful_paid_response_is_error_for_strict_session
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_open_missing_receipt_preserves_channel_state() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: false,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: None,
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = run_session_request(&temp, &server.url("/resource-open-missing-receipt"));
+    assert!(
+        !output.status.success(),
+        "strict open should fail when successful paid response omits receipt: {}",
+        get_combined_output(&output)
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(
+        channels.len(),
+        1,
+        "strict open failure should still preserve recoverable local channel state"
+    );
+    assert_eq!(
+        channels[0].state, "active",
+        "strict open failure should preserve an active channel record for recovery"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_topup_receipt_is_error_for_strict_stream_sessions() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
@@ -635,6 +676,17 @@ async fn missing_topup_receipt_is_error_for_strict_stream_sessions() {
     assert!(
         observed.top_up_count >= 1,
         "test precondition: stream flow should execute top-up before failing"
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(
+        channels.len(),
+        1,
+        "strict top-up receipt failures should preserve local session state for recovery"
+    );
+    assert!(
+        channels[0].deposit >= 3_800_000,
+        "preserved state should keep a conservative funded deposit floor after top-up side effects"
     );
 }
 

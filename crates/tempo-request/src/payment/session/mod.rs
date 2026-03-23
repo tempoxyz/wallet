@@ -10,6 +10,7 @@ mod flow;
 mod open;
 mod persist;
 mod receipt;
+mod receipt_policy;
 mod streaming;
 mod voucher;
 

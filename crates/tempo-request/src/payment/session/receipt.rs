@@ -4,6 +4,7 @@ use mpp::{
     parse_receipt,
     protocol::{core::extract_tx_hash, methods::tempo::SessionReceipt},
 };
+use tempo_common::cli::terminal::sanitize_for_terminal;
 
 #[derive(Debug, Clone)]
 pub(super) struct ValidatedSessionReceipt {
@@ -78,13 +79,13 @@ pub(super) fn parse_validated_session_receipt_header(
 
     let accepted_cumulative =
         validate_session_receipt_fields(&session_receipt, expected_channel_id)?;
-    let (server_spent, spent_parse_error) = match session_receipt.spent.parse::<u128>() {
+    let (server_spent, spent_parse_error) = match session_receipt.spent.trim().parse::<u128>() {
         Ok(value) => (Some(value), None),
         Err(source) => (
             None,
             Some(format!(
                 "spent must be an integer amount (got '{}'): {source}",
-                session_receipt.spent
+                sanitize_for_terminal(&session_receipt.spent)
             )),
         ),
     };
@@ -157,5 +158,21 @@ mod tests {
 
         let err = validate_session_receipt_fields(&receipt, channel_id).unwrap_err();
         assert!(err.contains("intent must be 'session'"));
+    }
+
+    #[test]
+    fn parse_validated_receipt_sanitizes_spent_parse_errors() {
+        let channel_id = B256::from([0x44; 32]);
+        let mut receipt = sample_receipt(channel_id, 42);
+        receipt.spent = "12\u{1b}[31m".to_string();
+        let header = encode_receipt_header(&receipt);
+
+        let parsed = parse_validated_session_receipt_header(&header, channel_id)
+            .expect("receipt should parse while preserving spent parse error for strict mode");
+        let parse_error = parsed
+            .spent_parse_error
+            .expect("invalid spent should produce parse error");
+        assert!(!parse_error.chars().any(char::is_control));
+        assert!(parse_error.contains("12[31m"));
     }
 }
