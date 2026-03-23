@@ -1484,11 +1484,11 @@ fn is_session_reusable(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_response_receipt, assess_on_chain_reusability, challenge_channel_id_parse,
-        classify_session_failure, invalidation_confirmed_on_chain, is_on_chain_identity_match,
-        is_session_reusable, normalize_hex_identifier, parse_positive_problem_amount,
-        session_reuse_persist_failed_error, session_store_error, validate_problem_channel_id,
-        SessionRequestFailureKind,
+        apply_response_receipt, apply_response_receipt_from_headers, assess_on_chain_reusability,
+        challenge_channel_id_parse, classify_session_failure, invalidation_confirmed_on_chain,
+        is_on_chain_identity_match, is_session_reusable, normalize_hex_identifier,
+        parse_positive_problem_amount, session_reuse_persist_failed_error, session_store_error,
+        validate_problem_channel_id, SessionRequestFailureKind,
     };
     use crate::http::HttpResponse;
     use alloy::primitives::{Address, B256};
@@ -1920,5 +1920,105 @@ mod tests {
         );
         assert_eq!(state.server_spent, 7);
         assert_eq!(state.accepted_cumulative, 30);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn apply_response_receipt_from_headers_requires_valid_header() {
+        let channel_id = B256::from([0x7A; 32]);
+        let app = axum::Router::new().route(
+            "/missing",
+            axum::routing::get(|| async { (axum::http::StatusCode::OK, "ok") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("http://{addr}/missing"))
+            .send()
+            .await
+            .unwrap();
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 20,
+            server_spent: 10,
+        };
+
+        let err = apply_response_receipt_from_headers(&response, &mut state, "open response")
+            .expect_err("strict mode should reject missing receipt");
+        assert!(err.to_string().contains("Missing required Payment-Receipt"));
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn apply_response_receipt_from_headers_requires_valid_spent() {
+        let channel_id = B256::from([0x7B; 32]);
+        let receipt = SessionReceipt {
+            method: "tempo".to_string(),
+            intent: "session".to_string(),
+            status: "success".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            reference: format!("{channel_id:#x}"),
+            challenge_id: "challenge".to_string(),
+            channel_id: format!("{channel_id:#x}"),
+            accepted_cumulative: "30".to_string(),
+            spent: "not-a-number".to_string(),
+            units: Some(1),
+            tx_hash: None,
+        };
+        let header = encode_receipt_header(&receipt);
+
+        let app = axum::Router::new().route(
+            "/invalid",
+            axum::routing::get(move || {
+                let header = header.clone();
+                async move {
+                    axum::http::Response::builder()
+                        .status(axum::http::StatusCode::OK)
+                        .header("payment-receipt", header)
+                        .body(axum::body::Body::from("ok"))
+                        .unwrap()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("http://{addr}/invalid"))
+            .send()
+            .await
+            .unwrap();
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 20,
+            server_spent: 10,
+        };
+
+        let err = apply_response_receipt_from_headers(&response, &mut state, "open response")
+            .expect_err("strict mode should reject invalid spent");
+        assert!(err.to_string().contains("payment-receipt.spent"));
+
+        server.abort();
+        let _ = server.await;
     }
 }

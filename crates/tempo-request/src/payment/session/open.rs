@@ -80,7 +80,7 @@ pub(super) async fn send_open_with_retry(
         ("Idempotency-Key".to_string(), idempotency_key.to_string()),
     ];
 
-    let resp = http.execute_raw(url, &headers).await?;
+    let resp = http.execute_raw_with_retry(url, &headers).await?;
 
     if resp.status().as_u16() < 400 {
         return Ok(resp);
@@ -95,7 +95,7 @@ pub(super) async fn send_open_with_retry(
             }
             for delay in delays_ms {
                 tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
-                let next = http.execute_raw(url, &headers).await?;
+                let next = http.execute_raw_with_retry(url, &headers).await?;
                 if next.status().as_u16() < 400 {
                     return Ok(next);
                 }
