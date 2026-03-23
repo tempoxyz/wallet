@@ -1,0 +1,1 @@
+This file exists only to exercise same-repo PR CI and changelog auto-generation behavior.
