@@ -33,8 +33,6 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Configure git auth
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features --locked
         env:
@@ -62,7 +60,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -101,18 +98,6 @@ jobs:
       - uses: taiki-e/install-action@c12d62a803cbdfe2e7263af15f5a9548065cb4f2 # v2.69.3
         with:
           tool: cargo-deny
-      - name: Configure git auth
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TOKEN="$GH_PAT"
-          if [ -z "$TOKEN" ]; then
-            TOKEN="$GITHUB_TOKEN"
-          fi
-          if [ -n "$TOKEN" ]; then
-            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-          fi
       - name: Run cargo deny
         run: cargo deny check
 

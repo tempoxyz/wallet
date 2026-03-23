@@ -228,7 +228,7 @@ async fn new_session_while_prior_stream_active_recovers_without_state_corruption
         voucher_head_unsupported: false,
         sse_receipt_accepted: None,
         sse_required_cumulative: None,
-        sse_reported_deposit: None,
+        sse_reported_deposit: Some(10_000_000),
         invalidating_problem_type_once: None,
         insufficient_balance_once: false,
         amount_exceeds_deposit_once: false,
@@ -240,6 +240,15 @@ async fn new_session_while_prior_stream_active_recovers_without_state_corruption
     let temp = tempfile::TempDir::new().unwrap();
     setup_config_only(&temp, &rpc.base_url);
 
+    let seed_output = run_session_request(&temp, &server.url("/resource"));
+    assert!(
+        seed_output.status.success(),
+        "seed request should establish reusable channel state: {}",
+        get_combined_output(&seed_output)
+    );
+
+    let before = server.snapshot();
+
     let mut stalled = spawn_session_request_with_env(
         &temp,
         &server.url("/stream-stall"),
@@ -249,7 +258,29 @@ async fn new_session_while_prior_stream_active_recovers_without_state_corruption
             ("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "5000"),
         ],
     );
-    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // Avoid fixed startup sleeps. Under CI load, process startup + first
+    // network roundtrip can exceed 200ms and make this assertion flaky.
+    let startup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        assert!(
+            stalled.try_wait().unwrap().is_none(),
+            "stalled stream process exited before entering retry wait window"
+        );
+
+        if server.snapshot().voucher_head_updates > before.voucher_head_updates {
+            break;
+        }
+
+        assert!(
+            std::time::Instant::now() <= startup_deadline,
+            "stalled stream did not reach voucher update path before timeout"
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(
         stalled.try_wait().unwrap().is_none(),
         "stalled stream should remain active while retry timer is running"
@@ -278,7 +309,7 @@ async fn new_session_while_prior_stream_active_recovers_without_state_corruption
     let observed = server.snapshot();
     assert_eq!(
         observed.open_count, 1,
-        "active-stream replacement handling should not corrupt state into duplicate opens"
+        "active-stream replacement handling should reuse seeded channel without duplicate opens"
     );
 
     let channels = load_channels(&temp);

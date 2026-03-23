@@ -8,5 +8,12 @@ on:
 
 jobs:
   pr-audit:
-    uses: tempoxyz/gh-actions/.github/workflows/pr-audit.yml@main
+    if: >-
+      github.event_name == 'pull_request' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    uses: tempoxyz/gh-actions/.github/workflows/pr-audit.yml@1a49d3e9f9983a55832d7163faa970b7ba3c1af9
     secrets: inherit

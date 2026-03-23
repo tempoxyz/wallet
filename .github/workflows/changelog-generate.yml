@@ -19,7 +19,31 @@ jobs:
     if: startsWith(github.event.label.name, 'changelog:')
     runs-on: ubuntu-latest
     steps:
+      - name: Determine PR source
+        id: source
+        run: |
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+            echo "same_repo=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "same_repo=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate branch ref
+        if: steps.source.outputs.same_repo == 'true'
+        id: ref
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          REF="$HEAD_REF"
+          if [[ ! "$REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Invalid branch ref: $REF" >&2
+            exit 1
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v6
+        if: steps.source.outputs.same_repo == 'true'
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
@@ -27,39 +51,41 @@ jobs:
           token: ${{ secrets.GH_PAT }}
 
       - name: Fetch base branch for diff comparison
+        if: steps.source.outputs.same_repo == 'true'
         run: |
-          git remote add base https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
-          git fetch base ${{ github.base_ref }}
+          git fetch origin "${{ github.base_ref }}"
 
       - name: Configure git credentials for private dependencies
+        if: steps.source.outputs.same_repo == 'true'
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - name: Check for existing changelog
+        if: steps.source.outputs.same_repo == 'true'
         id: existing
         run: |
-          if git diff base/${{ github.base_ref }}...HEAD --name-only | grep -q '^\.changelog/.*\.md$'; then
+          if git diff "origin/${{ github.base_ref }}...HEAD" --name-only | grep -q '^\.changelog/.*\.md$'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install changelogs
-        if: steps.existing.outputs.found == 'false'
+        if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
         run: curl -sSL https://changelogs.sh | sh -s -- changelogs@0.6.2
 
       - name: Install claude
-        if: steps.existing.outputs.found == 'false'
+        if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Extract bump level from label
-        if: steps.existing.outputs.found == 'false'
+        if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
         id: bump
         run: echo "level=${LABEL#changelog:}" >> "$GITHUB_OUTPUT"
         env:
           LABEL: ${{ github.event.label.name }}
 
       - name: Generate changelog
-        if: steps.existing.outputs.found == 'false'
+        if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BUMP_LEVEL: ${{ steps.bump.outputs.level }}
@@ -88,18 +114,25 @@ jobs:
           {diff}
           PROMPT
           sed -i "s/BUMP_LEVEL/$BUMP_LEVEL/g" /tmp/changelog-instructions.md
-          changelogs add --ai "claude -p" --ref "base/${{ github.base_ref }}" \
+          changelogs add --ai "claude -p" --ref "origin/${{ github.base_ref }}" \
             --instructions "$(cat /tmp/changelog-instructions.md)"
 
       - name: Commit and push changelog
-        if: steps.existing.outputs.found == 'false'
+        if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b ${{ github.event.pull_request.head.ref }}
           git add .changelog/
           git commit -m "chore: add changelog"
-          git push origin ${{ github.event.pull_request.head.ref }}
+          git push origin "HEAD:${{ steps.ref.outputs.ref }}"
+
+      - name: Comment for fork PRs
+        if: steps.source.outputs.same_repo != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ github.event.number }}" --repo "${{ github.repository }}" --body "Changelog auto-generation is only supported for same-repo branches. For fork PRs, please add a changelog file manually under .changelog/."
 
       - name: Remove label
         if: always()
