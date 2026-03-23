@@ -48,30 +48,30 @@ jobs:
           set -euo pipefail
 
           echo "Checking for mutable action refs..."
-          if rg -n "uses:\s+[^#\n]+@(main|master)$" .github/workflows; then
+          if grep -REn "uses:[[:space:]]+[^#]+@(main|master)$" .github/workflows; then
             echo "::error::Found mutable action ref (@main/@master). Pin to a commit SHA."
             exit 1
           fi
 
           echo "Checking changelog fork behavior..."
-          rg -n "if: github.event.pull_request.head.repo.full_name != github.repository" .github/workflows/changelog.yml >/dev/null
-          rg -n "if: github.event.pull_request.head.repo.full_name == github.repository" .github/workflows/changelog.yml >/dev/null
+          grep -n "if: github.event.pull_request.head.repo.full_name != github.repository" .github/workflows/changelog.yml >/dev/null
+          grep -n "if: github.event.pull_request.head.repo.full_name == github.repository" .github/workflows/changelog.yml >/dev/null
 
           echo "Checking tempo-lints fork-safe mode..."
-          rg -n "post-comment:\s+false" .github/workflows/lint.yml >/dev/null
+          grep -n "post-comment:[[:space:]]\+false" .github/workflows/lint.yml >/dev/null
 
           echo "Checking pr-audit pinning and trust gate..."
-          if rg -n "tempoxyz/gh-actions/.github/workflows/pr-audit.yml@main" .github/workflows/pr-audit.yml; then
+          if grep -n "tempoxyz/gh-actions/.github/workflows/pr-audit.yml@main" .github/workflows/pr-audit.yml; then
             echo "::error::pr-audit reusable workflow must be pinned to a commit SHA."
             exit 1
           fi
-          rg -n "contains\(fromJson\('\[\"OWNER\",\"MEMBER\",\"COLLABORATOR\"\]'\), github.event.comment.author_association\)" .github/workflows/pr-audit.yml >/dev/null
+          grep -n "contains(fromJson('\[\"OWNER\",\"MEMBER\",\"COLLABORATOR\"\]'), github.event.comment.author_association)" .github/workflows/pr-audit.yml >/dev/null
 
           echo "Checking pull_request_target hardening..."
-          rg -n "pull_request_target:" .github/workflows/changelog-generate.yml >/dev/null
-          rg -n "if: steps.source.outputs.same_repo == 'true'" .github/workflows/changelog-generate.yml >/dev/null
-          rg -n "^\s*git push origin \"HEAD:" .github/workflows/changelog-generate.yml >/dev/null
-          if rg -n "git checkout -b \$\{\{ github.event.pull_request.head.ref \}\}" .github/workflows/changelog-generate.yml; then
+          grep -n "pull_request_target:" .github/workflows/changelog-generate.yml >/dev/null
+          grep -n "if: steps.source.outputs.same_repo == 'true'" .github/workflows/changelog-generate.yml >/dev/null
+          grep -n "git push origin \"HEAD:" .github/workflows/changelog-generate.yml >/dev/null
+          if grep -n "git checkout -b \$\{\{ github.event.pull_request.head.ref \}\}" .github/workflows/changelog-generate.yml; then
             echo "::error::Unsafe branch checkout pattern detected in changelog generation workflow."
             exit 1
           fi

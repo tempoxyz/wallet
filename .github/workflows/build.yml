@@ -159,7 +159,7 @@ jobs:
           VTAG="v${VERSION}"
 
           # Binaries (latest + versioned)
-          for f in artifacts/${PACKAGE}-linux-* artifacts/${PACKAGE}-darwin-*; do
+          for f in "artifacts/${PACKAGE}"-linux-* "artifacts/${PACKAGE}"-darwin-*; do
             [ -f "$f" ] || continue
             BASENAME=$(basename "$f")
             aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"

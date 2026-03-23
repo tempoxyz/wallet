@@ -31,9 +31,11 @@ jobs:
       - name: Validate branch ref
         if: steps.source.outputs.same_repo == 'true'
         id: ref
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          REF='${{ github.event.pull_request.head.ref }}'
+          REF="$HEAD_REF"
           if [[ ! "$REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "Invalid branch ref: $REF" >&2
             exit 1
