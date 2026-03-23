@@ -421,7 +421,7 @@ struct VoucherSubmitContext<'a> {
 }
 
 const fn should_fallback_to_post(status_code: u16) -> bool {
-    matches!(status_code, 405 | 501)
+    matches!(status_code, 404 | 405 | 501)
 }
 
 async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), TempoError> {
@@ -1133,9 +1133,9 @@ mod tests {
 
     #[test]
     fn should_fallback_to_post_only_for_expected_statuses() {
+        assert!(should_fallback_to_post(404));
         assert!(should_fallback_to_post(405));
         assert!(should_fallback_to_post(501));
-        assert!(!should_fallback_to_post(404));
         assert!(!should_fallback_to_post(400));
         assert!(!should_fallback_to_post(500));
     }
