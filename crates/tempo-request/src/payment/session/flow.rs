@@ -275,20 +275,18 @@ fn apply_response_receipt_from_headers(
         .get("payment-receipt")
         .and_then(|v| v.to_str().ok())
     else {
-        warn_missing_payment_receipt(context);
-        return Ok(None);
+        return Err(missing_payment_receipt_error(context));
     };
 
     match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
         Ok(receipt) => {
-            state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
-            state.accepted_cumulative = state.accepted_cumulative.max(receipt.accepted_cumulative);
+            if let Some(reason) = receipt.spent_parse_error {
+                return Err(protocol_spent_error(reason));
+            }
+            apply_receipt_amounts_strict(state, receipt.accepted_cumulative, receipt.server_spent)?;
             Ok(receipt.tx_reference)
         }
-        Err(reason) => {
-            warn_invalid_payment_receipt(context, &reason);
-            Ok(None)
-        }
+        Err(reason) => Err(invalid_payment_receipt_error(context, &reason)),
     }
 }
 
@@ -688,7 +686,10 @@ enum ReuseStageOutcome {
 /// response (SSE) that must be consumed incrementally.
 enum OpenResponse {
     Buffered(HttpResponse),
-    Streaming(reqwest::Response),
+    Streaming {
+        response: reqwest::Response,
+        status_code: u16,
+    },
 }
 
 struct OpenExecutionPlan {
@@ -1321,13 +1322,11 @@ async fn open_stage(
         .is_some_and(|ct| ct.contains("text/event-stream"));
 
     if is_sse {
+        let status_code = open_response.status().as_u16();
         // Extract receipt from headers before passing the response through.
-        let open_tx_hash = apply_response_receipt_from_headers(
-            &open_response,
-            &mut state,
-            "open response",
-        )
-        .map_err(|e| persist_on_error(&state, e))?;
+        let open_tx_hash =
+            apply_response_receipt_from_headers(&open_response, &mut state, "open response")
+                .map_err(|e| persist_on_error(&state, e))?;
         if let Some(tx_ref) = open_tx_hash.as_deref() {
             if http.log_enabled() {
                 eprintln!("Channel open tx: {}", challenge.network_id.tx_url(tx_ref));
@@ -1337,7 +1336,10 @@ async fn open_stage(
             state,
             salt_hex,
             open_tx_hash,
-            open_response: OpenResponse::Streaming(open_response),
+            open_response: OpenResponse::Streaming {
+                response: open_response,
+                status_code,
+            },
         });
     }
 
@@ -1423,14 +1425,17 @@ pub(crate) async fn handle_session_request(
     match opened.open_response {
         // SSE stream: pipe the raw response directly to the streaming handler
         // so tokens are printed incrementally instead of buffering the entire body.
-        OpenResponse::Streaming(raw_response) => {
+        OpenResponse::Streaming {
+            response: raw_response,
+            status_code,
+        } => {
             persist_session(&ctx, &opened.state)?;
             streaming::stream_sse_response(&ctx, &mut opened.state, raw_response).await?;
             persist_session(&ctx, &opened.state)?;
             Ok(PaymentResult {
                 tx_hash: opened.open_tx_hash,
                 channel_id: Some(format!("{:#x}", opened.state.channel_id)),
-                status_code: 200,
+                status_code,
                 response: None,
             })
         }

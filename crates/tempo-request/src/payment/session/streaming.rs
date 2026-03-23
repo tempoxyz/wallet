@@ -421,7 +421,7 @@ struct VoucherSubmitContext<'a> {
 }
 
 const fn should_fallback_to_post(status_code: u16) -> bool {
-    matches!(status_code, 404 | 405 | 501)
+    matches!(status_code, 405 | 501)
 }
 
 async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), TempoError> {
@@ -1133,9 +1133,9 @@ mod tests {
 
     #[test]
     fn should_fallback_to_post_only_for_expected_statuses() {
-        assert!(should_fallback_to_post(404));
         assert!(should_fallback_to_post(405));
         assert!(should_fallback_to_post(501));
+        assert!(!should_fallback_to_post(404));
         assert!(!should_fallback_to_post(400));
         assert!(!should_fallback_to_post(500));
     }
@@ -2147,6 +2147,7 @@ mod tests {
         std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
 
         let channel_id = alloy::primitives::B256::from([0x71; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
         let need_voucher = format!(
             "event: payment-need-voucher\ndata: {{\"channelId\":\"{channel_id:#x}\",\"requiredCumulative\":\"12\",\"acceptedCumulative\":\"10\",\"deposit\":\"100\"}}\n\n"
         );
@@ -2157,19 +2158,22 @@ mod tests {
             get({
                 let need_voucher = need_voucher.clone();
                 let done = done.clone();
+                let receipt_header = receipt_header.clone();
                 move || {
                     let need_voucher = need_voucher.clone();
                     let done = done.clone();
+                    let receipt_header = receipt_header.clone();
                     async move {
                         let body_stream = futures::stream::iter(vec![
                             Ok::<Bytes, std::io::Error>(Bytes::from(need_voucher)),
                             Ok::<Bytes, std::io::Error>(Bytes::from(done)),
                         ]);
-                        (
-                            StatusCode::OK,
-                            [("content-type", "text/event-stream")],
-                            Body::from_stream(body_stream),
-                        )
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "text/event-stream")
+                            .header("payment-receipt", receipt_header)
+                            .body(Body::from_stream(body_stream))
+                            .unwrap()
                     }
                 }
             })
