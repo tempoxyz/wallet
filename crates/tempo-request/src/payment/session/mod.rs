@@ -58,7 +58,7 @@ fn extract_origin(url: &str) -> String {
 
 fn new_idempotency_key() -> String {
     let mut bytes = [0u8; 16];
-    if getrandom::getrandom(&mut bytes).is_err() {
+    if getrandom::fill(&mut bytes).is_err() {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
