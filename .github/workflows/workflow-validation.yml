@@ -5,8 +5,12 @@ permissions: {}
 on:
   push:
     branches: [main, master]
+    paths:
+      - .github/workflows/**
   pull_request:
     branches: [main, master]
+    paths:
+      - .github/workflows/**
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
