@@ -240,6 +240,51 @@ fn warn_invalid_payment_receipt(context: &str, reason: &str) {
     eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {safe_reason}");
 }
 
+fn protocol_spent_error(reason: String) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!("Malformed payment protocol field: payment-receipt.spent {reason}"),
+        status_code: 502,
+    }
+    .into()
+}
+
+fn apply_receipt_amounts(state: &mut ChannelState, accepted_cumulative: u128, spent: Option<u128>) {
+    state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
+    state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
+
+    if let Some(spent) = spent {
+        if spent > 0 {
+            state.server_spent = spent;
+        }
+    }
+}
+
+fn apply_receipt_amounts_strict(
+    state: &mut ChannelState,
+    accepted_cumulative: u128,
+    spent: Option<u128>,
+) -> Result<(), TempoError> {
+    let spent = spent.ok_or_else(|| protocol_spent_error("is missing".to_string()))?;
+
+    if spent > accepted_cumulative {
+        return Err(protocol_spent_error(format!(
+            "must be <= acceptedCumulative (spent={spent}, acceptedCumulative={accepted_cumulative})"
+        )));
+    }
+
+    if spent < state.server_spent {
+        return Err(protocol_spent_error(format!(
+            "must be monotonically non-decreasing (previous={}, got={spent})",
+            state.server_spent
+        )));
+    }
+
+    state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
+    state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
+    state.server_spent = spent;
+    Ok(())
+}
+
 fn apply_response_receipt(
     response: &HttpResponse,
     state: &mut ChannelState,
@@ -256,10 +301,17 @@ fn apply_response_receipt(
 
     match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
         Ok(receipt) => {
-            state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
-            state.accepted_cumulative = state.accepted_cumulative.max(receipt.accepted_cumulative);
-            if let Some(spent) = receipt.server_spent {
-                state.server_spent = spent;
+            if state.strict_receipts {
+                if let Some(reason) = receipt.spent_parse_error {
+                    return Err(protocol_spent_error(reason));
+                }
+                apply_receipt_amounts_strict(
+                    state,
+                    receipt.accepted_cumulative,
+                    receipt.server_spent,
+                )?;
+            } else {
+                apply_receipt_amounts(state, receipt.accepted_cumulative, receipt.server_spent);
             }
             Ok(receipt.tx_reference)
         }
@@ -1039,6 +1091,7 @@ async fn reuse_stage_execute(
         cumulative_amount: prev_cumulative + challenge.amount,
         accepted_cumulative: reusable.record.accepted_cumulative,
         server_spent: reusable.record.server_spent,
+        strict_receipts: reusable.record.version >= 2,
     };
 
     let ctx = build_channel_context(
@@ -1215,6 +1268,7 @@ async fn open_stage(
         cumulative_amount: initial_cumulative,
         accepted_cumulative: 0,
         server_spent: 0,
+        strict_receipts: true,
     };
     let salt_hex = format!("{salt:#x}");
 
@@ -1763,6 +1817,7 @@ mod tests {
             cumulative_amount: 20,
             accepted_cumulative: 0,
             server_spent: 0,
+            strict_receipts: true,
         };
         let tx = apply_response_receipt(&response, &mut state, "session response").unwrap();
         assert_eq!(
@@ -1784,6 +1839,7 @@ mod tests {
             cumulative_amount: 20,
             accepted_cumulative: 0,
             server_spent: 0,
+            strict_receipts: true,
         };
         let missing = HttpResponse::for_test(200, b"ok");
         let tx = apply_response_receipt(&missing, &mut state_missing, "session response").unwrap();

@@ -9,6 +9,7 @@ use mpp::{
 pub(super) struct ValidatedSessionReceipt {
     pub(super) accepted_cumulative: u128,
     pub(super) server_spent: Option<u128>,
+    pub(super) spent_parse_error: Option<String>,
     pub(super) tx_reference: Option<String>,
 }
 
@@ -77,11 +78,16 @@ pub(super) fn parse_validated_session_receipt_header(
 
     let accepted_cumulative =
         validate_session_receipt_fields(&session_receipt, expected_channel_id)?;
-    let server_spent = session_receipt
-        .spent
-        .parse::<u128>()
-        .ok()
-        .filter(|&v| v > 0);
+    let (server_spent, spent_parse_error) = match session_receipt.spent.parse::<u128>() {
+        Ok(value) => (Some(value), None),
+        Err(source) => (
+            None,
+            Some(format!(
+                "spent must be an integer amount (got '{}'): {source}",
+                session_receipt.spent
+            )),
+        ),
+    };
     let tx_reference = extract_tx_hash(receipt_header)
         .or_else(|| session_receipt.tx_hash.clone())
         .or(Some(base.reference));
@@ -89,6 +95,7 @@ pub(super) fn parse_validated_session_receipt_header(
     Ok(ValidatedSessionReceipt {
         accepted_cumulative,
         server_spent,
+        spent_parse_error,
         tx_reference,
     })
 }

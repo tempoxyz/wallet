@@ -34,6 +34,9 @@ pub(super) fn persist_session(
 
     let record = if let Some(mut rec) = existing {
         // Update existing record
+        if state.strict_receipts && rec.version < 2 {
+            rec.version = 2;
+        }
         rec.set_cumulative_amount(state.cumulative_amount);
         rec.set_accepted_cumulative(state.accepted_cumulative);
         if state.server_spent > 0 {
@@ -45,7 +48,7 @@ pub(super) fn persist_session(
         rec
     } else {
         ChannelRecord {
-            version: 1,
+            version: if state.strict_receipts { 2 } else { 1 },
             origin: ctx.origin.to_string(),
             request_url: ctx.url.to_string(),
             chain_id: state.chain_id,

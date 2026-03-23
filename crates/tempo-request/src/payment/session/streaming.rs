@@ -40,6 +40,50 @@ fn parse_protocol_u128(value: &str, field: &'static str) -> Result<u128, TempoEr
         .map_err(|_| protocol_value_error(field, value))
 }
 
+fn protocol_spent_error(reason: String) -> TempoError {
+    PaymentError::PaymentRejected {
+        reason: format!("Malformed payment protocol field: payment-receipt.spent {reason}"),
+        status_code: 502,
+    }
+    .into()
+}
+
+fn apply_receipt_amounts(state: &mut ChannelState, accepted_cumulative: u128, spent: Option<u128>) {
+    state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
+    state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
+    if let Some(spent) = spent {
+        if spent > 0 {
+            state.server_spent = spent;
+        }
+    }
+}
+
+fn apply_receipt_amounts_strict(
+    state: &mut ChannelState,
+    accepted_cumulative: u128,
+    spent: Option<u128>,
+) -> Result<(), TempoError> {
+    let spent = spent.ok_or_else(|| protocol_spent_error("is missing".to_string()))?;
+
+    if spent > accepted_cumulative {
+        return Err(protocol_spent_error(format!(
+            "must be <= acceptedCumulative (spent={spent}, acceptedCumulative={accepted_cumulative})"
+        )));
+    }
+
+    if spent < state.server_spent {
+        return Err(protocol_spent_error(format!(
+            "must be monotonically non-decreasing (previous={}, got={spent})",
+            state.server_spent
+        )));
+    }
+
+    state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
+    state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
+    state.server_spent = spent;
+    Ok(())
+}
+
 fn parse_protocol_channel_id(
     value: &str,
     field: &'static str,
@@ -562,6 +606,7 @@ fn post_voucher(
         cumulative_amount: state.cumulative_amount,
         accepted_cumulative: state.accepted_cumulative,
         server_spent: state.server_spent,
+        strict_receipts: state.strict_receipts,
     };
 
     let client = client.clone();
@@ -619,12 +664,21 @@ pub(super) async fn stream_sse_response(
             saw_response_receipt = true;
             match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
                 Ok(receipt) => {
-                    state.cumulative_amount =
-                        state.cumulative_amount.max(receipt.accepted_cumulative);
-                    state.accepted_cumulative =
-                        state.accepted_cumulative.max(receipt.accepted_cumulative);
-                    if let Some(spent) = receipt.server_spent {
-                        state.server_spent = spent;
+                    if state.strict_receipts {
+                        if let Some(reason) = receipt.spent_parse_error {
+                            return Err(protocol_spent_error(reason));
+                        }
+                        apply_receipt_amounts_strict(
+                            state,
+                            receipt.accepted_cumulative,
+                            receipt.server_spent,
+                        )?;
+                    } else {
+                        apply_receipt_amounts(
+                            state,
+                            receipt.accepted_cumulative,
+                            receipt.server_spent,
+                        );
                     }
                     persist_session(ctx, state)?;
                 }
@@ -855,14 +909,25 @@ pub(super) async fn stream_sse_response(
                         saw_response_receipt = true;
                         match validate_session_receipt_fields(&receipt, state.channel_id) {
                             Ok(accepted_cumulative) => {
-                                state.cumulative_amount =
-                                    state.cumulative_amount.max(accepted_cumulative);
-                                state.accepted_cumulative =
-                                    state.accepted_cumulative.max(accepted_cumulative);
-                                if let Ok(spent) = receipt.spent.trim().parse::<u128>() {
-                                    if spent > 0 {
-                                        state.server_spent = spent;
+                                let spent = match receipt.spent.trim().parse::<u128>() {
+                                    Ok(value) => Some(value),
+                                    Err(_) if state.strict_receipts => {
+                                        return Err(protocol_spent_error(format!(
+                                            "must be an integer amount (got '{}')",
+                                            sanitize_for_terminal(&receipt.spent)
+                                        )));
                                     }
+                                    Err(_) => None,
+                                };
+
+                                if state.strict_receipts {
+                                    apply_receipt_amounts_strict(
+                                        state,
+                                        accepted_cumulative,
+                                        spent,
+                                    )?;
+                                } else {
+                                    apply_receipt_amounts(state, accepted_cumulative, spent);
                                 }
                                 persist_session(ctx, state)?;
                             }
@@ -1025,6 +1090,7 @@ mod tests {
             cumulative_amount: 10,
             accepted_cumulative: 0,
             server_spent: 0,
+            strict_receipts: true,
         }
     }
 

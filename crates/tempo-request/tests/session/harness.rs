@@ -689,24 +689,28 @@ async fn session_handler(
                 };
                 let deposit = state.config.sse_reported_deposit.unwrap_or(3_000_000_u128);
                 let receipt_accepted = state.config.sse_receipt_accepted.unwrap_or(required);
-                let receipt_json = serde_json::to_string(&SessionReceipt {
-                    method: "tempo".to_string(),
-                    intent: "session".to_string(),
-                    status: "success".to_string(),
-                    timestamp: "2026-03-15T00:00:01Z".to_string(),
-                    reference: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-                        .to_string(),
-                    challenge_id: "session-it".to_string(),
-                    channel_id: channel_id.clone(),
-                    accepted_cumulative: receipt_accepted.to_string(),
-                    spent: receipt_accepted.to_string(),
-                    units: Some(1),
-                    tx_hash: Some(
-                        "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-                            .to_string(),
-                    ),
-                })
-                .unwrap();
+                let mut receipt_payload = serde_json::json!({
+                    "method": "tempo",
+                    "intent": "session",
+                    "status": "success",
+                    "timestamp": "2026-03-15T00:00:01Z",
+                    "reference": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "challengeId": "session-it",
+                    "channelId": channel_id,
+                    "acceptedCumulative": receipt_accepted.to_string(),
+                    "spent": receipt_accepted.to_string(),
+                    "units": 1,
+                    "txHash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                });
+                if path.contains("receipt-missing-spent") {
+                    receipt_payload
+                        .as_object_mut()
+                        .expect("receipt payload should be object")
+                        .remove("spent");
+                } else if path.contains("receipt-invalid-spent") {
+                    receipt_payload["spent"] = serde_json::json!("not-a-number");
+                }
+                let receipt_json = serde_json::to_string(&receipt_payload).unwrap();
 
                 let trailing_events = if path.contains("receipt-tail") {
                     "data: {\"choices\":[{\"delta\":{\"content\":\"after-receipt\"},\"finish_reason\":null}]}\n\n"
