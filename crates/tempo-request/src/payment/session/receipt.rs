@@ -132,11 +132,10 @@ pub(super) fn protocol_spent_error(reason: String) -> TempoError {
     .into()
 }
 
-pub(super) fn apply_receipt_amounts_strict(
-    state: &mut ChannelState,
+pub(super) fn validate_receipt_spent_strict(
     accepted_cumulative: u128,
     spent: Option<u128>,
-) -> Result<(), TempoError> {
+) -> Result<u128, TempoError> {
     let spent = spent.ok_or_else(|| protocol_spent_error("is missing".to_string()))?;
 
     if spent > accepted_cumulative {
@@ -144,6 +143,16 @@ pub(super) fn apply_receipt_amounts_strict(
             "must be <= acceptedCumulative (spent={spent}, acceptedCumulative={accepted_cumulative})"
         )));
     }
+
+    Ok(spent)
+}
+
+pub(super) fn apply_receipt_amounts_strict(
+    state: &mut ChannelState,
+    accepted_cumulative: u128,
+    spent: Option<u128>,
+) -> Result<(), TempoError> {
+    let spent = validate_receipt_spent_strict(accepted_cumulative, spent)?;
 
     state.cumulative_amount = state.cumulative_amount.max(accepted_cumulative);
     state.accepted_cumulative = state.accepted_cumulative.max(accepted_cumulative);
@@ -155,7 +164,8 @@ pub(super) fn apply_receipt_amounts_strict(
 mod tests {
     use super::{
         apply_receipt_amounts_strict, invalid_payment_receipt_error, missing_payment_receipt_error,
-        parse_validated_session_receipt_header, validate_session_receipt_fields,
+        parse_validated_session_receipt_header, validate_receipt_spent_strict,
+        validate_session_receipt_fields,
     };
     use alloy::primitives::{Address, B256};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -248,6 +258,24 @@ mod tests {
         let mut state = state();
         let err = apply_receipt_amounts_strict(&mut state, 25, None).unwrap_err();
         assert!(err.to_string().contains("payment-receipt.spent is missing"));
+    }
+
+    #[test]
+    fn validate_receipt_spent_strict_requires_spent() {
+        let err = validate_receipt_spent_strict(25, None).unwrap_err();
+        assert!(err.to_string().contains("payment-receipt.spent is missing"));
+    }
+
+    #[test]
+    fn validate_receipt_spent_strict_rejects_spent_above_accepted() {
+        let err = validate_receipt_spent_strict(25, Some(30)).unwrap_err();
+        assert!(err.to_string().contains("must be <= acceptedCumulative"));
+    }
+
+    #[test]
+    fn validate_receipt_spent_strict_accepts_reconciled_lower_spent() {
+        let spent = validate_receipt_spent_strict(25, Some(7)).unwrap();
+        assert_eq!(spent, 7);
     }
 
     #[test]

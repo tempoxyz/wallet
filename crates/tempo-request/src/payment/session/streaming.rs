@@ -15,7 +15,7 @@ use super::{
     receipt::{
         apply_receipt_amounts_strict, invalid_payment_receipt_error, missing_payment_receipt_error,
         parse_validated_session_receipt_header, protocol_spent_error,
-        validate_session_receipt_fields,
+        validate_receipt_spent_strict, validate_session_receipt_fields,
     },
     voucher::{build_top_up_payload, build_voucher_credential},
     ChannelContext, ChannelState,
@@ -476,17 +476,7 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
                         if let Some(reason) = receipt.spent_parse_error {
                             return Err(protocol_spent_error(reason));
                         }
-                        let mut validated_state = ChannelState {
-                            channel_id: ctx.state.channel_id,
-                            escrow_contract: ctx.state.escrow_contract,
-                            chain_id: ctx.state.chain_id,
-                            deposit: ctx.state.deposit,
-                            cumulative_amount: ctx.state.cumulative_amount,
-                            accepted_cumulative: ctx.state.accepted_cumulative,
-                            server_spent: ctx.state.server_spent,
-                        };
-                        apply_receipt_amounts_strict(
-                            &mut validated_state,
+                        validate_receipt_spent_strict(
                             receipt.accepted_cumulative,
                             receipt.server_spent,
                         )?;
@@ -553,17 +543,7 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
                             if let Some(reason) = receipt.spent_parse_error {
                                 return Err(protocol_spent_error(reason));
                             }
-                            let mut validated_state = ChannelState {
-                                channel_id: ctx.state.channel_id,
-                                escrow_contract: ctx.state.escrow_contract,
-                                chain_id: ctx.state.chain_id,
-                                deposit: ctx.state.deposit,
-                                cumulative_amount: ctx.state.cumulative_amount,
-                                accepted_cumulative: ctx.state.accepted_cumulative,
-                                server_spent: ctx.state.server_spent,
-                            };
-                            apply_receipt_amounts_strict(
-                                &mut validated_state,
+                            validate_receipt_spent_strict(
                                 receipt.accepted_cumulative,
                                 receipt.server_spent,
                             )?;
