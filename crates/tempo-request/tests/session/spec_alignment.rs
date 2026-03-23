@@ -118,6 +118,80 @@ async fn voucher_head_success_does_not_fallback_to_post() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reused_session_rejects_stream_receipt_missing_spent() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: true,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: Some(2_500_000),
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/stream"));
+    assert!(
+        first_output.status.success(),
+        "first stream should establish reusable session state: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output = run_session_request(&temp, &server.url("/stream-receipt-missing-spent"));
+    assert!(
+        !second_output.status.success(),
+        "reused sessions should reject stream receipts that omit spent: {}",
+        get_combined_output(&second_output)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reused_session_rejects_stream_receipt_invalid_spent() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: true,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: Some(2_500_000),
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/stream"));
+    assert!(
+        first_output.status.success(),
+        "first stream should establish reusable session state: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output = run_session_request(&temp, &server.url("/stream-receipt-invalid-spent"));
+    assert!(
+        !second_output.status.success(),
+        "reused sessions should reject stream receipts with invalid spent: {}",
+        get_combined_output(&second_output)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failure_response_payment_receipt_is_not_treated_as_success() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {

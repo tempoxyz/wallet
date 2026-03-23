@@ -585,13 +585,15 @@ async fn session_handler(
             }
 
             let mut builder = Response::builder().status(StatusCode::OK);
-            if let Some(accepted) = state.config.open_receipt_accepted {
-                let receipt = build_session_receipt(&channel_id, accepted);
-                builder = builder.header("payment-receipt", receipt);
-            } else {
-                let accepted = cumulative_amount.parse::<u128>().unwrap_or(SESSION_AMOUNT);
-                let receipt = build_session_receipt(&channel_id, accepted);
-                builder = builder.header("payment-receipt", receipt);
+            if !path.contains("open-missing-receipt") {
+                if let Some(accepted) = state.config.open_receipt_accepted {
+                    let receipt = build_session_receipt(&channel_id, accepted);
+                    builder = builder.header("payment-receipt", receipt);
+                } else {
+                    let accepted = cumulative_amount.parse::<u128>().unwrap_or(SESSION_AMOUNT);
+                    let receipt = build_session_receipt(&channel_id, accepted);
+                    builder = builder.header("payment-receipt", receipt);
+                }
             }
             builder.body(Body::from("open-ok")).unwrap()
         }
@@ -636,10 +638,12 @@ async fn session_handler(
                     StatusCode::OK
                 };
                 observations.voucher_head_statuses.push(status.as_u16());
-                return Response::builder()
-                    .status(status)
-                    .body(Body::empty())
-                    .unwrap();
+                let mut builder = Response::builder().status(status);
+                if status.is_success() && !path.contains("missing-receipt") {
+                    let receipt = build_session_receipt(&channel_id, cumulative);
+                    builder = builder.header("payment-receipt", receipt);
+                }
+                return builder.body(Body::empty()).unwrap();
             }
 
             if method == reqwest::Method::POST {
@@ -669,10 +673,14 @@ async fn session_handler(
                         .body(Body::from(body))
                         .unwrap();
                 }
-                return Response::builder()
-                    .status(StatusCode::OK)
-                    .body(Body::from("voucher-update-ok"))
-                    .unwrap();
+
+                let mut builder = Response::builder().status(StatusCode::OK);
+                if !path.contains("missing-receipt") {
+                    let receipt = build_session_receipt(&channel_id, cumulative);
+                    builder = builder.header("payment-receipt", receipt);
+                }
+
+                return builder.body(Body::from("voucher-update-ok")).unwrap();
             }
 
             if state.config.sse_voucher_flow {
@@ -689,24 +697,28 @@ async fn session_handler(
                 };
                 let deposit = state.config.sse_reported_deposit.unwrap_or(3_000_000_u128);
                 let receipt_accepted = state.config.sse_receipt_accepted.unwrap_or(required);
-                let receipt_json = serde_json::to_string(&SessionReceipt {
-                    method: "tempo".to_string(),
-                    intent: "session".to_string(),
-                    status: "success".to_string(),
-                    timestamp: "2026-03-15T00:00:01Z".to_string(),
-                    reference: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-                        .to_string(),
-                    challenge_id: "session-it".to_string(),
-                    channel_id: channel_id.clone(),
-                    accepted_cumulative: receipt_accepted.to_string(),
-                    spent: receipt_accepted.to_string(),
-                    units: Some(1),
-                    tx_hash: Some(
-                        "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-                            .to_string(),
-                    ),
-                })
-                .unwrap();
+                let mut receipt_payload = serde_json::json!({
+                    "method": "tempo",
+                    "intent": "session",
+                    "status": "success",
+                    "timestamp": "2026-03-15T00:00:01Z",
+                    "reference": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "challengeId": "session-it",
+                    "channelId": channel_id,
+                    "acceptedCumulative": receipt_accepted.to_string(),
+                    "spent": receipt_accepted.to_string(),
+                    "units": 1,
+                    "txHash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                });
+                if path.contains("receipt-missing-spent") {
+                    receipt_payload
+                        .as_object_mut()
+                        .expect("receipt payload should be object")
+                        .remove("spent");
+                } else if path.contains("receipt-invalid-spent") {
+                    receipt_payload["spent"] = serde_json::json!("not-a-number");
+                }
+                let receipt_json = serde_json::to_string(&receipt_payload).unwrap();
 
                 let trailing_events = if path.contains("receipt-tail") {
                     "data: {\"choices\":[{\"delta\":{\"content\":\"after-receipt\"},\"finish_reason\":null}]}\n\n"
@@ -862,10 +874,12 @@ data: {{\"channelId\":\"{channel_id}\",\"requiredCumulative\":\"{required_cumula
                 }
             }
 
-            Response::builder()
-                .status(StatusCode::OK)
-                .body(Body::from("voucher-ok"))
-                .unwrap()
+            let mut builder = Response::builder().status(StatusCode::OK);
+            if !path.contains("missing-receipt") {
+                let receipt = build_session_receipt(&channel_id, cumulative);
+                builder = builder.header("payment-receipt", receipt);
+            }
+            builder.body(Body::from("voucher-ok")).unwrap()
         }
         SessionCredentialPayload::TopUp { channel_id, .. } => {
             let mut observations = state.observations.lock().unwrap();
@@ -900,10 +914,21 @@ data: {{\"channelId\":\"{channel_id}\",\"requiredCumulative\":\"{required_cumula
                     .body(Body::from(body))
                     .unwrap();
             }
-            Response::builder()
-                .status(StatusCode::OK)
-                .body(Body::from("topup-ok"))
-                .unwrap()
+            let receipt_accepted = observations
+                .voucher_cumulative
+                .last()
+                .copied()
+                .unwrap_or(SESSION_AMOUNT);
+            drop(observations);
+
+            let mut builder = Response::builder().status(StatusCode::OK);
+            if !path.contains("missing-receipt") {
+                builder = builder.header(
+                    "payment-receipt",
+                    build_session_receipt(&channel_id, receipt_accepted),
+                );
+            }
+            builder.body(Body::from("topup-ok")).unwrap()
         }
         other => Response::builder()
             .status(StatusCode::BAD_REQUEST)

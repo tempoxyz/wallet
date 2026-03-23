@@ -7,7 +7,10 @@ use super::{
     error_map::payment_rejected_from_body,
     extract_origin, new_idempotency_key, open,
     persist::persist_session,
-    receipt::parse_validated_session_receipt_header,
+    receipt::{
+        apply_receipt_amounts_strict, invalid_payment_receipt_error, missing_payment_receipt_error,
+        parse_validated_session_receipt_header, protocol_spent_error,
+    },
     streaming,
     voucher::{build_open_payload, build_top_up_payload, build_voucher_credential},
     ChannelContext, ChannelState,
@@ -231,15 +234,6 @@ fn is_on_chain_identity_match(
         && on_chain.authorized_signer == authorized_signer
 }
 
-fn warn_missing_payment_receipt(context: &str) {
-    eprintln!("Warning: missing Payment-Receipt on successful paid {context}");
-}
-
-fn warn_invalid_payment_receipt(context: &str, reason: &str) {
-    let safe_reason = sanitize_for_terminal(reason);
-    eprintln!("Warning: ignoring invalid Payment-Receipt on paid {context}: {safe_reason}");
-}
-
 fn apply_response_receipt(
     response: &HttpResponse,
     state: &mut ChannelState,
@@ -250,23 +244,18 @@ fn apply_response_receipt(
     }
 
     let Some(receipt_header) = response.header("payment-receipt") else {
-        warn_missing_payment_receipt(context);
-        return Ok(None);
+        return Err(missing_payment_receipt_error(context));
     };
 
     match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
         Ok(receipt) => {
-            state.cumulative_amount = state.cumulative_amount.max(receipt.accepted_cumulative);
-            state.accepted_cumulative = state.accepted_cumulative.max(receipt.accepted_cumulative);
-            if let Some(spent) = receipt.server_spent {
-                state.server_spent = spent;
+            if let Some(reason) = receipt.spent_parse_error {
+                return Err(protocol_spent_error(reason));
             }
+            apply_receipt_amounts_strict(state, receipt.accepted_cumulative, receipt.server_spent)?;
             Ok(receipt.tx_reference)
         }
-        Err(reason) => {
-            warn_invalid_payment_receipt(context, &reason);
-            Ok(None)
-        }
+        Err(reason) => Err(invalid_payment_receipt_error(context, &reason)),
     }
 }
 
@@ -1207,7 +1196,7 @@ async fn open_stage(
     let open_idempotency_key = new_idempotency_key();
     let delays = [2000_u64, 3000, 5000];
 
-    let state = ChannelState {
+    let mut state = ChannelState {
         channel_id,
         escrow_contract: challenge.escrow_contract,
         chain_id: challenge.chain_id,
@@ -1220,7 +1209,7 @@ async fn open_stage(
 
     // Helper: persist channel state on error so on-chain funds aren't orphaned.
     // The tx may have been broadcast by the server even if the response was an error.
-    let persist_on_error = |e: TempoError| -> TempoError {
+    let persist_on_error = |state: &ChannelState, e: TempoError| -> TempoError {
         let ctx = build_channel_context(
             signer,
             http,
@@ -1230,7 +1219,7 @@ async fn open_stage(
             deposit,
             salt_hex.clone(),
         );
-        let _ = persist_session(&ctx, &state);
+        let _ = persist_session(&ctx, state);
         e
     };
 
@@ -1277,13 +1266,13 @@ async fn open_stage(
                 &delays,
             )
             .await
-            .map_err(|_| persist_on_error(original))?
+            .map_err(|_| persist_on_error(&state, original))?
         }
-        Err(e) => return Err(persist_on_error(e)),
+        Err(e) => return Err(persist_on_error(&state, e)),
     };
 
-    let mut state = state;
-    let open_tx_hash = apply_response_receipt(&open_response, &mut state, "open response")?;
+    let open_tx_hash = apply_response_receipt(&open_response, &mut state, "open response")
+        .map_err(|e| persist_on_error(&state, e))?;
     if let Some(tx_ref) = open_tx_hash.as_deref() {
         if http.log_enabled() {
             eprintln!("Channel open tx: {}", challenge.network_id.tx_url(tx_ref));
@@ -1774,8 +1763,8 @@ mod tests {
     }
 
     #[test]
-    fn apply_response_receipt_missing_or_invalid_header_is_warning_only() {
-        let channel_id = B256::from([0x77; 32]);
+    fn apply_response_receipt_requires_valid_header() {
+        let channel_id = B256::from([0x78; 32]);
         let mut state_missing = super::ChannelState {
             channel_id,
             escrow_contract: Address::ZERO,
@@ -1785,16 +1774,65 @@ mod tests {
             accepted_cumulative: 0,
             server_spent: 0,
         };
+
         let missing = HttpResponse::for_test(200, b"ok");
-        let tx = apply_response_receipt(&missing, &mut state_missing, "session response").unwrap();
-        assert!(tx.is_none());
-        assert_eq!(state_missing.cumulative_amount, 20);
+        let err =
+            apply_response_receipt(&missing, &mut state_missing, "session response").unwrap_err();
+        assert!(
+            err.to_string().contains("Missing required Payment-Receipt"),
+            "expected strict mode to reject missing receipt, got: {err}"
+        );
 
         let mut state_invalid = state_missing;
         let invalid =
             HttpResponse::for_test_with_headers(200, b"ok", &[("payment-receipt", "not-base64")]);
-        let tx = apply_response_receipt(&invalid, &mut state_invalid, "session response").unwrap();
-        assert!(tx.is_none());
-        assert_eq!(state_invalid.cumulative_amount, 20);
+        let err =
+            apply_response_receipt(&invalid, &mut state_invalid, "session response").unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid required Payment-Receipt"),
+            "expected strict mode to reject malformed receipt, got: {err}"
+        );
+    }
+
+    #[test]
+    fn apply_response_receipt_strict_allows_reconciled_lower_spent() {
+        let channel_id = B256::from([0x79; 32]);
+        let receipt = SessionReceipt {
+            method: "tempo".to_string(),
+            intent: "session".to_string(),
+            status: "success".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            reference: format!("{channel_id:#x}"),
+            challenge_id: "challenge".to_string(),
+            channel_id: format!("{channel_id:#x}"),
+            accepted_cumulative: "30".to_string(),
+            spent: "7".to_string(),
+            units: Some(1),
+            tx_hash: None,
+        };
+        let header = encode_receipt_header(&receipt);
+        let response = HttpResponse::for_test_with_headers(
+            200,
+            b"ok",
+            &[("payment-receipt", header.as_str())],
+        );
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 20,
+            server_spent: 10,
+        };
+
+        let result = apply_response_receipt(&response, &mut state, "session response");
+        assert!(
+            result.is_ok(),
+            "strict receipt should allow downward spend reconciliation"
+        );
+        assert_eq!(state.server_spent, 7);
+        assert_eq!(state.accepted_cumulative, 30);
     }
 }

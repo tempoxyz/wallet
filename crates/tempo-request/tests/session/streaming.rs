@@ -553,7 +553,7 @@ async fn credential_source_is_did_pkh_eip155_chainid_address() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn missing_receipt_on_successful_paid_response_is_warning_only() {
+async fn missing_receipt_on_successful_paid_response_is_error_for_strict_sessions() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
         payee_mode: PayeeMode::Fixed,
@@ -577,16 +577,116 @@ async fn missing_receipt_on_successful_paid_response_is_warning_only() {
     let first_output = run_session_request(&temp, &server.url("/resource"));
     assert!(first_output.status.success());
 
-    let second_output = run_session_request(&temp, &server.url("/resource"));
+    let second_output = run_session_request(&temp, &server.url("/resource-missing-receipt"));
     assert!(
-        second_output.status.success(),
-        "missing receipt on paid voucher response should not fail request: {}",
+        !second_output.status.success(),
+        "missing receipt on paid voucher response should fail in strict mode: {}",
         get_combined_output(&second_output)
     );
     let combined = get_combined_output(&second_output);
     assert!(
-        combined.contains("Warning: missing Payment-Receipt on successful paid session response"),
-        "client should emit warning-only message when paid response lacks receipt: {combined}"
+        combined.contains("Missing required Payment-Receipt on successful paid session response"),
+        "client should fail with required-receipt error when paid response lacks receipt: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_open_missing_receipt_preserves_channel_state() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: false,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: None,
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = run_session_request(&temp, &server.url("/resource-open-missing-receipt"));
+    assert!(
+        !output.status.success(),
+        "strict open should fail when successful paid response omits receipt: {}",
+        get_combined_output(&output)
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(
+        channels.len(),
+        1,
+        "strict open failure should still preserve recoverable local channel state"
+    );
+    assert_eq!(
+        channels[0].state, "active",
+        "strict open failure should preserve an active channel record for recovery"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_topup_receipt_is_error_for_strict_stream_sessions() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: true,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: Some(2_500_000),
+        sse_required_cumulative: Some(3_800_000),
+        sse_reported_deposit: Some(2_000_000),
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output = run_session_request(&temp, &server.url("/stream"));
+    assert!(
+        first_output.status.success(),
+        "first stream should establish reusable strict session: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output = run_session_request(&temp, &server.url("/stream-missing-receipt"));
+    assert!(
+        !second_output.status.success(),
+        "strict stream top-up should fail when top-up response omits receipt: {}",
+        get_combined_output(&second_output)
+    );
+    let combined = get_combined_output(&second_output);
+    assert!(
+        combined.contains("Missing required Payment-Receipt on successful paid topUp response"),
+        "strict top-up path should emit required-receipt error: {combined}"
+    );
+
+    let observed = server.snapshot();
+    assert!(
+        observed.top_up_count >= 1,
+        "test precondition: stream flow should execute top-up before failing"
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(
+        channels.len(),
+        1,
+        "strict top-up receipt failures should preserve local session state for recovery"
+    );
+    assert!(
+        channels[0].deposit >= 3_800_000,
+        "preserved state should keep a conservative funded deposit floor after top-up side effects"
     );
 }
 
