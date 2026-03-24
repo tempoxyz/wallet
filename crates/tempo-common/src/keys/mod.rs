@@ -2,6 +2,7 @@
 
 pub mod authorization;
 mod io;
+pub mod ows;
 mod keystore;
 mod model;
 mod signer;

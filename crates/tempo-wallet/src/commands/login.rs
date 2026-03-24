@@ -23,7 +23,10 @@ use tempo_common::{
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
-pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
+pub(crate) async fn run(ctx: &Context, ows: bool) -> Result<(), TempoError> {
+    if ows {
+        return run_ows(ctx).await;
+    }
     run_impl(ctx, false).await
 }
 
@@ -75,6 +78,90 @@ async fn run_impl(ctx: &Context, force_reauth: bool) -> Result<(), TempoError> {
             "\nWallet connected!\n"
         };
         eprintln!("{msg}");
+    }
+
+    let keys = ctx.keys.reload()?;
+    show_whoami(ctx, Some(&keys), None).await
+}
+
+/// OWS login — headless alternative to passkey. Same scoped access key,
+/// same $100 limit, same 30-day expiry. Root key in OWS vault instead
+/// of passkey secure enclave.
+async fn run_ows(ctx: &Context) -> Result<(), TempoError> {
+    let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
+
+    let needs_reauth = if already_logged_in {
+        is_key_revoked_or_expired(ctx).await
+    } else {
+        false
+    };
+
+    if needs_reauth {
+        invalidate_stale_key(ctx, false)?;
+    }
+
+    if already_logged_in && !needs_reauth {
+        if ctx.output_format == OutputFormat::Text {
+            eprintln!("Already logged in.\n");
+        }
+        let keys = ctx.keys.reload()?;
+        return show_whoami(ctx, Some(&keys), None).await;
+    }
+
+    // Reuse existing OWS wallet for this network, or create a new one.
+    let network_prefix = ctx.network.as_str();
+    let ows_wallet_name = if let Some(existing) = tempo_common::keys::ows::find_wallet(network_prefix) {
+        existing
+    } else {
+        let mut nonce = [0u8; 4];
+        getrandom::fill(&mut nonce).map_err(|source| KeyError::SigningOperationSource {
+            operation: "generate wallet nonce",
+            source: Box::new(source),
+        })?;
+        let name = format!("{}-{}", network_prefix, hex::encode(nonce));
+        tempo_common::keys::ows::create_wallet(&name)?
+    };
+
+    // Derive wallet address from root key.
+    let exported_key = tempo_common::keys::ows::export_private_key(&ows_wallet_name)?;
+    let root_signer = tempo_common::keys::parse_private_key_signer(&exported_key)?;
+    let wallet_address = root_signer.address();
+    drop(exported_key);
+
+    // Generate scoped access key and sign authorization (same defaults as passkey).
+    let access_signer = PrivateKeySigner::random();
+    let auth = tempo_common::keys::authorization::sign(
+        &root_signer,
+        &access_signer,
+        ctx.network.chain_id(),
+    )?;
+    drop(root_signer);
+
+    // Reuse save_keys() — same save path as passkey login.
+    save_keys(
+        ctx.network,
+        &ctx.keys,
+        AuthCallback {
+            account_address: format!("{wallet_address:#x}"),
+            key_authorization: Some(auth.hex),
+            duration_secs: 0,
+        },
+        access_signer,
+    )?;
+
+    ctx.track(
+        analytics::WALLET_CREATED,
+        WalletCreatedPayload {
+            wallet_type: "ows".to_string(),
+        },
+    );
+    ctx.track_event(analytics::KEY_CREATED);
+    if let Some(ref a) = ctx.analytics {
+        a.identify(&ctx.keys);
+    }
+
+    if ctx.output_format == OutputFormat::Text {
+        eprintln!("\nWallet connected!\n");
     }
 
     let keys = ctx.keys.reload()?;

@@ -31,7 +31,11 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     /// Sign up or log in to your Tempo wallet
     #[command(display_order = 1)]
-    Login,
+    Login {
+        /// Use OWS encrypted vault instead of passkey (fully headless)
+        #[arg(long)]
+        ows: bool,
+    },
     /// Refresh your access key without logging out
     #[command(display_order = 2)]
     Refresh,
