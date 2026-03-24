@@ -152,8 +152,6 @@ impl HttpClient {
 
         if plan.http1_only {
             builder = builder.http1_only();
-        } else if plan.http2 {
-            builder = builder.http2_adaptive_window(true);
         }
 
         if !plan.headers.is_empty() {

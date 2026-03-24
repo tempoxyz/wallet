@@ -10,6 +10,7 @@ use alloy::{
     sol,
     sol_types::SolCall,
 };
+use tempo_alloy::rpc::TempoTransactionRequest;
 use tempo_primitives::transaction::Call;
 
 use mpp::client::tempo::{charge::tx_builder, signing};
@@ -104,20 +105,26 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     // Hold the provisioning-retry signer if we need to rebuild.
     let provisioning_signer;
 
-    let gas_result = tx_builder::estimate_gas(
-        provider,
-        from,
-        chain_id,
-        nonce,
-        effective_fee_token,
-        &calls,
-        MAX_FEE_PER_GAS,
-        MAX_PRIORITY_FEE_PER_GAS,
-        key_auth,
-        EXPIRING_NONCE_KEY,
-        valid_before,
-    )
-    .await;
+    let build_gas_req = |key_auth: Option<&tempo_primitives::transaction::SignedKeyAuthorization>| {
+        let mut req = TempoTransactionRequest {
+            calls: calls.clone(),
+            key_authorization: key_auth.cloned(),
+            ..Default::default()
+        }
+        .with_fee_token(effective_fee_token)
+        .with_nonce_key(EXPIRING_NONCE_KEY);
+        if let Some(vb) = valid_before {
+            req = req.with_valid_before(vb);
+        }
+        req.inner.from = Some(from);
+        req.inner.chain_id = Some(chain_id);
+        req.inner.nonce = Some(nonce);
+        req.inner.max_fee_per_gas = Some(MAX_FEE_PER_GAS);
+        req.inner.max_priority_fee_per_gas = Some(MAX_PRIORITY_FEE_PER_GAS);
+        req
+    };
+
+    let gas_result = tx_builder::estimate_gas(provider, build_gas_req(key_auth)).await;
 
     let gas_limit = match gas_result {
         Ok(gas) => gas,
@@ -132,24 +139,12 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
                     })?;
             effective_wallet = &provisioning_signer;
             key_auth = effective_wallet.signing_mode.key_authorization();
-            tx_builder::estimate_gas(
-                provider,
-                from,
-                chain_id,
-                nonce,
-                effective_fee_token,
-                &calls,
-                MAX_FEE_PER_GAS,
-                MAX_PRIORITY_FEE_PER_GAS,
-                key_auth,
-                EXPIRING_NONCE_KEY,
-                valid_before,
-            )
-            .await
-            .map_err(|_| KeyError::SigningOperationSource {
-                operation: "estimate gas",
-                source: Box::new(original),
-            })?
+            tx_builder::estimate_gas(provider, build_gas_req(key_auth))
+                .await
+                .map_err(|_| KeyError::SigningOperationSource {
+                    operation: "estimate gas",
+                    source: Box::new(original),
+                })?
         }
         Err(e) => {
             return Err(KeyError::SigningOperationSource {

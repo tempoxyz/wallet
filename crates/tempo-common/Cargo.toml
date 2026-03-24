@@ -30,6 +30,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
+tempo-alloy.workspace = true
 tempo-primitives.workspace = true
 thiserror.workspace = true
 time.workspace = true
