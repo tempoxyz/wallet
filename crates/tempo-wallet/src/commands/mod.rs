@@ -2,6 +2,7 @@
 
 pub(crate) mod auth;
 pub(crate) mod completions;
+pub(crate) mod create;
 pub(crate) mod debug;
 pub(crate) mod fund;
 pub(crate) mod keys;

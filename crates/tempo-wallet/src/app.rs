@@ -3,7 +3,7 @@
 use crate::{
     args::{Cli, Commands, ServicesCommands, SessionCommands},
     commands::{
-        completions, debug, fund, keys, login, logout, services, sessions, transfer, whoami,
+        completions, create, debug, fund, keys, login, logout, services, sessions, transfer, whoami,
     },
 };
 use tempo_common::error::TempoError;
@@ -24,6 +24,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
         |ctx| async move {
             let cmd_name = command_name(&command);
             let result = match command {
+                Commands::Create => create::run(&ctx).await,
                 Commands::Login => login::run(&ctx).await,
                 Commands::Logout { yes } => logout::run(&ctx, yes),
                 Commands::Completions { shell } => completions::run(&ctx, shell),
@@ -61,6 +62,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
 /// Derive a short analytics-friendly name from a parsed command.
 const fn command_name(command: &Commands) -> &'static str {
     match command {
+        Commands::Create => "create",
         Commands::Login => "login",
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",

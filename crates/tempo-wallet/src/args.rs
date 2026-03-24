@@ -29,6 +29,9 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Commands {
+    /// Create an OWS-native wallet (fully headless, no passkey)
+    #[command(display_order = 0)]
+    Create,
     /// Sign up or log in to your Tempo wallet
     #[command(display_order = 1)]
     Login,
