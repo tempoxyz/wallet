@@ -220,13 +220,17 @@ fn format_http_status_error(operation: &str, status: u16, body: Option<&str>) ->
 
 #[derive(Error, Debug)]
 pub enum PaymentError {
-    #[error("Spending limit exceeded: limit is {limit} {token}, need {required} {token}")]
+    #[error(
+        "Spending limit exceeded: limit is {limit} {token}, need {required} {token}. If this looks stale, run 'tempo wallet refresh'."
+    )]
     SpendingLimitExceeded {
         token: String,
         limit: String,
         required: String,
     },
-    #[error("Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo wallet fund'.")]
+    #[error(
+        "Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo wallet fund'. If this looks stale, run 'tempo wallet refresh'."
+    )]
     InsufficientBalance {
         token: String,
         available: String,
@@ -453,7 +457,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo wallet fund'."
+            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo wallet fund'. If this looks stale, run 'tempo wallet refresh'."
         );
     }
 
@@ -466,7 +470,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Spending limit exceeded: limit is 10.00 USDC, need 20.00 USDC"
+            "Spending limit exceeded: limit is 10.00 USDC, need 20.00 USDC. If this looks stale, run 'tempo wallet refresh'."
         );
     }
 

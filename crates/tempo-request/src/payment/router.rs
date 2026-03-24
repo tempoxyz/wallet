@@ -45,6 +45,10 @@ pub(crate) async fn dispatch_payment(
         }
     }
 
+    if let Some(mock_error) = mock_payment_error_from_env(network) {
+        return Err(mock_error);
+    }
+
     let rpc_url = config.rpc_url(network);
     let resolved = ResolvedChallenge {
         challenge,
@@ -59,4 +63,69 @@ pub(crate) async fn dispatch_payment(
     }
 
     handle_charge_request(http, url, resolved, signer).await
+}
+
+fn mock_payment_error_from_env(network: NetworkId) -> Option<TempoError> {
+    let value = std::env::var("TEMPO_MOCK_PAYMENT_ERROR").ok()?;
+    parse_mock_payment_error(value.trim(), network)
+}
+
+fn parse_mock_payment_error(value: &str, network: NetworkId) -> Option<TempoError> {
+    let token = network.token().symbol.to_string();
+
+    let err = if value.eq_ignore_ascii_case("insufficient-balance") {
+        Some(PaymentError::InsufficientBalance {
+            token,
+            available: "0.000000".to_string(),
+            required: "1.000000".to_string(),
+        })
+    } else if value.eq_ignore_ascii_case("spending-limit") {
+        Some(PaymentError::SpendingLimitExceeded {
+            token,
+            limit: "0.000000".to_string(),
+            required: "1.000000".to_string(),
+        })
+    } else {
+        tracing::warn!(
+            "Ignoring unknown TEMPO_MOCK_PAYMENT_ERROR value '{value}'. Expected one of: insufficient-balance, spending-limit"
+        );
+        None
+    };
+
+    err.map(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_mock_payment_error;
+    use tempo_common::{
+        error::{PaymentError, TempoError},
+        network::NetworkId,
+    };
+
+    #[test]
+    fn parse_mock_insufficient_balance() {
+        let err = parse_mock_payment_error("insufficient-balance", NetworkId::Tempo)
+            .expect("mock error should parse");
+        assert!(matches!(
+            err,
+            TempoError::Payment(PaymentError::InsufficientBalance { .. })
+        ));
+    }
+
+    #[test]
+    fn parse_mock_spending_limit() {
+        let err = parse_mock_payment_error("spending-limit", NetworkId::TempoModerato)
+            .expect("mock error should parse");
+        assert!(matches!(
+            err,
+            TempoError::Payment(PaymentError::SpendingLimitExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn parse_mock_unknown_value_returns_none() {
+        let err = parse_mock_payment_error("wat", NetworkId::Tempo);
+        assert!(err.is_none());
+    }
 }
