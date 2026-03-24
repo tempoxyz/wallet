@@ -36,20 +36,20 @@ pub(crate) enum Commands {
     #[command(display_order = 2)]
     Refresh,
     /// Log out and disconnect your wallet
-    #[command(display_order = 2)]
+    #[command(display_order = 3)]
     Logout {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
     },
     /// Show who you are: wallet, balances, keys
-    #[command(display_order = 3)]
+    #[command(display_order = 4)]
     Whoami,
     /// List keys and their spending limits
-    #[command(display_order = 4, name = "keys")]
+    #[command(display_order = 5, name = "keys")]
     Keys,
     /// Transfer tokens to an address
-    #[command(display_order = 5, arg_required_else_help = true)]
+    #[command(display_order = 6, arg_required_else_help = true)]
     #[command(after_help = "\
 Examples:
   tempo wallet transfer 1.00 0x20c0...b50 0x70997...9C8
