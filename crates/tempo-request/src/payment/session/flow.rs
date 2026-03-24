@@ -475,7 +475,7 @@ async fn send_top_up_request(
 async fn run_non_streaming_top_up_recovery(
     ctx: &ChannelContext<'_>,
     state: &mut ChannelState,
-    required_top_up: u128,
+    additional_deposit: u128,
 ) -> Result<(), TempoError> {
     if let Some(clamped) = ctx.clamped_deposit {
         if ctx.http.log_enabled() {
@@ -486,7 +486,6 @@ async fn run_non_streaming_top_up_recovery(
         }
     }
 
-    let additional_deposit = required_top_up.max(ctx.top_up_deposit);
     let mut echo = fetch_fresh_session_echo(ctx)
         .await
         .unwrap_or_else(|_| ctx.echo.clone());
@@ -624,7 +623,14 @@ async fn send_session_request(
                                 state.cumulative_amount.saturating_sub(state.deposit).max(1)
                             };
 
-                        if state.max_cumulative_spend.is_some() {
+                        let additional_deposit =
+                            if let Some(max_cumulative_spend) = state.max_cumulative_spend {
+                                max_cumulative_spend.saturating_sub(state.deposit)
+                            } else {
+                                required_top_up.max(ctx.top_up_deposit)
+                            };
+
+                        if additional_deposit == 0 {
                             return Err(SessionRequestFailure {
                                 source: PaymentError::DepositInsufficient {
                                     deposit: format_token_amount(state.deposit, ctx.network_id),
@@ -638,7 +644,9 @@ async fn send_session_request(
                             });
                         }
 
-                        match run_non_streaming_top_up_recovery(ctx, state, required_top_up).await {
+                        match run_non_streaming_top_up_recovery(ctx, state, additional_deposit)
+                            .await
+                        {
                             Ok(()) => {
                                 attempted_non_stream_top_up = true;
                                 continue;
