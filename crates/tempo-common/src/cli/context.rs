@@ -57,7 +57,13 @@ impl Context {
             .map(|network| NetworkId::resolve(Some(network)))
             .transpose()?;
         let network = NetworkId::resolve(args.requested_network.as_deref())?;
-        let keys = Keystore::load(args.private_key.as_deref())?;
+        let mut keys = Keystore::load(args.private_key.as_deref())?;
+
+        // Migrate any plaintext keys to OWS encrypted vault on first run.
+        if let Err(e) = crate::keys::migration::migrate_to_ows(&mut keys) {
+            tracing::warn!(error = %e, "OWS key migration failed — continuing with existing keys");
+        }
+
         let analytics = Analytics::new(network, &config, &keys, args.app_id).await;
 
         Ok(Self {

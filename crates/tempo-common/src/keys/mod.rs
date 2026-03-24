@@ -3,7 +3,9 @@
 pub mod authorization;
 mod io;
 mod keystore;
+pub mod migration;
 mod model;
+pub mod ows;
 mod signer;
 
 pub use io::{take_keystore_load_summary, KeystoreLoadSummary};

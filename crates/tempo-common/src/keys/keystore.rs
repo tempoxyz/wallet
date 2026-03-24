@@ -101,7 +101,7 @@ impl Keystore {
         {
             return Some(entry);
         }
-        if let Some(entry) = self.keys.iter().find(|entry| entry.has_inline_key()) {
+        if let Some(entry) = self.keys.iter().find(|entry| entry.has_inline_key() || entry.is_ows()) {
             return Some(entry);
         }
         self.keys.first()
@@ -114,7 +114,7 @@ impl Keystore {
     #[must_use]
     pub fn has_wallet(&self) -> bool {
         self.primary_key()
-            .is_some_and(|entry| entry.wallet_address_parsed().is_some() && entry.has_inline_key())
+            .is_some_and(|entry| entry.wallet_address_parsed().is_some() && (entry.has_inline_key() || entry.is_ows()))
     }
 
     /// Check if a wallet is connected with a key for the given network.

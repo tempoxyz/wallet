@@ -2,13 +2,12 @@
 
 use std::time::{Duration, Instant};
 
-use alloy::{primitives::Address, providers::ProviderBuilder, signers::local::PrivateKeySigner};
+use alloy::{primitives::Address, providers::ProviderBuilder};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use colored::Colorize;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use url::Url;
-use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
 use crate::analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
@@ -147,7 +146,22 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
     })?;
     let auth_base_url = parsed_url.origin().ascii_serialization();
 
-    let local_signer = PrivateKeySigner::random();
+    // Create a new OWS wallet for this login. Name includes a random suffix
+    // so re-logins never conflict. Old wallets stay in the vault (harmless);
+    // the config's ows_id is updated to point to the new one.
+    let mut nonce = [0u8; 4];
+    getrandom::fill(&mut nonce).map_err(|source| KeyError::SigningOperationSource {
+        operation: "generate wallet nonce",
+        source: Box::new(source),
+    })?;
+    let ows_wallet_name = format!("{}-{}", ctx.network.as_str(), hex::encode(nonce));
+    let ows_id = tempo_common::keys::ows::create_wallet(&ows_wallet_name)?;
+
+    // Briefly export in-memory to derive the public key for the auth handshake.
+    let exported_key = tempo_common::keys::ows::export_private_key(&ows_id)?;
+    let local_signer = tempo_common::keys::parse_private_key_signer(&exported_key)?;
+    drop(exported_key);
+
     let uncompressed = local_signer
         .credential()
         .verifying_key()
@@ -188,7 +202,7 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
         },
     );
 
-    save_keys(ctx.network, &ctx.keys, callback, local_signer)?;
+    save_keys(ctx.network, &ctx.keys, callback, local_signer.address(), &ows_id)?;
 
     ctx.track(
         analytics::WALLET_CREATED,
@@ -266,12 +280,17 @@ async fn poll_until_authorized(
     }
 }
 
-/// Save authentication keys to keys.toml (NOT in the OS keychain).
+/// Save authentication metadata to keys.toml.
+///
+/// The private key already lives in the OWS vault (created earlier in
+/// `do_login`). This function only writes the Tempo-specific metadata:
+/// wallet address, chain ID, key authorization, and the OWS wallet UUID.
 fn save_keys(
     network: NetworkId,
     keys: &Keystore,
     callback: AuthCallback,
-    local_signer: PrivateKeySigner,
+    access_key_address: Address,
+    ows_id: &str,
 ) -> Result<(), TempoError> {
     let wallet_address: Address =
         callback
@@ -284,12 +303,9 @@ fn save_keys(
 
     let validated = tempo_common::keys::authorization::validate(
         callback.key_authorization.as_deref(),
-        local_signer.address(),
+        access_key_address,
     )?;
     let key_auth_hex = validated.as_ref().map(|v| v.hex.clone());
-
-    let access_key_hex = Zeroizing::new(format!("0x{}", hex::encode(local_signer.to_bytes())));
-    let access_key_address = local_signer.address();
 
     let mut keys = keys.clone();
 
@@ -310,8 +326,8 @@ fn save_keys(
     entry.wallet_type = WalletType::Passkey;
     entry.set_wallet_address(wallet_address);
     entry.set_key_address(Some(access_key_address));
-    entry.key = Some(access_key_hex);
     entry.key_authorization = key_auth_hex;
+    entry.ows_id = Some(ows_id.to_string());
 
     keys.save()
 }

@@ -105,13 +105,21 @@ impl Keystore {
             )))
         })?;
 
-        let pk = key_entry
-            .key
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                TempoError::from(ConfigError::Missing("No key configured.".to_string()))
-            })?;
+        // Fetch the private key from the OWS vault. The only exception is
+        // ephemeral `--private-key` overrides which carry an inline key.
+        let ows_key;
+        let pk = if let Some(ows_id) = &key_entry.ows_id {
+            ows_key = super::ows::export_private_key(ows_id)?;
+            &*ows_key
+        } else if self.ephemeral {
+            key_entry.key.as_deref().ok_or_else(|| {
+                TempoError::from(ConfigError::Missing("No key provided.".to_string()))
+            })?
+        } else {
+            return Err(TempoError::from(ConfigError::Missing(
+                "No OWS wallet configured. Run 'tempo wallet login'.".to_string(),
+            )));
+        };
         let signer = parse_private_key_signer(pk)?;
 
         let wallet_address: Address = key_entry.wallet_address_parsed().ok_or_else(|| {
@@ -177,6 +185,7 @@ mod tests {
     #[test]
     fn test_signer_keychain_when_wallet_differs_from_key() {
         let mut keys = Keystore::default();
+        keys.ephemeral = true;
         keys.keys.push(KeyEntry {
             wallet_address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_string(),
             key_address: Some(TEST_ADDRESS.to_string()),
@@ -201,6 +210,7 @@ mod tests {
     #[test]
     fn test_signer_keychain_always_omits_auth_from_signing_mode() {
         let mut keys = Keystore::default();
+        keys.ephemeral = true;
         keys.keys.push(KeyEntry {
             wallet_address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_string(),
             key_address: Some(TEST_ADDRESS.to_string()),
@@ -247,6 +257,7 @@ mod tests {
         let auth = authorization::sign(&wallet_signer, &access_signer, 4217).unwrap();
 
         let mut keys = Keystore::default();
+        keys.ephemeral = true;
         keys.keys.push(KeyEntry {
             wallet_address: format!("{:#x}", wallet_signer.address()),
             key_address: Some(TEST_ADDRESS.to_string()),

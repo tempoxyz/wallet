@@ -135,7 +135,7 @@ async fn build_response(
     // Readiness requires: key present, wallet connected, and has a signing key or key_authorization.
     response.ready = response.ready
         && response.wallet.is_some()
-        && (key_entry.has_inline_key() || key_entry.key_authorization.is_some());
+        && (key_entry.has_inline_key() || key_entry.is_ows() || key_entry.key_authorization.is_some());
 
     response
 }
