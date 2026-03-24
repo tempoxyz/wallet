@@ -35,8 +35,14 @@ jobs:
           elif [[ "$TAG" == *"@"* ]]; then
             PACKAGE="${TAG%%@*}"
             VERSION="${TAG#*@}"
-            PACKAGES="[\"${PACKAGE}\"]"
             RELEASE_TAG="$TAG"
+
+            if [[ "$PACKAGE" == "tempo-wallet" || "$PACKAGE" == "tempo-request" ]]; then
+              PACKAGES="[\"${PACKAGE}\"]"
+            else
+              echo "Unsupported package in tag: ${PACKAGE}" >&2
+              exit 1
+            fi
           else
             echo "Unsupported tag format: ${TAG}" >&2
             exit 1
@@ -47,17 +53,17 @@ jobs:
             echo "version=${VERSION}"
             echo "release_tag=${RELEASE_TAG}"
           } >> "$GITHUB_OUTPUT"
-          echo "Tag: ${TAG}, Packages: ${PACKAGES}, Version: ${VERSION}, Release tag: ${RELEASE_TAG}"
+          echo "Tag: ${TAG}, packages: ${PACKAGES}, version: ${VERSION}, release tag: ${RELEASE_TAG}"
 
   build:
-    name: Build ${{ matrix.package }} (${{ matrix.target }})
+    name: Build ${{ matrix.package }} (${{ matrix.build.target }})
     needs: [parse-tag]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.build.os }}
     strategy:
       fail-fast: false
       matrix:
         package: ${{ fromJson(needs.parse-tag.outputs.packages) }}
-        include:
+        build:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             suffix: linux-amd64
@@ -76,20 +82,20 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          target: ${{ matrix.target }}
+          target: ${{ matrix.build.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.build.target }}
       - name: Configure git auth
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p ${{ env.PACKAGE }}
-      - run: strip target/${{ matrix.target }}/release/${{ env.PACKAGE }}
-      - run: mv target/${{ matrix.target }}/release/${{ env.PACKAGE }} ${{ env.PACKAGE }}-${{ matrix.suffix }}
+        run: cargo build --release --target ${{ matrix.build.target }} -p ${{ env.PACKAGE }}
+      - run: strip target/${{ matrix.build.target }}/release/${{ env.PACKAGE }}
+      - run: mv target/${{ matrix.build.target }}/release/${{ env.PACKAGE }} ${{ env.PACKAGE }}-${{ matrix.build.suffix }}
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.PACKAGE }}-${{ matrix.suffix }}
-          path: ${{ env.PACKAGE }}-${{ matrix.suffix }}
+          name: ${{ env.PACKAGE }}-${{ matrix.build.suffix }}
+          path: ${{ env.PACKAGE }}-${{ matrix.build.suffix }}
 
   publish:
     name: Publish ${{ matrix.package }}
