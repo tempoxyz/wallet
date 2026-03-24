@@ -631,11 +631,33 @@ async fn send_session_request(
                             };
 
                         if additional_deposit == 0 {
+                            let required_cumulative = state.deposit.saturating_add(required_top_up);
+                            if let Some(max_cumulative_spend) = state.max_cumulative_spend {
+                                return Err(SessionRequestFailure {
+                                    source: PaymentError::PaymentRejected {
+                                        reason: format!(
+                                            "Payment max spend exceeded: max={} required={}",
+                                            format_token_amount(
+                                                max_cumulative_spend,
+                                                ctx.network_id
+                                            ),
+                                            format_token_amount(
+                                                required_cumulative,
+                                                ctx.network_id
+                                            ),
+                                        ),
+                                        status_code: 402,
+                                    }
+                                    .into(),
+                                    kind: SessionRequestFailureKind::Other,
+                                });
+                            }
+
                             return Err(SessionRequestFailure {
                                 source: PaymentError::DepositInsufficient {
                                     deposit: format_token_amount(state.deposit, ctx.network_id),
                                     amount: format_token_amount(
-                                        state.deposit.saturating_add(required_top_up),
+                                        required_cumulative,
                                         ctx.network_id,
                                     ),
                                 }

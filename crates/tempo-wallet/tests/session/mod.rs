@@ -46,10 +46,16 @@ struct CooperativeObservations {
     credential_source: Option<String>,
 }
 
+#[derive(Clone, Default)]
+struct CooperativeCloseConfig {
+    auth_failure_once_status: Option<StatusCode>,
+}
+
 #[derive(Clone)]
 struct CooperativeCloseState {
     realm: String,
     observations: Arc<Mutex<CooperativeObservations>>,
+    fail_next_authorized: Arc<Mutex<Option<StatusCode>>>,
 }
 
 struct CooperativeCloseServer {
@@ -61,15 +67,21 @@ struct CooperativeCloseServer {
 
 impl CooperativeCloseServer {
     async fn start() -> Self {
+        Self::start_with_config(CooperativeCloseConfig::default()).await
+    }
+
+    async fn start_with_config(config: CooperativeCloseConfig) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let base_url = format!("http://{}:{}", addr.ip(), addr.port());
         let realm = format!("{}:{}", addr.ip(), addr.port());
 
         let observations = Arc::new(Mutex::new(CooperativeObservations::default()));
+        let fail_next_authorized = Arc::new(Mutex::new(config.auth_failure_once_status));
         let state = CooperativeCloseState {
             realm,
             observations: observations.clone(),
+            fail_next_authorized,
         };
 
         let app = Router::new()
@@ -147,6 +159,18 @@ async fn cooperative_close_handler(
         observations.close_channel_ids.push(channel_id);
         observations.close_cumulative_amount = Some(cumulative_amount);
         observations.close_signature = Some(signature);
+    }
+
+    if let Some(status) = state.fail_next_authorized.lock().unwrap().take() {
+        let body = json!({
+            "type": "https://paymentauth.org/problems/internal-error",
+            "title": "Internal Server Error",
+            "status": status.as_u16(),
+        });
+        return Response::builder()
+            .status(status)
+            .body(Body::from(body.to_string()))
+            .unwrap();
     }
 
     Response::builder()

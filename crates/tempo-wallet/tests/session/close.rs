@@ -141,6 +141,74 @@ async fn sessions_close_request_close_transitions_to_pending_and_persists_countd
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sessions_close_reconciles_server_5xx_to_closed_without_request_close_tx() {
+    let rpc = CloseRpcServer::start(RpcCloseConfig {
+        close_requested_at: 0,
+        finalized: true,
+        grace_period: 900,
+        orphaned_log_channel_id: None,
+    })
+    .await;
+    let close_server = CooperativeCloseServer::start_with_config(CooperativeCloseConfig {
+        auth_failure_once_status: Some(StatusCode::INTERNAL_SERVER_ERROR),
+    })
+    .await;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .with_config_toml(format!(
+            "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+            rpc.base_url
+        ))
+        .build();
+
+    seed_session_for_close(
+        &temp,
+        &close_server.base_url,
+        &close_server.close_url(),
+        777,
+    );
+
+    let output = test_command(&temp)
+        .args([
+            "-j",
+            "-n",
+            "tempo-moderato",
+            "sessions",
+            "close",
+            &close_server.base_url,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "close should reconcile coop 5xx into closed outcome: {}",
+        get_combined_output(&output)
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("json output should parse");
+    assert_eq!(parsed["closed"], 1);
+    assert_eq!(parsed["pending"], 0);
+    assert_eq!(parsed["failed"], 0);
+    assert_eq!(parsed["results"][0]["status"], "closed");
+
+    assert!(
+        read_close_state(&temp).is_none(),
+        "reconciled close should remove local session row"
+    );
+
+    let observed = rpc.snapshot();
+    assert_eq!(
+        observed.send_raw_count, 0,
+        "reconciliation should avoid requestClose tx when channel is already finalized"
+    );
+
+    let coop_observed = close_server.snapshot();
+    assert_eq!(coop_observed.prefetch_count, 1);
+    assert_eq!(coop_observed.authorized_count, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sessions_close_withdraw_after_grace_elapsed() {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
