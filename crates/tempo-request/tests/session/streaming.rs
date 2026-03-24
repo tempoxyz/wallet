@@ -207,6 +207,58 @@ async fn sse_voucher_clamps_when_required_cumulative_exceeds_deposit() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sse_max_spend_top_up_targets_budget_cap() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: true,
+        voucher_head_unsupported: true,
+        sse_receipt_accepted: Some(2_200_000),
+        sse_required_cumulative: Some(2_000_000),
+        sse_reported_deposit: Some(1_000_000),
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output =
+        run_session_request_with_args(&temp, &server.url("/stream"), &["--max-spend", "1"]);
+    assert!(
+        first_output.status.success(),
+        "first stream request should open channel at baseline max-spend: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output =
+        run_session_request_with_args(&temp, &server.url("/stream"), &["--max-spend", "3"]);
+    assert!(
+        second_output.status.success(),
+        "second stream request should top-up toward max-spend budget: {}",
+        get_combined_output(&second_output)
+    );
+
+    let observed = server.snapshot();
+    assert_eq!(
+        observed.top_up_count, 1,
+        "requiredCumulative above reported deposit should trigger one top-up"
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(channels.len(), 1);
+    assert_eq!(
+        channels[0].cumulative_amount, 2_200_000,
+        "stream receipt should persist post-voucher cumulative"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn payment_receipt_event_terminates_stream_without_processing_trailing_events() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {

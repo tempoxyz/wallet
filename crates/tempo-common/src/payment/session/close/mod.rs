@@ -25,6 +25,26 @@ use crate::{
 
 type ChannelResult<T> = Result<T, TempoError>;
 
+fn should_reconcile_after_coop_failure(error: &TempoError) -> bool {
+    matches!(
+        error,
+        TempoError::Payment(PaymentError::PaymentRejected { status_code, .. })
+            if *status_code >= 500
+    )
+}
+
+async fn channel_closed_on_chain(
+    config: &Config,
+    network_id: crate::network::NetworkId,
+    escrow_contract: Address,
+    channel_id: B256,
+) -> ChannelResult<bool> {
+    let provider = alloy::providers::RootProvider::new_http(config.rpc_url(network_id));
+    let on_chain =
+        super::channel::get_channel_on_chain(&provider, escrow_contract, channel_id).await?;
+    Ok(on_chain.is_none())
+}
+
 fn parse_trusted_close_url(raw_url: &str) -> Option<Url> {
     let trimmed = raw_url.trim();
     if trimmed.is_empty() {
@@ -147,6 +167,28 @@ pub async fn close_channel_from_record(
                 );
             }
             tracing::info!("Cooperative close failed: {coop_err:#}");
+
+            // Some servers may return a transient 5xx while still completing the
+            // cooperative close shortly after. Re-check on-chain finalization
+            // before submitting payer-side requestClose() to avoid a confusing
+            // "pending then closed" UX on immediate retries.
+            if should_reconcile_after_coop_failure(coop_err) {
+                for attempt in 0..2 {
+                    if channel_closed_on_chain(config, network_id, escrow_contract, channel_id)
+                        .await?
+                    {
+                        let amount_display = Some(format_token_amount(close_amount, network_id));
+                        return Ok(CloseOutcome::Closed {
+                            tx_url: None,
+                            amount_display,
+                        });
+                    }
+
+                    if attempt == 0 {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                }
+            }
         }
     } else {
         tracing::info!(
@@ -296,6 +338,21 @@ mod tests {
             created_at: 0,
             last_used_at: 0,
         }
+    }
+
+    #[test]
+    fn reconcile_only_on_server_side_coop_failures() {
+        let internal_error = TempoError::Payment(PaymentError::PaymentRejected {
+            reason: "internal".to_string(),
+            status_code: 500,
+        });
+        assert!(should_reconcile_after_coop_failure(&internal_error));
+
+        let bad_request = TempoError::Payment(PaymentError::PaymentRejected {
+            reason: "bad".to_string(),
+            status_code: 400,
+        });
+        assert!(!should_reconcile_after_coop_failure(&bad_request));
     }
 
     #[test]

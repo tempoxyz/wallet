@@ -65,7 +65,13 @@ fn build_client(ctx: &Context, query: &QueryArgs) -> Result<HttpClient, TempoErr
     // Keep Option so payment dispatch can distinguish an explicit --network.
     let network: Option<NetworkId> = ctx.requested_network;
 
-    HttpClient::new(plan, ctx.verbosity, network, query.dry_run)
+    HttpClient::new(
+        plan,
+        ctx.verbosity,
+        network,
+        query.dry_run,
+        query.max_spend.clone(),
+    )
 }
 
 /// Assemble the HTTP request plan from CLI arguments.

@@ -43,6 +43,15 @@ pub(crate) struct QueryArgs {
     #[arg(long, help_heading = "Payment Options")]
     pub dry_run: bool,
 
+    /// Hard cap for cumulative payment spend (can also be set via TEMPO_MAX_SPEND)
+    #[arg(
+        long = "max-spend",
+        value_name = "AMOUNT",
+        env = "TEMPO_MAX_SPEND",
+        help_heading = "Payment Options"
+    )]
+    pub max_spend: Option<String>,
+
     /// Offline mode - fail immediately without making any network requests
     #[arg(long, help_heading = "HTTP Options")]
     pub offline: bool,

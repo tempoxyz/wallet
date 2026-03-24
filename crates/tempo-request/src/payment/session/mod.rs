@@ -28,6 +28,8 @@ pub(super) struct ChannelState {
     pub(super) deposit: u128,
     pub(super) cumulative_amount: u128,
     pub(super) accepted_cumulative: u128,
+    /// Optional hard cap on cumulative session spend.
+    pub(super) max_cumulative_spend: Option<u128>,
     /// Server-reported actual spend from `Payment-Receipt`. Used at close to
     /// avoid overcharging when the server reconciles below the voucher ceiling.
     pub(super) server_spent: u128,

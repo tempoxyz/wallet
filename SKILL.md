@@ -87,6 +87,7 @@ tempo request -t -X GET <SERVICE_URL>/<ENDPOINT_PATH>
 - `tempo request` is curl-compatible for common flags (method, headers, data, redirects, timeouts, output).
 - Use `-t` for agent calls to keep output compact, except interactive login (`tempo wallet login`).
 - Use `--dry-run` before potentially expensive requests.
+- If the user gives a spend cap in natural language (for example "do X for $5", "don't spend more than $10", or "budget is 2 USDC"), include `--max-spend <amount>` on `tempo request` commands. For non-CLI contexts, use `TEMPO_MAX_SPEND`.
 - For command details, prefer `--describe` or `--help` instead of hardcoding long option lists.
 
 ## Common Issues

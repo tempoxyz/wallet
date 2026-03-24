@@ -42,6 +42,49 @@ async fn status_402_charge_flow() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_402_charge_flow_respects_max_spend() {
+    let h = PaymentTestHarness::charge_with_body("charge accepted").await;
+
+    let output = test_command(&h.temp)
+        .args(["--max-spend", "0.0005", &h.url("/api")])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected charge flow to fail when --max-spend is below challenge amount: {}",
+        get_combined_output(&output)
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Payment max spend exceeded"),
+        "error should describe max-spend rejection: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_402_charge_flow_respects_max_spend_env() {
+    let h = PaymentTestHarness::charge_with_body("charge accepted").await;
+
+    let output = test_command(&h.temp)
+        .env("TEMPO_MAX_SPEND", "0.0005")
+        .arg(h.url("/api"))
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "expected charge flow to fail when TEMPO_MAX_SPEND is below challenge amount: {}",
+        get_combined_output(&output)
+    );
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Payment max spend exceeded"),
+        "error should describe max-spend rejection from env var: {combined}"
+    );
+}
+
 /// Concurrent same-origin charge requests serialize correctly and avoid nonce replay failures.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn status_402_charge_flow_concurrent_same_origin_no_nonce_replay() {
