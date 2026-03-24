@@ -2,7 +2,8 @@
 //!
 //! This module is crate-internal and intentionally decoupled from CLI types.
 
-use mpp::PaymentChallenge;
+use mpp::{client::TempoClientError, PaymentChallenge};
+use serde::Deserialize;
 
 use crate::http::HttpClient;
 use tempo_common::{
@@ -17,6 +18,7 @@ use super::{
     session::handle_session_request,
     types::{PaymentResult, ResolvedChallenge},
 };
+use tempo_common::payment::classify_payment_error;
 
 /// Dispatch to charge or session payment flow.
 ///
@@ -71,28 +73,74 @@ fn mock_payment_error_from_env(network: NetworkId) -> Option<TempoError> {
 }
 
 fn parse_mock_payment_error(value: &str, network: NetworkId) -> Option<TempoError> {
-    let token = network.token().symbol.to_string();
-
-    let err = if value.eq_ignore_ascii_case("insufficient-balance") {
-        Some(PaymentError::InsufficientBalance {
-            token,
-            available: "0.000000".to_string(),
-            required: "1.000000".to_string(),
-        })
+    let err = if value.starts_with('{') {
+        parse_mock_payment_error_json(value, network)
+    } else if value.eq_ignore_ascii_case("insufficient-balance") {
+        Some(classify_payment_error(
+            mpp::MppError::Tempo(TempoClientError::InsufficientBalance {
+                token: format!("{:#x}", network.token().address),
+                available: "0".to_string(),
+                required: "1000000".to_string(),
+            }),
+            &network,
+        ))
     } else if value.eq_ignore_ascii_case("spending-limit") {
-        Some(PaymentError::SpendingLimitExceeded {
-            token,
-            limit: "0.000000".to_string(),
-            required: "1.000000".to_string(),
-        })
+        Some(classify_payment_error(
+            mpp::MppError::Tempo(TempoClientError::SpendingLimitExceeded {
+                token: network.token().symbol.to_string(),
+                limit: "0.000000".to_string(),
+                required: "1.000000".to_string(),
+            }),
+            &network,
+        ))
     } else {
         tracing::warn!(
-            "Ignoring unknown TEMPO_MOCK_PAYMENT_ERROR value '{value}'. Expected one of: insufficient-balance, spending-limit"
+            "Ignoring unknown TEMPO_MOCK_PAYMENT_ERROR value '{value}'. Expected one of: insufficient-balance, spending-limit, or a JSON object"
         );
         None
     };
 
-    err.map(Into::into)
+    err
+}
+
+#[derive(Deserialize)]
+struct MockTempoErrorPayload {
+    #[serde(rename = "type")]
+    kind: String,
+    token: Option<String>,
+    available: Option<String>,
+    required: Option<String>,
+    limit: Option<String>,
+}
+
+fn parse_mock_payment_error_json(value: &str, network: NetworkId) -> Option<TempoError> {
+    let payload: MockTempoErrorPayload = serde_json::from_str(value).ok()?;
+
+    let err = if payload.kind.eq_ignore_ascii_case("insufficient-balance") {
+        TempoClientError::InsufficientBalance {
+            token: payload
+                .token
+                .unwrap_or_else(|| format!("{:#x}", network.token().address)),
+            available: payload.available.unwrap_or_else(|| "0".to_string()),
+            required: payload.required.unwrap_or_else(|| "1000000".to_string()),
+        }
+    } else if payload.kind.eq_ignore_ascii_case("spending-limit") {
+        TempoClientError::SpendingLimitExceeded {
+            token: payload
+                .token
+                .unwrap_or_else(|| network.token().symbol.to_string()),
+            limit: payload.limit.unwrap_or_else(|| "0.000000".to_string()),
+            required: payload.required.unwrap_or_else(|| "1.000000".to_string()),
+        }
+    } else {
+        tracing::warn!(
+            "Ignoring unsupported TEMPO_MOCK_PAYMENT_ERROR JSON type '{}'. Expected insufficient-balance or spending-limit",
+            payload.kind
+        );
+        return None;
+    };
+
+    Some(classify_payment_error(mpp::MppError::Tempo(err), &network))
 }
 
 #[cfg(test)]
@@ -126,6 +174,34 @@ mod tests {
     #[test]
     fn parse_mock_unknown_value_returns_none() {
         let err = parse_mock_payment_error("wat", NetworkId::Tempo);
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn parse_mock_json_insufficient_balance_uses_classification_path() {
+        let err = parse_mock_payment_error(
+            r#"{"type":"insufficient-balance","token":"0x20c000000000000000000000b9537d11c60e8b50","available":"0","required":"1000000"}"#,
+            NetworkId::Tempo,
+        )
+        .expect("mock error should parse");
+
+        match err {
+            TempoError::Payment(PaymentError::InsufficientBalance {
+                token,
+                available,
+                required,
+            }) => {
+                assert_eq!(token, "USDC");
+                assert_eq!(available, "0.000000");
+                assert_eq!(required, "1.000000");
+            }
+            other => panic!("expected classified InsufficientBalance, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn parse_mock_invalid_json_returns_none() {
+        let err = parse_mock_payment_error("{bad-json", NetworkId::Tempo);
         assert!(err.is_none());
     }
 }
