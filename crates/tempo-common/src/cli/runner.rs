@@ -190,10 +190,7 @@ async fn is_access_key_inactive_on_chain(
 
 fn is_revoked_or_inactive_keychain_error(message: &str) -> bool {
     let msg = message.to_ascii_lowercase();
-    msg.contains("revoked")
-        || msg.contains("expired")
-        || msg.contains("not provisioned")
-        || is_inactive_access_key_error(message)
+    msg.contains("revoked") || msg.contains("expired") || is_inactive_access_key_error(message)
 }
 
 fn is_inactive_access_key_error(message: &str) -> bool {
@@ -287,9 +284,16 @@ mod tests {
     }
 
     #[test]
-    fn keychain_error_detector_accepts_not_provisioned_shape() {
-        assert!(is_revoked_or_inactive_keychain_error(
+    fn keychain_error_detector_rejects_not_provisioned_string_without_keychain_context() {
+        assert!(!is_revoked_or_inactive_keychain_error(
             "Access key not provisioned on wallet"
+        ));
+    }
+
+    #[test]
+    fn keychain_error_detector_rejects_generic_not_provisioned_noise() {
+        assert!(!is_revoked_or_inactive_keychain_error(
+            "transport failed: upstream says resource not provisioned"
         ));
     }
 
