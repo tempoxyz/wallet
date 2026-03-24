@@ -161,7 +161,7 @@ pub(super) fn validate_request_spend_limit(
 
     Err(PaymentError::PaymentRejected {
         reason: format!(
-            "Session max spend exceeded: max={} required={}",
+            "Payment max spend exceeded: max={} required={}",
             format_token_amount(max_request_spend, network_id),
             format_token_amount(required_spend, network_id),
         ),
@@ -1486,7 +1486,7 @@ pub(crate) async fn handle_session_request(
         if challenge.amount > max_spend {
             return Err(PaymentError::PaymentRejected {
                 reason: format!(
-                    "Session max spend exceeded: max={} required={}",
+                    "Payment max spend exceeded: max={} required={}",
                     format_token_amount(max_spend, challenge.network_id),
                     format_token_amount(challenge.amount, challenge.network_id),
                 ),

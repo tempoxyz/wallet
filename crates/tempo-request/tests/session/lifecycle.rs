@@ -34,7 +34,7 @@ async fn max_spend_below_challenge_amount_fails_before_open() {
 
     let combined = get_combined_output(&output);
     assert!(
-        combined.contains("Session max spend exceeded"),
+        combined.contains("Payment max spend exceeded"),
         "error should explain max-spend breach: {combined}"
     );
 

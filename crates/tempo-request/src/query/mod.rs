@@ -17,11 +17,71 @@ use crate::{
 };
 use tempo_common::{
     cli::context::Context,
-    error::{NetworkError, TempoError},
+    error::{NetworkError, PaymentError, TempoError},
     security::redact_url,
 };
 
 use self::output::{build_output_options, write_meta_if_requested};
+
+fn parse_max_spend(
+    raw_max_spend: Option<&str>,
+    network: tempo_common::network::NetworkId,
+) -> Result<Option<u128>, TempoError> {
+    let Some(raw) = raw_max_spend else {
+        return Ok(None);
+    };
+
+    let parsed =
+        alloy::primitives::utils::parse_units(raw, network.token().decimals).map_err(|_| {
+            PaymentError::ChallengeParse {
+                context: "--max-spend",
+                reason: format!(
+                    "invalid amount '{}' (expected decimal token amount)",
+                    tempo_common::cli::terminal::sanitize_for_terminal(raw)
+                ),
+            }
+        })?;
+    let amount: u128 = parsed.get_absolute().to();
+    if amount == 0 {
+        return Err(PaymentError::ChallengeSchema {
+            context: "--max-spend",
+            reason: "must be greater than 0".to_string(),
+        }
+        .into());
+    }
+
+    Ok(Some(amount))
+}
+
+fn enforce_max_spend(
+    challenge_amount_raw: &str,
+    network: tempo_common::network::NetworkId,
+    max_spend: Option<u128>,
+) -> Result<(), TempoError> {
+    let Some(max_spend) = max_spend else {
+        return Ok(());
+    };
+    let required = challenge_amount_raw.parse::<u128>().map_err(|source| {
+        PaymentError::ChallengeValueParse {
+            context: "payment challenge amount",
+            source: Box::new(source),
+        }
+    })?;
+
+    if required <= max_spend {
+        return Ok(());
+    }
+
+    Err(PaymentError::PaymentRejected {
+        reason: format!(
+            "Payment max spend exceeded: max={} required={}",
+            tempo_common::cli::format::format_token_amount(max_spend, network),
+            tempo_common::cli::format::format_token_amount(required, network),
+        ),
+        status_code: 402,
+    }
+    .into())
+}
 
 /// Execute an HTTP request with automatic payment handling.
 ///
@@ -106,6 +166,9 @@ pub(crate) async fn run(ctx: &Context, query: QueryArgs) -> Result<(), TempoErro
             challenge.amount_display(),
         );
     }
+
+    let max_spend = parse_max_spend(prepared.http.max_spend.as_deref(), challenge.network)?;
+    enforce_max_spend(&challenge.amount, challenge.network, max_spend)?;
 
     // Skip wallet login for dry-run or when a private key is provided directly
     if !prepared.http.dry_run && !ctx.keys.ephemeral {
