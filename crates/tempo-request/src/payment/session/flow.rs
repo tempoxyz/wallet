@@ -115,6 +115,61 @@ fn challenge_u128_parse(value: &str, context: &'static str) -> Result<u128, Temp
     })
 }
 
+fn parse_max_spend(
+    raw_max_spend: Option<&str>,
+    network_id: tempo_common::network::NetworkId,
+) -> Result<Option<u128>, TempoError> {
+    let Some(raw) = raw_max_spend else {
+        return Ok(None);
+    };
+
+    let parsed = parse_units(raw, network_id.token().decimals).map_err(|_| {
+        PaymentError::ChallengeParse {
+            context: "--max-spend",
+            reason: format!(
+                "invalid amount '{}' (expected decimal token amount)",
+                sanitize_for_terminal(raw)
+            ),
+        }
+    })?;
+
+    let amount: u128 = parsed.get_absolute().to();
+    if amount == 0 {
+        return Err(PaymentError::ChallengeSchema {
+            context: "--max-spend",
+            reason: "must be greater than 0".to_string(),
+        }
+        .into());
+    }
+
+    Ok(Some(amount))
+}
+
+pub(super) fn validate_request_spend_limit(
+    state: &ChannelState,
+    network_id: tempo_common::network::NetworkId,
+    required_cumulative: u128,
+) -> Result<(), TempoError> {
+    let Some(max_request_spend) = state.max_request_spend else {
+        return Ok(());
+    };
+
+    let required_spend = required_cumulative.saturating_sub(state.request_base_cumulative);
+    if required_spend <= max_request_spend {
+        return Ok(());
+    }
+
+    Err(PaymentError::PaymentRejected {
+        reason: format!(
+            "Session max spend exceeded: max={} required={}",
+            format_token_amount(max_request_spend, network_id),
+            format_token_amount(required_spend, network_id),
+        ),
+        status_code: 402,
+    }
+    .into())
+}
+
 fn normalize_hex_identifier(value: &str) -> String {
     if let Ok(address) = value.parse::<Address>() {
         return format!("{address:#x}");
@@ -494,6 +549,13 @@ async fn send_session_request(
     ctx: &ChannelContext<'_>,
     state: &mut ChannelState,
 ) -> Result<PaymentResult, SessionRequestFailure> {
+    validate_request_spend_limit(state, ctx.network_id, state.cumulative_amount).map_err(
+        |source| SessionRequestFailure {
+            source,
+            kind: SessionRequestFailureKind::Other,
+        },
+    )?;
+
     let mut attempted_non_stream_top_up = false;
     let request_idempotency_key = new_idempotency_key();
     loop {
@@ -562,6 +624,20 @@ async fn send_session_request(
                             } else {
                                 state.cumulative_amount.saturating_sub(state.deposit).max(1)
                             };
+
+                        if state.max_request_spend.is_some() {
+                            return Err(SessionRequestFailure {
+                                source: PaymentError::DepositInsufficient {
+                                    deposit: format_token_amount(state.deposit, ctx.network_id),
+                                    amount: format_token_amount(
+                                        state.deposit.saturating_add(required_top_up),
+                                        ctx.network_id,
+                                    ),
+                                }
+                                .into(),
+                                kind: SessionRequestFailureKind::Other,
+                            });
+                        }
 
                         match run_non_streaming_top_up_recovery(ctx, state, required_top_up).await {
                             Ok(()) => {
@@ -909,6 +985,7 @@ async fn challenge_stage(
 async fn deposit_stage(
     resolved: &ResolvedChallenge,
     challenge: &ResolvedSessionChallenge,
+    max_spend: Option<u128>,
 ) -> Result<DepositStageOutput, TempoError> {
     let decimals = challenge.network_id.token().decimals;
     let default_deposit: u128 = parse_units("1", decimals).unwrap().get_absolute().to();
@@ -924,6 +1001,10 @@ async fn deposit_stage(
         .unwrap_or(default_deposit)
         .max(challenge.amount)
         .min(max_deposit);
+
+    if let Some(max_spend) = max_spend {
+        deposit = deposit.min(max_spend);
+    }
     let mut clamped_deposit = None;
 
     let provider = alloy::providers::RootProvider::new_http(resolved.rpc_url.clone());
@@ -1046,6 +1127,7 @@ async fn reuse_stage_discover(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn reuse_stage_execute(
     http: &crate::http::HttpClient,
     url: &str,
@@ -1054,6 +1136,7 @@ async fn reuse_stage_execute(
     challenge: &ResolvedSessionChallenge,
     deposit: &DepositStageOutput,
     reusable: ChannelReuseCandidate,
+    max_spend: Option<u128>,
 ) -> Result<ReuseStageOutcome, TempoError> {
     if http.log_enabled() {
         eprintln!(
@@ -1072,8 +1155,12 @@ async fn reuse_stage_execute(
         deposit: reusable.on_chain_deposit,
         cumulative_amount: prev_cumulative + challenge.amount,
         accepted_cumulative: reusable.record.accepted_cumulative,
+        request_base_cumulative: prev_cumulative,
+        max_request_spend: max_spend,
         server_spent: reusable.record.server_spent,
     };
+
+    validate_request_spend_limit(&state, challenge.network_id, state.cumulative_amount)?;
 
     let ctx = build_channel_context(
         signer,
@@ -1192,6 +1279,7 @@ async fn open_stage(
     signer: &Signer,
     challenge: &ResolvedSessionChallenge,
     deposit: &DepositStageOutput,
+    max_spend: Option<u128>,
 ) -> Result<OpenExecutionPlan, TempoError> {
     let salt = B256::random();
     let channel_id = compute_channel_id(
@@ -1248,8 +1336,12 @@ async fn open_stage(
         deposit: deposit.deposit,
         cumulative_amount: initial_cumulative,
         accepted_cumulative: 0,
+        request_base_cumulative: 0,
+        max_request_spend: max_spend,
         server_spent: 0,
     };
+
+    validate_request_spend_limit(&state, challenge.network_id, state.cumulative_amount)?;
     let salt_hex = format!("{salt:#x}");
 
     // Helper: persist channel state on error so on-chain funds aren't orphaned.
@@ -1389,7 +1481,22 @@ pub(crate) async fn handle_session_request(
         ChallengeStageOutcome::Continue(data) => *data,
     };
 
-    let deposit = deposit_stage(&resolved, &challenge).await?;
+    let max_spend = parse_max_spend(http.max_spend.as_deref(), challenge.network_id)?;
+    if let Some(max_spend) = max_spend {
+        if challenge.amount > max_spend {
+            return Err(PaymentError::PaymentRejected {
+                reason: format!(
+                    "Session max spend exceeded: max={} required={}",
+                    format_token_amount(max_spend, challenge.network_id),
+                    format_token_amount(challenge.amount, challenge.network_id),
+                ),
+                status_code: 402,
+            }
+            .into());
+        }
+    }
+
+    let deposit = deposit_stage(&resolved, &challenge, max_spend).await?;
 
     // Hold a blocking per-origin lock for the full paid request lifecycle.
     // A channel permits only one active session at a time, so requests to
@@ -1399,7 +1506,7 @@ pub(crate) async fn handle_session_request(
 
     if let Some(reusable) = reuse_stage_discover(url, &challenge, &deposit).await? {
         match reuse_stage_execute(
-            http, url, &resolved, &signer, &challenge, &deposit, reusable,
+            http, url, &resolved, &signer, &challenge, &deposit, reusable, max_spend,
         )
         .await?
         {
@@ -1416,7 +1523,10 @@ pub(crate) async fn handle_session_request(
         .into());
     }
 
-    let mut opened = open_stage(http, url, &resolved, &signer, &challenge, &deposit).await?;
+    let mut opened = open_stage(
+        http, url, &resolved, &signer, &challenge, &deposit, max_spend,
+    )
+    .await?;
     let ctx = build_channel_context(
         &signer,
         http,
@@ -1842,6 +1952,8 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 0,
+            request_base_cumulative: 0,
+            max_request_spend: None,
             server_spent: 0,
         };
         let tx = apply_response_receipt(&response, &mut state, "session response").unwrap();
@@ -1863,6 +1975,8 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 0,
+            request_base_cumulative: 0,
+            max_request_spend: None,
             server_spent: 0,
         };
 
@@ -1915,6 +2029,8 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
+            request_base_cumulative: 0,
+            max_request_spend: None,
             server_spent: 10,
         };
 
@@ -1954,6 +2070,8 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
+            request_base_cumulative: 0,
+            max_request_spend: None,
             server_spent: 10,
         };
 
@@ -1995,6 +2113,8 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
+            request_base_cumulative: 0,
+            max_request_spend: None,
             server_spent: 10,
         };
 
@@ -2057,6 +2177,8 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
+            request_base_cumulative: 0,
+            max_request_spend: None,
             server_spent: 10,
         };
 

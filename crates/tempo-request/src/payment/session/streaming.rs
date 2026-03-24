@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 
 use super::{
     error_map::payment_rejected_from_body,
+    flow::validate_request_spend_limit,
     new_idempotency_key, open,
     persist::{persist_channel_cumulative_floor, persist_session},
     receipt::{
@@ -664,6 +665,8 @@ fn post_voucher(
         deposit: state.deposit,
         cumulative_amount: state.cumulative_amount,
         accepted_cumulative: state.accepted_cumulative,
+        request_base_cumulative: state.request_base_cumulative,
+        max_request_spend: state.max_request_spend,
         server_spent: state.server_spent,
     };
 
@@ -883,6 +886,20 @@ pub(super) async fn stream_sse_response(
 
                         let mut effective_deposit = on_chain_deposit;
                         if required > on_chain_deposit {
+                            if state.max_request_spend.is_some() {
+                                return Err(PaymentError::DepositInsufficient {
+                                    deposit: tempo_common::cli::format::format_token_amount(
+                                        on_chain_deposit,
+                                        ctx.network_id,
+                                    ),
+                                    amount: tempo_common::cli::format::format_token_amount(
+                                        required,
+                                        ctx.network_id,
+                                    ),
+                                }
+                                .into());
+                            }
+
                             let top_up_idempotency_key = new_idempotency_key();
                             let additional_deposit =
                                 (required - on_chain_deposit).max(ctx.top_up_deposit);
@@ -916,6 +933,7 @@ pub(super) async fn stream_sse_response(
                         }
 
                         let next_cumulative = state.cumulative_amount.max(accepted).max(required);
+                        validate_request_spend_limit(state, ctx.network_id, next_cumulative)?;
 
                         // Use the server's required amount, clamped to our known
                         // channel deposit to prevent a malicious server from
@@ -1139,6 +1157,7 @@ mod tests {
             },
             None,
             false,
+            None,
         )
         .unwrap()
     }
@@ -1153,6 +1172,8 @@ mod tests {
             deposit: 100,
             cumulative_amount: 10,
             accepted_cumulative: 0,
+            request_base_cumulative: 0,
+            max_request_spend: None,
             server_spent: 0,
         }
     }

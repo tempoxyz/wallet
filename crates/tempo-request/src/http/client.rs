@@ -102,6 +102,7 @@ pub(crate) struct HttpClient {
     pub(crate) verbosity: tempo_common::cli::Verbosity,
     pub(crate) network: Option<NetworkId>,
     pub(crate) dry_run: bool,
+    pub(crate) max_spend: Option<String>,
 }
 
 impl HttpClient {
@@ -115,6 +116,7 @@ impl HttpClient {
         verbosity: tempo_common::cli::Verbosity,
         network: Option<NetworkId>,
         dry_run: bool,
+        max_spend: Option<String>,
     ) -> HttpResult<Self> {
         let verbose_connection = verbosity.debug_enabled();
         let mut builder = reqwest::Client::builder().connection_verbose(verbose_connection);
@@ -185,6 +187,7 @@ impl HttpClient {
             verbosity,
             network,
             dry_run,
+            max_spend,
         })
     }
 
@@ -433,6 +436,7 @@ mod tests {
             },
             None,
             false,
+            None,
         )
         .unwrap()
     }

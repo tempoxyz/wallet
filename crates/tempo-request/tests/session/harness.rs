@@ -981,6 +981,23 @@ pub(crate) fn run_session_request_with_env(
         .unwrap()
 }
 
+pub(crate) fn run_session_request_with_args(
+    temp: &tempfile::TempDir,
+    url: &str,
+    args: &[&str],
+) -> std::process::Output {
+    let mut command = test_command(temp);
+    command.args([
+        "--private-key",
+        MODERATO_PRIVATE_KEY,
+        "--network",
+        "tempo-moderato",
+    ]);
+    command.args(args);
+    command.arg(url);
+    command.output().unwrap()
+}
+
 pub(crate) fn spawn_session_request_with_env(
     temp: &tempfile::TempDir,
     url: &str,
