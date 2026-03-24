@@ -287,4 +287,12 @@ mod tests {
             _ => panic!("expected PaymentRejected"),
         }
     }
+
+    #[test]
+    fn test_parse_payment_rejection_keeps_inactive_access_key_shape_as_payment_rejected() {
+        let body = br#"{"success":false,"error":"MPP payment failed: Payment verification failed: Missing or invalid parameters. URL: https://rpc.mainnet.tempo.xyz Request body: {\"method\":\"eth_sendRawTransactionSync\"}"}"#;
+        let resp = HttpResponse::for_test(402, body);
+        let err = parse_payment_rejection(&resp);
+        assert!(matches!(err, PaymentError::PaymentRejected { .. }));
+    }
 }

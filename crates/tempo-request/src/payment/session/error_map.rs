@@ -67,4 +67,14 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn payment_rejected_from_body_keeps_inactive_access_key_shape_as_payment_rejected() {
+        let body = r#"{"success":false,"error":"MPP payment failed: Payment verification failed: Missing or invalid parameters. URL: https://rpc.mainnet.tempo.xyz Request body: {\"method\":\"eth_sendRawTransactionSync\"}"}"#;
+        let err = payment_rejected_from_body(402, body);
+        assert!(matches!(
+            err,
+            TempoError::Payment(PaymentError::PaymentRejected { .. })
+        ));
+    }
 }
