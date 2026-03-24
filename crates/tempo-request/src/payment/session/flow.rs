@@ -990,20 +990,15 @@ async fn deposit_stage(
     let default_deposit: u128 = parse_units("1", decimals).unwrap().get_absolute().to();
     let max_deposit: u128 = parse_units("5", decimals).unwrap().get_absolute().to();
 
-    let env_deposit = std::env::var("TEMPO_SESSION_DEPOSIT")
-        .ok()
-        .and_then(|v| parse_units(&v, decimals).ok())
-        .map(|u| u.get_absolute().to::<u128>());
-
-    let mut deposit = env_deposit
-        .or(challenge.suggested_deposit)
-        .unwrap_or(default_deposit)
-        .max(challenge.amount)
-        .min(max_deposit);
-
-    if let Some(max_spend) = max_spend {
-        deposit = deposit.min(max_spend);
-    }
+    let mut deposit = if let Some(max_spend) = max_spend {
+        max_spend.max(challenge.amount)
+    } else {
+        challenge
+            .suggested_deposit
+            .unwrap_or(default_deposit)
+            .max(challenge.amount)
+            .min(max_deposit)
+    };
     let mut clamped_deposit = None;
 
     let provider = alloy::providers::RootProvider::new_http(resolved.rpc_url.clone());

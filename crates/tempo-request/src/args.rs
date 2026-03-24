@@ -43,10 +43,11 @@ pub(crate) struct QueryArgs {
     #[arg(long, help_heading = "Payment Options")]
     pub dry_run: bool,
 
-    /// Hard cap for additional spend on this session request (disables auto top-up)
+    /// Hard cap for cumulative payment spend (can also be set via TEMPO_MAX_SPEND)
     #[arg(
         long = "max-spend",
         value_name = "AMOUNT",
+        env = "TEMPO_MAX_SPEND",
         help_heading = "Payment Options"
     )]
     pub max_spend: Option<String>,

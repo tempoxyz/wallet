@@ -102,6 +102,44 @@ async fn max_spend_caps_reused_session_cumulative_spend() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn max_spend_sets_open_deposit_budget() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: false,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: None,
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output =
+        run_session_request_with_args(&temp, &server.url("/resource"), &["--max-spend", "2"]);
+    assert!(
+        output.status.success(),
+        "request should succeed with explicit max-spend budget: {}",
+        get_combined_output(&output)
+    );
+
+    let channels = load_channels(&temp);
+    assert_eq!(channels.len(), 1, "exactly one channel should be persisted");
+    assert_eq!(
+        channels[0].deposit, 2_000_000,
+        "open deposit should match max-spend budget"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn opens_channel_persists_state_and_reuses_authorized_session() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {
