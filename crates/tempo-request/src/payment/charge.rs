@@ -16,9 +16,7 @@ use super::{
     lock::{acquire_origin_lock, origin_lock_key},
     types::{PaymentResult, ResolvedChallenge},
 };
-use tempo_common::payment::{
-    classify_payment_error, is_inactive_access_key_error, map_mpp_validation_error,
-};
+use tempo_common::payment::{classify_payment_error, map_mpp_validation_error};
 
 /// Whether a post-submission HTTP status code warrants a provisioning retry.
 ///
@@ -200,10 +198,6 @@ fn parse_payment_rejection(response: &HttpResponse) -> PaymentError {
     };
     let reason = sanitize_for_terminal(&raw_reason);
 
-    if is_inactive_access_key_error(&reason) {
-        return PaymentError::AccessKeyRevoked;
-    }
-
     PaymentError::PaymentRejected {
         reason,
         status_code: response.status_code,
@@ -295,10 +289,10 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_payment_rejection_maps_inactive_access_key_shape() {
+    fn test_parse_payment_rejection_keeps_inactive_access_key_shape_as_payment_rejected() {
         let body = br#"{"success":false,"error":"MPP payment failed: Payment verification failed: Missing or invalid parameters. URL: https://rpc.mainnet.tempo.xyz Request body: {\"method\":\"eth_sendRawTransactionSync\"}"}"#;
         let resp = HttpResponse::for_test(402, body);
         let err = parse_payment_rejection(&resp);
-        assert!(matches!(err, PaymentError::AccessKeyRevoked));
+        assert!(matches!(err, PaymentError::PaymentRejected { .. }));
     }
 }

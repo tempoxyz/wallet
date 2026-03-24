@@ -10,8 +10,9 @@ use super::{
 };
 use crate::{
     analytics::{events, KeystoreLoadDegradedPayload, SessionStoreDegradedPayload},
-    error::TempoError,
+    error::{PaymentError, TempoError},
     keys,
+    network::NetworkId,
     payment::session,
 };
 
@@ -55,6 +56,8 @@ where
     let ctx = global.build_context(app_id).await?;
     let analytics = ctx.analytics.clone();
     let ctx_network = ctx.network;
+    let ctx_config = ctx.config.clone();
+    let ctx_keys = ctx.keys.clone();
 
     let start = std::time::Instant::now();
     let (cmd_name, result) = handler(ctx).await;
@@ -96,6 +99,10 @@ where
     }
 
     let final_result = result.map_err(Into::into);
+    let final_result = maybe_map_inactive_access_key_rejection(final_result, || async {
+        is_access_key_inactive_on_chain(&ctx_config, &ctx_keys, ctx_network).await
+    })
+    .await;
 
     // Auto-invalidate revoked access keys so the next `login` re-authorizes
     if matches!(
@@ -118,6 +125,69 @@ where
     }
 
     final_result
+}
+
+async fn maybe_map_inactive_access_key_rejection<F, Fut>(
+    result: Result<(), TempoError>,
+    check_on_chain_inactive: F,
+) -> Result<(), TempoError>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    match result {
+        Err(err) => {
+            let is_inactive_candidate = matches!(
+                &err,
+                TempoError::Payment(PaymentError::PaymentRejected { reason, .. })
+                    if crate::payment::is_inactive_access_key_error(reason)
+            );
+
+            if is_inactive_candidate && check_on_chain_inactive().await {
+                Err(TempoError::Payment(PaymentError::AccessKeyRevoked))
+            } else {
+                Err(err)
+            }
+        }
+        Ok(()) => Ok(()),
+    }
+}
+
+async fn is_access_key_inactive_on_chain(
+    config: &crate::config::Config,
+    keys: &keys::Keystore,
+    network: NetworkId,
+) -> bool {
+    let Some(key_entry) = keys.key_for_network(network) else {
+        return false;
+    };
+    if key_entry.is_direct_eoa_key() {
+        return false;
+    }
+    let Some(wallet_address) = key_entry.wallet_address_parsed() else {
+        return false;
+    };
+    let Some(key_address) = key_entry.key_address_parsed() else {
+        return false;
+    };
+
+    let provider = alloy::providers::ProviderBuilder::new().connect_http(config.rpc_url(network));
+    let token = network.token();
+
+    match mpp::client::tempo::signing::keychain::query_key_spending_limit(
+        &provider,
+        wallet_address,
+        key_address,
+        token.address,
+    )
+    .await
+    {
+        Ok(_) => false,
+        Err(err) => {
+            let msg = err.to_string().to_ascii_lowercase();
+            msg.contains("revoked") || msg.contains("expired")
+        }
+    }
 }
 
 /// Run a CLI binary with shared error handling.
@@ -143,4 +213,54 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), TempoError>) {
         }
     }
     exit_codes::ExitCode::from(&e).exit();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::maybe_map_inactive_access_key_rejection;
+    use crate::error::{PaymentError, TempoError};
+
+    #[tokio::test]
+    async fn maps_inactive_shape_to_access_key_revoked_when_on_chain_check_confirms() {
+        let result = Err(TempoError::Payment(PaymentError::PaymentRejected {
+            reason: "Payment verification failed: Missing or invalid parameters. eth_sendRawTransactionSync"
+                .to_string(),
+            status_code: 402,
+        }));
+
+        let mapped = maybe_map_inactive_access_key_rejection(result, || async { true }).await;
+        assert!(matches!(
+            mapped,
+            Err(TempoError::Payment(PaymentError::AccessKeyRevoked))
+        ));
+    }
+
+    #[tokio::test]
+    async fn keeps_payment_rejected_when_on_chain_check_is_negative() {
+        let result = Err(TempoError::Payment(PaymentError::PaymentRejected {
+            reason: "Payment verification failed: Missing or invalid parameters. eth_sendRawTransactionSync"
+                .to_string(),
+            status_code: 402,
+        }));
+
+        let mapped = maybe_map_inactive_access_key_rejection(result, || async { false }).await;
+        assert!(matches!(
+            mapped,
+            Err(TempoError::Payment(PaymentError::PaymentRejected { .. }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn keeps_other_payment_rejections_unchanged() {
+        let result = Err(TempoError::Payment(PaymentError::PaymentRejected {
+            reason: "provider internal error".to_string(),
+            status_code: 500,
+        }));
+
+        let mapped = maybe_map_inactive_access_key_rejection(result, || async { true }).await;
+        assert!(matches!(
+            mapped,
+            Err(TempoError::Payment(PaymentError::PaymentRejected { .. }))
+        ));
+    }
 }
