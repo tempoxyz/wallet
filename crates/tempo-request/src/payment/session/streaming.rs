@@ -3,7 +3,12 @@
 //! Handles Server-Sent Events (SSE) response streams with mid-stream
 //! voucher top-ups and retry logic for lost server notifications.
 
-use std::{io::Write, time::Duration};
+use std::{
+    collections::HashSet,
+    io::Write,
+    sync::{LazyLock, Mutex},
+    time::Duration,
+};
 
 use mpp::server::sse::{parse_event, SseEvent};
 use tokio::sync::mpsc;
@@ -35,6 +40,13 @@ fn protocol_value_error(field: &'static str, value: &str) -> TempoError {
         status_code: 502,
     }
     .into()
+}
+
+fn ensure_debug_log_boundary(token_line_open: &mut bool) {
+    if *token_line_open {
+        eprintln!();
+        *token_line_open = false;
+    }
 }
 
 fn parse_protocol_u128(value: &str, field: &'static str) -> Result<u128, TempoError> {
@@ -420,47 +432,91 @@ struct VoucherSubmitContext<'a> {
     idempotency_key: &'a str,
 }
 
-const fn should_fallback_to_post(status_code: u16) -> bool {
-    matches!(status_code, 405 | 501)
+static HEAD_UNSUPPORTED_ORIGINS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn voucher_origin_key(url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?;
+    let port = parsed.port_or_known_default()?;
+    Some(format!("{}://{}:{}", parsed.scheme(), host, port))
 }
 
-async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), TempoError> {
-    let head_response = ctx
+fn is_head_known_unsupported(url: &str) -> bool {
+    let Some(origin_key) = voucher_origin_key(url) else {
+        return false;
+    };
+    let guard = HEAD_UNSUPPORTED_ORIGINS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.contains(&origin_key)
+}
+
+fn remember_head_unsupported(url: &str) {
+    let Some(origin_key) = voucher_origin_key(url) else {
+        return;
+    };
+    let mut guard = HEAD_UNSUPPORTED_ORIGINS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.insert(origin_key);
+}
+
+#[cfg(test)]
+fn clear_head_unsupported_cache() {
+    let mut guard = HEAD_UNSUPPORTED_ORIGINS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.clear();
+}
+
+async fn post_voucher_update(
+    ctx: &VoucherSubmitContext<'_>,
+) -> Result<reqwest::Response, TempoError> {
+    Ok(ctx
         .client
-        .head(ctx.url)
+        .post(ctx.url)
         .header("Authorization", ctx.auth)
         .header("Idempotency-Key", ctx.idempotency_key)
         .send()
-        .await;
+        .await
+        .map_err(NetworkError::Reqwest)?)
+}
 
-    let response = match head_response {
-        Ok(resp) if should_fallback_to_post(resp.status().as_u16()) => {
-            if ctx.debug_enabled {
-                eprintln!(
-                    "[voucher HEAD unsupported ({}) — falling back to POST]",
-                    resp.status()
-                );
+const fn should_fallback_to_post(status_code: u16) -> bool {
+    matches!(status_code, 404 | 405 | 501)
+}
+
+async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), TempoError> {
+    let response = if is_head_known_unsupported(ctx.url) {
+        post_voucher_update(&ctx).await?
+    } else {
+        let head_response = ctx
+            .client
+            .head(ctx.url)
+            .header("Authorization", ctx.auth)
+            .header("Idempotency-Key", ctx.idempotency_key)
+            .send()
+            .await;
+
+        match head_response {
+            Ok(resp) if should_fallback_to_post(resp.status().as_u16()) => {
+                remember_head_unsupported(ctx.url);
+                if ctx.debug_enabled {
+                    eprintln!(
+                        "[voucher HEAD unsupported ({}) — falling back to POST]",
+                        resp.status()
+                    );
+                }
+                post_voucher_update(&ctx).await?
             }
-            ctx.client
-                .post(ctx.url)
-                .header("Authorization", ctx.auth)
-                .header("Idempotency-Key", ctx.idempotency_key)
-                .send()
-                .await
-                .map_err(NetworkError::Reqwest)?
-        }
-        Ok(resp) => resp,
-        Err(_) => {
-            if ctx.debug_enabled {
-                eprintln!("[voucher HEAD transport failure — falling back to POST]");
+            Ok(resp) => resp,
+            Err(_) => {
+                if ctx.debug_enabled {
+                    eprintln!("[voucher HEAD transport failure — falling back to POST]");
+                }
+                post_voucher_update(&ctx).await?
             }
-            ctx.client
-                .post(ctx.url)
-                .header("Authorization", ctx.auth)
-                .header("Idempotency-Key", ctx.idempotency_key)
-                .send()
-                .await
-                .map_err(NetworkError::Reqwest)?
         }
     };
 
@@ -496,6 +552,17 @@ async fn submit_voucher_update(ctx: VoucherSubmitContext<'_>) -> Result<(), Temp
     }
 
     let status_code = response.status().as_u16();
+    if ctx.debug_enabled {
+        eprintln!("[voucher update rejected: HTTP {status_code}]");
+    }
+
+    // Treat 5xx as transient for voucher updates. Some providers can process
+    // the voucher but still surface an internal error response. The stream
+    // stall retry coordinator will re-post if progress does not resume.
+    if status_code >= 500 {
+        return Ok(());
+    }
+
     let body = match tokio::time::timeout(Duration::from_secs(2), response.text()).await {
         Ok(Ok(text)) => text,
         _ => String::new(),
@@ -643,6 +710,7 @@ pub(super) async fn stream_sse_response(
     let mut token_count: u64 = 0;
     let mut stdout = std::io::stdout();
     let mut saw_response_receipt = false;
+    let mut token_line_open = false;
 
     let mut stream_done = false;
 
@@ -704,6 +772,7 @@ pub(super) async fn stream_sse_response(
                     max_voucher_retries,
                 } => {
                     if runtime.debug_enabled() {
+                        ensure_debug_log_boundary(&mut token_line_open);
                         eprintln!(
                             "[stream stall — voucher not accepted after {max_voucher_retries} retries]"
                         );
@@ -712,6 +781,7 @@ pub(super) async fn stream_sse_response(
                 }
                 TimeoutTransition::Retry(attempt) => {
                     if runtime.debug_enabled() {
+                        ensure_debug_log_boundary(&mut token_line_open);
                         eprintln!(
                             "[re-posting voucher (retry {}/{})]",
                             attempt.retry_count, attempt.max_voucher_retries
@@ -730,6 +800,7 @@ pub(super) async fn stream_sse_response(
                 }
                 TimeoutTransition::NoPendingVoucher => {
                     if runtime.debug_enabled() {
+                        ensure_debug_log_boundary(&mut token_line_open);
                         eprintln!(
                             "[stream timeout — no data for {}s]",
                             retry_coordinator.policy.normal_timeout.as_secs()
@@ -776,6 +847,7 @@ pub(super) async fn stream_sse_response(
                             token_count += 1;
                             write!(stdout, "{content}")?;
                             stdout.flush()?;
+                            token_line_open = true;
                         }
                         if finished {
                             stream_done = true;
@@ -815,6 +887,7 @@ pub(super) async fn stream_sse_response(
                             let additional_deposit =
                                 (required - on_chain_deposit).max(ctx.top_up_deposit);
                             if runtime.debug_enabled() {
+                                ensure_debug_log_boundary(&mut token_line_open);
                                 eprintln!(
                                     "[channel top-up: required={required} deposit={on_chain_deposit} additional={additional_deposit}]"
                                 );
@@ -848,12 +921,6 @@ pub(super) async fn stream_sse_response(
                         // channel deposit to prevent a malicious server from
                         // coercing an overly large voucher.
                         let authorize_amount = next_cumulative.min(effective_deposit);
-
-                        if runtime.debug_enabled() {
-                            eprintln!(
-                                "[voucher top-up: required={required} authorizing={authorize_amount}]"
-                            );
-                        }
 
                         // Sign the voucher for the authorized amount (monotonic: never decrease)
                         let signing_cumulative = state.cumulative_amount.max(authorize_amount);
@@ -916,6 +983,7 @@ pub(super) async fn stream_sse_response(
                             }
                         }
                         if runtime.log_enabled() {
+                            ensure_debug_log_boundary(&mut token_line_open);
                             eprintln!();
                             eprintln!("Stream receipt:");
                             let safe_channel = sanitize_for_terminal(&receipt.channel_id);
@@ -941,12 +1009,18 @@ pub(super) async fn stream_sse_response(
     }
 
     drain_voucher_results(&mut voucher_result_rx, &mut in_flight_voucher_tasks)?;
-    wait_for_pending_voucher_results(
-        &mut voucher_result_rx,
-        &mut in_flight_voucher_tasks,
-        retry_coordinator.policy.normal_timeout,
-    )
-    .await?;
+    // Only block for pending voucher results if the stream ended without a
+    // completion marker — those tasks may carry error information we need.
+    // When the stream completed normally (stream_done), any remaining voucher
+    // tasks are stale and blocking on them delays exit unnecessarily.
+    if !stream_done {
+        wait_for_pending_voucher_results(
+            &mut voucher_result_rx,
+            &mut in_flight_voucher_tasks,
+            retry_coordinator.policy.normal_timeout,
+        )
+        .await?;
+    }
 
     if response.status().is_success() && !stream_done && !saw_response_receipt {
         return Err(stream_incomplete_error(
@@ -955,7 +1029,17 @@ pub(super) async fn stream_sse_response(
     }
 
     if response.status().is_success() && !saw_response_receipt {
-        return Err(missing_payment_receipt_error("SSE response"));
+        if stream_done {
+            // Compatibility: some providers complete streaming without sending
+            // a payment-receipt. We already persist voucher cumulative updates
+            // and fail closed when stream progress is incomplete.
+            if runtime.debug_enabled() {
+                ensure_debug_log_boundary(&mut token_line_open);
+                eprintln!("[SSE stream completed without payment-receipt]");
+            }
+        } else {
+            return Err(missing_payment_receipt_error("SSE response"));
+        }
     }
 
     writeln!(stdout)?;
@@ -1124,6 +1208,7 @@ mod tests {
 
     #[test]
     fn should_fallback_to_post_only_for_expected_statuses() {
+        assert!(should_fallback_to_post(404));
         assert!(should_fallback_to_post(405));
         assert!(should_fallback_to_post(501));
         assert!(!should_fallback_to_post(400));
@@ -1389,6 +1474,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_voucher_update_falls_back_to_post_when_head_not_supported() {
+        clear_head_unsupported_cache();
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
         let channel_id = alloy::primitives::B256::from([0x44; 32]);
@@ -1443,6 +1529,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_voucher_update_head_success_does_not_fallback_to_post() {
+        clear_head_unsupported_cache();
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
         let channel_id = alloy::primitives::B256::from([0x45; 32]);
@@ -1496,7 +1583,75 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn post_voucher_surfaces_background_transport_failure() {
+    async fn submit_voucher_update_caches_head_unsupported_per_origin() {
+        clear_head_unsupported_cache();
+        let head_calls = Arc::new(AtomicUsize::new(0));
+        let post_calls = Arc::new(AtomicUsize::new(0));
+        let channel_id = alloy::primitives::B256::from([0x46; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
+
+        let head_calls_clone = Arc::clone(&head_calls);
+        let post_calls_clone = Arc::clone(&post_calls);
+        let app = Router::new().route(
+            "/voucher",
+            head(move || {
+                let head_calls = Arc::clone(&head_calls_clone);
+                async move {
+                    head_calls.fetch_add(1, Ordering::Relaxed);
+                    StatusCode::NOT_FOUND
+                }
+            })
+            .post(move || {
+                let post_calls = Arc::clone(&post_calls_clone);
+                let receipt_header = receipt_header.clone();
+                async move {
+                    post_calls.fetch_add(1, Ordering::Relaxed);
+                    (StatusCode::OK, [("payment-receipt", receipt_header)])
+                }
+            }),
+        );
+
+        let (url, server) = spawn_test_server(app).await;
+
+        let signer = test_signer();
+        let state = test_state(channel_id);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+        let first = submit_voucher_update(VoucherSubmitContext {
+            url: &url,
+            signer: &signer,
+            did: "did:pkh:eip155:4217:0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            debug_enabled: false,
+            client: &client,
+            state: &state,
+            auth: "Payment test",
+            idempotency_key: "idem-cache-1",
+        })
+        .await;
+
+        let second = submit_voucher_update(VoucherSubmitContext {
+            url: &url,
+            signer: &signer,
+            did: "did:pkh:eip155:4217:0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            debug_enabled: false,
+            client: &client,
+            state: &state,
+            auth: "Payment test",
+            idempotency_key: "idem-cache-2",
+        })
+        .await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert_eq!(head_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(post_calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn post_voucher_treats_background_5xx_as_transient() {
         let head_calls = Arc::new(AtomicUsize::new(0));
         let head_calls_clone = Arc::clone(&head_calls);
         let app = Router::new().route(
@@ -1564,11 +1719,11 @@ mod tests {
         let _ = server.await;
 
         assert_eq!(head_calls.load(Ordering::Relaxed), 1);
-        assert!(task_result.result.is_err());
+        assert!(task_result.result.is_ok());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_sse_response_requires_receipt_for_strict_sessions() {
+    async fn stream_sse_response_allows_missing_receipt_when_stream_completes() {
         let app = Router::new().route(
             "/stream",
             get(|| async {
@@ -1623,8 +1778,11 @@ mod tests {
         server.abort();
         let _ = server.await;
 
-        let err = result.expect_err("strict sessions should require payment receipts");
-        assert!(err.to_string().contains("Missing required Payment-Receipt"));
+        assert!(
+            result.is_ok(),
+            "completed streams without payment receipt should remain compatible: {:#}",
+            result.unwrap_err()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2131,12 +2289,13 @@ mod tests {
 
     #[serial_test::serial]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_sse_response_fails_when_pending_voucher_task_never_completes() {
+    async fn stream_sse_response_succeeds_even_when_pending_voucher_task_never_completes() {
         std::env::set_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS", "10");
         std::env::remove_var("TEMPO_SESSION_STALL_TIMEOUT_MS");
         std::env::remove_var("TEMPO_SESSION_MAX_VOUCHER_RETRIES");
 
         let channel_id = alloy::primitives::B256::from([0x71; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
         let need_voucher = format!(
             "event: payment-need-voucher\ndata: {{\"channelId\":\"{channel_id:#x}\",\"requiredCumulative\":\"12\",\"acceptedCumulative\":\"10\",\"deposit\":\"100\"}}\n\n"
         );
@@ -2147,19 +2306,22 @@ mod tests {
             get({
                 let need_voucher = need_voucher.clone();
                 let done = done.clone();
+                let receipt_header = receipt_header.clone();
                 move || {
                     let need_voucher = need_voucher.clone();
                     let done = done.clone();
+                    let receipt_header = receipt_header.clone();
                     async move {
                         let body_stream = futures::stream::iter(vec![
                             Ok::<Bytes, std::io::Error>(Bytes::from(need_voucher)),
                             Ok::<Bytes, std::io::Error>(Bytes::from(done)),
                         ]);
-                        (
-                            StatusCode::OK,
-                            [("content-type", "text/event-stream")],
-                            Body::from_stream(body_stream),
-                        )
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "text/event-stream")
+                            .header("payment-receipt", receipt_header)
+                            .body(Body::from_stream(body_stream))
+                            .unwrap()
                     }
                 }
             })
@@ -2210,13 +2372,104 @@ mod tests {
         let _ = server.await;
         std::env::remove_var("TEMPO_SESSION_NORMAL_TIMEOUT_MS");
 
-        let err = result.expect_err("should fail when voucher task does not complete");
+        // When the stream completes normally ([DONE]), stale voucher tasks
+        // are not awaited — blocking on them would delay exit unnecessarily.
         assert!(
-            matches!(
-                err,
-                TempoError::Payment(PaymentError::SessionStreamIncomplete { .. })
-            ),
-            "unexpected error: {err:#}"
+            result.is_ok(),
+            "stream should succeed despite pending voucher task: {:#}",
+            result.unwrap_err()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_sse_response_tolerates_transient_voucher_500() {
+        let channel_id = alloy::primitives::B256::from([0x72; 32]);
+        let receipt_header = encode_session_receipt_header(channel_id, 12, 7);
+        let need_voucher = format!(
+            "event: payment-need-voucher\ndata: {{\"channelId\":\"{channel_id:#x}\",\"requiredCumulative\":\"12\",\"acceptedCumulative\":\"10\",\"deposit\":\"100\"}}\n\n"
+        );
+        let done = "data: [DONE]\n\n".to_string();
+
+        let app = Router::new().route(
+            "/stream",
+            get({
+                let need_voucher = need_voucher.clone();
+                let done = done.clone();
+                let receipt_header = receipt_header.clone();
+                move || {
+                    let need_voucher = need_voucher.clone();
+                    let done = done.clone();
+                    let receipt_header = receipt_header.clone();
+                    async move {
+                        let body_stream = futures::stream::iter(vec![
+                            Ok::<Bytes, std::io::Error>(Bytes::from(need_voucher)),
+                            Ok::<Bytes, std::io::Error>(Bytes::from(done)),
+                        ]);
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "text/event-stream")
+                            .header("payment-receipt", receipt_header)
+                            .body(Body::from_stream(body_stream))
+                            .unwrap()
+                    }
+                }
+            })
+            .head(|| async { StatusCode::NOT_FOUND })
+            .post(|| async {
+                axum::http::Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::from(""))
+                    .unwrap()
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{addr}/stream");
+
+        let signer = test_signer();
+        let echo = test_echo();
+        let did = format!("did:pkh:eip155:4217:{:#x}", signer.from);
+        let http = test_http_client();
+        let reqwest_client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut state = test_state(channel_id);
+
+        let ctx = ChannelContext {
+            signer: &signer,
+            payer: signer.from,
+            echo: &echo,
+            did: &did,
+            http: &http,
+            url: &url,
+            rpc_url: "http://127.0.0.1:8545",
+            network_id: tempo_common::network::NetworkId::Tempo,
+            origin: "http://127.0.0.1",
+            top_up_deposit: 100,
+            clamped_deposit: None,
+            fee_payer: false,
+            salt: "0x00".to_string(),
+            payee: "0x0000000000000000000000000000000000000002"
+                .parse()
+                .unwrap(),
+            token: "0x0000000000000000000000000000000000000003"
+                .parse()
+                .unwrap(),
+            reqwest_client: &reqwest_client,
+        };
+
+        let response = reqwest_client.get(&url).send().await.unwrap();
+        let result = stream_sse_response(&ctx, &mut state, response).await;
+
+        server.abort();
+        let _ = server.await;
+
+        assert!(
+            result.is_ok(),
+            "stream should succeed when voucher update receives transient 500: {:#}",
+            result.unwrap_err()
         );
     }
 }

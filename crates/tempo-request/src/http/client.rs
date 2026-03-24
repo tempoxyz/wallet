@@ -287,46 +287,46 @@ impl HttpClient {
         self.verbosity.debug_enabled()
     }
 
-    /// Execute an HTTP request with retry logic.
+    /// Execute an HTTP request and return the raw `reqwest::Response` with
+    /// the same retry behavior as [`execute()`](Self::execute).
     ///
-    /// Extra headers (e.g., Authorization) are added per-request, not baked
-    /// into the client. This enables connection pooling: the same client can
-    /// serve the initial 402 request and the payment replay, skipping the
-    /// second TLS handshake.
-    pub(crate) async fn execute(
+    /// This keeps transport resiliency (connect/timeout + configured status
+    /// retries) while letting callers stream the response body directly.
+    pub(crate) async fn execute_raw_with_retry(
         &self,
         url: &str,
         extra_headers: &[(String, String)],
-    ) -> HttpResult<HttpResponse> {
+    ) -> HttpResult<reqwest::Response> {
         let plan = &self.plan;
         let mut attempt: u32 = 0;
         let mut backoff = plan.base_backoff_ms;
 
         loop {
-            let result = async {
+            let result: HttpResult<reqwest::Response> = async {
                 let mut req = self.client.request(plan.method.clone(), url);
                 for (name, value) in extra_headers {
                     req = req.header(name.as_str(), value.as_str());
                 }
                 req = Self::apply_body(req, &plan.body);
                 let response = req.send().await.map_err(NetworkError::Reqwest)?;
-                HttpResponse::from_reqwest(response).await
+                Ok(response)
             }
             .await;
 
             match result {
                 Ok(resp) => {
+                    let status_code = resp.status().as_u16();
                     // HTTP status-based retry
                     if attempt < plan.max_retries
                         && !plan.retry_status_codes.is_empty()
-                        && plan.retry_status_codes.contains(&resp.status_code)
+                        && plan.retry_status_codes.contains(&status_code)
                     {
                         // Compute delay: Retry-After header or exponential backoff
                         let mut delay_ms = if plan.honor_retry_after {
-                            if let Some(ra) = resp.header("retry-after") {
-                                ra.trim()
-                                    .parse::<u64>()
+                            if let Some(ra) = resp.headers().get("retry-after") {
+                                ra.to_str()
                                     .ok()
+                                    .and_then(|v| v.trim().parse::<u64>().ok())
                                     .map(|s| s.saturating_mul(1000))
                             } else {
                                 None
@@ -357,7 +357,7 @@ impl HttpClient {
                                 "[retry {} of {} on HTTP {} after {}ms]",
                                 attempt + 1,
                                 plan.max_retries,
-                                resp.status_code,
+                                status_code,
                                 delay_ms
                             );
                         }
@@ -395,6 +395,21 @@ impl HttpClient {
                 }
             }
         }
+    }
+
+    /// Execute an HTTP request with retry logic.
+    ///
+    /// Extra headers (e.g., Authorization) are added per-request, not baked
+    /// into the client. This enables connection pooling: the same client can
+    /// serve the initial 402 request and the payment replay, skipping the
+    /// second TLS handshake.
+    pub(crate) async fn execute(
+        &self,
+        url: &str,
+        extra_headers: &[(String, String)],
+    ) -> HttpResult<HttpResponse> {
+        let response = self.execute_raw_with_retry(url, extra_headers).await?;
+        HttpResponse::from_reqwest(response).await
     }
 }
 
@@ -475,6 +490,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_raw_status_retry_honored_and_succeeds() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<u32>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(0)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let mut n = ctx.0.lock().unwrap();
+                    *n += 1;
+                    if *n == 1 {
+                        ([("retry-after", "0")], StatusCode::SERVICE_UNAVAILABLE).into_response()
+                    } else {
+                        (StatusCode::OK, "ok").into_response()
+                    }
+                }),
+            )
+            .with_state(ctx.clone());
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = test_client(HttpRequestPlan {
+            timeout_secs: Some(2),
+            connect_timeout_secs: Some(1),
+            no_proxy: true,
+            max_retries: 2,
+            base_backoff_ms: 1,
+            max_backoff_ms: 10,
+            retry_status_codes: vec![503],
+            honor_retry_after: true,
+            ..Default::default()
+        });
+        let resp = client
+            .execute_raw_with_retry(&url, &[])
+            .await
+            .expect("raw request should succeed after retry");
+        assert_eq!(resp.status().as_u16(), 200);
+        assert!(*ctx.0.lock().unwrap() >= 2);
+    }
+
+    #[tokio::test]
     async fn test_transient_connect_retry_eventually_succeeds() {
         #[derive(Clone)]
         struct Ctx(Arc<Mutex<u32>>);
@@ -525,6 +590,62 @@ mod tests {
             .expect("should succeed after retrying past timeout");
         assert_eq!(resp.status_code, 200);
         assert_eq!(resp.body_string().unwrap(), "ok");
+        assert!(
+            *ctx.0.lock().unwrap() >= 2,
+            "should have retried at least once"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_raw_transient_connect_retry_eventually_succeeds() {
+        #[derive(Clone)]
+        struct Ctx(Arc<Mutex<u32>>);
+
+        let ctx = Ctx(Arc::new(Mutex::new(0)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        // First request sleeps longer than the client timeout, triggering a
+        // timeout error. Subsequent requests return immediately.
+        let ctx_clone = ctx.clone();
+        let app = axum::Router::new()
+            .route(
+                "/",
+                get(|State(ctx): State<Ctx>| async move {
+                    let n = {
+                        let mut n = ctx.0.lock().unwrap();
+                        *n += 1;
+                        *n
+                    };
+                    if n <= 1 {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                    "ok"
+                }),
+            )
+            .with_state(ctx_clone);
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = test_client(HttpRequestPlan {
+            timeout_secs: Some(1),
+            connect_timeout_secs: Some(1),
+            no_proxy: true,
+            max_retries: 3,
+            base_backoff_ms: 10,
+            max_backoff_ms: 100,
+            ..Default::default()
+        });
+        let resp = client
+            .execute_raw_with_retry(&url, &[])
+            .await
+            .expect("raw request should succeed after retrying past timeout");
+        assert_eq!(resp.status().as_u16(), 200);
         assert!(
             *ctx.0.lock().unwrap() >= 2,
             "should have retried at least once"

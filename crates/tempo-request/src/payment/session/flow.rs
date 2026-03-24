@@ -259,6 +259,41 @@ fn apply_response_receipt(
     }
 }
 
+/// Variant of `apply_response_receipt` that reads headers from a raw
+/// `reqwest::Response` without consuming the body.
+fn apply_response_receipt_from_headers(
+    response: &reqwest::Response,
+    state: &mut ChannelState,
+    context: &str,
+    require_header: bool,
+) -> Result<Option<String>, TempoError> {
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let Some(receipt_header) = response
+        .headers()
+        .get("payment-receipt")
+        .and_then(|v| v.to_str().ok())
+    else {
+        if require_header {
+            return Err(missing_payment_receipt_error(context));
+        }
+        return Ok(None);
+    };
+
+    match parse_validated_session_receipt_header(receipt_header, state.channel_id) {
+        Ok(receipt) => {
+            if let Some(reason) = receipt.spent_parse_error {
+                return Err(protocol_spent_error(reason));
+            }
+            apply_receipt_amounts_strict(state, receipt.accepted_cumulative, receipt.server_spent)?;
+            Ok(receipt.tx_reference)
+        }
+        Err(reason) => Err(invalid_payment_receipt_error(context, &reason)),
+    }
+}
+
 fn parse_positive_problem_amount(value: &str, context: &'static str) -> Result<u128, TempoError> {
     let safe_value = sanitize_for_terminal(value);
     let amount = value
@@ -651,11 +686,21 @@ enum ReuseStageOutcome {
     NeedsOpen,
 }
 
+/// The open response is either a buffered body (non-SSE) or a raw streaming
+/// response (SSE) that must be consumed incrementally.
+enum OpenResponse {
+    Buffered(HttpResponse),
+    Streaming {
+        response: reqwest::Response,
+        status_code: u16,
+    },
+}
+
 struct OpenExecutionPlan {
     state: ChannelState,
     salt_hex: String,
     open_tx_hash: Option<String>,
-    open_response: HttpResponse,
+    open_response: OpenResponse,
 }
 
 struct PaidRequestResult {
@@ -1105,7 +1150,7 @@ async fn build_and_send_open(
     voucher_sig: &[u8],
     idempotency_key: &str,
     delays: &[u64],
-) -> Result<crate::http::HttpResponse, TempoError> {
+) -> Result<reqwest::Response, TempoError> {
     let payment = open::create_tempo_payment_from_calls(
         resolved.rpc_url.as_str(),
         signer,
@@ -1271,7 +1316,40 @@ async fn open_stage(
         Err(e) => return Err(persist_on_error(&state, e)),
     };
 
-    let open_tx_hash = apply_response_receipt(&open_response, &mut state, "open response")
+    // Detect SSE before consuming the body. For SSE streams we must pass
+    // the raw response through so `stream_sse_response` can read chunks
+    // incrementally. Non-SSE responses are buffered as before.
+    let is_sse = open_response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.contains("text/event-stream"));
+
+    if is_sse {
+        let status_code = open_response.status().as_u16();
+        // Compatibility: some providers send the required receipt only as an
+        // SSE `payment-receipt` event rather than an initial HTTP header.
+        let open_tx_hash =
+            apply_response_receipt_from_headers(&open_response, &mut state, "open response", false)
+                .map_err(|e| persist_on_error(&state, e))?;
+        if let Some(tx_ref) = open_tx_hash.as_deref() {
+            if http.log_enabled() {
+                eprintln!("Channel open tx: {}", challenge.network_id.tx_url(tx_ref));
+            }
+        }
+        return Ok(OpenExecutionPlan {
+            state,
+            salt_hex,
+            open_tx_hash,
+            open_response: OpenResponse::Streaming {
+                response: open_response,
+                status_code,
+            },
+        });
+    }
+
+    let buffered = HttpResponse::from_reqwest(open_response).await?;
+    let open_tx_hash = apply_response_receipt(&buffered, &mut state, "open response")
         .map_err(|e| persist_on_error(&state, e))?;
     if let Some(tx_ref) = open_tx_hash.as_deref() {
         if http.log_enabled() {
@@ -1283,7 +1361,7 @@ async fn open_stage(
         state,
         salt_hex,
         open_tx_hash,
-        open_response,
+        open_response: OpenResponse::Buffered(buffered),
     })
 }
 
@@ -1349,26 +1427,39 @@ pub(crate) async fn handle_session_request(
         opened.salt_hex.clone(),
     );
 
-    // For non-SSE responses, the open response already contains the proxied
-    // upstream result — use it directly instead of making a duplicate request.
-    let is_sse = opened
-        .open_response
-        .header("content-type")
-        .is_some_and(|ct| ct.contains("text/event-stream"));
-
-    if !is_sse && opened.open_response.status_code < 400 {
-        persist_session(&ctx, &opened.state)?;
-        return Ok(PaymentResult {
-            tx_hash: opened.open_tx_hash,
-            channel_id: Some(format!("{:#x}", opened.state.channel_id)),
-            status_code: opened.open_response.status_code,
-            response: Some(opened.open_response),
-        });
+    match opened.open_response {
+        // SSE stream: pipe the raw response directly to the streaming handler
+        // so tokens are printed incrementally instead of buffering the entire body.
+        OpenResponse::Streaming {
+            response: raw_response,
+            status_code,
+        } => {
+            persist_session(&ctx, &opened.state)?;
+            streaming::stream_sse_response(&ctx, &mut opened.state, raw_response).await?;
+            persist_session(&ctx, &opened.state)?;
+            Ok(PaymentResult {
+                tx_hash: opened.open_tx_hash,
+                channel_id: Some(format!("{:#x}", opened.state.channel_id)),
+                status_code,
+                response: None,
+            })
+        }
+        // Non-SSE: the open response already contains the proxied upstream
+        // result — use it directly instead of making a duplicate request.
+        OpenResponse::Buffered(buffered) if buffered.status_code < 400 => {
+            persist_session(&ctx, &opened.state)?;
+            Ok(PaymentResult {
+                tx_hash: opened.open_tx_hash,
+                channel_id: Some(format!("{:#x}", opened.state.channel_id)),
+                status_code: buffered.status_code,
+                response: Some(buffered),
+            })
+        }
+        // Buffered error response: fall through to a separate paid request.
+        OpenResponse::Buffered(_) => request_stage(&ctx, &mut opened.state)
+            .await
+            .map(|result| result.payment),
     }
-
-    request_stage(&ctx, &mut opened.state)
-        .await
-        .map(|result| result.payment)
 }
 
 /// Check whether a persisted session record can be reused for a new request.
@@ -1398,11 +1489,11 @@ fn is_session_reusable(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_response_receipt, assess_on_chain_reusability, challenge_channel_id_parse,
-        classify_session_failure, invalidation_confirmed_on_chain, is_on_chain_identity_match,
-        is_session_reusable, normalize_hex_identifier, parse_positive_problem_amount,
-        session_reuse_persist_failed_error, session_store_error, validate_problem_channel_id,
-        SessionRequestFailureKind,
+        apply_response_receipt, apply_response_receipt_from_headers, assess_on_chain_reusability,
+        challenge_channel_id_parse, classify_session_failure, invalidation_confirmed_on_chain,
+        is_on_chain_identity_match, is_session_reusable, normalize_hex_identifier,
+        parse_positive_problem_amount, session_reuse_persist_failed_error, session_store_error,
+        validate_problem_channel_id, SessionRequestFailureKind,
     };
     use crate::http::HttpResponse;
     use alloy::primitives::{Address, B256};
@@ -1834,5 +1925,146 @@ mod tests {
         );
         assert_eq!(state.server_spent, 7);
         assert_eq!(state.accepted_cumulative, 30);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn apply_response_receipt_from_headers_allows_missing_header_when_optional() {
+        let channel_id = B256::from([0x7A; 32]);
+        let app = axum::Router::new().route(
+            "/missing",
+            axum::routing::get(|| async { (axum::http::StatusCode::OK, "ok") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("http://{addr}/missing"))
+            .send()
+            .await
+            .unwrap();
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 20,
+            server_spent: 10,
+        };
+
+        let tx_ref =
+            apply_response_receipt_from_headers(&response, &mut state, "open response", false)
+                .expect("optional mode should allow missing receipt header");
+        assert!(tx_ref.is_none());
+        assert_eq!(state.accepted_cumulative, 20);
+        assert_eq!(state.server_spent, 10);
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn apply_response_receipt_from_headers_requires_header_when_strict() {
+        let channel_id = B256::from([0x7C; 32]);
+        let app = axum::Router::new().route(
+            "/missing-strict",
+            axum::routing::get(|| async { (axum::http::StatusCode::OK, "ok") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("http://{addr}/missing-strict"))
+            .send()
+            .await
+            .unwrap();
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 20,
+            server_spent: 10,
+        };
+
+        let err = apply_response_receipt_from_headers(&response, &mut state, "open response", true)
+            .expect_err("strict mode should reject missing receipt header");
+        assert!(err.to_string().contains("Missing required Payment-Receipt"));
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn apply_response_receipt_from_headers_requires_valid_spent() {
+        let channel_id = B256::from([0x7B; 32]);
+        let receipt = SessionReceipt {
+            method: "tempo".to_string(),
+            intent: "session".to_string(),
+            status: "success".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            reference: format!("{channel_id:#x}"),
+            challenge_id: "challenge".to_string(),
+            channel_id: format!("{channel_id:#x}"),
+            accepted_cumulative: "30".to_string(),
+            spent: "not-a-number".to_string(),
+            units: Some(1),
+            tx_hash: None,
+        };
+        let header = encode_receipt_header(&receipt);
+
+        let app = axum::Router::new().route(
+            "/invalid",
+            axum::routing::get(move || {
+                let header = header.clone();
+                async move {
+                    axum::http::Response::builder()
+                        .status(axum::http::StatusCode::OK)
+                        .header("payment-receipt", header)
+                        .body(axum::body::Body::from("ok"))
+                        .unwrap()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("http://{addr}/invalid"))
+            .send()
+            .await
+            .unwrap();
+
+        let mut state = super::ChannelState {
+            channel_id,
+            escrow_contract: Address::ZERO,
+            chain_id: 4217,
+            deposit: 100,
+            cumulative_amount: 20,
+            accepted_cumulative: 20,
+            server_spent: 10,
+        };
+
+        let err = apply_response_receipt_from_headers(&response, &mut state, "open response", true)
+            .expect_err("strict mode should reject invalid spent");
+        assert!(err.to_string().contains("payment-receipt.spent"));
+
+        server.abort();
+        let _ = server.await;
     }
 }
