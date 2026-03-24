@@ -179,18 +179,6 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate:
     }
 }
 
-/// Detect provider/server errors that indicate the local access key is no
-/// longer valid on-chain and requires re-login.
-#[must_use]
-pub fn is_inactive_access_key_error(message: &str) -> bool {
-    let msg = message.to_ascii_lowercase();
-    msg.contains("access key has been revoked")
-        || msg.contains("keychain signature validation failed")
-        || (msg.contains("payment verification failed")
-            && msg.contains("missing or invalid parameters")
-            && msg.contains("eth_sendrawtransactionsync"))
-}
-
 fn classify_mpp_http_error(message: String) -> NetworkError {
     let trimmed = message.trim();
     let mut parts = trimmed.splitn(2, ' ');
@@ -417,17 +405,6 @@ mod tests {
             classify_payment_error(err, &NetworkId::Tempo),
             TempoError::Payment(PaymentError::AccessKeyRevoked)
         ));
-    }
-
-    #[test]
-    fn test_is_inactive_access_key_error_detects_missing_invalid_parameters_shape() {
-        let msg = "MPP payment failed: Payment verification failed: Missing or invalid parameters. URL: https://rpc.mainnet.tempo.xyz Request body: {\"method\":\"eth_sendRawTransactionSync\"}";
-        assert!(is_inactive_access_key_error(msg));
-    }
-
-    #[test]
-    fn test_is_inactive_access_key_error_ignores_unrelated_message() {
-        assert!(!is_inactive_access_key_error("HTTP 500: upstream timeout"));
     }
 
     #[test]

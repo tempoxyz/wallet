@@ -140,7 +140,7 @@ where
             let is_inactive_candidate = matches!(
                 &err,
                 TempoError::Payment(PaymentError::PaymentRejected { reason, .. })
-                    if crate::payment::is_inactive_access_key_error(reason)
+                    if is_inactive_access_key_error(reason)
             );
 
             if is_inactive_candidate && check_on_chain_inactive().await {
@@ -193,7 +193,16 @@ fn is_revoked_or_inactive_keychain_error(message: &str) -> bool {
     msg.contains("revoked")
         || msg.contains("expired")
         || msg.contains("not provisioned")
-        || crate::payment::is_inactive_access_key_error(message)
+        || is_inactive_access_key_error(message)
+}
+
+fn is_inactive_access_key_error(message: &str) -> bool {
+    let msg = message.to_ascii_lowercase();
+    msg.contains("access key has been revoked")
+        || msg.contains("keychain signature validation failed")
+        || (msg.contains("payment verification failed")
+            && msg.contains("missing or invalid parameters")
+            && msg.contains("eth_sendrawtransactionsync"))
 }
 
 /// Run a CLI binary with shared error handling.

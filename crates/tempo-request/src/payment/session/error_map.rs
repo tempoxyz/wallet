@@ -15,9 +15,8 @@ pub(super) fn payment_rejected_reason_from_body(body: &str) -> String {
 }
 
 pub(super) fn payment_rejected_from_body(status_code: u16, body: &str) -> TempoError {
-    let reason = payment_rejected_reason_from_body(body);
     PaymentError::PaymentRejected {
-        reason,
+        reason: payment_rejected_reason_from_body(body),
         status_code,
     }
     .into()
