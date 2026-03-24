@@ -183,11 +183,15 @@ async fn is_access_key_inactive_on_chain(
     .await
     {
         Ok(_) => false,
-        Err(err) => {
-            let msg = err.to_string().to_ascii_lowercase();
-            msg.contains("revoked") || msg.contains("expired")
-        }
+        Err(err) => is_revoked_or_inactive_keychain_error(&err.to_string()),
     }
+}
+
+fn is_revoked_or_inactive_keychain_error(message: &str) -> bool {
+    let msg = message.to_ascii_lowercase();
+    msg.contains("revoked")
+        || msg.contains("expired")
+        || crate::payment::is_inactive_access_key_error(message)
 }
 
 /// Run a CLI binary with shared error handling.
@@ -217,7 +221,7 @@ pub fn run_main(output_format: OutputFormat, result: Result<(), TempoError>) {
 
 #[cfg(test)]
 mod tests {
-    use super::maybe_map_inactive_access_key_rejection;
+    use super::{is_revoked_or_inactive_keychain_error, maybe_map_inactive_access_key_rejection};
     use crate::error::{PaymentError, TempoError};
 
     #[tokio::test]
@@ -261,6 +265,20 @@ mod tests {
         assert!(matches!(
             mapped,
             Err(TempoError::Payment(PaymentError::PaymentRejected { .. }))
+        ));
+    }
+
+    #[test]
+    fn keychain_error_detector_accepts_inactive_shape() {
+        let msg =
+            "Payment verification failed: Missing or invalid parameters. eth_sendRawTransactionSync";
+        assert!(is_revoked_or_inactive_keychain_error(msg));
+    }
+
+    #[test]
+    fn keychain_error_detector_rejects_unrelated_message() {
+        assert!(!is_revoked_or_inactive_keychain_error(
+            "Payment verification failed: internal server error"
         ));
     }
 }
