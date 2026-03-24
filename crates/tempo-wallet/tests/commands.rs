@@ -393,6 +393,81 @@ fn version_flag_outputs_version() {
     );
 }
 
+#[test]
+fn help_lists_refresh_command() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp).arg("--help").output().unwrap();
+
+    assert!(output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("refresh"),
+        "help should list refresh command: {combined}"
+    );
+}
+
+#[test]
+fn refresh_rejects_non_passkey_wallets_with_guidance() {
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
+        .build();
+
+    let output = test_command(&temp)
+        .args(["-n", "tempo-moderato", "refresh"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("only supported for passkey wallets"),
+        "should explain refresh support boundary: {combined}"
+    );
+    assert!(
+        combined.contains("tempo wallet login"),
+        "should include recovery command: {combined}"
+    );
+}
+
+#[test]
+fn refresh_failed_login_restores_existing_passkey_key() {
+    let passkey_keys = r#"
+[[keys]]
+wallet_type = "passkey"
+wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+chain_id = 42431
+"#;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(passkey_keys)
+        .build();
+    let keys_path = temp.path().join(".tempo/wallet/keys.toml");
+
+    let output = test_command(&temp)
+        .env("TEMPO_AUTH_URL", "not-a-valid-url")
+        .args(["-n", "tempo-moderato", "refresh"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("Restored previous access key"),
+        "should report rollback after failed refresh: {combined}"
+    );
+
+    let keys_body = std::fs::read_to_string(&keys_path).unwrap();
+    assert!(
+        keys_body.contains("[[keys]]"),
+        "refresh failure must preserve key entries: {keys_body}"
+    );
+    assert!(
+        keys_body.contains("wallet_type = \"passkey\""),
+        "preserved key should remain passkey"
+    );
+}
+
 // ==================== transfer ====================
 
 #[test]

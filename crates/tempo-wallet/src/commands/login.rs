@@ -24,18 +24,33 @@ const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
 pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
+    run_impl(ctx, false).await
+}
+
+pub(crate) async fn run_with_reauth(ctx: &Context) -> Result<(), TempoError> {
+    run_impl(ctx, true).await
+}
+
+async fn run_impl(ctx: &Context, force_reauth: bool) -> Result<(), TempoError> {
     ctx.track_event(analytics::LOGIN_STARTED);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
 
-    let needs_reauth = if already_logged_in {
+    if force_reauth && already_logged_in {
+        ensure_refresh_supported(ctx)?;
+    }
+
+    let needs_reauth = if force_reauth {
+        already_logged_in
+    } else if already_logged_in {
         is_key_revoked_or_expired(ctx).await
     } else {
         false
     };
 
+    let mut stale_key_backup: Option<Keystore> = None;
     if needs_reauth {
-        invalidate_stale_key(ctx)?;
+        stale_key_backup = invalidate_stale_key(ctx, force_reauth)?;
     }
 
     if !already_logged_in || needs_reauth {
@@ -44,11 +59,17 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
         if let Some(ref a) = ctx.analytics {
             track_login_result(a, &result);
         }
-        result?;
+
+        if let Err(err) = result {
+            restore_stale_key(ctx, stale_key_backup)?;
+            return Err(err);
+        }
     }
 
     if ctx.output_format == OutputFormat::Text {
-        let msg = if already_logged_in && !needs_reauth {
+        let msg = if force_reauth && already_logged_in {
+            "\nAccess key refreshed!\n"
+        } else if already_logged_in && !needs_reauth {
             "Already logged in.\n"
         } else {
             "\nWallet connected!\n"
@@ -100,22 +121,59 @@ async fn is_key_revoked_or_expired(ctx: &Context) -> bool {
 }
 
 /// Remove a revoked/expired key so the fresh login flow can proceed.
-fn invalidate_stale_key(ctx: &Context) -> Result<(), TempoError> {
+fn invalidate_stale_key(ctx: &Context, force_reauth: bool) -> Result<Option<Keystore>, TempoError> {
     let Some(key_entry) = ctx.keys.key_for_network(ctx.network) else {
-        return Ok(());
+        return Ok(None);
     };
     let Some(wallet_address) = key_entry.wallet_address_parsed() else {
-        return Ok(());
+        return Ok(None);
     };
 
     let mut keys = ctx.keys.clone();
+    let backup = keys.clone();
     keys.delete_passkey_wallet_address(wallet_address)?;
     keys.save()?;
 
     if ctx.output_format == OutputFormat::Text {
-        eprintln!("Existing access key is no longer valid. Re-authenticating...");
+        let msg = if force_reauth {
+            "Refreshing access key..."
+        } else {
+            "Existing access key is no longer valid. Re-authenticating..."
+        };
+        eprintln!("{msg}");
     }
+
+    Ok(Some(backup))
+}
+
+fn restore_stale_key(ctx: &Context, backup: Option<Keystore>) -> Result<(), TempoError> {
+    let Some(backup) = backup else {
+        return Ok(());
+    };
+
+    backup.save()?;
+
+    if ctx.output_format == OutputFormat::Text {
+        eprintln!("Access key refresh failed. Restored previous access key.");
+    }
+
     Ok(())
+}
+
+fn ensure_refresh_supported(ctx: &Context) -> Result<(), TempoError> {
+    let Some(key_entry) = ctx.keys.key_for_network(ctx.network) else {
+        return Ok(());
+    };
+
+    if key_entry.wallet_type == WalletType::Passkey {
+        return Ok(());
+    }
+
+    Err(ConfigError::Invalid(
+        "Access-key refresh is only supported for passkey wallets. Run 'tempo wallet login' to re-authorize this wallet."
+            .to_string(),
+    )
+    .into())
 }
 
 fn track_login_result(a: &tempo_common::analytics::Analytics, result: &Result<(), TempoError>) {

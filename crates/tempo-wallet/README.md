@@ -7,6 +7,7 @@ Wallet identity and custody extension for the Tempo CLI. Manages authentication,
 | Command | Description |
 |---------|-------------|
 | `tempo wallet login` | Connect via browser passkey authentication |
+| `tempo wallet refresh` | Renew your access key without logging out |
 | `tempo wallet logout` | Disconnect your wallet |
 | `tempo wallet whoami` | Show wallet address, balances, keys, and readiness |
 | `tempo wallet keys` | List keys with balance and spending limit details |
