@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0 (2026-03-24)
+
+### Minor Changes
+
+- Add `tempo wallet refresh` to refresh passkey/access-key authorization without a full relogin, including improved login/refresh command flow and validation messaging for expired or stale authorizations.
+- Enforce strict session `Payment-Receipt` handling across all session flows, including reused persisted sessions that were previously permissive: reject successful paid responses that omit or malformedly encode receipts, require valid `spent` semantics for response/header/event receipts, preserve conservative local channel state when strict top-up receipt validation fails after a paid response, and extend integration coverage for strict open/top-up/streaming receipt failure paths.
+
+### Patch Changes
+
+- Add `--max-spend` / `TEMPO_MAX_SPEND` hard cap for cumulative session spend, enforced at challenge time, on session reuse, at channel open, and during streaming top-ups. Also reconcile on-chain channel state after cooperative-close 5xx failures before falling back to payer-side close, and fix session reuse to reject candidates from a different origin.
+- Track server-reported `Payment-Receipt.spent` for session state and use it as the close target instead of the payer-signed cumulative ceiling. This adds persisted `server_spent` support and updates request/session close flows so cooperative close settles the amount the server actually reports as spent.
+- Fix session top-up which was completely broken due to five compounding bugs: ABI mismatch (topUp used uint128 instead of uint256 producing wrong function selector), voucher cumulative amount was incorrectly clamped to available balance preventing top-up from ever triggering, AmountExceedsDeposit problem type was not handled alongside InsufficientBalance, stale challenge echo was used for top-up requests causing server rejection, and missing requiredTopUp field in server response caused a hard failure instead of computing the value from local state. Also signals ChannelInvalidated when on-chain top-up fails so the caller can re-open a new channel.
+- Added `help_heading = "Network"` to the `--network` CLI argument for improved help output organization.
+- Only purge local credentials/session state for inactive access-key errors after confirming key state on-chain. This prevents destructive cleanup on transient or misclassified failures and improves error classification for charge/session payment paths.
+- Fix hyperlink sanitization tests to correctly extract and validate only the display text portion of OSC 8 hyperlink sequences, preventing false failures in OSC 8-capable terminals.
+- Harden paid session SSE handling for real-world providers by improving retry/stream behavior and session state synchronization across open, voucher, and streaming flows. This reduces false failures and makes strict payment processing more resilient to provider response quirks.
+- Improve `tempo wallet sessions close` output by printing a blank line before per-channel progress logs for better readability during multi-session close operations.
+- Slim the service list schema to replace full endpoint details with an `endpoint_count` field, reducing payload size. Adds a test to enforce the summary-only structure.
+
 ## 0.1.5 (2026-03-18)
 
 ### Patch Changes
