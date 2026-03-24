@@ -73,6 +73,10 @@ pub struct KeyEntry {
     /// Token spending limits for this key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<StoredTokenLimit>,
+    /// OWS wallet UUID. When set, the private key is fetched from the OWS
+    /// encrypted vault using this immutable identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ows_id: Option<String>,
 }
 
 /// TOML persistence shape for a key entry.
@@ -96,6 +100,8 @@ pub(super) struct StoredKeyEntry {
     pub expiry: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<StoredTokenLimit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ows_id: Option<String>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -116,6 +122,7 @@ impl From<KeyEntry> for StoredKeyEntry {
             key_authorization: value.key_authorization,
             expiry: value.expiry,
             limits: value.limits,
+            ows_id: value.ows_id,
         }
     }
 }
@@ -132,6 +139,7 @@ impl From<StoredKeyEntry> for KeyEntry {
             key_authorization: value.key_authorization,
             expiry: value.expiry,
             limits: value.limits,
+            ows_id: value.ows_id,
         }
     }
 }
@@ -219,6 +227,12 @@ impl KeyEntry {
         self.key.as_ref().is_some_and(|key| !key.is_empty())
     }
 
+    /// Whether this entry has a signing key (inline or OWS).
+    #[must_use]
+    pub fn has_signing_key(&self) -> bool {
+        self.has_inline_key() || self.ows_id.as_ref().is_some_and(|id| !id.is_empty())
+    }
+
     /// Whether this entry represents a direct EOA signer (wallet == signer key).
     #[must_use]
     pub fn is_direct_eoa_key(&self) -> bool {
@@ -286,6 +300,7 @@ mod tests {
                     .unwrap(),
                 limit: "1000".to_string(),
             }],
+            ows_id: Some("test-uuid".to_string()),
         };
 
         let toml_str = toml::to_string(&entry).unwrap();
@@ -314,6 +329,7 @@ mod tests {
             key_authorization: None,
             expiry: None,
             limits: vec![],
+            ows_id: None,
         };
 
         let toml_str = toml::to_string(&entry).unwrap();
@@ -322,6 +338,7 @@ mod tests {
         assert!(!toml_str.contains("key_authorization"));
         assert!(!toml_str.contains("expiry"));
         assert!(!toml_str.contains("limits"));
+        assert!(!toml_str.contains("ows_id"));
 
         let deserialized: KeyEntry = toml::from_str(&toml_str).unwrap();
         assert_eq!(deserialized.key_address, None);

@@ -24,7 +24,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
         |ctx| async move {
             let cmd_name = command_name(&command);
             let result = match command {
-                Commands::Login => login::run(&ctx).await,
+                Commands::Login { ows } => login::run(&ctx, ows).await,
                 Commands::Logout { yes } => logout::run(&ctx, yes),
                 Commands::Completions { shell } => completions::run(&ctx, shell),
                 Commands::Fund { address } => fund::run(&ctx, address).await,
@@ -61,7 +61,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
 /// Derive a short analytics-friendly name from a parsed command.
 const fn command_name(command: &Commands) -> &'static str {
     match command {
-        Commands::Login => "login",
+        Commands::Login { .. } => "login",
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",
         Commands::Fund { .. } => "fund",

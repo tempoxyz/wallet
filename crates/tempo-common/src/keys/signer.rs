@@ -105,13 +105,22 @@ impl Keystore {
             )))
         })?;
 
-        let pk = key_entry
-            .key
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                TempoError::from(ConfigError::Missing("No key configured.".to_string()))
-            })?;
+        // OWS vault first, inline key as fallback (login flow / --private-key).
+        let ows_key;
+        let pk = if let Some(ows_id) = &key_entry.ows_id {
+            ows_key = super::ows::export_private_key(ows_id)?;
+            &*ows_key
+        } else {
+            key_entry
+                .key
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    TempoError::from(ConfigError::Missing(
+                        "No key configured. Run 'tempo wallet create' or 'tempo wallet login'.".to_string(),
+                    ))
+                })?
+        };
         let signer = parse_private_key_signer(pk)?;
 
         let wallet_address: Address = key_entry.wallet_address_parsed().ok_or_else(|| {
