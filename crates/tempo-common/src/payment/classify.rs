@@ -123,7 +123,7 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate:
     match err {
         mpp::MppError::Tempo(tempo_err) => match tempo_err {
             TempoClientError::AccessKeyNotProvisioned => PaymentError::AccessKeyNotProvisioned {
-                hint: "tempo wallet refresh".to_string(),
+                hint: "tempo wallet login".to_string(),
             }
             .into(),
             TempoClientError::SpendingLimitExceeded {

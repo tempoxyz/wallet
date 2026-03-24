@@ -229,7 +229,7 @@ pub enum PaymentError {
         required: String,
     },
     #[error(
-        "Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo wallet fund'. Run 'tempo wallet refresh' to refresh your spending limit."
+        "Insufficient {token} balance: have {available}, need {required}. Fund with 'tempo wallet fund'."
     )]
     InsufficientBalance {
         token: String,
@@ -246,7 +246,7 @@ pub enum PaymentError {
         "Key is not provisioned on-chain. Retry the request to auto-provision, or run '{hint}'."
     )]
     AccessKeyNotProvisioned { hint: String },
-    #[error("Access key has been revoked. Run 'tempo wallet refresh' to re-authorize.")]
+    #[error("Access key has been revoked. Run 'tempo wallet login' to re-authorize.")]
     AccessKeyRevoked,
     #[error("Unsupported payment method: {0}")]
     UnsupportedPaymentMethod(String),
@@ -445,7 +445,7 @@ mod tests {
     fn test_access_key_revoked_display() {
         let err = PaymentError::AccessKeyRevoked;
         assert!(err.to_string().contains("revoked"));
-        assert!(err.to_string().contains("tempo wallet refresh"));
+        assert!(err.to_string().contains("tempo wallet login"));
     }
 
     #[test]
@@ -457,7 +457,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo wallet fund'. Run 'tempo wallet refresh' to refresh your spending limit."
+            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo wallet fund'."
         );
     }
 

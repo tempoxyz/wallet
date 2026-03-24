@@ -104,7 +104,7 @@ where
     })
     .await;
 
-    // Auto-invalidate revoked access keys so the next `refresh` re-authorizes
+    // Auto-invalidate revoked access keys so the next `login` re-authorizes
     if matches!(
         &final_result,
         Err(TempoError::Payment(
@@ -117,7 +117,7 @@ where
                     let _ = ks.delete_passkey_wallet_address(wallet);
                     let _ = ks.save();
                     tracing::info!(
-                        "revoked access key removed — run 'tempo wallet refresh' to re-authorize"
+                        "revoked access key removed — run 'tempo wallet login' to re-authorize"
                     );
                 }
             }
