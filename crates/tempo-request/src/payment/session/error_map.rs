@@ -1,6 +1,7 @@
 use tempo_common::{
     cli::terminal::sanitize_for_terminal,
     error::{PaymentError, TempoError},
+    payment::is_inactive_access_key_error,
 };
 
 const MAX_REJECTED_REASON_CHARS: usize = 500;
@@ -15,8 +16,12 @@ pub(super) fn payment_rejected_reason_from_body(body: &str) -> String {
 }
 
 pub(super) fn payment_rejected_from_body(status_code: u16, body: &str) -> TempoError {
+    let reason = payment_rejected_reason_from_body(body);
+    if is_inactive_access_key_error(&reason) {
+        return PaymentError::AccessKeyRevoked.into();
+    }
     PaymentError::PaymentRejected {
-        reason: payment_rejected_reason_from_body(body),
+        reason,
         status_code,
     }
     .into()
@@ -66,5 +71,15 @@ mod tests {
                 other => panic!("unexpected error variant for case={name}: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn payment_rejected_from_body_maps_inactive_access_key_shape() {
+        let body = r#"{"success":false,"error":"MPP payment failed: Payment verification failed: Missing or invalid parameters. URL: https://rpc.mainnet.tempo.xyz Request body: {\"method\":\"eth_sendRawTransactionSync\"}"}"#;
+        let err = payment_rejected_from_body(402, body);
+        assert!(matches!(
+            err,
+            TempoError::Payment(PaymentError::AccessKeyRevoked)
+        ));
     }
 }
