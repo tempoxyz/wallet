@@ -7,6 +7,7 @@ pub(crate) mod fund;
 pub(crate) mod keys;
 pub(crate) mod login;
 pub(crate) mod logout;
+pub(crate) mod refresh;
 pub(crate) mod services;
 pub(crate) mod sessions;
 pub(crate) mod transfer;

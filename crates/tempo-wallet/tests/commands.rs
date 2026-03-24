@@ -393,6 +393,19 @@ fn version_flag_outputs_version() {
     );
 }
 
+#[test]
+fn help_lists_refresh_command() {
+    let temp = TestConfigBuilder::new().build();
+    let output = test_command(&temp).arg("--help").output().unwrap();
+
+    assert!(output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("refresh"),
+        "help should list refresh command: {combined}"
+    );
+}
+
 // ==================== transfer ====================
 
 #[test]

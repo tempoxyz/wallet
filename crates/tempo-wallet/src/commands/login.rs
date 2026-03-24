@@ -24,18 +24,28 @@ const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
 pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
+    run_impl(ctx, false).await
+}
+
+pub(crate) async fn run_with_reauth(ctx: &Context) -> Result<(), TempoError> {
+    run_impl(ctx, true).await
+}
+
+async fn run_impl(ctx: &Context, force_reauth: bool) -> Result<(), TempoError> {
     ctx.track_event(analytics::LOGIN_STARTED);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
 
-    let needs_reauth = if already_logged_in {
+    let needs_reauth = if force_reauth {
+        already_logged_in
+    } else if already_logged_in {
         is_key_revoked_or_expired(ctx).await
     } else {
         false
     };
 
     if needs_reauth {
-        invalidate_stale_key(ctx)?;
+        invalidate_stale_key(ctx, force_reauth)?;
     }
 
     if !already_logged_in || needs_reauth {
@@ -48,7 +58,9 @@ pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
     }
 
     if ctx.output_format == OutputFormat::Text {
-        let msg = if already_logged_in && !needs_reauth {
+        let msg = if force_reauth {
+            "\nAccess key refreshed!\n"
+        } else if already_logged_in && !needs_reauth {
             "Already logged in.\n"
         } else {
             "\nWallet connected!\n"
@@ -100,7 +112,7 @@ async fn is_key_revoked_or_expired(ctx: &Context) -> bool {
 }
 
 /// Remove a revoked/expired key so the fresh login flow can proceed.
-fn invalidate_stale_key(ctx: &Context) -> Result<(), TempoError> {
+fn invalidate_stale_key(ctx: &Context, force_reauth: bool) -> Result<(), TempoError> {
     let Some(key_entry) = ctx.keys.key_for_network(ctx.network) else {
         return Ok(());
     };
@@ -113,7 +125,12 @@ fn invalidate_stale_key(ctx: &Context) -> Result<(), TempoError> {
     keys.save()?;
 
     if ctx.output_format == OutputFormat::Text {
-        eprintln!("Existing access key is no longer valid. Re-authenticating...");
+        let msg = if force_reauth {
+            "Refreshing access key..."
+        } else {
+            "Existing access key is no longer valid. Re-authenticating..."
+        };
+        eprintln!("{msg}");
     }
     Ok(())
 }

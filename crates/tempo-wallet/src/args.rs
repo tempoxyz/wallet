@@ -32,21 +32,24 @@ pub(crate) enum Commands {
     /// Sign up or log in to your Tempo wallet
     #[command(display_order = 1)]
     Login,
-    /// Log out and disconnect your wallet
+    /// Refresh your access key without logging out
     #[command(display_order = 2)]
+    Refresh,
+    /// Log out and disconnect your wallet
+    #[command(display_order = 3)]
     Logout {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
     },
     /// Show who you are: wallet, balances, keys
-    #[command(display_order = 3)]
+    #[command(display_order = 4)]
     Whoami,
     /// List keys and their spending limits
-    #[command(display_order = 4, name = "keys")]
+    #[command(display_order = 5, name = "keys")]
     Keys,
     /// Transfer tokens to an address
-    #[command(display_order = 5, arg_required_else_help = true)]
+    #[command(display_order = 6, arg_required_else_help = true)]
     #[command(after_help = "\
 Examples:
   tempo wallet transfer 1.00 0x20c0...b50 0x70997...9C8
@@ -66,21 +69,21 @@ Examples:
         dry_run: bool,
     },
     /// Fund your wallet (testnet faucet or mainnet bridge)
-    #[command(display_order = 7, name = "fund")]
+    #[command(display_order = 8, name = "fund")]
     Fund {
         /// Wallet address to fund (defaults to current wallet)
         #[arg(long)]
         address: Option<String>,
     },
     /// Manage payment sessions
-    #[command(display_order = 8, name = "sessions")]
+    #[command(display_order = 9, name = "sessions")]
     #[command(args_conflicts_with_subcommands = true)]
     Sessions {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
     /// Browse the MPP service directory
-    #[command(display_order = 9, name = "services")]
+    #[command(display_order = 10, name = "services")]
     Services {
         #[command(subcommand)]
         command: Option<ServicesCommands>,
@@ -95,7 +98,7 @@ Examples:
     },
 
     /// Collect debug info for support
-    #[command(display_order = 10)]
+    #[command(display_order = 11)]
     Debug,
 
     /// Generate shell completions script
