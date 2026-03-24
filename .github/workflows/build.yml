@@ -19,10 +19,10 @@ jobs:
     name: Parse tag
     runs-on: ubuntu-latest
     outputs:
-      packages: ${{ steps.parse.outputs.packages }}
       version: ${{ steps.parse.outputs.version }}
       release_tag: ${{ steps.parse.outputs.release_tag }}
-      build_matrix: ${{ steps.parse.outputs.build_matrix }}
+      build_wallet: ${{ steps.parse.outputs.build_wallet }}
+      build_request: ${{ steps.parse.outputs.build_request }}
     steps:
       - name: Parse release scope and version from tag
         id: parse
@@ -31,38 +31,59 @@ jobs:
 
           if [[ "$TAG" == v* ]]; then
             VERSION="${TAG#v}"
-            PACKAGES='["tempo-wallet","tempo-request"]'
             RELEASE_TAG="$TAG"
-            BUILD_MATRIX='[{"package":"tempo-wallet","os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","suffix":"linux-amd64"},{"package":"tempo-wallet","os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","suffix":"linux-arm64"},{"package":"tempo-wallet","os":"macos-latest","target":"x86_64-apple-darwin","suffix":"darwin-amd64"},{"package":"tempo-wallet","os":"macos-latest","target":"aarch64-apple-darwin","suffix":"darwin-arm64"},{"package":"tempo-request","os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","suffix":"linux-amd64"},{"package":"tempo-request","os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","suffix":"linux-arm64"},{"package":"tempo-request","os":"macos-latest","target":"x86_64-apple-darwin","suffix":"darwin-amd64"},{"package":"tempo-request","os":"macos-latest","target":"aarch64-apple-darwin","suffix":"darwin-arm64"}]'
+            BUILD_WALLET=true
+            BUILD_REQUEST=true
           elif [[ "$TAG" == *"@"* ]]; then
             PACKAGE="${TAG%%@*}"
             VERSION="${TAG#*@}"
-            PACKAGES="[\"${PACKAGE}\"]"
             RELEASE_TAG="$TAG"
-            BUILD_MATRIX="[{\"package\":\"${PACKAGE}\",\"os\":\"ubuntu-latest\",\"target\":\"x86_64-unknown-linux-gnu\",\"suffix\":\"linux-amd64\"},{\"package\":\"${PACKAGE}\",\"os\":\"ubuntu-24.04-arm\",\"target\":\"aarch64-unknown-linux-gnu\",\"suffix\":\"linux-arm64\"},{\"package\":\"${PACKAGE}\",\"os\":\"macos-latest\",\"target\":\"x86_64-apple-darwin\",\"suffix\":\"darwin-amd64\"},{\"package\":\"${PACKAGE}\",\"os\":\"macos-latest\",\"target\":\"aarch64-apple-darwin\",\"suffix\":\"darwin-arm64\"}]"
+            if [[ "$PACKAGE" == "tempo-wallet" ]]; then
+              BUILD_WALLET=true
+              BUILD_REQUEST=false
+            elif [[ "$PACKAGE" == "tempo-request" ]]; then
+              BUILD_WALLET=false
+              BUILD_REQUEST=true
+            else
+              echo "Unsupported package in tag: ${PACKAGE}" >&2
+              exit 1
+            fi
           else
             echo "Unsupported tag format: ${TAG}" >&2
             exit 1
           fi
 
           {
-            echo "packages=${PACKAGES}"
             echo "version=${VERSION}"
             echo "release_tag=${RELEASE_TAG}"
-            echo "build_matrix=${BUILD_MATRIX}"
+            echo "build_wallet=${BUILD_WALLET}"
+            echo "build_request=${BUILD_REQUEST}"
           } >> "$GITHUB_OUTPUT"
-          echo "Tag: ${TAG}, Packages: ${PACKAGES}, Version: ${VERSION}, Release tag: ${RELEASE_TAG}"
+          echo "Tag: ${TAG}, version: ${VERSION}, release tag: ${RELEASE_TAG}, wallet: ${BUILD_WALLET}, request: ${BUILD_REQUEST}"
 
-  build:
-    name: Build ${{ matrix.package }} (${{ matrix.target }})
+  build-wallet:
+    name: Build tempo-wallet (${{ matrix.target }})
     needs: [parse-tag]
+    if: needs.parse-tag.outputs.build_wallet == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.parse-tag.outputs.build_matrix) }}
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: linux-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: darwin-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: darwin-arm64
     env:
-      PACKAGE: ${{ matrix.package }}
+      PACKAGE: tempo-wallet
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -82,16 +103,55 @@ jobs:
           name: ${{ env.PACKAGE }}-${{ matrix.suffix }}
           path: ${{ env.PACKAGE }}-${{ matrix.suffix }}
 
-  publish:
-    name: Publish ${{ matrix.package }}
-    needs: [parse-tag, build]
-    runs-on: ubuntu-latest
+  build-request:
+    name: Build tempo-request (${{ matrix.target }})
+    needs: [parse-tag]
+    if: needs.parse-tag.outputs.build_request == 'true'
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        package: ${{ fromJson(needs.parse-tag.outputs.packages) }}
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: linux-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: darwin-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: darwin-arm64
     env:
-      PACKAGE: ${{ matrix.package }}
+      PACKAGE: tempo-request
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Configure git auth
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} -p ${{ env.PACKAGE }}
+      - run: strip target/${{ matrix.target }}/release/${{ env.PACKAGE }}
+      - run: mv target/${{ matrix.target }}/release/${{ env.PACKAGE }} ${{ env.PACKAGE }}-${{ matrix.suffix }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.PACKAGE }}-${{ matrix.suffix }}
+          path: ${{ env.PACKAGE }}-${{ matrix.suffix }}
+
+  publish-wallet:
+    name: Publish tempo-wallet
+    needs: [parse-tag, build-wallet]
+    if: needs.parse-tag.outputs.build_wallet == 'true'
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE: tempo-wallet
       VERSION: ${{ needs.parse-tag.outputs.version }}
       RELEASE_TAG: ${{ needs.parse-tag.outputs.release_tag }}
     steps:
@@ -99,7 +159,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-          pattern: ${{ env.PACKAGE }}-*
+          pattern: tempo-wallet-*
           merge-multiple: true
 
       - name: Wait for GitHub Release
@@ -138,21 +198,109 @@ jobs:
 
           URL_PREFIX="https://cli.tempo.xyz/extensions/${PACKAGE}"
 
-          declare -A PKG_DESC=(
-            [tempo-wallet]="Manage your Tempo Wallet"
-            [tempo-request]="Make an HTTP request"
+          SIGN_ARGS=(
+            --key-file /tmp/release.key
+            --artifacts-dir artifacts
+            --version "$VERSION"
+            --base-url "$URL_PREFIX"
+            --description "Manage your Tempo Wallet"
+            --output "artifacts/${PACKAGE}-manifest.json"
           )
+
+          ./target/release/tempo-sign sign "${SIGN_ARGS[@]}"
+          rm /tmp/release.key
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          aws configure set default.s3.multipart_threshold 200MB
+
+          PREFIX="extensions/${PACKAGE}"
+          VTAG="v${VERSION}"
+
+          # Binaries (latest + versioned)
+          for f in "artifacts/${PACKAGE}"-linux-* "artifacts/${PACKAGE}"-darwin-*; do
+            [ -f "$f" ] || continue
+            BASENAME=$(basename "$f")
+            aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+            aws s3 cp "$f" "s3://tempo-cli/${PREFIX}/${VTAG}/${BASENAME}" --endpoint-url "$AWS_ENDPOINT_URL"
+          done
+
+          # Signed manifest (latest + versioned)
+          aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+          aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/${VTAG}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
+
+          # VERSION
+          echo "${VERSION}" | aws s3 cp - "s3://tempo-cli/${PREFIX}/VERSION" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/plain"
+
+          echo "Released ${PACKAGE}@${VERSION}"
+
+  publish-request:
+    name: Publish tempo-request
+    needs: [parse-tag, build-request]
+    if: needs.parse-tag.outputs.build_request == 'true'
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE: tempo-request
+      VERSION: ${{ needs.parse-tag.outputs.version }}
+      RELEASE_TAG: ${{ needs.parse-tag.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: tempo-request-*
+          merge-multiple: true
+
+      - name: Wait for GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${RELEASE_TAG}"
+          for i in $(seq 1 40); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Release ${TAG} found"
+              exit 0
+            fi
+            echo "Waiting for release ${TAG}... (attempt ${i}/40)"
+            sleep 15
+          done
+          echo "Release ${TAG} was not created in time" >&2
+          exit 1
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${RELEASE_TAG}"
+          gh release upload "$TAG" artifacts/* --clobber
+
+      - name: Configure git auth
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+      - name: Build release signer
+        run: cargo build --release -p tempo-sign
+
+      - name: Sign release binaries
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          echo -n "$RELEASE_SIGNING_KEY" | base64 -d > /tmp/release.key
+
+          URL_PREFIX="https://cli.tempo.xyz/extensions/${PACKAGE}"
 
           SIGN_ARGS=(
             --key-file /tmp/release.key
             --artifacts-dir artifacts
             --version "$VERSION"
             --base-url "$URL_PREFIX"
-            --description "${PKG_DESC[$PACKAGE]}"
+            --description "Make an HTTP request"
             --output "artifacts/${PACKAGE}-manifest.json"
           )
 
-          if [ "$PACKAGE" = "tempo-request" ] && [ -f "SKILL.md" ]; then
+          if [ -f "SKILL.md" ]; then
             SKILL_SHA256=$(sha256sum "SKILL.md" | cut -d' ' -f1)
             SIGN_ARGS+=(
               --skill "${URL_PREFIX}/v${VERSION}/SKILL.md"
@@ -187,8 +335,8 @@ jobs:
           aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
           aws s3 cp "artifacts/${PACKAGE}-manifest.json" "s3://tempo-cli/${PREFIX}/${VTAG}/manifest.json" --endpoint-url "$AWS_ENDPOINT_URL"
 
-          # SKILL.md (versioned snapshot, only for tempo-request)
-          if [ "$PACKAGE" = "tempo-request" ] && [ -f "SKILL.md" ]; then
+          # SKILL.md (versioned snapshot)
+          if [ -f "SKILL.md" ]; then
             aws s3 cp "SKILL.md" "s3://tempo-cli/${PREFIX}/${VTAG}/SKILL.md" --endpoint-url "$AWS_ENDPOINT_URL" --content-type "text/markdown"
           fi
 
