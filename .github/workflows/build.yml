@@ -22,6 +22,7 @@ jobs:
       packages: ${{ steps.parse.outputs.packages }}
       version: ${{ steps.parse.outputs.version }}
       release_tag: ${{ steps.parse.outputs.release_tag }}
+      build_matrix: ${{ steps.parse.outputs.build_matrix }}
     steps:
       - name: Parse release scope and version from tag
         id: parse
@@ -32,11 +33,13 @@ jobs:
             VERSION="${TAG#v}"
             PACKAGES='["tempo-wallet","tempo-request"]'
             RELEASE_TAG="$TAG"
+            BUILD_MATRIX='[{"package":"tempo-wallet","os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","suffix":"linux-amd64"},{"package":"tempo-wallet","os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","suffix":"linux-arm64"},{"package":"tempo-wallet","os":"macos-latest","target":"x86_64-apple-darwin","suffix":"darwin-amd64"},{"package":"tempo-wallet","os":"macos-latest","target":"aarch64-apple-darwin","suffix":"darwin-arm64"},{"package":"tempo-request","os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","suffix":"linux-amd64"},{"package":"tempo-request","os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","suffix":"linux-arm64"},{"package":"tempo-request","os":"macos-latest","target":"x86_64-apple-darwin","suffix":"darwin-amd64"},{"package":"tempo-request","os":"macos-latest","target":"aarch64-apple-darwin","suffix":"darwin-arm64"}]'
           elif [[ "$TAG" == *"@"* ]]; then
             PACKAGE="${TAG%%@*}"
             VERSION="${TAG#*@}"
             PACKAGES="[\"${PACKAGE}\"]"
             RELEASE_TAG="$TAG"
+            BUILD_MATRIX="[{\"package\":\"${PACKAGE}\",\"os\":\"ubuntu-latest\",\"target\":\"x86_64-unknown-linux-gnu\",\"suffix\":\"linux-amd64\"},{\"package\":\"${PACKAGE}\",\"os\":\"ubuntu-24.04-arm\",\"target\":\"aarch64-unknown-linux-gnu\",\"suffix\":\"linux-arm64\"},{\"package\":\"${PACKAGE}\",\"os\":\"macos-latest\",\"target\":\"x86_64-apple-darwin\",\"suffix\":\"darwin-amd64\"},{\"package\":\"${PACKAGE}\",\"os\":\"macos-latest\",\"target\":\"aarch64-apple-darwin\",\"suffix\":\"darwin-arm64\"}]"
           else
             echo "Unsupported tag format: ${TAG}" >&2
             exit 1
@@ -46,50 +49,18 @@ jobs:
             echo "packages=${PACKAGES}"
             echo "version=${VERSION}"
             echo "release_tag=${RELEASE_TAG}"
+            echo "build_matrix=${BUILD_MATRIX}"
           } >> "$GITHUB_OUTPUT"
           echo "Tag: ${TAG}, Packages: ${PACKAGES}, Version: ${VERSION}, Release tag: ${RELEASE_TAG}"
 
   build:
     name: Build ${{ matrix.package }} (${{ matrix.target }})
     needs: [parse-tag]
-    if: contains(needs.parse-tag.outputs.packages, matrix.package)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - package: tempo-wallet
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            suffix: linux-amd64
-          - package: tempo-wallet
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            suffix: linux-arm64
-          - package: tempo-wallet
-            os: macos-latest
-            target: x86_64-apple-darwin
-            suffix: darwin-amd64
-          - package: tempo-wallet
-            os: macos-latest
-            target: aarch64-apple-darwin
-            suffix: darwin-arm64
-          - package: tempo-request
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            suffix: linux-amd64
-          - package: tempo-request
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            suffix: linux-arm64
-          - package: tempo-request
-            os: macos-latest
-            target: x86_64-apple-darwin
-            suffix: darwin-amd64
-          - package: tempo-request
-            os: macos-latest
-            target: aarch64-apple-darwin
-            suffix: darwin-arm64
+        include: ${{ fromJson(needs.parse-tag.outputs.build_matrix) }}
     env:
       PACKAGE: ${{ matrix.package }}
     steps:
