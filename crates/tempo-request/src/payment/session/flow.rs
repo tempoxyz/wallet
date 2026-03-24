@@ -1110,6 +1110,7 @@ async fn reuse_stage_discover(
 
     for candidate in reuse_candidates {
         if !is_session_reusable(
+            &challenge.origin,
             &candidate,
             &challenge.payer_hex,
             challenge.escrow_contract,
@@ -1600,7 +1601,9 @@ pub(crate) async fn handle_session_request(
 /// token, payee, chain). The request price is not checked —
 /// it is pricing metadata, not channel identity, and varying prices
 /// (e.g. different models on the same origin) must not cause channel churn.
+#[allow(clippy::too_many_arguments)]
 fn is_session_reusable(
+    challenge_origin: &str,
     record: &tempo_common::session::ChannelRecord,
     payer: &str,
     escrow: Address,
@@ -1609,7 +1612,8 @@ fn is_session_reusable(
     chain_id: u64,
     authorized_signer: Address,
 ) -> bool {
-    record.state == tempo_common::session::ChannelStatus::Active
+    record.origin == challenge_origin
+        && record.state == tempo_common::session::ChannelStatus::Active
         && normalize_hex_identifier(&record.payer) == normalize_hex_identifier(payer)
         && record.escrow_contract == escrow
         && normalize_hex_identifier(&record.token) == normalize_hex_identifier(token)
@@ -1699,6 +1703,7 @@ mod tests {
     fn reuse_same_channel_identity() {
         let record = make_record();
         assert!(is_session_reusable(
+            "https://openrouter.mpp.tempo.xyz",
             &record,
             "0x0000000000000000000000000000000000000099",
             Address::ZERO,
@@ -1713,6 +1718,7 @@ mod tests {
     fn reuse_rejects_different_payer() {
         let record = make_record();
         assert!(!is_session_reusable(
+            "https://openrouter.mpp.tempo.xyz",
             &record,
             "0xdifferentpayer",
             Address::ZERO,
@@ -1727,6 +1733,7 @@ mod tests {
     fn reuse_rejects_different_recipient() {
         let record = make_record();
         assert!(!is_session_reusable(
+            "https://openrouter.mpp.tempo.xyz",
             &record,
             "0x0000000000000000000000000000000000000099",
             Address::ZERO,
@@ -1741,6 +1748,7 @@ mod tests {
     fn reuse_rejects_different_chain() {
         let record = make_record();
         assert!(!is_session_reusable(
+            "https://openrouter.mpp.tempo.xyz",
             &record,
             "0x0000000000000000000000000000000000000099",
             Address::ZERO,
@@ -1755,6 +1763,7 @@ mod tests {
     fn reuse_rejects_different_authorized_signer() {
         let record = make_record();
         assert!(!is_session_reusable(
+            "https://openrouter.mpp.tempo.xyz",
             &record,
             "0x0000000000000000000000000000000000000099",
             Address::ZERO,
@@ -1772,6 +1781,7 @@ mod tests {
         record.payee = "0X0000000000000000000000000000000000000002".into();
         record.payer = "0X0000000000000000000000000000000000000099".into();
         assert!(is_session_reusable(
+            "https://openrouter.mpp.tempo.xyz",
             &record,
             "0x0000000000000000000000000000000000000099",
             Address::ZERO,
@@ -1934,6 +1944,22 @@ mod tests {
         let mut record = make_record();
         record.state = ChannelStatus::Closing;
         assert!(!is_session_reusable(
+            "https://openrouter.mpp.tempo.xyz",
+            &record,
+            "0x0000000000000000000000000000000000000099",
+            Address::ZERO,
+            "0x0000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000002",
+            4217,
+            Address::ZERO,
+        ));
+    }
+
+    #[test]
+    fn reuse_rejects_cross_origin_candidate() {
+        let record = make_record();
+        assert!(!is_session_reusable(
+            "https://malicious.example",
             &record,
             "0x0000000000000000000000000000000000000099",
             Address::ZERO,
