@@ -249,8 +249,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 10,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 5,
         }
     }

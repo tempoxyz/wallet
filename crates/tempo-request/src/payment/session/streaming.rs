@@ -665,8 +665,7 @@ fn post_voucher(
         deposit: state.deposit,
         cumulative_amount: state.cumulative_amount,
         accepted_cumulative: state.accepted_cumulative,
-        request_base_cumulative: state.request_base_cumulative,
-        max_request_spend: state.max_request_spend,
+        max_cumulative_spend: state.max_cumulative_spend,
         server_spent: state.server_spent,
     };
 
@@ -886,7 +885,7 @@ pub(super) async fn stream_sse_response(
 
                         let mut effective_deposit = on_chain_deposit;
                         if required > on_chain_deposit {
-                            if state.max_request_spend.is_some() {
+                            if state.max_cumulative_spend.is_some() {
                                 return Err(PaymentError::DepositInsufficient {
                                     deposit: tempo_common::cli::format::format_token_amount(
                                         on_chain_deposit,
@@ -1172,8 +1171,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 10,
             accepted_cumulative: 0,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 0,
         }
     }

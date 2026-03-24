@@ -47,6 +47,61 @@ async fn max_spend_below_challenge_amount_fails_before_open() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn max_spend_caps_reused_session_cumulative_spend() {
+    let rpc = SessionRpcServer::start().await;
+    let server = SessionServer::start(SessionServerConfig {
+        payee_mode: PayeeMode::Fixed,
+        open_receipt_accepted: None,
+        sse_voucher_flow: false,
+        voucher_head_unsupported: false,
+        sse_receipt_accepted: None,
+        sse_required_cumulative: None,
+        sse_reported_deposit: None,
+        invalidating_problem_type_once: None,
+        insufficient_balance_once: false,
+        amount_exceeds_deposit_once: false,
+        error_after_payment_once_status: None,
+        response_delay_ms: 0,
+    })
+    .await;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let first_output =
+        run_session_request_with_args(&temp, &server.url("/resource"), &["--max-spend", "1"]);
+    assert!(
+        first_output.status.success(),
+        "first request should succeed within max-spend: {}",
+        get_combined_output(&first_output)
+    );
+
+    let second_output =
+        run_session_request_with_args(&temp, &server.url("/resource"), &["--max-spend", "1"]);
+    assert!(
+        !second_output.status.success(),
+        "second request should fail when next cumulative exceeds max-spend: {}",
+        get_combined_output(&second_output)
+    );
+
+    let combined = get_combined_output(&second_output);
+    assert!(
+        combined.contains("Payment max spend exceeded"),
+        "error should explain cumulative max-spend breach: {combined}"
+    );
+
+    let observed = server.snapshot();
+    assert_eq!(
+        observed.open_count, 1,
+        "reused flow should not open a second channel"
+    );
+    assert_eq!(
+        observed.voucher_count, 0,
+        "max-spend check should fail before posting a voucher"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn opens_channel_persists_state_and_reuses_authorized_session() {
     let rpc = SessionRpcServer::start().await;
     let server = SessionServer::start(SessionServerConfig {

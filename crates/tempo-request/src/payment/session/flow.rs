@@ -150,20 +150,19 @@ pub(super) fn validate_request_spend_limit(
     network_id: tempo_common::network::NetworkId,
     required_cumulative: u128,
 ) -> Result<(), TempoError> {
-    let Some(max_request_spend) = state.max_request_spend else {
+    let Some(max_cumulative_spend) = state.max_cumulative_spend else {
         return Ok(());
     };
 
-    let required_spend = required_cumulative.saturating_sub(state.request_base_cumulative);
-    if required_spend <= max_request_spend {
+    if required_cumulative <= max_cumulative_spend {
         return Ok(());
     }
 
     Err(PaymentError::PaymentRejected {
         reason: format!(
             "Payment max spend exceeded: max={} required={}",
-            format_token_amount(max_request_spend, network_id),
-            format_token_amount(required_spend, network_id),
+            format_token_amount(max_cumulative_spend, network_id),
+            format_token_amount(required_cumulative, network_id),
         ),
         status_code: 402,
     }
@@ -625,7 +624,7 @@ async fn send_session_request(
                                 state.cumulative_amount.saturating_sub(state.deposit).max(1)
                             };
 
-                        if state.max_request_spend.is_some() {
+                        if state.max_cumulative_spend.is_some() {
                             return Err(SessionRequestFailure {
                                 source: PaymentError::DepositInsufficient {
                                     deposit: format_token_amount(state.deposit, ctx.network_id),
@@ -1155,8 +1154,7 @@ async fn reuse_stage_execute(
         deposit: reusable.on_chain_deposit,
         cumulative_amount: prev_cumulative + challenge.amount,
         accepted_cumulative: reusable.record.accepted_cumulative,
-        request_base_cumulative: prev_cumulative,
-        max_request_spend: max_spend,
+        max_cumulative_spend: max_spend,
         server_spent: reusable.record.server_spent,
     };
 
@@ -1336,8 +1334,7 @@ async fn open_stage(
         deposit: deposit.deposit,
         cumulative_amount: initial_cumulative,
         accepted_cumulative: 0,
-        request_base_cumulative: 0,
-        max_request_spend: max_spend,
+        max_cumulative_spend: max_spend,
         server_spent: 0,
     };
 
@@ -1952,8 +1949,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 0,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 0,
         };
         let tx = apply_response_receipt(&response, &mut state, "session response").unwrap();
@@ -1975,8 +1971,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 0,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 0,
         };
 
@@ -2029,8 +2024,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 10,
         };
 
@@ -2070,8 +2064,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 10,
         };
 
@@ -2113,8 +2106,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 10,
         };
 
@@ -2177,8 +2169,7 @@ mod tests {
             deposit: 100,
             cumulative_amount: 20,
             accepted_cumulative: 20,
-            request_base_cumulative: 0,
-            max_request_spend: None,
+            max_cumulative_spend: None,
             server_spent: 10,
         };
 
