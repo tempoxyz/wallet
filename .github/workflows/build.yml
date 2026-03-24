@@ -42,9 +42,11 @@ jobs:
             exit 1
           fi
 
-          echo "packages=${PACKAGES}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          {
+            echo "packages=${PACKAGES}"
+            echo "version=${VERSION}"
+            echo "release_tag=${RELEASE_TAG}"
+          } >> "$GITHUB_OUTPUT"
           echo "Tag: ${TAG}, Packages: ${PACKAGES}, Version: ${VERSION}, Release tag: ${RELEASE_TAG}"
 
   build:
