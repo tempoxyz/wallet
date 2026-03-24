@@ -183,6 +183,7 @@ async fn is_access_key_inactive_on_chain(
     .await
     {
         Ok(_) => false,
+        Err(mpp::MppError::Tempo(mpp::client::TempoClientError::AccessKeyNotProvisioned)) => true,
         Err(err) => is_revoked_or_inactive_keychain_error(&err.to_string()),
     }
 }
@@ -191,6 +192,7 @@ fn is_revoked_or_inactive_keychain_error(message: &str) -> bool {
     let msg = message.to_ascii_lowercase();
     msg.contains("revoked")
         || msg.contains("expired")
+        || msg.contains("not provisioned")
         || crate::payment::is_inactive_access_key_error(message)
 }
 
@@ -273,6 +275,13 @@ mod tests {
         let msg =
             "Payment verification failed: Missing or invalid parameters. eth_sendRawTransactionSync";
         assert!(is_revoked_or_inactive_keychain_error(msg));
+    }
+
+    #[test]
+    fn keychain_error_detector_accepts_not_provisioned_shape() {
+        assert!(is_revoked_or_inactive_keychain_error(
+            "Access key not provisioned on wallet"
+        ));
     }
 
     #[test]
