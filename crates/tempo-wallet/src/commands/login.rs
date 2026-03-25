@@ -233,7 +233,11 @@ async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
     let browser_launch_status = super::auth::try_open_browser(&url_str, no_browser);
 
     if ctx.output_format == OutputFormat::Text {
-        show_login_prompt(&code);
+        if no_browser {
+            show_remote_login_prompt(&url_str, &code);
+        } else {
+            show_login_prompt(&code);
+        }
     }
 
     if should_track_callback_window(browser_launch_status) {
@@ -267,14 +271,31 @@ async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
 
 /// Display the verification code and wait prompt for authentication.
 fn show_login_prompt(code: &str) {
-    let display_code = if code.len() == 8 {
-        format!("{}-{}", &code[..4], &code[4..])
-    } else {
-        code.to_string()
-    };
+    let display_code = format_verification_code(code);
     eprintln!("Verification code: {}", display_code.bold());
     eprintln!();
     eprintln!("Waiting for authentication...");
+}
+
+/// Display the remote-host handoff prompt for a user who is chatting from another device.
+fn show_remote_login_prompt(auth_url: &str, code: &str) {
+    let display_code = format_verification_code(code);
+    eprintln!("Open this link on your device: {auth_url}");
+    eprintln!("Verification code: {}", display_code.bold());
+    eprintln!("If the wallet page shows that same code, tap Continue.");
+    eprintln!(
+        "After passkey or wallet creation, return here and message me. I may need to send one more authorization link so this host can use the wallet."
+    );
+    eprintln!();
+    eprintln!("Waiting for authentication...");
+}
+
+fn format_verification_code(code: &str) -> String {
+    if code.len() == 8 {
+        format!("{}-{}", &code[..4], &code[4..])
+    } else {
+        code.to_string()
+    }
 }
 
 fn should_track_callback_window(status: BrowserLaunchStatus) -> bool {
