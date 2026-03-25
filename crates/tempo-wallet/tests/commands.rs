@@ -5,7 +5,7 @@ mod session;
 
 use common::test_command;
 use tempo_test::{
-    assert_exit_code, get_combined_output, MockServicesServer, TestConfigBuilder,
+    assert_exit_code, get_combined_output, MockServer, MockServicesServer, TestConfigBuilder,
     MODERATO_DIRECT_KEYS_TOML,
 };
 
@@ -375,6 +375,29 @@ fn services_invalid_url_is_classified_as_usage_error() {
     assert!(
         combined.contains("invalid service directory URL"),
         "should report invalid service URL: {combined}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn services_http_error_includes_response_body() {
+    let mock = MockServer::start(503, vec![], "maintenance window").await;
+    let temp = TestConfigBuilder::new().build();
+
+    let output = test_command(&temp)
+        .env("TEMPO_SERVICES_URL", format!("{}/services", mock.base_url))
+        .args(["services", "list"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let combined = get_combined_output(&output);
+    assert!(
+        combined.contains("HTTP 503"),
+        "should report the HTTP status: {combined}"
+    );
+    assert!(
+        combined.contains("maintenance window"),
+        "should include the service directory response body: {combined}"
     );
 }
 
