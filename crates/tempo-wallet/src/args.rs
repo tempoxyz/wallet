@@ -31,7 +31,11 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     /// Sign up or log in to your Tempo wallet
     #[command(display_order = 1)]
-    Login,
+    Login {
+        /// Do not attempt to open a browser
+        #[arg(long)]
+        no_browser: bool,
+    },
     /// Refresh your access key without logging out
     #[command(display_order = 2)]
     Refresh,
@@ -74,6 +78,9 @@ Examples:
         /// Wallet address to fund (defaults to current wallet)
         #[arg(long)]
         address: Option<String>,
+        /// Do not attempt to open a browser
+        #[arg(long)]
+        no_browser: bool,
     },
     /// Manage payment sessions
     #[command(display_order = 8, name = "sessions")]

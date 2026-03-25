@@ -26,15 +26,23 @@ const CALLBACK_TIMEOUT_SECS: u64 = 900;
 // Entry point
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn run(ctx: &Context, address: Option<String>) -> Result<(), TempoError> {
-    let method = "browser";
+pub(crate) async fn run(
+    ctx: &Context,
+    address: Option<String>,
+    no_browser: bool,
+) -> Result<(), TempoError> {
+    let method = fund_method(no_browser);
     track_fund_start(ctx, method);
-    let result = run_inner(ctx, address).await;
+    let result = run_inner(ctx, address, no_browser).await;
     track_fund_result(ctx, method, &result);
     result
 }
 
-async fn run_inner(ctx: &Context, address: Option<String>) -> Result<(), TempoError> {
+async fn run_inner(
+    ctx: &Context,
+    address: Option<String>,
+    no_browser: bool,
+) -> Result<(), TempoError> {
     let wallet_address = resolve_address(address, &ctx.keys)?;
 
     let before = query_all_balances(&ctx.config, ctx.network, &wallet_address).await;
@@ -53,7 +61,7 @@ async fn run_inner(ctx: &Context, address: Option<String>) -> Result<(), TempoEr
         eprintln!("Fund URL: {fund_url}");
     }
 
-    super::auth::try_open_browser(&fund_url);
+    super::auth::try_open_browser(&fund_url, no_browser);
 
     if ctx.output_format == OutputFormat::Text {
         eprintln!("Waiting for funding...");
@@ -133,6 +141,14 @@ fn render_balance_diff(before: &[TokenBalance], after: &[TokenBalance]) {
     }
 }
 
+fn fund_method(no_browser: bool) -> &'static str {
+    if no_browser {
+        "manual"
+    } else {
+        "browser"
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Analytics
 // ---------------------------------------------------------------------------
@@ -168,5 +184,16 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<(), TempoError
                 },
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fund_method;
+
+    #[test]
+    fn fund_method_uses_manual_only_when_no_browser_is_true() {
+        assert_eq!(fund_method(true), "manual");
+        assert_eq!(fund_method(false), "browser");
     }
 }
