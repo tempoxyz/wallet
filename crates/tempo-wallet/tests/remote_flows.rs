@@ -344,11 +344,7 @@ async fn login_no_browser_prints_remote_safe_handoff_copy_and_completes() {
         .output()
         .unwrap();
 
-    assert!(
-        output.status.success(),
-        "login should succeed: {:?}",
-        output
-    );
+    assert!(output.status.success(), "login should succeed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Auth URL:"), "{stderr}");
     assert!(stderr.contains("Verification code:"), "{stderr}");
@@ -381,11 +377,7 @@ async fn login_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_t
         .output()
         .unwrap();
 
-    assert!(
-        output.status.success(),
-        "login should succeed: {:?}",
-        output
-    );
+    assert!(output.status.success(), "login should succeed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Auth URL:"), "{stderr}");
     assert!(stderr.contains("Verification code:"), "{stderr}");
@@ -413,7 +405,7 @@ async fn fund_no_browser_prints_remote_safe_handoff_copy_and_detects_balance_cha
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "fund should succeed: {:?}", output);
+    assert!(output.status.success(), "fund should succeed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Fund URL:"), "{stderr}");
     assert!(stderr.contains("Open this link on your device"), "{stderr}");
@@ -436,7 +428,7 @@ async fn fund_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_te
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "fund should succeed: {:?}", output);
+    assert!(output.status.success(), "fund should succeed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Fund URL:"), "{stderr}");
     assert!(
