@@ -154,7 +154,7 @@ fn fund_method(no_browser: bool) -> &'static str {
 
 fn show_remote_fund_prompt(fund_url: &str) {
     eprintln!("Open this link on your device: {fund_url}");
-    eprintln!("After funding is complete, return here and message me.");
+    eprintln!("After funding is complete, return here to continue.");
 }
 
 // ---------------------------------------------------------------------------

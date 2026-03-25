@@ -279,15 +279,30 @@ fn show_login_prompt(code: &str) {
 
 /// Display the remote-host handoff prompt for a user who is chatting from another device.
 fn show_remote_login_prompt(auth_url: &str, code: &str) {
-    let display_code = format_verification_code(code);
-    eprintln!("Open this link on your device: {auth_url}");
-    eprintln!("Verification code: {}", display_code.bold());
-    eprintln!("If the wallet page shows that same code, tap Continue.");
-    eprintln!(
-        "After passkey or wallet creation, return here and message me. I may need to send one more authorization link so this host can use the wallet."
-    );
+    let prompt = remote_login_prompt(auth_url, code);
+    eprintln!("{}", prompt.auth_url_line);
+    eprintln!("Verification code: {}", prompt.verification_code.bold());
+    eprintln!("{}", prompt.continue_line);
+    eprintln!("{}", prompt.return_line);
     eprintln!();
     eprintln!("Waiting for authentication...");
+}
+
+struct RemoteLoginPrompt {
+    auth_url_line: String,
+    verification_code: String,
+    continue_line: &'static str,
+    return_line: &'static str,
+}
+
+fn remote_login_prompt(auth_url: &str, code: &str) -> RemoteLoginPrompt {
+    RemoteLoginPrompt {
+        auth_url_line: format!("Open this link on your device: {auth_url}"),
+        verification_code: format_verification_code(code),
+        continue_line: "If the wallet page shows that same code, tap Continue.",
+        return_line:
+            "After passkey or wallet creation, return here. If needed, one more authorization link may still be required before this host is ready.",
+    }
 }
 
 fn format_verification_code(code: &str) -> String {
@@ -565,5 +580,26 @@ mod tests {
         assert!(should_track_callback_window(BrowserLaunchStatus::Opened));
         assert!(!should_track_callback_window(BrowserLaunchStatus::Skipped));
         assert!(!should_track_callback_window(BrowserLaunchStatus::Failed));
+    }
+
+    #[test]
+    fn remote_login_prompt_covers_required_remote_handoff_steps() {
+        let prompt = remote_login_prompt(
+            "https://wallet.tempo.xyz/cli-auth?code=ANMGE375",
+            "ANMGE375",
+        );
+
+        assert_eq!(
+            prompt.auth_url_line,
+            "Open this link on your device: https://wallet.tempo.xyz/cli-auth?code=ANMGE375"
+        );
+        assert_eq!(prompt.verification_code, "ANMG-E375");
+        assert_eq!(
+            prompt.continue_line,
+            "If the wallet page shows that same code, tap Continue."
+        );
+        assert!(prompt.return_line.contains("return here"));
+        assert!(prompt.return_line.contains("one more authorization link"));
+        assert!(prompt.return_line.contains("this host is ready"));
     }
 }
