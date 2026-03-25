@@ -13,7 +13,7 @@ use serde::Serialize;
 use tempo_primitives::transaction::Call;
 
 use tempo_common::{
-    cli::{context::Context, output},
+    cli::{context::Context, output, terminal::hyperlink},
     error::{InputError, NetworkError, TempoError},
     payment::session::submit_tempo_tx,
 };
@@ -109,6 +109,7 @@ struct TransferResponse {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     tx_hash: Option<String>,
+    chain_id: u64,
     amount: String,
     symbol: String,
     token: String,
@@ -163,6 +164,7 @@ pub(crate) async fn run(
         let response = TransferResponse {
             status: "dry_run",
             tx_hash: None,
+            chain_id: ctx.network.chain_id(),
             amount: amount_human,
             symbol: token.symbol,
             token: format!("{:#x}", token.address),
@@ -229,7 +231,8 @@ pub(crate) async fn run(
 
     let response = TransferResponse {
         status: "success",
-        tx_hash: Some(tx_hash),
+        tx_hash: Some(tx_hash.clone()),
+        chain_id: ctx.network.chain_id(),
         amount: amount_human,
         symbol: token.symbol,
         token: format!("{:#x}", token.address),
@@ -242,8 +245,7 @@ pub(crate) async fn run(
     output::emit_by_format(ctx.output_format, &response, || {
         eprintln!();
         eprintln!("  Submitted");
-        eprintln!("    TX: {}", response.tx_hash.as_deref().unwrap_or(""));
-        eprintln!("    {tx_url}");
+        eprintln!("    TX: {}", hyperlink(&tx_hash, &tx_url));
         Ok(())
     })
 }
