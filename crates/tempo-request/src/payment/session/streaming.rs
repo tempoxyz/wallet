@@ -13,6 +13,9 @@ use std::{
 use mpp::server::sse::{parse_event, SseEvent};
 use tokio::sync::mpsc;
 
+#[cfg(test)]
+use tokio::sync::Mutex as AsyncMutex;
+
 use super::{
     error_map::payment_rejected_from_body,
     flow::validate_request_spend_limit,
@@ -469,6 +472,14 @@ fn clear_head_unsupported_cache() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.clear();
+}
+
+#[cfg(test)]
+static HEAD_CACHE_TEST_MUTEX: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
+
+#[cfg(test)]
+async fn lock_head_cache_tests() -> tokio::sync::MutexGuard<'static, ()> {
+    HEAD_CACHE_TEST_MUTEX.lock().await
 }
 
 async fn post_voucher_update(
@@ -1496,6 +1507,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_voucher_update_falls_back_to_post_when_head_not_supported() {
+        let _test_guard = lock_head_cache_tests().await;
         clear_head_unsupported_cache();
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
@@ -1551,6 +1563,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_voucher_update_head_success_does_not_fallback_to_post() {
+        let _test_guard = lock_head_cache_tests().await;
         clear_head_unsupported_cache();
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
@@ -1606,6 +1619,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_voucher_update_caches_head_unsupported_per_origin() {
+        let _test_guard = lock_head_cache_tests().await;
         clear_head_unsupported_cache();
         let head_calls = Arc::new(AtomicUsize::new(0));
         let post_calls = Arc::new(AtomicUsize::new(0));
