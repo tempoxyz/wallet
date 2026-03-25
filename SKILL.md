@@ -16,7 +16,9 @@ Run these commands in order. Do not skip steps. Do not search for other install 
 
 **Step 1 — Install:** `curl -fsSL https://tempo.xyz/install | bash`
 
-**Step 2 — Login:** `"$HOME/.tempo/bin/tempo" wallet login` — requires user browser/passkey action. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation. When run by agents, use a long command timeout (at least 16 minutes).
+**Step 2 — Login:** `"$HOME/.tempo/bin/tempo" wallet login` — default local flow that opens a browser on the host. Prompt user, wait for confirmation, then continue. Do not loop login attempts without user confirmation. When run by agents, use a long command timeout (at least 16 minutes).
+
+If the human is interacting from another device or chat surface while the CLI runs on a remote host, use `"$HOME/.tempo/bin/tempo" wallet login --no-browser` instead. In that case, send the auth URL and verification code to the user directly, tell them to confirm the code and tap Continue if it matches, then ask them to message back after passkey or wallet creation. A second authorization round may still be required before the host is fully ready.
 
 **Step 3 — Confirm readiness:** `"$HOME/.tempo/bin/tempo" wallet -t whoami`
 
@@ -32,6 +34,8 @@ Provide:
 - Installation location and version (`$HOME/.tempo/bin/tempo --version`).
 - Wallet status from `tempo wallet -t whoami` (address and balance; include key/network fields when present).
 - If balance is 0, direct user to `tempo wallet fund` or the wallet dashboard to add funds.
+- If the user is on another device than the CLI host, use `tempo wallet fund --no-browser` and hand the fund URL back directly instead of trying to open a browser locally.
+- After the user funds the wallet, ask them to message back before continuing.
 - 2-3 simple starter prompts tailored to currently available services.
 
 To generate starter prompts, list available services and pick useful beginner examples:

@@ -33,6 +33,8 @@ Tempo Wallet is a CLI that lets you create a wallet, manage keys, and make HTTP 
 3. The browser authorizes a session key for the CLI and redirects back.
 4. The CLI stores the authorized key locally. All subsequent signing happens locally — no browser needed.
 
+If the agent is running on a remote host while you are using a different device, use `tempo wallet login --no-browser` instead. The CLI will print the auth URL and verification code for you to open on your device, and you may need to return to your CLI or agent session after passkey creation or after funding. A second authorization round may still be needed before the host is ready.
+
 ## Goals
 
 1. **Zero-config payments**: `tempo request <url>` handles the full 402 flow — challenge, sign, pay, retry — in a single command.
@@ -60,11 +62,17 @@ npx skills@latest add tempoxyz/wallet --global
 # Log in with your passkey (opens browser)
 tempo wallet login
 
+# Remote-host login when the human is on another device
+tempo wallet login --no-browser
+
 # Check your wallet
 tempo wallet whoami
 
 # Fund your wallet
 tempo wallet fund
+
+# Remote-host funding when the human is on another device
+tempo wallet fund --no-browser
 ```
 
 ### One-Shot Payment (Charge)
