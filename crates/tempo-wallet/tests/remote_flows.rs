@@ -11,7 +11,10 @@ use tempo_test::{mock_rpc_response, TestConfigBuilder, MODERATO_DIRECT_KEYS_TOML
 
 use common::test_command;
 
-#[allow(dead_code)]
+const AUTHORIZED_WALLET_ADDRESS: &str = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+const MODERATO_TOKEN_ADDRESS: &str = "0x20c0000000000000000000000000000000000000";
+const BALANCE_OF_SELECTOR: &str = "70a08231";
+
 struct MockLoginServer {
     base_url: String,
     poll_count: Arc<Mutex<u32>>,
@@ -54,7 +57,7 @@ impl MockLoginServer {
                                 *count += 1;
                                 json!({
                                     "status": "authorized",
-                                    "account_address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                                    "account_address": AUTHORIZED_WALLET_ADDRESS,
                                     "key_authorization": null
                                 })
                             };
@@ -95,7 +98,6 @@ impl Drop for MockLoginServer {
     }
 }
 
-#[allow(dead_code)]
 struct BalanceSequenceRpcServer {
     base_url: String,
     balances: Arc<Mutex<VecDeque<String>>>,
@@ -181,7 +183,7 @@ fn handle_rpc_request(
     balances: &Arc<Mutex<VecDeque<String>>>,
     last_value: &Arc<Mutex<String>>,
 ) -> serde_json::Value {
-    if req["method"].as_str() == Some("eth_call") {
+    if is_fund_balance_request(req) {
         let raw = next_balance(balances, last_value);
         let encoded = encode_raw_balance(&raw);
         return json!({
@@ -192,6 +194,32 @@ fn handle_rpc_request(
     }
 
     mock_rpc_response(req, 42431)
+}
+
+fn is_fund_balance_request(req: &serde_json::Value) -> bool {
+    if req["method"].as_str() != Some("eth_call") {
+        return false;
+    }
+
+    let Some(params) = req["params"].as_array() else {
+        return false;
+    };
+    let Some(call) = params.first().and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+    let Some(to) = call.get("to").and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    let Some(data) = call
+        .get("data")
+        .or_else(|| call.get("input"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+
+    normalized_hex(to) == normalized_hex(MODERATO_TOKEN_ADDRESS)
+        && data.eq_ignore_ascii_case(&balance_of_call_data(AUTHORIZED_WALLET_ADDRESS))
 }
 
 fn next_balance(
@@ -218,6 +246,14 @@ fn encode_raw_balance(raw: &str) -> String {
     format!("0x{}", hex::encode(bytes))
 }
 
+fn normalized_hex(value: &str) -> String {
+    value.trim_start_matches("0x").to_ascii_lowercase()
+}
+
+fn balance_of_call_data(account: &str) -> String {
+    format!("0x{BALANCE_OF_SELECTOR}{:0>64}", normalized_hex(account))
+}
+
 fn moderato_config_toml(rpc_url: &str) -> String {
     format!("[rpc]\n\"tempo-moderato\" = \"{rpc_url}\"\n")
 }
@@ -233,6 +269,67 @@ fn build_fund_temp(rpc_url: &str) -> tempfile::TempDir {
         .with_config_toml(moderato_config_toml(rpc_url))
         .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
         .build()
+}
+
+#[test]
+fn unrelated_eth_call_uses_default_rpc_response_and_does_not_advance_balance_sequence() {
+    let balances = Arc::new(Mutex::new(VecDeque::from([
+        String::from("0"),
+        String::from("1000000"),
+    ])));
+    let last_value = Arc::new(Mutex::new(String::from("0")));
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "eth_call",
+        "params": [
+            {
+                "to": "0xe1c4d3dce17bc111181ddf716f75bae49e61a336",
+                "data": "0x12345678"
+            },
+            "latest"
+        ]
+    });
+
+    let response = handle_rpc_request(&request, &balances, &last_value);
+
+    assert_eq!(response, mock_rpc_response(&request, 42431));
+    assert_eq!(
+        balances.lock().unwrap().iter().cloned().collect::<Vec<_>>(),
+        vec![String::from("0"), String::from("1000000")]
+    );
+    assert_eq!(last_value.lock().unwrap().as_str(), "0");
+}
+
+#[test]
+fn matching_balance_request_advances_sequence_and_repeats_last_value() {
+    let balances = Arc::new(Mutex::new(VecDeque::from([
+        String::from("0"),
+        String::from("1000000"),
+    ])));
+    let last_value = Arc::new(Mutex::new(String::from("0")));
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "eth_call",
+        "params": [
+            {
+                "to": MODERATO_TOKEN_ADDRESS,
+                "input": balance_of_call_data(AUTHORIZED_WALLET_ADDRESS)
+            },
+            "latest"
+        ]
+    });
+
+    let first = handle_rpc_request(&request, &balances, &last_value);
+    let second = handle_rpc_request(&request, &balances, &last_value);
+    let third = handle_rpc_request(&request, &balances, &last_value);
+
+    assert_eq!(first["result"], encode_raw_balance("0"));
+    assert_eq!(second["result"], encode_raw_balance("1000000"));
+    assert_eq!(third["result"], encode_raw_balance("1000000"));
+    assert!(balances.lock().unwrap().is_empty());
+    assert_eq!(last_value.lock().unwrap().as_str(), "1000000");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -269,6 +366,7 @@ async fn login_no_browser_prints_remote_safe_handoff_copy_and_completes() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Wallet"), "{stdout}");
+    assert_eq!(*login.poll_count.lock().unwrap(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -298,6 +396,7 @@ async fn login_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_t
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Wallet"), "{stdout}");
+    assert_eq!(*login.poll_count.lock().unwrap(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -319,6 +418,8 @@ async fn fund_no_browser_prints_remote_safe_handoff_copy_and_detects_balance_cha
     assert!(stderr.contains("Fund URL:"), "{stderr}");
     assert!(stderr.contains("Open this link on your device"), "{stderr}");
     assert!(stderr.contains("After funding is complete"), "{stderr}");
+    assert!(rpc.balances.lock().unwrap().is_empty());
+    assert_eq!(rpc.last_value.lock().unwrap().as_str(), "1000000");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -342,4 +443,6 @@ async fn fund_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_te
         !stderr.contains("Open this link on your device"),
         "unexpected remote-safe handoff text: {stderr}"
     );
+    assert!(rpc.balances.lock().unwrap().is_empty());
+    assert_eq!(rpc.last_value.lock().unwrap().as_str(), "1000000");
 }
