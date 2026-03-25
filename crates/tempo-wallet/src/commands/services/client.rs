@@ -30,11 +30,11 @@ pub(super) async fn fetch_services(
 
     let status = resp.status();
     if !status.is_success() {
-        let body = resp.text().await.map_err(NetworkError::Reqwest)?;
+        let body = resp.text().await.ok();
         return Err(NetworkError::HttpStatus {
             operation: "fetch service directory",
             status: status.as_u16(),
-            body: Some(body),
+            body,
         }
         .into());
     }
