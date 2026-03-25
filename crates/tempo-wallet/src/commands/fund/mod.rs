@@ -64,6 +64,9 @@ async fn run_inner(
     super::auth::try_open_browser(&fund_url, no_browser);
 
     if ctx.output_format == OutputFormat::Text {
+        if no_browser {
+            show_remote_fund_prompt(&fund_url);
+        }
         eprintln!("Waiting for funding...");
     }
 
@@ -147,6 +150,11 @@ fn fund_method(no_browser: bool) -> &'static str {
     } else {
         "browser"
     }
+}
+
+fn show_remote_fund_prompt(fund_url: &str) {
+    eprintln!("Open this link on your device: {fund_url}");
+    eprintln!("After funding is complete, return here and message me.");
 }
 
 // ---------------------------------------------------------------------------
