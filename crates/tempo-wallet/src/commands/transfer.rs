@@ -245,7 +245,11 @@ pub(crate) async fn run(
     output::emit_by_format(ctx.output_format, &response, || {
         eprintln!();
         eprintln!("  Submitted");
-        eprintln!("    TX: {}", hyperlink(&tx_hash, &tx_url));
+        let tx_link = hyperlink(&tx_hash, &tx_url);
+        eprintln!("    TX: {tx_link}");
+        if tx_link == tx_hash {
+            eprintln!("    {tx_url}");
+        }
         Ok(())
     })
 }
