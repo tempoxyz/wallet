@@ -4,4 +4,4 @@ tempo-request: patch
 tempo-wallet: patch
 ---
 
-Update the workspace to the latest `mpp-rs` `main` revision, align Tempo dependency patches with the new graph, and adapt session transaction gas estimation to the request-based API used by the updated MPP client.
+Bump to the latest `mpp-rs` `main`, which updates the Tempo client dependency graph and switches Tempo gas estimation to a request-based API. This keeps wallet and request flows building against the newer MPP client while preserving existing HTTP/2 and session transaction behavior.
