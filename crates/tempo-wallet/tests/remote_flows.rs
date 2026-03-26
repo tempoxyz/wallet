@@ -196,6 +196,28 @@ fn handle_rpc_request(
     mock_rpc_response(req, 42431)
 }
 
+fn assert_remote_login_handoff(stderr: &str) {
+    assert!(stderr.contains("Auth URL:"), "{stderr}");
+    assert!(stderr.contains("Verification code:"), "{stderr}");
+    assert!(stderr.contains("Open this link on your device"), "{stderr}");
+    assert!(
+        stderr.contains("If the wallet page shows that same code"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("tap Continue"), "{stderr}");
+    assert!(
+        stderr.contains("After passkey or wallet creation, return here"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("one more authorization link"), "{stderr}");
+}
+
+fn assert_remote_fund_handoff(stderr: &str) {
+    assert!(stderr.contains("Fund URL:"), "{stderr}");
+    assert!(stderr.contains("Open this link on your device"), "{stderr}");
+    assert!(stderr.contains("After funding is complete"), "{stderr}");
+}
+
 fn is_fund_balance_request(req: &serde_json::Value) -> bool {
     if req["method"].as_str() != Some("eth_call") {
         return false;
@@ -346,22 +368,53 @@ async fn login_no_browser_prints_remote_safe_handoff_copy_and_completes() {
 
     assert!(output.status.success(), "login should succeed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Auth URL:"), "{stderr}");
-    assert!(stderr.contains("Verification code:"), "{stderr}");
-    assert!(stderr.contains("Open this link on your device"), "{stderr}");
-    assert!(
-        stderr.contains("If the wallet page shows that same code"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("tap Continue"), "{stderr}");
-    assert!(
-        stderr.contains("After passkey or wallet creation, return here"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("one more authorization link"), "{stderr}");
+    assert_remote_login_handoff(&stderr);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Wallet"), "{stdout}");
+    assert_eq!(*login.poll_count.lock().unwrap(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn login_no_browser_json_keeps_structured_stdout_and_prints_remote_handoff() {
+    let login = MockLoginServer::start_authorized("ANMGE375").await;
+    let rpc = BalanceSequenceRpcServer::start(vec!["0"]).await;
+    let temp = build_login_temp(&rpc.base_url);
+
+    let output = test_command(&temp)
+        .env("TEMPO_AUTH_URL", login.auth_url())
+        .args(["-j", "-n", "tempo-moderato", "login", "--no-browser"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "login should succeed: {output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_remote_login_handoff(&stderr);
+
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["ready"], true, "{stdout}");
+    assert_eq!(*login.poll_count.lock().unwrap(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn login_no_browser_toon_keeps_structured_stdout_and_prints_remote_handoff() {
+    let login = MockLoginServer::start_authorized("ANMGE375").await;
+    let rpc = BalanceSequenceRpcServer::start(vec!["0"]).await;
+    let temp = build_login_temp(&rpc.base_url);
+
+    let output = test_command(&temp)
+        .env("TEMPO_AUTH_URL", login.auth_url())
+        .args(["-t", "-n", "tempo-moderato", "login", "--no-browser"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "login should succeed: {output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_remote_login_handoff(&stderr);
+
+    let stdout: serde_json::Value =
+        toon_format::decode_default(String::from_utf8_lossy(&output.stdout).trim()).unwrap();
+    assert_eq!(stdout["ready"], true, "{stdout}");
     assert_eq!(*login.poll_count.lock().unwrap(), 2);
 }
 
@@ -407,9 +460,49 @@ async fn fund_no_browser_prints_remote_safe_handoff_copy_and_detects_balance_cha
 
     assert!(output.status.success(), "fund should succeed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Fund URL:"), "{stderr}");
-    assert!(stderr.contains("Open this link on your device"), "{stderr}");
-    assert!(stderr.contains("After funding is complete"), "{stderr}");
+    assert_remote_fund_handoff(&stderr);
+    assert!(rpc.balances.lock().unwrap().is_empty());
+    assert_eq!(rpc.last_value.lock().unwrap().as_str(), "1000000");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fund_no_browser_json_prints_remote_handoff() {
+    let rpc = BalanceSequenceRpcServer::start(vec!["0", "1000000"]).await;
+    let temp = build_fund_temp(&rpc.base_url);
+
+    let output = test_command(&temp)
+        .env(
+            "TEMPO_AUTH_URL",
+            "https://wallet.moderato.tempo.xyz/cli-auth",
+        )
+        .args(["-j", "-n", "tempo-moderato", "fund", "--no-browser"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "fund should succeed: {output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_remote_fund_handoff(&stderr);
+    assert!(rpc.balances.lock().unwrap().is_empty());
+    assert_eq!(rpc.last_value.lock().unwrap().as_str(), "1000000");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fund_no_browser_toon_prints_remote_handoff() {
+    let rpc = BalanceSequenceRpcServer::start(vec!["0", "1000000"]).await;
+    let temp = build_fund_temp(&rpc.base_url);
+
+    let output = test_command(&temp)
+        .env(
+            "TEMPO_AUTH_URL",
+            "https://wallet.moderato.tempo.xyz/cli-auth",
+        )
+        .args(["-t", "-n", "tempo-moderato", "fund", "--no-browser"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "fund should succeed: {output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_remote_fund_handoff(&stderr);
     assert!(rpc.balances.lock().unwrap().is_empty());
     assert_eq!(rpc.last_value.lock().unwrap().as_str(), "1000000");
 }

@@ -232,12 +232,10 @@ async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
     // the browser flow to start.
     let browser_launch_status = super::auth::try_open_browser(&url_str, no_browser);
 
-    if ctx.output_format == OutputFormat::Text {
-        if no_browser {
-            show_remote_login_prompt(&url_str, &code);
-        } else {
-            show_login_prompt(&code);
-        }
+    if no_browser {
+        show_remote_login_prompt(&url_str, &code);
+    } else if ctx.output_format == OutputFormat::Text {
+        show_login_prompt(&code);
     }
 
     if should_track_callback_window(browser_launch_status) {

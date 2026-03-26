@@ -56,17 +56,19 @@ async fn run_inner(
     })?;
     let base_url = parsed_url.origin().ascii_serialization();
     let fund_url = format!("{base_url}/?action=fund");
+    let show_status = no_browser || ctx.output_format == OutputFormat::Text;
 
-    if ctx.output_format == OutputFormat::Text {
+    if show_status {
         eprintln!("Fund URL: {fund_url}");
     }
 
     super::auth::try_open_browser(&fund_url, no_browser);
 
-    if ctx.output_format == OutputFormat::Text {
-        if no_browser {
-            show_remote_fund_prompt(&fund_url);
-        }
+    if no_browser {
+        show_remote_fund_prompt(&fund_url);
+    }
+
+    if show_status {
         eprintln!("Waiting for funding...");
     }
 
@@ -76,7 +78,7 @@ async fn run_inner(
 
     loop {
         if start.elapsed() >= timeout {
-            if ctx.output_format == OutputFormat::Text {
+            if show_status {
                 eprintln!(
                     "Timed out waiting for funding after {} minutes.",
                     CALLBACK_TIMEOUT_SECS / 60
@@ -90,7 +92,7 @@ async fn run_inner(
         let current = query_all_balances(&ctx.config, ctx.network, &wallet_address).await;
 
         if has_balance_changed(&before, &current) {
-            if ctx.output_format == OutputFormat::Text {
+            if show_status {
                 eprintln!("\nFunding received!");
                 render_balance_diff(&before, &current);
             }
