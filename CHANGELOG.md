@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 (2026-03-26)
+
+### Patch Changes
+
+- Bump to the latest `mpp-rs` `main`, including upstream security fixes for payment bypass, replay, fee-payer manipulation, and session/channel griefing vulnerabilities across Tempo and Stripe flows. The update also refreshes the Tempo client dependency graph and switches Tempo gas estimation to a request-based API while preserving existing wallet/request behavior.
+- Stabilize voucher HEAD fallback tests by serializing cases that share a process-global unsupported-origin cache.
+- Preserve non-2xx response bodies when fetching the service directory so CLI errors include upstream details instead of only the HTTP status.
+- Add `chain_id` to `tempo wallet transfer` output and render submitted transaction hashes as explorer hyperlinks, with a plain URL fallback when terminal hyperlinks are unsupported.
+
 ## 0.2.0 (2026-03-24)
 
 ### Minor Changes
