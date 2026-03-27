@@ -11,8 +11,10 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
-use crate::analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
-use crate::commands::auth::BrowserLaunchStatus;
+use crate::{
+    analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload},
+    commands::auth::BrowserLaunchStatus,
+};
 use tempo_common::{
     cli::{context::Context, output::OutputFormat},
     error::{ConfigError, InputError, KeyError, NetworkError, TempoError},
