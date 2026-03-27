@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 (2026-03-27)
+
+### Patch Changes
+
+- Add a remote-host-friendly `--no-browser` path for `tempo wallet login` and `tempo wallet fund`, including CLI guidance that agents can relay to a user approving wallet actions from another device.
+
 ## 0.2.1 (2026-03-26)
 
 ### Patch Changes
