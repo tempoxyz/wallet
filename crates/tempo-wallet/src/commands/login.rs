@@ -11,7 +11,10 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::whoami::show_whoami;
-use crate::analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload};
+use crate::{
+    analytics::{self, CallbackReceivedPayload, LoginFailurePayload, WalletCreatedPayload},
+    commands::auth::BrowserLaunchStatus,
+};
 use tempo_common::{
     cli::{context::Context, output::OutputFormat},
     error::{ConfigError, InputError, KeyError, NetworkError, TempoError},
@@ -23,15 +26,15 @@ use tempo_common::{
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
 
-pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
-    run_impl(ctx, false).await
+pub(crate) async fn run(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
+    run_impl(ctx, false, no_browser).await
 }
 
 pub(crate) async fn run_with_reauth(ctx: &Context) -> Result<(), TempoError> {
-    run_impl(ctx, true).await
+    run_impl(ctx, true, false).await
 }
 
-async fn run_impl(ctx: &Context, force_reauth: bool) -> Result<(), TempoError> {
+async fn run_impl(ctx: &Context, force_reauth: bool, no_browser: bool) -> Result<(), TempoError> {
     ctx.track_event(analytics::LOGIN_STARTED);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
@@ -54,7 +57,7 @@ async fn run_impl(ctx: &Context, force_reauth: bool) -> Result<(), TempoError> {
     }
 
     if !already_logged_in || needs_reauth {
-        let result = do_login(ctx).await;
+        let result = do_login(ctx, no_browser).await;
 
         if let Some(ref a) = ctx.analytics {
             track_login_result(a, &result);
@@ -195,7 +198,7 @@ fn track_login_result(a: &tempo_common::analytics::Analytics, result: &Result<()
     }
 }
 
-async fn do_login(ctx: &Context) -> Result<(), TempoError> {
+async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
     let auth_server_url =
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
 
@@ -229,13 +232,17 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
     // Always attempt browser open, even in machine output modes.
     // Some agents run login with non-text output (`-t`/JSON) and still need
     // the browser flow to start.
-    super::auth::try_open_browser(&url_str);
+    let browser_launch_status = super::auth::try_open_browser(&url_str, no_browser);
 
-    if ctx.output_format == OutputFormat::Text {
+    if no_browser {
+        show_remote_login_prompt(&url_str, &code);
+    } else if ctx.output_format == OutputFormat::Text {
         show_login_prompt(&code);
     }
 
-    ctx.track_event(analytics::CALLBACK_WINDOW_OPENED);
+    if should_track_callback_window(browser_launch_status) {
+        ctx.track_event(analytics::CALLBACK_WINDOW_OPENED);
+    }
 
     let callback = poll_until_authorized(&client, &auth_base_url, &code, &code_verifier).await?;
 
@@ -264,14 +271,50 @@ async fn do_login(ctx: &Context) -> Result<(), TempoError> {
 
 /// Display the verification code and wait prompt for authentication.
 fn show_login_prompt(code: &str) {
-    let display_code = if code.len() == 8 {
-        format!("{}-{}", &code[..4], &code[4..])
-    } else {
-        code.to_string()
-    };
+    let display_code = format_verification_code(code);
     eprintln!("Verification code: {}", display_code.bold());
     eprintln!();
     eprintln!("Waiting for authentication...");
+}
+
+/// Display the remote-host handoff prompt for a user who is chatting from another device.
+fn show_remote_login_prompt(auth_url: &str, code: &str) {
+    let prompt = remote_login_prompt(auth_url, code);
+    eprintln!("{}", prompt.auth_url_line);
+    eprintln!("Verification code: {}", prompt.verification_code.bold());
+    eprintln!("{}", prompt.continue_line);
+    eprintln!("{}", prompt.return_line);
+    eprintln!();
+    eprintln!("Waiting for authentication...");
+}
+
+struct RemoteLoginPrompt {
+    auth_url_line: String,
+    verification_code: String,
+    continue_line: &'static str,
+    return_line: &'static str,
+}
+
+fn remote_login_prompt(auth_url: &str, code: &str) -> RemoteLoginPrompt {
+    RemoteLoginPrompt {
+        auth_url_line: format!("Open this link on your device: {auth_url}"),
+        verification_code: format_verification_code(code),
+        continue_line: "If the wallet page shows that same code, tap Continue.",
+        return_line:
+            "After passkey or wallet creation, return here. If needed, one more authorization link may still be required before this host is ready.",
+    }
+}
+
+fn format_verification_code(code: &str) -> String {
+    if code.len() == 8 {
+        format!("{}-{}", &code[..4], &code[4..])
+    } else {
+        code.to_string()
+    }
+}
+
+fn should_track_callback_window(status: BrowserLaunchStatus) -> bool {
+    matches!(status, BrowserLaunchStatus::Opened)
 }
 
 struct AuthCallback {
@@ -492,6 +535,7 @@ fn generate_pkce_pair() -> Result<(String, String), TempoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::auth::BrowserLaunchStatus;
 
     #[test]
     fn test_pkce_pair_lengths() {
@@ -529,5 +573,33 @@ mod tests {
         let (v1, _) = generate_pkce_pair().expect("pkce generation should succeed");
         let (v2, _) = generate_pkce_pair().expect("pkce generation should succeed");
         assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn callback_window_is_only_tracked_when_browser_launch_opens() {
+        assert!(should_track_callback_window(BrowserLaunchStatus::Opened));
+        assert!(!should_track_callback_window(BrowserLaunchStatus::Skipped));
+        assert!(!should_track_callback_window(BrowserLaunchStatus::Failed));
+    }
+
+    #[test]
+    fn remote_login_prompt_covers_required_remote_handoff_steps() {
+        let prompt = remote_login_prompt(
+            "https://wallet.tempo.xyz/cli-auth?code=ANMGE375",
+            "ANMGE375",
+        );
+
+        assert_eq!(
+            prompt.auth_url_line,
+            "Open this link on your device: https://wallet.tempo.xyz/cli-auth?code=ANMGE375"
+        );
+        assert_eq!(prompt.verification_code, "ANMG-E375");
+        assert_eq!(
+            prompt.continue_line,
+            "If the wallet page shows that same code, tap Continue."
+        );
+        assert!(prompt.return_line.contains("return here"));
+        assert!(prompt.return_line.contains("one more authorization link"));
+        assert!(prompt.return_line.contains("this host is ready"));
     }
 }

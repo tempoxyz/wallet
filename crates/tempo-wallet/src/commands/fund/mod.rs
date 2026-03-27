@@ -26,15 +26,23 @@ const CALLBACK_TIMEOUT_SECS: u64 = 900;
 // Entry point
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn run(ctx: &Context, address: Option<String>) -> Result<(), TempoError> {
-    let method = "browser";
+pub(crate) async fn run(
+    ctx: &Context,
+    address: Option<String>,
+    no_browser: bool,
+) -> Result<(), TempoError> {
+    let method = fund_method(no_browser);
     track_fund_start(ctx, method);
-    let result = run_inner(ctx, address).await;
+    let result = run_inner(ctx, address, no_browser).await;
     track_fund_result(ctx, method, &result);
     result
 }
 
-async fn run_inner(ctx: &Context, address: Option<String>) -> Result<(), TempoError> {
+async fn run_inner(
+    ctx: &Context,
+    address: Option<String>,
+    no_browser: bool,
+) -> Result<(), TempoError> {
     let wallet_address = resolve_address(address, &ctx.keys)?;
 
     let before = query_all_balances(&ctx.config, ctx.network, &wallet_address).await;
@@ -48,14 +56,19 @@ async fn run_inner(ctx: &Context, address: Option<String>) -> Result<(), TempoEr
     })?;
     let base_url = parsed_url.origin().ascii_serialization();
     let fund_url = format!("{base_url}/?action=fund");
+    let show_status = no_browser || ctx.output_format == OutputFormat::Text;
 
-    if ctx.output_format == OutputFormat::Text {
+    if show_status {
         eprintln!("Fund URL: {fund_url}");
     }
 
-    super::auth::try_open_browser(&fund_url);
+    super::auth::try_open_browser(&fund_url, no_browser);
 
-    if ctx.output_format == OutputFormat::Text {
+    if no_browser {
+        show_remote_fund_prompt(&fund_url);
+    }
+
+    if show_status {
         eprintln!("Waiting for funding...");
     }
 
@@ -65,7 +78,7 @@ async fn run_inner(ctx: &Context, address: Option<String>) -> Result<(), TempoEr
 
     loop {
         if start.elapsed() >= timeout {
-            if ctx.output_format == OutputFormat::Text {
+            if show_status {
                 eprintln!(
                     "Timed out waiting for funding after {} minutes.",
                     CALLBACK_TIMEOUT_SECS / 60
@@ -79,7 +92,7 @@ async fn run_inner(ctx: &Context, address: Option<String>) -> Result<(), TempoEr
         let current = query_all_balances(&ctx.config, ctx.network, &wallet_address).await;
 
         if has_balance_changed(&before, &current) {
-            if ctx.output_format == OutputFormat::Text {
+            if show_status {
                 eprintln!("\nFunding received!");
                 render_balance_diff(&before, &current);
             }
@@ -133,6 +146,19 @@ fn render_balance_diff(before: &[TokenBalance], after: &[TokenBalance]) {
     }
 }
 
+fn fund_method(no_browser: bool) -> &'static str {
+    if no_browser {
+        "manual"
+    } else {
+        "browser"
+    }
+}
+
+fn show_remote_fund_prompt(fund_url: &str) {
+    eprintln!("Open this link on your device: {fund_url}");
+    eprintln!("After funding is complete, return here to continue.");
+}
+
 // ---------------------------------------------------------------------------
 // Analytics
 // ---------------------------------------------------------------------------
@@ -168,5 +194,16 @@ fn track_fund_result(ctx: &Context, method: &str, result: &Result<(), TempoError
                 },
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fund_method;
+
+    #[test]
+    fn fund_method_uses_manual_only_when_no_browser_is_true() {
+        assert_eq!(fund_method(true), "manual");
+        assert_eq!(fund_method(false), "browser");
     }
 }
