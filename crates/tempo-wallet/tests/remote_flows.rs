@@ -756,6 +756,44 @@ async fn fund_no_browser_credits_waits_for_credit_balance_change() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn credits_shows_current_credit_balance() {
+    let rpc = BalanceSequenceRpcServer::start_with_credit_balances(vec!["0"], vec!["12345"]).await;
+    let temp = build_fund_temp(&rpc.base_url);
+
+    let output = test_command(&temp)
+        .env("TEMPO_AUTH_URL", rpc.auth_url())
+        .env("TEMPO_CREDITS_RPC_URL", &rpc.base_url)
+        .args(["-n", "tempo-moderato", "credits"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "credits should succeed: {output:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.trim().is_empty(), "{stderr}");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Wallet"), "{stdout}");
+    assert!(stdout.contains(AUTHORIZED_WALLET_ADDRESS), "{stdout}");
+    assert!(stdout.contains("Credits"), "{stdout}");
+    assert!(stdout.contains("1.2345"), "{stdout}");
+    let remaining_credit_balances = rpc
+        .credit_balances
+        .lock()
+        .unwrap()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        remaining_credit_balances.is_empty(),
+        "{remaining_credit_balances:#?}"
+    );
+    assert_eq!(rpc.last_credit_value.lock().unwrap().as_str(), "12345");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fund_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_text() {
     let rpc = BalanceSequenceRpcServer::start(vec!["0", "1000000"]).await;
     let temp = build_fund_temp(&rpc.base_url);

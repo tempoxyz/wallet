@@ -96,15 +96,22 @@ Examples:
         )]
         referral_code: Option<String>,
     },
+    /// Show the current credits balance
+    #[command(display_order = 8, name = "credits")]
+    Credits {
+        /// Wallet address to inspect (defaults to current wallet)
+        #[arg(long)]
+        address: Option<String>,
+    },
     /// Manage payment sessions
-    #[command(display_order = 8, name = "sessions")]
+    #[command(display_order = 9, name = "sessions")]
     #[command(args_conflicts_with_subcommands = true)]
     Sessions {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
     /// Browse the MPP service directory
-    #[command(display_order = 9, name = "services")]
+    #[command(display_order = 10, name = "services")]
     Services {
         #[command(subcommand)]
         command: Option<ServicesCommands>,
@@ -119,7 +126,7 @@ Examples:
     },
 
     /// Collect debug info for support
-    #[command(display_order = 10)]
+    #[command(display_order = 11)]
     Debug,
 
     /// Generate shell completions script

@@ -258,7 +258,10 @@ async fn wait_for_completion(
 // ---------------------------------------------------------------------------
 
 /// Resolve the target wallet address from an explicit arg or the keystore default.
-fn resolve_address(address: Option<String>, keys: &Keystore) -> Result<String, TempoError> {
+pub(crate) fn resolve_address(
+    address: Option<String>,
+    keys: &Keystore,
+) -> Result<String, TempoError> {
     if let Some(addr) = address {
         let parsed = tempo_common::security::parse_address_input(&addr, "wallet address")?;
         return Ok(format!("{parsed:#x}"));
@@ -323,7 +326,7 @@ fn credits_rpc_url() -> Result<Url, TempoError> {
         .map_err(TempoError::from)
 }
 
-async fn fetch_credit_seed(auth_server_url: &str) -> Result<String, TempoError> {
+pub(crate) async fn fetch_credit_seed(auth_server_url: &str) -> Result<String, TempoError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent(format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")))
@@ -365,7 +368,7 @@ async fn fetch_credit_seed(auth_server_url: &str) -> Result<String, TempoError> 
     Ok(config.credit_seed)
 }
 
-async fn query_credit_balance(
+pub(crate) async fn query_credit_balance(
     wallet_address: Address,
     credit_seed: &str,
 ) -> Result<U256, TempoError> {
@@ -423,7 +426,7 @@ fn render_credit_balance_diff(before_raw: U256, after_raw: U256) {
     );
 }
 
-fn format_credit_balance(raw: U256) -> String {
+pub(crate) fn format_credit_balance(raw: U256) -> String {
     let divisor = U256::from(RAW_TO_CREDITS);
     let whole = raw / divisor;
     let fractional = u64::try_from(raw % divisor).expect("fractional credits fit in u64");
