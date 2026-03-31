@@ -111,10 +111,16 @@ mod tests {
 
     #[test]
     fn test_format_token_amount() {
-        assert_eq!(format_token_amount(1_000_000, NetworkId::Tempo), "1 USDC");
-        assert_eq!(format_token_amount(1_500_000, NetworkId::Tempo), "1.5 USDC");
-        assert_eq!(format_token_amount(123, NetworkId::Tempo), "0.000123 USDC");
-        assert_eq!(format_token_amount(0, NetworkId::Tempo), "0 USDC");
+        assert_eq!(format_token_amount(1_000_000, NetworkId::Tempo), "1 USDC.e");
+        assert_eq!(
+            format_token_amount(1_500_000, NetworkId::Tempo),
+            "1.5 USDC.e"
+        );
+        assert_eq!(
+            format_token_amount(123, NetworkId::Tempo),
+            "0.000123 USDC.e"
+        );
+        assert_eq!(format_token_amount(0, NetworkId::Tempo), "0 USDC.e");
     }
 
     #[test]

@@ -252,7 +252,7 @@ mod tests {
             channel_id: "0xabc123".to_string(),
             network: "tempo".to_string(),
             origin: Some("https://api.example.com".to_string()),
-            symbol: "USDC",
+            symbol: "USDC.e",
             unlimited: false,
             deposit: "10.000000".to_string(),
             spent: "3.500000".to_string(),

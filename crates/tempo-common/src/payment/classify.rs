@@ -345,7 +345,7 @@ mod tests {
                 available,
                 required,
             }) => {
-                assert_eq!(token, "USDC");
+                assert_eq!(token, "USDC.e");
                 assert_eq!(available, "0.000000");
                 assert_eq!(required, "0.001000");
             }
@@ -430,7 +430,7 @@ mod tests {
 
     fn make_test_challenge() -> mpp::PaymentChallenge {
         let request = mpp::Base64UrlJson::from_value(
-            &serde_json::json!({"amount": "1000", "currency": "USDC"}),
+            &serde_json::json!({"amount": "1000", "currency": "USDC.e"}),
         )
         .unwrap();
         mpp::PaymentChallenge::new("test-id", "test-realm", "tempo", "charge", request)

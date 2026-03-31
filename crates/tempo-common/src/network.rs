@@ -21,16 +21,16 @@ const TEMPO_MODERATO_CHAIN_ID: u64 = 42431;
 
 /// pathUSD token address (testnet).
 const PATH_USD_TOKEN: Address = address!("20c0000000000000000000000000000000000000");
-/// USDC token address (mainnet).
+/// USDC.e token address (mainnet).
 pub const USDCE_TOKEN: Address = address!("20c000000000000000000000b9537d11c60e8b50");
 /// Escrow contract address (mainnet).
 const TEMPO_ESCROW: Address = address!("33b901018174ddabe4841042ab76ba85d4e24f25");
 /// Escrow contract address (moderato testnet).
 pub const TEMPO_MODERATO_ESCROW: Address = address!("e1c4d3dce17bc111181ddf716f75bae49e61a336");
 
-/// Token configuration for Tempo mainnet (USDC).
+/// Token configuration for Tempo mainnet (USDC.e).
 const TEMPO_TOKEN: TokenConfig = TokenConfig {
-    symbol: "USDC",
+    symbol: "USDC.e",
     decimals: 6,
     address: USDCE_TOKEN,
 };
@@ -47,7 +47,7 @@ const TEMPO_MODERATO_TOKEN: TokenConfig = TokenConfig {
 /// Token configuration for a network.
 #[derive(Debug, Clone, Copy)]
 pub struct TokenConfig {
-    /// Token symbol (e.g., "USDC", "pathUSD")
+    /// Token symbol (e.g., "USDC.e", "pathUSD")
     pub symbol: &'static str,
     /// Number of decimal places
     pub decimals: u8,
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn test_token_mainnet() {
         let token = NetworkId::Tempo.token();
-        assert_eq!(token.symbol, "USDC");
+        assert_eq!(token.symbol, "USDC.e");
         assert_eq!(token.address, USDCE_TOKEN);
     }
 
