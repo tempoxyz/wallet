@@ -530,7 +530,7 @@ fn sign_sha256_matches_file_content() {
     let manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).unwrap()).unwrap();
 
-    let expected_hash = format!("{:x}", Sha256::digest(content));
+    let expected_hash = hex::encode(Sha256::digest(content));
     let actual_hash = manifest["binaries"]["hashtest"]["sha256"].as_str().unwrap();
     assert_eq!(actual_hash, expected_hash, "SHA256 mismatch");
 }
