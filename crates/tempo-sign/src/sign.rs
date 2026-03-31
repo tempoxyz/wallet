@@ -3,6 +3,7 @@ use std::{
     path::Path,
 };
 
+use hex::encode;
 use minisign::PublicKey;
 use sha2::{Digest, Sha256};
 
@@ -31,7 +32,7 @@ pub fn sha256_file(path: &Path) -> Result<String, SignError> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(encode(hasher.finalize()))
 }
 
 /// Produce a minisign signature for a file.
