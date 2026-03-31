@@ -35,6 +35,14 @@ struct StoredCloseState {
     grace_ready_at: u64,
 }
 
+pub(super) fn sql_i64(value: u64) -> i64 {
+    i64::try_from(value).unwrap()
+}
+
+fn sql_u64(value: i64) -> u64 {
+    u64::try_from(value).unwrap()
+}
+
 #[derive(Debug, Clone, Default)]
 struct CooperativeObservations {
     prefetch_count: usize,
@@ -517,7 +525,7 @@ fn insert_session_for_close(
             "1000000",
             cumulative_amount.to_string(),
             challenge_echo,
-            now,
+            sql_i64(now),
         ],
     )
     .unwrap();
@@ -536,10 +544,12 @@ fn read_close_state_for(temp: &tempfile::TempDir, channel_id: &str) -> Option<St
          WHERE channel_id = ?1",
         [channel_id],
         |row| {
+            let close_requested_at = row.get::<_, i64>(1)?;
+            let grace_ready_at = row.get::<_, i64>(2)?;
             Ok(StoredCloseState {
                 state: row.get(0)?,
-                close_requested_at: row.get::<_, u64>(1)?,
-                grace_ready_at: row.get::<_, u64>(2)?,
+                close_requested_at: sql_u64(close_requested_at),
+                grace_ready_at: sql_u64(grace_ready_at),
             })
         },
     )
@@ -550,7 +560,7 @@ fn session_row_count(temp: &tempfile::TempDir) -> u64 {
     let db_path = temp.path().join(".tempo/wallet/channels.db");
     let conn = rusqlite::Connection::open(db_path).unwrap();
     conn.query_row("SELECT COUNT(*) FROM channels", [], |row| {
-        row.get::<_, u64>(0)
+        Ok(sql_u64(row.get::<_, i64>(0)?))
     })
     .unwrap()
 }
