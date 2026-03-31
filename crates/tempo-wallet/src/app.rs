@@ -32,7 +32,13 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                 Commands::Fund {
                     address,
                     no_browser,
-                } => fund::run(&ctx, address, no_browser).await,
+                    crypto,
+                    credits,
+                    referral_code,
+                } => {
+                    let target = fund::Target::from_cli(crypto, credits, referral_code);
+                    fund::run(&ctx, address, no_browser, target).await
+                }
                 Commands::Whoami => whoami::run(&ctx).await,
                 Commands::Keys => keys::run(&ctx).await,
                 Commands::Sessions { command } => {

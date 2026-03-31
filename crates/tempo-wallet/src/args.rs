@@ -72,7 +72,7 @@ Examples:
         #[arg(long)]
         dry_run: bool,
     },
-    /// Fund your wallet (testnet faucet or mainnet bridge)
+    /// Open add-funds flows in the wallet app
     #[command(display_order = 7, name = "fund")]
     Fund {
         /// Wallet address to fund (defaults to current wallet)
@@ -81,6 +81,20 @@ Examples:
         /// Do not attempt to open a browser
         #[arg(long)]
         no_browser: bool,
+        /// Open the direct crypto funding flow (bridge on mainnet, faucet on testnet)
+        #[arg(long, conflicts_with_all = ["credits", "referral_code"])]
+        crypto: bool,
+        /// Open the credits purchase flow
+        #[arg(long, conflicts_with_all = ["crypto", "referral_code"])]
+        credits: bool,
+        /// Open the referral-code redeem flow with a prefilled code
+        #[arg(
+            long,
+            value_name = "CODE",
+            visible_alias = "claim",
+            conflicts_with_all = ["crypto", "credits"]
+        )]
+        referral_code: Option<String>,
     },
     /// Manage payment sessions
     #[command(display_order = 8, name = "sessions")]
