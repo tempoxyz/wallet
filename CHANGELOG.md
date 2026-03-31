@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 (2026-03-31)
+
+### Minor Changes
+
+- Upgraded `mpp` SDK to v0.8.3, adding support for split payments. Charges with `splits` in the 402 challenge are now handled transparently via multi-transfer AA transactions.
+
 ## 0.2.2 (2026-03-27)
 
 ### Patch Changes
