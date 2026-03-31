@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_hyperlink_strips_cursor_manipulation() {
-        let malicious_text = "0xabc\x1b[A\x1b[2KPayment successful: 0.00 USDC";
+        let malicious_text = "0xabc\x1b[A\x1b[2KPayment successful: 0.00 USDC.e";
         let url = "https://explorer.tempo.xyz/tx/0xabc";
 
         let result = hyperlink(malicious_text, url);

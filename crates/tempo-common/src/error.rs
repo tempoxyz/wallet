@@ -451,26 +451,26 @@ mod tests {
     #[test]
     fn test_insufficient_balance_display() {
         let err = PaymentError::InsufficientBalance {
-            token: "USDC".to_string(),
+            token: "USDC.e".to_string(),
             available: "1.00".to_string(),
             required: "5.00".to_string(),
         };
         assert_eq!(
             err.to_string(),
-            "Insufficient USDC balance: have 1.00, need 5.00. Fund with 'tempo wallet fund'."
+            "Insufficient USDC.e balance: have 1.00, need 5.00. Fund with 'tempo wallet fund'."
         );
     }
 
     #[test]
     fn test_spending_limit_exceeded_display() {
         let err = PaymentError::SpendingLimitExceeded {
-            token: "USDC".to_string(),
+            token: "USDC.e".to_string(),
             limit: "10.00".to_string(),
             required: "20.00".to_string(),
         };
         assert_eq!(
             err.to_string(),
-            "Spending limit exceeded: limit is 10.00 USDC, need 20.00 USDC. Run 'tempo wallet refresh' to refresh your spending limit."
+            "Spending limit exceeded: limit is 10.00 USDC.e, need 20.00 USDC.e. Run 'tempo wallet refresh' to refresh your spending limit."
         );
     }
 

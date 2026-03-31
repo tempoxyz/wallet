@@ -83,7 +83,7 @@ pub enum CloseOutcome {
     /// Channel fully closed (withdrawn or cooperatively settled).
     Closed {
         tx_url: Option<String>,
-        /// Formatted settlement amount (e.g., "0.002 USDC"), if available.
+        /// Formatted settlement amount (e.g., "0.002 USDC.e"), if available.
         amount_display: Option<String>,
     },
     /// `requestClose()` submitted or already pending; waiting for grace period.

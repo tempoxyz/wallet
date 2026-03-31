@@ -112,7 +112,7 @@ pub fn validate(
 /// Sign a key authorization for a key using the wallet EOA.
 ///
 /// Returns the validated auth containing hex, expiry, and token limits.
-/// Uses $100 USDC limit and 30-day expiry.
+/// Uses $100 USDC.e limit and 30-day expiry.
 ///
 /// # Errors
 ///

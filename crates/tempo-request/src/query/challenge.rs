@@ -200,7 +200,7 @@ mod tests {
 
     fn make_challenge(intent: &str) -> mpp::PaymentChallenge {
         let request = mpp::Base64UrlJson::from_value(
-            &serde_json::json!({"amount": "1000", "currency": "USDC"}),
+            &serde_json::json!({"amount": "1000", "currency": "USDC.e"}),
         )
         .unwrap();
         mpp::PaymentChallenge::new("test-id", "test-realm", "tempo", intent, request)
@@ -220,7 +220,7 @@ mod tests {
             is_session,
             network: NetworkId::default(),
             amount: amount.to_string(),
-            currency: "USDC".to_string(),
+            currency: "USDC.e".to_string(),
             challenge: make_challenge(intent),
         }
     }
