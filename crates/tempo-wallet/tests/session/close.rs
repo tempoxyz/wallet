@@ -647,8 +647,8 @@ async fn sessions_close_finalize_avoids_duplicate_attempt_for_local_plus_orphane
              grace_ready_at = ?2
          WHERE channel_id = ?3",
         rusqlite::params![
-            close_requested_at,
-            close_requested_at + 900,
+            sql_i64(close_requested_at),
+            sql_i64(close_requested_at + 900),
             SEEDED_CHANNEL_ID,
         ],
     )
