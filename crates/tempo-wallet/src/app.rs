@@ -4,7 +4,7 @@ use crate::{
     args::{Cli, Commands, ServicesCommands, SessionCommands},
     commands::{
         completions, credits, debug, fund, keys, login, logout, refresh, services, sessions,
-        transfer, whoami,
+        spend_credits, transfer, whoami,
     },
 };
 use tempo_common::error::TempoError;
@@ -40,6 +40,13 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                     fund::run(&ctx, address, no_browser, target).await
                 }
                 Commands::Credits { address } => credits::run(&ctx, address).await,
+                Commands::SpendCredits {
+                    amount_cents,
+                    to,
+                    data,
+                    value,
+                    address,
+                } => spend_credits::run(&ctx, amount_cents, to, data, value, address).await,
                 Commands::Whoami => whoami::run(&ctx).await,
                 Commands::Keys => keys::run(&ctx).await,
                 Commands::Sessions { command } => {
@@ -79,6 +86,7 @@ const fn command_name(command: &Commands) -> &'static str {
         Commands::Completions { .. } => "completions",
         Commands::Fund { .. } => "fund",
         Commands::Credits { .. } => "credits",
+        Commands::SpendCredits { .. } => "spend-credits",
         Commands::Whoami => "whoami",
         Commands::Keys => "keys",
         Commands::Sessions { command } => match command {

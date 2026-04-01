@@ -103,15 +103,38 @@ Examples:
         #[arg(long)]
         address: Option<String>,
     },
+    /// Spend credits via Coinflow redeem
+    #[command(
+        display_order = 9,
+        name = "spend-credits",
+        arg_required_else_help = true
+    )]
+    SpendCredits {
+        /// Amount in USD cents (e.g. 500 = $5.00)
+        #[arg(long)]
+        amount_cents: u64,
+        /// Target contract address (0x...)
+        #[arg(long)]
+        to: String,
+        /// Calldata hex (0x...)
+        #[arg(long, default_value = "0x")]
+        data: String,
+        /// ETH value in wei (default: 0)
+        #[arg(long, default_value = "0")]
+        value: String,
+        /// Wallet address (defaults to current wallet)
+        #[arg(long)]
+        address: Option<String>,
+    },
     /// Manage payment sessions
-    #[command(display_order = 9, name = "sessions")]
+    #[command(display_order = 10, name = "sessions")]
     #[command(args_conflicts_with_subcommands = true)]
     Sessions {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
     /// Browse the MPP service directory
-    #[command(display_order = 10, name = "services")]
+    #[command(display_order = 11, name = "services")]
     Services {
         #[command(subcommand)]
         command: Option<ServicesCommands>,
@@ -126,7 +149,7 @@ Examples:
     },
 
     /// Collect debug info for support
-    #[command(display_order = 11)]
+    #[command(display_order = 12)]
     Debug,
 
     /// Generate shell completions script

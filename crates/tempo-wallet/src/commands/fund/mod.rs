@@ -2,11 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use alloy::{
-    primitives::{Address, U256},
-    providers::ProviderBuilder,
-    sol,
-};
+use alloy::primitives::U256;
 use serde::Deserialize;
 use url::Url;
 
@@ -28,24 +24,8 @@ const POLL_INTERVAL_SECS: u64 = 3;
 /// Maximum time to wait for balance change (seconds).
 const CALLBACK_TIMEOUT_SECS: u64 = 900;
 
-/// Base Sepolia credit-balance contract used by the wallet app.
-const CREDITS_CONTRACT_ADDRESS: &str = "0xbF720eF3c2BC8AA59a282782da26b56918eB3D7a";
-
-/// Public Base Sepolia RPC used by the app's wagmi config.
-const BASE_SEPOLIA_RPC_URL: &str = "https://sepolia.base.org";
-
-/// Optional override for tests or custom environments.
-const CREDITS_RPC_URL_ENV: &str = "TEMPO_CREDITS_RPC_URL";
-
 /// Raw contract units per user-visible credit.
 const RAW_TO_CREDITS: u64 = 10_000;
-
-sol! {
-    #[sol(rpc)]
-    interface ITempoCredits {
-        function getCreditsBalance(address customerWallet_, string creditSeed_) external view returns (uint256);
-    }
-}
 
 #[derive(Debug)]
 enum CompletionWatch {
@@ -54,8 +34,8 @@ enum CompletionWatch {
         before: Vec<TokenBalance>,
     },
     Credits {
-        wallet_address: Address,
-        credit_seed: String,
+        wallet_address: String,
+        auth_server_url: String,
         before_raw: U256,
     },
 }
@@ -77,9 +57,13 @@ impl CompletionWatch {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CoinflowConfigResponse {
-    credit_seed: String,
+struct CoinflowBalancesResponse {
+    credits: CoinflowBalanceCents,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoinflowBalanceCents {
+    cents: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,19 +152,11 @@ async fn prepare_completion_watch(
     match target {
         Target::Credits => {
             let wallet_address = resolve_address(address, &ctx.keys)?;
-            let parsed_wallet_address: Address =
-                wallet_address
-                    .parse()
-                    .map_err(|_| ConfigError::InvalidAddress {
-                        context: "wallet address",
-                        value: wallet_address.clone(),
-                    })?;
-            let credit_seed = fetch_credit_seed(auth_server_url).await?;
-            let before_raw = query_credit_balance(parsed_wallet_address, &credit_seed).await?;
+            let before_raw = query_credit_balance(auth_server_url, &wallet_address).await?;
 
             Ok(CompletionWatch::Credits {
-                wallet_address: parsed_wallet_address,
-                credit_seed,
+                wallet_address,
+                auth_server_url: auth_server_url.to_string(),
                 before_raw,
             })
         }
@@ -236,10 +212,10 @@ async fn wait_for_completion(
             }
             CompletionWatch::Credits {
                 wallet_address,
-                credit_seed,
+                auth_server_url,
                 before_raw,
             } => {
-                let current_raw = query_credit_balance(*wallet_address, credit_seed).await?;
+                let current_raw = query_credit_balance(auth_server_url, wallet_address).await?;
 
                 if current_raw > *before_raw {
                     if show_status {
@@ -302,37 +278,32 @@ fn build_fund_url(auth_server_url: &str, target: &Target) -> Result<String, Temp
     Ok(url.to_string())
 }
 
-fn build_coinflow_config_url(auth_server_url: &str) -> Result<String, TempoError> {
+fn build_coinflow_balances_url(
+    auth_server_url: &str,
+    wallet_address: &str,
+) -> Result<String, TempoError> {
     let mut url = Url::parse(auth_server_url).map_err(|source| InputError::UrlParseFor {
         context: "auth server",
         source,
     })?;
 
-    url.set_path("/api/coinflow/config");
+    url.set_path("/api/coinflow/balances");
     url.set_query(None);
+    url.query_pairs_mut().append_pair("wallet", wallet_address);
 
     Ok(url.to_string())
 }
 
-fn credits_rpc_url() -> Result<Url, TempoError> {
-    let url =
-        std::env::var(CREDITS_RPC_URL_ENV).unwrap_or_else(|_| BASE_SEPOLIA_RPC_URL.to_string());
-
-    Url::parse(&url)
-        .map_err(|source| ConfigError::InvalidUrl {
-            context: "credits RPC",
-            source,
-        })
-        .map_err(TempoError::from)
-}
-
-pub(crate) async fn fetch_credit_seed(auth_server_url: &str) -> Result<String, TempoError> {
+pub(crate) async fn query_credit_balance(
+    auth_server_url: &str,
+    wallet_address: &str,
+) -> Result<U256, TempoError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent(format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(NetworkError::Reqwest)?;
-    let url = build_coinflow_config_url(auth_server_url)?;
+    let url = build_coinflow_balances_url(auth_server_url, wallet_address)?;
     let resp = client
         .get(url)
         .send()
@@ -351,42 +322,13 @@ pub(crate) async fn fetch_credit_seed(auth_server_url: &str) -> Result<String, T
     }
 
     let body = resp.text().await.map_err(NetworkError::Reqwest)?;
-    let config: CoinflowConfigResponse =
+    let balances: CoinflowBalancesResponse =
         serde_json::from_str(&body).map_err(|source| NetworkError::ResponseParse {
-            context: "coinflow config response",
+            context: "coinflow balances response",
             source,
         })?;
 
-    if config.credit_seed.is_empty() {
-        return Err(NetworkError::ResponseMissingField {
-            context: "coinflow config response",
-            field: "creditSeed",
-        }
-        .into());
-    }
-
-    Ok(config.credit_seed)
-}
-
-pub(crate) async fn query_credit_balance(
-    wallet_address: Address,
-    credit_seed: &str,
-) -> Result<U256, TempoError> {
-    let provider = ProviderBuilder::new().connect_http(credits_rpc_url()?);
-    let contract_address: Address = CREDITS_CONTRACT_ADDRESS
-        .parse()
-        .expect("hardcoded credits contract address is valid");
-    let contract = ITempoCredits::new(contract_address, &provider);
-
-    contract
-        .getCreditsBalance(wallet_address, credit_seed.to_string())
-        .call()
-        .await
-        .map_err(|source| NetworkError::RpcSource {
-            operation: "query credits balance",
-            source: Box::new(source),
-        })
-        .map_err(TempoError::from)
+    Ok(U256::from(balances.credits.cents) * U256::from(RAW_TO_CREDITS / 100))
 }
 
 /// Returns `true` if any token balance differs between `initial` and `current`.

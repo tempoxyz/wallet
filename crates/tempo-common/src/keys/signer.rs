@@ -4,9 +4,14 @@
 //! resolves a network's key entry into a ready-to-use [`Signer`]
 //! (private key signer + signing mode + effective `from` address).
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy::{
+    primitives::{Address, B256},
+    signers::{local::PrivateKeySigner, SignerSync},
+};
 use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
-use tempo_primitives::transaction::SignedKeyAuthorization;
+use tempo_primitives::transaction::{
+    KeychainSignature, PrimitiveSignature, SignedKeyAuthorization, TempoSignature,
+};
 
 use crate::{
     error::{ConfigError, KeyError, TempoError},
@@ -84,6 +89,74 @@ impl Signer {
     pub fn has_stored_key_authorization(&self) -> bool {
         self.stored_key_authorization.is_some()
     }
+
+    /// Sign an arbitrary digest and return the serialized Tempo signature bytes.
+    ///
+    /// Direct signers return a raw 65-byte secp256k1 signature. Keychain
+    /// signers return a Tempo keychain envelope (type 0x03/0x04) wrapping the
+    /// inner secp256k1 signature for the configured wallet address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the underlying signing operation fails.
+    pub fn sign_hash_bytes(
+        &self,
+        hash: &B256,
+        operation: &'static str,
+    ) -> Result<Vec<u8>, TempoError> {
+        let hash_to_sign = match &self.signing_mode {
+            TempoSigningMode::Direct => *hash,
+            TempoSigningMode::Keychain {
+                wallet, version, ..
+            } => match version {
+                KeychainVersion::V1 => *hash,
+                KeychainVersion::V2 => KeychainSignature::signing_hash(*hash, *wallet),
+            },
+        };
+
+        let inner_signature = self
+            .signer
+            .sign_hash_sync(&hash_to_sign)
+            .map_err(|source| {
+                TempoError::from(KeyError::SigningOperationSource {
+                    operation,
+                    source: Box::new(source),
+                })
+            })?;
+
+        let signature = match &self.signing_mode {
+            TempoSigningMode::Direct => {
+                TempoSignature::Primitive(PrimitiveSignature::Secp256k1(inner_signature))
+            }
+            TempoSigningMode::Keychain {
+                wallet, version, ..
+            } => {
+                let primitive = PrimitiveSignature::Secp256k1(inner_signature);
+                let keychain = match version {
+                    KeychainVersion::V1 => KeychainSignature::new_v1(*wallet, primitive),
+                    KeychainVersion::V2 => KeychainSignature::new(*wallet, primitive),
+                };
+                TempoSignature::Keychain(keychain)
+            }
+        };
+
+        Ok(signature.to_bytes().to_vec())
+    }
+
+    /// Sign an arbitrary digest and return the serialized Tempo signature as a
+    /// 0x-prefixed hex string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the underlying signing operation fails.
+    pub fn sign_hash_hex(
+        &self,
+        hash: &B256,
+        operation: &'static str,
+    ) -> Result<String, TempoError> {
+        let bytes = self.sign_hash_bytes(hash, operation)?;
+        Ok(format!("0x{}", hex::encode(bytes)))
+    }
 }
 
 impl Keystore {
@@ -158,6 +231,7 @@ impl Keystore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::primitives::keccak256;
     use zeroize::Zeroizing;
 
     use crate::keys::KeyEntry;
@@ -298,6 +372,56 @@ mod tests {
         let signer = keys.signer(NetworkId::Tempo).unwrap();
         assert!(!signer.has_stored_key_authorization());
         assert!(signer.with_key_authorization().is_none());
+    }
+
+    #[test]
+    fn test_sign_hash_hex_direct_returns_raw_signature() {
+        let keys = Keystore::from_private_key(TEST_PRIVATE_KEY).unwrap();
+        let signer = keys.signer(NetworkId::Tempo).unwrap();
+        let hash = keccak256(b"coinflow-direct");
+
+        let signature_hex = signer
+            .sign_hash_hex(&hash, "sign direct test hash")
+            .unwrap();
+        let bytes = hex::decode(signature_hex.trim_start_matches("0x")).unwrap();
+        let signature = TempoSignature::from_bytes(&bytes).unwrap();
+
+        assert!(matches!(signature, TempoSignature::Primitive(_)));
+        assert_eq!(
+            signature.recover_signer(&hash).unwrap(),
+            signer.signer.address()
+        );
+    }
+
+    #[test]
+    fn test_sign_hash_hex_keychain_returns_v2_envelope() {
+        let mut keys = Keystore::default();
+        let wallet_address: Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+            .parse()
+            .unwrap();
+        keys.keys.push(KeyEntry {
+            wallet_address: format!("{wallet_address:#x}"),
+            key_address: Some(TEST_ADDRESS.to_string()),
+            key: Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string())),
+            chain_id: 4217,
+            ..Default::default()
+        });
+        let signer = keys.signer(NetworkId::Tempo).unwrap();
+        let hash = keccak256(b"coinflow-keychain");
+
+        let signature_hex = signer
+            .sign_hash_hex(&hash, "sign keychain test hash")
+            .unwrap();
+        let bytes = hex::decode(signature_hex.trim_start_matches("0x")).unwrap();
+        let signature = TempoSignature::from_bytes(&bytes).unwrap();
+        let keychain = signature
+            .as_keychain()
+            .expect("expected keychain signature");
+
+        assert_eq!(bytes[0], 0x04, "expected V2 keychain type byte");
+        assert_eq!(keychain.user_address, wallet_address);
+        assert_eq!(signature.recover_signer(&hash).unwrap(), wallet_address);
+        assert_eq!(keychain.key_id(&hash).unwrap(), signer.signer.address());
     }
 
     #[test]
