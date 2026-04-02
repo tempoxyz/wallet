@@ -1,7 +1,6 @@
 //! Spend credits via Coinflow redeem flow.
 
-use std::io::Write;
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 
 use alloy::primitives::{keccak256, Address, B256};
 use serde::{Deserialize, Serialize};

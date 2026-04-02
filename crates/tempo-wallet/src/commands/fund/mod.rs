@@ -58,12 +58,56 @@ impl CompletionWatch {
 
 #[derive(Debug, Deserialize)]
 struct CoinflowBalancesResponse {
-    credits: CoinflowBalanceCents,
+    credits: CoinflowBalance,
 }
 
 #[derive(Debug, Deserialize)]
-struct CoinflowBalanceCents {
-    cents: u64,
+struct CoinflowBalance {
+    #[serde(default, rename = "rawAmount")]
+    raw_amount: Option<CoinflowAmount>,
+    #[serde(default)]
+    cents: Option<CoinflowAmount>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum CoinflowAmount {
+    Number(u64),
+    String(String),
+}
+
+impl CoinflowAmount {
+    fn as_u256(&self, field: &'static str) -> Result<U256, NetworkError> {
+        match self {
+            Self::Number(value) => Ok(U256::from(*value)),
+            Self::String(value) => {
+                value
+                    .trim()
+                    .parse::<U256>()
+                    .map_err(|_| NetworkError::ResponseSchema {
+                        context: "coinflow balances response",
+                        reason: format!("invalid {field}: {value}"),
+                    })
+            }
+        }
+    }
+}
+
+impl CoinflowBalance {
+    fn raw_balance(&self) -> Result<U256, NetworkError> {
+        if let Some(raw_amount) = &self.raw_amount {
+            return raw_amount.as_u256("credits.rawAmount");
+        }
+
+        if let Some(cents) = &self.cents {
+            return Ok(cents.as_u256("credits.cents")? * U256::from(RAW_TO_CREDITS / 100));
+        }
+
+        Err(NetworkError::ResponseMissingField {
+            context: "coinflow balances response",
+            field: "credits.rawAmount or credits.cents",
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,7 +358,7 @@ pub(crate) async fn query_credit_balance(
     if !status.is_success() {
         let body = resp.text().await.ok();
         return Err(NetworkError::HttpStatus {
-            operation: "fetch coinflow config",
+            operation: "fetch coinflow balances",
             status: status.as_u16(),
             body,
         }
@@ -328,7 +372,7 @@ pub(crate) async fn query_credit_balance(
             source,
         })?;
 
-    Ok(U256::from(balances.credits.cents) * U256::from(RAW_TO_CREDITS / 100))
+    Ok(balances.credits.raw_balance()?)
 }
 
 /// Returns `true` if any token balance differs between `initial` and `current`.
@@ -444,7 +488,7 @@ fn track_fund_result(ctx: &Context, method: &str, target: &str, result: &Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{build_coinflow_config_url, build_fund_url, fund_method, Target};
+    use super::{build_coinflow_balances_url, build_fund_url, fund_method, Target};
 
     #[test]
     fn fund_method_uses_manual_only_when_no_browser_is_true() {
@@ -485,10 +529,11 @@ mod tests {
     }
 
     #[test]
-    fn build_coinflow_config_url_uses_wallet_root() {
+    fn build_coinflow_balances_url_uses_wallet_root() {
         assert_eq!(
-            build_coinflow_config_url("https://wallet.moderato.tempo.xyz/cli-auth").unwrap(),
-            "https://wallet.moderato.tempo.xyz/api/coinflow/config"
+            build_coinflow_balances_url("https://wallet.moderato.tempo.xyz/cli-auth", "0x1234")
+                .unwrap(),
+            "https://wallet.moderato.tempo.xyz/api/coinflow/balances?wallet=0x1234"
         );
     }
 }

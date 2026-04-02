@@ -150,8 +150,10 @@ impl BalanceSequenceRpcServer {
 
         let shared_balances = balances.clone();
         let shared_last_value = last_value.clone();
-        let shared_credit_balances = credit_balances.clone();
-        let shared_last_credit_value = last_credit_value.clone();
+        let rpc_credit_balances = credit_balances.clone();
+        let rpc_last_credit_value = last_credit_value.clone();
+        let http_credit_balances = credit_balances.clone();
+        let http_last_credit_value = last_credit_value.clone();
 
         let app = Router::new()
             .route(
@@ -159,8 +161,8 @@ impl BalanceSequenceRpcServer {
                 post(move |Json(body): Json<serde_json::Value>| {
                     let shared_balances = shared_balances.clone();
                     let shared_last_value = shared_last_value.clone();
-                    let shared_credit_balances = shared_credit_balances.clone();
-                    let shared_last_credit_value = shared_last_credit_value.clone();
+                    let shared_credit_balances = rpc_credit_balances.clone();
+                    let shared_last_credit_value = rpc_last_credit_value.clone();
                     async move {
                         if let Some(batch) = body.as_array() {
                             let response = serde_json::Value::Array(
@@ -187,6 +189,21 @@ impl BalanceSequenceRpcServer {
                                 &shared_last_credit_value,
                             ))
                         }
+                    }
+                }),
+            )
+            .route(
+                "/api/coinflow/balances",
+                get(move || {
+                    let shared_credit_balances = http_credit_balances.clone();
+                    let shared_last_credit_value = http_last_credit_value.clone();
+                    async move {
+                        let raw = next_balance(&shared_credit_balances, &shared_last_credit_value);
+                        Json(json!({
+                            "credits": {
+                                "rawAmount": raw,
+                            }
+                        }))
                     }
                 }),
             )
