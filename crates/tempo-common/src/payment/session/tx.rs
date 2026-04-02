@@ -99,7 +99,10 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
 ) -> ChannelResult<Vec<u8>> {
     let nonce = 0u64;
     let valid_before = Some(expiring_valid_before());
-    let effective_fee_token = if fee_payer { Address::ZERO } else { fee_token };
+    // The final transaction uses Address::ZERO when fee_payer is true (the sponsor
+    // co-signs server-side), but gas estimation must always use the real token so
+    // the node can price the transaction correctly.
+    let final_fee_token = if fee_payer { Address::ZERO } else { fee_token };
 
     // Optimistic: assume key is already provisioned (no key_authorization).
     let mut key_auth = wallet.signing_mode.key_authorization();
@@ -112,7 +115,7 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
         key_authorization: key_auth.cloned(),
         ..Default::default()
     }
-    .with_fee_token(effective_fee_token)
+    .with_fee_token(fee_token)
     .with_nonce_key(EXPIRING_NONCE_KEY);
 
     if let Some(valid_before) = valid_before {
@@ -145,7 +148,7 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
                 key_authorization: key_auth.cloned(),
                 ..Default::default()
             }
-            .with_fee_token(effective_fee_token)
+            .with_fee_token(fee_token)
             .with_nonce_key(EXPIRING_NONCE_KEY);
 
             if let Some(valid_before) = valid_before {
@@ -177,7 +180,7 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     let tx = tx_builder::build_tempo_tx(tx_builder::TempoTxOptions {
         calls,
         chain_id,
-        fee_token: effective_fee_token,
+        fee_token: final_fee_token,
         nonce,
         nonce_key: EXPIRING_NONCE_KEY,
         gas_limit,
