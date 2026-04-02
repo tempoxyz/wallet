@@ -106,7 +106,14 @@ Examples:
 
     /// Collect debug info for support
     #[command(display_order = 10)]
-    Debug,
+    Debug {
+        /// Call an app server function instead of printing the normal debug report
+        #[arg(long, hide = true, value_name = "SERVER_FN_ID")]
+        server_fn_id: Option<String>,
+        /// JSON payload for `--server-fn-id`
+        #[arg(long, hide = true, value_name = "JSON")]
+        server_fn_data: Option<String>,
+    },
 
     /// Generate shell completions script
     #[command(hide = true)]

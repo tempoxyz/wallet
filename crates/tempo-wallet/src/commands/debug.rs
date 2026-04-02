@@ -3,11 +3,13 @@
 use std::io::Write;
 
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::commands::whoami;
 use tempo_common::{
     cli::{context::Context, output},
-    error::TempoError,
+    error::{NetworkError, TempoError},
+    server_fn,
 };
 
 /// Long version string for tempo-wallet (matches args.rs).
@@ -37,6 +39,18 @@ struct DebugInfo {
 }
 
 pub(crate) async fn run(ctx: &Context) -> Result<(), TempoError> {
+    run_with_server_fn(ctx, None, None).await
+}
+
+pub(crate) async fn run_with_server_fn(
+    ctx: &Context,
+    server_fn_id: Option<String>,
+    server_fn_data: Option<String>,
+) -> Result<(), TempoError> {
+    if let Some(function_id) = server_fn_id {
+        return run_server_fn(ctx, &function_id, server_fn_data.as_deref()).await;
+    }
+
     let info = build_debug_info(ctx);
     render(ctx, &info).await
 }
@@ -110,6 +124,60 @@ async fn render(ctx: &Context, info: &DebugInfo) -> Result<(), TempoError> {
         writeln!(w)?;
         writeln!(w, "Copy the above and share it with Tempo support.")?;
     }
+
+    Ok(())
+}
+
+async fn run_server_fn(
+    ctx: &Context,
+    function_id: &str,
+    raw_data: Option<&str>,
+) -> Result<(), TempoError> {
+    let auth_url =
+        std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
+    let origin = server_fn::origin_from_auth_url(&auth_url)?;
+    let data = match raw_data {
+        Some(raw) => {
+            serde_json::from_str::<Value>(raw).map_err(|source| NetworkError::ResponseParse {
+                context: "server function debug payload",
+                source,
+            })?
+        }
+        None => Value::Object(serde_json::Map::new()),
+    };
+    let session_token = ctx
+        .keys
+        .key_for_network(ctx.network)
+        .and_then(|entry| entry.session_token.as_deref())
+        .or_else(|| {
+            ctx.keys
+                .find_passkey_wallet()
+                .and_then(|entry| entry.session_token.as_deref())
+        });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent(format!("tempo-wallet/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(NetworkError::Reqwest)?;
+
+    let response =
+        server_fn::call_json(&client, &origin, function_id, &data, session_token).await?;
+
+    output::emit_by_format(ctx.output_format, &response, || {
+        let w = &mut std::io::stdout();
+        writeln!(
+            w,
+            "{}",
+            serde_json::to_string_pretty(&response).map_err(|source| {
+                TempoError::from(NetworkError::ResponseParse {
+                    context: "server function debug response",
+                    source,
+                })
+            })?
+        )?;
+        Ok(())
+    })?;
 
     Ok(())
 }

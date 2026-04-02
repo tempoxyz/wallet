@@ -3,11 +3,87 @@
 mod common;
 mod session;
 
+use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
 use common::test_command;
 use tempo_test::{
     assert_exit_code, get_combined_output, MockServer, MockServicesServer, TestConfigBuilder,
     MODERATO_DIRECT_KEYS_TOML,
 };
+
+#[derive(Clone, Default)]
+struct DebugServerState {
+    seen_cookie: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+struct DebugServer {
+    base_url: String,
+    state: DebugServerState,
+    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    _handle: tokio::task::JoinHandle<()>,
+}
+
+impl DebugServer {
+    async fn start() -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let state = DebugServerState::default();
+        let app = Router::new()
+            .route(
+                "/_serverFn/lib.server.fns.assets.fetchAssets",
+                post(debug_server_fn),
+            )
+            .with_state(state.clone());
+        let base_url = format!("http://{}:{}", addr.ip(), addr.port());
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        Self {
+            base_url,
+            state,
+            shutdown_tx: Some(shutdown_tx),
+            _handle: handle,
+        }
+    }
+
+    fn auth_url(&self) -> String {
+        format!("{}/cli-auth", self.base_url)
+    }
+
+    fn seen_cookie(&self) -> Option<String> {
+        self.state.seen_cookie.lock().unwrap().clone()
+    }
+}
+
+impl Drop for DebugServer {
+    fn drop(&mut self) {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+async fn debug_server_fn(
+    State(state): State<DebugServerState>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    *state.seen_cookie.lock().unwrap() = headers
+        .get("cookie")
+        .and_then(|value| value.to_str().ok())
+        .map(std::string::ToString::to_string);
+
+    Json(serde_json::json!({
+        "ok": true,
+        "echo": body["data"].clone(),
+    }))
+}
 
 fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
     let content = std::fs::read_to_string(path).unwrap_or_default();
@@ -488,6 +564,52 @@ chain_id = 42431
     assert!(
         keys_body.contains("wallet_type = \"passkey\""),
         "preserved key should remain passkey"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn debug_server_fn_uses_saved_session_token_and_app_transport() {
+    let server = DebugServer::start().await;
+    let passkey_keys = r#"
+[[keys]]
+wallet_type = "passkey"
+wallet_address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+key_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+chain_id = 42431
+session_token = "cli-session-token"
+"#;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(passkey_keys)
+        .build();
+
+    let output = test_command(&temp)
+        .env("TEMPO_AUTH_URL", server.auth_url())
+        .args([
+            "-j",
+            "-n",
+            "tempo-moderato",
+            "debug",
+            "--server-fn-id",
+            "lib.server.fns.assets.fetchAssets",
+            "--server-fn-data",
+            r#"{"address":"0x123"}"#,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "debug server fn call should succeed: {output:?}"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(parsed["echo"]["address"], "0x123", "{parsed}");
+    assert_eq!(
+        server.seen_cookie().as_deref(),
+        Some("session=cli-session-token")
     );
 }
 

@@ -320,6 +320,7 @@ fn should_track_callback_window(status: BrowserLaunchStatus) -> bool {
 struct AuthCallback {
     account_address: String,
     key_authorization: Option<String>,
+    session_token: Option<String>,
     duration_secs: u64,
 }
 
@@ -359,6 +360,7 @@ async fn poll_until_authorized(
                     .account_address
                     .ok_or_else(|| TempoError::from(InputError::MissingAuthorizedAccountAddress))?,
                 key_authorization: resp.key_authorization,
+                session_token: resp.session_token,
                 duration_secs: start.elapsed().as_secs(),
             });
         }
@@ -413,6 +415,7 @@ fn save_keys(
     entry.set_key_address(Some(access_key_address));
     entry.key = Some(access_key_hex);
     entry.key_authorization = key_auth_hex;
+    entry.session_token = callback.session_token;
 
     keys.save()
 }
@@ -430,6 +433,7 @@ struct PollResponse {
     status: PollStatus,
     account_address: Option<String>,
     key_authorization: Option<String>,
+    session_token: Option<String>,
     error: Option<String>,
 }
 

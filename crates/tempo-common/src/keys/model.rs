@@ -67,6 +67,9 @@ pub struct KeyEntry {
     /// Key authorization (RLP-encoded `SignedKeyAuthorization` hex).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_authorization: Option<String>,
+    /// Web session token mirrored from the wallet web app login flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
     /// Key expiry as unix timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expiry: Option<u64>,
@@ -93,6 +96,8 @@ pub(super) struct StoredKeyEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_authorization: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expiry: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<StoredTokenLimit>,
@@ -114,6 +119,7 @@ impl From<KeyEntry> for StoredKeyEntry {
             key_address: value.key_address,
             key: value.key,
             key_authorization: value.key_authorization,
+            session_token: value.session_token,
             expiry: value.expiry,
             limits: value.limits,
         }
@@ -130,6 +136,7 @@ impl From<StoredKeyEntry> for KeyEntry {
             key_address: value.key_address,
             key: value.key,
             key_authorization: value.key_authorization,
+            session_token: value.session_token,
             expiry: value.expiry,
             limits: value.limits,
         }
@@ -146,6 +153,10 @@ impl std::fmt::Debug for KeyEntry {
             .field("key_address", &self.key_address)
             .field("key", &self.key.as_ref().map(|_| "<redacted>"))
             .field("key_authorization", &self.key_authorization)
+            .field(
+                "session_token",
+                &self.session_token.as_ref().map(|_| "<redacted>"),
+            )
             .field("expiry", &self.expiry)
             .field("limits", &self.limits)
             .finish()
@@ -279,6 +290,7 @@ mod tests {
             key_address: Some("0xdef".to_string()),
             key: Some(Zeroizing::new("0xsecret".to_string())),
             key_authorization: Some("0xauth".to_string()),
+            session_token: Some("session-token".to_string()),
             expiry: Some(1_700_000_000),
             limits: vec![StoredTokenLimit {
                 currency: "0x20c000000000000000000000b9537d11c60e8b50"
@@ -298,6 +310,7 @@ mod tests {
         assert_eq!(deserialized.key_address, entry.key_address);
         assert_eq!(deserialized.key.as_deref(), entry.key.as_deref());
         assert_eq!(deserialized.key_authorization, entry.key_authorization);
+        assert_eq!(deserialized.session_token, entry.session_token);
         assert_eq!(deserialized.expiry, entry.expiry);
         assert_eq!(deserialized.limits, entry.limits);
     }
@@ -312,6 +325,7 @@ mod tests {
             key_address: None,
             key: None,
             key_authorization: None,
+            session_token: None,
             expiry: None,
             limits: vec![],
         };
@@ -320,6 +334,7 @@ mod tests {
         assert!(!toml_str.contains("key_address"));
         assert!(!toml_str.contains("key ="));
         assert!(!toml_str.contains("key_authorization"));
+        assert!(!toml_str.contains("session_token"));
         assert!(!toml_str.contains("expiry"));
         assert!(!toml_str.contains("limits"));
 
@@ -327,6 +342,7 @@ mod tests {
         assert_eq!(deserialized.key_address, None);
         assert_eq!(deserialized.key, None);
         assert_eq!(deserialized.key_authorization, None);
+        assert_eq!(deserialized.session_token, None);
         assert_eq!(deserialized.expiry, None);
         assert!(deserialized.limits.is_empty());
     }

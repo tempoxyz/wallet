@@ -52,7 +52,16 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                     fee_token,
                     dry_run,
                 } => transfer::run(&ctx, amount, token, to, fee_token, dry_run).await,
-                Commands::Debug => debug::run(&ctx).await,
+                Commands::Debug {
+                    server_fn_id,
+                    server_fn_data,
+                } => {
+                    if server_fn_id.is_none() && server_fn_data.is_none() {
+                        debug::run(&ctx).await
+                    } else {
+                        debug::run_with_server_fn(&ctx, server_fn_id, server_fn_data).await
+                    }
+                }
                 Commands::Services {
                     service_id, search, ..
                 } => services::run(&ctx, services::ServicesArgs { service_id, search }).await,
@@ -79,7 +88,7 @@ const fn command_name(command: &Commands) -> &'static str {
             Some(SessionCommands::Sync { .. }) => "sessions sync",
         },
         Commands::Transfer { .. } => "transfer",
-        Commands::Debug => "debug",
+        Commands::Debug { .. } => "debug",
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",
             None => "services",
