@@ -65,7 +65,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Run Tempo Lints
-        uses: tempoxyz/lints@1647d724f9bca135d8c529ddb5ccd7ec7954639e
+        uses: tempoxyz/lints@8af5001866a36967523ece2b8cdc33ba719aad84
         with:
           language: rust
           path: "."
