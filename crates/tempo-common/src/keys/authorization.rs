@@ -135,7 +135,11 @@ pub fn sign(
     let token_addrs = [network.token().address];
     let token_limits: Vec<TokenLimit> = token_addrs
         .iter()
-        .map(|&token| TokenLimit { token, limit })
+        .map(|&token| TokenLimit {
+            token,
+            limit,
+            period: 0,
+        })
         .collect();
     let stored_limits: Vec<StoredTokenLimit> = token_addrs
         .iter()
@@ -150,6 +154,7 @@ pub fn sign(
         key_id: access_signer.address(),
         expiry: Some(expiry_secs),
         limits: Some(token_limits),
+        allowed_calls: None,
     };
     let sig = wallet_signer
         .sign_hash_sync(&auth.signature_hash())
@@ -211,6 +216,7 @@ mod tests {
             key_id,
             expiry: Some(9_999_999_999),
             limits: None,
+            allowed_calls: None,
         };
 
         let sig = signer.sign_hash_sync(&auth.signature_hash()).unwrap();
