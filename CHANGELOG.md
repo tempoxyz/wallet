@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Patch Changes
+
+- Fix gas estimation failure when `feePayer: true` by using the real fee token address for `eth_estimateGas` instead of the zero address. The final signed transaction still uses `Address::ZERO` for server-side sponsor co-signing.
+
 ## 0.3.0 (2026-03-31)
 
 ### Minor Changes
