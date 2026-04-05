@@ -31,7 +31,7 @@ pub use store::{
 // Re-export public API from `channel`
 pub use channel::{
     find_all_channels_for_payer, get_channel_on_chain, query_channel_state, query_token_balance,
-    read_grace_period, DiscoveredChannel, OnChainChannel,
+    query_token_balance_verified, read_grace_period, DiscoveredChannel, OnChainChannel,
 };
 
 // Re-export public API from `close`

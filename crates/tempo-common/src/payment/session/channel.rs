@@ -389,3 +389,29 @@ pub async fn query_token_balance(
             })?;
     Ok(balance)
 }
+
+/// Query and verify a TIP-20 token balance using an EIP-1186 storage proof.
+///
+/// Fetches the balance via `eth_getProof` and verifies the Merkle proof against
+/// the given pinned block's state root. Detects inconsistent proof data from
+/// the provider.
+///
+/// # Arguments
+///
+/// * `balance_slot` — Solidity storage slot index of the `balanceOf` mapping.
+///   See [`crate::network::TokenConfig::balance_mapping_slot`].
+///
+/// # Errors
+///
+/// Returns an error when the RPC call or proof verification fails.
+pub async fn query_token_balance_verified(
+    provider: &impl Provider,
+    token: Address,
+    account: Address,
+    balance_slot: u8,
+    block: &crate::proof::PinnedBlock,
+) -> ChannelResult<U256> {
+    crate::proof::verified_token_balance(provider, token, account, balance_slot, block)
+        .await
+        .map_err(TempoError::from)
+}

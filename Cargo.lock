@@ -6656,6 +6656,8 @@ name = "tempo-common"
 version = "0.3.0"
 dependencies = [
  "alloy",
+ "alloy-rlp",
+ "alloy-trie",
  "axum",
  "clap",
  "colored",
@@ -6665,6 +6667,7 @@ dependencies = [
  "hex",
  "hostname",
  "mpp",
+ "nybbles",
  "posthog-rs",
  "reqwest 0.12.28",
  "rusqlite",
