@@ -2,8 +2,12 @@
 //!
 //! This module handles the MPP protocol (<https://mpp.dev>) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
+//!
+//! For zero-amount charges (`amount = "0"`), the client signs an EIP-712
+//! proof credential instead of creating a transaction. See [`super::proof`].
 
 use mpp::client::PaymentProvider;
+use mpp::protocol::methods::tempo::TempoChargeExt;
 
 use crate::http::{HttpClient, HttpResponse};
 use tempo_common::{
@@ -14,6 +18,7 @@ use tempo_common::{
 
 use super::{
     lock::{acquire_origin_lock, origin_lock_key},
+    proof,
     types::{PaymentResult, ResolvedChallenge},
 };
 use tempo_common::payment::{classify_payment_error, map_mpp_validation_error};
@@ -42,6 +47,17 @@ pub(super) async fn handle_charge_request(
     challenge
         .validate_for_charge("tempo")
         .map_err(|e| map_mpp_validation_error(e, challenge))?;
+
+    // Zero-amount charges use EIP-712 proof signing instead of a transaction.
+    let charge_request = challenge
+        .request
+        .decode::<mpp::ChargeRequest>()
+        .map_err(|_| PaymentError::ChallengeUnsupportedPayload {
+            context: "charge request",
+        })?;
+    if charge_request.amount == "0" {
+        return handle_zero_amount_charge(http, url, &resolved, &signer).await;
+    }
 
     if http.dry_run {
         eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
@@ -163,6 +179,59 @@ pub(super) async fn handle_charge_request(
 
     Ok(PaymentResult {
         tx_hash,
+        channel_id: None,
+        status_code: resp.status_code,
+        response: Some(resp),
+    })
+}
+
+/// Handle a zero-amount charge by signing an EIP-712 proof credential.
+async fn handle_zero_amount_charge(
+    http: &HttpClient,
+    url: &str,
+    resolved: &ResolvedChallenge,
+    signer: &Signer,
+) -> Result<PaymentResult, TempoError> {
+    let challenge = &resolved.challenge;
+    let charge_request = challenge
+        .request
+        .decode::<mpp::ChargeRequest>()
+        .map_err(|_| PaymentError::ChallengeUnsupportedPayload {
+            context: "charge request",
+        })?;
+    let chain_id = charge_request
+        .chain_id()
+        .ok_or(PaymentError::ChallengeMissingField {
+            context: "zero-amount charge",
+            field: "chainId",
+        })?;
+
+    if http.log_enabled() {
+        eprintln!("Zero-amount charge: signing proof credential (no transaction)");
+    }
+
+    if http.dry_run {
+        eprintln!("[DRY RUN] Proof credential ready, skipping submission.");
+        return Ok(PaymentResult {
+            tx_hash: None,
+            channel_id: None,
+            status_code: 200,
+            response: None,
+        });
+    }
+
+    let credential =
+        proof::build_proof_credential(&signer.signer, challenge, chain_id, signer.signer.address())
+            .await?;
+
+    let resp = submit_credential(http, url, &credential).await?;
+
+    if resp.status_code >= 400 {
+        return Err(parse_payment_rejection(&resp).into());
+    }
+
+    Ok(PaymentResult {
+        tx_hash: None,
         channel_id: None,
         status_code: resp.status_code,
         response: Some(resp),
