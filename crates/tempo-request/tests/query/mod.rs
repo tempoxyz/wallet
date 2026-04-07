@@ -13,8 +13,8 @@ use std::process::Output;
 use crate::common::test_command;
 use tempo_test::{
     assert_exit_code, charge_www_authenticate_with_realm, get_combined_output, setup_config_only,
-    write_test_files, MockRpcServer, MockServer, PaymentTestHarness, TestConfigBuilder,
-    MODERATO_CHARGE_CHALLENGE, MODERATO_PRIVATE_KEY,
+    write_test_files, zero_charge_www_authenticate_with_realm, MockRpcServer, MockServer,
+    PaymentTestHarness, TestConfigBuilder, MODERATO_CHARGE_CHALLENGE, MODERATO_PRIVATE_KEY,
 };
 
 fn parse_events_log(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {

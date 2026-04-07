@@ -474,6 +474,84 @@ key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
     );
 }
 
+// ==================== Zero-Amount Proof Credential Flow ====================
+
+/// Test the full 402 → proof credential → 200 flow for zero-amount charges.
+///
+/// Verifies that tempo-request correctly:
+/// 1. Receives a 402 with a zero-amount charge challenge
+/// 2. Signs an EIP-712 proof credential (no transaction)
+/// 3. Submits the proof credential and receives a 200
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_402_zero_amount_proof_flow() {
+    let h = PaymentTestHarness::zero_amount_charge("identity verified").await;
+
+    let output = test_command(&h.temp)
+        .args(["-v", &h.url("/api")])
+        .output()
+        .unwrap();
+
+    assert_success(&output, "expected zero-amount proof flow to succeed");
+    assert_stdout_contains(
+        &output,
+        "identity verified",
+        "stdout should contain success body",
+    );
+}
+
+/// Zero-amount proof flow logs "proof credential" in verbose mode.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_402_zero_amount_proof_narration() {
+    let h = PaymentTestHarness::zero_amount_charge("proof ok").await;
+
+    let output = test_command(&h.temp)
+        .args(["-v", &h.url("/api")])
+        .output()
+        .unwrap();
+
+    assert_success(&output, "zero-amount proof narration should succeed");
+    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+    assert!(
+        stderr.contains("proof credential"),
+        "should narrate proof credential flow: {stderr}"
+    );
+}
+
+/// Zero-amount proof flow with --private-key flag (no keys.toml).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_402_zero_amount_proof_with_private_key() {
+    let rpc = MockRpcServer::start(42431).await;
+    let server = MockServer::start_payment_deferred("proof pk ok").await;
+    let www_auth = zero_charge_www_authenticate_with_realm("test-zero-pk", &server.base_url);
+    server.set_www_authenticate(&www_auth);
+
+    let temp = tempfile::TempDir::new().unwrap();
+    setup_config_only(&temp, &rpc.base_url);
+
+    let output = test_command(&temp)
+        .args([
+            "-v",
+            "--private-key",
+            MODERATO_PRIVATE_KEY,
+            &server.url("/api"),
+        ])
+        .output()
+        .unwrap();
+
+    let combined = get_combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected --private-key zero-amount proof to succeed: {combined}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("proof pk ok"),
+        "stdout should contain success body: {combined}"
+    );
+}
+
+// ==================== --private-key Flag ====================
+
 /// Non-402 response works fine with --private-key (key is ignored, no payment).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn private_key_no_payment_needed() {
