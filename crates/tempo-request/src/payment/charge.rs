@@ -21,6 +21,10 @@ use super::{
 };
 use tempo_common::payment::{classify_payment_error, map_mpp_validation_error};
 
+/// Client identifier for MPP attribution memos, written into the on-chain
+/// transaction data so charge payments can be attributed to the Tempo CLI.
+const CLIENT_ID: &str = "tempo-cli";
+
 /// Whether a post-submission HTTP status code warrants a provisioning retry.
 ///
 /// Only auth/payment codes (401–403) and server errors (5xx) are retried.
@@ -79,6 +83,7 @@ pub(super) async fn handle_charge_request(
                 provider: "tempo payment provider",
                 source: Box::new(source),
             })?
+            .with_client_id(CLIENT_ID)
             .with_signing_mode(signer.signing_mode.clone());
 
     let credential = match provider.pay(challenge).await {
@@ -103,6 +108,7 @@ pub(super) async fn handle_charge_request(
                 provider: "tempo payment provider (provisioning retry)",
                 source: Box::new(source),
             })?
+            .with_client_id(CLIENT_ID)
             .with_signing_mode(provisioning_signer.signing_mode);
             retry_provider
                 .pay(challenge)
@@ -145,6 +151,7 @@ pub(super) async fn handle_charge_request(
                 provider: "tempo payment provider (provisioning retry)",
                 source: Box::new(source),
             })?
+            .with_client_id(CLIENT_ID)
             .with_signing_mode(provisioning_signer.signing_mode);
             let original_resp_rejection = parse_payment_rejection(&resp);
             let retry_credential = retry_provider
@@ -217,6 +224,7 @@ async fn handle_zero_amount_charge(
                 provider: "tempo payment provider",
                 source: Box::new(source),
             })?
+            .with_client_id(CLIENT_ID)
             .with_signing_mode(signer.signing_mode.clone());
 
     let credential = provider
