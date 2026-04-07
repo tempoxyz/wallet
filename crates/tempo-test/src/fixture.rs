@@ -36,6 +36,10 @@ key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 /// (1 USDC.e to address, chain 42431).
 pub const MODERATO_CHARGE_CHALLENGE: &str = "eyJhbW91bnQiOiIxMDAwMDAwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
 
+/// Base64url-no-padding of canonical JSON for a zero-amount Moderato charge
+/// challenge (identity/proof flow, chain 42431).
+pub const MODERATO_ZERO_CHARGE_CHALLENGE: &str = "eyJhbW91bnQiOiIwIiwiY3VycmVuY3kiOiIweDIwYzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtZXRob2REZXRhaWxzIjp7ImNoYWluSWQiOjQyNDMxfSwicmVjaXBpZW50IjoiMHg3MDk5Nzk3MEM1MTgxMmRjM0EwMTBDN2QwMWI1MGUwZDE3ZGM3OUM4In0";
+
 /// Build a WWW-Authenticate header for a Moderato charge challenge.
 ///
 /// `realm` is included in the challenge as an opaque identifier per the spec.
@@ -49,6 +53,18 @@ pub fn charge_www_authenticate_with_realm(id: &str, realm: &str) -> String {
         .unwrap_or(realm);
     format!(
         r#"Payment id="{id}", realm="{realm}", method="tempo", intent="charge", request="{MODERATO_CHARGE_CHALLENGE}""#
+    )
+}
+
+/// Build a WWW-Authenticate header for a zero-amount Moderato charge challenge.
+#[must_use]
+pub fn zero_charge_www_authenticate_with_realm(id: &str, realm: &str) -> String {
+    let realm = realm
+        .strip_prefix("https://")
+        .or_else(|| realm.strip_prefix("http://"))
+        .unwrap_or(realm);
+    format!(
+        r#"Payment id="{id}", realm="{realm}", method="tempo", intent="charge", request="{MODERATO_ZERO_CHARGE_CHALLENGE}""#
     )
 }
 
@@ -286,6 +302,23 @@ impl PaymentTestHarness {
         server.set_www_authenticate(&www_auth);
         let temp = TestConfigBuilder::new()
             .with_keys_toml(keys_toml)
+            .with_config_toml(format!(
+                "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
+                rpc.base_url
+            ))
+            .build();
+        Self { rpc, server, temp }
+    }
+
+    /// Zero-amount charge flow (proof credential, no transaction).
+    pub async fn zero_amount_charge(body: &str) -> Self {
+        let rpc = MockRpcServer::start(42431).await;
+        let server = MockServer::start_payment_deferred(body).await;
+        let www_auth =
+            zero_charge_www_authenticate_with_realm("test-zero-charge", &server.base_url);
+        server.set_www_authenticate(&www_auth);
+        let temp = TestConfigBuilder::new()
+            .with_keys_toml(MODERATO_DIRECT_KEYS_TOML)
             .with_config_toml(format!(
                 "[rpc]\n\"tempo-moderato\" = \"{}\"\n",
                 rpc.base_url
