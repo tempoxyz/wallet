@@ -2,6 +2,9 @@
 //!
 //! This module handles the MPP protocol (<https://mpp.dev>) which uses
 //! WWW-Authenticate and Authorization headers for HTTP-native payments.
+//!
+//! For zero-amount charges (`amount = "0"`), the mpp SDK signs an EIP-712
+//! proof credential instead of creating a transaction.
 
 use mpp::client::PaymentProvider;
 
@@ -42,6 +45,18 @@ pub(super) async fn handle_charge_request(
     challenge
         .validate_for_charge("tempo")
         .map_err(|e| map_mpp_validation_error(e, challenge))?;
+
+    // Detect zero-amount charges — these use EIP-712 proof credentials
+    // instead of transactions, so they skip the origin lock and dry-run tx flow.
+    let is_zero_amount = challenge
+        .request
+        .decode::<mpp::ChargeRequest>()
+        .ok()
+        .is_some_and(|r| r.amount == "0");
+
+    if is_zero_amount {
+        return handle_zero_amount_charge(http, url, &resolved, &signer).await;
+    }
 
     if http.dry_run {
         eprintln!("[DRY RUN] Signed transaction ready, skipping submission.");
@@ -163,6 +178,60 @@ pub(super) async fn handle_charge_request(
 
     Ok(PaymentResult {
         tx_hash,
+        channel_id: None,
+        status_code: resp.status_code,
+        response: Some(resp),
+    })
+}
+
+/// Handle a zero-amount charge by signing an EIP-712 proof credential.
+///
+/// Zero-amount charges prove wallet ownership without moving funds.
+/// The mpp SDK's `TempoProvider::pay()` returns a proof credential
+/// automatically when the challenge amount is zero.
+async fn handle_zero_amount_charge(
+    http: &HttpClient,
+    url: &str,
+    resolved: &ResolvedChallenge,
+    signer: &Signer,
+) -> Result<PaymentResult, TempoError> {
+    let challenge = &resolved.challenge;
+
+    if http.log_enabled() {
+        eprintln!("Zero-amount charge: signing proof credential (no transaction)");
+    }
+
+    if http.dry_run {
+        eprintln!("[DRY RUN] Proof credential ready, skipping submission.");
+        return Ok(PaymentResult {
+            tx_hash: None,
+            channel_id: None,
+            status_code: 200,
+            response: None,
+        });
+    }
+
+    let provider =
+        mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str()).map_err(
+            |source| ConfigError::ProviderInitSource {
+                provider: "tempo payment provider",
+                source: Box::new(source),
+            },
+        )?;
+
+    let credential = provider
+        .pay(challenge)
+        .await
+        .map_err(|e| classify_payment_error(e, &resolved.network_id))?;
+
+    let resp = submit_credential(http, url, &credential).await?;
+
+    if resp.status_code >= 400 {
+        return Err(parse_payment_rejection(&resp).into());
+    }
+
+    Ok(PaymentResult {
+        tx_hash: None,
         channel_id: None,
         status_code: resp.status_code,
         response: Some(resp),
