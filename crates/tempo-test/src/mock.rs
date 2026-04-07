@@ -17,6 +17,8 @@ pub struct MockServer {
     _handle: tokio::task::JoinHandle<()>,
     /// Deferred www-authenticate header (set after server binds).
     www_auth_tx: Option<std::sync::Arc<tokio::sync::watch::Sender<String>>>,
+    /// Authorization header values captured from paid requests.
+    captured_auth: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl MockServer {
@@ -70,6 +72,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: None,
+            captured_auth: Default::default(),
         }
     }
 
@@ -123,6 +126,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: None,
+            captured_auth: Default::default(),
         }
     }
 
@@ -186,6 +190,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: None,
+            captured_auth: Default::default(),
         }
     }
 
@@ -207,14 +212,20 @@ impl MockServer {
         let (watch_tx, watch_rx) = tokio::sync::watch::channel(String::new());
         let watch_tx = std::sync::Arc::new(watch_tx);
         let owned_body = success_body.to_string();
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let cap = captured.clone();
 
         let app = Router::new().route(
             "/{*path}",
             any(move |headers: axum::http::HeaderMap| {
                 let rx = watch_rx.clone();
                 let b = owned_body.clone();
+                let cap = cap.clone();
                 async move {
-                    if headers.get("authorization").is_some() {
+                    if let Some(auth) = headers.get("authorization") {
+                        if let Ok(v) = auth.to_str() {
+                            cap.lock().unwrap().push(v.to_string());
+                        }
                         (StatusCode::OK, b).into_response()
                     } else {
                         let h = rx.borrow().clone();
@@ -245,6 +256,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: Some(watch_tx),
+            captured_auth: captured,
         }
     }
 
@@ -304,6 +316,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: Some(watch_tx),
+            captured_auth: Default::default(),
         }
     }
 
@@ -364,6 +377,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: Some(watch_tx),
+            captured_auth: Default::default(),
         }
     }
 
@@ -409,6 +423,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: None,
+            captured_auth: Default::default(),
         }
     }
 
@@ -470,6 +485,7 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: None,
+            captured_auth: Default::default(),
         }
     }
 
@@ -515,7 +531,13 @@ impl MockServer {
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
             www_auth_tx: None,
+            captured_auth: Default::default(),
         }
+    }
+
+    /// Returns Authorization header values captured from paid requests.
+    pub fn captured_auth_headers(&self) -> Vec<String> {
+        self.captured_auth.lock().unwrap().clone()
     }
 
     /// Get the full URL for a path on this server.

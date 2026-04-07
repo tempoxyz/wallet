@@ -23,7 +23,7 @@ use tempo_common::payment::{classify_payment_error, map_mpp_validation_error};
 
 /// Client identifier for MPP attribution memos, written into the on-chain
 /// transaction data so charge payments can be attributed to the Tempo CLI.
-const CLIENT_ID: &str = "tempo-cli";
+const CLIENT_ID: &str = "tempo-wallet";
 
 /// Whether a post-submission HTTP status code warrants a provisioning retry.
 ///
