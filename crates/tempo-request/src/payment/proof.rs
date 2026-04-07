@@ -10,9 +10,11 @@
 //! - Payload: `{ type: "proof", signature: "0x..." }`
 //! - Source: `did:pkh:eip155:{chainId}:{address}`
 
-use alloy::primitives::Address;
-use alloy::signers::Signer;
-use alloy::sol_types::{eip712_domain, SolStruct};
+use alloy::{
+    primitives::Address,
+    signers::Signer,
+    sol_types::{eip712_domain, SolStruct},
+};
 
 use mpp::PaymentChallenge;
 

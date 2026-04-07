@@ -6,8 +6,7 @@
 //! For zero-amount charges (`amount = "0"`), the client signs an EIP-712
 //! proof credential instead of creating a transaction. See [`super::proof`].
 
-use mpp::client::PaymentProvider;
-use mpp::protocol::methods::tempo::TempoChargeExt;
+use mpp::{client::PaymentProvider, protocol::methods::tempo::TempoChargeExt};
 
 use crate::http::{HttpClient, HttpResponse};
 use tempo_common::{
