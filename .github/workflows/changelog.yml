@@ -26,7 +26,7 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          CHANGELOGS=$(git diff --name-only origin/${BASE_REF}...HEAD -- '.changelog/*.md' | grep -v config.toml || true)
+          CHANGELOGS=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- '.changelog/*.md' | grep -v config.toml || true)
           if [ -z "$CHANGELOGS" ]; then
             echo "::error::A changelog entry is required for this PR. Add a .changelog/*.md file."
             exit 1
