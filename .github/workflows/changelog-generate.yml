@@ -21,8 +21,11 @@ jobs:
     steps:
       - name: Determine PR source
         id: source
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
         run: |
-          if [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+          if [ "$HEAD_REPO" = "$THIS_REPO" ]; then
             echo "same_repo=true" >> "$GITHUB_OUTPUT"
           else
             echo "same_repo=false" >> "$GITHUB_OUTPUT"
@@ -42,18 +45,21 @@ jobs:
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: steps.source.outputs.same_repo == 'true'
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           token: ${{ secrets.GH_PAT }}
+          persist-credentials: false
 
       - name: Fetch base branch for diff comparison
         if: steps.source.outputs.same_repo == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch origin "${{ github.base_ref }}"
+          git fetch origin "$BASE_REF"
 
       - name: Configure git credentials for private dependencies
         if: steps.source.outputs.same_repo == 'true'
@@ -62,8 +68,10 @@ jobs:
       - name: Check for existing changelog
         if: steps.source.outputs.same_repo == 'true'
         id: existing
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          if git diff "origin/${{ github.base_ref }}...HEAD" --name-only | grep -q '^\.changelog/.*\.md$'; then
+          if git diff "origin/${BASE_REF}...HEAD" --name-only | grep -q '^\.changelog/.*\.md$'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -75,7 +83,7 @@ jobs:
 
       - name: Install claude
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
-        run: npm install -g @anthropic-ai/claude-code
+        run: npm install -g @anthropic-ai/claude-code@1.0.3
 
       - name: Extract bump level from label
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
@@ -89,6 +97,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BUMP_LEVEL: ${{ steps.bump.outputs.level }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           cat > /tmp/changelog-instructions.md << 'PROMPT'
           Generate a changelog entry for this git diff.
@@ -114,28 +123,35 @@ jobs:
           {diff}
           PROMPT
           sed -i "s/BUMP_LEVEL/$BUMP_LEVEL/g" /tmp/changelog-instructions.md
-          changelogs add --ai "claude -p" --ref "origin/${{ github.base_ref }}" \
+          changelogs add --ai "claude -p" --ref "origin/${BASE_REF}" \
             --instructions "$(cat /tmp/changelog-instructions.md)"
 
       - name: Commit and push changelog
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
+        env:
+          VALIDATED_REF: ${{ steps.ref.outputs.ref }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .changelog/
           git commit -m "chore: add changelog"
-          git push origin "HEAD:${{ steps.ref.outputs.ref }}"
+          git push origin "HEAD:${VALIDATED_REF}"
 
       - name: Comment for fork PRs
         if: steps.source.outputs.same_repo != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.number }}
+          REPO: ${{ github.repository }}
         run: |
-          gh pr comment "${{ github.event.number }}" --repo "${{ github.repository }}" --body "Changelog auto-generation is only supported for same-repo branches. For fork PRs, please add a changelog file manually under .changelog/."
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "Changelog auto-generation is only supported for same-repo branches. For fork PRs, please add a changelog file manually under .changelog/."
 
       - name: Remove label
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr edit ${{ github.event.number }} --repo "${{ github.repository }}" --remove-label "${{ github.event.label.name }}"
+          PR_NUMBER: ${{ github.event.number }}
+          REPO: ${{ github.repository }}
+          LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL"
