@@ -79,7 +79,15 @@ jobs:
 
       - name: Install changelogs
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
-        run: curl -sSL https://changelogs.sh | sh -s -- changelogs@0.6.2
+        run: |
+          EXPECTED_SHA256="34bca37144e400d167f936d83c092da4b032591a74ae8c0175c3a42d716cc54c"
+          curl -fsSL "https://github.com/tempoxyz/changelogs/releases/download/changelogs%400.6.2/changelogs-linux-amd64" -o /usr/local/bin/changelogs
+          ACTUAL_SHA256=$(sha256sum /usr/local/bin/changelogs | cut -d' ' -f1)
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::changelogs checksum mismatch: expected $EXPECTED_SHA256, got $ACTUAL_SHA256"
+            exit 1
+          fi
+          chmod +x /usr/local/bin/changelogs
 
       - name: Install claude
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
