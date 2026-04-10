@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 (2026-04-10)
+
+### Patch Changes
+
+- Pass `signing_mode` to `TempoProvider` in the zero-amount charge path, matching the paid charge path. Without this, the provider defaults to Direct mode and ignores keychain configuration.
+
 ## 0.4.0 (2026-04-07)
 
 ### Minor Changes
