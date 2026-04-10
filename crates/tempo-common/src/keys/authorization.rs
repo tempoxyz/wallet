@@ -80,7 +80,7 @@ pub fn validate(
         .into());
     }
 
-    let expiry = signed.authorization.expiry.unwrap_or(0);
+    let expiry = signed.authorization.expiry.map_or(0, |e| e.get());
     let chain_id = signed.authorization.chain_id;
 
     let key_type = match signed.authorization.key_type {
@@ -152,7 +152,7 @@ pub fn sign(
         chain_id,
         key_type: SignatureType::Secp256k1,
         key_id: access_signer.address(),
-        expiry: Some(expiry_secs),
+        expiry: std::num::NonZero::new(expiry_secs),
         limits: Some(token_limits),
         allowed_calls: None,
     };
@@ -214,7 +214,7 @@ mod tests {
             chain_id: 42431,
             key_type: SignatureType::Secp256k1,
             key_id,
-            expiry: Some(9_999_999_999),
+            expiry: std::num::NonZero::new(9_999_999_999),
             limits: None,
             allowed_calls: None,
         };

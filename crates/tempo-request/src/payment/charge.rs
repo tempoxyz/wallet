@@ -212,12 +212,12 @@ async fn handle_zero_amount_charge(
     }
 
     let provider =
-        mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str()).map_err(
-            |source| ConfigError::ProviderInitSource {
+        mpp::client::TempoProvider::new(signer.signer.clone(), resolved.rpc_url.as_str())
+            .map_err(|source| ConfigError::ProviderInitSource {
                 provider: "tempo payment provider",
                 source: Box::new(source),
-            },
-        )?;
+            })?
+            .with_signing_mode(signer.signing_mode.clone());
 
     let credential = provider
         .pay(challenge)
