@@ -81,13 +81,14 @@ jobs:
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
         run: |
           EXPECTED_SHA256="34bca37144e400d167f936d83c092da4b032591a74ae8c0175c3a42d716cc54c"
-          curl -fsSL "https://github.com/tempoxyz/changelogs/releases/download/changelogs%400.6.2/changelogs-linux-amd64" -o /usr/local/bin/changelogs
-          ACTUAL_SHA256=$(sha256sum /usr/local/bin/changelogs | cut -d' ' -f1)
+          CHANGELOGS_BIN="$RUNNER_TEMP/changelogs"
+          curl -fsSL "https://github.com/tempoxyz/changelogs/releases/download/changelogs%400.6.2/changelogs-linux-amd64" -o "$CHANGELOGS_BIN"
+          ACTUAL_SHA256=$(sha256sum "$CHANGELOGS_BIN" | cut -d' ' -f1)
           if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
             echo "::error::changelogs checksum mismatch: expected $EXPECTED_SHA256, got $ACTUAL_SHA256"
             exit 1
           fi
-          chmod +x /usr/local/bin/changelogs
+          chmod +x "$CHANGELOGS_BIN"
 
       - name: Install claude
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
@@ -107,6 +108,7 @@ jobs:
           BUMP_LEVEL: ${{ steps.bump.outputs.level }}
           BASE_REF: ${{ github.base_ref }}
         run: |
+          CHANGELOGS_BIN="$RUNNER_TEMP/changelogs"
           cat > /tmp/changelog-instructions.md << 'PROMPT'
           Generate a changelog entry for this git diff.
 
@@ -131,7 +133,7 @@ jobs:
           {diff}
           PROMPT
           sed -i "s/BUMP_LEVEL/$BUMP_LEVEL/g" /tmp/changelog-instructions.md
-          changelogs add --ai "claude -p" --ref "origin/${BASE_REF}" \
+          "$CHANGELOGS_BIN" add --ai "claude -p" --ref "origin/${BASE_REF}" \
             --instructions "$(cat /tmp/changelog-instructions.md)"
 
       - name: Commit and push changelog
