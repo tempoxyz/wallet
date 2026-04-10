@@ -1032,9 +1032,28 @@ async fn deposit_stage(
     let mut clamped_deposit = None;
 
     let provider = alloy::providers::RootProvider::new_http(resolved.rpc_url.clone());
-    if let Ok(balance) =
-        session::query_token_balance(&provider, challenge.token, challenge.from).await
-    {
+
+    // Look up the balance_mapping_slot for the challenge token. For known
+    // Tempo tokens use the network-configured slot; otherwise default to 0.
+    let balance_slot = tempo_common::network::NetworkId::from_chain_id(challenge.chain_id)
+        .map(|n| n.token())
+        .filter(|t| t.address == challenge.token)
+        .map_or(0, |t| t.balance_mapping_slot);
+
+    let balance_result = match tempo_common::proof::pin_latest_block(&provider).await {
+        Ok(block) => {
+            session::query_token_balance_verified(
+                &provider,
+                challenge.token,
+                challenge.from,
+                balance_slot,
+                &block,
+            )
+            .await
+        }
+        Err(_) => session::query_token_balance(&provider, challenge.token, challenge.from).await,
+    };
+    if let Ok(balance) = balance_result {
         let balance_u128: u128 = balance.try_into().unwrap_or(u128::MAX);
         let usable = balance_u128 / 2;
         if usable < deposit {
