@@ -6,6 +6,10 @@ on:
   issue_comment:
     types: [created]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   pr-audit:
     if: >-
@@ -16,4 +20,7 @@ jobs:
         contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
       )
     uses: tempoxyz/gh-actions/.github/workflows/pr-audit.yml@1a49d3e9f9983a55832d7163faa970b7ba3c1af9
-    secrets: inherit
+    secrets:
+      EVENTS_KEY: ${{ secrets.EVENTS_KEY }}
+      EVENTS_CERT: ${{ secrets.EVENTS_CERT }}
+      EVENTS_ARGS: ${{ secrets.EVENTS_ARGS }}
