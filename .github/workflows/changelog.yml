@@ -14,16 +14,19 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Run changelog action (same-repo PRs)
         if: github.event.pull_request.head.repo.full_name == github.repository
         uses: tempoxyz/changelogs/check@b0179e7300997dfa5a631a6a7a2de248bf63310f # changelogs@0.6.3 + unified PR title + install from source
       - name: Verify changelog entry exists
         if: github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          CHANGELOGS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- '.changelog/*.md' | grep -v config.toml || true)
+          CHANGELOGS=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- '.changelog/*.md' | grep -v config.toml || true)
           if [ -z "$CHANGELOGS" ]; then
             echo "::error::A changelog entry is required for this PR. Add a .changelog/*.md file."
             exit 1
