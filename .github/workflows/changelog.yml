@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
       - name: Run changelog action (same-repo PRs)
         if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: tempoxyz/changelogs/check@04ccca87f4785039ced6da0fff27ba29c0dd9f5c # changelogs@0.6.3 + unified PR title + install from source
+        uses: tempoxyz/changelogs/check@b0179e7300997dfa5a631a6a7a2de248bf63310f # changelogs@0.6.3 + unified PR title + install from source
       - name: Verify changelog entry exists
         if: github.event.pull_request.head.repo.full_name != github.repository
         run: |
