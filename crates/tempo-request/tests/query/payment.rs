@@ -278,6 +278,55 @@ async fn status_402_charge_flow_keychain() {
     );
 }
 
+// ==================== Client ID Attribution ====================
+
+/// Charge flow sends an Authorization credential whose embedded transaction
+/// contains the "tempo-wallet" client fingerprint in the MPP attribution memo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_402_charge_flow_sends_client_id_in_credential() {
+    let h = PaymentTestHarness::charge_with_body("client id ok").await;
+
+    let output = test_command(&h.temp)
+        .args([&h.url("/api")])
+        .output()
+        .unwrap();
+
+    assert_success(&output, "charge flow with client id should succeed");
+
+    let auth_headers = h.server.captured_auth_headers();
+    assert!(
+        !auth_headers.is_empty(),
+        "expected at least one Authorization header from the paid request"
+    );
+
+    // The credential contains the signed transaction which includes the
+    // keccak256("tempo-wallet")[0..10] fingerprint in the attribution memo.
+    let client_fingerprint = {
+        let hash = alloy::primitives::keccak256(b"tempo-wallet");
+        hex::encode(&hash[..10])
+    };
+    // The credential is "Payment <base64-json>" where the JSON contains
+    // hex-encoded transaction bytes with the attribution memo inside.
+    let header = &auth_headers[0];
+    let payload_b64 = header.strip_prefix("Payment ").unwrap_or(header);
+    let decoded = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD_NO_PAD,
+        payload_b64,
+    )
+    .or_else(|_| {
+        base64::Engine::decode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            payload_b64,
+        )
+    })
+    .expect("credential should be valid base64");
+    let decoded_str = String::from_utf8_lossy(&decoded);
+    assert!(
+        decoded_str.contains(&client_fingerprint),
+        "decoded credential should contain tempo-wallet client fingerprint ({client_fingerprint})"
+    );
+}
+
 // ==================== --private-key Flag ====================
 
 /// The 402 charge flow works with --private-key (no keys.toml needed).
