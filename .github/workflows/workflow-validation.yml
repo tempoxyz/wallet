@@ -31,7 +31,13 @@ jobs:
         run: |
           set -euo pipefail
           version=1.7.8
-          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz" -o /tmp/actionlint.tgz
+          expected_sha256="be92c2652ab7b6d08425428797ceabeb16e31a781c07bc388456b4e592f3e36a"
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz" -o /tmp/actionlint.tgz
+          actual_sha256=$(sha256sum /tmp/actionlint.tgz | cut -d' ' -f1)
+          if [ "$actual_sha256" != "$expected_sha256" ]; then
+            echo "::error::actionlint checksum mismatch: expected $expected_sha256, got $actual_sha256"
+            exit 1
+          fi
           tar -xzf /tmp/actionlint.tgz -C /tmp
           sudo mv /tmp/actionlint /usr/local/bin/actionlint
       - name: Run actionlint
