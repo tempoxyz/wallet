@@ -6660,7 +6660,6 @@ dependencies = [
  "clap",
  "colored",
  "dirs",
- "futures",
  "getrandom 0.4.2",
  "hex",
  "hostname",
