@@ -47,7 +47,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
 tempfile = "3.27"
-tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", features = ["serde"] }
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "7d809cf350e35c92b420a18672222b710f86f77a", features = ["serde"] }
 thiserror = "2.0"
 time = "0.3"
 tokio = { version = "1.51", features = ["macros", "rt-multi-thread", "signal"] }
@@ -68,5 +68,5 @@ predicates = "3.1"
 serial_test = "3.2"
 
 [patch.crates-io]
-tempo-alloy = { git = "https://github.com/tempoxyz/tempo.git" }
-tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git" }
+tempo-alloy = { git = "https://github.com/tempoxyz/tempo.git", rev = "7d809cf350e35c92b420a18672222b710f86f77a" }
+tempo-primitives = { git = "https://github.com/tempoxyz/tempo.git", rev = "7d809cf350e35c92b420a18672222b710f86f77a" }
