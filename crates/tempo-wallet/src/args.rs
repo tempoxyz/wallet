@@ -35,10 +35,34 @@ pub(crate) enum Commands {
         /// Do not attempt to open a browser
         #[arg(long)]
         no_browser: bool,
+
+        /// Token spend limit in human units (default: 1000)
+        #[arg(long)]
+        limit: Option<u64>,
+
+        /// Access-key expiry in seconds (default: 3600)
+        #[arg(long)]
+        expiry: Option<u64>,
+
+        /// TIP-20 token address for the spend limit (defaults to the selected network token)
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Refresh your access key without logging out
     #[command(display_order = 2)]
-    Refresh,
+    Refresh {
+        /// Token spend limit in human units (default: 1000)
+        #[arg(long)]
+        limit: Option<u64>,
+
+        /// Access-key expiry in seconds (default: 3600)
+        #[arg(long)]
+        expiry: Option<u64>,
+
+        /// TIP-20 token address for the spend limit (defaults to the selected network token)
+        #[arg(long)]
+        token: Option<String>,
+    },
     /// Log out and disconnect your wallet
     #[command(display_order = 3)]
     Logout {

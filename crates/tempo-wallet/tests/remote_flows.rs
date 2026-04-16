@@ -18,6 +18,7 @@ const BALANCE_OF_SELECTOR: &str = "70a08231";
 struct MockLoginServer {
     base_url: String,
     poll_count: Arc<Mutex<u32>>,
+    last_device_code_request: Arc<Mutex<Option<serde_json::Value>>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     _handle: tokio::task::JoinHandle<()>,
 }
@@ -32,13 +33,19 @@ impl MockLoginServer {
         let device_code = code.to_string();
         let poll_code = code.to_string();
         let poll_state = poll_count.clone();
+        let last_device_code_request = Arc::new(Mutex::new(None));
+        let captured_device_code_request = last_device_code_request.clone();
 
         let app = Router::new()
             .route(
                 "/cli-auth/device-code",
-                post(move || {
+                post(move |Json(body): Json<serde_json::Value>| {
                     let code = device_code.clone();
-                    async move { Json(json!({ "code": code })) }
+                    let captured_device_code_request = captured_device_code_request.clone();
+                    async move {
+                        *captured_device_code_request.lock().unwrap() = Some(body);
+                        Json(json!({ "code": code }))
+                    }
                 }),
             )
             .route(
@@ -80,6 +87,7 @@ impl MockLoginServer {
         Self {
             base_url,
             poll_count,
+            last_device_code_request,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
         }
@@ -442,6 +450,40 @@ async fn login_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_t
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Wallet"), "{stdout}");
     assert_eq!(*login.poll_count.lock().unwrap(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn login_with_token_uses_requested_spend_limit_token() {
+    let login = MockLoginServer::start_authorized("ANMGE375").await;
+    let rpc = BalanceSequenceRpcServer::start(vec!["0"]).await;
+    let temp = build_login_temp(&rpc.base_url);
+    let custom_token = "0x1111111111111111111111111111111111111111";
+
+    let output = test_command(&temp)
+        .env("TEMPO_AUTH_URL", login.auth_url())
+        .args([
+            "-n",
+            "tempo-moderato",
+            "login",
+            "--no-browser",
+            "--limit",
+            "42",
+            "--token",
+            custom_token,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "login should succeed: {output:?}");
+
+    let request = login
+        .last_device_code_request
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("device-code request should be captured");
+    assert_eq!(request["limits"][0]["token"], custom_token);
+    assert_eq!(request["limits"][0]["limit"], "0x280de80");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
