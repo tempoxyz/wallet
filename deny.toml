@@ -9,14 +9,6 @@ ignore = [
   "RUSTSEC-2024-0320",
   # rustls-pemfile is unmaintained; retained via reqwest 0.11 in posthog-rs
   "RUSTSEC-2025-0134",
-  # rustls-webpki fix is not yet available on the reqwest 0.11/rustls 0.21 path
-  "RUSTSEC-2026-0049",
-  # tracing-subscriber 0.2 is pinned by ark-relations via revm-precompile; no upgrade path
-  "RUSTSEC-2025-0055",
-  # derivative is unmaintained; pinned by ark-ff via revm-precompile
-  "RUSTSEC-2024-0388",
-  # lru 0.12 is pinned by ratatui 0.29 via toon-format; 0.16.3 already in tree for other consumers
-  "RUSTSEC-2026-0002",
 ]
 
 [bans]
