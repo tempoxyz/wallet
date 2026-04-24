@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
       - name: Run changelog action (same-repo PRs)
         if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: tempoxyz/changelogs/check@54f693643e1bd8469293bdfcbfb647bceb559490 # changelogs@0.6.3 + unified PR title + install from source
+        uses: tempoxyz/changelogs/check@bddf29852a5c9b8e1d84f1cc19b5023916d0d0db # changelogs@0.6.3 + unified PR title + install from source
       - name: Verify changelog entry exists
         if: github.event.pull_request.head.repo.full_name != github.repository
         env:
