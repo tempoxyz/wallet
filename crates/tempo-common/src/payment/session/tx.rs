@@ -20,6 +20,7 @@ use mpp::{
 use crate::{
     error::{KeyError, NetworkError, TempoError},
     keys::Signer,
+    payment::classify::classify_tempo_rpc_error,
 };
 
 type ChannelResult<T> = Result<T, TempoError>;
@@ -61,6 +62,10 @@ fn expiring_valid_before() -> u64 {
         .unwrap_or_default()
         .as_secs()
         + VALID_BEFORE_SECS
+}
+
+fn classify_tx_error(err: &impl std::fmt::Display) -> Option<TempoError> {
+    classify_tempo_rpc_error(err.to_string())
 }
 
 /// Estimate gas, build and sign a Tempo type-0x76 transaction.
@@ -163,17 +168,26 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
 
             tx_builder::estimate_gas(provider, gas_request)
                 .await
-                .map_err(|_| KeyError::SigningOperationSource {
-                    operation: "estimate gas",
-                    source: Box::new(original),
+                .map_err(|source| {
+                    classify_tx_error(&source)
+                        .or_else(|| classify_tx_error(&original))
+                        .unwrap_or_else(|| {
+                            KeyError::SigningOperationSource {
+                                operation: "estimate gas",
+                                source: Box::new(original),
+                            }
+                            .into()
+                        })
                 })?
         }
         Err(e) => {
-            return Err(KeyError::SigningOperationSource {
-                operation: "estimate gas",
-                source: Box::new(e),
-            }
-            .into())
+            return Err(classify_tx_error(&e).unwrap_or_else(|| {
+                KeyError::SigningOperationSource {
+                    operation: "estimate gas",
+                    source: Box::new(e),
+                }
+                .into()
+            }))
         }
     };
 
@@ -246,17 +260,26 @@ pub async fn submit_tempo_tx(
             let pending = provider
                 .send_raw_transaction(&retry_bytes)
                 .await
-                .map_err(|_| NetworkError::RpcSource {
-                    operation: "broadcast transaction",
-                    source: Box::new(original),
+                .map_err(|source| {
+                    classify_tx_error(&source)
+                        .or_else(|| classify_tx_error(&original))
+                        .unwrap_or_else(|| {
+                            NetworkError::RpcSource {
+                                operation: "broadcast transaction",
+                                source: Box::new(original),
+                            }
+                            .into()
+                        })
                 })?;
             Ok(format!("{:#x}", pending.tx_hash()))
         }
-        Err(source) => Err(NetworkError::RpcSource {
-            operation: "broadcast transaction",
-            source: Box::new(source),
-        }
-        .into()),
+        Err(source) => Err(classify_tx_error(&source).unwrap_or_else(|| {
+            NetworkError::RpcSource {
+                operation: "broadcast transaction",
+                source: Box::new(source),
+            }
+            .into()
+        })),
     }
 }
 

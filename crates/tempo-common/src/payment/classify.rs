@@ -29,6 +29,8 @@ pub const SESSION_PROBLEM_INVALID_SIGNATURE: &str =
 pub const SESSION_PROBLEM_SIGNER_MISMATCH: &str =
     "https://paymentauth.org/problems/session/signer-mismatch";
 
+const SPENDING_LIMIT_EXCEEDED_SELECTOR: &str = "0x8a9e71ea";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionProblemType {
     ChannelNotFound,
@@ -115,6 +117,28 @@ pub fn map_mpp_validation_error(
     }
 }
 
+/// Classify a Tempo RPC error display string into a typed CLI error.
+///
+/// This covers wallet-owned transaction paths that submit directly through
+/// Alloy and may only expose raw revert selectors.
+#[must_use]
+pub fn classify_tempo_rpc_error(message: impl AsRef<str>) -> Option<crate::error::TempoError> {
+    let lower = message.as_ref().to_lowercase();
+
+    if lower.contains(SPENDING_LIMIT_EXCEEDED_SELECTOR)
+        || lower.contains("spendinglimitexceeded")
+        || lower.contains("spending limit")
+    {
+        return Some(PaymentError::AccessKeySpendingLimitExceeded.into());
+    }
+
+    if lower.contains("revoked") {
+        return Some(PaymentError::AccessKeyRevoked.into());
+    }
+
+    None
+}
+
 /// Classify an mpp provider error into a `TempoError` with actionable context.
 #[must_use]
 pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate::error::TempoError {
@@ -164,8 +188,8 @@ pub fn classify_payment_error(err: mpp::MppError, network: &NetworkId) -> crate:
                 .into()
             }
             TempoClientError::TransactionReverted(msg) => {
-                if msg.contains("revoked") {
-                    PaymentError::AccessKeyRevoked.into()
+                if let Some(err) = classify_tempo_rpc_error(&msg) {
+                    err
                 } else {
                     PaymentError::TransactionReverted(msg).into()
                 }
@@ -404,6 +428,27 @@ mod tests {
         assert!(matches!(
             classify_payment_error(err, &NetworkId::Tempo),
             TempoError::Payment(PaymentError::AccessKeyRevoked)
+        ));
+    }
+
+    #[test]
+    fn test_classify_transaction_reverted_with_spending_limit_selector() {
+        let err = mpp::MppError::Tempo(mpp::client::TempoClientError::TransactionReverted(
+            "execution reverted: 0x8a9e71ea".to_string(),
+        ));
+        assert!(matches!(
+            classify_payment_error(err, &NetworkId::Tempo),
+            TempoError::Payment(PaymentError::AccessKeySpendingLimitExceeded)
+        ));
+    }
+
+    #[test]
+    fn test_classify_tempo_rpc_error_spending_limit_selector() {
+        assert!(matches!(
+            classify_tempo_rpc_error("execution reverted: 0x8a9e71ea"),
+            Some(TempoError::Payment(
+                PaymentError::AccessKeySpendingLimitExceeded
+            ))
         ));
     }
 
