@@ -138,9 +138,6 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     let gas_limit = match gas_result {
         Ok(gas) => gas,
         Err(original) if wallet.has_stored_key_authorization() => {
-            if let Some(err) = classify_tx_error(&original) {
-                return Err(err);
-            }
             provisioning_signer =
                 wallet
                     .with_key_authorization()
@@ -172,13 +169,15 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
             tx_builder::estimate_gas(provider, gas_request)
                 .await
                 .map_err(|source| {
-                    classify_tx_error(&source).unwrap_or_else(|| {
-                        KeyError::SigningOperationSource {
-                            operation: "estimate gas",
-                            source: Box::new(original),
-                        }
-                        .into()
-                    })
+                    classify_tx_error(&source)
+                        .or_else(|| classify_tx_error(&original))
+                        .unwrap_or_else(|| {
+                            KeyError::SigningOperationSource {
+                                operation: "estimate gas",
+                                source: Box::new(original),
+                            }
+                            .into()
+                        })
                 })?
         }
         Err(e) => {
@@ -241,9 +240,6 @@ pub async fn submit_tempo_tx(
     match provider.send_raw_transaction(&tx_bytes).await {
         Ok(pending) => Ok(format!("{:#x}", pending.tx_hash())),
         Err(original) if wallet.has_stored_key_authorization() => {
-            if let Some(err) = classify_tx_error(&original) {
-                return Err(err);
-            }
             let provisioning_signer =
                 wallet
                     .with_key_authorization()
@@ -265,13 +261,15 @@ pub async fn submit_tempo_tx(
                 .send_raw_transaction(&retry_bytes)
                 .await
                 .map_err(|source| {
-                    classify_tx_error(&source).unwrap_or_else(|| {
-                        NetworkError::RpcSource {
-                            operation: "broadcast transaction",
-                            source: Box::new(original),
-                        }
-                        .into()
-                    })
+                    classify_tx_error(&source)
+                        .or_else(|| classify_tx_error(&original))
+                        .unwrap_or_else(|| {
+                            NetworkError::RpcSource {
+                                operation: "broadcast transaction",
+                                source: Box::new(original),
+                            }
+                            .into()
+                        })
                 })?;
             Ok(format!("{:#x}", pending.tx_hash()))
         }
