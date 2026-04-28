@@ -106,6 +106,40 @@ tempo wallet sessions list
 tempo wallet sessions close https://openrouter.mpp.tempo.xyz
 ```
 
+## Local Moderato App Dev
+
+If you want a local wallet CLI instance that authenticates and funds against `https://app.moderato.tempo.local/`, install the repo wrappers:
+
+```bash
+make build
+make install-moderato-local
+```
+
+That gives you two commands:
+
+```bash
+# Login/fund/spend credits against the local app
+tempo-wallet-moderato-local login --no-browser
+tempo-wallet-moderato-local fund --credits
+tempo-wallet-moderato-local spend-credits --amount-cents 500 --to 0x...
+
+# Open MPP sessions and keep them in an isolated local wallet home
+tempo-request-moderato-local -X POST \
+  --json '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}' \
+  https://openrouter.mpp.tempo.xyz/v1/chat/completions
+
+# Inspect or leave partially spent sessions open for local testing
+tempo-wallet-moderato-local sessions list
+```
+
+The wrappers do three things for you automatically:
+
+1. Force the network to `tempo-moderato`.
+2. Point `TEMPO_AUTH_URL` at `https://app.moderato.tempo.local/cli-auth`.
+3. Keep wallet keys and `channels.db` under `wallet/.local/moderato-wallet`, so your normal wallet state is untouched and unclosed sessions persist for repeat testing.
+
+Reset that local dev wallet by deleting `wallet/.local/moderato-wallet`. If you want to use a different local app origin or RPC, override `TEMPO_MODERATO_APP_URL`, `TEMPO_AUTH_URL`, `TEMPO_HOME`, or `TEMPO_RPC_URL` before running the wrappers.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.

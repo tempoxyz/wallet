@@ -3,7 +3,9 @@
 use std::{io::Write, time::Duration};
 
 use alloy::primitives::{keccak256, Address, B256};
+use mpp::client::tempo::signing::{KeychainVersion, TempoSigningMode};
 use serde::{Deserialize, Serialize};
+use tempo_primitives::transaction::{KeychainSignature, TempoSignature};
 
 use crate::commands::fund;
 use tempo_common::{
@@ -36,17 +38,38 @@ struct SpendCreditsResult {
     tx_hash: String,
 }
 
+#[derive(Debug, Serialize)]
+struct SignatureDebugInfo {
+    eip712_digest: String,
+    effective_signing_hash: String,
+    effective_signing_hash_kind: &'static str,
+    signature_length_bytes: usize,
+    keychain_embedded_wallet_address: Option<String>,
+    keychain_inner_signer_from_eip712_digest: Option<String>,
+    recovered_from_eip712_digest: Option<String>,
+    recovered_from_effective_signing_hash: Option<String>,
+    expected_signer_address: String,
+    expected_wallet_address: String,
+    matches_keychain_wallet_address: bool,
+    matches_keychain_inner_signer_on_eip712_digest: bool,
+    matches_signer_on_eip712_digest: bool,
+    matches_signer_on_effective_signing_hash: bool,
+    matches_wallet_on_eip712_digest: bool,
+    matches_wallet_on_effective_signing_hash: bool,
+}
+
 pub(crate) async fn run(
     ctx: &Context,
     amount_cents: u64,
     to: String,
-    _data: String,
-    _value: String,
+    data: String,
+    value: String,
     address: Option<String>,
 ) -> Result<(), TempoError> {
     let auth_server_url =
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
     let wallet = fund::resolve_address(address, &ctx.keys)?;
+    let transaction_data = build_transaction_data(&to, &data, &value)?;
 
     let signer_info = ctx.keys.signer(ctx.network)?;
 
@@ -70,10 +93,7 @@ pub(crate) async fn run(
             "cents": amount_cents,
             "currency": "USD"
         },
-        "transactionData": {
-            "type": "token",
-            "destination": to
-        }
+        "transactionData": transaction_data.clone()
     });
 
     let resp = client
@@ -97,7 +117,7 @@ pub(crate) async fn run(
             "body": {
                 "merchantId": "(from server config)",
                 "subtotal": { "cents": amount_cents, "currency": "USD" },
-                "transactionData": { "type": "token", "destination": to },
+                "transactionData": transaction_data.clone(),
             },
         });
         let coinflow_returned: serde_json::Value = serde_json::from_str(&resp_text)
@@ -131,7 +151,11 @@ pub(crate) async fn run(
         eprintln!("Signing authorization...");
     }
 
-    let signature = sign_eip712_message(&signer_info, &auth_resp.message)?;
+    let eip712_digest = compute_eip712_signing_hash(&auth_resp.message)?;
+    let signature =
+        signer_info.sign_hash_hex(&eip712_digest, "sign EIP-712 credits authorization")?;
+    let signature_debug =
+        build_signature_debug_info(&signer_info, &wallet, eip712_digest, &signature);
 
     // Step 3: Send the redeem transaction
     if ctx.output_format == OutputFormat::Text {
@@ -145,10 +169,7 @@ pub(crate) async fn run(
             "cents": amount_cents,
             "currency": "USD"
         },
-        "transactionData": {
-            "type": "token",
-            "destination": to
-        },
+        "transactionData": transaction_data.clone(),
         "permitCreditsSignature": signature,
         "validBefore": auth_resp.valid_before,
         "nonce": auth_resp.nonce,
@@ -176,7 +197,7 @@ pub(crate) async fn run(
             "body": {
                 "merchantId": "(from server config)",
                 "subtotal": { "cents": amount_cents, "currency": "USD" },
-                "transactionData": { "type": "token", "destination": to },
+                "transactionData": transaction_data,
                 "signedMessages": { "permitCredits": &signature },
                 "validBefore": &auth_resp.valid_before,
                 "nonce": &auth_resp.nonce,
@@ -186,7 +207,8 @@ pub(crate) async fn run(
                 "wallet_address": wallet,
                 "signer_address": format!("{:#x}", signer_info.signer.address()),
                 "signing_mode": format!("{:?}", signer_info.signing_mode),
-                "note": "Access keys now emit a Tempo keychain signature envelope (0x04...) for ERC-1271 validation against wallet_address. If Coinflow still assumes 65-byte ECDSA and only ecrecovers, signature verification will fail on their side.",
+                "note": "permitCredits is sent using the same format as viem/tempo signTypedData. Direct signers return a raw 65-byte secp256k1 signature. V2 access keys return a 0x04 keychain envelope whose inner signature is over keccak256(0x04 || eip712_digest || wallet_address).",
+                "signature_debug": &signature_debug,
             },
         });
         let coinflow_returned: serde_json::Value = serde_json::from_str(&resp_text)
@@ -224,8 +246,7 @@ pub(crate) async fn run(
     result.render(ctx.output_format)
 }
 
-/// Compute the EIP-712 hash from the JSON typed data message and sign it.
-fn sign_eip712_message(signer: &Signer, message_json: &str) -> Result<String, TempoError> {
+fn compute_eip712_signing_hash(message_json: &str) -> Result<B256, TempoError> {
     let typed_data: serde_json::Value =
         serde_json::from_str(message_json).map_err(|source| NetworkError::ResponseParse {
             context: "EIP-712 typed data",
@@ -247,9 +268,81 @@ fn sign_eip712_message(signer: &Signer, message_json: &str) -> Result<String, Te
     digest_input.extend_from_slice(&[0x19, 0x01]);
     digest_input.extend_from_slice(domain_separator.as_slice());
     digest_input.extend_from_slice(struct_hash.as_slice());
-    let digest = keccak256(&digest_input);
+    Ok(keccak256(&digest_input))
+}
 
-    signer.sign_hash_hex(&digest, "sign EIP-712 credits authorization")
+fn effective_signing_hash(signer: &Signer, digest: B256) -> (B256, &'static str) {
+    match &signer.signing_mode {
+        TempoSigningMode::Direct => (digest, "raw-eip712-digest"),
+        TempoSigningMode::Keychain {
+            wallet, version, ..
+        } => match version {
+            KeychainVersion::V1 => (digest, "keychain-v1-raw-eip712-digest"),
+            KeychainVersion::V2 => (
+                KeychainSignature::signing_hash(digest, *wallet),
+                "keychain-v2-wallet-bound-hash",
+            ),
+        },
+    }
+}
+
+fn build_signature_debug_info(
+    signer: &Signer,
+    wallet: &str,
+    eip712_digest: B256,
+    signature_hex: &str,
+) -> SignatureDebugInfo {
+    let (effective_hash, effective_hash_kind) = effective_signing_hash(signer, eip712_digest);
+    let signature_bytes = hex::decode(signature_hex.trim_start_matches("0x")).unwrap_or_default();
+    let parsed_signature = TempoSignature::from_bytes(&signature_bytes).ok();
+    let parsed_keychain = parsed_signature.as_ref().and_then(TempoSignature::as_keychain);
+    let keychain_embedded_wallet_address = parsed_keychain
+        .map(|keychain| format!("{:#x}", keychain.user_address));
+    let keychain_inner_signer_from_eip712_digest = parsed_keychain
+        .and_then(|keychain| keychain.key_id(&eip712_digest).ok())
+        .map(|address| format!("{address:#x}"));
+    let recovered_from_eip712_digest = parsed_signature
+        .as_ref()
+        .and_then(|signature| signature.recover_signer(&eip712_digest).ok())
+        .map(|address| format!("{address:#x}"));
+    let recovered_from_effective_signing_hash = parsed_signature
+        .as_ref()
+        .and_then(|signature| signature.recover_signer(&effective_hash).ok())
+        .map(|address| format!("{address:#x}"));
+    let expected_signer_address = format!("{:#x}", signer.signer.address());
+    let expected_wallet_address = wallet.to_string();
+
+    SignatureDebugInfo {
+        eip712_digest: format!("{eip712_digest:#x}"),
+        effective_signing_hash: format!("{effective_hash:#x}"),
+        effective_signing_hash_kind: effective_hash_kind,
+        signature_length_bytes: signature_bytes.len(),
+        keychain_embedded_wallet_address: keychain_embedded_wallet_address.clone(),
+        keychain_inner_signer_from_eip712_digest: keychain_inner_signer_from_eip712_digest
+            .clone(),
+        recovered_from_eip712_digest: recovered_from_eip712_digest.clone(),
+        recovered_from_effective_signing_hash: recovered_from_effective_signing_hash.clone(),
+        expected_signer_address: expected_signer_address.clone(),
+        expected_wallet_address: expected_wallet_address.clone(),
+        matches_keychain_wallet_address: keychain_embedded_wallet_address
+            .as_deref()
+            .is_some_and(|address| address == expected_wallet_address),
+        matches_keychain_inner_signer_on_eip712_digest: keychain_inner_signer_from_eip712_digest
+            .as_deref()
+            .is_some_and(|address| address == expected_signer_address),
+        matches_signer_on_eip712_digest: recovered_from_eip712_digest
+            .as_deref()
+            .is_some_and(|address| address == expected_signer_address),
+        matches_signer_on_effective_signing_hash: recovered_from_effective_signing_hash
+            .as_deref()
+            .is_some_and(|address| address == expected_signer_address),
+        matches_wallet_on_eip712_digest: recovered_from_eip712_digest
+            .as_deref()
+            .is_some_and(|address| address == expected_wallet_address),
+        matches_wallet_on_effective_signing_hash: recovered_from_effective_signing_hash
+            .as_deref()
+            .is_some_and(|address| address == expected_wallet_address),
+    }
 }
 
 /// Compute the EIP-712 domain separator hash.
@@ -538,6 +631,56 @@ fn build_api_base_url(auth_server_url: &str) -> Result<String, TempoError> {
     Ok(url.origin().ascii_serialization())
 }
 
+fn build_transaction_data(
+    to: &str,
+    data: &str,
+    value: &str,
+) -> Result<serde_json::Value, TempoError> {
+    if !is_zero_value(value)? {
+        return Err(ConfigError::Invalid(
+            "Coinflow credits redeem does not support non-zero ETH value".to_string(),
+        )
+        .into());
+    }
+
+    if data == "0x" {
+        return Ok(serde_json::json!({
+            "type": "token",
+            "destination": to,
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "transaction": {
+            "to": to,
+            "data": data,
+        },
+    }))
+}
+
+fn is_zero_value(value: &str) -> Result<bool, TempoError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(true);
+    }
+
+    if let Some(hex_value) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        if !hex_value.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return Err(InputError::InvalidHexInput(format!("invalid ETH value: {value}")).into());
+        }
+        return Ok(hex_value.is_empty() || hex_value.bytes().all(|byte| byte == b'0'));
+    }
+
+    if !value.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(InputError::InvalidHexInput(format!("invalid ETH value: {value}")).into());
+    }
+
+    Ok(value.bytes().all(|byte| byte == b'0'))
+}
+
 impl SpendCreditsResult {
     fn render(&self, format: OutputFormat) -> Result<(), TempoError> {
         output::emit_by_format(format, self, || {
@@ -552,5 +695,94 @@ impl SpendCreditsResult {
             writeln!(w, "{:>10}: {}", "TX Hash", self.tx_hash)?;
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use alloy::primitives::Address;
+    use tempo_common::{keys::Keystore, network::NetworkId};
+    use zeroize::Zeroizing;
+
+    const TEST_PRIVATE_KEY: &str =
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    const TEST_ADDRESS: &str = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+    const COINFLOW_AUTH_MSG: &str = r#"{"domain":{"name":"Coinflow Credits Contract","version":"1","chainId":42431,"verifyingContract":"0x02af2603e2A7d891684854CBC4aaeBa310bf7C1c"},"message":{"customerWallet":"0x480F8659821A7a5f6209cDA338A53E9Dea09DB46","creditSeed":"tempo-sandbox","amount":1030000,"validBefore":"1777483839","nonce":"0x7968399a1307417362f545e43d5a12eb942562dd8c181d41f68fd881f56ba23d"},"primaryType":"CreditsAuthorization","types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"version","type":"string"},{"name":"chainId","type":"uint256"},{"name":"verifyingContract","type":"address"}],"CreditsAuthorization":[{"name":"customerWallet","type":"address"},{"name":"creditSeed","type":"string"},{"name":"amount","type":"uint256"},{"name":"validBefore","type":"uint256"},{"name":"nonce","type":"bytes32"}]}}"#;
+
+    #[test]
+    fn compute_coinflow_auth_message_matches_reference_hash() {
+        let digest = compute_eip712_signing_hash(COINFLOW_AUTH_MSG).unwrap();
+
+        assert_eq!(
+            format!("{digest:#x}"),
+            "0x3caf17f85e96e489a081eab08cdc14794d8725d4356ef252fc98de3c65e03225"
+        );
+    }
+
+    #[test]
+    fn sign_coinflow_auth_message_with_access_key_matches_viem_keychain_envelope() {
+        let mut keys = Keystore::default();
+        let wallet: Address = "0x480f8659821a7a5f6209cda338a53e9dea09db46"
+            .parse()
+            .unwrap();
+        let entry = keys.upsert_by_wallet_address_and_chain(wallet, 4217);
+        entry.key_address = Some(TEST_ADDRESS.to_string());
+        entry.key = Some(Zeroizing::new(TEST_PRIVATE_KEY.to_string()));
+        let signer = keys.signer(NetworkId::Tempo).unwrap();
+        let digest = compute_eip712_signing_hash(COINFLOW_AUTH_MSG).unwrap();
+        let signature = signer
+            .sign_hash_hex(&digest, "sign EIP-712 credits authorization")
+            .unwrap();
+        let signature_bytes = hex::decode(signature.trim_start_matches("0x")).unwrap();
+        let parsed = TempoSignature::from_bytes(&signature_bytes).unwrap();
+        let keychain = parsed.as_keychain().expect("expected keychain envelope");
+
+        assert_eq!(
+            signature,
+            "0x04480f8659821a7a5f6209cda338a53e9dea09db46c940b8c39d08d4a737ed58543b2cd922debb9881fb6efc05ac4fa3269b0c28c13e04a2abe52b1aad61b0d5e1b79fe85fcef6f093878d237a7be2e12b1cb7c6c01b"
+        );
+        assert_eq!(signature.len(), 174, "0x + 86 byte keychain envelope");
+        assert!(signature.starts_with("0x04"));
+        assert_eq!(parsed.recover_signer(&digest).unwrap(), wallet);
+        assert_eq!(keychain.key_id(&digest).unwrap(), signer.signer.address());
+    }
+
+    #[test]
+    fn build_transaction_data_uses_token_redeem_shape_without_calldata() {
+        let transaction_data = build_transaction_data(TEST_ADDRESS, "0x", "0").unwrap();
+
+        assert_eq!(
+            transaction_data,
+            serde_json::json!({
+                "type": "token",
+                "destination": TEST_ADDRESS,
+            })
+        );
+    }
+
+    #[test]
+    fn build_transaction_data_uses_normal_redeem_shape_with_calldata() {
+        let transaction_data = build_transaction_data(TEST_ADDRESS, "0xdeadbeef", "0").unwrap();
+
+        assert_eq!(
+            transaction_data,
+            serde_json::json!({
+                "transaction": {
+                    "to": TEST_ADDRESS,
+                    "data": "0xdeadbeef",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn build_transaction_data_rejects_non_zero_eth_value() {
+        let err = build_transaction_data(TEST_ADDRESS, "0xdeadbeef", "1").unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("Coinflow credits redeem does not support non-zero ETH value"));
     }
 }
