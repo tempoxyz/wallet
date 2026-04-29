@@ -195,7 +195,7 @@ async fn prepare_completion_watch(
 ) -> Result<CompletionWatch, TempoError> {
     match target {
         Target::Credits => {
-            let wallet_address = resolve_address(address, &ctx.keys)?;
+            let wallet_address = resolve_credit_address(address, &ctx.keys)?;
             let before_raw = query_credit_balance(auth_server_url, &wallet_address).await?;
 
             Ok(CompletionWatch::Credits {
@@ -290,6 +290,27 @@ pub(crate) fn resolve_address(
     keys.wallet_address_hex().ok_or_else(|| {
         ConfigError::Missing("No wallet configured. Run 'tempo wallet login'.".to_string()).into()
     })
+}
+
+pub(crate) fn resolve_credit_address(
+    address: Option<String>,
+    keys: &Keystore,
+) -> Result<String, TempoError> {
+    if let Some(addr) = address {
+        let parsed = tempo_common::security::parse_address_input(&addr, "wallet address")?;
+        return Ok(format!("{parsed:#x}"));
+    }
+
+    keys.primary_key()
+        .and_then(|entry| {
+            entry
+                .key_address_hex()
+                .or_else(|| entry.wallet_address_hex())
+        })
+        .ok_or_else(|| {
+            ConfigError::Missing("No wallet configured. Run 'tempo wallet login'.".to_string())
+                .into()
+        })
 }
 
 fn build_fund_url(auth_server_url: &str, target: &Target) -> Result<String, TempoError> {

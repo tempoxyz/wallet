@@ -15,6 +15,7 @@ use tempo_common::{
 };
 
 const COINFLOW_BLOCKCHAIN: &str = "tempo";
+const COINFLOW_AUTH_SUBTOTAL_RETRY_BUFFER_CENTS: u64 = 1;
 
 #[derive(Debug, Deserialize)]
 struct AuthMsgResponse {
@@ -58,6 +59,18 @@ struct SignatureDebugInfo {
     matches_wallet_on_effective_signing_hash: bool,
 }
 
+struct SubmitRedeemParams<'a> {
+    base_url: &'a str,
+    wallet: &'a str,
+    amount_cents: u64,
+    transaction_data: &'a serde_json::Value,
+    auth_resp: &'a AuthMsgResponse,
+    signature: &'a str,
+    signature_debug: &'a SignatureDebugInfo,
+    signer_info: &'a Signer,
+    output_format: OutputFormat,
+}
+
 pub(crate) async fn run(
     ctx: &Context,
     amount_cents: u64,
@@ -68,10 +81,9 @@ pub(crate) async fn run(
 ) -> Result<(), TempoError> {
     let auth_server_url =
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
-    let wallet = fund::resolve_address(address, &ctx.keys)?;
+    let wallet = fund::resolve_credit_address(address, &ctx.keys)?;
+    let wallet_address = tempo_common::security::parse_address_input(&wallet, "wallet address")?;
     let transaction_data = build_transaction_data(&to, &data, &value)?;
-
-    let signer_info = ctx.keys.signer(ctx.network)?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -81,8 +93,85 @@ pub(crate) async fn run(
 
     let base_url = build_api_base_url(&auth_server_url)?;
 
-    // Step 1: Get credits auth message
-    if ctx.output_format == OutputFormat::Text {
+    let mut auth_subtotal_cents = amount_cents;
+    let redeem_resp = loop {
+        let signer_info = ctx
+            .keys
+            .signer_for_identity_address(wallet_address, ctx.network)?;
+
+        let auth_resp = request_credits_auth_message(
+            &client,
+            &base_url,
+            &wallet,
+            auth_subtotal_cents,
+            &transaction_data,
+            ctx.output_format,
+        )
+        .await?;
+
+        if ctx.output_format == OutputFormat::Text {
+            eprintln!("Signing authorization...");
+        }
+
+        let eip712_digest = compute_eip712_signing_hash(&auth_resp.message)?;
+        let signature =
+            signer_info.sign_hash_hex(&eip712_digest, "sign EIP-712 credits authorization")?;
+        let signature_debug =
+            build_signature_debug_info(&signer_info, &wallet, eip712_digest, &signature);
+
+        match submit_redeem_transaction(
+            &client,
+            SubmitRedeemParams {
+                base_url: &base_url,
+                wallet: &wallet,
+                amount_cents,
+                transaction_data: &transaction_data,
+                auth_resp: &auth_resp,
+                signature: &signature,
+                signature_debug: &signature_debug,
+                signer_info: &signer_info,
+                output_format: ctx.output_format,
+            },
+        )
+        .await
+        {
+            Ok(response) => break response,
+            Err(NetworkError::HttpStatus { body, .. })
+                if auth_subtotal_cents == amount_cents
+                    && body
+                        .as_deref()
+                        .is_some_and(is_max_credits_authorized_mismatch) =>
+            {
+                auth_subtotal_cents =
+                    amount_cents.saturating_add(COINFLOW_AUTH_SUBTOTAL_RETRY_BUFFER_CENTS);
+                if ctx.output_format == OutputFormat::Text {
+                    eprintln!(
+                        "Coinflow fee estimate changed between authorization and submit; retrying with refreshed authorization..."
+                    );
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+
+    let result = SpendCreditsResult {
+        wallet,
+        amount_cents,
+        tx_hash: redeem_resp.hash,
+    };
+
+    result.render(ctx.output_format)
+}
+
+async fn request_credits_auth_message(
+    client: &reqwest::Client,
+    base_url: &str,
+    wallet: &str,
+    auth_subtotal_cents: u64,
+    transaction_data: &serde_json::Value,
+    output_format: OutputFormat,
+) -> Result<AuthMsgResponse, TempoError> {
+    if output_format == OutputFormat::Text {
         eprintln!("Requesting credits authorization...");
     }
 
@@ -90,10 +179,10 @@ pub(crate) async fn run(
     let auth_msg_body = serde_json::json!({
         "wallet": wallet,
         "subtotal": {
-            "cents": amount_cents,
+            "cents": auth_subtotal_cents,
             "currency": "USD"
         },
-        "transactionData": transaction_data.clone()
+        "transactionData": transaction_data
     });
 
     let resp = client
@@ -106,7 +195,6 @@ pub(crate) async fn run(
     let resp_status = resp.status();
     let resp_text = resp.text().await.map_err(NetworkError::Reqwest)?;
 
-    // Write /tmp/coinflow-request.log — what was sent to Coinflow and what it returned
     {
         let coinflow_sent = serde_json::json!({
             "coinflow_endpoint": "POST https://api-sandbox.coinflow.cash/api/redeem/evm/creditsAuthMsg",
@@ -116,8 +204,8 @@ pub(crate) async fn run(
             },
             "body": {
                 "merchantId": "(from server config)",
-                "subtotal": { "cents": amount_cents, "currency": "USD" },
-                "transactionData": transaction_data.clone(),
+                "subtotal": { "cents": auth_subtotal_cents, "currency": "USD" },
+                "transactionData": transaction_data,
             },
         });
         let coinflow_returned: serde_json::Value = serde_json::from_str(&resp_text)
@@ -140,40 +228,34 @@ pub(crate) async fn run(
         .into());
     }
 
-    let auth_resp: AuthMsgResponse =
-        serde_json::from_str(&resp_text).map_err(|source| NetworkError::ResponseParse {
+    serde_json::from_str(&resp_text)
+        .map_err(|source| NetworkError::ResponseParse {
             context: "auth msg",
             source,
-        })?;
+        })
+        .map_err(Into::into)
+}
 
-    // Step 2: Sign the EIP-712 typed data
-    if ctx.output_format == OutputFormat::Text {
-        eprintln!("Signing authorization...");
-    }
-
-    let eip712_digest = compute_eip712_signing_hash(&auth_resp.message)?;
-    let signature =
-        signer_info.sign_hash_hex(&eip712_digest, "sign EIP-712 credits authorization")?;
-    let signature_debug =
-        build_signature_debug_info(&signer_info, &wallet, eip712_digest, &signature);
-
-    // Step 3: Send the redeem transaction
-    if ctx.output_format == OutputFormat::Text {
+async fn submit_redeem_transaction(
+    client: &reqwest::Client,
+    params: SubmitRedeemParams<'_>,
+) -> Result<RedeemResponse, NetworkError> {
+    if params.output_format == OutputFormat::Text {
         eprintln!("Submitting redeem transaction...");
     }
 
-    let redeem_url = format!("{base_url}/api/coinflow/redeem/send");
+    let redeem_url = format!("{}/api/coinflow/redeem/send", params.base_url);
     let redeem_body = serde_json::json!({
-        "wallet": wallet,
+        "wallet": params.wallet,
         "subtotal": {
-            "cents": amount_cents,
+            "cents": params.amount_cents,
             "currency": "USD"
         },
-        "transactionData": transaction_data.clone(),
-        "permitCreditsSignature": signature,
-        "validBefore": auth_resp.valid_before,
-        "nonce": auth_resp.nonce,
-        "creditsRawAmount": auth_resp.credits_raw_amount
+        "transactionData": params.transaction_data,
+        "permitCreditsSignature": params.signature,
+        "validBefore": params.auth_resp.valid_before,
+        "nonce": params.auth_resp.nonce,
+        "creditsRawAmount": params.auth_resp.credits_raw_amount
     });
 
     let resp = client
@@ -186,29 +268,28 @@ pub(crate) async fn run(
     let resp_status = resp.status();
     let resp_text = resp.text().await.map_err(NetworkError::Reqwest)?;
 
-    // Write /tmp/coinflow-response.log — what was sent to Coinflow sendGaslessTx and what it returned
     {
         let coinflow_sent = serde_json::json!({
             "coinflow_endpoint": "POST https://api-sandbox.coinflow.cash/api/redeem/evm/sendGaslessTx",
             "headers": {
-                "x-coinflow-auth-wallet": wallet,
+                "x-coinflow-auth-wallet": params.wallet,
                 "x-coinflow-auth-blockchain": COINFLOW_BLOCKCHAIN,
             },
             "body": {
                 "merchantId": "(from server config)",
-                "subtotal": { "cents": amount_cents, "currency": "USD" },
-                "transactionData": transaction_data,
-                "signedMessages": { "permitCredits": &signature },
-                "validBefore": &auth_resp.valid_before,
-                "nonce": &auth_resp.nonce,
-                "creditsRawAmount": auth_resp.credits_raw_amount,
+                "subtotal": { "cents": params.amount_cents, "currency": "USD" },
+                "transactionData": params.transaction_data,
+                "signedMessages": { "permitCredits": params.signature },
+                "validBefore": &params.auth_resp.valid_before,
+                "nonce": &params.auth_resp.nonce,
+                "creditsRawAmount": params.auth_resp.credits_raw_amount,
             },
             "context": {
-                "wallet_address": wallet,
-                "signer_address": format!("{:#x}", signer_info.signer.address()),
-                "signing_mode": format!("{:?}", signer_info.signing_mode),
+                "wallet_address": params.wallet,
+                "signer_address": format!("{:#x}", params.signer_info.signer.address()),
+                "signing_mode": format!("{:?}", params.signer_info.signing_mode),
                 "note": "permitCredits is sent using the same format as viem/tempo signTypedData. Direct signers return a raw 65-byte secp256k1 signature. V2 access keys return a 0x04 keychain envelope whose inner signature is over keccak256(0x04 || eip712_digest || wallet_address).",
-                "signature_debug": &signature_debug,
+                "signature_debug": params.signature_debug,
             },
         });
         let coinflow_returned: serde_json::Value = serde_json::from_str(&resp_text)
@@ -227,23 +308,17 @@ pub(crate) async fn run(
             operation: "send redeem transaction",
             status: resp_status.as_u16(),
             body: Some(resp_text),
-        }
-        .into());
+        });
     }
 
-    let redeem_resp: RedeemResponse =
-        serde_json::from_str(&resp_text).map_err(|source| NetworkError::ResponseParse {
-            context: "redeem response",
-            source,
-        })?;
+    serde_json::from_str(&resp_text).map_err(|source| NetworkError::ResponseParse {
+        context: "redeem response",
+        source,
+    })
+}
 
-    let result = SpendCreditsResult {
-        wallet,
-        amount_cents,
-        tx_hash: redeem_resp.hash,
-    };
-
-    result.render(ctx.output_format)
+fn is_max_credits_authorized_mismatch(body: &str) -> bool {
+    body.contains("exceeds max credits authorized")
 }
 
 fn compute_eip712_signing_hash(message_json: &str) -> Result<B256, TempoError> {
@@ -295,9 +370,11 @@ fn build_signature_debug_info(
     let (effective_hash, effective_hash_kind) = effective_signing_hash(signer, eip712_digest);
     let signature_bytes = hex::decode(signature_hex.trim_start_matches("0x")).unwrap_or_default();
     let parsed_signature = TempoSignature::from_bytes(&signature_bytes).ok();
-    let parsed_keychain = parsed_signature.as_ref().and_then(TempoSignature::as_keychain);
-    let keychain_embedded_wallet_address = parsed_keychain
-        .map(|keychain| format!("{:#x}", keychain.user_address));
+    let parsed_keychain = parsed_signature
+        .as_ref()
+        .and_then(TempoSignature::as_keychain);
+    let keychain_embedded_wallet_address =
+        parsed_keychain.map(|keychain| format!("{:#x}", keychain.user_address));
     let keychain_inner_signer_from_eip712_digest = parsed_keychain
         .and_then(|keychain| keychain.key_id(&eip712_digest).ok())
         .map(|address| format!("{address:#x}"));
@@ -318,8 +395,7 @@ fn build_signature_debug_info(
         effective_signing_hash_kind: effective_hash_kind,
         signature_length_bytes: signature_bytes.len(),
         keychain_embedded_wallet_address: keychain_embedded_wallet_address.clone(),
-        keychain_inner_signer_from_eip712_digest: keychain_inner_signer_from_eip712_digest
-            .clone(),
+        keychain_inner_signer_from_eip712_digest: keychain_inner_signer_from_eip712_digest.clone(),
         recovered_from_eip712_digest: recovered_from_eip712_digest.clone(),
         recovered_from_effective_signing_hash: recovered_from_effective_signing_hash.clone(),
         expected_signer_address: expected_signer_address.clone(),
@@ -784,5 +860,19 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Coinflow credits redeem does not support non-zero ETH value"));
+    }
+
+    #[test]
+    fn detects_max_credits_authorized_mismatch() {
+        assert!(is_max_credits_authorized_mismatch(
+            r#"{"error":"Failed to send redeem transaction","detail":"HTTP 412: {\"message\":\"Error Processing your request\",\"details\":\"Total 1.04 exceeds max credits authorized 1.03\"}"}"#
+        ));
+    }
+
+    #[test]
+    fn ignores_other_coinflow_failures() {
+        assert!(!is_max_credits_authorized_mismatch(
+            r#"{"error":"Failed to send redeem transaction","detail":"HTTP 412: {\"message\":\"Error Processing your request\",\"details\":\"Wallet does not have enough credits to complete redeem request\"}"}"#
+        ));
     }
 }

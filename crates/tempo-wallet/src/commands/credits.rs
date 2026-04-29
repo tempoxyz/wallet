@@ -20,7 +20,7 @@ struct CreditsResponse {
 pub(crate) async fn run(ctx: &Context, address: Option<String>) -> Result<(), TempoError> {
     let auth_server_url =
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
-    let wallet = fund::resolve_address(address, &ctx.keys)?;
+    let wallet = fund::resolve_credit_address(address, &ctx.keys)?;
     let raw_balance = fund::query_credit_balance(&auth_server_url, &wallet).await?;
     let response = CreditsResponse {
         wallet,
