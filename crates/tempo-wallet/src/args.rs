@@ -72,7 +72,7 @@ Examples:
         #[arg(long)]
         dry_run: bool,
     },
-    /// Fund your wallet (testnet faucet or mainnet bridge)
+    /// Open add-funds flows in the wallet app
     #[command(display_order = 7, name = "fund")]
     Fund {
         /// Wallet address to fund (defaults to current wallet)
@@ -81,16 +81,60 @@ Examples:
         /// Do not attempt to open a browser
         #[arg(long)]
         no_browser: bool,
+        /// Open the direct crypto funding flow (bridge on mainnet, faucet on testnet)
+        #[arg(long, conflicts_with_all = ["credits", "referral_code"])]
+        crypto: bool,
+        /// Open the credits purchase flow
+        #[arg(long, conflicts_with_all = ["crypto", "referral_code"])]
+        credits: bool,
+        /// Open the referral-code redeem flow with a prefilled code
+        #[arg(
+            long,
+            value_name = "CODE",
+            visible_alias = "claim",
+            conflicts_with_all = ["crypto", "credits"]
+        )]
+        referral_code: Option<String>,
+    },
+    /// Show the current credits balance
+    #[command(display_order = 8, name = "credits")]
+    Credits {
+        /// Wallet address to inspect (defaults to current wallet)
+        #[arg(long)]
+        address: Option<String>,
+    },
+    /// Spend credits via Coinflow redeem
+    #[command(
+        display_order = 9,
+        name = "spend-credits",
+        arg_required_else_help = true
+    )]
+    SpendCredits {
+        /// Amount in USD cents (e.g. 500 = $5.00)
+        #[arg(long)]
+        amount_cents: u64,
+        /// Target contract address (0x...)
+        #[arg(long)]
+        to: String,
+        /// Calldata hex (0x...)
+        #[arg(long, default_value = "0x")]
+        data: String,
+        /// ETH value in wei (default: 0)
+        #[arg(long, default_value = "0")]
+        value: String,
+        /// Wallet address (defaults to current wallet)
+        #[arg(long)]
+        address: Option<String>,
     },
     /// Manage payment sessions
-    #[command(display_order = 8, name = "sessions")]
+    #[command(display_order = 10, name = "sessions")]
     #[command(args_conflicts_with_subcommands = true)]
     Sessions {
         #[command(subcommand)]
         command: Option<SessionCommands>,
     },
     /// Browse the MPP service directory
-    #[command(display_order = 9, name = "services")]
+    #[command(display_order = 11, name = "services")]
     Services {
         #[command(subcommand)]
         command: Option<ServicesCommands>,
@@ -105,7 +149,7 @@ Examples:
     },
 
     /// Collect debug info for support
-    #[command(display_order = 10)]
+    #[command(display_order = 12)]
     Debug,
 
     /// Generate shell completions script
