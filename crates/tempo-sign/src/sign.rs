@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::error::SignError;
 
 /// Skip non-binary artifacts when building a release manifest.
-pub const SKIP_EXTENSIONS: &[&str] = &[".json", ".md", ".sh", ".txt", ".py"];
+pub const SKIP_EXTENSIONS: &[&str] = &[".json", ".md", ".sh", ".txt", ".py", ".sha256"];
 
 /// Compute SHA-256 for a file.
 pub fn sha256_file(path: &Path) -> Result<String, SignError> {
