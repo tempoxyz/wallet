@@ -10,14 +10,14 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.event.number }}
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   generate:
     if: startsWith(github.event.label.name, 'changelog:')
     runs-on: ubuntu-latest
+    environment: release
+    permissions: {}
     steps:
       - name: Determine PR source
         id: source
@@ -45,13 +45,26 @@ jobs:
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
+      - name: Mint scoped app token
+        if: steps.source.outputs.same_repo == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: tempoxyz
+          repositories: wallet
+          permission-contents: write
+          permission-pull-requests: write
+          permission-metadata: read
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: steps.source.outputs.same_repo == 'true'
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
       - name: Fetch base branch for diff comparison
@@ -60,10 +73,6 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch origin "$BASE_REF"
-
-      - name: Configure git credentials for private dependencies
-        if: steps.source.outputs.same_repo == 'true'
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - name: Check for existing changelog
         if: steps.source.outputs.same_repo == 'true'
@@ -140,16 +149,25 @@ jobs:
         if: steps.source.outputs.same_repo == 'true' && steps.existing.outputs.found == 'false'
         env:
           VALIDATED_REF: ${{ steps.ref.outputs.ref }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .changelog/
           git commit -m "chore: add changelog"
-          git push origin "HEAD:${VALIDATED_REF}"
+          git push "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${VALIDATED_REF}"
 
+  pr-feedback:
+    name: PR feedback
+    needs: generate
+    if: always() && startsWith(github.event.label.name, 'changelog:')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
       - name: Comment for fork PRs
-        if: steps.source.outputs.same_repo != 'true'
+        if: github.event.pull_request.head.repo.full_name != github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.number }}

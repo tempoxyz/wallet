@@ -90,8 +90,6 @@ jobs:
         with:
           key: ${{ matrix.build.target }}
           save-if: false
-      - name: Configure git auth
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.build.target }} -p ${{ env.PACKAGE }}
       - run: strip target/${{ matrix.build.target }}/release/${{ env.PACKAGE }}
@@ -148,8 +146,6 @@ jobs:
           TAG="${RELEASE_TAG}"
           gh release upload "$TAG" artifacts/* --clobber
 
-      - name: Configure git auth
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
       - name: Build release signer
         run: cargo build --release -p tempo-sign
 
