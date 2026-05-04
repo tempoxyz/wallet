@@ -221,6 +221,10 @@ fn format_http_status_error(operation: &str, status: u16, body: Option<&str>) ->
 #[derive(Error, Debug)]
 pub enum PaymentError {
     #[error(
+        "Access key spending limit exceeded. Run 'tempo wallet refresh' to refresh your spending limit, or run 'tempo wallet login' to re-authorize with a higher limit."
+    )]
+    AccessKeySpendingLimitExceeded,
+    #[error(
         "Spending limit exceeded: limit is {limit} {token}, need {required} {token}. Run 'tempo wallet refresh' to refresh your spending limit."
     )]
     SpendingLimitExceeded {
@@ -471,6 +475,15 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Spending limit exceeded: limit is 10.00 USDC.e, need 20.00 USDC.e. Run 'tempo wallet refresh' to refresh your spending limit."
+        );
+    }
+
+    #[test]
+    fn test_access_key_spending_limit_exceeded_display() {
+        let err = PaymentError::AccessKeySpendingLimitExceeded;
+        assert_eq!(
+            err.to_string(),
+            "Access key spending limit exceeded. Run 'tempo wallet refresh' to refresh your spending limit, or run 'tempo wallet login' to re-authorize with a higher limit."
         );
     }
 
