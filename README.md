@@ -120,7 +120,7 @@ The Minimum Supported Rust Version (MSRV) is specified in [`Cargo.toml`](Cargo.t
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and for instructions on [verifying release binaries](SECURITY.md#verifying-releases) (SLSA provenance, SBOM, Sigstore signatures, and SHA-256 checksums).
 
 ## License
 
