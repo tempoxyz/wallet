@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 (2026-05-04)
+
+### Patch Changes
+
+- Bump posthog-rs 0.5.0 → 0.5.3 (drops reqwest 0.11/rustls 0.21 chain), remove stale advisory ignores, add dependabot update grouping.
+- Surface access-key spending limit reverts returned by Tempo RPC as a specific wallet error with guidance to refresh or re-authorize the spending limit.
+- Preserve both the MPP client attribution ID and the configured signing mode when handling zero-amount charge payments.
+- Pin all GitHub Actions to commit SHAs, fix template injection in CI workflows, scope permissions per-job, replace curl|sh with checksum-verified binary download, add Dependabot cooldown, and suppress unfixable transitive advisories in deny.toml.
+
 ## 0.4.1 (2026-04-10)
 
 ### Patch Changes
