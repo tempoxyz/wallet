@@ -17,6 +17,7 @@ keys.toml
 
 # Build artifacts
 *.tar.gz
+.local/
 
 # Eval (promptfoo output and old run artifacts)
 eval/runs/

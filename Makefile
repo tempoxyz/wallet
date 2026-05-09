@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix install uninstall run coverage
+.PHONY: build release clean check test fix install uninstall run coverage install-moderato-local
 
 build:
 	cargo build
@@ -19,6 +19,16 @@ install: release
 	@echo "Installed:"
 	@$(HOME)/.tempo/bin/tempo-wallet --version
 	@$(HOME)/.tempo/bin/tempo-request --version
+
+install-moderato-local:
+	mkdir -p $(HOME)/.local/bin
+	ln -sf $(PWD)/scripts/tempo-wallet-moderato-local $(HOME)/.local/bin/tempo-wallet-moderato-local
+	ln -sf $(PWD)/scripts/tempo-request-moderato-local $(HOME)/.local/bin/tempo-request-moderato-local
+	chmod +x scripts/tempo-wallet-moderato-local scripts/tempo-request-moderato-local
+	@echo ""
+	@echo "Installed wrappers:"
+	@echo "  $(HOME)/.local/bin/tempo-wallet-moderato-local"
+	@echo "  $(HOME)/.local/bin/tempo-request-moderato-local"
 
 uninstall:
 	rm -f $(HOME)/.tempo/bin/tempo-wallet $(HOME)/.tempo/bin/tempo-request

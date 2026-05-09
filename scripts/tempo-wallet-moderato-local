@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+  LINK_TARGET="$(readlink "$SCRIPT_PATH")"
+  if [[ "$LINK_TARGET" = /* ]]; then
+    SCRIPT_PATH="$LINK_TARGET"
+  else
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$SCRIPT_DIR/$LINK_TARGET"
+  fi
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+APP_ORIGIN="${TEMPO_MODERATO_APP_URL:-https://app.moderato.tempo.local:3001}"
+APP_ORIGIN="${APP_ORIGIN%/}"
+
+export TEMPO_HOME="${TEMPO_HOME:-$REPO_ROOT/.local/moderato-wallet}"
+export TEMPO_AUTH_URL="${TEMPO_AUTH_URL:-$APP_ORIGIN/cli-auth}"
+export TEMPO_NO_TELEMETRY="${TEMPO_NO_TELEMETRY:-1}"
+
+mkdir -p "$TEMPO_HOME"
+
+if [ -x "$REPO_ROOT/target/debug/tempo-wallet" ]; then
+  exec "$REPO_ROOT/target/debug/tempo-wallet" -n tempo-moderato "$@"
+fi
+
+exec cargo run --manifest-path "$REPO_ROOT/Cargo.toml" -q -p tempo-wallet -- -n tempo-moderato "$@"
