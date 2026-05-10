@@ -25,8 +25,17 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
         |ctx| async move {
             let cmd_name = command_name(&command);
             let result = match command {
-                Commands::Login { no_browser } => login::run(&ctx, no_browser).await,
-                Commands::Refresh => refresh::run(&ctx).await,
+                Commands::Login {
+                    no_browser,
+                    limit,
+                    expiry,
+                    token,
+                } => login::run(&ctx, no_browser, limit, expiry, token).await,
+                Commands::Refresh {
+                    limit,
+                    expiry,
+                    token,
+                } => refresh::run(&ctx, limit, expiry, token).await,
                 Commands::Logout { yes } => logout::run(&ctx, yes),
                 Commands::Completions { shell } => completions::run(&ctx, shell),
                 Commands::Fund {
@@ -67,7 +76,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
 const fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Login { .. } => "login",
-        Commands::Refresh => "refresh",
+        Commands::Refresh { .. } => "refresh",
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",
         Commands::Fund { .. } => "fund",

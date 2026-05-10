@@ -25,16 +25,35 @@ use tempo_common::{
 
 const CALLBACK_TIMEOUT_SECS: u64 = 900; // 15 minutes
 const POLL_INTERVAL_SECS: u64 = 2;
+const DEFAULT_ACCESS_KEY_LIMIT: u64 = 1_000;
 
-pub(crate) async fn run(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
-    run_impl(ctx, false, no_browser).await
+pub(crate) async fn run(
+    ctx: &Context,
+    no_browser: bool,
+    limit: Option<u64>,
+    expiry: Option<u64>,
+    token: Option<String>,
+) -> Result<(), TempoError> {
+    run_impl(ctx, false, no_browser, limit, expiry, token).await
 }
 
-pub(crate) async fn run_with_reauth(ctx: &Context) -> Result<(), TempoError> {
-    run_impl(ctx, true, false).await
+pub(crate) async fn run_with_reauth(
+    ctx: &Context,
+    limit: Option<u64>,
+    expiry: Option<u64>,
+    token: Option<String>,
+) -> Result<(), TempoError> {
+    run_impl(ctx, true, false, limit, expiry, token).await
 }
 
-async fn run_impl(ctx: &Context, force_reauth: bool, no_browser: bool) -> Result<(), TempoError> {
+async fn run_impl(
+    ctx: &Context,
+    force_reauth: bool,
+    no_browser: bool,
+    limit: Option<u64>,
+    expiry: Option<u64>,
+    token: Option<String>,
+) -> Result<(), TempoError> {
     ctx.track_event(analytics::LOGIN_STARTED);
 
     let already_logged_in = ctx.keys.has_key_for_network(ctx.network);
@@ -57,7 +76,7 @@ async fn run_impl(ctx: &Context, force_reauth: bool, no_browser: bool) -> Result
     }
 
     if !already_logged_in || needs_reauth {
-        let result = do_login(ctx, no_browser).await;
+        let result = do_login(ctx, no_browser, limit, expiry, token.as_deref()).await;
 
         if let Some(ref a) = ctx.analytics {
             track_login_result(a, &result);
@@ -198,7 +217,13 @@ fn track_login_result(a: &tempo_common::analytics::Analytics, result: &Result<()
     }
 }
 
-async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
+async fn do_login(
+    ctx: &Context,
+    no_browser: bool,
+    limit: Option<u64>,
+    expiry: Option<u64>,
+    token: Option<&str>,
+) -> Result<(), TempoError> {
     let auth_server_url =
         std::env::var("TEMPO_AUTH_URL").unwrap_or_else(|_| ctx.network.auth_url().to_string());
 
@@ -220,7 +245,19 @@ async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
     let client = reqwest::Client::builder()
         .build()
         .map_err(NetworkError::Reqwest)?;
-    let code = create_device_code(&client, &auth_base_url, &pub_key, &code_challenge).await?;
+    let code = create_device_code(
+        &client,
+        &auth_base_url,
+        CreateDeviceCodeRequest {
+            pub_key: &pub_key,
+            code_challenge: &code_challenge,
+            limit,
+            expiry,
+            token,
+            network: ctx.network,
+        },
+    )
+    .await?;
 
     let mut auth_url = parsed_url;
     auth_url.query_pairs_mut().append_pair("code", &code);
@@ -433,20 +470,59 @@ struct PollResponse {
     error: Option<String>,
 }
 
+struct CreateDeviceCodeRequest<'a> {
+    pub_key: &'a str,
+    code_challenge: &'a str,
+    limit: Option<u64>,
+    expiry: Option<u64>,
+    token: Option<&'a str>,
+    network: NetworkId,
+}
+
 async fn create_device_code(
     client: &reqwest::Client,
     base_url: &str,
-    pub_key: &str,
-    code_challenge: &str,
+    request: CreateDeviceCodeRequest<'_>,
 ) -> Result<String, TempoError> {
     let url = format!("{base_url}/cli-auth/device-code");
+    let mut body = serde_json::json!({
+        "pub_key": request.pub_key,
+        "key_type": "secp256k1",
+        "code_challenge": request.code_challenge,
+        "chain_id": request.network.chain_id(),
+    });
+    if let Some(expiry_secs) = request.expiry {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before epoch")
+            .as_secs();
+        body["expiry"] = serde_json::json!(now + expiry_secs);
+    }
+    if let Some(limit) = request
+        .limit
+        .or(request.token.map(|_| DEFAULT_ACCESS_KEY_LIMIT))
+    {
+        let default_token = request.network.token();
+        let token_address = match request.token {
+            Some(value) => value
+                .parse::<Address>()
+                .map_err(|_| ConfigError::InvalidAddress {
+                    context: "access-key token",
+                    value: value.to_string(),
+                })?,
+            None => default_token.address,
+        };
+        let decimals = default_token.decimals as u32;
+        let raw_amount = (limit as u128) * 10u128.pow(decimals);
+        let hex_limit = format!("0x{raw_amount:x}");
+        body["limits"] = serde_json::json!([{
+            "token": format!("{token_address:#x}"),
+            "limit": hex_limit,
+        }]);
+    }
     let resp = client
         .post(&url)
-        .json(&serde_json::json!({
-            "pub_key": pub_key,
-            "key_type": "secp256k1",
-            "code_challenge": code_challenge,
-        }))
+        .json(&body)
         .send()
         .await
         .map_err(NetworkError::Reqwest)?;
