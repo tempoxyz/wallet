@@ -89,6 +89,19 @@ impl NetworkId {
         }
     }
 
+    /// Get the browser-auth network slug.
+    ///
+    /// This is intentionally user-facing (`mainnet` / `testnet`) instead of
+    /// the internal network id (`tempo` / `tempo-moderato`) because the wallet
+    /// web app uses this value to select the login environment.
+    #[must_use]
+    pub const fn auth_network_slug(&self) -> &'static str {
+        match self {
+            Self::Tempo => "mainnet",
+            Self::TempoModerato => "testnet",
+        }
+    }
+
     /// Get the chain ID for this network.
     #[must_use]
     pub const fn chain_id(&self) -> u64 {
@@ -255,6 +268,12 @@ mod tests {
         assert_eq!(NetworkId::Tempo.as_str(), "tempo");
         assert_eq!(NetworkId::TempoModerato.as_str(), "tempo-moderato");
         assert_eq!(NetworkId::Tempo.to_string(), "tempo");
+    }
+
+    #[test]
+    fn test_auth_network_slug() {
+        assert_eq!(NetworkId::Tempo.auth_network_slug(), "mainnet");
+        assert_eq!(NetworkId::TempoModerato.auth_network_slug(), "testnet");
     }
 
     #[test]

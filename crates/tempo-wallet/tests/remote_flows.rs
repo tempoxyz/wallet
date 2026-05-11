@@ -18,6 +18,8 @@ const BALANCE_OF_SELECTOR: &str = "70a08231";
 struct MockLoginServer {
     base_url: String,
     poll_count: Arc<Mutex<u32>>,
+    device_requests: Arc<Mutex<Vec<serde_json::Value>>>,
+    poll_requests: Arc<Mutex<Vec<serde_json::Value>>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     _handle: tokio::task::JoinHandle<()>,
 }
@@ -28,27 +30,38 @@ impl MockLoginServer {
         let addr = listener.local_addr().unwrap();
         let base_url = format!("http://{}:{}", addr.ip(), addr.port());
         let poll_count = Arc::new(Mutex::new(0u32));
+        let device_requests = Arc::new(Mutex::new(Vec::new()));
+        let poll_requests = Arc::new(Mutex::new(Vec::new()));
 
         let device_code = code.to_string();
+        let device_request_log = device_requests.clone();
         let poll_code = code.to_string();
         let poll_state = poll_count.clone();
+        let poll_request_log = poll_requests.clone();
 
         let app = Router::new()
             .route(
                 "/cli-auth/device-code",
-                post(move || {
+                post(move |Json(body): Json<serde_json::Value>| {
                     let code = device_code.clone();
-                    async move { Json(json!({ "code": code })) }
+                    let device_request_log = device_request_log.clone();
+                    async move {
+                        device_request_log.lock().unwrap().push(body);
+                        Json(json!({ "code": code }))
+                    }
                 }),
             )
             .route(
                 "/cli-auth/poll/{code}",
                 post(
-                    move |axum::extract::Path(path_code): axum::extract::Path<String>| {
+                    move |axum::extract::Path(path_code): axum::extract::Path<String>,
+                          Json(body): Json<serde_json::Value>| {
                         let expected = poll_code.clone();
                         let poll_state = poll_state.clone();
+                        let poll_request_log = poll_request_log.clone();
                         async move {
                             assert_eq!(path_code, expected, "unexpected poll code");
+                            poll_request_log.lock().unwrap().push(body);
                             let mut count = poll_state.lock().unwrap();
                             let response = if *count == 0 {
                                 *count += 1;
@@ -80,6 +93,8 @@ impl MockLoginServer {
         Self {
             base_url,
             poll_count,
+            device_requests,
+            poll_requests,
             shutdown_tx: Some(shutdown_tx),
             _handle: handle,
         }
@@ -198,6 +213,9 @@ fn handle_rpc_request(
 
 fn assert_remote_login_handoff(stderr: &str) {
     assert!(stderr.contains("Auth URL:"), "{stderr}");
+    assert!(stderr.contains("network=testnet"), "{stderr}");
+    assert!(stderr.contains("chain_id=42431"), "{stderr}");
+    assert!(stderr.contains("Network: testnet"), "{stderr}");
     assert!(stderr.contains("Verification code:"), "{stderr}");
     assert!(stderr.contains("Open this link on your device"), "{stderr}");
     assert!(
@@ -210,6 +228,20 @@ fn assert_remote_login_handoff(stderr: &str) {
         "{stderr}"
     );
     assert!(stderr.contains("one more authorization link"), "{stderr}");
+}
+
+fn assert_login_server_saw_testnet(login: &MockLoginServer) {
+    let device_requests = login.device_requests.lock().unwrap();
+    assert_eq!(device_requests.len(), 1);
+    assert_eq!(device_requests[0]["network"], "testnet");
+    assert_eq!(device_requests[0]["chain_id"], 42431);
+
+    let poll_requests = login.poll_requests.lock().unwrap();
+    assert!(!poll_requests.is_empty());
+    for req in poll_requests.iter() {
+        assert_eq!(req["network"], "testnet");
+        assert_eq!(req["chain_id"], 42431);
+    }
 }
 
 fn assert_remote_fund_handoff(stderr: &str) {
@@ -373,6 +405,7 @@ async fn login_no_browser_prints_remote_safe_handoff_copy_and_completes() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Wallet"), "{stdout}");
     assert_eq!(*login.poll_count.lock().unwrap(), 2);
+    assert_login_server_saw_testnet(&login);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -394,6 +427,7 @@ async fn login_no_browser_json_keeps_structured_stdout_and_prints_remote_handoff
     let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(stdout["ready"], true, "{stdout}");
     assert_eq!(*login.poll_count.lock().unwrap(), 2);
+    assert_login_server_saw_testnet(&login);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -416,6 +450,7 @@ async fn login_no_browser_toon_keeps_structured_stdout_and_prints_remote_handoff
         toon_format::decode_default(String::from_utf8_lossy(&output.stdout).trim()).unwrap();
     assert_eq!(stdout["ready"], true, "{stdout}");
     assert_eq!(*login.poll_count.lock().unwrap(), 2);
+    assert_login_server_saw_testnet(&login);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -433,6 +468,9 @@ async fn login_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_t
     assert!(output.status.success(), "login should succeed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Auth URL:"), "{stderr}");
+    assert!(stderr.contains("network=testnet"), "{stderr}");
+    assert!(stderr.contains("chain_id=42431"), "{stderr}");
+    assert!(stderr.contains("Network: testnet"), "{stderr}");
     assert!(stderr.contains("Verification code:"), "{stderr}");
     assert!(
         !stderr.contains("Open this link on your device"),
@@ -442,6 +480,7 @@ async fn login_default_flow_keeps_local_copy_and_does_not_print_remote_handoff_t
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Wallet"), "{stdout}");
     assert_eq!(*login.poll_count.lock().unwrap(), 2);
+    assert_login_server_saw_testnet(&login);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

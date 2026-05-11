@@ -220,10 +220,23 @@ async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
     let client = reqwest::Client::builder()
         .build()
         .map_err(NetworkError::Reqwest)?;
-    let code = create_device_code(&client, &auth_base_url, &pub_key, &code_challenge).await?;
+    let code = create_device_code(
+        &client,
+        &auth_base_url,
+        &pub_key,
+        &code_challenge,
+        ctx.network,
+    )
+    .await?;
 
     let mut auth_url = parsed_url;
-    auth_url.query_pairs_mut().append_pair("code", &code);
+    set_auth_query_param(&mut auth_url, "network", ctx.network.auth_network_slug());
+    set_auth_query_param(
+        &mut auth_url,
+        "chain_id",
+        &ctx.network.chain_id().to_string(),
+    );
+    set_auth_query_param(&mut auth_url, "code", &code);
     let url_str = auth_url.to_string();
 
     // Always print a manual fallback URL, even in machine output modes.
@@ -235,16 +248,17 @@ async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
     let browser_launch_status = super::auth::try_open_browser(&url_str, no_browser);
 
     if no_browser {
-        show_remote_login_prompt(&url_str, &code);
+        show_remote_login_prompt(ctx.network, &url_str, &code);
     } else if ctx.output_format == OutputFormat::Text {
-        show_login_prompt(&code);
+        show_login_prompt(ctx.network, &code);
     }
 
     if should_track_callback_window(browser_launch_status) {
         ctx.track_event(analytics::CALLBACK_WINDOW_OPENED);
     }
 
-    let callback = poll_until_authorized(&client, &auth_base_url, &code, &code_verifier).await?;
+    let callback =
+        poll_until_authorized(&client, &auth_base_url, &code, &code_verifier, ctx.network).await?;
 
     ctx.track(
         analytics::CALLBACK_RECEIVED,
@@ -270,16 +284,18 @@ async fn do_login(ctx: &Context, no_browser: bool) -> Result<(), TempoError> {
 }
 
 /// Display the verification code and wait prompt for authentication.
-fn show_login_prompt(code: &str) {
+fn show_login_prompt(network: NetworkId, code: &str) {
     let display_code = format_verification_code(code);
+    eprintln!("Network: {}", network.auth_network_slug().bold());
     eprintln!("Verification code: {}", display_code.bold());
     eprintln!();
     eprintln!("Waiting for authentication...");
 }
 
 /// Display the remote-host handoff prompt for a user who is chatting from another device.
-fn show_remote_login_prompt(auth_url: &str, code: &str) {
-    let prompt = remote_login_prompt(auth_url, code);
+fn show_remote_login_prompt(network: NetworkId, auth_url: &str, code: &str) {
+    let prompt = remote_login_prompt(network, auth_url, code);
+    eprintln!("{}", prompt.network_line);
     eprintln!("{}", prompt.auth_url_line);
     eprintln!("Verification code: {}", prompt.verification_code.bold());
     eprintln!("{}", prompt.continue_line);
@@ -289,14 +305,16 @@ fn show_remote_login_prompt(auth_url: &str, code: &str) {
 }
 
 struct RemoteLoginPrompt {
+    network_line: String,
     auth_url_line: String,
     verification_code: String,
     continue_line: &'static str,
     return_line: &'static str,
 }
 
-fn remote_login_prompt(auth_url: &str, code: &str) -> RemoteLoginPrompt {
+fn remote_login_prompt(network: NetworkId, auth_url: &str, code: &str) -> RemoteLoginPrompt {
     RemoteLoginPrompt {
+        network_line: format!("Network: {}", network.auth_network_slug()),
         auth_url_line: format!("Open this link on your device: {auth_url}"),
         verification_code: format_verification_code(code),
         continue_line: "If the wallet page shows that same code, tap Continue.",
@@ -311,6 +329,21 @@ fn format_verification_code(code: &str) -> String {
     } else {
         code.to_string()
     }
+}
+
+fn set_auth_query_param(url: &mut Url, key: &str, value: &str) {
+    let pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(k, _)| k != key)
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+
+    url.set_query(None);
+    let mut query = url.query_pairs_mut();
+    for (k, v) in pairs {
+        query.append_pair(&k, &v);
+    }
+    query.append_pair(key, value);
 }
 
 fn should_track_callback_window(status: BrowserLaunchStatus) -> bool {
@@ -329,6 +362,7 @@ async fn poll_until_authorized(
     base_url: &str,
     code: &str,
     code_verifier: &str,
+    network: NetworkId,
 ) -> Result<AuthCallback, TempoError> {
     let start = Instant::now();
     let timeout = Duration::from_secs(CALLBACK_TIMEOUT_SECS);
@@ -338,7 +372,7 @@ async fn poll_until_authorized(
             return Err(KeyError::LoginExpired.into());
         }
 
-        let resp = poll_device_code(client, base_url, code, code_verifier).await?;
+        let resp = poll_device_code(client, base_url, code, code_verifier, network).await?;
 
         if let Some(err) = &resp.error {
             if err.to_lowercase().contains("expired") {
@@ -438,6 +472,7 @@ async fn create_device_code(
     base_url: &str,
     pub_key: &str,
     code_challenge: &str,
+    network: NetworkId,
 ) -> Result<String, TempoError> {
     let url = format!("{base_url}/cli-auth/device-code");
     let resp = client
@@ -446,6 +481,8 @@ async fn create_device_code(
             "pub_key": pub_key,
             "key_type": "secp256k1",
             "code_challenge": code_challenge,
+            "network": network.auth_network_slug(),
+            "chain_id": network.chain_id(),
         }))
         .send()
         .await
@@ -482,12 +519,15 @@ async fn poll_device_code(
     base_url: &str,
     code: &str,
     code_verifier: &str,
+    network: NetworkId,
 ) -> Result<PollResponse, TempoError> {
     let url = format!("{base_url}/cli-auth/poll/{code}");
     let resp = client
         .post(&url)
         .json(&serde_json::json!({
             "code_verifier": code_verifier,
+            "network": network.auth_network_slug(),
+            "chain_id": network.chain_id(),
         }))
         .send()
         .await
@@ -585,10 +625,12 @@ mod tests {
     #[test]
     fn remote_login_prompt_covers_required_remote_handoff_steps() {
         let prompt = remote_login_prompt(
+            NetworkId::TempoModerato,
             "https://wallet.tempo.xyz/cli-auth?code=ANMGE375",
             "ANMGE375",
         );
 
+        assert_eq!(prompt.network_line, "Network: testnet");
         assert_eq!(
             prompt.auth_url_line,
             "Open this link on your device: https://wallet.tempo.xyz/cli-auth?code=ANMGE375"
@@ -601,5 +643,20 @@ mod tests {
         assert!(prompt.return_line.contains("return here"));
         assert!(prompt.return_line.contains("one more authorization link"));
         assert!(prompt.return_line.contains("this host is ready"));
+    }
+
+    #[test]
+    fn set_auth_query_param_replaces_existing_network() {
+        let mut url = Url::parse("https://wallet.tempo.xyz/cli-auth?network=mainnet&code=OLD")
+            .expect("valid url");
+
+        set_auth_query_param(&mut url, "network", "testnet");
+        set_auth_query_param(&mut url, "chain_id", "42431");
+        set_auth_query_param(&mut url, "code", "ANMGE375");
+
+        assert_eq!(
+            url.as_str(),
+            "https://wallet.tempo.xyz/cli-auth?network=testnet&chain_id=42431&code=ANMGE375"
+        );
     }
 }

@@ -60,17 +60,33 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      TEMPO_LINTS_REF: 0dbe62767b6e15963a652f5476bc0b8ae111d6fc
+      TEMPO_LINTS_PNPM_VERSION: 10.28.1
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Run Tempo Lints
-        uses: tempoxyz/lints@0dbe62767b6e15963a652f5476bc0b8ae111d6fc
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          language: rust
-          path: "."
-          post-comment: false
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          node-version: "lts/*"
+      - name: Run Tempo Lints
+        run: |
+          set -euo pipefail
+
+          # post-comment: false (emit annotations only; do not write to PRs from this fork-safe job)
+          corepack enable
+          corepack prepare "pnpm@${TEMPO_LINTS_PNPM_VERSION}" --activate
+
+          lints_dir="$RUNNER_TEMP/tempo-lints"
+          git init "$lints_dir"
+          git -C "$lints_dir" remote add origin https://github.com/tempoxyz/lints.git
+          git -C "$lints_dir" fetch --depth 1 origin "$TEMPO_LINTS_REF"
+          git -C "$lints_dir" checkout --detach FETCH_HEAD
+
+          pnpm --dir "$lints_dir" install --frozen-lockfile
+          pnpm --dir "$lints_dir" exec tsx "$lints_dir/bin/tempo-lints.ts" rust "$GITHUB_WORKSPACE" --github-action
 
   typos:
     name: typos
