@@ -40,13 +40,23 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                     fund::run(&ctx, address, no_browser, target).await
                 }
                 Commands::Credits { address } => credits::run(&ctx, address).await,
-                Commands::SpendCredits {
+                Commands::Spend {
+                    credits,
                     amount_cents,
                     to,
                     data,
                     value,
                     address,
-                } => spend_credits::run(&ctx, amount_cents, to, data, value, address).await,
+                } => {
+                    if credits {
+                        spend_credits::run(&ctx, amount_cents, to, data, value, address).await
+                    } else {
+                        Err(tempo_common::error::ConfigError::Invalid(
+                            "specify --credits to spend Coinflow credits".to_string(),
+                        )
+                        .into())
+                    }
+                }
                 Commands::Whoami => whoami::run(&ctx).await,
                 Commands::Keys => keys::run(&ctx).await,
                 Commands::Sessions { command } => {
@@ -86,7 +96,7 @@ const fn command_name(command: &Commands) -> &'static str {
         Commands::Completions { .. } => "completions",
         Commands::Fund { .. } => "fund",
         Commands::Credits { .. } => "credits",
-        Commands::SpendCredits { .. } => "spend-credits",
+        Commands::Spend { .. } => "spend",
         Commands::Whoami => "whoami",
         Commands::Keys => "keys",
         Commands::Sessions { command } => match command {

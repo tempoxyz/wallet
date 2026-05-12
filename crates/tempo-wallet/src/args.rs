@@ -103,13 +103,16 @@ Examples:
         #[arg(long)]
         address: Option<String>,
     },
-    /// Spend credits via Coinflow redeem
+    /// Spend funds (credits, tokens, etc.)
     #[command(
         display_order = 9,
-        name = "spend-credits",
+        name = "spend",
         arg_required_else_help = true
     )]
-    SpendCredits {
+    Spend {
+        /// Spend Coinflow credits
+        #[arg(long)]
+        credits: bool,
         /// Amount in USD cents (e.g. 500 = $5.00)
         #[arg(long)]
         amount_cents: u64,
