@@ -295,7 +295,12 @@ fn save_channel_in_conn(
             grace_ready_at = excluded.grace_ready_at,
             created_at = channels.created_at,
             last_used_at = excluded.last_used_at,
-            server_spent = excluded.server_spent",
+            server_spent = CASE
+                WHEN LENGTH(channels.server_spent) > LENGTH(excluded.server_spent) THEN channels.server_spent
+                WHEN LENGTH(channels.server_spent) < LENGTH(excluded.server_spent) THEN excluded.server_spent
+                WHEN channels.server_spent >= excluded.server_spent THEN channels.server_spent
+                ELSE excluded.server_spent
+            END",
         params![
             record.channel_id_hex(),
             record.version,
@@ -789,6 +794,28 @@ mod tests {
             .unwrap()
             .expect("channel should load");
         assert_eq!(loaded.cumulative_amount_u128(), 150);
+    }
+
+    #[test]
+    fn stale_save_does_not_regress_server_spent() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("channels.db");
+        let conn = open_db_at(&db_path).unwrap();
+
+        let channel_id = alloy::primitives::B256::from([0x34; 32]);
+        let mut latest = sample_record(channel_id, 2, ChannelStatus::Active);
+        latest.server_spent = 150;
+        save_channel_in_conn(&conn, &latest).unwrap();
+
+        let mut stale = latest;
+        stale.server_spent = 120;
+        stale.last_used_at = 3;
+        save_channel_in_conn(&conn, &stale).unwrap();
+
+        let loaded = load_channel_in_conn(&conn, &format!("{channel_id:#x}"))
+            .unwrap()
+            .expect("channel should load");
+        assert_eq!(loaded.server_spent, 150);
     }
 
     #[test]
