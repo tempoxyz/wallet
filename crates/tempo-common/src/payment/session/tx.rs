@@ -138,14 +138,13 @@ pub async fn resolve_and_sign_tx_with_fee_payer(
     let gas_limit = match gas_result {
         Ok(gas) => gas,
         Err(original) if wallet.has_stored_key_authorization() => {
-            provisioning_signer =
-                wallet
-                    .with_key_authorization()
-                    .ok_or_else(|| KeyError::SigningOperation {
-                        operation: "key provisioning",
-                        reason: "stored key authorization could not be applied to signing mode"
-                            .to_string(),
-                    })?;
+            provisioning_signer = wallet
+                .with_key_authorization_for_transaction(chain_id, &calls)?
+                .ok_or_else(|| KeyError::SigningOperation {
+                    operation: "key provisioning",
+                    reason: "stored key authorization could not be applied to signing mode"
+                        .to_string(),
+                })?;
             effective_wallet = &provisioning_signer;
             key_auth = effective_wallet.signing_mode.key_authorization();
             let mut gas_request = TempoTransactionRequest {
@@ -240,14 +239,13 @@ pub async fn submit_tempo_tx(
     match provider.send_raw_transaction(&tx_bytes).await {
         Ok(pending) => Ok(format!("{:#x}", pending.tx_hash())),
         Err(original) if wallet.has_stored_key_authorization() => {
-            let provisioning_signer =
-                wallet
-                    .with_key_authorization()
-                    .ok_or_else(|| KeyError::SigningOperation {
-                        operation: "key provisioning",
-                        reason: "stored key authorization could not be applied to signing mode"
-                            .to_string(),
-                    })?;
+            let provisioning_signer = wallet
+                .with_key_authorization_for_transaction(chain_id, &calls)?
+                .ok_or_else(|| KeyError::SigningOperation {
+                    operation: "key provisioning",
+                    reason: "stored key authorization could not be applied to signing mode"
+                        .to_string(),
+                })?;
             let retry_bytes = resolve_and_sign_tx(
                 provider,
                 &provisioning_signer,
