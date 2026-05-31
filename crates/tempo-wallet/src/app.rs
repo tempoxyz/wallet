@@ -3,11 +3,11 @@
 use crate::{
     args::{Cli, Commands, ServicesCommands, SessionCommands},
     commands::{
-        completions, debug, fund, keys, login, logout, refresh, services, sessions, transfer,
-        whoami,
+        completions, credits, debug, fund, keys, login, logout, refresh, services, sessions,
+        spend_credits, transfer, whoami,
     },
 };
-use tempo_common::error::TempoError;
+use tempo_common::error::{ConfigError, TempoError};
 
 /// Run the tempo-wallet application.
 pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
@@ -32,8 +32,15 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                 Commands::Fund {
                     address,
                     no_browser,
-                } => fund::run(&ctx, address, no_browser).await,
-                Commands::Whoami => whoami::run(&ctx).await,
+                    crypto,
+                    credits,
+                    referral_code,
+                } => {
+                    let target = fund::Target::from_cli(crypto, credits, referral_code);
+                    fund::run(&ctx, address, no_browser, target).await
+                }
+                Commands::Whoami { credits: true } => credits::run(&ctx).await,
+                Commands::Whoami { .. } => whoami::run(&ctx).await,
                 Commands::Keys => keys::run(&ctx).await,
                 Commands::Sessions { command } => {
                     sessions::run(
@@ -46,12 +53,35 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                     .await
                 }
                 Commands::Transfer {
+                    credits: true,
+                    amount_cents,
+                    credits_to,
+                    data,
+                    value,
+                    address,
+                    ..
+                } => match (amount_cents, credits_to) {
+                    (Some(amount_cents), Some(to)) => {
+                        spend_credits::run(&ctx, amount_cents, to, data, value, address).await
+                    }
+                    _ => Err(ConfigError::Missing(
+                        "--amount-cents and --to are required when using --credits".to_string(),
+                    )
+                    .into()),
+                },
+                Commands::Transfer {
                     amount,
                     token,
                     to,
                     fee_token,
                     dry_run,
-                } => transfer::run(&ctx, amount, token, to, fee_token, dry_run).await,
+                    ..
+                } => {
+                    let amount = amount.expect("required for token transfers");
+                    let token = token.expect("required for token transfers");
+                    let to = to.expect("required for token transfers");
+                    transfer::run(&ctx, amount, token, to, fee_token, dry_run).await
+                }
                 Commands::Debug => debug::run(&ctx).await,
                 Commands::Services {
                     service_id, search, ..
@@ -71,7 +101,7 @@ const fn command_name(command: &Commands) -> &'static str {
         Commands::Logout { .. } => "logout",
         Commands::Completions { .. } => "completions",
         Commands::Fund { .. } => "fund",
-        Commands::Whoami => "whoami",
+        Commands::Whoami { .. } => "whoami",
         Commands::Keys => "keys",
         Commands::Sessions { command } => match command {
             Some(SessionCommands::List { .. }) | None => "sessions list",
