@@ -8,6 +8,7 @@ pub mod error;
 pub mod keys;
 pub mod network;
 pub mod payment;
+pub mod proof;
 pub mod security;
 
 pub use payment::session;

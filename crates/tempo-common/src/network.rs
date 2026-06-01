@@ -33,6 +33,7 @@ const TEMPO_TOKEN: TokenConfig = TokenConfig {
     symbol: "USDC.e",
     decimals: 6,
     address: USDCE_TOKEN,
+    balance_mapping_slot: 0,
 };
 
 /// Token configuration for Tempo Moderato testnet (pathUSD).
@@ -40,6 +41,7 @@ const TEMPO_MODERATO_TOKEN: TokenConfig = TokenConfig {
     symbol: "pathUSD",
     decimals: 6,
     address: PATH_USD_TOKEN,
+    balance_mapping_slot: 0,
 };
 
 // ==================== Network Types ====================
@@ -53,6 +55,11 @@ pub struct TokenConfig {
     pub decimals: u8,
     /// Token address - contract address for EVM chains (ERC20)
     pub address: Address,
+    /// Solidity storage slot index of the `balanceOf` mapping.
+    ///
+    /// Used by proof verification to compute the correct storage key.
+    /// Standard OpenZeppelin ERC-20 uses slot 0; Tempo TIP-20 uses slot 0.
+    pub balance_mapping_slot: u8,
 }
 
 /// Static network identifier with compile-time metadata.

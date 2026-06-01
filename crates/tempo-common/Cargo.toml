@@ -15,6 +15,9 @@ workspace = true
 
 [dependencies]
 alloy.workspace = true
+alloy-rlp.workspace = true
+alloy-trie.workspace = true
+nybbles.workspace = true
 clap.workspace = true
 colored.workspace = true
 dirs.workspace = true
