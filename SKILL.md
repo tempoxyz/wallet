@@ -87,39 +87,20 @@ tempo request -t -X GET <SERVICE_URL>/<ENDPOINT_PATH>
 
 ## Wallet-Backed Cards
 
-Use `tempo wallet cards` when the user wants to issue or manage virtual cards backed by a Tempo wallet balance. This flow is designed to be headless for agents: configure API keys once, use hosted Bridge links for ToS/KYC, create a Stripe Issuing card against the wallet, then approve the Tempo card issuer on-chain.
+Use `tempo wallet cards` for virtual cards backed by Tempo wallet balances. Keep the skill lean and treat CLI help as the source of truth for flags:
 
 ```bash
-# Configure API keys, or set BRIDGE_API_KEY / TEMPO_BRIDGE_API_KEY and STRIPE_SECRET_KEY / STRIPE_API_KEY / TEMPO_STRIPE_API_KEY
-tempo wallet -t cards config bridge-api-key <bridge-key>
-tempo wallet -t cards config stripe-api-key <stripe-key>
-tempo wallet -t cards config show
-
-# Bridge customer onboarding
-tempo wallet -t cards customers create -f <first> -l <last> -e <email>
-tempo wallet -t cards customers tos-acceptance-link <bridge-customer-id>
-tempo wallet -t cards customers kyc-link <bridge-customer-id> --endorsement cards
-tempo wallet -t cards customers get <bridge-customer-id>
-tempo wallet -t cards customers list
-
-# Stripe Issuing card backed by the logged-in Tempo mainnet wallet
-tempo wallet -t cards create --cardholder <stripe-cardholder-id> --bridge-customer-id <bridge-customer-id>
-tempo wallet -t cards list --cardholder <stripe-cardholder-id>
-tempo wallet -t cards get <stripe-card-id>
-tempo wallet -t cards freeze <stripe-card-id>
-tempo wallet -t cards unfreeze <stripe-card-id>
-tempo wallet -t cards cancel <stripe-card-id> --cancellation-reason lost
-
-# On-chain card issuer allowance
-tempo wallet -t cards approve --amount max --dry-run
-tempo wallet -t cards approve --amount max
-tempo wallet -t cards allowance
+tempo wallet -t cards --help
+tempo wallet -t cards customers --help
+tempo wallet -t cards approve --help
 ```
 
-- `cards create` defaults `--wallet-address` to the logged-in Tempo mainnet wallet; pass `--wallet-address` for headless issuance against a specific wallet.
-- `cards approve --dry-run` is safe for planning and does not submit a transaction. Omit `--dry-run` only after the user confirms the approval.
-- Read ancillary Stripe resources with `cards cardholders list|get`, `cards transactions list|get`, `cards authorizations list|get`, and generate PDFs with `cards statements create --cardholder <id> --card <id> --period YYYYMM --output <file>`.
-- Use `--help` for exact flags rather than guessing provider-specific filters.
+Pointers:
+- Configure Bridge/Stripe keys with `cards config ...` or env vars; env vars win over `$TEMPO_HOME/wallet/cards.toml`. See `AGENTS.md` for the exact env names.
+- Bridge onboarding lives under `cards customers`: create/get/list/delete, hosted ToS, KYC, and customer transfers.
+- Stripe Issuing lives at top-level `cards create|list|get|update|freeze|unfreeze|cancel`, plus `cardholders`, `transactions`, `authorizations`, and `statements`.
+- On-chain issuer permission lives in `cards approve` and `cards allowance`; run `approve --dry-run` before submitting.
+- For repo work, inspect `crates/tempo-wallet/src/commands/cards/`, `crates/tempo-wallet/src/args.rs`, and `crates/tempo-wallet/tests/cards.rs`.
 
 ### Rules
 
