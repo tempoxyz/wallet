@@ -106,6 +106,28 @@ tempo wallet sessions list
 tempo wallet sessions close https://openrouter.mpp.tempo.xyz
 ```
 
+## Wallet-Backed Cards
+
+`tempo wallet cards` provides a headless Bridge + Stripe Issuing flow for virtual cards backed by a Tempo wallet balance.
+
+```bash
+tempo wallet cards config bridge-api-key sk-test-...
+tempo wallet cards config stripe-api-key sk_test_...
+
+tempo wallet cards customers create -f John -l Doe -e john@example.com
+tempo wallet cards customers tos-acceptance-link <bridge-customer-id>
+tempo wallet cards customers kyc-link <bridge-customer-id> --endorsement cards
+tempo wallet cards customers get <bridge-customer-id>
+
+tempo wallet cards create \
+  --cardholder <stripe-cardholder-id> \
+  --bridge-customer-id <bridge-customer-id>
+
+tempo wallet cards approve --amount max
+```
+
+Bridge handles hosted ToS/KYC and returns the Stripe cardholder ID. Stripe creates the Tempo wallet-backed virtual card. `cards create` defaults `--wallet-address` to the logged-in Tempo mainnet wallet, and `cards approve` authorizes the card issuer to spend wallet USDC.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.
