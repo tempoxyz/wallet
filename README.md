@@ -106,6 +106,85 @@ tempo wallet sessions list
 tempo wallet sessions close https://openrouter.mpp.tempo.xyz
 ```
 
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `tempo wallet login` | Connect your Tempo wallet |
+| `tempo wallet logout` | Disconnect your wallet |
+| `tempo wallet whoami` | Show wallet, balances, and keys |
+| `tempo wallet keys` | List keys and spending limits |
+| `tempo wallet transfer <AMT> <TOKEN> <TO>` | Transfer tokens to an address |
+| `tempo wallet fund` | Fund your wallet (testnet faucet or mainnet bridge) |
+| `tempo wallet cards` | Issue and manage Tempo wallet-backed cards |
+| `tempo wallet services` | Browse the MPP service directory |
+| `tempo wallet services <ID>` | Show detailed info for a service |
+| `tempo wallet sessions list` | List sessions (active/orphaned/closing) |
+| `tempo wallet sessions close [<URL\|CHANNEL_ID>] [--all\|--orphaned\|--finalize\|--cooperative\|--dry-run]` | Close local and/or orphaned channels with finalize/cooperative controls |
+| `tempo wallet mpp-sign` | Sign an MPP challenge and output the Authorization header |
+| `tempo request <URL>` | Make an HTTP request with automatic MPP payment |
+| `tempo request --dry-run <URL>` | Preview cost without paying |
+
+Run `tempo wallet --help` or `tempo request --help` for full flag reference.
+
+## Wallet-Backed Cards
+
+`tempo wallet cards` provides a headless Bridge + Stripe Issuing flow for virtual cards backed by a Tempo wallet balance.
+
+```bash
+tempo wallet cards config bridge-api-key sk-test-...
+tempo wallet cards config stripe-api-key sk_test_...
+
+tempo wallet cards customers create -f John -l Doe -e john@example.com
+tempo wallet cards customers tos-acceptance-link <bridge-customer-id>
+tempo wallet cards customers kyc-link <bridge-customer-id> --endorsement cards
+tempo wallet cards customers get <bridge-customer-id>
+
+tempo wallet cards create \
+  --cardholder <stripe-cardholder-id> \
+  --bridge-customer-id <bridge-customer-id>
+
+tempo wallet cards approve --amount max
+```
+
+Bridge handles hosted ToS/KYC and returns the Stripe cardholder ID. Stripe creates the Tempo wallet-backed virtual card. `cards create` defaults `--wallet-address` to the logged-in Tempo mainnet wallet, and `cards approve` authorizes the card issuer to spend wallet USDC.
+
+## Workspace
+
+| Crate | Binary | Description |
+|-------|--------|-------------|
+| `tempo-common` | — | Shared library (config, keys, network, payment, CLI infrastructure) |
+| `tempo-wallet` | `tempo-wallet` | Wallet identity, custody, sessions, services, and signing |
+| `tempo-request` | `tempo-request` | HTTP client with MPP payment |
+| `tempo-sign` | `tempo-sign` | Release manifest signing tool |
+
+The `tempo` launcher at [tempoxyz/tempo](https://github.com/tempoxyz/tempo) discovers these extension binaries via signed release manifests. See [ARCHITECTURE.md](ARCHITECTURE.md) for crate layering and module details.
+
+## Configuration
+
+```bash
+tempo wallet login    # Opens browser to create or connect a passkey wallet
+```
+
+All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
+
+| File | Path | Description |
+|------|------|-------------|
+| Config | `~/.tempo/config.toml` | RPC overrides, telemetry |
+| Keys | `~/.tempo/wallet/keys.toml` | Wallet keys (mode 0600) |
+| Cards | `~/.tempo/wallet/cards.toml` | Bridge and Stripe API keys (mode 0600) |
+| Channels | `~/.tempo/wallet/channels.db` | Persisted channel state used for session reuse and close flows |
+
+## Telemetry
+
+Anonymous usage analytics (via PostHog) help improve the tool. No personal data, API keys, request bodies, or wallet private keys are ever collected.
+
+Opt out:
+
+```bash
+export TEMPO_NO_TELEMETRY=1
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.

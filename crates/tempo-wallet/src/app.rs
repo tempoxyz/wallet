@@ -1,10 +1,10 @@
 //! Application entry point: build context, dispatch command, flush analytics.
 
 use crate::{
-    args::{Cli, Commands, ServicesCommands, SessionCommands},
+    args::{CardsCommands, Cli, Commands, ServicesCommands, SessionCommands},
     commands::{
-        completions, debug, fund, keys, login, logout, refresh, services, sessions, transfer,
-        whoami,
+        cards, completions, debug, fund, keys, login, logout, refresh, services, sessions,
+        transfer, whoami,
     },
 };
 use tempo_common::error::TempoError;
@@ -56,6 +56,7 @@ pub(crate) async fn run(mut cli: Cli) -> Result<(), TempoError> {
                 Commands::Services {
                     service_id, search, ..
                 } => services::run(&ctx, services::ServicesArgs { service_id, search }).await,
+                Commands::Cards { command } => cards::run(&ctx, command).await,
             };
             (cmd_name, result)
         },
@@ -83,6 +84,24 @@ const fn command_name(command: &Commands) -> &'static str {
         Commands::Services { command, .. } => match command {
             Some(ServicesCommands::List) => "services list",
             None => "services",
+        },
+        Commands::Cards { command } => match command {
+            Some(CardsCommands::Config { .. }) => "cards config",
+            Some(CardsCommands::Customers { .. }) => "cards customers",
+            Some(CardsCommands::Create { .. }) => "cards create",
+            Some(CardsCommands::List { .. }) => "cards list",
+            Some(CardsCommands::Get { .. }) => "cards get",
+            Some(CardsCommands::Update { .. }) => "cards update",
+            Some(CardsCommands::Freeze { .. }) => "cards freeze",
+            Some(CardsCommands::Unfreeze { .. }) => "cards unfreeze",
+            Some(CardsCommands::Cancel { .. }) => "cards cancel",
+            Some(CardsCommands::Cardholders { .. }) => "cards cardholders",
+            Some(CardsCommands::Transactions { .. }) => "cards transactions",
+            Some(CardsCommands::Authorizations { .. }) => "cards authorizations",
+            Some(CardsCommands::Statements { .. }) => "cards statements",
+            Some(CardsCommands::Approve { .. }) => "cards approve",
+            Some(CardsCommands::Allowance { .. }) => "cards allowance",
+            None => "cards",
         },
     }
 }
