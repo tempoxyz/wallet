@@ -45,6 +45,7 @@ impl CardsMock {
     async fn start() -> Self {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let app = Router::new()
+            .route("/", any(handle_cards_mock))
             .route("/{*path}", any(handle_cards_mock))
             .with_state(requests.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -95,6 +96,15 @@ async fn handle_cards_mock(
     });
 
     match (method.as_str(), path.as_str()) {
+        ("POST", "/") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": format!("0x{:064x}", 1_234_567u64),
+            })),
+        )
+            .into_response(),
         ("POST", "/v0/customers") => (
             StatusCode::OK,
             axum::Json(json!({
@@ -102,6 +112,44 @@ async fn handle_cards_mock(
                 "type": "individual",
                 "email": "john@example.com",
                 "stripe_cardholder_id": null,
+            })),
+        )
+            .into_response(),
+        ("GET", "/v0/customers") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "data": [{"id": "cust_123"}],
+                "has_more": false,
+            })),
+        )
+            .into_response(),
+        ("GET", "/v0/customers/cust_123") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "id": "cust_123",
+                "email": "john@example.com",
+            })),
+        )
+            .into_response(),
+        ("DELETE", "/v0/customers/cust_123") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "id": "cust_123",
+                "deleted": true,
+            })),
+        )
+            .into_response(),
+        ("POST", "/v0/customers/tos_links") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "url": "https://bridge.example/tos",
+            })),
+        )
+            .into_response(),
+        ("GET", "/v0/customers/cust_123/tos_acceptance_link") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "url": "https://bridge.example/tos/cust_123",
             })),
         )
             .into_response(),
@@ -113,6 +161,14 @@ async fn handle_cards_mock(
             })),
         )
             .into_response(),
+        ("GET", "/v0/customers/cust_123/transfers") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "data": [{"id": "transfer_123"}],
+                "has_more": false,
+            })),
+        )
+            .into_response(),
         ("POST", "/v1/issuing/cards") => (
             StatusCode::OK,
             [("request-id", "req_card_create")],
@@ -121,6 +177,84 @@ async fn handle_cards_mock(
                 "object": "issuing.card",
                 "type": "virtual",
                 "status": "active",
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/cards") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "object": "list",
+                "data": [{"id": "ic_123"}],
+                "has_more": false,
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/cards/ic_123") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "id": "ic_123",
+                "object": "issuing.card",
+                "status": "active",
+            })),
+        )
+            .into_response(),
+        ("POST", "/v1/issuing/cards/ic_123") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "id": "ic_123",
+                "object": "issuing.card",
+                "status": "updated",
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/cardholders") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "object": "list",
+                "data": [{"id": "ich_123"}],
+                "has_more": false,
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/cardholders/ich_123") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "id": "ich_123",
+                "object": "issuing.cardholder",
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/transactions") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "object": "list",
+                "data": [{"id": "ipi_123"}],
+                "has_more": false,
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/transactions/ipi_123") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "id": "ipi_123",
+                "object": "issuing.transaction",
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/authorizations") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "object": "list",
+                "data": [{"id": "iauth_123"}],
+                "has_more": false,
+            })),
+        )
+            .into_response(),
+        ("GET", "/v1/issuing/authorizations/iauth_123") => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "id": "iauth_123",
+                "object": "issuing.authorization",
             })),
         )
             .into_response(),
@@ -155,6 +289,61 @@ fn card_command(temp: &tempfile::TempDir) -> std::process::Command {
     cmd.env_remove("TEMPO_BRIDGE_API_URL");
     cmd.env_remove("TEMPO_STRIPE_API_URL");
     cmd
+}
+
+fn query_pairs(request: &CapturedRequest) -> std::collections::HashMap<String, String> {
+    url::form_urlencoded::parse(request.query.as_deref().unwrap_or_default().as_bytes())
+        .into_owned()
+        .collect()
+}
+
+fn form_pairs(request: &CapturedRequest) -> std::collections::HashMap<String, String> {
+    url::form_urlencoded::parse(request.body.as_bytes())
+        .into_owned()
+        .collect()
+}
+
+#[test]
+fn cards_help_covers_all_new_leaf_commands() {
+    let temp = TestConfigBuilder::new().build();
+    let leaf_commands: &[&[&str]] = &[
+        &["cards", "config", "bridge-api-key", "--help"],
+        &["cards", "config", "stripe-api-key", "--help"],
+        &["cards", "config", "show", "--help"],
+        &["cards", "customers", "create", "--help"],
+        &["cards", "customers", "get", "--help"],
+        &["cards", "customers", "list", "--help"],
+        &["cards", "customers", "delete", "--help"],
+        &["cards", "customers", "tos-link", "--help"],
+        &["cards", "customers", "tos-acceptance-link", "--help"],
+        &["cards", "customers", "kyc-link", "--help"],
+        &["cards", "customers", "transfers", "--help"],
+        &["cards", "create", "--help"],
+        &["cards", "list", "--help"],
+        &["cards", "get", "--help"],
+        &["cards", "update", "--help"],
+        &["cards", "freeze", "--help"],
+        &["cards", "unfreeze", "--help"],
+        &["cards", "cancel", "--help"],
+        &["cards", "cardholders", "list", "--help"],
+        &["cards", "cardholders", "get", "--help"],
+        &["cards", "transactions", "list", "--help"],
+        &["cards", "transactions", "get", "--help"],
+        &["cards", "authorizations", "list", "--help"],
+        &["cards", "authorizations", "get", "--help"],
+        &["cards", "statements", "create", "--help"],
+        &["cards", "approve", "--help"],
+        &["cards", "allowance", "--help"],
+    ];
+
+    for args in leaf_commands {
+        let output = card_command(&temp).args(*args).output().unwrap();
+        assert!(
+            output.status.success(),
+            "help failed for {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -261,6 +450,62 @@ async fn cards_customers_create_and_kyc_link_call_bridge() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cards_customer_management_commands_call_bridge() {
+    let mock = CardsMock::start().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let cases: &[(&[&str], &str, &str)] = &[
+        (&["cards", "customers", "list"], "GET", "/v0/customers"),
+        (
+            &["cards", "customers", "get", "cust_123"],
+            "GET",
+            "/v0/customers/cust_123",
+        ),
+        (
+            &["cards", "customers", "delete", "cust_123"],
+            "DELETE",
+            "/v0/customers/cust_123",
+        ),
+        (
+            &["cards", "customers", "tos-link"],
+            "POST",
+            "/v0/customers/tos_links",
+        ),
+        (
+            &["cards", "customers", "tos-acceptance-link", "cust_123"],
+            "GET",
+            "/v0/customers/cust_123/tos_acceptance_link",
+        ),
+        (
+            &["cards", "customers", "transfers", "cust_123"],
+            "GET",
+            "/v0/customers/cust_123/transfers",
+        ),
+    ];
+
+    for (args, _, _) in cases {
+        let output = card_command(&temp)
+            .env("TEMPO_BRIDGE_API_URL", &mock.bridge_url)
+            .env("BRIDGE_API_KEY", "sk-test-mock")
+            .arg("-j")
+            .args(*args)
+            .output()
+            .unwrap();
+        parsed_stdout(&output);
+    }
+
+    let requests = mock.requests();
+    for (_, method, path) in cases {
+        assert!(
+            requests
+                .iter()
+                .any(|request| request.method == *method && request.path == *path),
+            "missing captured request {method} {path}: {requests:#?}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cards_create_defaults_to_wallet_and_posts_stripe_form() {
     let mock = CardsMock::start().await;
     let temp = TestConfigBuilder::new()
@@ -325,6 +570,196 @@ async fn cards_create_defaults_to_wallet_and_posts_stripe_form() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cards_stripe_card_commands_call_expected_endpoints() {
+    let mock = CardsMock::start().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let cases: &[(&[&str], &str, &str)] = &[
+        (
+            &[
+                "cards",
+                "list",
+                "--cardholder",
+                "ich_123",
+                "--status",
+                "active",
+                "--type",
+                "virtual",
+                "--last4",
+                "4242",
+                "--limit",
+                "3",
+            ],
+            "GET",
+            "/v1/issuing/cards",
+        ),
+        (
+            &["cards", "get", "ic_123"],
+            "GET",
+            "/v1/issuing/cards/ic_123",
+        ),
+        (
+            &["cards", "update", "ic_123", "--status", "inactive"],
+            "POST",
+            "/v1/issuing/cards/ic_123",
+        ),
+        (
+            &["cards", "freeze", "ic_123"],
+            "POST",
+            "/v1/issuing/cards/ic_123",
+        ),
+        (
+            &["cards", "unfreeze", "ic_123"],
+            "POST",
+            "/v1/issuing/cards/ic_123",
+        ),
+        (
+            &["cards", "cancel", "ic_123", "--cancellation-reason", "lost"],
+            "POST",
+            "/v1/issuing/cards/ic_123",
+        ),
+    ];
+
+    for (args, _, _) in cases {
+        let output = card_command(&temp)
+            .env("TEMPO_STRIPE_API_URL", &mock.stripe_url)
+            .env("STRIPE_SECRET_KEY", "sk_test_mock")
+            .arg("-j")
+            .args(*args)
+            .output()
+            .unwrap();
+        parsed_stdout(&output);
+    }
+
+    let requests = mock.requests();
+    for (_, method, path) in cases {
+        assert!(
+            requests
+                .iter()
+                .any(|request| request.method == *method && request.path == *path),
+            "missing captured request {method} {path}: {requests:#?}"
+        );
+    }
+
+    let list_request = requests
+        .iter()
+        .find(|request| request.method == "GET" && request.path == "/v1/issuing/cards")
+        .expect("captured card list");
+    let query = query_pairs(list_request);
+    assert_eq!(query.get("cardholder").map(String::as_str), Some("ich_123"));
+    assert_eq!(query.get("status").map(String::as_str), Some("active"));
+    assert_eq!(query.get("type").map(String::as_str), Some("virtual"));
+    assert_eq!(query.get("last4").map(String::as_str), Some("4242"));
+    assert_eq!(query.get("limit").map(String::as_str), Some("3"));
+
+    let updates: Vec<_> = requests
+        .iter()
+        .filter(|request| request.method == "POST" && request.path == "/v1/issuing/cards/ic_123")
+        .collect();
+    assert!(updates
+        .iter()
+        .any(|request| form_pairs(request).get("status").map(String::as_str) == Some("inactive")));
+    assert!(updates
+        .iter()
+        .any(|request| form_pairs(request).get("status").map(String::as_str) == Some("active")));
+    assert!(updates.iter().any(|request| {
+        let form = form_pairs(request);
+        form.get("status").map(String::as_str) == Some("canceled")
+            && form.get("cancellation_reason").map(String::as_str) == Some("lost")
+    }));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cards_stripe_resource_commands_call_expected_endpoints() {
+    let mock = CardsMock::start().await;
+    let temp = TestConfigBuilder::new().build();
+
+    let cases: &[(&[&str], &str)] = &[
+        (
+            &[
+                "cards",
+                "cardholders",
+                "list",
+                "--email",
+                "john@example.com",
+                "--status",
+                "active",
+                "--type",
+                "individual",
+                "--limit",
+                "2",
+            ],
+            "/v1/issuing/cardholders",
+        ),
+        (
+            &["cards", "cardholders", "get", "ich_123"],
+            "/v1/issuing/cardholders/ich_123",
+        ),
+        (
+            &[
+                "cards",
+                "transactions",
+                "list",
+                "--card",
+                "ic_123",
+                "--cardholder",
+                "ich_123",
+                "--type",
+                "capture",
+                "--limit",
+                "2",
+            ],
+            "/v1/issuing/transactions",
+        ),
+        (
+            &["cards", "transactions", "get", "ipi_123"],
+            "/v1/issuing/transactions/ipi_123",
+        ),
+        (
+            &[
+                "cards",
+                "authorizations",
+                "list",
+                "--card",
+                "ic_123",
+                "--cardholder",
+                "ich_123",
+                "--status",
+                "pending",
+                "--limit",
+                "2",
+            ],
+            "/v1/issuing/authorizations",
+        ),
+        (
+            &["cards", "authorizations", "get", "iauth_123"],
+            "/v1/issuing/authorizations/iauth_123",
+        ),
+    ];
+
+    for (args, _) in cases {
+        let output = card_command(&temp)
+            .env("TEMPO_STRIPE_API_URL", &mock.stripe_url)
+            .env("STRIPE_SECRET_KEY", "sk_test_mock")
+            .arg("-j")
+            .args(*args)
+            .output()
+            .unwrap();
+        parsed_stdout(&output);
+    }
+
+    let requests = mock.requests();
+    for (_, path) in cases {
+        assert!(
+            requests
+                .iter()
+                .any(|request| request.method == "GET" && request.path == *path),
+            "missing captured request GET {path}: {requests:#?}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cards_statement_create_writes_pdf() {
     let mock = CardsMock::start().await;
     let temp = TestConfigBuilder::new().build();
@@ -371,4 +806,33 @@ fn cards_approve_dry_run_uses_default_tempo_issuer() {
         "0x3e8f24b686aa8c036038f7d557b70e6ce0e7b56b"
     );
     assert_eq!(parsed["amount_atomic"], "1000000");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cards_allowance_queries_rpc_and_formats_amount() {
+    let mock = CardsMock::start().await;
+    let temp = TestConfigBuilder::new()
+        .with_keys_toml(MAINNET_KEYS_TOML)
+        .build();
+
+    let output = card_command(&temp)
+        .env("TEMPO_RPC_URL", mock.stripe_url.trim_end_matches("/v1"))
+        .args(["-j", "cards", "allowance"])
+        .output()
+        .unwrap();
+    let parsed = parsed_stdout(&output);
+    assert_eq!(parsed["allowance_atomic"], "1234567");
+    assert_eq!(parsed["allowance"], "1.234567");
+    assert_eq!(
+        parsed["spender"],
+        "0x3e8f24b686aa8c036038f7d557b70e6ce0e7b56b"
+    );
+
+    let requests = mock.requests();
+    let rpc_request = requests
+        .iter()
+        .find(|request| request.method == "POST" && request.path == "/")
+        .expect("captured allowance eth_call");
+    let rpc: serde_json::Value = serde_json::from_str(&rpc_request.body).unwrap();
+    assert_eq!(rpc["method"], "eth_call");
 }
