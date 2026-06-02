@@ -43,7 +43,7 @@ Shared library used by `tempo-wallet` and `tempo-request`. Contains core logic:
 
 Wallet identity and custody extension, plus session/service management. Source organized by module directories:
 - `crates/tempo-wallet/src/main.rs` - CLI entry point
-- `crates/tempo-wallet/src/args.rs` - clap definitions (Cli, Commands, SessionCommands, ServicesCommands)
+- `crates/tempo-wallet/src/args.rs` - clap definitions (Cli, Commands, SessionCommands, ServicesCommands, CardsCommands)
 - `crates/tempo-wallet/src/app.rs` - Command dispatch: context building, command routing, analytics
 - `crates/tempo-wallet/src/analytics.rs` - Wallet-specific analytics events and payloads
 - `crates/tempo-wallet/src/prompt.rs` - Interactive prompt helpers
@@ -57,6 +57,7 @@ Wallet identity and custody extension, plus session/service management. Source o
   - `fund/` - Fund command (browser-based flow)
   - `sessions/` - Session management (list, close, sync, render)
   - `services/` - Service directory (client, model, render)
+  - `cards/` - Wallet-backed card commands (Bridge customers/KYC/ToS, Stripe Issuing cards/resources, on-chain approval/allowance)
   - `sign.rs` - Sign MPP payment challenges
   - `completions.rs` - Shell completions
 - `crates/tempo-wallet/tests/` - Integration tests (black-box CLI testing via assert_cmd)
@@ -263,6 +264,10 @@ new-crate.workspace = true
 | `TEMPO_SERVICES_URL` | Override service directory API URL |
 | `TEMPO_NO_TELEMETRY` | Disable telemetry |
 | `TEMPO_PRIVATE_KEY` | Provide a private key directly for payment (bypasses wallet login and keychain; ephemeral) |
+| `TEMPO_BRIDGE_API_KEY` / `BRIDGE_API_KEY` | Bridge API key for `tempo wallet cards customers ...` |
+| `TEMPO_BRIDGE_API_URL` | Override Bridge API base URL for card tests/integration |
+| `TEMPO_STRIPE_API_KEY` / `STRIPE_SECRET_KEY` / `STRIPE_API_KEY` | Stripe API key for `tempo wallet cards ...` Issuing commands |
+| `TEMPO_STRIPE_API_URL` | Override Stripe API base URL for card tests/integration |
 
 ## Data Locations
 
@@ -273,10 +278,12 @@ All data lives under `$TEMPO_HOME` (default: `~/.tempo`):
 ├── config.toml              # Shared config (RPC overrides, telemetry)
 └── wallet/
     ├── keys.toml             # Wallet keys (mode 0600)
+    ├── cards.toml            # Bridge and Stripe API keys for wallet-backed cards (mode 0600)
     └── channels.db           # Persisted payment channel state (SQLite)
 ```
 
 - Private keys: macOS Keychain (macOS) or inline in `keys.toml` (Linux)
+- Card provider keys: env vars take precedence; saved keys live in `cards.toml` via `tempo wallet cards config ...`
 
 ## Configuration Structure
 

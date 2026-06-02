@@ -6603,9 +6603,11 @@ dependencies = [
  "tempo-primitives",
  "tempo-test",
  "tokio",
+ "toml",
  "toon-format",
  "tracing",
  "url",
+ "urlencoding",
  "webbrowser",
  "zeroize",
 ]
